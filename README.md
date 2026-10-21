@@ -15,8 +15,39 @@
   <img src="https://img.shields.io/badge/Frontend-WebGL%20%2F%20Three.js-black?logo=webgl" alt="WebGL" />
   <img src="https://img.shields.io/badge/Voz%20Offline-Faster--Whisper%20Tiny-green" alt="Faster-Whisper" />
   <img src="https://img.shields.io/badge/Protocolo-Model%20Context%20Protocol%20(MCP)-blueviolet" alt="MCP" />
-  <img src="https://img.shields.io/badge/Estado-Producción%20Estable-brightgreen" alt="Status" />
+  <img src="https://img.shields.io/badge/Versi%C3%B3n%20Instalada-v0.22.5-informational" alt="Version" />
+  <img src="https://img.shields.io/badge/Desarrollo-En%20Mejora%20Activa-yellow?logo=git" alt="Active Development" />
 </p>
+
+<p align="center">
+  <code>#ai-assistant</code> <code>#desktop-assistant</code> <code>#windows-11</code> <code>#tauri</code> <code>#rust</code> <code>#python</code> <code>#webgl</code> <code>#threejs</code> <code>#faster-whisper</code> <code>#ollama</code> <code>#mcp</code> <code>#failover</code> <code>#resident-avatar</code> <code>#offline-first</code>
+</p>
+
+---
+
+## 💡 About — El Manifiesto de Axx
+
+> *"La inteligencia artificial no debe vivir encerrada dentro de una pestaña del navegador ni detrás de un frío cuadro de chat. **Axx** rompe ese paradigma: una entidad viva, háptica y residente directamente sobre tu escritorio de Windows que te acompaña en tiempo real, respeta tu privacidad con modelos locales, jamás interrumpe tu pantalla y responde con máxima fiabilidad gracias a una arquitectura híbrida con conmutación por error en caliente."*
+
+---
+
+## 🚧 Estado del Proyecto: En Proceso Activo de Mejora Continua
+
+> [!NOTE]
+> **Axx se encuentra en desarrollo activo y evolución constante.** El núcleo actual opera sobre la entrega consolidada **v0.22.5**, mientras se integran y verifican las optimizaciones del **candidato v0.22.6+**.
+
+### 🟢 Capacidades Consolidadas y Operativas (v0.22.5)
+- **Arranque y Resiliencia Nativa:** Arranque controlado en menos de 10 segundos con registro de logs desacoplado, sin bloqueos ni pánicos por redirección de flujos estándar.
+- **Entidad 3D y Shaders Líquidos:** Malla paramétrica de 24 formas volumétricas, sombreado de Fresnel en tiempo real y renderizador de respaldo por software 2x.
+- **Click-Through Transparente:** La ventana ignora clics en zonas vacías mediante la API Win32 (`WM_NCHITTEST`), permitiendo usar tus aplicaciones de fondo con total fluidez.
+- **Failover Multi-Proveedor:** Tolerancia a caídas con conmutación instantánea entre Ollama local y APIs en la nube ante errores 429 (`Retry-After`) o 5xx.
+- **Memoria Episódica:** Integración de persistencia procedural y adaptadores MCP.
+
+### 🟡 Áreas en Refinamiento y Pruebas Activas (Candidato 0.22.6+)
+- **Calibración de Micrófono & ASR:** Certificación de captura de audio y supresión de eco en hardware variado antes de activar el dictado continuo como predeterminado.
+- **Dinámica Multimonitor y DPI Asimétrico:** Perfeccionamiento del arrastre háptico y anclaje elástico cuando existen múltiples pantallas con factores de escala (DPI) mixtos.
+- **Ampliación de Catálogo MCP:** Incorporación de nuevos conectores de sistema para automatización de tareas y desarrollo sin exponer credenciales.
+- **Consumo de Memoria en Segundo Plano:** Optimización continua del footprint de RAM y tiempo de respuesta en reposo.
 
 ---
 
