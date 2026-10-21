@@ -29,6 +29,7 @@ Source version remains 0.20.3, matching package.json and the Tauri manifests.
 
 ### Repository and validation
 
+- Add the supplied 720p concept video, preserving its original MP4 and audio, with a linked preview in the README.
 - Add regression tests, setup guides, screenshots and feature-level verification reports under `evidence/*-20261021/`.
 - Update Windows launch fallback and dependency lock metadata; ignore transient stdout/stderr files.
 - Pre-push regression: 45 backend tests and 12 Rust tests passed (one pre-existing Rust test ignored). Provider, sound, tool interaction, chat, music, dictation and desktop frontend browser checks passed. Feature reports distinguish browser/IPC fixtures, native tests and hardware limitations.

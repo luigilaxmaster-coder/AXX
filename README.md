@@ -33,6 +33,14 @@
 
 ## 📸 System Showcase & Visual Interface
 
+### Concept video
+
+[![Watch the Axx concept video](docs/images/axx-video-preview.jpg)](https://github.com/luigilaxmaster-coder/AXX/raw/refs/heads/main/docs/media/axx-presentation.mp4)
+
+[▶ Watch or download the video](https://github.com/luigilaxmaster-coder/AXX/raw/refs/heads/main/docs/media/axx-presentation.mp4) · MP4 with audio · 10 seconds · 1280 × 720.
+
+A visual presentation of Axx's liquid character. See the validation reports below for tested application behavior.
+
 | 3D Entity at Rest (Base) | Parametric Shapes & Appearance Selector |
 | :---: | :---: |
 | ![Axx Base](docs/images/axx-base.png) | ![Axx Appearance](docs/images/axx-appearance.png) |
