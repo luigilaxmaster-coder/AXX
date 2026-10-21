@@ -1,0 +1,13 @@
+{
+  "binary": "C:\\Users\\PD2\\Desktop\\axx\\dist\\axx-backend.exe",
+  "sha256": "1a16f213dfa085780b0366f67eea0faecfe2a7eaeed3e59041caa15c3d8189cd",
+  "passed": [
+    "frozen startup",
+    "model discovery over HTTP",
+    "connection save",
+    "DPAPI credential encryption",
+    "redacted provider listing",
+    "selected model inference through frozen worker"
+  ],
+  "external_provider_inference": false
+}

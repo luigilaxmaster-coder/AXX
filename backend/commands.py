@@ -1,7 +1,7 @@
 """Documentary catalog and a closed, typed bridge to verified local actions.
 
 Imported text is never executable. Only adapters defined here can reach ActionExecutor.
-No shell, model output, recipe body or recognized utterance is evaluated as code.
+Only an explicitly supplied, reviewed PowerShell script may be evaluated as code.
 """
 from __future__ import annotations
 
@@ -17,12 +17,31 @@ import time
 import unicodedata
 import uuid
 
+from .actions.desktop import APPS, ENGINES, resolve_desktop, validate_inputs as validate_desktop_inputs
+
 TERMINAL = {'succeeded', 'failed', 'blocked', 'cancelled', 'expired', 'unknown'}
 
 
 class ApprovalRequired(ValueError):
     pass
 ADAPTERS = {
+    'axx.desktop.open_url': {
+        'title': 'Abrir página web', 'tool': 'desktop_open_url', 'risk': 'desktop_open', 'requires_approval': False,
+        'description': 'Abre una dirección http o https en el navegador predeterminado.',
+        'aliases': [], 'parameters': {'url': {'type': 'string', 'required': True, 'maxLength': 2048}}},
+    'axx.desktop.open_app': {
+        'title': 'Abrir aplicación', 'tool': 'desktop_open_app', 'risk': 'desktop_open', 'requires_approval': False,
+        'description': 'Abre calculadora, bloc de notas, Paint o explorador de archivos.',
+        'aliases': [], 'parameters': {'app': {'type': 'string', 'required': True, 'enum': list(APPS)}}},
+    'axx.desktop.search': {
+        'title': 'Buscar en internet', 'tool': 'desktop_search', 'risk': 'desktop_open', 'requires_approval': False,
+        'description': 'Abre los resultados en YouTube, Google, Bing o DuckDuckGo.',
+        'aliases': [], 'parameters': {'query': {'type': 'string', 'required': True, 'maxLength': 500},
+                                    'engine': {'type': 'string', 'required': True, 'enum': list(ENGINES)}}},
+    'axx.shell.powershell': {
+        'title': 'Ejecutar PowerShell', 'tool': 'desktop_powershell', 'risk': 'system_command',
+        'description': 'Ejecuta el script escrito tras aprobarlo. Puede modificar archivos y ajustes. Devuelve salida, errores y código de salida. Límite: 30 segundos.',
+        'aliases': [], 'parameters': {'script': {'type': 'string', 'required': True, 'maxLength': 8000}}},
     'axx.system.telemetry': {
         'title': 'Información del sistema', 'tool': 'system_telemetry', 'risk': 'read',
         'description': 'Consulta el sistema y el espacio disponible; verifica la respuesta local.',
@@ -68,6 +87,7 @@ class CommandService:
         self.lock = threading.RLock()
         self.execution_gate = threading.Lock()
         self.closed = False
+        self.cancel_events = {}
         self.db = sqlite3.connect(str(executor.db_path), timeout=10, check_same_thread=False)
         self.db.row_factory = sqlite3.Row
         with self.db:
@@ -87,7 +107,7 @@ class CommandService:
         for command_id, adapter in ADAPTERS.items():
             self.commands[command_id] = {k: v for k, v in adapter.items() if k != 'tool'} | {
                 'id': command_id, 'category': 'Axx local', 'execution_enabled': True,
-                'requires_approval': adapter['risk'] != 'read', 'blocked_reason': None,
+                'requires_approval': adapter.get('requires_approval', adapter['risk'] != 'read'), 'blocked_reason': None,
                 'source_status': 'IMPLEMENTADO_LOCAL', 'validation_level': 'IMPLEMENTADO_LOCAL',
                 'source': {'kind': 'local_adapter'}}
         self.commands['axx.blender.fixture'] = {
@@ -146,6 +166,8 @@ class CommandService:
 
     def close(self):
         with self.lock:
+            for event in self.cancel_events.values():
+                event.set()
             if not self.closed:
                 self.closed = True
                 self.db.close()
@@ -182,6 +204,9 @@ class CommandService:
                    if phrase in [normalized(s) for s in adapter['aliases']] or phrase == normalized(command_id)]
         if len(matches) == 1:
             return {'match': 'exact', 'command_id': matches[0], 'inputs': {}}
+        desktop = resolve_desktop(text, source)
+        if desktop:
+            return desktop
         # A documented phrase may select its disabled record for inspection, never an adapter.
         if not matches:
             matches = sorted(self.documentary_phrases.get(phrase, []))
@@ -207,6 +232,8 @@ class CommandService:
                 if not isinstance(value, str) or len(value) > rule.get('maxLength', 65536) or len(value.encode('utf-8')) > rule.get('maxBytes', 262144):
                     raise ValueError(f'{name} debe ser texto dentro de los límites')
         inputs = dict(inputs)
+        if command_id.startswith('axx.desktop.') or command_id == 'axx.shell.powershell':
+            validate_desktop_inputs(ADAPTERS[command_id]['tool'].removeprefix('desktop_'), inputs)
         if command_id == 'axx.process.inspect':
             inputs.setdefault('pid', os.getpid())
         if command_id == 'axx.artifact.write':
@@ -243,6 +270,8 @@ class CommandService:
     def prepare(self, command_id, inputs, source='text', operation_id=None):
         if not isinstance(command_id, str) or command_id not in self.commands or source not in ('text', 'voice'):
             raise ValueError('Comando u origen desconocido')
+        if command_id == 'axx.shell.powershell' and source != 'text':
+            raise ValueError('Escribe el comando PowerShell y revisa su aprobación; no se ejecutan scripts dictados.')
         op_id = str(uuid.uuid4()) if operation_id is None else operation_id
         if not isinstance(op_id, str) or not re.fullmatch(r'[A-Za-z0-9_.-]{1,128}', op_id):
             raise ValueError('operation_id inválido')
@@ -298,6 +327,8 @@ class CommandService:
                 except ValueError as exc:
                     return self._save(result | {'state': 'failed', 'error': {'code': 'PRECONDITION_CHANGED', 'message': str(exc)}})
                 result.update(state='running')
+                if result['command_id'] == 'axx.shell.powershell':
+                    self.cancel_events[operation_id] = threading.Event()
                 self._save(result)
             try:
                 action_id = 'cmd-' + hashlib.sha256(operation_id.encode()).hexdigest()
@@ -307,7 +338,8 @@ class CommandService:
                         current = self.get(operation_id)
                         if current['cancel_requested']:
                             return self._save(current | {'state': 'cancelled', 'error': {'code': 'CANCELLED', 'message': 'Cancelado antes de ejecutar.'}})
-                    action = self.executor.execute_action(ADAPTERS[result['command_id']]['tool'], result['inputs'], action_id)
+                    args = (ADAPTERS[result['command_id']]['tool'], result['inputs'], action_id)
+                    action = self.executor.execute_action(*args, cancel_event=self.cancel_events[operation_id]) if operation_id in self.cancel_events else self.executor.execute_action(*args)
                 final = result | {key: action.get(key) for key in ('state', 'postconditions_passed', 'output', 'evidence', 'duration_ms')}
                 final.update(action_operation_id=action_id, tool_name=ADAPTERS[result['command_id']]['tool'])
                 final.update(model_calls_used=0, model_calls_source='deterministic_no_model_path')
@@ -321,6 +353,8 @@ class CommandService:
                 final['cancel_requested'] = self.get(operation_id)['cancel_requested']
                 return self._save(final)
         finally:
+            with self.lock:
+                self.cancel_events.pop(operation_id, None)
             self.execution_gate.release()
 
     def cancel(self, operation_id=None):
@@ -344,6 +378,8 @@ class CommandService:
             for result in targets:
                 if result['state'] not in TERMINAL:
                     result['cancel_requested'] = True
+                    if result['operation_id'] in self.cancel_events:
+                        self.cancel_events[result['operation_id']].set()
                     if result['state'] != 'running':
                         result.update(state='cancelled', error={'code': 'CANCELLED', 'message': 'Cancelado antes de ejecutar.'})
                     self._save(result)

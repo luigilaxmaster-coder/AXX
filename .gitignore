@@ -35,6 +35,8 @@ test_debug.db
 debug_axx.log
 axx_stderr.log
 axx_stdout.log
+/err.txt
+/out.txt
 **/endpoint.dpapi
 **/endpoint.tmp
 

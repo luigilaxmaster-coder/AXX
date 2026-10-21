@@ -16,6 +16,7 @@ import platform
 import re
 import shutil
 import sys
+import threading
 from typing import Any
 
 
@@ -76,6 +77,9 @@ class BaseTool:
     def execute_in_workspace(self, inputs: dict, workspace_root: Path) -> ToolResult:
         """The executor supplies this scope; it is never accepted from frontend inputs."""
         return self.execute(inputs)
+
+    def execute_cancellable(self, inputs: dict, workspace_root: Path, cancelled: threading.Event) -> ToolResult:
+        return self.execute_in_workspace(inputs, workspace_root)
 
     def verify_postconditions(self, inputs: dict, result: ToolResult) -> tuple[bool, str]:
         raise NotImplementedError
@@ -354,12 +358,48 @@ class BlenderRenderFixtureTool(BaseTool):
             return False, f'Cannot verify rendered artifact: {exc}'
         return True, 'Rendered PNG exists and its size and SHA256 were verified'
 
+class DesktopTool(BaseTool):
+    """Fixed desktop adapters and explicitly approved PowerShell scripts."""
+    def __init__(self, kind):
+        self.kind = kind
+        self.name = 'desktop_' + kind
+        self.description = 'Desktop action: ' + kind
+
+    def verify_preconditions(self, inputs):
+        from .desktop import validate_inputs
+        try:
+            validate_inputs(self.kind, inputs)
+            return True, 'Validated desktop parameters'
+        except ValueError as exc:
+            return False, str(exc)
+
+    def execute(self, inputs):
+        if self.kind == 'powershell':
+            return ToolResult(False, error='PowerShell requires a workspace and explicit approval')
+        from .desktop import open_target
+        return ToolResult(**open_target(self.kind, inputs))
+
+    def execute_cancellable(self, inputs, workspace_root, cancelled):
+        if self.kind != 'powershell':
+            return self.execute(inputs)
+        from .desktop import run_powershell
+        return ToolResult(**run_powershell(inputs, workspace_root, cancelled))
+
+    def verify_postconditions(self, inputs, result):
+        if self.kind == 'powershell':
+            valid = result.success and result.evidence.get('exit_code') == 0 and not result.evidence.get('cancelled')
+        else:
+            valid = result.success and result.evidence.get('accepted') is True
+        return bool(valid), 'Execution result checked' if valid else result.error or 'Desktop action failed'
+
+
 # Registry of available tools
 TOOL_REGISTRY: dict[str, BaseTool] = {
     FileArtifactTool.name: FileArtifactTool(),
     SystemTelemetryTool.name: SystemTelemetryTool(),
     ProcessStateTool.name: ProcessStateTool(),
     BlenderRenderFixtureTool.name: BlenderRenderFixtureTool(),
+    **{('desktop_' + kind): DesktopTool(kind) for kind in ('open_url', 'open_app', 'search', 'powershell')},
 }
 
 def get_tool(name: str) -> BaseTool | None:

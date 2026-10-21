@@ -2,7 +2,11 @@
 (function installNativeVoice(Axx) {
     if (!Axx?.isNative?.() || Axx.nativeVoice) return;
     const state = Axx.nativeVoice = { activeCapture: null, voices: [], voicePromise: null, playback: null };
-    const cancelWorker = () => void Axx.backendRequest('POST', '/axx-api/actions/cancel', {}).catch(() => {});
+    const privacyHint = document.querySelector('#v13-permit small');
+    if (privacyHint) privacyHint.textContent = 'Whisper convierte el audio en texto localmente en este equipo. Toca Axx para terminar y obtener la transcripción.';
+    const privacyDetail = document.getElementById('v13-permission-state')?.nextElementSibling;
+    if (privacyDetail?.tagName === 'P') privacyDetail.textContent = 'Dictado local con Whisper. El audio del micrófono no se envía a un proveedor de IA. Termina la captura para colocar la frase reconocida.';
+    const cancelWorker = () => void Axx.backendRequest('POST', '/axx-api/speech/cancel', {}).catch(() => {});
     const base64 = blob => new Promise((resolve, reject) => { const reader = new FileReader(); reader.onerror = () => reject(new Error('No se pudo leer el audio capturado.')); reader.onload = () => resolve(String(reader.result).split(',')[1]); reader.readAsDataURL(blob); });
     state.refreshVoices = async (force = false) => {
         if (force) state.voicePromise = null;

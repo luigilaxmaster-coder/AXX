@@ -1,0 +1,19 @@
+{
+  "kind": "FULL_HTML_HTTP_FROZEN_WINDOWS_ACTIONS",
+  "binary": "C:\\Users\\PD2\\Desktop\\axx\\dist\\axx-backend.exe",
+  "sha256": "0d611d2692119d0408a4fa2ee0f87163284baefe12518d8b6769bccaf4cd8c06",
+  "passed": [
+    "YouTube command from chat reaches real Windows handoff",
+    "No model required or called",
+    "PowerShell approval is visible before execution",
+    "Stopping speech preserves pending command approval",
+    "Real PowerShell output returns to chat",
+    "Real local Whisper transcription of generated speech",
+    "No browser exceptions"
+  ],
+  "generated_audio_transcript": "Hello. This is a local dictation test.",
+  "limitations": [
+    "Tauri IPC emulated by a test bridge; backend and Windows actions are real",
+    "OS accepted browser launch; loaded webpage not inspected"
+  ]
+}

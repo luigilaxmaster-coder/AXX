@@ -27,6 +27,7 @@ if str(root_dir) not in sys.path:
     sys.path.insert(0, str(root_dir))
 from backend.inference.router import parse_strict_json
 from backend.inference.adapter import InferenceAdapter, worker_main
+from backend.inference import provider_settings
 from backend.actions.executor import ActionExecutor, ActionExecutionError
 from backend.actions.tools import list_tools
 from backend.commands import CommandService, ApprovalRequired, parse_command_json, ADAPTERS
@@ -179,6 +180,8 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                 if self.chatgpt_auth and self.chatgpt_auth.is_authenticated():
                     models = list(dict.fromkeys(self.chatgpt_auth.get_status().get('models', []) + models))
                 self._send_json(200, {'models': models, 'chatgpt_active': bool(self.chatgpt_auth and self.chatgpt_auth.is_authenticated())})
+            elif path == '/axx-api/providers':
+                self._send_json(200, {'providers': provider_settings.public_entries(self.adapter.config)})
             elif path == '/axx-api/actions':
                 self._send_json(200, {'tools': list_tools(), 'artifact_root': str(self.executor.workspace_root)})
             elif path in ('/axx-api/commands', '/axx-api/commands/operations'):
@@ -285,14 +288,11 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                     return
                 if set(body) - {'model', 'stream', 'axx_task', 'messages', 'temperature', 'max_tokens', 'tools',
                                 'request_id', 'conversation_id', 'deadline_ms', 'sensitivity',
-                                'provider', 'allow_fallback', 'mode'}:
+                                'provider', 'allow_fallback', 'mode', 'provider_name'}:
                     raise ValueError('Unsupported chat fields')
 
                 model = body.get('model', '')
-                is_chatgpt = (body.get('provider') == 'chatgpt' or 
-                              body.get('mode') == 'auth' or 
-                              model in ('gpt-4o', 'gpt-4o-mini', 'o1-mini', 'chatgpt-auto') or
-                              (self.chatgpt_auth and self.chatgpt_auth.is_authenticated() and body.get('provider') in (None, 'chatgpt', 'bridge') and model.startswith('gpt-')))
+                is_chatgpt = body.get('provider') == 'chatgpt' or body.get('mode') == 'auth'
 
                 if is_chatgpt and self.chatgpt_adapter and self.chatgpt_adapter.is_available():
                     try:
@@ -324,7 +324,7 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                         self._send_json(502, {'ok': False, 'error': {'code': 'CHATGPT_ERROR', 'message': str(exc), 'retryable': True}})
                         return
 
-                envelope = {'task': body.get('axx_task', 'chat'), 'messages': body.get('messages', []),
+                envelope = {'provider_name': body.get('provider_name', ''), 'model': body.get('model', ''), 'task': body.get('axx_task', 'chat'), 'messages': body.get('messages', []),
                     'generation': {key: body[key] for key in ('temperature', 'max_tokens', 'tools') if key in body}}
                 for key in ('request_id', 'conversation_id', 'deadline_ms', 'sensitivity'):
                     if key in body:
@@ -357,96 +357,19 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                 if self.provider:
                     self.provider.cancel(request_id)
                 self._send_json(200, {'request_id': request_id, 'cancelled': self.adapter.cancel(request_id)})
+            elif path == '/axx-api/providers/discover':
+                self._send_json(200, provider_settings.discover(body, self.adapter.config))
+            elif path == '/axx-api/providers/save':
+                cfg_path = getattr(self, 'config_path', None) or Path(self.adapter.state_path).parent / 'providers.json'
+                self._send_json(200, provider_settings.save(body, self.adapter, cfg_path))
             elif path == '/axx-api/auth/save-key':
-                provider_type = body.get('provider', 'openrouter')
-                api_key = (body.get('api_key') or '').strip()
-                if not api_key:
-                    raise ValueError('La clave de API es requerida')
-                
-                env_map = {
-                    'openrouter': 'OPENROUTER_API_KEY',
-                    'openai': 'OPENAI_API_KEY',
-                    'gemini': 'GEMINI_API_KEY'
-                }
-                env_var = env_map.get(provider_type, 'OPENROUTER_API_KEY')
-                os.environ[env_var] = api_key
-
-                cfg_path = getattr(self, 'config_path', None)
-                if not cfg_path:
-                    db_p = getattr(self.executor, 'db_path', None)
-                    cfg_path = (Path(db_p).parent / 'providers.json') if db_p else (root_dir / 'providers.json')
-                
-                cfg = {}
-                try:
-                    if Path(cfg_path).exists():
-                        cfg = parse_strict_json(Path(cfg_path).read_bytes())
-                except Exception:
-                    cfg = {'allow_paid': False, 'providers': []}
-                if 'allow_paid' not in cfg:
-                    cfg['allow_paid'] = False
-                if not isinstance(cfg.get('providers'), list):
-                    cfg['providers'] = []
-
-                found = False
-                for p in cfg['providers']:
-                    if p.get('api_key_env') == env_var or (provider_type == 'openrouter' and 'openrouter' in p.get('name', '')):
-                        p['enabled'] = True
-                        p['free_confirmed'] = True
-                        p['api_key_env'] = env_var
-                        found = True
-                        break
-                if not found:
-                    if provider_type == 'openai':
-                        cfg['providers'].append({
-                            "name": "openai-direct",
-                            "base_url": "https://api.openai.com/v1",
-                            "model": "gpt-4o-mini",
-                            "api_key_env": "OPENAI_API_KEY",
-                            "enabled": True,
-                            "free_confirmed": True,
-                            "daily_attempt_limit": 100,
-                            "max_output_tokens": 2048,
-                            "capabilities": ["text", "tools"]
-                        })
-                    elif provider_type == 'gemini':
-                        cfg['providers'].append({
-                            "name": "gemini-flash",
-                            "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
-                            "model": "gemini-2.0-flash",
-                            "api_key_env": "GEMINI_API_KEY",
-                            "enabled": True,
-                            "free_confirmed": True,
-                            "daily_attempt_limit": 100,
-                            "max_output_tokens": 2048,
-                            "capabilities": ["text", "tools"]
-                        })
-                    else:
-                        cfg['providers'].append({
-                            "name": "openrouter-user",
-                            "base_url": "https://openrouter.ai/api/v1",
-                            "model": "openrouter/free",
-                            "api_key_env": "OPENROUTER_API_KEY",
-                            "enabled": True,
-                            "free_confirmed": True,
-                            "daily_attempt_limit": 100,
-                            "max_output_tokens": 2048,
-                            "capabilities": ["text"]
-                        })
-
-                try:
-                    Path(cfg_path).write_bytes(json.dumps(cfg, indent=2, ensure_ascii=False).encode('utf-8'))
-                except Exception as e:
-                    LOG.warning('Could not write config file %s: %s', cfg_path, e)
-
-                if hasattr(self.adapter, 'update_config'):
-                    self.adapter.update_config(cfg)
-
-                self._send_json(200, {
-                    'ok': True,
-                    'provider': provider_type,
-                    'env_var': env_var,
-                    'message': f'Clave {env_var} registrada y activada con éxito.'
-                })
+                # Compatibility path uses the same validation and protected credential store.
+                provider = body.get('provider', 'openrouter')
+                body.setdefault('name', provider + '-user')
+                if provider == 'openrouter':
+                    body.setdefault('model', 'openrouter/free')
+                cfg_path = getattr(self, 'config_path', None) or Path(self.adapter.state_path).parent / 'providers.json'
+                self._send_json(200, provider_settings.save(body, self.adapter, cfg_path))
             elif path == '/axx-api/auth/chatgpt/set-client-id':
                 if not self.chatgpt_auth:
                     self._unsupported('ChatGPT Auth no está disponible')
@@ -495,6 +418,15 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                     self.commands.cancel()
                 from backend.actions.cli_blender import cancel_active
                 cancelled_count = cancel_active()
+                if self.speech:
+                    cancelled_count += self.speech.cancel_active()
+                if self.transcription:
+                    cancelled_count += self.transcription.cancel_active()
+                self._send_json(200, {'cancelled': cancelled_count > 0, 'cancelled_operations': cancelled_count})
+            elif path == '/axx-api/speech/cancel':
+                if body:
+                    raise ValueError('Speech cancellation accepts no parameters')
+                cancelled_count = 0
                 if self.speech:
                     cancelled_count += self.speech.cancel_active()
                 if self.transcription:
@@ -778,6 +710,7 @@ def run_server(host='127.0.0.1', port=4173, config_path='providers.json', state_
         raise ValueError('Native host must supply a private token of at least 32 characters')
     config_path, state_path = resolve_app_paths(config_path, state_path, data_dir)
     config = parse_strict_json(Path(config_path).read_bytes())
+    provider_settings.load_credentials(config_path)
     state_dir = Path(state_path).parent
     # Capture one consistent SQLite backup before the delivery schema migration.
     migration_backup = state_dir / 'backups' / 'state-before-desktop-v1.db'

@@ -69,9 +69,9 @@ class ActionExecutor:
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
 
-    def execute_action(self, tool_name: str, inputs: dict, operation_id: str | None = None) -> dict:
+    def execute_action(self, tool_name: str, inputs: dict, operation_id: str | None = None, cancel_event=None) -> dict:
         with self.lock:
-            return self._execute_action(tool_name, inputs, operation_id)
+            return self._execute_action(tool_name, inputs, operation_id, cancel_event)
 
     def list_operations(self, limit: int = 20) -> list[dict]:
         with self.lock:
@@ -92,7 +92,7 @@ class ActionExecutor:
                 'inputs': json.loads(row[3]), 'output': result, 'postconditions_passed': False,
                 'evidence': json.loads(row[5]) if row[5] else {}, 'duration_ms': row[6]}
 
-    def _execute_action(self, tool_name: str, inputs: dict, operation_id: str | None = None) -> dict:
+    def _execute_action(self, tool_name: str, inputs: dict, operation_id: str | None = None, cancel_event=None) -> dict:
         """Executes a registered tool with full pre- and post-condition verification."""
         if not isinstance(tool_name, str) or not isinstance(inputs, dict):
             raise ActionExecutionError('tool_name must be a string and inputs an object')
@@ -105,7 +105,8 @@ class ActionExecutor:
         op_id = operation_id or str(uuid.uuid4())
         inputs = dict(inputs)
         permitted = {'file_artifact_writer': {'path', 'content'}, 'system_telemetry': set(), 'process_state_inspector': {'pid'},
-                     'blender_render_fixture': {'filename'}}
+                     'blender_render_fixture': {'filename'}, 'desktop_open_url': {'url'}, 'desktop_open_app': {'app'},
+                     'desktop_search': {'query', 'engine'}, 'desktop_powershell': {'script'}}
         if set(inputs) - permitted.get(tool_name, set()):
             raise ActionExecutionError('Unexpected action inputs')
         if tool_name == 'file_artifact_writer' and isinstance(inputs.get('path'), str):
@@ -164,7 +165,7 @@ class ActionExecutor:
 
         # 4. Execute tool
         try:
-            tool_res: ToolResult = tool.execute_in_workspace(inputs, self.workspace_root)
+            tool_res: ToolResult = tool.execute_cancellable(inputs, self.workspace_root, cancel_event or threading.Event())
         except Exception as exc:
             duration_ms = (time.monotonic() - start_time) * 1000.0
             result = {

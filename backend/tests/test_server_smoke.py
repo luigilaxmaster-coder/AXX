@@ -167,9 +167,11 @@ class ServerSmokeTests(unittest.TestCase):
             self.assertEqual(resp.status, 200)
             data = json.loads(resp.read().decode('utf-8'))
             self.assertTrue(data['ok'])
-            self.assertIn('registrada', data['message'])
+            self.assertIn('guardada', data['message'])
         import os
-        self.assertEqual(os.environ.get('OPENROUTER_API_KEY'), 'sk-or-v1-mocked-test-key-12345')
+        provider = next(p for p in AxxBridgeHandler.adapter.config['providers'] if p['name'] == 'openrouter-user')
+        self.assertEqual(os.environ.get(provider['api_key_env']), 'sk-or-v1-mocked-test-key-12345')
+        self.assertNotIn('api_key', provider)
 
 if __name__ == '__main__':
     unittest.main()

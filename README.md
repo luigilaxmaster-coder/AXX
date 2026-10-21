@@ -11,16 +11,16 @@
 <p align="center">
   <img src="https://img.shields.io/badge/Platform-Windows%2011%20%2F%2010-0078D4?logo=windows" alt="Windows 11" />
   <img src="https://img.shields.io/badge/Host-Tauri%20v2%20%7C%20Rust-F74C00?logo=rust" alt="Tauri v2" />
-  <img src="https://img.shields.io/badge/Backend-Python%203.12%20FastAPI-3776AB?logo=python" alt="Python 3.12" />
-  <img src="https://img.shields.io/badge/Frontend-WebGL%20%2F%20Three.js-black?logo=webgl" alt="WebGL" />
+  <img src="https://img.shields.io/badge/Backend-Python-3776AB?logo=python" alt="Python backend" />
+  <img src="https://img.shields.io/badge/Frontend-WebGL%20%2F%20HTML5-black?logo=webgl" alt="WebGL" />
   <img src="https://img.shields.io/badge/Offline%20Voice-Faster--Whisper%20Tiny-green" alt="Faster-Whisper" />
   <img src="https://img.shields.io/badge/Protocol-Model%20Context%20Protocol%20(MCP)-blueviolet" alt="MCP" />
-  <img src="https://img.shields.io/badge/Installed%20Version-v0.22.5-informational" alt="Version" />
+  <img src="https://img.shields.io/badge/Source%20Version-v0.20.3-informational" alt="Source version" />
   <img src="https://img.shields.io/badge/Development-Active%20Refinement-yellow?logo=git" alt="Active Development" />
 </p>
 
 <p align="center">
-  <code>#ai-assistant</code> <code>#desktop-assistant</code> <code>#windows-11</code> <code>#tauri</code> <code>#rust</code> <code>#python</code> <code>#webgl</code> <code>#threejs</code> <code>#faster-whisper</code> <code>#ollama</code> <code>#mcp</code> <code>#failover</code> <code>#resident-avatar</code> <code>#offline-first</code>
+  <code>#ai-assistant</code> <code>#desktop-assistant</code> <code>#windows-11</code> <code>#tauri</code> <code>#rust</code> <code>#python</code> <code>#webgl</code> <code>#faster-whisper</code> <code>#ollama</code> <code>#mcp</code> <code>#failover</code> <code>#resident-avatar</code> <code>#offline-first</code>
 </p>
 
 ---
@@ -48,16 +48,26 @@
 ## 🚧 Project Status: Active Continuous Improvement
 
 > [!NOTE]
-> **Axx is under active development and continuous refinement.** The current core operates on the validated production baseline **v0.22.5**, while ongoing enhancements and hardening are being actively integrated for **Candidate v0.22.6+**.
+> **Axx is under active development.** The current source manifests and locally built Windows application use **v0.20.3**. Validation is recorded per feature; a working UI or build does not by itself certify every hardware-dependent behavior.
 
-### 🟢 Consolidated & Fully Operational (v0.22.5)
-- **Native Startup & Crash Resilience:** Controlled launch in under 10 seconds with dedicated log-file isolation, preventing panics from broken standard streams.
+### 🟢 Implemented capabilities
+- **Native Startup:** Resident Windows application with a local backend and a launcher fallback to the executable built from this repository.
 - **Dual 3D Shading Engine:** Parametric mesh of 24 volumetric shapes, real-time Fresnel shaders, and a 2x super-sampled CPU software fallback.
 - **Transparent Click-Through:** Borderless desktop window that dynamically passes pointer clicks through transparent zones using the Win32 API (`WM_NCHITTEST`), ensuring complete background desktop usability.
-- **Multi-Provider Hot-Failover:** Zero-downtime tolerance with instantaneous failover between local Ollama instances and cloud APIs upon 429 (`Retry-After`) or 5xx status codes.
+- **Multi-Provider Connections:** Local/LAN Ollama, Ollama Cloud, LM Studio, Anthropic, Groq and compatible APIs, with model discovery and DPAPI-protected credentials. Explicit connection selection keeps requests on the selected provider/model; it does not silently switch platforms on failure.
 - **Episodic Memory & MCP Core:** Integrated procedural SQLite memory and Model Context Protocol schema validation.
 
-### 🟡 Active Refinement & Upcoming Enhancements (Candidate 0.22.6+)
+### Latest changes — October 21, 2026
+
+- Clickable tool controls, icon buttons, smoother tentacle rendering and sound recovery.
+- More usable chat composition, reading and scrolling; stable dictation controls and isolated speech cancellation.
+- [Provider and local model setup](docs/PROVEEDORES-API-LOCAL.md), including separate local/cloud Ollama catalogs.
+- [Desktop commands from chat](docs/COMANDOS-DESDE-CHAT.md): open supported apps/sites, search the web and review explicitly typed PowerShell before execution.
+- **System music:** discover Windows media sessions, select a player and tap Axx to pause/resume. Real Edge transport was verified. Output-level animation is implemented, but positive physical audio metering was not verified because the test session exposed no active output devices. Apps without Windows media controls cannot be universally paused.
+
+See the [change log](CHANGELOG.md) and [music validation evidence](evidence/system-music-20261021/VERIFICATION.md) for checks and limits. These are source and local-build updates, not a newly published installer release.
+
+### 🟡 Active refinement and remaining validation
 - **Microphone Hardware Calibration & ASR Tuning:** Deep acoustic verification across diverse audio hardware and noise profiles prior to enabling continuous hands-free dictation by default.
 - **Multi-Monitor & Mixed-DPI Dynamics:** Hardening haptic drags and elastic screen snapping across multi-monitor layouts with heterogeneous display scaling factors.
 - **Expanded MCP Tool Library:** Ingestion of sandboxed system automation and developer utility tools with token isolation.

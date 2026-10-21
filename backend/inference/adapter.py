@@ -221,6 +221,10 @@ class InferenceAdapter:
         try:
             request = {'messages': envelope.get('messages', []), 'axx_task': envelope.get('task', 'chat'),
                        'axx_sensitive': envelope.get('sensitivity') == 'approved_sensitive'}
+            if envelope.get('model'):
+                request['model'] = envelope['model']
+            if envelope.get('provider_name'):
+                request['provider_name'] = envelope['provider_name']
             generation = envelope.get('generation', {})
             if not isinstance(generation, dict):
                 raise RequestError('generation must be an object')

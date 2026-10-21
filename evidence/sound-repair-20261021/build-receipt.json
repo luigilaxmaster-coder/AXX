@@ -1,0 +1,9 @@
+{
+  "command": "tauri build --no-bundle",
+  "processId": 15048,
+  "sha256": "34CC6B34A95D7022DBF17A483CADB914DB17BA601EFDEDF8B9A71301A16A371E",
+  "path": "C:\\Users\\PD2\\Desktop\\axx\\src-tauri\\target\\release\\Axx.exe",
+  "htmlSha256": "053AAD71132E0A2AED8CCB3AEA1B9564BAB29E70C23B15C59268C081B83B7BBB",
+  "built": "2026-10-21",
+  "exitCode": 0
+}

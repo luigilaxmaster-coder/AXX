@@ -42,7 +42,7 @@
               <div class="quick-row"><button id="command-library-cancel" type="button" disabled>Cancelar comando</button><button id="command-library-recover" type="button" disabled>Consultar resultado</button></div>
               <p id="command-library-status" role="status">${Axx.isNative() ? 'Lista para consultar el backend de Axx.' : 'El catálogo ejecutable requiere Axx para Windows. Puedes seguir usando las herramientas locales.'}</p>
               <pre id="command-library-result" style="white-space:pre-wrap;word-break:break-word;max-height:280px;overflow:auto" aria-live="polite"></pre>
-              <p>Puedes escribir o dictar «estado del sistema» y enviarlo desde el chat. «/comandos texto» busca; «/comando ID {parámetros JSON}» prepara el mismo comando. Dictar coloca texto; la aprobación de una escritura requiere el botón anterior.</p>`;
+              <p>Desde el chat: «abre YouTube», «abre calculadora», «busca música en YouTube» o «estado del sistema». Para un script escrito usa «/powershell Get-Date»: revisa el código y pulsa Aprobar. PowerShell puede modificar tu equipo; se detiene a los 30 segundos y Escape cancela la ejecución. «/comandos texto» busca acciones.</p>`;
             node('view-files').prepend(section);
             node('command-library-search-form').onsubmit = event => { event.preventDefault(); void this.search().catch(e => this.status(errorText(e))); };
             node('command-library-select').onchange = () => this.renderSelection();
@@ -124,7 +124,7 @@
             if (!command) return;
             for (const [name, schema] of Object.entries(command.parameters || {})) {
                 const label = document.createElement('label'); label.className = 'setting'; label.textContent = name + (schema.required ? ' · obligatorio' : ' · opcional');
-                const field = document.createElement(Array.isArray(schema.enum) ? 'select' : name === 'content' ? 'textarea' : 'input');
+                const field = document.createElement(Array.isArray(schema.enum) ? 'select' : ['content', 'script'].includes(name) ? 'textarea' : 'input');
                 field.className = 'field'; field.name = name; field.dataset.parameterType = schema.type || 'string';
                 if (schema.type === 'boolean') { field.type = 'checkbox'; field.required = false; }
                 else if (schema.type === 'integer' || schema.type === 'number') { field.type = 'number'; field.step = schema.type === 'integer' ? '1' : 'any'; }
@@ -158,6 +158,17 @@
             return this.prepare(command.id, this.typedInputs(), 'text');
         }
         hasLocalIntent(raw) {
+            // The legacy reach tray treats any "abre ..." as its own resource.
+            // Route supported desktop requests to the backend before that catch-all.
+            // This only selects the resolver; it never authorizes or executes an action.
+            const command = raw.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+                .replace(/^[¡¿\s]+/, '').replace(/^(?:(?:oye|hola)\s+)?axx[,\s]+/, '')
+                .replace(/^por favor[,\s]+/, '').replace(/^(?:puedes|podrias|quiero que)\s+/, '')
+                .replace(/\s+por favor[?.!]*$/, '').trim();
+            if (/^(?:\/powershell\s|ejecuta\s+en\s+powershell:)/.test(command)
+                || /^(?:abre|abrir|abras|abreme|inicia|ejecuta)\s+(?:(?:el|la)\s+)?(?:youtube|google|gmail|github|chatgpt|spotify|calculadora|calc|bloc de notas|notepad|paint|explorador(?: de archivos)?)[.!?]*$/.test(command)
+                || /^(?:abre|abrir|abras|abreme)\s+(?:https?:\/\/|(?:[\w-]+\.)+[a-z]{2,}(?:[/?#:]|$))/.test(command)
+                || /^(?:busca|buscar|buscame)\s+(?:en\s+(?:youtube|google|bing|duckduckgo|internet)\s+.+|.+\s+en\s+(?:youtube|google|bing|duckduckgo|internet)[.!?]*)$/.test(command)) return false;
             const allowed = new Set(['note', 'todo', 'timer', 'analyze', 'searchNotes', 'calculate', 'convert', 'completeTodo', 'pause', 'resume', 'cancel', 'notes', 'todos', 'time', 'date', 'help', 'greet', 'summon', 'follow', 'stay', 'hide']);
             try { return allowed.has(Axx.parseIntent?.(raw)?.type) || Boolean(Axx.isLocalExternalCommand?.(raw)); }
             catch { return true; } // The existing parser displays its own validation error locally.
@@ -194,7 +205,7 @@
                     if (resolved.match === 'none') return previous(raw);
                     Axx.companion.message('user', raw, 'local');
                     if (resolved.match !== 'exact' || !resolved.command_id) {
-                        Axx.companion.localNotice(resolved.match === 'ambiguous' ? 'Hay varios comandos posibles. Abre /comandos y selecciona el ID exacto.' : 'No se pudo identificar un comando válido. Consulta /comandos.');
+                        Axx.companion.localNotice(resolved.message || (resolved.match === 'ambiguous' ? 'Hay varios comandos posibles. Abre /comandos y selecciona el ID exacto.' : 'No se pudo identificar un comando válido. Consulta /comandos.'));
                         return;
                     }
                     prepared = true;
@@ -223,7 +234,9 @@
             node('command-library-result').textContent = JSON.stringify(operation, null, 2);
             const awaiting = operation?.state === 'awaiting_approval';
             node('command-library-approval').hidden = !awaiting;
-            if (awaiting) node('command-library-preview').textContent = JSON.stringify({ command_id: operation.command_id, inputs: operation.inputs, operation_id: operation.operation_id }, null, 2);
+            if (awaiting) node('command-library-preview').textContent = operation.command_id === 'axx.shell.powershell'
+                ? 'PowerShell · puede modificar archivos y ajustes de este equipo.\nCarpeta de trabajo: Axx/artifacts. Límite: 30 segundos.\n\n' + operation.inputs.script
+                : JSON.stringify({ command_id: operation.command_id, inputs: operation.inputs, operation_id: operation.operation_id }, null, 2);
             node('command-library-approve').disabled = !awaiting || this.busy;
             node('command-library-cancel').disabled = !this.busy && !this.operation;
             node('command-library-recover').disabled = this.busy || this.cancellingGeneration === this.generation || !operation?.operation_id;
@@ -294,7 +307,18 @@
                         if (parts.length) detail = ' (' + parts.join(', ') + ')';
                     } else if (ev.name && ev.pid) detail = ` (${ev.name}, PID ${ev.pid})`;
                 }
-                const message = verified ? 'Comando completado y verificado: ' + result.command_id + detail + '.' : result.state === 'cancelled' ? 'Comando cancelado. No se marcó como completado.' : 'Comando sin éxito verificado: ' + errorText(result.error || result.state) + '.';
+                let message = verified ? 'Comando completado y verificado: ' + result.command_id + detail + '.' : result.state === 'cancelled' ? 'Comando cancelado. No se marcó como completado.' : 'Comando sin éxito verificado: ' + errorText(result.error || result.state) + '.';
+                if (verified && result.evidence?.verification === 'os_handoff') {
+                    message = 'He enviado a Windows la apertura de ' + (result.output?.label || result.evidence.target) + '.';
+                    if (result.command_id === 'axx.desktop.search') message += ' Los resultados se abren en tu navegador.';
+                }
+                if (result.command_id === 'axx.shell.powershell') {
+                    const output = result.output || {};
+                    message = result.state === 'cancelled' ? 'PowerShell cancelado. Los cambios ya realizados no se deshacen.' : verified ? 'PowerShell terminó correctamente (código 0).' : 'PowerShell: ' + errorText(result.error || result.state);
+                    if (output.stdout) message += '\n\nSalida:\n' + output.stdout.slice(0, 12000);
+                    if (output.stderr) message += '\n\nErrores:\n' + output.stderr.slice(0, 12000);
+                    if ((output.stdout?.length || 0) > 12000 || (output.stderr?.length || 0) > 12000) message += '\n\nConsulta el resultado completo en la biblioteca.';
+                }
                 this.status(message); Axx.companion.action(verified ? 'success' : result.state === 'cancelled' ? 'cancel' : 'error');
                 return message;
             } catch (error) {

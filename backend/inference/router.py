@@ -11,6 +11,7 @@ import json
 import logging
 import math
 import os
+import ipaddress
 from pathlib import Path
 import socket
 import sqlite3
@@ -89,9 +90,29 @@ def _is_loopback_http(base_url: str) -> bool:
     u = urllib.parse.urlsplit(base_url)
     return u.scheme == 'http' and u.hostname in ('127.0.0.1', 'localhost')
 
+def _is_local_endpoint(base_url: str) -> bool:
+    host = urllib.parse.urlsplit(base_url).hostname
+    if host == 'localhost':
+        return True
+    try:
+        ip = ipaddress.ip_address(host)
+        return ip.is_loopback or (ip.is_private and not ip.is_link_local and not ip.is_unspecified and not ip.is_multicast)
+    except ValueError:
+        return False
+
+def _optional_auth(p):
+    return _is_loopback_http(p['base_url']) or (p.get('auth_optional') is True and _is_local_endpoint(p['base_url']))
+
 def http_transport(provider: dict, body: dict, timeout: float) -> dict:
     """Standard HTTP transport with socket timeout and strict response parsing."""
-    url = provider['base_url'].rstrip('/') + '/chat/completions'
+    anthropic = provider.get('protocol') == 'anthropic'
+    url = provider['base_url'].rstrip('/') + ('/messages' if anthropic else '/chat/completions')
+    if anthropic:
+        body = dict(body)
+        messages = body['messages']
+        body['system'] = '\n\n'.join(m['content'] for m in messages if m['role'] == 'system')
+        body['messages'] = [m for m in messages if m['role'] != 'system']
+        body.setdefault('max_tokens', provider.get('max_output_tokens', 2048))
     body_bytes = json.dumps(body, allow_nan=False).encode('utf-8')
     key_env = provider.get('api_key_env')
     api_key = os.environ.get(key_env, '').strip() if key_env else ''
@@ -101,6 +122,9 @@ def http_transport(provider: dict, body: dict, timeout: float) -> dict:
         'Content-Type': 'application/json',
         'Authorization': 'Bearer ' + api_key
     }
+    if anthropic:
+        headers.pop('Authorization', None)
+        headers.update({'x-api-key': api_key, 'anthropic-version': '2023-06-01'})
     req = urllib.request.Request(url, data=body_bytes, headers=headers, method='POST')
     try:
         with urllib.request.build_opener(NoRedirect()).open(req, timeout=timeout) as response:
@@ -109,7 +133,12 @@ def http_transport(provider: dict, body: dict, timeout: float) -> dict:
             if len(raw) > 7 * 1024 * 1024:
                 raise UpstreamError(502, message="Response payload exceeds 7 MiB limit")
             try:
-                return parse_strict_json(raw)
+                data = parse_strict_json(raw)
+                if anthropic:
+                    content = ''.join(part.get('text', '') for part in data.get('content', []) if part.get('type') == 'text')
+                    return {'choices': [{'message': {'role': 'assistant', 'content': content},
+                                         'finish_reason': 'length' if data.get('stop_reason') == 'max_tokens' else 'stop'}]}
+                return data
             except (ValueError, UnicodeError) as exc:
                 raise UpstreamError(502, message=f"Invalid response JSON: {exc}") from None
     except urllib.error.HTTPError as exc:
@@ -196,7 +225,7 @@ class Router:
             for field in ('name', 'base_url', 'model', 'api_key_env'):
                 if not isinstance(p[field], str) or not p[field].strip():
                     raise ValueError(f'Invalid provider {field}')
-            for field in ('free_confirmed', 'allow_sensitive'):
+            for field in ('free_confirmed', 'allow_sensitive', 'billing_allowed', 'auth_optional'):
                 if field in p and type(p[field]) is not bool:
                     raise ValueError(f'Invalid provider {field}')
             
@@ -209,8 +238,10 @@ class Router:
                 raise ValueError(f"Provider '{p['name']}' has unconfigured template model: {p['model']}")
 
             u = urllib.parse.urlsplit(p['base_url'])
-            if (u.scheme != 'https' and not _is_loopback_http(p['base_url'])) or not u.hostname or u.username or u.password or u.query or u.fragment:
+            if (u.scheme != 'https' and not (u.scheme == 'http' and _is_local_endpoint(p['base_url']))) or not u.hostname or u.username or u.password or u.query or u.fragment:
                 raise ValueError("base_url must be HTTPS (or loopback HTTP) without credentials/query/fragment")
+            if p.get('protocol', 'openai') not in ('openai', 'anthropic'):
+                raise ValueError('Unsupported provider protocol')
                 
             if p['name'] in names:
                 raise ValueError(f"Duplicate provider name: {p['name']}")
@@ -378,7 +409,11 @@ class Router:
         """Validates chat request with null checks per field (H02, D)."""
         if not isinstance(request, dict):
             raise RequestError("Request must be a JSON object")
-        allowed = {'messages', 'axx_task', 'axx_sensitive', 'temperature', 'max_tokens', 'tools', 'stream'}
+        allowed = {'messages', 'axx_task', 'axx_sensitive', 'temperature', 'max_tokens', 'tools', 'stream', 'model', 'provider_name'}
+        if 'provider_name' in request and (not isinstance(request['provider_name'], str) or len(request['provider_name']) > 80):
+            raise RequestError('Invalid provider name')
+        if 'model' in request and (not isinstance(request['model'], str) or len(request['model']) > 200):
+            raise RequestError('Invalid model')
         if set(request) - allowed:
             raise RequestError('Unknown request fields')
         try:
@@ -515,9 +550,13 @@ class Router:
 
             if not p.get('enabled', False):
                 continue
+            if request.get('model') and request['model'] != p['model']:
+                continue
+            if request.get('provider_name') and request['provider_name'] != p['name']:
+                continue
 
             # Cost policy check (H06, Section 6)
-            if not self.allow_paid and not p.get('free_confirmed', False):
+            if not self.allow_paid and not p.get('free_confirmed', False) and not p.get('billing_allowed', False):
                 continue
 
             # Capability match check
@@ -535,7 +574,7 @@ class Router:
 
             # API key resolution check
             key_env = p.get('api_key_env')
-            if not _is_loopback_http(p['base_url']) and (not key_env or key_env not in os.environ or not os.environ[key_env].strip()):
+            if not _optional_auth(p) and (not key_env or key_env not in os.environ or not os.environ[key_env].strip()):
                 continue
 
             # Atomic quota reservation
@@ -657,11 +696,11 @@ class Router:
 
             # State determination (H09: 'ready' explicitly documented as local eligibility)
             key_env = p.get('api_key_env')
-            has_key = _is_loopback_http(p['base_url']) or bool(key_env and os.environ.get(key_env, '').strip())
+            has_key = _optional_auth(p) or bool(key_env and os.environ.get(key_env, '').strip())
 
             if not p.get('enabled', False):
                 state = 'disabled'
-            elif p.get('free_confirmed') is not True:
+            elif p.get('free_confirmed') is not True and p.get('billing_allowed') is not True:
                 state = 'free_not_confirmed'
             elif not has_key:
                 state = 'missing_key'

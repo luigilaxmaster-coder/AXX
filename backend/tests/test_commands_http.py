@@ -50,7 +50,16 @@ class CommandsHttpTests(unittest.TestCase):
             finally:
                 response.close()
 
+    def test_stopping_speech_does_not_cancel_a_pending_command(self):
+        pending = self.commands.prepare('axx.shell.powershell', {'script': 'Get-Date'})
+        status, result = self.request('speech/cancel', {})
+        self.assertEqual(status, 200)
+        self.assertEqual(result['cancelled_operations'], 0)
+        self.assertEqual(self.commands.get(pending['operation_id'])['state'], 'awaiting_approval')
+
     def test_legacy_routes_cannot_bypass_catalog_policy(self):
+        status, _ = self.request('actions/execute', {'tool_name': 'desktop_powershell', 'inputs': {'script': 'Get-Date'}})
+        self.assertEqual(status, 403)
         for tool in ('file_artifact_writer', 'blender_render_fixture'):
             inputs = {'path': 'bypass.txt', 'content': 'x'} if tool == 'file_artifact_writer' else {'filename': 'fixture.png'}
             status, result = self.request('actions/execute', {'tool_name': tool, 'inputs': inputs})

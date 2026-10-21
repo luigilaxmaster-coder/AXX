@@ -87,7 +87,12 @@ Start-Sleep -Seconds 1
 
 $exe = "$env:LOCALAPPDATA\Programs\Axx\Axx.exe"
 if (-not (Test-Path $exe)) {
-    throw "Axx.exe not found at $exe"
+    $localExe = Join-Path $PSScriptRoot "..\src-tauri\target\release\Axx.exe"
+    if (Test-Path $localExe) {
+        $exe = (Resolve-Path $localExe).Path
+    } else {
+        throw "Axx.exe not found at $exe or $localExe"
+    }
 }
 
 Write-Host "Launching Axx on WinSta0\Default..."

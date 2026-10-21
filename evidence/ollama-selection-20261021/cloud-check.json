@@ -1,0 +1,7 @@
+{
+  "cloud_request_succeeded": true,
+  "model": "gpt-oss:20b",
+  "finish_reason": "stop",
+  "response_characters": 2,
+  "seconds": 0.86
+}

@@ -14,6 +14,7 @@ use std::{
 };
 use tauri::{AppHandle, Emitter, Manager, State};
 mod resident;
+mod system_media;
 
 const MAX_MESSAGE: usize = 8 * 1024 * 1024;
 
@@ -1075,6 +1076,8 @@ pub fn run() {
         )
         .invoke_handler(tauri::generate_handler![
             native_status,
+            system_media::system_media_status,
+            system_media::system_media_control,
             backend_request,
             window_action,
             set_timer,
