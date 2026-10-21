@@ -1,0 +1,10 @@
+{
+  "version": "0.20.3",
+  "host_sha256": "61F60E9CAB547307D5CFFD234E8F596F9F41C8ECEA43FD2CE92CDF9039E97CDD",
+  "backend_sha256": "CE0EE8B54BE09ED76EFE4C08ECBCD84BA0CE9DF03A2DDF82B1B61CE3DAC22CCF",
+  "backend_resource_matches": true,
+  "backend_tests": 68,
+  "rust_passed": 14,
+  "rust_ignored": 1,
+  "desktop_contracts": 18
+}

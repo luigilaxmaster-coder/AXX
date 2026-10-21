@@ -1,0 +1,19 @@
+<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent;font:15px system-ui;color:#eef7ff}body.select{cursor:crosshair;background:#050b1940;user-select:none;touch-action:none}#selection{position:fixed;border:2px solid #a2eeff;background:#a2eeff12;box-shadow:0 0 0 10000px #04091450;pointer-events:none}#help{position:fixed;left:50%;top:24px;transform:translateX(-50%);padding:12px 18px;background:#101c2cf5;border:1px solid #8ccfff55;border-radius:16px;box-shadow:0 8px 32px #0006;white-space:nowrap;pointer-events:none}#size{position:absolute;left:0;top:100%;padding:5px 8px;background:#101c2c;border-radius:6px;white-space:nowrap}#halo{position:absolute;inset:0;border:3px solid #8eeaff;border-radius:6px;box-shadow:inset 0 0 12px #a891ffb0;animation:glow 2s ease-in-out infinite;pointer-events:none}html[data-phase=paused] #halo{border-color:#ffd184;animation:none;box-shadow:inset 0 0 10px #e3b86c66}html[data-phase=countdown] #halo{border-color:#e8edff}html[data-phase=stopping] #halo{animation:none}@keyframes glow{50%{border-color:#b9a0ff;box-shadow:inset 0 0 17px #7ce4ff99}}@media(prefers-reduced-motion:reduce){#halo{animation:none}}
+</style></head><body><div id="help" hidden>Arrastra para elegir el área · Esc cancela</div><div id="selection" hidden><span id="size"></span></div><div id="halo" hidden></div><script>
+const q=new URLSearchParams(location.search),mode=q.get('mode'),selection=document.getElementById('selection'),help=document.getElementById('help');
+let start=null,ending=false;
+const invoke=(name,args)=>window.__TAURI__.core.invoke(name,args);
+async function finish(rect){if(ending)return;ending=true;try{await invoke('capture_selection_finish',{token:q.get('token'),rect});}catch(e){ending=false;help.textContent=String(e);}}
+if(mode==='halo'){document.getElementById('halo').hidden=false;}
+else{
+document.body.className='select';help.hidden=false;
+const clamp=(x,max)=>Math.max(0,Math.min(max,x));
+const region=e=>{const x=clamp(e.clientX,innerWidth),y=clamp(e.clientY,innerHeight);return [Math.min(start.x,x),Math.min(start.y,y),Math.abs(x-start.x),Math.abs(y-start.y)];};
+addEventListener('pointerdown',e=>{if(e.button!==0||ending)return;start={x:clamp(e.clientX,innerWidth),y:clamp(e.clientY,innerHeight)};document.body.setPointerCapture(e.pointerId);selection.hidden=false;Object.assign(selection.style,{left:start.x+'px',top:start.y+'px',width:'0px',height:'0px'});});
+addEventListener('pointermove',e=>{if(!start)return;const [x,y,w,h]=region(e);Object.assign(selection.style,{left:x+'px',top:y+'px',width:w+'px',height:h+'px'});document.getElementById('size').textContent=Math.floor(w/innerWidth*Number(q.get('width')))+' × '+Math.floor(h/innerHeight*Number(q.get('height')));});
+addEventListener('pointerup',e=>{if(!start)return;const [x,y,w,h]=region(e);start=null;if(w<8||h<8){selection.hidden=true;return;}void finish([x/innerWidth,y/innerHeight,w/innerWidth,h/innerHeight]);});
+addEventListener('pointercancel',()=>{start=null;selection.hidden=true;});
+addEventListener('keydown',e=>{if(e.key==='Escape'){e.preventDefault();void finish(null);}});
+}
+</script></body></html>

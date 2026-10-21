@@ -14,7 +14,7 @@ assert(!html.includes('X-Axx-Token'), 'Host credentials must not appear in the f
 assert(!html.includes("const apiBase ="), 'Production must not hardcode a development port');
 
 (async () => {
-  const server = http.createServer((req, res) => { if (['/scripts/native-voice.js', '/scripts/native-music.js', '/scripts/command-library.js', '/scripts/axx-connect.js', '/scripts/providers.js'].includes(req.url)) { res.writeHead(200, { 'Content-Type': 'application/javascript' }); res.end(fs.readFileSync(path.join(__dirname, path.basename(req.url)))); } else { res.writeHead(200, { 'Content-Type': 'text/html' }); res.end(html); } });
+  const server = http.createServer((req, res) => { if (['/scripts/native-capture.js', '/scripts/native-voice.js', '/scripts/native-music.js', '/scripts/command-library.js', '/scripts/axx-connect.js', '/scripts/providers.js'].includes(req.url)) { res.writeHead(200, { 'Content-Type': 'application/javascript' }); res.end(fs.readFileSync(path.join(__dirname, path.basename(req.url)))); } else { res.writeHead(200, { 'Content-Type': 'text/html' }); res.end(html); } });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const browser = await chromium.launch({ headless: true, executablePath: process.env.AXX_TEST_CHROMIUM || path.join(process.env.LOCALAPPDATA, 'ms-playwright/chromium_headless_shell-1248/chrome-headless-shell-win64/chrome-headless-shell.exe') });
   const results = [];

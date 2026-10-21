@@ -15,6 +15,7 @@ use std::{
 use tauri::{AppHandle, Emitter, Manager, State};
 mod resident;
 mod system_media;
+mod capture;
 
 const MAX_MESSAGE: usize = 8 * 1024 * 1024;
 
@@ -1078,6 +1079,10 @@ pub fn run() {
             native_status,
             system_media::system_media_status,
             system_media::system_media_control,
+            capture::capture_select,
+            capture::capture_selection_finish,
+            capture::capture_cancel_selection,
+            capture::capture_halo,
             backend_request,
             window_action,
             set_timer,
@@ -1128,6 +1133,11 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            if window.label() == "capture-selector" && matches!(event, tauri::WindowEvent::CloseRequested { .. }) {
+                capture::selector_closed();
+            }
+            // Auxiliary selection/halo windows must never move the resident or stop its backend.
+            if window.label() != "main" { return; }
             let state = window.state::<HostState>();
             match event {
                 tauri::WindowEvent::Moved(position) => {

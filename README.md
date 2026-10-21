@@ -72,6 +72,7 @@ A visual presentation of Axx's liquid character. See the validation reports belo
 - [Provider and local model setup](docs/PROVEEDORES-API-LOCAL.md), including separate local/cloud Ollama catalogs.
 - [Desktop commands from chat](docs/COMANDOS-DESDE-CHAT.md): open supported apps/sites, search the web and review explicitly typed PowerShell before execution.
 - **System music:** discover Windows media sessions, select a player and tap Axx to pause/resume. Real Edge transport was verified. Output-level animation is implemented, but positive physical audio metering was not verified because the test session exposed no active output devices. Apps without Windows media controls cannot be universally paused.
+- **Area recording:** drag a rectangle on the desktop, see its boundary halo, and tap Axx to pause/resume. MP4 video is saved automatically to `%LOCALAPPDATA%/Axx/artifacts/recordings`; no browser picker or base64 video transfer is needed. This native mode currently records video without audio. [Usage and limits](docs/GRABACION-DE-AREA.md).
 
 See the [change log](CHANGELOG.md) and [music validation evidence](evidence/system-music-20261021/VERIFICATION.md) for checks and limits. These are source and local-build updates, not a newly published installer release.
 

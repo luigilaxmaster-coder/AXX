@@ -29,6 +29,10 @@ Source version remains 0.20.3, matching package.json and the Tauri manifests.
 
 ### Repository and validation
 
+- Add native rectangular desktop recording with a separate click-through halo excluded from capture, physical-pixel bounds validation, Escape cancellation and avatar pause/resume.
+- Encode H.264 MP4 directly to disk using bundled PyAV, verify decoding before reporting success, and retain partial files on errors. Native area recording is video-only, bounded to 30 active minutes or 4 GB.
+- Keep auxiliary capture-window lifecycle separate from the resident window so closing the selector cannot stop the backend or overwrite avatar geometry.
+
 - Add the supplied 720p concept video, preserving its original MP4 and audio, with a linked preview in the README.
 - Add regression tests, setup guides, screenshots and feature-level verification reports under `evidence/*-20261021/`.
 - Update Windows launch fallback and dependency lock metadata; ignore transient stdout/stderr files.

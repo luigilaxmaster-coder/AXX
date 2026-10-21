@@ -1,0 +1,33 @@
+{
+  "realHost": true,
+  "bundledBackend": true,
+  "areaSelection": true,
+  "haloExcluded": true,
+  "avatarPauseResume": true,
+  "frames": 65,
+  "bytes": 17796,
+  "sha256": "2bdf2a2b974bcbdeea4cb60806c72be7c841c3b1ff5df62ff9177397b621de85",
+  "decoded": {
+    "resolution": [
+      200,
+      160
+    ],
+    "pixels": [
+      [
+        33,
+        185,
+        100
+      ],
+      [
+        33,
+        185,
+        100
+      ],
+      [
+        33,
+        185,
+        100
+      ]
+    ]
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "windows_gdi": true,
+  "resolution": [
+    200,
+    160
+  ],
+  "pixel": [
+    33,
+    185,
+    100
+  ],
+  "frames": 20,
+  "bytes": 6547,
+  "verified": true,
+  "pause_resume": true,
+  "sha256": "5e708af73ba1a4a71a222b04c3b41579fef55a838442477694f49af376ab214f"
+}

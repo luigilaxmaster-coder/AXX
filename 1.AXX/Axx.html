@@ -18679,7 +18679,7 @@ var Axx;
             document.body.style.setProperty('--resident-y', this.anchor.y + 'px');
             document.body.style.setProperty('--resident-size', this.size + 'px');
         }
-        tap() { if (Axx.actions?.selected === 'music') { Axx.actions.primary(); this.schedule(); return; } if (Axx.actions?.selected === 'dictation') { Axx.voice13.toggle(); this.schedule(); return; } Axx.flow.tap(); const isOpen = (Axx.flow.nav.step !== 0); this.invoked = isOpen; document.body.classList.toggle('resident-invoked', isOpen); this.schedule(); }
+        tap() { if (['music','screen'].includes(Axx.actions?.selected)) { Axx.actions.primary(); this.schedule(); return; } if (Axx.actions?.selected === 'dictation') { Axx.voice13.toggle(); this.schedule(); return; } Axx.flow.tap(); const isOpen = (Axx.flow.nav.step !== 0); this.invoked = isOpen; document.body.classList.toggle('resident-invoked', isOpen); this.schedule(); }
         summon(follow = true) { this.invoked = true; document.body.classList.add('resident-invoked'); Axx.home18.wake(); Axx.companion.data.prefs.follow = follow; Axx.flow.compactTools(); this.activity(); this.schedule(); }
         home(move = false) { this.fold(); Axx.companion.data.prefs.follow = false; this.activity(); if (move) void Axx.app.bridge.action('recenter'); }
         fold(render = true) {
@@ -19257,4 +19257,4 @@ body[data-media16-source="system"] .m16-cover,body[data-media16-source="system"]
 body[data-media16-source="system"] #view-music .m16-now{padding:12px;margin-top:8px}
 body[data-media16-source="system"] #view-music .m16-transport{margin:8px 0 0}
 body[data-media16-source="system"] #view-music .m16-compact{padding:10px 14px;margin-top:8px}
-</style><script src="scripts/native-voice.js"></script><script src="scripts/command-library.js"></script><script src="scripts/axx-connect.js"></script><script src="scripts/providers.js"></script><script src="scripts/native-music.js"></script></body></html>
+</style><script src="scripts/native-voice.js"></script><script src="scripts/command-library.js"></script><script src="scripts/axx-connect.js"></script><script src="scripts/providers.js"></script><script src="scripts/native-music.js"></script><script src="scripts/native-capture.js"></script></body></html>

@@ -42,6 +42,7 @@ from backend.auth.callback_page import get_callback_html
 from backend.connect.http_api import ConnectHTTP, publish_endpoint, remove_endpoint
 from backend.connect.service import ConnectService
 from backend.connect.provider import CodexProvider, ProviderError
+from backend.screen_recording import ScreenRecordingService
 
 LOG = logging.getLogger('axx.server')
 MAX_BODY = 2 * 1024 * 1024
@@ -65,6 +66,7 @@ class ThreadedHTTPServer(socketserver.ThreadingMixIn, HTTPServer):
 class AxxBridgeHandler(BaseHTTPRequestHandler):
     adapter = executor = memory = identity = speech = transcription = None
     commands = None
+    recording = None
     chatgpt_auth = chatgpt_adapter = None
     connect = provider = None
     frontend_path = root_dir / '1.AXX' / 'Axx.html'
@@ -163,6 +165,8 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                     'features': {'actions': True, 'command_library': bool(self.commands), 'procedural_memory': True, 'spotify': False,
                                  'chatgpt_subscription': bool(self.chatgpt_auth and self.chatgpt_auth.is_authenticated()),
                                  'remote_inference_configured': any(p.get('enabled') for p in self.adapter.config.get('providers', []))}})
+            elif path == '/axx-api/screen/status':
+                self._send_json(200, self.recording.status() if self.recording else {'state':'unavailable'})
             elif path == '/axx-api/auth/chatgpt/status':
                 self._send_json(200, self.chatgpt_auth.get_status() if self.chatgpt_auth else {'authenticated': False})
             elif path == '/axx-api/auth/chatgpt/start':
@@ -491,6 +495,19 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                     'model': route_meta.get('model', ''),
                     'request_id': req_id
                 })
+            elif path in ('/axx-api/screen/start','/axx-api/screen/control','/axx-api/screen/open'):
+                if not self.recording:
+                    self._unsupported('Grabación nativa no disponible')
+                    return
+                if path.endswith('/start'):
+                    result=self.recording.start(body)
+                elif path.endswith('/control'):
+                    if set(body)!={'id','command'}:raise ValueError('Invalid recording control')
+                    result=self.recording.control(body['id'],body['command'])
+                else:
+                    if set(body)-{'id','folder'} or type(body.get('folder',False)) is not bool:raise ValueError('Invalid recording file request')
+                    result=self.recording.open_result(body.get('id'),body.get('folder',False))
+                self._send_json(200,result)
             elif path == '/axx-api/screen/save':
                 if set(body) - {'filename', 'video_base64', 'mime', 'markers'}:
                     raise ValueError('Unsupported screen save fields')
@@ -731,6 +748,8 @@ def run_server(host='127.0.0.1', port=4173, config_path='providers.json', state_
         services.append(adapter)
         executor = ActionExecutor(db_path=state_path, workspace_root=state_dir / 'artifacts')
         services.append(executor)
+        recording = ScreenRecordingService(executor.workspace_root)
+        services.append(recording)
         commands = CommandService(executor)
         services.append(commands)
         speech = WindowsSpeechService(state_dir)
@@ -754,7 +773,7 @@ def run_server(host='127.0.0.1', port=4173, config_path='providers.json', state_
             'memory': memory, 'identity': identity, 'speech': speech,
             'transcription': transcription, 'chatgpt_auth': chatgpt_auth,
             'chatgpt_adapter': chatgpt_adapter, 'config_path': Path(config_path),
-            'connect': connect, 'provider': provider
+            'connect': connect, 'provider': provider, 'recording': recording
         })
         server = ThreadedHTTPServer((host, port), handler)
         publish_endpoint(state_dir, server)
