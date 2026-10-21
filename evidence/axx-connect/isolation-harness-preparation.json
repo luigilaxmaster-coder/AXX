@@ -1,0 +1,18 @@
+{
+  "classification": "PREPARATION_AND_STATIC_CHECKS_ONLY",
+  "inference_executed": false,
+  "runtime_executed": false,
+  "subprocess_start_forbidden_during_validation": true,
+  "manifest_validation": "passed",
+  "fixture_validation": "passed",
+  "prepared_directory": "C:\\Users\\luigi\\Desktop\\Axx assistant\\evidence\\axx-connect\\isolation-prepared-7cd08d0819c7",
+  "script_sha256": "c464b7377095907aba2c52f169827f4592daf2d0066ee06cfe5882765acdc66f",
+  "provider_sha256": "6bd174d5ef87eaefa2f4e5c0584a01797221ed5890411e44fd745d6bd2e900b7",
+  "ordinary_usage_permission": "not_queried",
+  "real_runtime_acceptance": "not_run",
+  "builtin_inventory_complete": false,
+  "budgets_implemented_not_runtime_proven": {
+    "provider_seconds": 70,
+    "supervisor_seconds": 110
+  }
+}

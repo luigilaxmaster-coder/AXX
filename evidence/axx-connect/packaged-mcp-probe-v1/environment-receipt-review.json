@@ -1,0 +1,35 @@
+{
+  "state": "PASS_OFFLINE_BUILD_ENVIRONMENT_RECEIPTS_REHASHED",
+  "reviewed_utc": "2026-10-21T02:18:00Z",
+  "candidate_source_root": "build/connected-0.22.3-20261020",
+  "environment_evidence_root": "build/phased-ux-20261020/evidence/phase3-packaging-preparation/executed-environment",
+  "checked": {
+    "venv_include_system_site_packages": false,
+    "wheel_archives_rehashed": 62,
+    "installed_distributions": 62,
+    "versions_match_wheel_manifest": true,
+    "preflight_imports_passed": 19,
+    "packaging_guard_exit_code": 0
+  },
+  "source_and_environment_hashes": {
+    "axx_backend_spec_sha256": "546eade5966dc67002cf12b3e55909e284ff191eaa3e54613011db0a145df94b",
+    "windows_lock_sha256": "d671a8709d9b57fe34aed7b88880fd53c808dde9a4e75e2882077df0f3d30121",
+    "public_dependency_manifest_sha256": "08807f26abd739cb27291d0537ddd831a35008642808db9ea33b5bf8667e3da4",
+    "prebuild_environment_receipt_sha256": "cf688e88e029c269a461d153b84a9c840c4ad972c29f87580c4dfce3cc97ebca",
+    "wheelhouse_manifest_sha256": "ecab10c4f2cd120f4518c76677b99f923bfc113f49f800f84b43b4e8b6f747d7",
+    "execution_result_sha256": "a6de2f77432ba8496be714ceb3c6323fe23aa663889374d60ea30641d2069516"
+  },
+  "prepared_mcp_probe_sha256": "8ee219518c38441796ec43bf7e6b226f66bbbe795136ce9638bdff07fa5f89e6a",
+  "not_verified": {
+    "pyinstaller_toc_or_frozen_executable": true,
+    "mcp_stdio_initialize_and_list_tools": true,
+    "asr_model_load_or_transcription": true,
+    "installed_artifact_adoption": true,
+    "complete_builtin_tool_inventory_or_os_isolation": true
+  },
+  "distribution_notice_review": {
+    "python_package_notice_coverage": "preflight receipt reports complete",
+    "linked_native_library_notices": "PENDING; PyAV/FFmpeg codecs, x264/x265, Intel OpenMP, cuDNN and related components require final TOC review"
+  },
+  "scope": "Read-only rehash and receipt consistency check; no Axx build/install, MCP server, account, model, GUI, audio, ASR model, or EXE was run."
+}

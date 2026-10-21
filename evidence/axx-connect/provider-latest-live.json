@@ -1,0 +1,157 @@
+{
+  "timestamp_utc": "2026-10-20T21:01:57.313906+00:00",
+  "codex_version": "0.160.0",
+  "source_hashes": {
+    "backend/connect/provider.py": "a6c533f1c1d5ba8524b051e21562614eb534a19d478e81d33161b3f84e4be536",
+    "backend/connect/registry.py": "8605810bf07a66c6b11843401c425592c14f84920b72b4f20e8e79ae59c862a8",
+    "backend/connect/service.py": "d64d87bf18a8576467de3d1307cb1defa41655ad3f75eacd4e41cd36598d574a"
+  },
+  "scope": "One actual translation turn after account-epoch, cost, model-identity and cancellation-ownership guards. Prior three-turn evidence provider-final-live.json predates the last account/cost guards.",
+  "passed": true,
+  "run": {
+    "request_id": "latest-e46d673dddf8",
+    "conversation_id": "axx-translation-1e44905e64157d132f876d4ecbc8edb3",
+    "model": "gpt-6.1-sol",
+    "origin": "axx",
+    "parent_execution_id": null,
+    "delegation_depth": 0,
+    "purpose": "translation",
+    "source_language": "en",
+    "target_language": "es",
+    "state": "completed",
+    "response": "Hola.",
+    "thread_id": "01a15b1e-fbda-7532-8198-8ac5ac33115f",
+    "turn_id": "01a15b1f-09ab-7611-8f72-488689b87925",
+    "tool_results": [],
+    "usage": {
+      "total": {
+        "totalTokens": 31789,
+        "inputTokens": 31713,
+        "cachedInputTokens": 0,
+        "cacheWriteInputTokens": 0,
+        "outputTokens": 76,
+        "reasoningOutputTokens": 68
+      },
+      "last": {
+        "totalTokens": 31789,
+        "inputTokens": 31713,
+        "cachedInputTokens": 0,
+        "cacheWriteInputTokens": 0,
+        "outputTokens": 76,
+        "reasoningOutputTokens": 68
+      },
+      "modelContextWindow": 475000
+    },
+    "error": null,
+    "last_event": 8,
+    "managed_operations": [],
+    "created_at": 1792530118.7438178,
+    "updated_at": 1792530130.4114125,
+    "cancel_requested": false,
+    "usage_permission": {
+      "ordinary_usage_allowed": true,
+      "usage_status_available": true
+    },
+    "account_fingerprint": "99cd652d5002336b166ce909514f8e763ee186b0b35fa8d42e2cc396ec219cb5",
+    "account_epoch": 1,
+    "runtime_model": "gpt-6.1-sol",
+    "runtime_provider": "openai",
+    "turn_status": "completed",
+    "events": [
+      {
+        "seq": 1,
+        "type": "run/accepted",
+        "data": {},
+        "at": 1792530118.9575088
+      },
+      {
+        "seq": 2,
+        "type": "thread/ready",
+        "data": {
+          "thread_id": "01a15b1e-fbda-7532-8198-8ac5ac33115f",
+          "resumed": false
+        },
+        "at": 1792530123.1584058
+      },
+      {
+        "seq": 3,
+        "type": "turn/dispatched",
+        "data": {
+          "turn_id": "01a15b1f-09ab-7611-8f72-488689b87925"
+        },
+        "at": 1792530123.243867
+      },
+      {
+        "seq": 4,
+        "type": "turn/started",
+        "data": {
+          "turn_id": "01a15b1f-09ab-7611-8f72-488689b87925"
+        },
+        "at": 1792530123.357792
+      },
+      {
+        "seq": 5,
+        "type": "item/agentMessage/delta",
+        "data": {
+          "delta": "Hola"
+        },
+        "at": 1792530130.1387887
+      },
+      {
+        "seq": 6,
+        "type": "item/agentMessage/delta",
+        "data": {
+          "delta": "."
+        },
+        "at": 1792530130.165411
+      },
+      {
+        "seq": 7,
+        "type": "thread/tokenUsage/updated",
+        "data": {
+          "usage": {
+            "total": {
+              "totalTokens": 31789,
+              "inputTokens": 31713,
+              "cachedInputTokens": 0,
+              "cacheWriteInputTokens": 0,
+              "outputTokens": 76,
+              "reasoningOutputTokens": 68
+            },
+            "last": {
+              "totalTokens": 31789,
+              "inputTokens": 31713,
+              "cachedInputTokens": 0,
+              "cacheWriteInputTokens": 0,
+              "outputTokens": 76,
+              "reasoningOutputTokens": 68
+            },
+            "modelContextWindow": 475000
+          }
+        },
+        "at": 1792530130.2160923
+      },
+      {
+        "seq": 8,
+        "type": "turn/completed",
+        "data": {
+          "status": "completed",
+          "error": null
+        },
+        "at": 1792530130.394736
+      }
+    ],
+    "pending_approvals": [],
+    "effects_reverted": false
+  },
+  "final_status": {
+    "state": "connected",
+    "authenticated": true,
+    "inference_verified": true,
+    "model": "gpt-6.1-sol",
+    "allow_paid": false,
+    "extra_credit_fallback": false,
+    "account_epoch": 1
+  },
+  "source_hashes_unchanged": true
+}

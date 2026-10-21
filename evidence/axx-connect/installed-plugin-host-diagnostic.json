@@ -1,0 +1,33 @@
+{
+  "inference_called": false,
+  "config_mutated": false,
+  "plugin": "axx-connect@axx-local",
+  "ok": true,
+  "initialized": true,
+  "servers": [
+    {
+      "name": "axx-connect",
+      "pluginId": "axx-connect@axx-local",
+      "runtimeStatus": null,
+      "toolsError": null,
+      "serverInfo": {
+        "name": "axx-connect",
+        "title": null,
+        "version": "0.1.0",
+        "description": null,
+        "icons": null,
+        "websiteUrl": null
+      },
+      "tools": [
+        "axx_cancel_task",
+        "axx_execute_action",
+        "axx_get_task",
+        "axx_list_capabilities",
+        "axx_process_inspect",
+        "axx_status",
+        "axx_system_telemetry"
+      ]
+    }
+  ],
+  "diagnostics": []
+}

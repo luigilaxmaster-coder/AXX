@@ -1,0 +1,27 @@
+[
+  {
+    "module": "test_chatgpt_auth",
+    "exit_code": 0,
+    "log": "evidence\\axx-connect\\test_chatgpt_auth.final.log"
+  },
+  {
+    "module": "test_command_library",
+    "exit_code": 0,
+    "log": "evidence\\axx-connect\\test_command_library.final.log"
+  },
+  {
+    "module": "test_commands_http",
+    "exit_code": 0,
+    "log": "evidence\\axx-connect\\test_commands_http.final.log"
+  },
+  {
+    "module": "test_delivery_contract",
+    "exit_code": 0,
+    "log": "evidence\\axx-connect\\test_delivery_contract.final.log"
+  },
+  {
+    "module": "test_server_smoke",
+    "exit_code": 0,
+    "log": "evidence\\axx-connect\\test_server_smoke.final.log"
+  }
+]

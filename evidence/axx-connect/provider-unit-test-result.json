@@ -1,0 +1,11 @@
+{
+  "timestamp_utc": "2026-10-20T21:02:35.333970+00:00",
+  "command": "python -m unittest discover -s backend/connect/tests -p test_provider.py -v",
+  "exit_code": 0,
+  "duration_seconds": 4.304,
+  "offline_passed": 32,
+  "live_opt_in_skipped": 1,
+  "provider_source_sha256": "a22c2b640a8f2a9e87ac55c4c1df4601a3a7ef4accd0b5e9d8fd7fbbc1f0bb02",
+  "last_live_evidence": "provider-latest-live.json",
+  "post_live_rejection_only_change": "Account mismatch now returns failed ACCOUNT_CHANGED and inference_verified:false; evidence retained."
+}

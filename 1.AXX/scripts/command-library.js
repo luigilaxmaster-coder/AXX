@@ -1,0 +1,355 @@
+/* Command catalog for the existing Axx UI. Recognition is data; only typed IDs reach the executor. */
+(function installCommandLibrary(Axx) {
+    'use strict';
+    if (!Axx?.companion || Axx.commandLibrary) return;
+    const node = id => document.getElementById(id);
+    const errorText = error => typeof error === 'string' ? error : error?.message || error?.code || 'No se pudo completar el comando.';
+    class CommandLibrary {
+        generation = 0; searchGeneration = 0; observationRevision = 0; cancellingGeneration = null; busy = false; operation = null; pendingOperationId = null; commands = []; voiceDraft = null;
+        constructor() {
+            this.installControls();
+            this.installDispatch();
+            this.connectExistingActions();
+            this.markVoiceProvenance();
+            if (Axx.isNative() && !Axx.desktop) void Axx.app.bridge.listen('axx-cancel', () => { void this.cancel(); });
+            document.addEventListener('keydown', event => {
+                if (event.key === 'Escape' && (this.busy || this.operation)) void this.cancel();
+            }, true);
+        }
+        status(text) {
+            node('command-library-status').textContent = text;
+            const rtStatus = node('desktop-runtime-status');
+            if (rtStatus && Axx.desktop) rtStatus.textContent = text;
+        }
+        report(error) { this.status((this.operation ? 'Resultado incierto: ' : '') + errorText(error) + (this.operation ? ' Consulta el resultado antes de reintentar.' : '')); }
+        async request(method, path, body) {
+            const result = await Axx.backendRequest(method, path, body);
+            if (!result || typeof result !== 'object') throw new Error('Respuesta de la biblioteca no válida.');
+            if (result.error && !result.state) throw new Error(errorText(result.error));
+            return result;
+        }
+        installControls() {
+            const section = document.createElement('section');
+            section.id = 'command-library'; section.className = 'setup-card';
+            section.innerHTML = `<strong>Biblioteca de comandos</strong>
+              <p>Busca una acción y revisa sus parámetros. Las recetas documentadas permanecen bloqueadas hasta disponer de un adaptador validado.</p>
+              <p id="command-library-counts">Consulta el catálogo para ver su disponibilidad.</p>
+              <form id="command-library-search-form"><label class="setting">Buscar por nombre o ID<input class="field" id="command-library-query" type="search" maxlength="200" placeholder="Ej. estado del sistema"></label><button id="command-library-search" type="submit">Buscar comandos</button></form>
+              <label class="setting">Comandos<select class="field" id="command-library-select"><option value="">Busca para consultar el catálogo</option></select></label>
+              <p id="command-library-description"></p><p id="command-library-availability"></p>
+              <form id="command-library-parameters"><div id="command-library-fields"></div><button id="command-library-prepare" type="submit" disabled>Preparar comando</button></form>
+              <section id="command-library-approval" hidden aria-label="Aprobación del comando"><strong>Revisa antes de ejecutar</strong><pre id="command-library-preview" style="white-space:pre-wrap;word-break:break-word;max-height:220px;overflow:auto"></pre><p>Esta autorización se aplica únicamente al comando y los parámetros mostrados.</p><button id="command-library-approve" type="button">Aprobar y ejecutar este comando</button></section>
+              <div class="quick-row"><button id="command-library-cancel" type="button" disabled>Cancelar comando</button><button id="command-library-recover" type="button" disabled>Consultar resultado</button></div>
+              <p id="command-library-status" role="status">${Axx.isNative() ? 'Lista para consultar el backend de Axx.' : 'El catálogo ejecutable requiere Axx para Windows. Puedes seguir usando las herramientas locales.'}</p>
+              <pre id="command-library-result" style="white-space:pre-wrap;word-break:break-word;max-height:280px;overflow:auto" aria-live="polite"></pre>
+              <p>Puedes escribir o dictar «estado del sistema» y enviarlo desde el chat. «/comandos texto» busca; «/comando ID {parámetros JSON}» prepara el mismo comando. Dictar coloca texto; la aprobación de una escritura requiere el botón anterior.</p>`;
+            node('view-files').prepend(section);
+            node('command-library-search-form').onsubmit = event => { event.preventDefault(); void this.search().catch(e => this.status(errorText(e))); };
+            node('command-library-select').onchange = () => this.renderSelection();
+            node('command-library-parameters').onsubmit = event => { event.preventDefault(); void this.fromSelection().catch(e => this.report(e)); };
+            node('command-library-approve').onclick = () => { void this.approve().catch(e => this.report(e)); };
+            node('command-library-cancel').onclick = () => { void this.cancel(); };
+            node('command-library-recover').onclick = () => { void this.recover().catch(e => this.status(errorText(e))); };
+            if (!Axx.isNative()) node('command-library-search').disabled = true;
+            this.commands = [
+                { id: 'axx.system.telemetry', title: 'Estado del sistema (CPU, RAM, disco)', description: 'Consulta métricas verificadas de CPU, memoria y disco local.', execution_enabled: true, validation_level: 'IMPLEMENTADO_LOCAL', parameters: {} },
+                { id: 'axx.process.inspect', title: 'Inspeccionar proceso de Windows', description: 'Inspecciona el proceso indicado por PID (o el proceso actual de Axx).', execution_enabled: true, validation_level: 'IMPLEMENTADO_LOCAL', parameters: { pid: { type: 'integer', required: false, minimum: 1 } } },
+                { id: 'axx.artifact.write', title: 'Crear archivo verificado en Axx/artifacts', description: 'Escribe un archivo de texto dentro de la carpeta aislada Axx/artifacts y verifica su SHA-256.', execution_enabled: true, validation_level: 'IMPLEMENTADO_CON_APROBACION', parameters: { path: { type: 'string', required: true, maxLength: 240 }, content: { type: 'string', required: true, maxLength: 65536 } } }
+            ];
+            const select = node('command-library-select');
+            if (select) {
+                select.replaceChildren();
+                for (const command of this.commands) {
+                    const option = document.createElement('option');
+                    option.value = command.id;
+                    option.textContent = `${command.title} · Habilitado · ${command.id}`;
+                    select.append(option);
+                }
+                this.renderSelection();
+            }
+            const link = document.createElement('button'); link.id = 'command-library-open'; link.className = 'wide-button'; link.textContent = 'Abrir biblioteca de comandos';
+            link.onclick = () => { this.open(); void this.search().catch(e => this.status(errorText(e))); };
+            node('desktop-runtime')?.prepend(link);
+        }
+        open() { Axx.companion.openFeature('files'); node('command-library').scrollIntoView({ block: 'nearest' }); Axx.resident?.schedule(); }
+        connectExistingActions() {
+            if (!Axx.desktop) return;
+            const ids = { system_telemetry: 'axx.system.telemetry', process_state_inspector: 'axx.process.inspect', file_artifact_writer: 'axx.artifact.write' };
+            Axx.desktop.execute = async (toolName, inputs) => {
+                if (!ids[toolName]) throw new Error('Este adaptador está pendiente de validación. Consulta la biblioteca.');
+                await this.prepare(ids[toolName], inputs, 'text');
+            };
+            Axx.desktop.executeRecipe = async () => {
+                const intent = node('desktop-recipes').value;
+                if (!intent) throw new Error('Selecciona un procedimiento guardado.');
+                const catalog = await this.request('GET', '/axx-api/recipes');
+                const recipe = catalog.recipes?.find(item => item.intent_key === intent);
+                if (!recipe?.schema || typeof recipe.schema !== 'object' || Array.isArray(recipe.schema)) throw new Error('La receta no expone un esquema de parámetros válido.');
+                const known = { path: node('desktop-artifact-name').value.trim(), content: node('desktop-artifact-content').value }, inputs = {};
+                for (const name of Object.keys(recipe.schema)) {
+                    if (!Object.hasOwn(known, name)) throw new Error('Este procedimiento necesita parámetros que todavía no ofrece este panel: ' + name + '.');
+                    inputs[name] = known[name];
+                }
+                await this.prepareRequest('/axx-api/recipes/prepare', { intent_key: intent, inputs });
+            };
+            const cancel = Axx.desktop.cancel.bind(Axx.desktop);
+            Axx.desktop.cancel = () => { void this.cancel(); cancel(); };
+            const blender = node('desktop-blender');
+            if (blender) { blender.disabled = true; blender.textContent = 'Blender · pendiente de validación'; blender.title = 'El adaptador no está habilitado en la biblioteca hasta completar su validación física.'; }
+        }
+        async search(query = node('command-library-query').value.trim()) {
+            const serial = ++this.searchGeneration;
+            node('command-library-query').value = query;
+            this.status('Consultando disponibilidad de los comandos.');
+            const result = await this.request('GET', '/axx-api/commands?q=' + encodeURIComponent(query) + '&limit=30');
+            if (serial !== this.searchGeneration) return;
+            if (!Array.isArray(result.commands)) throw new Error('El backend no devolvió un catálogo válido.');
+            this.commands = result.commands;
+            const select = node('command-library-select'); select.replaceChildren();
+            for (const command of this.commands) {
+                const option = document.createElement('option'); option.value = command.id;
+                option.textContent = `${command.title || command.id} · ${command.execution_enabled ? 'Habilitado' : 'Bloqueado'} · ${command.id}`;
+                select.append(option);
+            }
+            const counts = result.counts || {};
+            node('command-library-counts').textContent = `Importadas: ${counts.imported ?? 'sin dato'} · Habilitadas: ${counts.enabled ?? 'sin dato'} · Bloqueadas: ${counts.blocked ?? 'sin dato'} · Operaciones verificadas: ${counts.verified_operations ?? 0}.`;
+            this.renderSelection(); this.status(this.commands.length ? 'Mostrando hasta 30 resultados. Selecciona para revisar sus condiciones.' : 'No se encontraron comandos. Prueba otro nombre o ID.');
+        }
+        renderSelection() {
+            const command = this.commands.find(item => item.id === node('command-library-select').value);
+            const fields = node('command-library-fields'); fields.replaceChildren();
+            node('command-library-description').textContent = command?.description || '';
+            node('command-library-availability').textContent = command ? `${command.execution_enabled ? 'Habilitado' : 'Bloqueado: ' + (command.blocked_reason || 'Sin adaptador ejecutable validado')}. ${command.validation_level || command.source_status || ''}` : '';
+            node('command-library-prepare').disabled = !Axx.isNative() || !command?.execution_enabled || this.busy || !!this.operation;
+            if (!command) return;
+            for (const [name, schema] of Object.entries(command.parameters || {})) {
+                const label = document.createElement('label'); label.className = 'setting'; label.textContent = name + (schema.required ? ' · obligatorio' : ' · opcional');
+                const field = document.createElement(Array.isArray(schema.enum) ? 'select' : name === 'content' ? 'textarea' : 'input');
+                field.className = 'field'; field.name = name; field.dataset.parameterType = schema.type || 'string';
+                if (schema.type === 'boolean') { field.type = 'checkbox'; field.required = false; }
+                else if (schema.type === 'integer' || schema.type === 'number') { field.type = 'number'; field.step = schema.type === 'integer' ? '1' : 'any'; }
+                else if (field.tagName === 'INPUT') field.type = 'text';
+                field.required = schema.type !== 'boolean' && !!schema.required;
+                if (schema.maxLength) field.maxLength = schema.maxLength;
+                if (schema.minimum !== undefined) field.min = String(schema.minimum);
+                if (schema.maximum !== undefined) field.max = String(schema.maximum);
+                if (Array.isArray(schema.enum)) for (const value of schema.enum) { const option = document.createElement('option'); option.value = String(value); option.textContent = String(value); field.append(option); }
+                if (schema.default !== undefined) { if (schema.type === 'boolean') field.checked = schema.default === true; else field.value = String(schema.default); }
+                label.append(field); fields.append(label);
+            }
+            Axx.resident?.schedule();
+        }
+        typedInputs() {
+            const values = {};
+            for (const field of node('command-library-fields').querySelectorAll('[name]')) {
+                if (field.dataset.parameterType === 'boolean') { values[field.name] = field.checked; continue; }
+                if (!field.value && !field.required) continue;
+                if (['number', 'integer'].includes(field.dataset.parameterType)) {
+                    const value = Number(field.value);
+                    if (!field.value || !Number.isFinite(value) || field.dataset.parameterType === 'integer' && !Number.isInteger(value)) throw new Error('Revisa el número de ' + field.name + '.');
+                    values[field.name] = value;
+                } else values[field.name] = field.value;
+            }
+            return values;
+        }
+        async fromSelection() {
+            const command = this.commands.find(item => item.id === node('command-library-select').value);
+            if (!command?.execution_enabled) throw new Error('Este comando no tiene un adaptador habilitado.');
+            return this.prepare(command.id, this.typedInputs(), 'text');
+        }
+        hasLocalIntent(raw) {
+            const allowed = new Set(['note', 'todo', 'timer', 'analyze', 'searchNotes', 'calculate', 'convert', 'completeTodo', 'pause', 'resume', 'cancel', 'notes', 'todos', 'time', 'date', 'help', 'greet', 'summon', 'follow', 'stay', 'hide']);
+            try { return allowed.has(Axx.parseIntent?.(raw)?.type) || Boolean(Axx.isLocalExternalCommand?.(raw)); }
+            catch { return true; } // The existing parser displays its own validation error locally.
+        }
+        installDispatch() {
+            const previous = Axx.companion.send.bind(Axx.companion);
+            if (Axx.companion.submit) {
+                const submit = Axx.companion.submit.bind(Axx.companion);
+                Axx.companion.submit = async () => {
+                    const draft = node('chat-input').value.trim();
+                    if ((this.busy || this.operation) && !this.hasLocalIntent(draft) && !/^(?:\/cancelar-comando|cancelar comando|cancela el comando|\/comandos(?:\s+.*)?)$/i.test(draft)) {
+                        Axx.app.toast('Hay un comando pendiente. Tu borrador se conserva; revisa el resultado o cancela el comando.');
+                        return;
+                    }
+                    return submit();
+                };
+            }
+            Axx.companion.send = async (text, metadata = {}) => {
+                const raw = String(text || '').trim();
+                const catalogQuery = raw.match(/^\/comandos(?:\s+(.*))?$/i);
+                if (catalogQuery) { this.open(); try { await this.search(catalogQuery[1] || ''); } catch (error) { this.status(errorText(error)); } return; }
+                if (/^(?:\/cancelar-comando|cancelar comando|cancela el comando)$/i.test(raw)) { await this.cancel(); return; }
+                if (!Axx.isNative() || !raw || Axx.companion.attachment || Axx.companion.pending || Axx.companion.externalBusy) return previous(raw);
+                if (raw.length > 10000) return previous(raw);
+                if (this.hasLocalIntent(raw)) return previous(raw);
+                if (this.busy || this.operation) { Axx.companion.localNotice('Hay un comando pendiente. Revisa su aprobación o cancélalo antes de enviar otro.'); return; }
+                const source = metadata.source === 'voice' || this.voiceDraft?.value === raw ? 'voice' : 'text';
+                this.voiceDraft = null;
+                const serial = ++this.generation; let prepared = false; this.busy = true;
+                try {
+                    const resolved = await this.request('POST', '/axx-api/commands/resolve', { text: raw, source });
+                    if (serial !== this.generation) return;
+                    this.busy = false;
+                    if (resolved.match === 'none') return previous(raw);
+                    Axx.companion.message('user', raw, 'local');
+                    if (resolved.match !== 'exact' || !resolved.command_id) {
+                        Axx.companion.localNotice(resolved.match === 'ambiguous' ? 'Hay varios comandos posibles. Abre /comandos y selecciona el ID exacto.' : 'No se pudo identificar un comando válido. Consulta /comandos.');
+                        return;
+                    }
+                    prepared = true;
+                    const result = await this.prepare(resolved.command_id, resolved.inputs || {}, source);
+                    if (result) Axx.companion.localNotice(result);
+                } catch (error) {
+                    if (serial + (prepared ? 1 : 0) === this.generation) {
+                        this.report(error);
+                        Axx.companion.localNotice((this.operation ? 'No se confirmó el resultado del comando. ' : 'No se pudo consultar o preparar el comando. ') + errorText(error) + (this.operation ? ' Consulta el resultado en Biblioteca antes de reintentar.' : ' Puedes reintentar la consulta; no se enviará al modelo automáticamente.'));
+                    }
+                } finally { if (serial === this.generation && !this.operation) this.busy = false; }
+            };
+        }
+        markVoiceProvenance() {
+            const voice = Axx.voice13;
+            if (!voice?.applyPending) return;
+            const apply = voice.applyPending.bind(voice);
+            voice.applyPending = (...args) => {
+                const field = voice.target?.field, before = field?.value;
+                const result = apply(...args);
+                if (field?.id === 'chat-input' && field.value !== before) this.voiceDraft = { value: field.value.trim() };
+                return result;
+            };
+        }
+        renderOperation(operation) {
+            node('command-library-result').textContent = JSON.stringify(operation, null, 2);
+            const awaiting = operation?.state === 'awaiting_approval';
+            node('command-library-approval').hidden = !awaiting;
+            if (awaiting) node('command-library-preview').textContent = JSON.stringify({ command_id: operation.command_id, inputs: operation.inputs, operation_id: operation.operation_id }, null, 2);
+            node('command-library-approve').disabled = !awaiting || this.busy;
+            node('command-library-cancel').disabled = !this.busy && !this.operation;
+            node('command-library-recover').disabled = this.busy || this.cancellingGeneration === this.generation || !operation?.operation_id;
+            node('command-library-prepare').disabled = this.busy || !!this.operation || !this.commands.find(item => item.id === node('command-library-select').value)?.execution_enabled;
+            if (Axx.desktop) {
+                const verified = operation?.state === 'succeeded' && operation.postconditions_passed === true;
+                Axx.desktop.lastOperation = verified ? operation : null;
+                node('desktop-action-result').textContent = JSON.stringify(operation, null, 2);
+            }
+            Axx.resident?.schedule();
+        }
+        async prepare(commandId, inputs, source) {
+            return this.prepareRequest('/axx-api/commands/prepare', { command_id: commandId, inputs, source });
+        }
+        async prepareRequest(path, body) {
+            if (this.busy || this.operation) throw new Error('Ya hay un comando pendiente.');
+            const serial = ++this.generation; this.busy = true;
+            ++this.observationRevision;
+            const operationId = Axx.newId(); this.pendingOperationId = operationId;
+            this.lastOperation = { operation_id: operationId, command_id: body.command_id, state: 'preparing' };
+            this.status('Validando parámetros, adaptador y permisos.');
+            node('command-library-cancel').disabled = false;
+            node('command-library-recover').disabled = true;
+            try {
+                const operation = await this.request('POST', path, { ...body, operation_id: operationId });
+                if (serial !== this.generation) return;
+                if (operation.operation_id !== operationId) throw new Error('La preparación no corresponde al comando solicitado.');
+                this.pendingOperationId = null;
+                return await this.adopt(operation);
+            } catch (error) {
+                if (serial !== this.generation) return;
+                throw error;
+            } finally { if (serial === this.generation) { this.pendingOperationId = null; this.busy = false; node('command-library-cancel').disabled = !this.operation; node('command-library-recover').disabled = !this.lastOperation?.operation_id; } }
+        }
+        async adopt(operation) {
+            if (!operation?.operation_id || !['prepared', 'awaiting_approval', 'blocked', 'cancelled'].includes(operation.state)) throw new Error('El backend no confirmó un comando preparado.');
+            ++this.observationRevision; this.lastOperation = operation;
+            this.operation = ['prepared', 'awaiting_approval'].includes(operation.state) ? operation : null;
+            this.busy = false; this.renderOperation(operation);
+            if (operation.state === 'blocked') { this.status('Comando bloqueado: ' + errorText(operation.error)); return 'Comando bloqueado: ' + errorText(operation.error); }
+            if (operation.state === 'cancelled') { this.status('Comando cancelado antes de ejecutar.'); return 'Comando cancelado antes de ejecutar.'; }
+            if (operation.state === 'awaiting_approval') { this.open(); this.status('Pendiente de tu aprobación del comando y sus parámetros.'); return 'Comando preparado. Revisa sus parámetros en Biblioteca y pulsa «Aprobar y ejecutar este comando».'; }
+            return await this.execute(false);
+        }
+        async approve() {
+            if (!this.operation || this.operation.state !== 'awaiting_approval' || this.busy) return;
+            const message = await this.execute(true);
+            if (message) Axx.companion.localNotice(message);
+        }
+        async execute(approved) {
+            const operation = this.operation;
+            if (!operation || this.busy) throw new Error('No hay un comando preparado para ejecutar.');
+            ++this.observationRevision;
+            const serial = this.generation; this.busy = true; this.renderOperation(operation); this.status('Ejecutando y comprobando el resultado.');
+            try {
+                const result = await this.request('POST', '/axx-api/commands/execute', { operation_id: operation.operation_id, ...(approved ? { approved: true } : {}) });
+                if (serial !== this.generation) return;
+                if (result.operation_id !== operation.operation_id) throw new Error('El resultado no corresponde al comando solicitado.');
+                this.lastOperation = result; this.operation = null; this.busy = false; this.renderOperation(result);
+                const verified = result.state === 'succeeded' && result.postconditions_passed === true;
+                let detail = '';
+                if (verified && result.evidence && typeof result.evidence === 'object') {
+                    const ev = result.evidence;
+                    if (typeof ev.cpu_usage_percent === 'number' || typeof ev.memory_used_mb === 'number') {
+                        const parts = [];
+                        if (typeof ev.cpu_usage_percent === 'number') parts.push(`CPU ${Math.round(ev.cpu_usage_percent)}%`);
+                        if (typeof ev.memory_used_mb === 'number' && typeof ev.memory_total_mb === 'number') parts.push(`RAM ${Math.round(ev.memory_used_mb / 102.4) / 10} de ${Math.round(ev.memory_total_mb / 102.4) / 10} GB`);
+                        if (parts.length) detail = ' (' + parts.join(', ') + ')';
+                    } else if (ev.name && ev.pid) detail = ` (${ev.name}, PID ${ev.pid})`;
+                }
+                const message = verified ? 'Comando completado y verificado: ' + result.command_id + detail + '.' : result.state === 'cancelled' ? 'Comando cancelado. No se marcó como completado.' : 'Comando sin éxito verificado: ' + errorText(result.error || result.state) + '.';
+                this.status(message); Axx.companion.action(verified ? 'success' : result.state === 'cancelled' ? 'cancel' : 'error');
+                return message;
+            } catch (error) {
+                if (serial !== this.generation) return;
+                this.status('Resultado incierto: ' + errorText(error) + ' Consulta el resultado antes de reintentar.'); node('command-library-approval').hidden = true;
+                throw error;
+            } finally { if (serial === this.generation) { this.busy = false; node('command-library-recover').disabled = !operation.operation_id; node('command-library-cancel').disabled = !this.operation; } }
+        }
+        async recover() {
+            if (this.busy || this.cancellingGeneration === this.generation) return;
+            const operation = this.operation || this.lastOperation;
+            if (!operation?.operation_id) return;
+            const serial = this.generation;
+            const revision = ++this.observationRevision;
+            let result;
+            try { result = await this.request('GET', '/axx-api/commands/operations?operation_id=' + encodeURIComponent(operation.operation_id)); }
+            catch (error) { if (serial !== this.generation || revision !== this.observationRevision) return; throw error; }
+            if (serial !== this.generation || revision !== this.observationRevision || this.busy) return;
+            if (!result.operation || result.operation.operation_id !== operation.operation_id) throw new Error('El backend no confirmó el estado de este comando.');
+            this.lastOperation = result.operation;
+            this.operation = ['prepared', 'awaiting_approval', 'running'].includes(result.operation.state) ? result.operation : null;
+            this.renderOperation(result.operation);
+            this.status('Estado observado: ' + result.operation.state + (result.operation.postconditions_passed === true ? ' · condiciones verificadas.' : '.'));
+        }
+        async cancel(send = true) {
+            if (this.cancellingGeneration === this.generation) return;
+            const operation = this.operation;
+            const operationId = operation?.operation_id || this.pendingOperationId;
+            ++this.generation; this.busy = false; this.operation = null; this.pendingOperationId = null;
+            const serial = this.generation, revision = ++this.observationRevision;
+            node('command-library-approval').hidden = true; node('command-library-approve').disabled = true; node('command-library-cancel').disabled = true;
+            if (!Axx.isNative()) return;
+            if (send) { this.cancellingGeneration = serial; node('command-library-recover').disabled = true; }
+            this.status('Cancelación solicitada. Se descartan las respuestas tardías.');
+            if (send) {
+                try {
+                    const result = await this.request('POST', '/axx-api/commands/cancel', operationId ? { operation_id: operationId } : {});
+                    if (serial !== this.generation || revision !== this.observationRevision) return;
+                    if (result.operation_id === operationId && typeof result.state === 'string') {
+                        ++this.observationRevision;
+                        this.lastOperation = result;
+                        this.operation = result.state === 'running' ? result : null;
+                        this.renderOperation(result);
+                        this.status('Estado observado tras cancelar: ' + result.state + (result.postconditions_passed === true ? ' · condiciones verificadas.' : '.'));
+                        return;
+                    }
+                    node('command-library-result').textContent = JSON.stringify(result, null, 2);
+                    this.status('Cancelación enviada al ejecutor. Consulta el resultado para observar el estado final.');
+                } catch (error) { if (serial === this.generation && revision === this.observationRevision) this.status('No se confirmó la cancelación: ' + errorText(error) + '. Consulta el resultado antes de reintentar.'); }
+                finally {
+                    if (this.cancellingGeneration === serial) this.cancellingGeneration = null;
+                    if (serial === this.generation) node('command-library-recover').disabled = this.busy || !this.lastOperation?.operation_id;
+                }
+            }
+        }
+    }
+    Axx.commandLibrary = new CommandLibrary();
+})(window.Axx);

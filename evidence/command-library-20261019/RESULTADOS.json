@@ -1,0 +1,202 @@
+{
+  "state": "IMPLEMENTADO_LOCAL_Y_BACKEND_EMPAQUETADO_PROBADO",
+  "git": "No repository in project root; preserved source and binary snapshots",
+  "counts": {
+    "documentary_imported": 7562,
+    "principal": 7351,
+    "reviewed": 2447,
+    "legacy": 4904,
+    "supplements": 211,
+    "full_recipes_in_zip": 4,
+    "imported_enabled": 0,
+    "imported_execution_verified": 0,
+    "local_adapters_enabled": 3,
+    "local_adapters_observed_in_frozen_tests": 3,
+    "local_blocked": 1,
+    "visible_total": 7566,
+    "blocked_total": 7563,
+    "documentary_phrases_resolved_to_disabled_ids": 15102
+  },
+  "tests": [
+    {
+      "command": "Python312 -m unittest discover -s backend -p test_*.py -v",
+      "passed": 72,
+      "exit_code": 0,
+      "log": "backend-final-python312.log"
+    },
+    {
+      "command": "python -m unittest scripts.test_import_command_library -v",
+      "passed": 15,
+      "exit_code": 0,
+      "log": "importer-final.log"
+    },
+    {
+      "command": "node 1.AXX/scripts/test-command-library.cjs",
+      "passed": 19,
+      "exit_code": 0,
+      "log": "frontend-library-reviewed.log",
+      "kind": "UI_IPC_FIXTURES"
+    },
+    {
+      "command": "node 1.AXX/scripts/test-desktop-frontend.cjs",
+      "passed": 18,
+      "exit_code": 0,
+      "log": "frontend-production-final.log",
+      "kind": "UI_IPC_FIXTURES"
+    },
+    {
+      "command": "cargo test --manifest-path src-tauri/Cargo.toml -- --skip tests::explicitly_escaped_user_target_survives_owned_job_cleanup",
+      "passed": 9,
+      "ignored": 1,
+      "filtered": 1,
+      "exit_code": 0,
+      "limitation": "Full suite fixture cleanup failed; no broad process termination attempted"
+    },
+    {
+      "command": "Python312 scripts/verify-command-package.py evidence/command-library-20261019/verified-package/axx-backend.exe --output evidence/command-library-20261019/verified-package-report.json",
+      "passed": 20,
+      "exit_code": 0,
+      "kind": "ACTUAL_FROZEN_BACKEND_LOOPBACK_AND_FILES",
+      "report": "verified-package-report.json"
+    }
+  ],
+  "artifact": {
+    "path": "C:\\Users\\luigi\\Desktop\\Axx assistant\\evidence\\command-library-20261019\\verified-package\\axx-backend.exe",
+    "sha256": "90e704b164e4fb8184407ee2a5e378aeb39da6da58245edd38ce00a18e56feb0",
+    "bytes": 170604316,
+    "verified": true
+  },
+  "physical": {
+    "microphone": false,
+    "speaker_playback": false,
+    "native_desktop_click_through": false,
+    "multiple_monitors": false,
+    "installed_copy_updated": false
+  },
+  "pending": [
+    {
+      "action": "Stage tested backend into dist and Tauri resources, then rebuild final installer",
+      "target": "scripts/stage-command-backend.ps1 and scripts/build-windows.ps1 -SkipBackend",
+      "status": "PENDING_BLOCKED_BY_CONCURRENT_BUILD",
+      "reason": "Another process holds build/.windows-delivery.lock; no staging mutation occurred",
+      "next": "Release owning build normally, run staging, rebuild, and verify installer backend hash equals verified-package-report.json"
+    },
+    {
+      "action": "Install or update user installed copy",
+      "status": "NOT_ATTEMPTED_REQUIRES_SPECIFIC_INSTALLATION_APPROVAL",
+      "target": "%LOCALAPPDATA%/Programs/Axx"
+    },
+    {
+      "action": "Enable imported recipes",
+      "status": "PENDING_ADAPTERS_PRECONDITIONS_AND_INDIVIDUAL_TESTS",
+      "count": 7562
+    }
+  ],
+  "sources": [
+    {
+      "path": "backend\\commands.py",
+      "sha256": "25642C1F6E3931E9568742A7B3FBC903D6CAB358D47D8AB4C57A3583C7D523C4",
+      "bytes": 21876
+    },
+    {
+      "path": "backend\\server.py",
+      "sha256": "87A6A70B4F661799361682E8A44AD3ABF8C30D94B03E7C85FDD70DBA6317DAD5",
+      "bytes": 31151
+    },
+    {
+      "path": "backend\\actions\\executor.py",
+      "sha256": "7EFB34CEB5C37220390F8A13D284DD6E16595FF98126770A5FD520447CBE8AA8",
+      "bytes": 10489
+    },
+    {
+      "path": "backend\\actions\\tools.py",
+      "sha256": "8DC87E341DBB497DE701106337DB418B25D666496432D7F1E6F1D5C3C1B792B1",
+      "bytes": 15183
+    },
+    {
+      "path": "backend\\tests\\test_command_library.py",
+      "sha256": "E2FC6FF20D433E354F798021893828F1C09BCC2F7D32E459EC9416644F66E04B",
+      "bytes": 11325
+    },
+    {
+      "path": "backend\\tests\\test_commands_http.py",
+      "sha256": "5D2CBA50258FC5E9D32359561C92A69626680DEF2F448C6A20D54B80B0620BBC",
+      "bytes": 8166
+    },
+    {
+      "path": "backend\\tests\\test_delivery_contract.py",
+      "sha256": "F033EA79C705BC7CE866A7CAD322936C99C9FC0CC5601C40A619A74C6BA1A111",
+      "bytes": 14802
+    },
+    {
+      "path": "backend\\actions\\tests\\test_executor_guards.py",
+      "sha256": "0227BFF4F08044BDC81DD37F307E8FAF62C7C13075B42EA5D7F8E33A2C2E60C8",
+      "bytes": 4404
+    },
+    {
+      "path": "1.AXX\\Axx.html",
+      "sha256": "5BB9DEEE92DB19509BE4F5DD61880E83A1DF5A180C7D7DA997B48D2BCE678682",
+      "bytes": 1725307
+    },
+    {
+      "path": "1.AXX\\scripts\\command-library.js",
+      "sha256": "1600960CCDF8578859D793AAEECFBB90432A0F3B23DDF9FB5A8D153CB64B6445",
+      "bytes": 27349
+    },
+    {
+      "path": "1.AXX\\scripts\\test-command-library.cjs",
+      "sha256": "CCD2BC98340D10BCE397AAF4FFE08CFFA9E0EAA9009F99F0AC8550E90FF5EA1F",
+      "bytes": 20205
+    },
+    {
+      "path": "1.AXX\\scripts\\test-desktop-frontend.cjs",
+      "sha256": "C1547B11F0891C7FB0889ED7375C3369E0C7DA20C59B0FDAFF413FDE4C0AEECE",
+      "bytes": 24124
+    },
+    {
+      "path": "src-tauri\\src\\lib.rs",
+      "sha256": "DE7F8D99DC95797693E6AC6B832C58AE7CCD4E369BC793C1370C3FA4B740E144",
+      "bytes": 45070
+    },
+    {
+      "path": "axx-backend.spec",
+      "sha256": "359DA112F1BE8561EADF91321A565CFEFEC5F3FEBCA086E5A46A72DB6D9B9007",
+      "bytes": 1935
+    },
+    {
+      "path": "scripts\\import_command_library.py",
+      "sha256": "A46915555C1383C308CCDFBEE63ABBC35EDAE9345E522BE5E12CA9D76BA2069E",
+      "bytes": 11854
+    },
+    {
+      "path": "scripts\\test_import_command_library.py",
+      "sha256": "8522ECB8B0BA8BD738940BE334DEAD75F3458C32421E79CFF17D2B7490BC5405",
+      "bytes": 8881
+    },
+    {
+      "path": "scripts\\verify-command-package.py",
+      "sha256": "1E28081D63D8FA46C3C48342B64C90CC358F182B39165C250AB5FF4B68D449C2",
+      "bytes": 9414
+    },
+    {
+      "path": "scripts\\stage-command-backend.ps1",
+      "sha256": "D172046D02EE207B85F6C579431C5F6A1044DE87B2BED09643889FA51A13998A",
+      "bytes": 3697
+    },
+    {
+      "path": "resources\\command-library.json",
+      "sha256": "8FA6BEC7B0BFE59690E2510A7348B25A8B7EC9A8581822C1D628FA72161C1C47",
+      "bytes": 7205527
+    },
+    {
+      "path": "resources\\command-library.provenance.json",
+      "sha256": "BBC1FDF229834CEF1460EC2E1C50A2C88AA1B21DDAAF1BFDEFEF6F2D6EB5F2CB",
+      "bytes": 2369
+    }
+  ],
+  "independent_reviews": [
+    "runtime_review: closed after regression fixes",
+    "ui_review: closed after regression fixes",
+    "importer review: closed with 15 tests and deterministic reproduction"
+  ]
+}

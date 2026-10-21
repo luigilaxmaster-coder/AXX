@@ -1,0 +1,50 @@
+[
+  {
+    "ProcessId": 29040,
+    "ParentProcessId": 24376,
+    "Name": "pwsh.exe",
+    "ExecutablePath": "C:\\Users\\luigi\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell\\pwsh.exe"
+  },
+  {
+    "ProcessId": 35444,
+    "ParentProcessId": 29040,
+    "Name": "conhost.exe",
+    "ExecutablePath": "C:\\WINDOWS\\system32\\conhost.exe"
+  },
+  {
+    "ProcessId": 16160,
+    "ParentProcessId": 29040,
+    "Name": "powershell.exe",
+    "ExecutablePath": "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+  },
+  {
+    "ProcessId": 19940,
+    "ParentProcessId": 16160,
+    "Name": "cmd.exe",
+    "ExecutablePath": "C:\\WINDOWS\\system32\\cmd.exe"
+  },
+  {
+    "ProcessId": 10512,
+    "ParentProcessId": 19940,
+    "Name": "node.exe",
+    "ExecutablePath": "C:\\Program Files\\nodejs\\node.exe"
+  },
+  {
+    "ProcessId": 2292,
+    "ParentProcessId": 10512,
+    "Name": "cargo.exe",
+    "ExecutablePath": "C:\\Users\\luigi\\.cargo\\bin\\cargo.exe"
+  },
+  {
+    "ProcessId": 21360,
+    "ParentProcessId": 2292,
+    "Name": "cargo.exe",
+    "ExecutablePath": "C:\\Users\\luigi\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe"
+  },
+  {
+    "ProcessId": 6764,
+    "ParentProcessId": 21360,
+    "Name": "rustc.exe",
+    "ExecutablePath": "C:\\Users\\luigi\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\rustc.exe"
+  }
+]

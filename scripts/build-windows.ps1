@@ -1,0 +1,75 @@
+param([string]$PythonExecutable = 'python', [switch]$SkipBackend, [switch]$BackendOnly,
+      [string]$EvidenceDirectory = 'evidence\resident-20261019')
+$ErrorActionPreference = 'Stop'
+$projectRoot = Split-Path $PSScriptRoot -Parent
+$evidencePath = Join-Path $projectRoot $EvidenceDirectory
+New-Item -ItemType Directory -Path $evidencePath -Force | Out-Null
+$buildLockPath = Join-Path $projectRoot 'build\.windows-delivery.lock'
+New-Item -ItemType Directory -Path (Split-Path $buildLockPath) -Force | Out-Null
+$buildLock = [IO.File]::Open($buildLockPath, 'OpenOrCreate', 'ReadWrite', 'None')
+Push-Location $projectRoot
+try {
+    $dependency = Get-Content -LiteralPath 'resources\dependency-manifest.json' -Raw | ConvertFrom-Json
+    if ((Get-FileHash -LiteralPath 'src-tauri\resources\ai-memory.exe' -Algorithm SHA256).Hash -ne $dependency.exe_sha256) {
+        throw 'ai-memory executable differs from the verified official dependency manifest'
+    }
+    $asr = Get-Content -LiteralPath 'resources\asr-model-manifest.json' -Raw | ConvertFrom-Json
+    foreach ($file in $asr.files) {
+        $modelPath = Join-Path 'resources\models\faster-whisper-tiny' $file.name
+        if ((Get-FileHash -LiteralPath $modelPath -Algorithm SHA256).Hash -ne $file.sha256) { throw "ASR model hash differs: $modelPath" }
+    }
+    $sourceFiles = @(Get-ChildItem -LiteralPath '1.AXX' -File -Recurse | Where-Object { $_.Extension -in '.html','.js','.css','.json','.png','.ico','.svg','.woff','.woff2' } | ForEach-Object FullName) + @('axx-backend.spec', 'src-tauri\tauri.conf.json', 'src-tauri\Cargo.toml', 'src-tauri\resources\ai-memory.exe')
+    $sourceFiles += @(Get-ChildItem backend,src-tauri\src,resources,vendor -File -Recurse | Where-Object { $_.Extension -in '.py','.rs','.json','.bin','.txt' -and $_.FullName -notmatch '\\(__pycache__|tests)\\' -and $_.Name -notlike 'test_*.py' } | ForEach-Object FullName)
+    $before = @{}
+    foreach ($file in $sourceFiles) { $before[$file] = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash }
+    $steps = @()
+    $started = [DateTimeOffset]::Now
+    $backendInputs = @{}
+    foreach ($file in @(Get-ChildItem backend,resources,vendor -File -Recurse | Where-Object { $_.Extension -in '.py','.json','.bin','.txt' -and $_.FullName -notmatch '\\(__pycache__|tests)\\' -and $_.Name -notlike 'test_*.py' } | ForEach-Object FullName) + @('axx-backend.spec')) {
+        $backendInputs[$file] = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash
+    }
+    $backendReceiptPath = Join-Path $projectRoot 'build\backend-build-receipt.json'
+    if ($SkipBackend) {
+        $receipt = Get-Content -LiteralPath $backendReceiptPath -Raw | ConvertFrom-Json
+        if ((Get-FileHash -LiteralPath 'dist\axx-backend.exe' -Algorithm SHA256).Hash -ne $receipt.sha256) { throw 'Packaged backend hash differs from its build receipt' }
+        if (@($receipt.inputs.PSObject.Properties).Count -ne $backendInputs.Count) { throw 'Backend source inventory changed; rebuild without -SkipBackend' }
+        foreach ($file in $backendInputs.Keys) {
+            if ($receipt.inputs.$file -ne $backendInputs[$file]) { throw "Backend source changed: $file; rebuild without -SkipBackend" }
+        }
+        $steps += @{command='Reuse backend with verified source and binary hashes'; exit_code=0}
+    } else {
+        $ErrorActionPreference = 'Continue'
+        & $PythonExecutable -m PyInstaller --noconfirm --clean axx-backend.spec *> (Join-Path $evidencePath 'pyinstaller-build.log')
+        $ErrorActionPreference = 'Stop'
+        $steps += @{command="$PythonExecutable -m PyInstaller --noconfirm --clean axx-backend.spec"; exit_code=$LASTEXITCODE}
+        if ($LASTEXITCODE -ne 0) { throw 'Backend packaging failed; see pyinstaller-build.log' }
+        foreach ($file in $backendInputs.Keys) {
+            if ((Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash -ne $backendInputs[$file]) { throw "Backend source changed during packaging: $file" }
+        }
+        @{inputs=$backendInputs; sha256=(Get-FileHash -LiteralPath 'dist\axx-backend.exe' -Algorithm SHA256).Hash} | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $backendReceiptPath -Encoding UTF8
+    }
+    Copy-Item -LiteralPath 'dist\axx-backend.exe' -Destination 'src-tauri\resources\axx-backend.exe' -Force
+    if ($BackendOnly) {
+        Get-Item -LiteralPath 'dist\axx-backend.exe' | Select-Object FullName,Length
+        Get-FileHash -LiteralPath 'dist\axx-backend.exe' -Algorithm SHA256
+        return
+    }
+    $ErrorActionPreference = 'Continue'
+    & (Join-Path $projectRoot 'node_modules\.bin\tauri.cmd') build --bundles nsis *> (Join-Path $evidencePath 'tauri-nsis-build.log')
+    $ErrorActionPreference = 'Stop'
+    $steps += @{command='node_modules\.bin\tauri.cmd build --bundles nsis'; exit_code=$LASTEXITCODE}
+    if ($LASTEXITCODE -ne 0) { throw 'Tauri NSIS build failed; see tauri-nsis-build.log' }
+    foreach ($file in $sourceFiles) {
+        if ((Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash -ne $before[$file]) { throw "Source changed during build: $file" }
+    }
+    $version = (Get-Content 'src-tauri\tauri.conf.json' -Raw | ConvertFrom-Json).version
+    $artifacts = @("src-tauri\target\release\bundle\nsis\Axx_${version}_x64-setup.exe", 'src-tauri\target\release\Axx.exe', 'dist\axx-backend.exe') | ForEach-Object {
+        $item=Get-Item -LiteralPath $_
+        @{path=$item.FullName; bytes=$item.Length; sha256=(Get-FileHash -LiteralPath $item.FullName -Algorithm SHA256).Hash; architecture='x86_64'; version=$version}
+    }
+    @{started=$started.ToString('o'); completed=[DateTimeOffset]::Now.ToString('o'); steps=$steps; artifacts=$artifacts; source_hashes=$before} | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $evidencePath 'build-result.json') -Encoding UTF8
+    $artifacts | ConvertTo-Json -Depth 4
+} finally {
+    Pop-Location
+    $buildLock.Dispose()
+}

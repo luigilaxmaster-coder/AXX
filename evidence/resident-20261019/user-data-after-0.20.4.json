@@ -1,0 +1,17 @@
+{
+  "timestamp": "2026-10-19T23:35:32.732044+00:00",
+  "integrity": "ok",
+  "counts": {
+    "operations": 2,
+    "recipes": 0,
+    "recipe_versions": 0
+  },
+  "counts_preserved": true,
+  "providers_preserved": true,
+  "configuration_sha256": {
+    "providers.json": "1D16FC85B0A65C1806B9983F161532E0EB010AB8F5CFD99326E436242DB81223",
+    "native-window.json": "3B1F4561ED0C273B16A4EE2CB35A9358AB1AF8DBBFEA9770F3B33A69FBC0B15A"
+  },
+  "native_window_preferences_changed": true,
+  "note": "Resident position/panels were changed through observed native UI; appearance and animation preferences have a separate identity store."
+}

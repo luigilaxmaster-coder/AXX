@@ -1,0 +1,62 @@
+﻿{
+    "result":  "INSTALLED_RUNTIME_STARTED",
+    "version":  "0.20.4",
+    "started":  "2026-10-19T19:32:11.1388404-04:00",
+    "completed":  "2026-10-19T19:32:26.7278299-04:00",
+    "installer":  "C:\\Users\\luigi\\Desktop\\Axx assistant\\build\\resident-release-0.20.3\\src-tauri\\target\\release\\bundle\\nsis\\Axx_0.20.4_x64-setup.exe",
+    "installer_sha256":  "AC6FE03FD25323F6C03227E31CA9FBB7E313C653B41E0DB52D4A3C653BD28BC8",
+    "installer_exit":  0,
+    "executable":  "C:\\Users\\luigi\\AppData\\Local\\Programs\\Axx\\Axx.exe",
+    "pid":  25976,
+    "launch":  "Installed EXE; UseShellExecute=false; PATH limited to Windows; Python environment overrides removed",
+    "launched_at":  "2026-10-19T19:32:15.9103052-04:00",
+    "working_directory":  "C:\\Users\\luigi\\AppData\\Local\\Programs\\Axx",
+    "backend":  {
+                    "port":  64645,
+                    "instance_id":  "dc252b61-6614-4560-b99b-fd4e86995186",
+                    "pid":  18260,
+                    "unauthenticated_http_status":  401,
+                    "authenticated_by_native_host":  true,
+                    "executable":  "C:\\Users\\luigi\\AppData\\Local\\Programs\\Axx\\resources\\axx-backend.exe"
+                },
+    "native_surface":  {
+                           "anchorX":  152.0,
+                           "anchorY":  152.0,
+                           "height":  304.0,
+                           "pinned":  false,
+                           "ready":  true,
+                           "reducedMotion":  true,
+                           "roam":  true,
+                           "scaleFactor":  1.25,
+                           "screenX":  1640.0,
+                           "screenY":  740.0,
+                           "spaceAbove":  592.0,
+                           "spaceBelow":  224.0,
+                           "spaceLeft":  1312.0,
+                           "spaceRight":  224.0,
+                           "virtualDesktopError":  null,
+                           "width":  304.0,
+                           "workHeight":  816.0,
+                           "workWidth":  1536.0
+                       },
+    "native_window_visible":  true,
+    "registry":  {
+                     "install_location":  "\"C:\\Users\\luigi\\AppData\\Local\\Programs\\Axx\"",
+                     "uninstall":  "\"C:\\Users\\luigi\\AppData\\Local\\Programs\\Axx\\uninstall.exe\"",
+                     "display_version":  "0.20.4"
+                 },
+    "shortcuts":  [
+                      {
+                          "path":  "C:\\Users\\luigi\\Desktop\\Axx.lnk",
+                          "arguments":  "",
+                          "target":  "C:\\Users\\luigi\\AppData\\Local\\Programs\\Axx\\Axx.exe"
+                      },
+                      {
+                          "path":  "C:\\Users\\luigi\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\Axx.lnk",
+                          "arguments":  "",
+                          "target":  "C:\\Users\\luigi\\AppData\\Local\\Programs\\Axx\\Axx.exe"
+                      }
+                  ],
+    "visual_acceptance":  "Separate native observation required",
+    "recording":  "DEFERRED_BY_USER"
+}

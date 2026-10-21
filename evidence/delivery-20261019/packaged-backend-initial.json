@@ -1,0 +1,18 @@
+{
+  "binary": "C:\\Users\\luigi\\Desktop\\Axx assistant\\dist\\axx-backend.exe",
+  "workspace": "C:\\Users\\luigi\\AppData\\Local\\Temp\\axx-packaged-jiyhl44b",
+  "checks": [
+    "frozen_auto_start_authenticated_instance",
+    "unauthenticated_and_foreign_origin_rejected",
+    "real_file_action_and_sha256",
+    "recipe_restart_new_parameters_real_second_file",
+    "real_windows_telemetry",
+    "frozen_worker_missing_credential_typed_error"
+  ],
+  "remote_inference": "BLOCKED_CREDENTIALS",
+  "second_artifact": {
+    "path": "C:\\Users\\luigi\\AppData\\Local\\Temp\\axx-packaged-jiyhl44b\\artifacts\\second.txt",
+    "sha256": "e6f072b8cfc9e56fec36114c0bcf85b202c48580ca9129e80e0ec86309cfd9a7"
+  },
+  "result": "PASS"
+}

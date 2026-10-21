@@ -1,0 +1,1484 @@
+<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Axx Desktop · Manual técnico de ejecución</title><style>*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:#f3f5f8;color:#1d2938;font:16px/1.7 system-ui,-apple-system,"Segoe UI",sans-serif}aside{position:fixed;width:280px;inset:0 auto 0 0;background:#101b2b;color:#eef5ff;padding:30px 22px;overflow:auto}aside h1{font-size:24px;letter-spacing:5px;margin:0}aside p{font-size:13px;color:#bac9dc}aside a{display:block;text-decoration:none;color:#cbd8e8;font-size:13px;line-height:1.45;padding:9px;border-radius:6px}aside a:hover{background:#23354c;color:white}input{width:100%;border:1px solid #53657a;border-radius:8px;padding:11px;color:white;background:#19283a;font:inherit;margin:12px 0}main{margin-left:280px;max-width:1240px;padding:48px 50px}.hero{padding:32px 0 40px}.hero h1{font-size:42px;line-height:1.12;letter-spacing:-1px}.badge{font-size:12px;letter-spacing:1px;color:#386382;font-weight:700}.hero .status{background:#fff4dd;border-left:4px solid #cb9230;padding:18px 22px;border-radius:6px}.chapter{background:white;border:1px solid #e0e6ed;border-radius:14px;padding:36px 40px;margin:0 0 28px;scroll-margin-top:24px}.chapter h1{font-size:28px;line-height:1.3;color:#17304c;margin-top:0}.chapter h2{font-size:21px;margin-top:32px}.chapter h3{font-size:17px}table{display:block;overflow-x:auto;border-collapse:collapse;width:100%;font-size:14px;margin:22px 0}th,td{text-align:left;padding:12px 14px;border:1px solid #dbe3eb;vertical-align:top}th{background:#edf2f8;color:#17304c}pre{white-space:pre-wrap;word-break:break-word;background:#122033;color:#eef4ff;padding:20px;border-radius:10px;font:13px/1.55 ui-monospace,Consolas,monospace}code{font-family:ui-monospace,Consolas,monospace;font-size:.86em;overflow-wrap:anywhere}a{color:#145e90}blockquote{border-left:3px solid #7690ae;margin:20px 0;padding:3px 18px;color:#486075}.plain{background:#fff;color:#1d2938;font:15px/1.65 system-ui;white-space:pre-wrap}button{font:inherit;border:1px solid #c3ceda;background:#fff;padding:10px 16px;border-radius:8px;cursor:pointer}footer{padding:20px 0;color:#546575;font-size:13px}@media(max-width:900px){aside{position:relative;width:auto;max-height:320px}main{margin:0;padding:22px}.chapter{padding:24px}.hero h1{font-size:32px}}@media print{aside,.no-print{display:none}body{background:white;font-size:10pt;color:black}main{margin:0;max-width:none;padding:0}.chapter{border:0;padding:0;page-break-before:always}.hero{padding:0}table{display:table;font-size:9pt}pre{background:#f4f4f4;color:black}h1,h2,h3{break-after:avoid}tr{break-inside:avoid}a{color:inherit}}</style></head><body><aside><h1>AXX</h1><p>DESKTOP / IMPLEMENTACIÓN<br>Base Axx 20 · Edición 1.0</p><input id="search" placeholder="Buscar en los capítulos…" aria-label="Buscar en el manual"><a href="#chapter-0">00 · Decisión de producto y primer resultado útil</a><a href="#chapter-1">01 · Requisitos vinculantes y aceptación</a><a href="#chapter-2">02 · Auditoría de base y migración sin perder el proyecto</a><a href="#chapter-3">03 · Arquitectura objetivo</a><a href="#chapter-4">04 · Registro de decisiones técnicas</a><a href="#chapter-5">05 · Preparación de Windows y comandos de desarrollo</a><a href="#chapter-6">06 · Presencia de escritorio, paneles, DPI y atajos</a><a href="#chapter-7">07 · Identidad, formas, materiales, brazos y rendimiento</a><a href="#chapter-8">08 · Persistencia, migración y recuperación</a><a href="#chapter-9">09 · Contratos, comandos, eventos e idempotencia</a><a href="#chapter-10">10 · Voz, dictado y escritura en otras aplicaciones</a><a href="#chapter-11">11 · Activación manos libres, lectura e interrupciones</a><a href="#chapter-12">12 · Inteligencia, herramientas y memoria</a><a href="#chapter-13">13 · Música, YouTube, Spotify y lo que suena en Windows</a><a href="#chapter-14">14 · Captura de pantalla, halo y grabaciones recuperables</a><a href="#chapter-15">15 · Tiempo, notas, archivos y acciones cotidianas</a><a href="#chapter-16">16 · Extensión de navegador y Native Messaging</a><a href="#chapter-17">17 · Seguridad, consentimiento y límites operativos</a><a href="#chapter-18">18 · Estrategia de pruebas y puertas de calidad</a><a href="#chapter-19">19 · Compilación, instalador, actualización y rollback</a><a href="#chapter-20">20 · Operación, soporte y diagnóstico</a><a href="#chapter-21">21 · Entregas y definición de producto terminado</a><a href="#chapter-22">22 · Trabajo con Codex, Antigravity u otro agente con acceso al repositorio</a><a href="#chapter-23">23 · Riesgos, dependencias y costes</a><a href="#chapter-24">Referencias oficiales y registro de consulta</a><a href="#chapter-25">25 · Trazabilidad requisito → implementación → prueba</a></aside><main><div class="hero"><div class="badge">ESPECIFICACIÓN · MIGRACIÓN · PRUEBAS · DISTRIBUCIÓN</div><h1>Del prototipo a una aplicación de Windows.</h1><p>Arquitectura, contratos y plan para desarrollar Axx conservando su identidad y sus herramientas.</p><div class="status"><strong>Estado:</strong> documentación y contratos de implementación. Este paquete no incluye un ejecutable nativo terminado ni pruebas físicas de Windows.</div><p class="no-print"><button onclick="window.print()">Imprimir / guardar como PDF</button> <a href="plans/PLAN-MAESTRO.md">Plan de 27 tareas</a> · <a href="PROMPT-EJECUCION.md">Prompt de ejecución</a></p></div><section id="chapter-0" class="chapter" data-title="00 · Decisión de producto y primer resultado útil"><h1>00 · Decisión de producto y primer resultado útil</h1>
+<p>Axx deja de ser una pestaña de demostración y pasa a ser una aplicación de Windows 11 por usuario, residente en bandeja, con presencia transparente y herramientas reales. El HTML es la referencia visual y su TypeScript es código reutilizable; no debe tirarse ni confundirse con el producto nativo completo.</p>
+<h2>Primer resultado verificable</h2>
+<p>El primer incremento debe permitir: instalar o ejecutar Axx Desktop en modo desarrollo; ver la figura sin marco; invocarla desde Bloc de notas; devolverla a la esquina; conservar forma, material, cámara, tamaño y ubicación después de cerrar; abrir un chat mínimo; iniciar un temporizador real; y pasar clics al escritorio fuera de las zonas interactivas. Ese recorrido se completa antes de añadir captura avanzada, activación de voz o múltiples proveedores.</p>
+<h2>Restricciones que no se negocian durante la migración</h2>
+<p>La entidad sigue sin rostro, con materia oscura e iridiscente. Se conservan los 24 identificadores de forma y las nueve paletas, los movimientos y los estilos guardados. Los botones siguen alrededor. No se introduce una barra lateral permanente ni un panel de bienvenida lleno de tarjetas. Las preferencias elegidas no son sugerencias: tienen prioridad sobre los estados automáticos. No se exige GPU dedicada ni se cambia a PNG para solucionar rendimiento.</p>
+<p>La acción y su representación continúan separadas. Pausar la grabación no significa cerrar su ventana; cerrar una ventana no cancela una tarea. Una animación no concede permisos, no inicia una compra y no confirma la entrega de un mensaje. El dictado nunca pulsa Enviar por inferencia.</p>
+<h2>Alcance de este expediente</h2>
+<p>Windows 11 x64 es el destino inicial. El Acer Spin 3 con i7 de 11.ª generación, 16 GB e integrada es la referencia indicada en el proyecto, no una medición de esta entrega. Se diseña para esa clase de equipo y se mide allí. El despliegue móvil conserva contratos e identidad, pero no se usa para retrasar la primera versión de Windows.</p>
+<h2>Tres productos distintos que hay que identificar</h2>
+<p><strong>Prototipo Axx 20:</strong> UI y servicios web; pruebas históricas en entorno controlado.
+<strong>Axx Desktop Development:</strong> shell nativo y adaptadores incorporados gradualmente; puede contener funciones desactivadas.
+<strong>Axx Desktop Release:</strong> instalador firmado, datos durables, permisos auditados y matriz de pruebas físicas aprobada para las funciones que anuncia.</p>
+<p>No se cambia la etiqueta a Release solo porque Tauri consiga abrir el HTML. Tampoco se elimina una función del plan porque no esté disponible en un WebView: se asigna al adaptador adecuado y se muestra su estado.</p>
+<h2>Qué debe aportar el propietario</h2>
+<p>Una carpeta de trabajo y espacio libre; consentimiento para instalar herramientas de desarrollo cuando falten; elección explícita de proveedor de IA si se usa nube; autorización de micrófono/captura; pruebas de destinos de dictado; cuenta/aplicación de Spotify si esa integración se habilita; y certificado de firma cuando se distribuya públicamente. No se solicita ninguna contraseña en un chat ni se incrusta un secreto en un prompt.</p>
+<h2>Resultado de cada sesión de desarrollo</h2>
+<p>Commit o parche identificable, comandos realmente ejecutados, archivos modificados, resultados de pruebas, captura del software cuando cambie la UI y una lista de pendientes. El informe debe distinguir prueba de protocolo, reproducción de medios reales y prueba física en Windows. Ver <a href="#chapter-18">18</a> y <a href="#chapter-21">21</a>.</p>
+</section><section id="chapter-1" class="chapter" data-title="01 · Requisitos vinculantes y aceptación"><h1>01 · Requisitos vinculantes y aceptación</h1>
+<p>Los códigos R01–R36 son el contrato de producto. Se utilizan en planes, pruebas y revisiones. La ruta de implementación puede cambiar; el requisito no desaparece sin decisión escrita del propietario.</p>
+<table>
+<thead>
+<tr>
+<th>ID</th>
+<th>Requisito</th>
+<th>Aceptación observable</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>R01</td>
+<td>Identidad conservada</td>
+<td>Guardar forma/material/cámara, cambiar herramientas, reiniciar: mismo conjunto.</td>
+</tr>
+<tr>
+<td>R02</td>
+<td>Vista previa reversible</td>
+<td>Probar otra forma no persiste; descartar restaura toda la revisión previa.</td>
+</tr>
+<tr>
+<td>R03</td>
+<td>Calidad visual</td>
+<td>Mantener malla, antialias y material de referencia; no disminuirlos silenciosamente.</td>
+</tr>
+<tr>
+<td>R04</td>
+<td>Galería ampliable</td>
+<td>24 formas existentes con IDs estables; nuevas formas no renumeran las anteriores.</td>
+</tr>
+<tr>
+<td>R05</td>
+<td>Órbita independiente</td>
+<td>Cada acceso alrededor, legible, arrastrable y sin ejecutar al arrastrar.</td>
+</tr>
+<tr>
+<td>R06</td>
+<td>Presencia mínima</td>
+<td>Aparcado: figura sola; primer toque revela Herramientas, no controla la tarea anterior.</td>
+</tr>
+<tr>
+<td>R07</td>
+<td>Atajo global</td>
+<td>Alt+Mayús+A llama desde otra app; segunda A ≤450 ms devuelve; autorepeat no cuenta.</td>
+</tr>
+<tr>
+<td>R08</td>
+<td>Detener seguimiento</td>
+<td>Esc detiene seguimiento sin cancelar música, tiempo o captura.</td>
+</tr>
+<tr>
+<td>R09</td>
+<td>Escritorio transparente</td>
+<td>Fuera de regiones interactivas, los clics llegan a la app inferior.</td>
+</tr>
+<tr>
+<td>R10</td>
+<td>Multimonitor/DPI</td>
+<td>Posiciones correctas con escala 100/125/150/200 %, monitor desconectado y coordenadas negativas.</td>
+</tr>
+<tr>
+<td>R11</td>
+<td>Paneles libres</td>
+<td>Mover/redimensionar cada apartado sin alterar texto ni preferencias de otra superficie.</td>
+</tr>
+<tr>
+<td>R12</td>
+<td>Chat mínimo</td>
+<td>Un compositor y mensajes; ajustes/modelo/historial secundario en menú discreto.</td>
+</tr>
+<tr>
+<td>R13</td>
+<td>IA real</td>
+<td>Pregunta abierta usa proveedor conectado; error o desconexión no se reemplaza por respuesta ficticia.</td>
+</tr>
+<tr>
+<td>R14</td>
+<td>Comandos locales</td>
+<td>Tiempo/notas/pausa se resuelven sin LLM cuando la intención es inequívoca.</td>
+</tr>
+<tr>
+<td>R15</td>
+<td>Control corporal</td>
+<td>El cuerpo pausa/continúa la actividad seleccionada y conserva su identidad de tarea.</td>
+</tr>
+<tr>
+<td>R16</td>
+<td>Números 9→1</td>
+<td>Cuenta real activa determina el dígito; pausa no sigue restando y cancelación restaura figura.</td>
+</tr>
+<tr>
+<td>R17</td>
+<td>Dictado por destino</td>
+<td>Campo seleccionado explícitamente; finales únicos; no destinos secretos/contraseñas.</td>
+</tr>
+<tr>
+<td>R18</td>
+<td>Inserción protegida</td>
+<td>Se conserva selección/sufijo, se detecta conflicto y nunca se envía automáticamente.</td>
+</tr>
+<tr>
+<td>R19</td>
+<td>Voz traducida</td>
+<td>Original y resultado separados, FIFO de finales, motor real preparado y cancelación.</td>
+</tr>
+<tr>
+<td>R20</td>
+<td>Lector progresivo</td>
+<td>Texto autorizado, avance visible, pausa/seguir y ausencia de lectura recursiva del micrófono.</td>
+</tr>
+<tr>
+<td>R21</td>
+<td>Hey Axx</td>
+<td>Opt-in; detector/ASR/permiso separados; funciona con la aplicación residente, no tras cerrarla.</td>
+</tr>
+<tr>
+<td>R22</td>
+<td>Fuente musical</td>
+<td>Control y estado pertenecen al reproductor seleccionado, no al último local.</td>
+</tr>
+<tr>
+<td>R23</td>
+<td>Audio reactivo</td>
+<td>Usa señal autorizada; silencio y pausa no generan ritmos inventados.</td>
+</tr>
+<tr>
+<td>R24</td>
+<td>Captura real</td>
+<td>Selección de fuente, pausa/seguir, finalización y tiempo activo correctos.</td>
+</tr>
+<tr>
+<td>R25</td>
+<td>Halo nativo</td>
+<td>Perímetro del monitor correcto, siempre no interactivo y estado inequívoco.</td>
+</tr>
+<tr>
+<td>R26</td>
+<td>Grabación durable</td>
+<td>Segmentos recuperables, memoria acotada, error de disco sin declarar guardado.</td>
+</tr>
+<tr>
+<td>R27</td>
+<td>Destino de grabación</td>
+<td>Carpeta autorizada, nombre seguro, no sobrescritura accidental, ubicación confirmada.</td>
+</tr>
+<tr>
+<td>R28</td>
+<td>Tiempo avanzado</td>
+<td>Duración actual, favoritos, ajustes, intervalos finitos, historial y suspensión/reanudación.</td>
+</tr>
+<tr>
+<td>R29</td>
+<td>Morph Reach</td>
+<td>Trayectoria coherente; no tapa controles; no se presenta como acción real antes de ejecutarla.</td>
+</tr>
+<tr>
+<td>R30</td>
+<td>Archivos/apps</td>
+<td>Catálogo autorizado y apertura por identificador, sin texto arbitrario pasado al shell.</td>
+</tr>
+<tr>
+<td>R31</td>
+<td>Preferencias durables</td>
+<td>Esquema versionado, migración y backup; no múltiples almacenes autoritarios.</td>
+</tr>
+<tr>
+<td>R32</td>
+<td>Seguridad por capacidad</td>
+<td>Validación en runtime, no solo botones ocultos; comandos y aprobaciones con IDs.</td>
+</tr>
+<tr>
+<td>R33</td>
+<td>Rendimiento</td>
+<td>Comparación reproducible con misma calidad; respuesta de UI desacoplada del raster.</td>
+</tr>
+<tr>
+<td>R34</td>
+<td>Release verificable</td>
+<td>Instalación, actualización, rollback, desinstalación y ausencia de secretos comprobados.</td>
+</tr>
+<tr>
+<td>R35</td>
+<td>Accesibilidad</td>
+<td>Teclado, foco, contraste, zoom, reducción de movimiento y avisos no dependientes solo del color.</td>
+</tr>
+<tr>
+<td>R36</td>
+<td>Conservación de herramientas</td>
+<td>Notas/tareas/archivos/texto/imágenes/cronómetro siguen accesibles y con sus datos.</td>
+</tr>
+</tbody>
+</table>
+<h2>Regla de prioridad</h2>
+<p>Permisos y contrato de una tarea &gt; integridad del dato &gt; preferencia explícita &gt; legibilidad y controles de seguridad &gt; coreografía &gt; decoración. Una notificación puede cambiar el acento, no reescribir la forma guardada. Un mensaje de error no abre cuatro ventanas ni borra el borrador.</p>
+<h2>Acciones sensibles</h2>
+<p>Enviar texto, reemplazar una selección externa, capturar audio, iniciar grabación, abrir un programa y escribir un archivo se clasifican por contexto. Una autorización persistida permite únicamente su alcance; no autoriza un destino nuevo, un archivo distinto o una orden propuesta por contenido de una web. Aprobar texto no equivale a aprobar envío.</p>
+<h2>Límites de la primera entrega</h2>
+<p>No se promete control universal de toda app. El release indica destinos compatibles comprobados. Los límites de servicios y modelos siguen visibles como requisito, sin convertir una función ausente en botón aparentemente activo. Una advertencia breve con recuperación útil sustituye al bloqueo de toda la aplicación.</p>
+</section><section id="chapter-2" class="chapter" data-title="02 · Auditoría de base y migración sin perder el proyecto"><h1>02 · Auditoría de base y migración sin perder el proyecto</h1>
+<h2>Fuente de verdad</h2>
+<p>El paquete original es <code>Axx-20-proyecto.zip</code>. El inventario automático incluye scripts reales de package.json, nombres de archivos, hashes y ubicación de símbolos: <a href="reference/AUDITORIA-DE-FUENTES.md">auditoría</a>, <a href="reference/SOURCE-INVENTORY.json">JSON</a>. La documentación histórica de Axx 20 se copia sin reinterpretarla en <code>reference/AXX20-*</code>.</p>
+<p>El HTML canónico publicado en esa documentación tiene SHA-256 <code>c93c68ea9e9a63ee392487384941b5ee85c8d3e1f88e024ffd081cbe287458eb</code>. Comprobarlo contra los bytes recibidos: una diferencia significa otra revisión, no autoriza sobrescribirla. El ZIP tiene su hash propio registrado en el inventario.</p>
+<p>La validación de la base reporta 268 pruebas de código y 252 comprobaciones de navegador/contratos. Son resultados históricos del prototipo; no se usan como prueba de Windows. La compilación y la suite se vuelven a ejecutar en M0. Un wrapper Tauri no valida por sí solo micrófono, sistema de archivos, interacción entre procesos o atajos globales.</p>
+<h2>Qué se conserva</h2>
+<table>
+<thead>
+<tr>
+<th>Código de Axx 20</th>
+<th>Decisión de migración</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>src/core/model.ts y motion.ts</td>
+<td>Conservar IDs, tipos y perfiles; resolver apariencia desde configuración nativa.</td>
+</tr>
+<tr>
+<td>src/render/software-core.ts y software-renderer.ts</td>
+<td>Mantener como implementación de referencia y fallback; extraer trabajo pesado a worker sin alterar fotograma.</td>
+</tr>
+<tr>
+<td>src/ui/app.ts, experience.ts y stability20.ts</td>
+<td>Conservar comportamiento; sustituir escritura localStorage por SettingsPort transaccional.</td>
+</tr>
+<tr>
+<td>src/ui/flow.ts, orbit12.ts, organic.ts</td>
+<td>Conservar navegación radial y Morph Reach; alimentar coordenadas desde WindowCoordinator.</td>
+</tr>
+<tr>
+<td>src/ui/companion.ts y home18.ts</td>
+<td>Conservar semántica de llamada/base; trasladar registro global y coordenadas al runtime.</td>
+</tr>
+<tr>
+<td>src/ui/action11.ts y action-windows.ts</td>
+<td>Conservar selección de acción y paneles; reemplazar autoridad de geometría y tareas de escritorio gradualmente.</td>
+</tr>
+<tr>
+<td>src/ui/dictation13.ts y servicios de voz</td>
+<td>Conservar UX y transacción; entrada nativa única mediante AudioRuntime/ASR.</td>
+</tr>
+<tr>
+<td>src/ui/time19.ts y capture19.ts</td>
+<td>Conservar controles; runtime posee reloj y grabación durable.</td>
+</tr>
+<tr>
+<td>Música/MediaHub16/servidor/extensión</td>
+<td>Reutilizar lógica validada; aislar tokens y control nativo, no duplicar reproductores.</td>
+</tr>
+</tbody>
+</table>
+<p>Antes de crear un archivo por su nombre, consultar el inventario. Las rutas nuevas en este expediente se marcan <strong>NUEVA PROPUESTA</strong> y no se afirman existentes. Localizar <code>NativeBridge</code> por símbolo; no asumir que ya hay un crate Rust porque exista una detección de Tauri en JavaScript.</p>
+<h2>Migración por sustitución de adaptadores</h2>
+<ol>
+<li>Congelar una copia de Axx 20 con hash. Crear rama <code>desktop/bootstrap</code>. Capturar apariencias y exportación de preferencias del usuario.</li>
+<li>Añadir shell Tauri, sin mover todavía todo el árbol. Generar <code>dist</code> con el build actual. No introducir React/Vue ni reescribir la UI por conveniencia.</li>
+<li>Añadir puertos tipados <code>SettingsPort</code>, <code>WindowPort</code>, <code>CommandPort</code>, <code>AudioPort</code>, <code>CapturePort</code>. El adaptador web conserva la demostración; el nativo implementa producción. Cada capacidad se selecciona una vez al iniciar, no según excepciones silenciosas.</li>
+<li>Migrar ajustes: importar snapshot aprobado a SQLite, verificar equivalencia y marcar revisión importada. No sincronizar dos almacenes en ambos sentidos.</li>
+<li>Migrar tareas una por una. Cuando NativeTimer sea autoridad, App deja de ejecutar su reloj autoritario y solo presenta eventos. Igual para ScreenSession y micrófono.</li>
+<li>Mantener el monolito compilado como referencia temporal; convertir a módulos ES solo cuando la compatibilidad visual esté cubierta. No exigir ese refactor para el primer shell funcional.</li>
+</ol>
+<h2>Antirregresiones obligatorias</h2>
+<p>Probar forma fija durante Success/Focus; preview cancelado; size/camera tras reinicio; regreso con paso 0; primer toque tras jitter de 2 px; apertura de menús que no inicia drag; elección de tiempo nuevo tras cuenta terminada; pausa de captura que no cambia archivo; traducción tardía que no escribe en destino nuevo; música que no se reinicia al abrir chat.</p>
+<h2>Evidencia que falta</h2>
+<p>Doble clic/navegación real en Windows, persistencia nativa entre procesos, instalación de extensión, captura/micrófono/disco físicos, sesiones autorizadas de proveedores y 30 minutos de carga representativa. Cada ausencia tiene un gate; no se disimula con mocks.</p>
+</section><section id="chapter-3" class="chapter" data-title="03 · Arquitectura objetivo"><h1>03 · Arquitectura objetivo</h1>
+<p><strong>Decisión:</strong> Tauri 2 + Rust para host Windows y el TypeScript existente para la interfaz. SQLite por usuario; procesos auxiliares solo para trabajos pesados o aislables. Node sigue siendo herramienta de desarrollo y puente provisional del prototipo, no requisito del usuario final. Las API de Tauri/Windows se fijan y verifican en M0/M1 [S01–S08, S20].</p>
+<h2>Componentes y límites de confianza</h2>
+<pre><code class="language-text">Ventanas de Axx / UI existente
+  → IPC Tauri con comandos tipados y capacidad de la ventana
+  → RuntimeCoordinator
+       ├── SettingsStore / SQLite / SecretStore DPAPI
+       ├── TaskRegistry + CommandDispatcher + PermissionBroker
+       ├── WindowCoordinator + GlobalInput + NativeTargetBroker
+       ├── AudioRuntime → Wake/VAD/ASR worker → transcript
+       ├── LLMGateway → proveedor autorizado
+       ├── MediaSessionBroker → GSMTC / adaptador web / proveedor
+       └── CaptureService → EncoderWorker → segmentos durables
+Extensión autorizada → Native Messaging host → named pipe por usuario → Broker
+</code></pre>
+<p>El renderer y la animación no conocen secretos, rutas arbitrarias ni endpoints de pago. Un contenido de web, nombre de archivo o respuesta de modelo no tiene autoridad para invocar una operación. El runtime comprueba cada petición.</p>
+<h2>Árbol de trabajo propuesto</h2>
+<p>Se añade al repositorio actual, sin mover <code>src</code> en el primer incremento:</p>
+<pre><code class="language-text">src/                         TypeScript y CSS actuales
+src/ports/                   NUEVO: interfaces de integración
+src/adapters/native/         NUEVO: cliente IPC / snapshots
+src-tauri/                   NUEVO: proyecto Rust Tauri
+  src/runtime/               coordinador, comandos, permisos, eventos
+  src/platform/windows/      ventanas, DPI, hotkeys, UIA, GSMTC, WGC, WASAPI
+  src/storage/               migraciones, settings, backup, secretos
+  src/media/                 reloj, captura, segmentos, sesiones
+  capabilities/              permisos por ventana
+  migrations/                migraciones SQL revisadas
+workers/asr/                 NUEVO: adaptador/manifest del binario ASR
+native-messaging/            NUEVO: host acotado de extensión
+extension/                   existente, evolucionada
+contracts/                   copia sincronizada de contratos aceptados
+</code></pre>
+<h2>Estado autoritario</h2>
+<p>El runtime es propietario de la configuración guardada, tareas, grants y recursos de captura. La UI posee borradores visuales no confirmados, foco y transiciones. Un snapshot de arranque incluye <code>revision</code>, preferencias, tareas activas y capacidades disponibles. Cada cambio produce un evento con secuencia. Al reconectar una ventana, recibe snapshot y solo eventos posteriores; no reproduce animaciones históricas en lote.</p>
+<p>Un único proceso es instancia principal. Una segunda ejecución envía <code>show</code> al principal y sale. El worker ASR puede reiniciarse sin cerrar la UI. Un fallo de codificador termina la sesión con error conservando segmentos; no reinicia automáticamente una captura. Los procesos auxiliares no exponen puertos en la LAN.</p>
+<h2>Flujos principales</h2>
+<p><strong>Pregunta:</strong> compositor → mensaje de conversación → comandos deterministas seguros o LLM → respuesta progresiva → opcional propuesta de herramienta → validación/confirmación → tarea → resultado. No se confunde texto recibido con autorización.
+<strong>Dictado:</strong> destino capturado → sesión de audio autorizada → resultados finales ordenados → traducción opcional → revisión/inserción autorizada → feedback Morph Reach. Las palabras provisionales no modifican campos externos.
+<strong>Captura:</strong> gesto → selector → fuente verificada → cuenta previa → encoder → archivo temporal/segmentos → finalizar → comprobar escritura → resultado. El halo recibe estado; no dirige el encoder.
+<strong>Tamaño:</strong> gesto manual → <code>settings.patch(expected_revision)</code> → commit SQLite → snapshot a todas las ventanas. Un encaje automático es solo <code>presentationBounds</code>, nunca un patch de preferencia.</p>
+<h2>Fronteras de transporte</h2>
+<p>UI↔runtime por IPC Tauri con payload máximo y listas cerradas. Worker local por stdio o pipe con framing y cancelación. Extensión↔host por framing Native Messaging; host↔runtime por pipe con ACL del SID actual. Proveedores HTTPS desde runtime. Autorización OAuth usa callback explícito y correlación de sesión; no permite cargar una URL remota dentro del WebView privilegiado.</p>
+<h2>Compatibilidad degradada, no apariencia falsa</h2>
+<p>Una función puede quedar <code>unavailable(reason)</code> manteniendo las demás. Si falta ASR, existen teclado y comandos escritos; si falta captura, notas y tiempo siguen funcionando; si falla renderer, se muestra un control accesible temporal sin presentarlo como el acabado final. No se inventa una respuesta ni se oculta una degradación.</p>
+</section><section id="chapter-4" class="chapter" data-title="04 · Registro de decisiones técnicas"><h1>04 · Registro de decisiones técnicas</h1>
+<table>
+<thead>
+<tr>
+<th>ADR</th>
+<th>Decisión</th>
+<th>Razón / coste</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>001</td>
+<td>Tauri 2, Windows primero</td>
+<td>Mantiene TS y añade Rust/Win32. Exige trabajo real de integración; WebView2 no resuelve por sí solo overlay ni ASR.</td>
+</tr>
+<tr>
+<td>002</td>
+<td>No reescribir UI en otro framework</td>
+<td>Reduce riesgo de perder interacciones, IDs y estilos; deuda del namespace se elimina después con pruebas.</td>
+</tr>
+<tr>
+<td>003</td>
+<td>Runtime autoritario y UI proyectada</td>
+<td>Evita doble reloj, micrófonos duplicados y preferencias sobrescritas; requiere snapshots/revisiones.</td>
+</tr>
+<tr>
+<td>004</td>
+<td>SQLite por usuario + DPAPI para secretos</td>
+<td>Datos transaccionales separados de credenciales; recuperación/backup explícitos [S19,S27,S28].</td>
+</tr>
+<tr>
+<td>005</td>
+<td>Software renderer como referencia</td>
+<td>Preserva compatibilidad y calidad; optimizar worker/caché antes de migrar motor [S26].</td>
+</tr>
+<tr>
+<td>006</td>
+<td>Paneles nativos separados cuando salgan del área del avatar</td>
+<td>Permite escritorio real; aumenta coordinación, DPI y memoria de WebViews.</td>
+</tr>
+<tr>
+<td>007</td>
+<td>Captura nativa durable en una fase propia</td>
+<td>El recorder web es útil para comparar, no para recuperación tras fallo ni halo global.</td>
+</tr>
+<tr>
+<td>008</td>
+<td>AudioRuntime único</td>
+<td>Un dueño del micrófono, varias suscripciones; desacoplar captura de reconocimiento y medición.</td>
+</tr>
+<tr>
+<td>009</td>
+<td>ASR local pequeño primero, proveedor opcional</td>
+<td>Medir sobre 16 GB sin prometer grandes modelos. La selección de modelo/licencia es explícita.</td>
+</tr>
+<tr>
+<td>010</td>
+<td>Wake word opt-in, no autenticación</td>
+<td>Evita activación accidental como permiso; requiere pruebas de falsas alarmas.</td>
+</tr>
+<tr>
+<td>011</td>
+<td>UIA + adaptador DOM, no escritura universal ficticia</td>
+<td>Ninguna técnica funciona igual en todos los editores. Fallback de pegado solo autorizado [S11–S13,S23].</td>
+</tr>
+<tr>
+<td>012</td>
+<td>Media control y señal de audio separados</td>
+<td>GSMTC/API pueden controlar sin audio crudo; loopback mide sin controlar [S16,S18].</td>
+</tr>
+<tr>
+<td>013</td>
+<td>Firma de instalador y firma de actualización separadas</td>
+<td>La firma del actualizador no sustituye Authenticode ni garantiza reputación [S07,S08].</td>
+</tr>
+<tr>
+<td>014</td>
+<td>Un release declara solo capacidades probadas</td>
+<td>Integraciones beta identificadas; no promover mocks a evidencias físicas.</td>
+</tr>
+</tbody>
+</table>
+<h2>Alternativas descartadas como elección inicial</h2>
+<p><strong>Electron:</strong> viable para una futura decisión, pero no se cambia a él solo para envolver el mismo HTML. Añade distribución de Chromium y no elimina permisos Windows, UIA, captura o firma.
+<strong>Aplicación web/PWA:</strong> conserva los límites de otras ventanas y atajos globales. No satisface el destino principal de esta migración.
+<strong>Reescritura completa en motor de juego:</strong> puede mejorar ciertas técnicas 3D, pero multiplica riesgo visual y de integración. No se aprueba antes de demostrar necesidad y compatibilidad funcional.
+<strong>Ejecutar todo por un LLM:</strong> aumenta latencia/coste y permite errores en acciones deterministas. El modelo propone; capacidades verificadas ejecutan.</p>
+<h2>Decisiones que se cierran mediante un ensayo acotado</h2>
+<p>La estrategia exacta de input selectivo entre ventanas, el motor de wake word, la latencia del ASR, el contenedor recuperable y la viabilidad de 60 FPS no se resuelven con un eslogan. Cada ensayo tiene un resultado observable, límite de alcance y una comparación. Si falla, registrar por qué y elegir la alternativa indicada; no acumular hacks sin actualizar el ADR.</p>
+<h2>Política de cambios</h2>
+<p>Un cambio que afecte forma/material, permisos, coste externo, algoritmo de inserción, persistencia o contratos necesita ADR y prueba de migración. Un ajuste CSS local sin cambio semántico necesita captura comparativa y prueba de foco/tamaño. No se acepta reducir calidad como arreglo implícito de una caída de rendimiento.</p>
+</section><section id="chapter-5" class="chapter" data-title="05 · Preparación de Windows y comandos de desarrollo"><h1>05 · Preparación de Windows y comandos de desarrollo</h1>
+<h2>Herramientas de desarrollo</h2>
+<p>Windows 11 x64; Git; Node.js compatible con el lockfile de la base; Rust MSVC; Microsoft C++ Build Tools con el workload de escritorio C++ y un Windows SDK; WebView2 Runtime. Los requisitos oficiales de Tauri se consultan en S01. La base fue probada con Node 22.16.0 y TypeScript 5.8.3; eso es una referencia de reproducibilidad, no una afirmación de que sean las versiones actuales más recientes. Mantener Node 22 mantenido o validar otra rama LTS antes de cambiar el lock [S43,S44].</p>
+<p>El usuario final no necesitará Git, Node, Rust, Visual Studio ni una clave de desarrollador. El instalador debe resolver WebView2 según el modo de distribución elegido y requisitos documentados [S07].</p>
+<h2>Preparación sin cambios ocultos</h2>
+<p>En PowerShell abre la carpeta de este expediente y ejecuta:</p>
+<pre><code class="language-powershell">&amp; .\tools\Preflight-Windows.ps1 -OutputDirectory .\evidence\mi-pc
+</code></pre>
+<p>El script es de lectura de entorno y creación de informe: no instala nada, no eleva permisos, no cambia política de ejecución ni activa escucha. Si PowerShell bloquea un script, revisa su contenido y la política con el administrador; no se proporciona un bypass automático.</p>
+<p>Extrae las fuentes mediante la herramienta de preparación, utilizando la ruta real del ZIP:</p>
+<pre><code class="language-powershell">&amp; .\tools\Preparar-Workspace.ps1 `
+  -SourceZip &quot;$HOME\Downloads\Axx-20-proyecto.zip&quot; `
+  -Destination &quot;$HOME\Documents\Axx-Desktop&quot;
+</code></pre>
+<p>El destino debe ser nuevo. El script comprueba rutas de archivo, limita extracción y no sobrescribe proyectos. Después abre la subcarpeta que contenga <code>package.json</code>, identificada en el informe.</p>
+<h2>Primero: reproducir la base</h2>
+<p>Desde la raíz real de las fuentes:</p>
+<pre><code class="language-powershell">node --version
+npm --version
+npm ci
+npm run build
+npm test
+</code></pre>
+<p>Usar <code>npm ci</code> únicamente si existe un lockfile válido y concordante; si falla, conservar el error y corregir la causa antes de recrear el lock. No ejecutar <code>npm audit fix --force</code> como parte del arranque. La lista real de scripts aparece en <code>reference/package.original.json</code>.</p>
+<p>Para inspeccionar el prototipo: ejecutar el script <code>start</code> si está declarado en package.json, o el comando de servidor que declare su LEEME. No se denomina a ese paso &quot;arrancar la aplicación nativa&quot;. <code>scripts/server20.mjs</code>, cuando exista, es prueba de servidor; verificar su contenido antes de tratarlo como daemon.</p>
+<h2>Después: crear el shell nativo, solo en la rama de migración</h2>
+<p>Los siguientes son pasos de implementación M1. <strong>No se ejecutaron ni crean por sí solos las capacidades descritas en los demás documentos.</strong></p>
+<pre><code class="language-powershell">git switch -c desktop/bootstrap
+npm install --save-dev --save-exact @tauri-apps/cli@2
+npx tauri init
+</code></pre>
+<p>La instalación <code>--save-exact</code> registra la versión 2.x resuelta; guardar package-lock y registrar CLI/crates/toolchain. En el asistente de init utilizar las fuentes existentes: <code>frontendDist</code> debe resolver a <code>../dist</code> respecto de src-tauri. <code>beforeBuildCommand</code> invoca <code>npm run build</code>. Para dev puede usarse el servidor local actual, pero no dejarlo como dependencia Node de la release.</p>
+<p>Si la UI mantiene namespace/outFile inicialmente, el adaptador puede usar <code>withGlobalTauri: true</code> y la API global verificada de Tauri. No insertar imports ES sin ajustar el build. Para una migración a módulos, plan y prueba aparte. Configurar capabilities para las ventanas reales y denegar contenido remoto privilegiado [S02,S04].</p>
+<h2>Compilar cuando M1 esté implementado</h2>
+<p>Desde la raíz que contiene src-tauri:</p>
+<pre><code class="language-powershell">npx tauri info
+npx tauri dev
+cargo test --manifest-path src-tauri/Cargo.toml
+npx tauri build --bundles nsis
+</code></pre>
+<p>Estos comandos <strong>requieren el proyecto Rust todavía por desarrollar</strong>. <code>tauri init</code> genera un esqueleto; el contrato del producto requiere ventana/bandeja/instancia/datos/IPC y las puertas de M1. Registrar las rutas de artefactos producidas por el build real, no asumir nombre/versionado de un .exe que aún no existe.</p>
+<h2>Fijar versiones</h2>
+<p>Crear <code>rust-toolchain.toml</code> con la versión exacta validada, Cargo.lock, package-lock y un manifiesto de modelos con hash/licencia. No actualizar toolchain, WebView2 policy ni motores de voz en mitad de una corrección de UI. Antes de publicar, ejecutar análisis de dependencias y revisar vulnerabilidades vigentes; no certificar seguridad solo por usar versiones fijadas.</p>
+<h2>Carpeta del usuario</h2>
+<p>Datos: <code>%LOCALAPPDATA%\Axx\</code> para base, logs y manifiestos; vídeos en una carpeta elegida. Binarios: instalación por usuario separada. No escribir bases o tokens junto al exe ni en Program Files. No usar la carpeta de desarrollo como almacén del usuario.</p>
+<h2>Incorporar el expediente a las fuentes</h2>
+<p>Desde la carpeta de este expediente, después de extraer el ZIP base, ejecuta <code>tools/Instalar-Expediente.ps1 -SourceDirectory</code> indicando la raíz real que contiene package.json. Copia la documentación a <code>docs/axx-desktop</code> y crea <code>AXX-LEER-PRIMERO.md</code>, sin sobrescribir AGENTS.md existentes ni código. El agente comienza leyendo ese archivo.</p>
+</section><section id="chapter-6" class="chapter" data-title="06 · Presencia de escritorio, paneles, DPI y atajos"><h1>06 · Presencia de escritorio, paneles, DPI y atajos</h1>
+<h2>Objetivo</h2>
+<p>Axx debe existir sobre aplicaciones de Windows sin convertirse en un rectángulo invisible que impida trabajar. Transparencia visual y transparencia de entrada son problemas distintos. Tauri permite configurar ventanas, pero la política de interacción selectiva se implementa y valida en el adaptador Windows [S04,S09,S10,S41,S42].</p>
+<h2>Composición propuesta</h2>
+<p><strong>Ventana visual de presencia:</strong> sin marco ni tarea en barra; always-on-top configurable; no roba foco; ignora entrada. Contiene avatar, brillo y efectos locales. Una ventana de halo por monitor es decorativa y siempre ignora entrada.
+<strong>Superficie de entrada del avatar:</strong> proxy Win32 acotado cuya región corresponde al cuerpo/controles utilizables. Recibe clic/arrastre y los comunica al coordinador. La región no debe ser todo el canvas transparente. El brillo continúa dibujándose en la ventana visual, no queda recortado por la máscara de input.
+<strong>Paneles de herramientas:</strong> ventanas WebView normales, acotadas, activables al pulsar sus campos. Comparten datos mediante runtime; no crean un segundo reproductor o tarea. Pueden fijarse, recogerse y restaurarse sin perder borradores.</p>
+<p>Esta separación es la estrategia inicial del ensayo M1. Una alternativa de ventana única que alterne <code>set_ignore_cursor_events</code> por posición de cursor solo se admite si las pruebas muestran que no pierde el primer clic. <code>WM_NCHITTEST/HTTRANSPARENT</code> no debe anunciarse como solución universal entre procesos: la documentación limita su búsqueda de ventanas del mismo hilo. Una máscara visual por sí sola tampoco demuestra click-through [S41].</p>
+<h2>Regiones de interacción</h2>
+<p>El renderer software ya conoce geometría y alfa. Generar una máscara dilatada de 3–4 píxeles CSS y convertirla a región nativa o rectángulos fusionados, junto a los controles activos. Actualizar como máximo al ritmo necesario; no leer todo el escritorio ni hacer readPixels de pantalla. Una región solo se publica con su <code>frameId</code>, caja y escala; si queda obsoleta durante un cambio importante, utilizar una región conservadora pequeña, no la pantalla completa.</p>
+<p>Aceptación: pulsar 100 puntos fuera de cuerpo/botones sobre Bloc de notas y Explorador; 100 dentro de cada objetivo; mover mientras se pulsa; cerrar panel con captura de puntero; abrir menú sin drag; comprobar que Ctrl+C en otra app no se pierde. El cuerpo no toma foco al aparecer. Enviar texto sí requiere un destino y confirmación de foco apropiados.</p>
+<h2>Coordenadas y monitores</h2>
+<p>Persistir posición deseada en unidades lógicas relativas al área de trabajo y al monitor; mantener también escala original e ID estable con fallback. Convertir a píxeles físicos una única vez en la capa Win32. La posición de un monitor puede ser negativa. No aplicar DPI dos veces ni asumir que la esquina inferior derecha del monitor primario es la de la ventana actual.</p>
+<p>Ante <code>WM_DPICHANGED</code>, cambio de resolución o retirada de pantalla: recomputar caja visible, mantener la preferencia original y trasladar temporalmente al área de trabajo accesible. La barra de tareas, teclado virtual y márgenes seguros se excluyen. Una corrección automática no se guarda como un gesto manual.</p>
+<p>Paneles: ancho mínimo orientativo 320 px CSS, texto principal 14–16 y objetivos prioritarios ≥44 px CSS; no escalar la UI completa para que quepa. Pantallas pequeñas usan scroll interno con cabecera/controles de cierre visibles. Zoom 200 % debe seguir permitiendo cerrar, detener captura y recuperar ajustes.</p>
+<h2>Atajo de ida/vuelta</h2>
+<p>Usar registro nativo global y una sola máquina <code>RecallGesture</code>. Alt+Mayús+A de pulsación física llama inmediatamente. Segunda A liberada y pulsada dentro de 450 ms retorna; no contar autorepeat. Al retornar, Flow pasa a 0, los símbolos temporales se limpian y la base recupera la forma guardada. Un retraso visual no duplica acciones.</p>
+<p><code>Esc</code> se registra globalmente solo mientras Axx está siguiendo o tiene una operación de interacción que lo requiera; se desregistra al salir. No secuestrar Escape permanentemente para todo Windows. Si existe conflicto al registrar, mostrarlo y ofrecer reasignación. No mantener simultáneamente el listener DOM y el nativo ejecutando la misma acción: el evento nativo lleva un ID que se deduplica.</p>
+<h2>Semántica de foco y tarea</h2>
+<p>Llamar no enfoca el chat automáticamente. Tocar la figura aparcada solo revela Herramientas. Tocar la figura en modo acción sí opera la tarea elegida. Un drag comienza después de &gt;7 px de desplazamiento; cancel/lostcapture/blur cancelan el gesto y no ejecutan clic diferido. Retornar detiene micrófono y traducciones pendientes por política del usuario, pero no cancela música local, cronómetro, timer ni captura.</p>
+<h2>Estado restaurable</h2>
+<p>Persistir base, tamaño deseado, posición y tamaño por panel, opacidad y tipografía. No persistir captura de ratón, hover, micrófono encendido, menú abierto por accidente ni permisos temporales. El arranque visual puede ser aparcado; la restauración de tareas sigue las reglas de cada servicio.</p>
+</section><section id="chapter-7" class="chapter" data-title="07 · Identidad, formas, materiales, brazos y rendimiento"><h1>07 · Identidad, formas, materiales, brazos y rendimiento</h1>
+<h2>Contrato visual</h2>
+<p>La referencia es Axx 20: 24 formas, 9 paletas, 6 perfiles de movimiento y estilos guardados. Los IDs originales no cambian. Una ampliación agrega IDs al final y mantiene importaciones. El personaje no se sustituye por PNG/GIF/vídeo. Los gráficos del selector sí pueden ser miniaturas precalculadas; no se confunden con el avatar vivo.</p>
+<p>La configuración autoritaria contiene forma, paleta, material, cámara, tamaño, keepForm, actionMorph y estilo de movimiento. Una operación de preview crea una revisión temporal, independiente. Guardar confirma el conjunto atómicamente; descartar elimina el preview entero. Una notificación no escribe en configuración. Una limitación temporal de tamaño no cambia la preferencia.</p>
+<h2>Resolución de apariencia</h2>
+<ol>
+<li>Preview explícito mientras su editor esté activo.</li>
+<li>Si existe actionMorph permitido y actividad seleccionada: símbolo volumétrico o dígito durante la ventana de tiempo real.</li>
+<li>Si keepForm: figura guardada.</li>
+<li>Solo si el usuario autorizó adaptación: forma contextual.</li>
+<li>Aparcado: quitar símbolos transitorios y recuperar identidad guardada.</li>
+</ol>
+<p>Los eventos de tarea aportan intensidad/movimiento, no config nueva. El proceso de geometría recibe un snapshot inmutable. El control sigue operando si actionMorph está desactivado.</p>
+<h2>Calidad que se conserva</h2>
+<p>La documentación de referencia declara malla 112×72, 16.128 triángulos estándar, LUT bilineal 512×512 y raster al doble de la dimensión de salida. Esas son las condiciones del benchmark existente, no requisitos universales de cada tubo. Mantenerlas en la ruta equivalente y no activar resolución adaptativa sin decisión visible. No confundir aumentar el límite del scheduler a 60 con obtener 60 FPS.</p>
+<h2>Optimización en orden</h2>
+<p><strong>Medir:</strong> frame CPU, raster, composición, IPC, gc, tareas largas y respuesta al clic. Separar captura/media/ASR de la UI.
+<strong>Eliminar trabajo repetido:</strong> reutilizar buffers, matrices, geometría invariante y LUT cuando el material efectivo no cambia. No recrear nodos ni textos cada tick.
+<strong>Aislar:</strong> OffscreenCanvas/Worker cuando el WebView2 real lo soporte; transferir datos acotados y mantener DOM/input en main. Si no está disponible, fallback a la implementación actual sin perder funciones [S26].
+<strong>WASM/SIMD opcional:</strong> solo tras medir y demostrar equivalencia del contorno/material y precisión necesaria. No hacer de una optimización experimental una nueva dependencia obligatoria.
+<strong>Ocultación:</strong> detener decoración invisible sin detener tareas, reloj o audio; al reaparecer reconstruir el estado actual, no todas las transiciones omitidas.</p>
+<p>La referencia debe compararse con misma pose, estado, viewport, DPI, calidad y audio. Para una optimización exacta se comparan todos los RGBA; para una mejora artística aprobada, las diferencias esperadas se registran y se revisan, no se exige una igualdad incompatible con el cambio visual.</p>
+<h2>Presupuestos de aceptación, no resultados ya obtenidos</h2>
+<p>Objetivo de respuesta de input p95 &lt;100 ms, ausencia de tareas de UI &gt;100 ms repetidas, y 30 FPS sostenidos como puerta inicial a calidad fijada; 60 FPS es objetivo posterior. Medir CPU/RAM de 30 min con avatar, música y dos paneles. Si no se cumple, optimizar y registrar; no bajar calidad silenciosamente ni falsear los números parando el renderer en el test.</p>
+<h2>Morph Reach</h2>
+<p>Una extensión nace de la misma materia y sigue una curva con tangentes continuas, radio de hombro/centro/punta, volumen y normales. La raíz se oculta correctamente detrás de la superficie; el trayecto evita editores y controles. No dibujar cinco cables permanentes en la órbita. Una sola conexión breve de anticipación puede asistir el acceso seleccionado.</p>
+<p>El plan de mejora artística posterior une topológicamente raíz y cuerpo o usa una superficie implícita consistente; esta unión no está demostrada en el prototipo. Medir su coste antes de sustituir tubos. Un contacto transporta una tarjeta semántica real; no mover el archivo físico al mover su representación.</p>
+<h2>Inserción y animación</h2>
+<p>Validar/comprometer la inserción primero. El brazo y la membrana representan esa transacción; al retirarse queda visible el texto que ya se colocó. Cancelar una animación no debe repetir o deshacer la escritura. Movimiento reducido ofrece transición corta/opacidad conservando resultado, foco y confirmación.</p>
+<h2>Más formas sin perder coherencia</h2>
+<p>Cada forma nueva requiere: ID estable; función o malla editable; normales válidas; vista frontal/lateral/posterior; transición desde y hacia cada familia; hit-mask usable; prueba sin NaN/Inf; paletas verificadas; costo de dibujo; aprobación visual. Aumentar el conteo sin estas pruebas no cumple la solicitud de calidad.</p>
+</section><section id="chapter-8" class="chapter" data-title="08 · Persistencia, migración y recuperación"><h1>08 · Persistencia, migración y recuperación</h1>
+<h2>Almacén autoritario</h2>
+<p>Producción usa SQLite por usuario en <code>%LOCALAPPDATA%\Axx\data\axx.db</code>. La UI no conserva una segunda configuración autoritaria en localStorage. Una interfaz <code>SettingsPort</code> recibe snapshot y envía patch con <code>expectedRevision</code>. El runtime escribe una transacción y publica nueva revisión; un conflicto no se resuelve pisando a ciegas.</p>
+<p><code>config/app.defaults.json</code> declara defaults propuestos. No es una configuración ya instalada. <code>contracts/storage-v1.sql</code> es esquema inicial de referencia, ejecutable sobre una base vacía para validación. El desarrollador lo adapta a sus tipos reales y lo versiona en migraciones; nunca lo aplica directamente sobre datos existentes sin backup.</p>
+<h2>Dominios separados</h2>
+<p><strong>Identity:</strong> figura/material/cámara/presets; versión y límites.
+<strong>Layout:</strong> tamaño deseado y base por monitor; geometría por panel; no hover.
+<strong>Tasks:</strong> tipo, identidad, estado, tiempo monotónico/wall y resultado; cancelado no completado.
+<strong>Content:</strong> notas, pendientes y conversaciones que el usuario haya elegido guardar.
+<strong>Permissions:</strong> grants de capacidades y destinos, expiración/revocación; no tokens OAuth en JSON.
+<strong>Media:</strong> referencias autorizadas, manifiestos de capturas; la base no duplica un vídeo entero.</p>
+<p>Tokens/secretos: DPAPI bajo el usuario actual o almacén de credenciales, con referencia en SQLite, no valor plano. DPAPI no hace que un equipo comprometido sea seguro y no se usa con alcance de máquina para eludir aislamiento de usuarios [S19].</p>
+<h2>Importación del prototipo</h2>
+<p>Leer el backup exportado por Axx20 como datos no confiables. Validar enums, tipos, límites, rutas y longitud. Mapear <code>axx-studio-v2</code>, <code>identity20</code>, <code>axx.body15</code>, <code>axx.windows11</code>, preferencias de voz/música/base y demás campos reconocidos. Conservar desconocidos solo en copia de importación, no ejecutarlos. No importar consentimientos de micrófono como autorización activa.</p>
+<p>Flujo: copia original → parse → informe de diferencias → preview del conjunto → aprobación → transacción de migración → verificación de snapshot → marca <code>importedHash</code>. Una segunda importación del mismo hash no duplica notas. Si el usuario aprueba fusionar, IDs estables y reglas documentadas evitan pérdidas.</p>
+<h2>Consistencia de ajustes</h2>
+<p>Al redimensionar, guardar el valor deseado, no el resultado temporal de encajarlo en móvil. Vista pequeña reduce <code>presentationBounds</code> sin modificar <code>desiredBounds</code>. Cada patch identifica panel/herramienta. Aplicar un estilo de apariencia no modifica permisos, destino de dictado ni proveedor.</p>
+<p>Los cambios frecuentes pueden agruparse por 150–250 ms, pero al finalizar gesto/cerrar se confirman. Escribir una revisión completa y <code>commit</code> evita mezclar forma nueva con cámara vieja. El renderer solo pinta snapshots confirmados o preview explícito.</p>
+<h2>Tareas y reloj</h2>
+<p>Timer persistido con wall deadline, tiempo restante al pausar, estado y timestamp de reconciliación. Al reiniciar no simular tareas que nunca se ejecutaron. Registrar que un plazo venció mientras Axx no corría, distinguirlo de una sesión activa completada y evitar reproducir docenas de alarmas atrasadas. La captura no se reanuda automáticamente desde datos persistidos.</p>
+<h2>Backup</h2>
+<p>Usar la API de backup de SQLite o snapshot coherente; no copiar solo <code>axx.db</code> mientras WAL está activo [S27,S28]. Backup exportado contiene versión, hashes y manifiesto. Secretos excluidos por defecto. Audio/transcripciones no se incluyen salvo opción explícita; un archivo de preferencias no debe convertirse en un registro accidental de conversaciones.</p>
+<h2>Fallo y recuperación</h2>
+<p>Disco lleno: falla la transacción, conservar snapshot previo y mostrar recuperación; nunca indicar Guardado. Corrupción: apartar la base de forma no destructiva, ofrecer restaurar copia y exportar lo legible, sin borrar silenciosamente. Downgrade: si versión antigua no entiende esquema, no abrirlo en modo escritura; restaurar copia compatible o negarse de forma explicada.</p>
+<h2>Pruebas físicas</h2>
+<p>Guardar y reabrir desde proceso nuevo con SQLite real; cortar proceso antes/después de commit; dos ventanas con expectedRevision antiguo; importar valores NaN/string enormes; escritorio 150 % → monitor 100 % → desconectar monitor → recuperar; fallar escritura sin perder preferencias; restaurar backup y verificar hashes.</p>
+</section><section id="chapter-9" class="chapter" data-title="09 · Contratos, comandos, eventos e idempotencia"><h1>09 · Contratos, comandos, eventos e idempotencia</h1>
+<p>Las interfaces de <code>contracts/</code> son <strong>propuestas del runtime nuevo</strong>, no endpoints que el HTML ya implemente. Se validan sintácticamente y se convierten en tipos TS/Rust y validación de entrada antes de conectarlas a una capacidad física.</p>
+<h2>Solicitud</h2>
+<p>Cada comando contiene <code>contractVersion</code>, <code>id</code>, <code>sessionId</code>, <code>issuedAt</code>, <code>expiresAt</code>, <code>origin</code>, <code>capability</code>, <code>operation</code>, <code>payload</code> y una <code>approvalId</code> opcional. El origen lo fija/verifica el transporte, no se acepta una cadena que diga &quot;usuario&quot; enviada por el modelo. UUID e idempotency key se usan para no ejecutar dos veces tras un retry.</p>
+<p><code>CommandDispatcher</code> hace, en orden: límite de tamaño → parse/contrato → origen/ventana/sesión → plazo → capacidad → parámetros → destino vigente → aprobación si corresponde → deduplicación → ejecución → evento. El registro de una petición no implica que empezara ni terminara.</p>
+<h2>Resultado y evento</h2>
+<p>Respuesta: <code>accepted</code>, <code>rejected</code> o <code>completed</code> con ID. Operaciones largas devuelven accepted y luego eventos secuenciados. Cada evento tiene <code>seq</code>, <code>timestamp</code>, <code>taskId</code>, <code>revision</code>, <code>type</code> y <code>payload</code> mínimo. La UI ignora secuencias antiguas y solicita snapshot si hay un salto. No utiliza un callback de fin de animación para cambiar la fase de una tarea.</p>
+<h2>Catálogo de capacidades propuesto</h2>
+<table>
+<thead>
+<tr>
+<th>Capacidad</th>
+<th>Operaciones</th>
+<th>Riesgo/frontera</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>presence</td>
+<td>summon, return_home, stop_follow</td>
+<td>UI global pero no acceso a datos externos.</td>
+</tr>
+<tr>
+<td>settings</td>
+<td>snapshot, patch, export, import_preview, import_apply</td>
+<td>Revisión y validación, permisos no heredados.</td>
+</tr>
+<tr>
+<td>timer</td>
+<td>start, pause, resume, extend, cancel</td>
+<td>Duración/estado estrictos, un taskId.</td>
+</tr>
+<tr>
+<td>dictation</td>
+<td>prepare, start, pause, stop</td>
+<td>Micrófono opt-in y destino explícito.</td>
+</tr>
+<tr>
+<td>insertion</td>
+<td>inspect_target, preview, commit, undo</td>
+<td>Aprobación según política, conflicto/foco.</td>
+</tr>
+<tr>
+<td>media</td>
+<td>list_sessions, select, play, pause, next, previous, seek</td>
+<td>Solo métodos soportados por destino.</td>
+</tr>
+<tr>
+<td>capture</td>
+<td>choose, start, pause, resume, stop, save</td>
+<td>Selector y permisos; rutas acotadas.</td>
+</tr>
+<tr>
+<td>files</td>
+<td>list_authorized, search_authorized, open</td>
+<td>Solo raíces autorizadas y referencias opacas.</td>
+</tr>
+<tr>
+<td>apps</td>
+<td>list_catalog, open</td>
+<td>AppId permitido; no shell arbitrario.</td>
+</tr>
+<tr>
+<td>reader</td>
+<td>prepare, play, pause, resume, stop</td>
+<td>Texto procedente de fuente autorizada.</td>
+</tr>
+</tbody>
+</table>
+<p>No existe <code>execute_shell(any_text)</code>, <code>eval</code>, PowerShell libre ni URL de API arbitraria como herramienta del LLM. Un conector o skill no amplía los permisos por aparecer en catálogo.</p>
+<h2>Aprobación verificable</h2>
+<p>Un <code>ApprovalRecord</code> vincula usuario/sesión, operación, destino, hash de parámetros, plazo de 30 s propuesto y uso único. Un cambio de texto, destino, ruta o acción invalida el registro. Mostrar &quot;Aprobar y colocar&quot; no genera permiso para &quot;enviar&quot;. Un yes recibido del modelo no es una confirmación del usuario. La política permite configurar inserción directa previamente autorizada en destinos de bajo riesgo, con indicador visible y revocación.</p>
+<h2>Cancelación y concurrencia</h2>
+<p>Cada trabajo tiene cancellation token y generation. Cancelar invalida resultados pendientes incluso si el proveedor no cancela su computación a tiempo. Cambiar campo/idioma corta la generación de dictado traducido. Cambiar ventana no cambia automáticamente la tarea seleccionada. Stop de captura es idempotente: varias pulsaciones producen una sola finalización.</p>
+<h2>Códigos de error</h2>
+<p><code>CAPABILITY_UNAVAILABLE</code>, <code>PERMISSION_REQUIRED</code>, <code>PERMISSION_DENIED</code>, <code>TARGET_STALE</code>, <code>FOCUS_CHANGED</code>, <code>REVISION_CONFLICT</code>, <code>PROVIDER_DISCONNECTED</code>, <code>RATE_LIMITED</code>, <code>TIMEOUT</code>, <code>CANCELLED</code>, <code>STORAGE_FULL</code>, <code>ENCODER_FAILED</code>, <code>UNSUPPORTED_MEDIA</code>, <code>MODEL_NOT_INSTALLED</code>.</p>
+<p>Cada error incluye <code>retryable</code> y un mensaje claro. Logs incluyen códigos e IDs, no transcripciones o claves. El usuario ve la acción posible: seleccionar otra fuente, renovar destino, reintentar guardar, conectar motor. Nunca &quot;terminado&quot; después de un timeout.</p>
+<h2>Transporte seguro</h2>
+<p>Tauri capabilities por etiqueta de ventana; renderer/main no equivalen a un grant universal. Extension ID y origin permitidos, mensajes máximos acotados, sin browser content dentro del WebView privilegiado. Un pipe acepta solo usuario actual. Gateway web de transición en loopback no significa que cualquier página de Internet pueda invocarlo: verificar Origin, token de sesión, método y content-type.</p>
+</section><section id="chapter-10" class="chapter" data-title="10 · Voz, dictado y escritura en otras aplicaciones"><h1>10 · Voz, dictado y escritura en otras aplicaciones</h1>
+<h2>AudioRuntime único</h2>
+<p>Un servicio posee el dispositivo de micrófono mediante WASAPI; distribuye frames a medidor, VAD y ASR. No iniciar simultáneamente getUserMedia, SpeechRecognition, wake detector y tres capturadores nativos. Separar audio de micrófono, loopback y TTS; el medidor de voz no se alimenta del espectro musical.</p>
+<p>La captura puede tener frecuencia nativa de 48 kHz u otra: negociarla y registrar el valor. Resamplear para el motor ASR según su contrato —por ejemplo PCM mono 16 kHz— con conversión correcta; no etiquetar bytes de 48 kHz como 16 kHz. Frames numerados y timestamps monotónicos. Buffer acotado: una pausa o cancelación libera consumidores y recursos que ya no sean necesarios.</p>
+<h2>ASR propuesto</h2>
+<p>Evaluar whisper.cpp con un modelo multilingüe pequeño en CPU, proceso auxiliar versionado, hashes y licencia por artefacto [S29]. Tiny/base son candidatos de benchmark, no una promesa de precisión o tiempo real. No instalar pesos automáticamente. El manifiesto indica tamaño, idiomas esperados, memoria medida, proveedor y opción remota explícita.</p>
+<p>El wrapper de Axx define su propio protocolo JSONL/pipe de trabajo; no inventar opciones de <code>whisper-cli</code>. Fijar una versión real, capturar <code>--help</code> y probar el binario en Windows. El ASR puede usar segmentos VAD con contexto: esto no equivale a un modelo de streaming token a token ni garantiza latencia fija.</p>
+<h2>Flujo de usuario</h2>
+<p>Elegir Dictar mantiene modo compacto: entidad y cápsula de amplitud. Tocar Axx inicia tras consentimiento/destino; tocarlo pausa; Ajustes abre original, preferencias y lectura. La selección del campo con ratón establece una referencia de destino, no un listener que reinterpreta toda la actividad del usuario como permiso.</p>
+<p>Resultados <code>partial</code> solo se muestran; <code>final</code> lleva segmentId único y orden. Antes de colocar: validar destino, estado editable, revisión y longitud. Cada inserción conserva sufijo/rango y devuelve confirmación observable. Sin autorización de enviar, no Enter ni click en Send.</p>
+<h2>Estrategia de destinos</h2>
+<p><strong>DOM de Axx:</strong> conservar transacción existente, <code>beforeinput</code>, <code>setRangeText</code> y eventos compatibles.
+<strong>Páginas autorizadas:</strong> extensión con adaptador DOM de input/textarea; contenteditable requiere prueba por editor, composición/selection/ranges y validación del contenido cambiado. Los frameworks pueden controlar su estado; disparar un evento no garantiza compatibilidad con todos.
+<strong>Aplicaciones Windows:</strong> UI Automation identifica control, editable/contraseña, proceso, ventana y RuntimeId. TextPattern sirve para leer/navegar texto, no ofrece una API universal de inserción. ValuePattern puede fijar todo el valor; no equivale a sustituir una selección sin tocar lo demás [S11,S13].</p>
+<p>Para destinos nativos sin adaptador seguro, ofrecer pegado explícito por SendInput/portapapeles y solo mientras la misma ventana/control conserve foco. UIPI puede impedir inyección hacia procesos de mayor integridad. No elevar Axx ni usar uiAccess como parche automático [S12].</p>
+<h2>TargetLease</h2>
+<p>Crear lease con HWND, PID, controlRef, usuario, capabilities, selectionSnapshot y expiration. No guardar el texto completo externo en logs. Guardar una huella corta de contexto solo en memoria cuando sea necesario. Si cambia foco, PID, selección, valor esperado o control desaparece: invalidar y conservar el borrador. Capturar destino antes de enfocar Axx y restaurarlo solo con intención explícita; no robar foco durante animación.</p>
+<p>Fallback portapapeles: el usuario opta por él. Guardar temporalmente formatos restaurables y sequence number; escribir solo el texto aprobado; inyectar pegar; verificar donde sea posible; restaurar solo si el portapapeles aún contiene la revisión propia. No destruir una copia nueva del usuario. Si no puede garantizarse preservación de formatos, avisar y ofrecer copiar manualmente. No automatizar envío tras el pegado.</p>
+<h2>Voz traducida</h2>
+<p>ASR final → original retenido → cola FIFO limitada a 24 segmentos → traductor elegido → validación de resultado completo → revisión/inserción. Cada trabajo cancela a los 45 s configurados por defecto; tiempo configurable sin cola infinita. Cambiar idioma/destino cancela todo lo pendiente. La traducción por navegador es solo un adaptador condicionado; el proyecto nativo puede reutilizar proveedor de texto real [S24,S25].</p>
+<h2>Leer lo transcrito</h2>
+<p>Detener captura antes de TTS salvo modo full-duplex con control de eco validado. Fragmentos y estado de lectura alimentan widget; no fingir amplitud de micrófono desde eventos de palabras. El texto original, traducido y corregido permanecen distinguibles. Copiar/guardar/leer no inicia otra traducción ni envío.</p>
+<h2>Pruebas físicas mínimas</h2>
+<p>Bloc de notas, búsqueda Explorador, navegador input y textarea, chat web autorizado, Word o editor solicitado. Selección parcial, acentos/nombres/números, campo readonly/contraseña, cambio rápido de destino, micrófono desconectado, resultado duplicado/tardío, proceso elevado no autorizado, editar durante traducción, deshacer después de nueva edición. Registrar la lista concreta compatible; no escribir &quot;cualquier chat&quot; sin cobertura.</p>
+</section><section id="chapter-11" class="chapter" data-title="11 · Activación manos libres, lectura e interrupciones"><h1>11 · Activación manos libres, lectura e interrupciones</h1>
+<h2>Hey Axx no es otro asistente</h2>
+<p>Es un método de invocación del mismo RuntimeCoordinator. Se implementa después del dictado por pulsación y las pruebas físicas. Desactivado por defecto; únicamente activo mientras Axx esté ejecutándose y el usuario lo habilite. Cerrar Axx detiene sus recursos, no deja un listener oculto instalado como servicio.</p>
+<h2>Máquina de estados propuesta</h2>
+<p><code>disabled → armed → wake_detected → listening_command → interpreting → approval_wait/executing → responding → cooldown → armed</code>.</p>
+<p>El detector usa una ventana de audio acotada en RAM; no graba un historial continuo. Tras activación, hasta 8 s iniciales para iniciar una orden y 20 s máximos propuestos para una orden corta, con ajuste por accesibilidad. El VAD delimita el final. Tiempo agotado devuelve al reposo con señal discreta, no manda audio vacío al LLM.</p>
+<p>openWakeWord es candidato a evaluar, no una implementación prometida de una frase española personalizada. Revisar idioma, entrenamiento, licencia del código y de cada modelo; no heredar una licencia de software para todos los pesos [S30]. Un motor comercial puede ser alternativa opcional con coste/licencia explícitos. &quot;Hey Axx&quot; debe entrenarse o configurarse y medirse realmente antes de habilitar el interruptor en release.</p>
+<h2>Comandos iniciales</h2>
+<p>&quot;Ven aquí&quot;, &quot;vuelve a tu esquina&quot;, &quot;pausa&quot;, &quot;continúa&quot;, &quot;temporizador de cinco minutos&quot;, &quot;crea una nota&quot;, &quot;léeme esto&quot; y &quot;cancela&quot; con contexto de tarea inequívoco. Si dos tareas admiten pausa, preguntar cuál o usar la tarea seleccionada mostrando su nombre. Enviar mensajes o abrir una app usa los mismos grants que el método de ratón; la voz no desbloquea permisos.</p>
+<h2>Seguridad funcional</h2>
+<p>La voz del usuario reconocida no autentica su identidad. El audio de un vídeo, un altavoz o la salida del propio Axx puede parecer una orden. Medir falsas activaciones, atenuar/pausar salida durante escucha si es necesario y respetar mute físico. No evaluar URLs o instrucciones leídas de un documento como órdenes del propietario.</p>
+<h2>Interrupciones</h2>
+<p>Primera versión: half-duplex —PTT o wake, escuchar y luego responder— con cancelación inmediata. Después: barge-in con eco cancelado/VAD y prueba con altavoces físicos, no solo auriculares. Interrumpir cancela reproducción de respuesta y, según tipo, la generación textual; no revierte automáticamente una acción ya completada. Una tarea de grabación solo se detiene con orden válida que la identifique.</p>
+<h2>Lector progresivo</h2>
+<p>Fuentes: texto del chat, nota, documento importado, selección externa capturada explícitamente o página autorizada por extensión. Conservar título/origen, separar texto de instrucciones y limitar longitud. HTML se extrae como texto sanitizado; no se ejecutan scripts del documento.</p>
+<p>El widget muestra fragmento actual, progreso por fragmentos y controles de pausa/continuación/atrás/adelante. Boundary events pueden variar entre motores TTS; mostrar fragmento si no hay tiempos de palabra precisos, sin inventarlos. Al cambiar voz/velocidad conservar índice y permitir repetir el fragmento. Cerrar el widget recoge la vista, pero mantiene indicador de lectura y un Stop accesible.</p>
+<h2>Medición de release</h2>
+<p>Registrar al menos frases de varios acentos, ruido, música, TV y silencio; tasa de activaciones falsas por hora, porcentaje de invocaciones reconocidas, latencia wake→escucha y escucha→primer resultado, CPU en reposo y recursos liberados tras mute/salir. Los objetivos se fijan antes de la evaluación y los resultados se reportan, no se remplazan por una demostración grabada.</p>
+</section><section id="chapter-12" class="chapter" data-title="12 · Inteligencia, herramientas y memoria"><h1>12 · Inteligencia, herramientas y memoria</h1>
+<h2>Orquestación</h2>
+<p>Conservar el chat mínimo. Un router clasifica primero comandos locales de gramática acotada; los cálculos, timers y navegación no requieren LLM. Preguntas abiertas usan el proveedor conectado. Un comando ambiguo se confirma antes de tener efectos externos. El router nunca identifica &quot;contiene 9&quot; como instrucción de iniciar una cuenta.</p>
+<p>El <code>LLMGateway</code> nativo mantiene configuración, contexto, rate limits, cancelación y estado del proveedor. Ningún token de acceso vive dentro de Axx.html. El renderer recibe estados/respuestas, no credenciales. Streaming textual se muestra como tal; si falla a mitad, el texto parcial se etiqueta y no se presenta como respuesta completa.</p>
+<h2>Proveedores</h2>
+<p><strong>Local:</strong> adaptador Ollama usando API oficial cuando el usuario ya tiene un servicio/modelo instalado. Detectar modelos del servidor autorizado, no inventar nombres ni garantizar que el portátil ejecute modelos grandes. En loopback por defecto; una IP de LAN exige configuración/seguridad explícitas [S39].
+<strong>Nube:</strong> proveedor configurado con coste y envío de contenido visibles. OpenAI API y suscripción ChatGPT no son un presupuesto automáticamente intercambiable. Codex tiene su propia autenticación de producto: no copiar tokens de Codex/OpenCode para dar por autorizado a Axx ni inventar un OAuth genérico de ChatGPT [S36,S38].
+<strong>Voz en tiempo real:</strong> adaptador opcional con credenciales en runtime o tokens efímeros conforme al proveedor. Evaluar coste, latencia y políticas de retención. No habilitarlo solo porque hay un botón de micrófono [S37].</p>
+<h2>Routing y límites</h2>
+<p>Config por proveedor: capabilities, endpoint autorizado, modelo real, timeout, límite de contexto y presupuesto. Para reintento, backoff con jitter y Retry-After; no reenviar una herramienta con efecto externo como si fuera una pregunta idempotente. Failover solo entre proveedores aprobados y mostrando cambios de privacidad/coste. No rotar cuentas para evadir límites.</p>
+<p>En un portátil 16 GB: limitar concurrencia de ASR/modelo/render; el LLM remoto puede ser preferible para tareas pesadas, pero no se activa sin permiso. Un modelo local pequeño para comandos no reemplaza el validador determinista.</p>
+<h2>Herramientas</h2>
+<p>El modelo produce una propuesta tipada con capacidad y argumentos. PermissionBroker valida; puede requerir confirmación. Resultados incluyen hechos y errores concretos. Texto de un archivo, web o email se delimita como contenido no confiable; no puede autoemitir un permiso. El resultado del modelo no se concatena en PowerShell, cmd, SQL o rutas de ejecutables.</p>
+<h2>Memoria útil</h2>
+<p>Preferencias explícitas en SettingsStore; notas y tareas en base; conversaciones guardadas solo según opción elegida. Memoria procedimental opcional almacena una receta tipada con precondiciones, versión del adaptador, pasos y evidencia de éxito. Reutilizarla exige revalidar permisos y destino; una receta no almacena coordenadas de pantalla como verdad universal ni secretos.</p>
+<p>Una receta se promueve después de varias ejecuciones satisfactorias definidas y se desactiva tras fallos. Mejoras se prueban en sandbox/fixture; no autoedita el programa de producción ni elimina confirmaciones. El coste/latencia de cada ejecución se registra sin contenido sensible por defecto.</p>
+<h2>Privacidad de contexto</h2>
+<p>No adjuntar notas, pantalla, audio o historial completo porque un proveedor se conectó. Mostrar archivos y fragmentos añadidos al mensaje. Límites por tamaño/tokens; rechazar rutas fuera de autorización. Retirar un adjunto antes de enviar realmente lo elimina de esa solicitud. Una respuesta de traducción o investigación no se da por verificada solo por ser plausible.</p>
+<h2>Prueba de aceptación</h2>
+<p>Conectar proveedor real elegido, hacer una pregunta y una segunda que dependa de la primera, cancelar streaming, desconectar, recibir 429, sobrepasar límite, ejecutar timer local sin conexión, intentar una herramienta no permitida y comprobar rechazo. Registrar endpoint/modelo/versión sin secretos; mock verde no sustituye esta prueba.</p>
+</section><section id="chapter-13" class="chapter" data-title="13 · Música, YouTube, Spotify y lo que suena en Windows"><h1>13 · Música, YouTube, Spotify y lo que suena en Windows</h1>
+<h2>Mantener la experiencia aprobada</h2>
+<p>Fuentes como botones independientes alrededor: archivos, sesiones de Windows, YouTube, Spotify y pestañas autorizadas. El cuerpo opera la fuente seleccionada y los controles inferiores permiten anterior/siguiente cuando exista esa capacidad. Cambiar de panel no reinicia un archivo ni crea otro audio. Dimensiones/preferencias no dependen del proveedor.</p>
+<h2>Dos canales distintos</h2>
+<p><strong>Canal de control:</strong> reproducción, pausa, posición, pista, aplicación y métodos soportados. <strong>Canal de señal:</strong> muestras de audio autorizadas para amplitud/espectro. Una API puede controlar música sin entregar PCM. Oír algo por loopback no da autoridad para pausarlo. Nunca animar un espectro inventado porque llegó el título de una canción.</p>
+<h2>Fuentes</h2>
+<table>
+<thead>
+<tr>
+<th>Fuente</th>
+<th>Control</th>
+<th>Señal/reactividad</th>
+<th>Estado de implementación</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Archivos</td>
+<td>Reutilizar reproductor local o servicio único</td>
+<td>Audio real, espectro actual</td>
+<td>Base conservada; validar producción.</td>
+</tr>
+<tr>
+<td>Windows</td>
+<td>GSMTC sesiones compatibles</td>
+<td>WASAPI loopback autorizado separado</td>
+<td>Adaptador nuevo [S16,S18].</td>
+</tr>
+<tr>
+<td>Pestañas</td>
+<td>Extensión autorizada, HTML media</td>
+<td>Captura permitida separada</td>
+<td>Evolucionar extensión existente.</td>
+</tr>
+<tr>
+<td>YouTube integrado</td>
+<td>IFrame API oficial visible</td>
+<td>API no entrega PCM</td>
+<td>Conservar límites del reproductor [S35].</td>
+</tr>
+<tr>
+<td>Spotify</td>
+<td>Web API/OAuth y dispositivo soportado</td>
+<td>No analizar contenido por esa integración</td>
+<td>Revisar elegibilidad/política antes de activar [S31–S34].</td>
+</tr>
+</tbody>
+</table>
+<h2>Windows MediaSessionBroker</h2>
+<p>Enumerar sesiones GSMTC y mostrar aplicación/título que realmente entregue Windows. Permitir seleccionar destino estable; una sesión desaparecida invalida los controles. <code>TryPlayAsync</code>/<code>TryPauseAsync</code> o capacidades equivalentes se comprueban por estado y resultado; no todas las apps publican sesiones o siguiente/seek. No enviar una tecla multimedia global esperando que llegue a una app concreta. Esa tecla puede ser fallback manual identificado, nunca equivalente silencioso a control dirigido.</p>
+<p>Solicitudes con generation y timeout; una consulta antigua no debe reemplazar la selección nueva. Estado remoto stale se muestra y deshabilita acciones no confirmables. El cuerpo no muestra Pausado antes de confirmar el estado recibido o un resultado válido de la sesión.</p>
+<h2>Reactividad</h2>
+<p>Captura de audio local de archivo y loopback usan rutas separadas. Seleccionar mezcla de sistema puede incluir varias apps; indicarlo. Captura por proceso es una mejora condicionada a las API/versión Windows comprobadas, no un aislamiento ficticio. No abrir micrófono como sustituto silencioso de loopback.</p>
+<p>Graves, medios y agudos alimentan envolventes medidas; normalización y ataque/liberación acotados. Silencio permanece cero, mute y pausa detienen reacción. No se llama al LLM por fotograma. La posición del control no vibra: solo materia/aureola, preservando hit target y legibilidad. Reproducción local, análisis y control comparten una sola sesión de audio por fuente.</p>
+<h2>Spotify</h2>
+<p>PKCE, Client ID público, redirect exacto, state/correlación de uso único, scopes mínimos. Tokens en SecretStore, no HTML/localStorage/logs. El API puede exigir tipo de cuenta, cuotas y acceso de desarrollador; verificar condiciones vigentes y aprobación antes de distribuir. La política de Spotify contiene restricciones sobre asistentes de voz, contenido y sincronización visual. No anunciar integración comercial aprobada ni audio-reactividad de Spotify por defecto [S31–S34].</p>
+<p>Callback loopback existente puede mantenerse como adaptador de transición con puerto/origin permitidos. No aceptar callbacks sin correlación de sesión ni abrir el servidor en 0.0.0.0. Cerrar sesión invalida peticiones/estado y limpia secretos locales; revocar el consentimiento en Spotify es operación distinta.</p>
+<h2>YouTube</h2>
+<p>Reproductor oficial visible, tamaño utilizable, controles permitidos y errores de embedding. No extraer audio/descargar contenido ni ocultar vídeo para convertirlo en música de fondo. La regla existente de pausar iframe al ocultarlo se mantiene hasta validar diseño/políticas. Controlar una pestaña autorizada es otro adaptador, no demuestra permiso para todas las páginas [S35].</p>
+<h2>Pruebas</h2>
+<p>Dos reproductores simultáneos y selección explícita; siguiente no soportado; sesión desaparecida; Seek remoto; rate limit; dispositivo desconectado; vídeo que prohíbe embedding; permisos extensión retirados; reproducción local mientras cambia panel; señal cero al pausar; Spotify real solo con autorización del usuario. Probar fuentes físicas, no sólo respuestas controladas.</p>
+</section><section id="chapter-14" class="chapter" data-title="14 · Captura de pantalla, halo y grabaciones recuperables"><h1>14 · Captura de pantalla, halo y grabaciones recuperables</h1>
+<h2>De recorder web a servicio nativo</h2>
+<p>El prototipo ya tiene MediaRecorder y UI útil. Producción necesita captura/encoding/guardado independientes del WebView y un halo fuera de la página. Windows Graphics Capture es una vía oficial para seleccionar ventana o monitor; su soporte y recursos D3D del sistema se comprueban. Esto no impone una GPU dedicada al avatar, pero tampoco significa que toda la captura de Windows opere sin infraestructura gráfica del sistema [S14].</p>
+<h2>Máquina de sesión</h2>
+<p><code>idle → selecting → preparing → countdown → recording ↔ paused → stopping → finalizing → saved/recoverable/error</code>.</p>
+<p>Un único taskId y un único dueño de las pistas/encoder. Tocar Axx solicita inicio o pausa/reanuda; Finalizar tiene acción independiente siempre accesible. Cancelar selección invalida toda concesión tardía. Cambiar de herramienta no corta la captura. Cerrar app solicita finalizar si hay sesión; no borra silenciosamente lo grabado.</p>
+<p>Pausar mantiene fuente compartida pero excluye el intervalo del contenido y reloj activo. Timestamps de video/audio se rebasan a la misma línea temporal. No contar chunks para estimar duración. Una pausa no genera otro archivo final ni reinicia contador.</p>
+<h2>Fuente y opciones</h2>
+<p>Selector de monitor/ventana; pestañas vía navegador cuando corresponda. Preflight informa tamaño real, FPS negociados, capacidad de audio y permisos. Resolución/FPS son solicitudes, no garantías. Presets iniciales 1080p30 y otras opciones tras benchmark; no anunciar 4K60 como resultado del portátil sin medir. Cursor y exclusión del propio Axx solo si la API/estrategia real lo soporta.</p>
+<p>Audio fuente y micrófono son opciones separadas; mezcla en servicio de audio con timestamps y nivel. No reproducir micrófono por altavoces. Opcional webcam es fase posterior con consentimiento, preview y sincronización, no un toggle vacío.</p>
+<h2>Halo nativo</h2>
+<p>Una ventana transparente decorativa por monitor elegido; no activa foco ni recibe clics. Usa la tabla/paleta del material de Axx con cinta cromática alrededor del área física del monitor, convertida correctamente desde DPI. Estados: movimiento al grabar; atenuado/quieto en pausa; indicador estático de preparación; desaparece al terminar. Mantener indicador de captura textual y Stop, incluso si el halo está desactivado.</p>
+<p>No usar rojo para estado &quot;listo&quot; como si ya grabara. El preview del halo se marca MUESTRA y no adquiere la pantalla. <code>WDA_EXCLUDEFROMCAPTURE</code> se solicita en ventanas propias cuando el sistema lo admita, pero Microsoft no lo presenta como protección de seguridad universal. Validar si el método concreto lo excluye; si falla, avisar que Axx/halo pueden aparecer en el vídeo [S15]. No afirmar exclusión de ventanas ajenas.</p>
+<h2>Guardado durable: diseño propuesto</h2>
+<p>La mejora prioritaria es no mantener todo el vídeo en RAM. Implementar segmentos independientes de aproximadamente 10 segundos con keyframe inicial y contenedor finalizable, en una carpeta de sesión autorizada. Encoder y muxer se fijan tras prueba con Media Foundation; Sink Writer ofrece la ruta de escritura, pero un MP4 sin finalizar no se considera recuperable por existir bytes [S17].</p>
+<p>Carpeta <code>.axxrec-&lt;id&gt;</code> contiene <code>manifest.json</code>, <code>segment-0001.mp4</code>, etc. Escribir segmento temporal, finalizarlo y confirmar tamaño/hash; renombrar a definitivo; actualizar manifiesto por archivo temporal + replace atómico. Guardar duraciones/timestamps reales, parámetros codec, muestras de audio y discontinuidades. Un crash puede perder el segmento abierto, no los ya finalizados. No prometer pérdida cero.</p>
+<p>Finalización: verificar todos los segmentos, remultiplexar en un archivo temporal único con timestamps continuos y misma configuración; cerrar; reproducir/verificar metadatos mínimos; renombrar final. Conservar segmentos hasta comprobar resultado. Si el remux nativo no está implementado, entregar recuperación por segmentos y marcar exportación unificada pendiente, no concatenar MP4 con bytes.</p>
+<p>FFmpeg puede ser un helper opcional de remux cuando se decide explícitamente, se fija el binario/hash/licencia y se valida distribución. No asumir que cualquier build descargado tiene igual licencia ni ejecutar shell concatenando la ruta del usuario [S40].</p>
+<h2>Espacio, nombres y fallos</h2>
+<p>Destino elegido con diálogo nativo; grant de raíz verificado. No sobrescribir por defecto: nombre saneado + fecha + ID. Preflight comprueba escritura con temporal y espacio orientativo, y vigila espacio durante captura. Volumen extraíble perdido/disco lleno: finalizar lo posible, marcar sesión recuperable, conservar segmentos y mostrar ruta. No declarar guardado antes de cerrar/confirmar.</p>
+<p>Colas de frames/audio acotadas. Ante encoder lento, mostrar diagnóstico y detener de forma recuperable si no se sostiene; no bajar calidad secretamente. Registro de frames omitidos/errores de audio; una demo sin sonido no valida mezcla.</p>
+<h2>Utilidades que sí aportan</h2>
+<p>Cuenta previa 0/3/5/10 s; nombre/proyecto; marcas temporales exportables; fotograma PNG desde frame autorizado; pausa/seguir por cuerpo; límite de tiempo; biblioteca de sesiones locales con estado guardado/recuperable; abrir carpeta; reintentar exportación; limpieza explícita después de validar. El historial no contiene capturas de otras apps no autorizadas.</p>
+<h2>Aceptación física</h2>
+<p>Grabar monitor y ventana reales, 15 minutos con pausas; confirmar duración excluyendo pausas y sincronización voz/video; abrir el archivo en dos reproductores; cambiar DPI/monitor; revocar fuente; simular espacio bajo; matar proceso durante segmento y recuperar anteriores; probar exclusión halo; reintentar guardado sin duplicar. Web Canvas de test se mantiene para unitarios, no sustituye esta puerta.</p>
+</section><section id="chapter-15" class="chapter" data-title="15 · Tiempo, notas, archivos y acciones cotidianas"><h1>15 · Tiempo, notas, archivos y acciones cotidianas</h1>
+<h2>Temporizador nativo</h2>
+<p>Un servicio mantiene TimerTask, independiente de ventanas y animaciones. Usar reloj monotónico para duración activa y wall clock para restauración/horario. No restar uno por cada callback: el scheduler puede retrasarse. Al despertar/suspender o cambiar hora de Windows, reconciliar explícitamente la política, no fabricar minutos de actividad.</p>
+<p>Configurar duración de 1 s a 24 h. Vacío, cero, NaN o infinito son errores claros. Iniciar después de una cuenta completada utiliza la configuración actual, no el objeto viejo. Ajustar +15 s/+1 min/+5 min conserva taskId y pausa; reducir no resucita una tarea vencida. Finalización se emite una vez por ID.</p>
+<p>La geometría numérica se calcula desde <code>ceil(remainingMs/1000)</code> dentro de 1–9 s, no desde un contador de animación. Durante pausa se congela; cancelación/restauración recupera apariencia. Si actionMorph está desactivado, el texto de estado comunica el tiempo sin reemplazar la figura.</p>
+<h2>Intervalos de trabajo</h2>
+<p>Secuencia finita validada de trabajo/descanso. Preferencia por avance manual; automático explícito. No agregar descanso después de última ronda. Si Axx está cerrado o suspendido, no registrar ciclos completos como trabajo real. Historial distingue completado, cancelado y vencido fuera de ejecución; etiquetas y favoritos persisten.</p>
+<h2>Cronómetro</h2>
+<p>Tiempo activo monotónico acumulado, vueltas con número y timestamp, pausa/continuación y CSV. Reiniciar pide confirmación si hay vueltas no exportadas. Cronómetro y temporizador pueden coexistir; el cuerpo controla solo la actividad seleccionada y su etiqueta debe indicarlo.</p>
+<h2>Notas, pendientes y texto</h2>
+<p>Conservar editores existentes y drafts. Autosave transaccional con estado visible, títulos editables, búsqueda y exportación. Cancelar un panel no elimina contenido. Taller de texto mantiene transformaciones locales deterministas y undo; no se presenta ordenación de líneas como redacción por IA. Herramientas de imágenes conservan dimensiones/formato y procesan solo archivos elegidos, sin subirlos automáticamente.</p>
+<h2>Búsqueda local de archivos</h2>
+<p>El usuario autoriza raíces. Indexación de metadatos inicialmente, no todo el contenido del disco. Canonicalizar y comprobar raíz después de resolver enlaces/reparse points; proteger contra rutas fuera del grant. Búsqueda por nombre/extensión/fecha devuelve referencias opacas, no comandos. Cambios del sistema invalidan referencias antiguas.</p>
+<p>Resultados homónimos requieren elección; no abrir arbitrariamente &quot;el presupuesto&quot; si hay varios. El icono transportado por Morph Reach representa esa referencia real. Abrir utiliza un backend permitido por asociación o destino, informa solicitud aceptada y solo declara ventana verificada si efectivamente se comprobó.</p>
+<h2>Aplicaciones</h2>
+<p>Catálogo desde fuentes permitidas de Windows, acceso directo y appId; validar firma/ruta cuando sea relevante. El modelo no aporta una línea cmd. Parámetros admitidos son de esquemas acotados por app. No resolver un nombre a un ejecutable descargado de Internet automáticamente. Revocación inmediata y evidencia de acciones sin secretos.</p>
+<h2>Notificaciones y sesiones</h2>
+<p>Una finalización produce como máximo un evento sonoro principal. Los avisos no roban foco ni cambian una nota en edición. Silencio global afecta voz/efectos según política explícita; silencio de efectos no apaga el micrófono. Agrupar avisos al volver, no lanzar 20 animaciones atrasadas.</p>
+<h2>Reacciones útiles</h2>
+<p>Aparcar: recoger superficies y no mostrar herramientas. Campo seleccionado: breve indicación del destino, no tentáculo continuo. Conflicto de inserción: materia se detiene y mantiene borrador. Tarea completada: señal breve; permanece el resultado. Error de red: estado discreto y reintento, no deformación interminable fingiendo trabajo. Todas son proyecciones del mismo evento de tarea.</p>
+</section><section id="chapter-16" class="chapter" data-title="16 · Extensión de navegador y Native Messaging"><h1>16 · Extensión de navegador y Native Messaging</h1>
+<h2>Por qué existe</h2>
+<p>Un HTML de Axx no puede inspeccionar ni editar arbitrariamente otras pestañas. La extensión añade acceso a destinos autorizados y control de medios compatibles; no es un navegador completo ni necesita leer cookies/historial para estas funciones. Se mantiene el alcance mínimo [S21–S23].</p>
+<h2>Arquitectura propuesta</h2>
+<p>Extension MV3 → Native Messaging host instalado por usuario → named pipe con ACL de ese usuario → runtime Axx. El host solo traduce framing y valida origen/tamaño, no ejecuta herramientas por sí mismo. La UI web del prototipo usaba un puente loopback; esa ruta puede continuar en desarrollo, pero no se añade un servidor expuesto en LAN.</p>
+<p><code>allowed_origins</code> del manifiesto contiene los IDs reales de las extensiones Chrome/Edge aprobadas. Se registran rutas reales de host en las claves de NativeMessagingHosts que documenta cada navegador, mediante instalador/desinstalador. No fijar IDs ficticios en código ni usar comodín. Una build de desarrollo sin ID estable debe registrar el ID que realmente generó ese perfil, mediante acción explícita.</p>
+<h2>Mensajes</h2>
+<p>Framing oficial: longitud y JSON, respetando límites del protocolo; no escribir logs en stdout, que está reservado a mensajes. Axx fija máximo conservador 256 KiB por mensaje, texto segmentado con correlación y timeout. Nada de transferir PCM/vídeo crudo masivo por Native Messaging. Host valida schema, sesiones y grants; un <code>origin</code> declarado en payload no se considera prueba de procedencia.</p>
+<h2>Permisos</h2>
+<p><code>activeTab</code> tras gesto, <code>scripting</code> cuando se requiera y nativeMessaging para host. Los permisos de sitio amplios son opcionales y solo cuando una función lo requiera. El usuario puede ver y revocar sitios/destinos. Navegar a otro origen, cerrar tab, recargar frame o cambiar editor invalida TargetLease. Incógnito desactivado inicialmente.</p>
+<h2>Adaptador DOM</h2>
+<p>Input/textarea de texto, no passwords/tokens/autocomplete sensible. Contenteditable requiere resolver selección y contexto del editor, no reemplazar <code>innerHTML</code>. Utilizar setters/eventos compatibles y comprobar el valor final, sin enviar formulario. El capturador de destino no ejecuta texto de la página ni transfiere todo el DOM. Guardar IDs por sesión, no selectores CSS frágiles como permiso permanente.</p>
+<h2>Medios</h2>
+<p>Enumerar HTMLAudioElement/HTMLVideoElement en documento autorizado y shadow roots abiertas; anunciar capacidades reales. Marcos de otro origen requieren permisos separados, no un error ignorado. No saltar anuncios ni restricciones DRM. Selección de un elemento permite operaciones admitidas, no scraping general.</p>
+<h2>Lectura de página</h2>
+<p>El usuario selecciona pestaña/fragmento. Extraer texto legible y título/origen, con límite y filtro de controles de contraseña/edición sensibles. Presentar contenido como datos no confiables para el LLM. Páginas autenticadas no se leen automáticamente por estar abiertas.</p>
+<h2>Pruebas de aceptación</h2>
+<p>Instalar extensión realmente, observar service worker y host; ping real; autorizar/revocar tab; navegar otro origen; escribir con selección parcial; sitio que cancela beforeinput; editor de framework; audio real play/pause; host caído; tamaño excesivo; ID no permitido; mensaje inválido. Ejecutar scripts de contenido en un documento artificial solo prueba lógica, no instalación o aislamiento real.</p>
+</section><section id="chapter-17" class="chapter" data-title="17 · Seguridad, consentimiento y límites operativos"><h1>17 · Seguridad, consentimiento y límites operativos</h1>
+<h2>Modelo de amenazas práctico</h2>
+<p>Axx puede recibir texto, audio y archivos de fuentes externas y tiene capacidades de escritorio. El riesgo principal es convertir contenido no confiable en acciones, permitir que una página remota use el puente local o escribir en un destino distinto al que el usuario eligió. El objetivo no es bloquear herramientas útiles, sino que actúen con la autoridad correcta.</p>
+<table>
+<thead>
+<tr>
+<th>Entrada</th>
+<th>Riesgo</th>
+<th>Control</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Respuesta LLM/web/PDF</td>
+<td>Instrucciones maliciosas</td>
+<td>Datos delimitados; dispatcher/grants fuera del modelo.</td>
+</tr>
+<tr>
+<td>RPC navegador</td>
+<td>Página extraña invoca localhost</td>
+<td>Origin real, token de sesión, allowlist, métodos acotados.</td>
+</tr>
+<tr>
+<td>Extensión</td>
+<td>ID/sitio no autorizado</td>
+<td>allowed_origins real, Native Messaging, grants por destino.</td>
+</tr>
+<tr>
+<td>Ruta de archivo</td>
+<td>Traversal/reparse/otro volumen</td>
+<td>Canonicalizar, raíz autorizada, validar tras resolución.</td>
+</tr>
+<tr>
+<td>Destino de escritura</td>
+<td>Foco cambia</td>
+<td>TargetLease y revalidación inmediatamente antes de commit.</td>
+</tr>
+<tr>
+<td>Audio externo</td>
+<td>Wake/orden falsa</td>
+<td>Wake no autentica; confirmación sensible y política de contexto.</td>
+</tr>
+<tr>
+<td>Actualización</td>
+<td>Binario manipulado</td>
+<td>Firma updater y firma Windows; claves fuera del cliente.</td>
+</tr>
+</tbody>
+</table>
+<h2>Permisos de Tauri</h2>
+<p>Una capability se aplica a ventanas concretas; no conceder plugin de shell amplio al renderer. No configurar URLs remotas como contenido privilegiado. CSP controla scripts/connect/frame fuentes necesarias; no <code>unsafe-eval</code> para resolver bugs. Las APIs de IPC no aceptan funciones JavaScript ni rutas sin validar [S02].</p>
+<p>La UI presenta capacidades, pero el runtime decide. Un botón oculto no es control de acceso. Interacciones de pruebas o simulaciones no generan grants. El usuario puede revocar micrófono/captura/sitio/carpeta sin perder sus notas.</p>
+<h2>Secretos</h2>
+<p>DPAPI por usuario o almacén de credenciales. No archivos .env distribuidos con valores, no tokens en localStorage, no logs con Authorization, no audio en reportes de fallos por defecto. Las plantillas contienen referencias vacías a secretos, no credenciales de ejemplo plausibles. No copiar credenciales desde otras aplicaciones.</p>
+<h2>Procesos y red</h2>
+<p>Sin administrador por defecto. Servicios solo mientras Axx vive, no un servicio Windows oculto. Workers limitados a directorios temporales y canales definidos. Binarios/modelos se verifican con hash y licencia antes de ejecutar. No descargar y ejecutar código sugerido por un LLM. Acceso remoto a homelab es módulo posterior con autenticación; loopback no debe cambiarse a <code>0.0.0.0</code> por comodidad.</p>
+<h2>Información persistida</h2>
+<p>Preferencias y metadatos operativos mínimos. Texto de dictado/transcripciones permanece en sesión salvo guardado explícito. Historial de inserción persiste metadatos por defecto, no contenido de otras apps. Support bundle pide consentimiento, enseña qué incluye y permite redactar rutas/nombres. Nunca incluir capturas de pantalla silenciosas para generar reflejos.</p>
+<h2>Estados que exigen aprobación</h2>
+<p>Instalar dependencias, descargar modelos, activar escucha, capturar pantalla, abrir destinos nuevos, autorizar raíces, enviar mensajes, reemplazar texto externo y ejecutar apps no autorizadas. Operaciones repetidas dentro del mismo grant pueden ser rápidas; el grant es limitado y revocable. &quot;Hey Axx&quot; o reconocer una voz no sustituyen aprobación.</p>
+<h2>Errores seguros</h2>
+<p>Fallo de permisos deja teclado/local tools disponibles. Disco lleno conserva capturas recuperables. Revocación interrumpe solo la capacidad correspondiente. Un fallo del renderer no elimina datos ni cancela tareas legítimas; existe stop visible alternativo. No ocultar un micrófono encendido porque se cerró el panel.</p>
+<h2>Auditoría</h2>
+<p>Eventos con commandId/taskId, tipo, capability, estado, latencia y error; sin contenido sensible. Rotación por tamaño/días con defaults editables. Una acción sensible se puede rastrear hasta aprobación y parámetros hash. Evidencia no equivale a telemetría enviada: envío remoto desactivado inicialmente.</p>
+</section><section id="chapter-18" class="chapter" data-title="18 · Estrategia de pruebas y puertas de calidad"><h1>18 · Estrategia de pruebas y puertas de calidad</h1>
+<h2>Cuatro clases de evidencia</h2>
+<p><strong>U:</strong> pruebas puras de tipos/lógica, reloj, identidad, payloads y coordenadas.
+<strong>I:</strong> integración real de componentes locales, SQLite/HTTP/archivo/encoder.
+<strong>P:</strong> Windows físico: foco, monitor, permisos, micrófono, grabación y apps.
+<strong>E:</strong> servicios externos autorizados: IA, Spotify, YouTube y extensión instalada.</p>
+<p>Una prueba con fuente Canvas es I de codificación, no P de captura. ASR con resultados fijos prueba contrato, no calidad lingüística. <code>page.set_content</code> y Map localStorage no prueban navegación ni persistencia real. Todas las evidencias tienen clase, versión/commit, entorno y comandos.</p>
+<h2>Baseline M0</h2>
+<p>Extraer ZIP original, comprobar hash, compilar y ejecutar suite. Guardar las salidas completas y el código de salida; no contar tests históricos como nuevos. Las 268 pruebas de Axx20 son referencia esperada, no resultado obligatorio de una versión posterior. No borrar pruebas que revelan fallos sin documentar cambio de requisito.</p>
+<h2>Pruebas automáticas a añadir</h2>
+<ul>
+<li>Identity: guardar/preview/descartar/revisión obsoleta/reiniciar; estado no cambia forma.</li>
+<li>Input: doble A450ms, autorepeat, jitter7px, Escape no secuestra otras apps.</li>
+<li>Windows: DPI/monitores negativos, bounds deseado vs visible, target mask frame.</li>
+<li>Command: expiry, rechazo de origen, doble idempotency key, aprobación hash distinto.</li>
+<li>Timer: duración nueva tras terminado, ajustes en pausa, suspensión, reloj del sistema alterado, rutinas finitas.</li>
+<li>Dictation: parciales, finales duplicados, FIFO traducción, destino cambiado, error motor, antes de Enviar, undo tras edición.</li>
+<li>Capture: audio/video timestamp, pause rebase, fuente revocada, storage full, crash por segmento, saved solo tras close.</li>
+<li>Music: fuente stale, estado remoto tarde, silencio, no duplicar reproductor, capacidades no admitidas.</li>
+<li>Extension: framing, grants revocados, input sensible, host caído.</li>
+</ul>
+<h2>Prueba end-to-end física canónica</h2>
+<p>Arrancar Axx instalado; abrir Bloc de notas; guardar forma/cámara/tamaño; invocar desde allí, mover, desplegar órbita y aparcar; cerrar/reabrir y comprobar identidad; dictar a selección parcial sin envío; traducir con motor real; pausar música de sesión Windows; iniciar timer y cambiar herramienta; grabar ventana con voz, pausar, continuar, finalizar en carpeta; reproducir resultado; detener escucha; salir y comprobar procesos/recursos liberados.</p>
+<p>No ejecutar todo por primera vez al final del proyecto. Cada módulo se prueba con los anteriores activados para encontrar interferencias de foco, audio y reloj.</p>
+<h2>Rendimiento a calidad constante</h2>
+<p>Benchmark de 30 min y un caso adverso de 2 h antes de release. Escenarios: avatar solo, dos paneles, música, dictado, grabación, pantalla con alta escala y cambio entre apps. Registrar CPU por proceso, working set/commit, frame p50/p95/p99, tareas largas, ASR latency, captura dropped frames y crecimiento de memoria. Usar Windows Performance Recorder/Profiler o medición explícita propia; no prometer datos no medidos.</p>
+<p>Comparaciones mantienen malla/LUT/resolución/pose. Las pruebas funcionales pueden aislar renderer, pero entonces no se anuncian como rendimiento. Incluir al menos una captura/lote con renderer real y efectos activos.</p>
+<h2>Matriz de entorno</h2>
+<p>Windows11 x64, GPU integrada, 16 GB; un monitor y dos monitores; escalas100/125/150/200%; resolución1366×768 y1920×1080 cuando disponibles; auriculares y altavoces; Edge/Chrome reales para extensión; usuario estándar; app objetivo elevada como caso de rechazo; sin Internet; permisos denegados; disco casi lleno; suspensión/reanudación.</p>
+<h2>Gate de entrega</h2>
+<p>M0: base reproducible.
+M1: presencia/atajos/input/foco físicos.
+M2: preferencias durables e identidad.
+M3: comandos/voz externa en destinos anunciados.
+M4: multimedia y captura física durable.
+M5: 30min/2h sin bloqueos, rollback, instalador y privacidad.</p>
+<p>Un fallo P0 no se compensa con cien tests U verdes. Se pueden distribuir funciones beta desactivadas, no anunciar como finalizadas. El soporte debe señalar qué gates no han pasado.</p>
+<h2>Informe</h2>
+<p>Usar <code>config/evidence.template.json</code> y <code>tools/verify_packet.py</code>. Este verificador comprueba el expediente, no el runtime nativo. Para aplicación: logs, capturas propias consentidas, vídeo de prueba no sensible, test report, hashes y una descripción exacta de sustituciones/mocks.</p>
+</section><section id="chapter-19" class="chapter" data-title="19 · Compilación, instalador, actualización y rollback"><h1>19 · Compilación, instalador, actualización y rollback</h1>
+<h2>Release no es solo npx tauri build</h2>
+<p>La build release contiene frontend compilado, host Rust, binarios auxiliares permitidos y manifiestos de modelos; no node_modules, fixtures, .env con secretos ni pruebas que registren audio. Una build que abre una ventana no confirma los contratos de escritorio.</p>
+<h2>Versionado</h2>
+<p>Separar versión de producto, contrato IPC, esquema de datos y artefactos de modelo. Registrar commit y toolchain. Cargo.lock/package-lock versionados, modelos/binarios con hashes; no descargar <code>latest</code> en el primer arranque. La base visual Axx20 queda como referencia, no como una nueva numeración del contrato cada vez que cambia CSS.</p>
+<h2>Instalador por usuario</h2>
+<p>NSIS mediante Tauri como objetivo inicial. Verificar rutas reales emitidas por el build. Crear acceso Inicio y desinstalador, registro de Native Messaging solo si el componente se instala y con consentimiento correspondiente. Inicio con Windows es opción desactivada inicialmente. No requerir administrador sin razón. Instalar WebView2 según estrategia documentada y soportar instalador offline si se decide [S07].</p>
+<h2>Firma</h2>
+<p>Firma Authenticode del ejecutable/instalador con certificado del propietario; firma del bundle de actualización de Tauri con clave independiente. El actualizador exige validar la firma; no desactivarla para evitar un error [S08]. Claves privadas en almacén de secretos del proceso de publicación, nunca repo/prompt/ZIP. La firma no garantiza automáticamente reputación inmediata ni elimina toda alerta de SmartScreen.</p>
+<h2>Modelos de voz</h2>
+<p>No incluir pesos sin licencia/notice ni prometer una descarga de tamaño desconocido. Un descargador autorizado verifica checksum antes de activar, reanuda temporalmente de forma segura y permite borrar modelos. La cancelación no deja modelo corrupto anunciado como disponible. Versionar modelos separados del instalador cuando facilite actualizaciones y tamaño.</p>
+<h2>Actualización</h2>
+<p>Comprobar versión y compatibilidad de esquema/contrato; no instalar mientras se graba ni se está escribiendo una transacción de inserción. Ofrecer posponer, finalizar/guardar y luego actualizar. Backup coherente antes de migración. Actualización puede pedir nueva autorización si amplía capacidades, no heredar permisos silenciosamente.</p>
+<h2>Rollback</h2>
+<p>Conservar build anterior y backup compatible. Si el esquema cambió sin reversión segura, la versión anterior no abre la base nueva en escritura. Restaurar snapshot aprobado o usar migración inversa probada. Conservar grabaciones externas y no borrar archivos del usuario al volver de versión.</p>
+<h2>Desinstalación</h2>
+<p>Detener procesos propios, desregistrar host/atajos/autostart, retirar binarios, ofrecer conservar o eliminar datos. No eliminar la carpeta general de vídeos del usuario ni otras apps. Revocar tokens locales; revocación de acceso en servicios externos queda explicada como acción separada.</p>
+<h2>Checklist de publicación</h2>
+<p>Instalación en usuario nuevo; primer arranque offline; permisos de mic/captura; startup opt-in; actualización desde versión anterior con notas y estilos; captura activa pospone update; rollback con SQLite; desinstalar conserva vídeos; escaneo de secretos/licencias; verificación de firma; smoke físico. Cada check deja evidencia, no solo una casilla verde manual.</p>
+</section><section id="chapter-20" class="chapter" data-title="20 · Operación, soporte y diagnóstico"><h1>20 · Operación, soporte y diagnóstico</h1>
+<h2>Diagnóstico opcional</h2>
+<p>Panel oculto por defecto: versión/commit, backend visual, tiempos de frame, tareas activas, mic/captura, proveedor y estado, base de datos/revisión, monitor/DPI, grants activos y errores recientes. No mostrar llaves ni transcripciones en el diagnóstico.</p>
+<h2>Runbooks</h2>
+<table>
+<thead>
+<tr>
+<th>Síntoma</th>
+<th>Inspección primero</th>
+<th>Recuperación permitida</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Forma cambia sola</td>
+<td>savedRevision, preview, actionMorph, keepForm</td>
+<td>Descartar preview o corregir proyección; nunca reset general.</td>
+</tr>
+<tr>
+<td>Tamaño no se conserva</td>
+<td>desired vs presentation bounds, escritura DB</td>
+<td>Reintentar commit; no guardar caja móvil sobre escritorio.</td>
+</tr>
+<tr>
+<td>Atajo no responde</td>
+<td>registro/colisión, instancia principal, teclas físicas</td>
+<td>Reasignar y desregistrar duplicados; no reiniciar tareas.</td>
+</tr>
+<tr>
+<td>Clics bloqueados</td>
+<td>regiones activas, frameId, ventanas transparentes</td>
+<td>Desactivar proxy conflictivo, control accesible; no overlay pantalla completa.</td>
+</tr>
+<tr>
+<td>Dicta en sitio incorrecto</td>
+<td>TargetLease/foreground/selection</td>
+<td>Cancelar inserción, conservar borrador, pedir nuevo destino.</td>
+</tr>
+<tr>
+<td>No transcribe</td>
+<td>permiso, dispositivo, ASR/modelo, frames</td>
+<td>Ver error específico; teclado disponible.</td>
+</tr>
+<tr>
+<td>Escucha su propia voz</td>
+<td>rutas mic/TTS/loopback</td>
+<td>Half-duplex y revisar eco; no volumen inventado.</td>
+</tr>
+<tr>
+<td>Captura sin sonido</td>
+<td>audio real en stream/ruteo/dispositivo</td>
+<td>Aviso y fuente correcta; no activar mic de respaldo oculto.</td>
+</tr>
+<tr>
+<td>Vídeo no guarda</td>
+<td>close/finalize, espacio, ruta/grant</td>
+<td>Conservar segmentos, exportar a otra carpeta.</td>
+</tr>
+<tr>
+<td>Se traba al animar</td>
+<td>p95 raster/GC/IPC/audio concurrencia</td>
+<td>Cache/worker/colas; no reducir calidad sin autorización.</td>
+</tr>
+</tbody>
+</table>
+<h2>Recuperación sin perder identidad</h2>
+<p>Primer nivel reinicia la vista desde snapshot. Segundo reinicia el worker afectado. Tercero propone reinicio de app cuando no hay operaciones pendientes, preservando datos. No usar &quot;restablecer todo&quot; como primer arreglo; backup y lista exacta de qué se borrará.</p>
+<h2>Indicadores persistentes</h2>
+<p>Micrófono activo y captura activa mantienen stop accesible incluso al recoger paneles. Pantalla bloqueada debe seguir la política explícita: detener dictado/wake o pausar suscripciones según elección segura; captura no se anuncia detenida hasta evento confirmado. Salir libera handles; cerrar un panel no significa salir.</p>
+<h2>Datos de soporte</h2>
+<p>Bundle opt-in: logs redactados, versiones, capacidades, contadores, configuración sin secretos, informes de fallo. No incluir audio, capturas o texto del usuario por defecto. Preview del contenido antes de exportar. Archivo con hash/fecha; no subida automática.</p>
+<h2>Controles operativos recomendados</h2>
+<p>Pausar escucha; detener captura; recoger todo; volver a base; exportar datos; administrar permisos; reiniciar worker ASR; pruebas de sonido; diagnóstico. Ninguno debe llenar el chat principal de opciones permanentes. Integrarlos en menú contextual o ajustes.</p>
+</section><section id="chapter-21" class="chapter" data-title="21 · Entregas y definición de producto terminado"><h1>21 · Entregas y definición de producto terminado</h1>
+<h2>M0 · Base y entorno</h2>
+<p>Inventario, hashes, build reproducible, exportación de preferencias, lockfiles, pruebas heredadas y mapa de interfaces. No cambia visuales. Evidencia: informe de máquina, logs y capturas canónicas.</p>
+<h2>M1 · Axx Desktop utilizable</h2>
+<p>Shell Tauri real, instancia única, bandeja, ventanas, atajos globales, selección de input y paneles. Primer recorrido: abrir desde otra app, llamar/devolver, timer local y chat. No se considera completo con una ventana rectangular web que bloquea clics.</p>
+<h2>M2 · Persistencia y fidelidad</h2>
+<p>SQLite canónico, importación, reinicio real, preset/size/camera y optimización a calidad constante. Axx no se vuelve otra figura ni aparece Herramientas al aparcar. Primer release interno para evaluar escritorio real.</p>
+<h2>M3 · Trabajo por voz</h2>
+<p>AudioRuntime, ASR autorizado, dictado y traducción, lector y al menos destinos externos declarados/validados. Mic/ondas reales, conflictos y no envío. No prometer compatibilidad universal; publicar matriz.</p>
+<h2>M4 · Multimedia y captura</h2>
+<p>Sesiones Windows y extensión instaladas, captura con halo físico, folder real, segmentos recuperables, timers durables. Conservar API proveedores como integraciones condicionadas y probar cada cuenta antes de anunciarla.</p>
+<h2>M5 · Distribución controlada</h2>
+<p>Instalador firmado, update/rollback, 30min y 2h de carga, accesibilidad, privacidad y soporte. Las funciones no listas aparecen desactivadas con motivo. Medir latencias/consumo en el portátil indicado.</p>
+<h2>M6 · Manos libres y expansión</h2>
+<p>Hey Axx con evaluación de detector y licencias, barge-in, mejoras artísticas de unión de brazos, nuevas formas, voz bidireccional y móvil en iniciativas separadas. El proyecto no se queda eternamente en M1 esperando completar todas las ideas futuras.</p>
+<h2>No se aceptan como entrega final</h2>
+<p>Otra lámina de imagen; nuevos botones que solo muestran alert; un HTML renombrado exe; un resultado de ASR hardcoded; un permiso inventado; un contador de tests sin logs; FPS calculados con render detenido; un archivo de vídeo que no se reproduce; o &quot;funciona en Windows&quot; tras test Linux de protocolo.</p>
+<h2>Qué recibe el propietario en cada milestone</h2>
+<p>Build identificada, instrucciones concretas, código, diff/commits, limitaciones actuales, pruebas, captura de interfaz y una lista de acciones que requieren su permiso. El propietario aprueba cambios de identidad, coste, permisos o distribución; el agente no debe pedir otra vez información ya documentada ni convertir cada archivo en una nueva consulta.</p>
+</section><section id="chapter-22" class="chapter" data-title="22 · Trabajo con Codex, Antigravity u otro agente con acceso al repositorio"><h1>22 · Trabajo con Codex, Antigravity u otro agente con acceso al repositorio</h1>
+<h2>Un coordinador, contratos compartidos</h2>
+<p>El coordinador lee AGENTS y el plan, registra decisiones y asigna tareas con alcance concreto. La paralelización solo después de fijar contratos; renderer y persistencia no escriben simultáneamente el mismo archivo de preferencias. Cada agente trabaja en su rama o copia aislada. No delegar una tarea y afirmar que pasó sin inspeccionar diff y ejecutar pruebas.</p>
+<h2>Especialidades</h2>
+<table>
+<thead>
+<tr>
+<th>Rol</th>
+<th>Propiedad principal</th>
+<th>No puede decidir por su cuenta</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Integración</td>
+<td>montaje, puertos y secuencia</td>
+<td>Rediseñar identidad o ampliar permisos.</td>
+</tr>
+<tr>
+<td>Windows</td>
+<td>ventanas, input, UIA, atajos</td>
+<td>Elevar app por defecto o desactivar UAC.</td>
+</tr>
+<tr>
+<td>Voz</td>
+<td>audio, ASR, traducción, wake</td>
+<td>Descargar modelos o enviar audio sin autorización.</td>
+</tr>
+<tr>
+<td>Multimedia</td>
+<td>media/capture/encoder/halo</td>
+<td>Prometer señal Spotify o grabar fuente no elegida.</td>
+</tr>
+<tr>
+<td>Datos/seguridad</td>
+<td>SQLite, IPC, grants, secrets</td>
+<td>Borrar datos para pasar tests.</td>
+</tr>
+<tr>
+<td>Arte/rendimiento</td>
+<td>formas, material, worker</td>
+<td>Bajar calidad silenciosamente.</td>
+</tr>
+<tr>
+<td>QA/release</td>
+<td>pruebas físicas, empaquetado</td>
+<td>Convertir mocks en pruebas reales.</td>
+</tr>
+</tbody>
+</table>
+<h2>Paquete de tarea</h2>
+<p>Objetivo y requisito IDs; base commit; archivos autorizados; contratos de entrada/salida; pruebas esperadas; permisos que faltan; forma de devolver evidencia. Un informe debe nombrar archivos realmente modificados. Si el agente no tiene toolchain o dispositivo, produce trabajo independiente útil y deja la prueba pendiente; no simula el dispositivo en secreto.</p>
+<h2>Orden de integración</h2>
+<p>Los cambios de contratos se revisan primero. Luego puertos con adaptador web, shell, datos, input, workers y herramientas. Integrar una capacidad detrás de feature flag real evita invalidar toda la app. Cuando ya es autoridad nativa, eliminar la segunda ruta autoritaria, no mantener dos servicios activos.</p>
+<h2>Prevención de alucinaciones</h2>
+<p>APIs externas solo desde documentación primaria comprobada. Nombres internos propuestos se implementan antes de invocarlos. No crear bibliotecas con nombres plausibles. Comandos de build se ejecutan realmente y se registra exit code. El archivo de estado no marca completado si falta el gate físico. No se cambian requisitos para convertir un fallo en éxito.</p>
+<h2>Revisión</h2>
+<p>Otro agente o desarrollador revisa cuando sea posible; si no, se declara revisión propia. Diferenciar revisión de código, ejecución de test y validación de UX. La aprobación visual exige ver el software, no un prompt de imagen. Las decisiones de UI del usuario tienen precedencia sobre preferencias estéticas del implementador.</p>
+</section><section id="chapter-23" class="chapter" data-title="23 · Riesgos, dependencias y costes"><h1>23 · Riesgos, dependencias y costes</h1>
+<table>
+<thead>
+<tr>
+<th>Riesgo</th>
+<th>Impacto</th>
+<th>Mitigación / puerta</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Varias autoridades de ajustes</td>
+<td>Apariencia cambia sola</td>
+<td>SQLite revision y un SettingsPort; prueba de reinicio.</td>
+</tr>
+<tr>
+<td>Input transparente entre apps</td>
+<td>Clics bloqueados/perdidos</td>
+<td>Ensayo real proxy/región y foco en M1.</td>
+</tr>
+<tr>
+<td>UIA no soporta un editor</td>
+<td>Dictado falla/corrompe</td>
+<td>Adaptadores por destino y fallback explícito; matriz.</td>
+</tr>
+<tr>
+<td>ASR CPU lento</td>
+<td>Latencia y competencia con render</td>
+<td>Modelo pequeño medido, worker, cuotas de concurrencia.</td>
+</tr>
+<tr>
+<td>Grabación solo en RAM</td>
+<td>Pérdida ante cierre/disco</td>
+<td>Segmentos finalizados y recuperación M4.</td>
+</tr>
+<tr>
+<td>WebView/Windows cambia comportamiento</td>
+<td>Regresión input/media</td>
+<td>Versions/evidencia, feature detection, smoke tras update.</td>
+</tr>
+<tr>
+<td>Cambios en APIs/políticas Spotify</td>
+<td>Integración inaccesible/no distribuible</td>
+<td>Validación actual y modo desactivado si no autorizado.</td>
+</tr>
+<tr>
+<td>Bucle TTS→mic</td>
+<td>Órdenes falsas/transcripción recursiva</td>
+<td>AudioRuntime, half-duplex inicial, eco medido.</td>
+</tr>
+<tr>
+<td>Grandes modelos/medios</td>
+<td>RAM16GB insuficiente</td>
+<td>Descarga/presupuesto claros, memoria acotada.</td>
+</tr>
+<tr>
+<td>Optimización altera reflejos</td>
+<td>Degradación rechazada</td>
+<td>Referencia RGBA/visual, aprobación y no downgrade oculto.</td>
+</tr>
+<tr>
+<td>Demasiadas fases simultáneas</td>
+<td>Interferencia y entrega nunca útil</td>
+<td>M0–M6 y gates por recorrido.</td>
+</tr>
+</tbody>
+</table>
+<h2>Costes que hay que decidir</h2>
+<p>Certificado de firma/distribución, servicios de IA/ASR/traducción remotos, aplicación/cuenta de proveedor musical, eventual wake engine comercial, almacenamiento para grabaciones y hosting de actualizaciones. Las cifras dependen del proveedor/fecha/región: este expediente no inventa precios. Servicios gratuitos no se consideran ilimitados ni garantizados.</p>
+<p>Los modelos locales también cuestan almacenamiento/RAM/CPU. Antes de descargar, mostrar tamaño y licencia; antes de elegir modelo, medir tiempo y memoria en la máquina. No hacer una recomendación de compra de hardware sin benchmark del proyecto.</p>
+<h2>Estimación de esfuerzo</h2>
+<p>No se ofrece un plazo de producción sin auditar la máquina y ejecutar M0/M1. El plan divide trabajo por resultados y dependencias; el agente registra duración real de cada tarea y recalcula. Una shell inicial puede compilar antes que el producto completo, pero su existencia no acredita voz/captura/seguridad terminadas.</p>
+<h2>Decisiones abiertas con cierre definido</h2>
+<p>Input proxy: se decide por pruebas de clic/foco. ASR: por evaluación local y consentimiento de modelo. Wake: por falsa alarma/latencia/licencia. Encoder: por captura física y recuperación. GPU rendering: no sustituye compatibilidad sin decisión explícita. Todas tienen alternativa útil y gate, no un TODO sin dueño.</p>
+</section><section id="chapter-24" class="chapter" data-title="Referencias oficiales y registro de consulta"><h1>Referencias oficiales y registro de consulta</h1>
+<p>Los identificadores S01–S44 utilizados en los documentos remiten a estas fuentes primarias. La disponibilidad HTTP es una verificación del enlace, no una prueba de compatibilidad del producto ni de toda interpretación técnica. Las versiones y condiciones deben fijarse de nuevo antes de distribuir. No se reproduce el contenido íntegro de estas páginas.</p>
+<h2>S01 · Tauri: requisitos Windows</h2>
+<p>https://v2.tauri.app/start/prerequisites/</p>
+<p>Consulta: 2026-10-19T16:58:02.865919+00:00 · No recuperado por este comprobador; verificar manualmente. &lt;urlopen error [Errno -3] Temporary failure in name resolution&gt;</p>
+<h2>S02 · Tauri: capacidades y permisos</h2>
+<p>https://v2.tauri.app/security/capabilities/</p>
+<p>Consulta: 2026-10-19T16:58:02.866925+00:00 · No recuperado por este comprobador; verificar manualmente. &lt;urlopen error [Errno -3] Temporary failure in name resolution&gt;</p>
+<h2>S03 · Tauri: atajos globales</h2>
+<p>https://v2.tauri.app/plugin/global-shortcut/</p>
+<p>Consulta: 2026-10-19T16:58:02.867479+00:00 · No recuperado por este comprobador; verificar manualmente. &lt;urlopen error [Errno -3] Temporary failure in name resolution&gt;</p>
+<h2>S04 · Tauri: ventanas</h2>
+<p>https://v2.tauri.app/reference/javascript/api/namespacewindow/</p>
+<p>Consulta: 2026-10-19T16:58:02.867898+00:00 · No recuperado por este comprobador; verificar manualmente. &lt;urlopen error [Errno -3] Temporary failure in name resolution&gt;</p>
+<h2>S05 · Tauri: bandeja</h2>
+<p>https://v2.tauri.app/learn/system-tray/</p>
+<p>Consulta: 2026-10-19T16:58:02.868397+00:00 · No recuperado por este comprobador; verificar manualmente. &lt;urlopen error [Errno -3] Temporary failure in name resolution&gt;</p>
+<h2>S06 · Tauri: instancia única</h2>
+<p>https://v2.tauri.app/plugin/single-instance/</p>
+<p>Consulta: 2026-10-19T16:58:02.868850+00:00 · No recuperado por este comprobador; verificar manualmente. &lt;urlopen error [Errno -3] Temporary failure in name resolution&gt;</p>
+<h2>S07 · Tauri: instalador Windows</h2>
+<p>https://v2.tauri.app/distribute/windows-installer/</p>
+<p>Consulta: 2026-10-19T16:58:02.869625+00:00 · No recuperado por este comprobador; verificar manualmente. &lt;urlopen error [Errno -3] Temporary failure in name resolution&gt;</p>
+<h2>S08 · Tauri: actualizaciones firmadas</h2>
+<p>https://v2.tauri.app/plugin/updater/</p>
+<p>Consulta: 2026-10-19T16:58:02.870102+00:00 · No recuperado por este comprobador; verificar manualmente. &lt;urlopen error [Errno -3] Temporary failure in name resolution&gt;</p>
+<h2>S09 · Windows: RegisterHotKey</h2>
+<p>https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-registerhotkey</p>
+<p>Consulta: 2026-10-19T16:58:02.871348+00:00 · No recuperado por este comprobador; verificar manualmente. &lt;urlopen error [Errno -3] Temporary failure in name resolution&gt;</p>
+<h2>S10 · Windows: pantalla y DPI</h2>
+<p>https://learn.microsoft.com/en-us/windows/win32/hidpi/high-dpi-desktop-application-development-on-windows</p>
+<p>Consulta: 2026-10-19T16:58:02.877044+00:00 · No recuperado por este comprobador; verificar manualmente. &lt;urlopen error [Errno -3] Temporary failure in name resolution&gt;</p>
+<h2>S11 · Windows: UI Automation TextPattern</h2>
+<p>https://learn.microsoft.com/en-us/windows/win32/winauto/uiauto-usingtextpattern</p>
+<p>Consulta: 2026-10-19T16:58:02.886898+00:00 · No recuperado por este comprobador; verificar manualmente. &lt;urlopen error [Errno -3] Temporary failure in name resolution&gt;</p>
+<h2>S12 · Windows: SendInput e integridad</h2>
+<p>https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-sendinput</p>
+<p>Consulta: 2026-10-19T16:58:02.888084+00:00 · No recuperado por este comprobador; verificar manualmente. &lt;urlopen error [Errno -3] Temporary failure in name resolution&gt;</p>
+<h2>S13 · Windows: ValuePattern</h2>
+<p>https://learn.microsoft.com/en-us/windows/win32/winauto/uiauto-implementingvalue</p>
+<p>Consulta: 2026-10-19T16:58:02.888348+00:00 · No recuperado por este comprobador; verificar manualmente. &lt;urlopen error [Errno -3] Temporary failure in name resolution&gt;</p>
+<h2>S14 · Windows: Graphics Capture</h2>
+<p>https://learn.microsoft.com/en-us/windows/uwp/audio-video-camera/screen-capture</p>
+<p>Consulta: 2026-10-19T16:58:07.891967+00:00 · No recuperado por este comprobador; verificar manualmente. &lt;urlopen error [Errno -3] Temporary failure in name resolution&gt;</p>
+<h2>S15 · Windows: afinidad/exclusión de captura</h2>
+<p>https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setwindowdisplayaffinity</p>
+<p>Consulta: 2026-10-19T16:58:07.892873+00:00 · No recuperado por este comprobador; verificar manualmente. &lt;urlopen error [Errno -3] Temporary failure in name resolution&gt;</p>
+<h2>S16 · Windows: WASAPI loopback</h2>
+<p>https://learn.microsoft.com/en-us/windows/win32/coreaudio/loopback-recording</p>
+<p>Consulta: 2026-10-19T16:58:07.894014+00:00 · No recuperado por este comprobador; verificar manualmente. &lt;urlopen error [Errno -3] Temporary failure in name resolution&gt;</p>
+<h2>S17 · Windows: Media Foundation Sink Writer</h2>
+<p>https://learn.microsoft.com/en-us/windows/win32/medfound/using-the-sink-writer-to-encode-video</p>
+<p>Consulta: 2026-10-19T16:58:12.897535+00:00 · No recuperado por este comprobador; verificar manualmente. &lt;urlopen error [Errno -3] Temporary failure in name resolution&gt;</p>
+<h2>S18 · Windows: sesiones multimedia</h2>
+<p>https://learn.microsoft.com/en-us/uwp/api/windows.media.control.globalsystemmediatransportcontrolssessionmanager</p>
+<p>Consulta: 2026-10-19T16:58:12.897915+00:00 · No recuperado por este comprobador; verificar manualmente. &lt;urlopen error [Errno -3] Temporary failure in name resolution&gt;</p>
+<h2>S19 · Windows: DPAPI</h2>
+<p>https://learn.microsoft.com/en-us/windows/win32/api/dpapi/nf-dpapi-cryptprotectdata</p>
+<p>Consulta: 2026-10-19T16:58:12.898076+00:00 · No recuperado por este comprobador; verificar manualmente. &lt;urlopen error [Errno -3] Temporary failure in name resolution&gt;</p>
+<h2>S20 · Microsoft: windows-rs</h2>
+<p>https://github.com/microsoft/windows-rs</p>
+<p>Consulta: 2026-10-19T16:58:12.898195+00:00 · No recuperado por este comprobador; verificar manualmente. &lt;urlopen error [Errno -3] Temporary failure in name resolution&gt;</p>
+<h2>S21 · Chrome: Native Messaging</h2>
+<p>https://developer.chrome.com/docs/extensions/develop/concepts/native-messaging</p>
+<p>Consulta: 2026-10-19T16:58:12.898431+00:00 · No recuperado por este comprobador; verificar manualmente. &lt;urlopen error [Errno -3] Temporary failure in name resolution&gt;</p>
+<h2>S22 · Chrome: permisos activeTab</h2>
+<p>https://developer.chrome.com/docs/extensions/develop/concepts/activeTab</p>
+<p>Consulta: 2026-10-19T16:58:12.898538+00:00 · No recuperado por este comprobador; verificar manualmente. &lt;urlopen error [Errno -3] Temporary failure in name resolution&gt;</p>
+<h2>S23 · Chrome: content scripts</h2>
+<p>https://developer.chrome.com/docs/extensions/develop/concepts/content-scripts</p>
+<p>Consulta: 2026-10-19T16:58:12.898703+00:00 · No recuperado por este comprobador; verificar manualmente. &lt;urlopen error [Errno -3] Temporary failure in name resolution&gt;</p>
+<h2>S24 · Chrome: Translator API</h2>
+<p>https://developer.chrome.com/docs/ai/translator-api</p>
+<p>Consulta: 2026-10-19T16:58:12.898819+00:00 · No recuperado por este comprobador; verificar manualmente. &lt;urlopen error [Errno -3] Temporary failure in name resolution&gt;</p>
+<h2>S25 · MDN: SpeechRecognition</h2>
+<p>https://developer.mozilla.org/en-US/docs/Web/API/SpeechRecognition</p>
+<p>Consulta: 2026-10-19T16:58:12.898963+00:00 · No recuperado por este comprobador; verificar manualmente. &lt;urlopen error [Errno -3] Temporary failure in name resolution&gt;</p>
+<h2>S26 · MDN: OffscreenCanvas</h2>
+<p>https://developer.mozilla.org/en-US/docs/Web/API/OffscreenCanvas</p>
+<p>Consulta: 2026-10-19T16:58:12.901039+00:00 · No recuperado por este comprobador; verificar manualmente. &lt;urlopen error [Errno -3] Temporary failure in name resolution&gt;</p>
+<h2>S27 · SQLite: WAL</h2>
+<p>https://www.sqlite.org/wal.html</p>
+<p>Consulta: 2026-10-19T16:58:17.902141+00:00 · No recuperado por este comprobador; verificar manualmente. &lt;urlopen error [Errno -3] Temporary failure in name resolution&gt;</p>
+<h2>S28 · SQLite: backup API</h2>
+<p>https://www.sqlite.org/backup.html</p>
+<p>Consulta: 2026-10-19T16:58:17.902574+00:00 · No recuperado por este comprobador; verificar manualmente. &lt;urlopen error [Errno -3] Temporary failure in name resolution&gt;</p>
+<h2>S29 · whisper.cpp: proyecto oficial</h2>
+<p>https://github.com/ggml-org/whisper.cpp</p>
+<p>Consulta: 2026-10-19T16:58:17.902691+00:00 · No recuperado por este comprobador; verificar manualmente. &lt;urlopen error [Errno -3] Temporary failure in name resolution&gt;</p>
+<h2>S30 · openWakeWord: proyecto y licencias</h2>
+<p>https://github.com/dscripka/openWakeWord</p>
+<p>Consulta: 2026-10-19T16:58:17.904123+00:00 · No recuperado por este comprobador; verificar manualmente. &lt;urlopen error [Errno -3] Temporary failure in name resolution&gt;</p>
+<h2>S31 · Spotify: Web API</h2>
+<p>https://developer.spotify.com/documentation/web-api</p>
+<p>Consulta: 2026-10-19T16:58:17.904302+00:00 · No recuperado por este comprobador; verificar manualmente. &lt;urlopen error [Errno -3] Temporary failure in name resolution&gt;</p>
+<h2>S32 · Spotify: PKCE</h2>
+<p>https://developer.spotify.com/documentation/web-api/tutorials/code-pkce-flow</p>
+<p>Consulta: 2026-10-19T16:58:22.907980+00:00 · No recuperado por este comprobador; verificar manualmente. &lt;urlopen error [Errno -3] Temporary failure in name resolution&gt;</p>
+<h2>S33 · Spotify: política de desarrolladores</h2>
+<p>https://developer.spotify.com/policy</p>
+<p>Consulta: 2026-10-19T16:58:22.908718+00:00 · No recuperado por este comprobador; verificar manualmente. &lt;urlopen error [Errno -3] Temporary failure in name resolution&gt;</p>
+<h2>S34 · Spotify: redirect URI</h2>
+<p>https://developer.spotify.com/documentation/web-api/concepts/redirect_uri</p>
+<p>Consulta: 2026-10-19T16:58:22.908850+00:00 · No recuperado por este comprobador; verificar manualmente. &lt;urlopen error [Errno -3] Temporary failure in name resolution&gt;</p>
+<h2>S35 · YouTube: IFrame API</h2>
+<p>https://developers.google.com/youtube/iframe_api_reference</p>
+<p>Consulta: 2026-10-19T16:58:22.909023+00:00 · No recuperado por este comprobador; verificar manualmente. &lt;urlopen error [Errno -3] Temporary failure in name resolution&gt;</p>
+<h2>S36 · OpenAI: facturación ChatGPT y API</h2>
+<p>https://help.openai.com/en/articles/8156019-how-can-i-move-my-chatgpt-subscription-to-the-api</p>
+<p>Consulta: 2026-10-19T16:58:22.909142+00:00 · No recuperado por este comprobador; verificar manualmente. &lt;urlopen error [Errno -3] Temporary failure in name resolution&gt;</p>
+<h2>S37 · OpenAI: Realtime</h2>
+<p>https://platform.openai.com/docs/guides/realtime</p>
+<p>Consulta: 2026-10-19T16:58:22.909296+00:00 · No recuperado por este comprobador; verificar manualmente. &lt;urlopen error [Errno -3] Temporary failure in name resolution&gt;</p>
+<h2>S38 · OpenAI: Codex autenticación</h2>
+<p>https://developers.openai.com/codex/auth</p>
+<p>Consulta: 2026-10-19T16:58:22.909421+00:00 · No recuperado por este comprobador; verificar manualmente. &lt;urlopen error [Errno -3] Temporary failure in name resolution&gt;</p>
+<h2>S39 · Ollama: API</h2>
+<p>https://docs.ollama.com/api/introduction</p>
+<p>Consulta: 2026-10-19T16:58:22.909583+00:00 · No recuperado por este comprobador; verificar manualmente. &lt;urlopen error [Errno -3] Temporary failure in name resolution&gt;</p>
+<h2>S40 · FFmpeg: licencia/distribución</h2>
+<p>https://ffmpeg.org/legal.html</p>
+<p>Consulta: 2026-10-19T16:58:22.909672+00:00 · No recuperado por este comprobador; verificar manualmente. &lt;urlopen error [Errno -3] Temporary failure in name resolution&gt;</p>
+<h2>S41 · Windows: WM_NCHITTEST</h2>
+<p>https://learn.microsoft.com/en-us/windows/win32/inputdev/wm-nchittest</p>
+<p>Consulta: 2026-10-19T16:58:22.909777+00:00 · No recuperado por este comprobador; verificar manualmente. &lt;urlopen error [Errno -3] Temporary failure in name resolution&gt;</p>
+<h2>S42 · Windows: SetWindowRgn</h2>
+<p>https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setwindowrgn</p>
+<p>Consulta: 2026-10-19T16:58:22.909901+00:00 · No recuperado por este comprobador; verificar manualmente. &lt;urlopen error [Errno -3] Temporary failure in name resolution&gt;</p>
+<h2>S43 · Node.js: releases</h2>
+<p>https://nodejs.org/en/about/previous-releases</p>
+<p>Consulta: 2026-10-19T16:58:27.914201+00:00 · No recuperado por este comprobador; verificar manualmente. &lt;urlopen error [Errno -3] Temporary failure in name resolution&gt;</p>
+<h2>S44 · Rust: instalación</h2>
+<p>https://www.rust-lang.org/tools/install</p>
+<p>Consulta: 2026-10-19T16:58:27.914463+00:00 · No recuperado por este comprobador; verificar manualmente. &lt;urlopen error [Errno -3] Temporary failure in name resolution&gt;</p>
+</section><section id="chapter-25" class="chapter" data-title="25 · Trazabilidad requisito → implementación → prueba"><h1>25 · Trazabilidad requisito → implementación → prueba</h1>
+<table>
+<thead>
+<tr>
+<th>Requisito</th>
+<th>Tareas que lo cubren</th>
+<th>Estado</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>R01</td>
+<td>T00, T05, T06, T26</td>
+<td>Planificado; no validación nativa implícita</td>
+</tr>
+<tr>
+<td>R02</td>
+<td>T05, T06</td>
+<td>Planificado; no validación nativa implícita</td>
+</tr>
+<tr>
+<td>R03</td>
+<td>T07</td>
+<td>Planificado; no validación nativa implícita</td>
+</tr>
+<tr>
+<td>R04</td>
+<td>T06, T07</td>
+<td>Planificado; no validación nativa implícita</td>
+</tr>
+<tr>
+<td>R05</td>
+<td>T06</td>
+<td>Planificado; no validación nativa implícita</td>
+</tr>
+<tr>
+<td>R06</td>
+<td>T02, T04, T06</td>
+<td>Planificado; no validación nativa implícita</td>
+</tr>
+<tr>
+<td>R07</td>
+<td>T04, T26</td>
+<td>Planificado; no validación nativa implícita</td>
+</tr>
+<tr>
+<td>R08</td>
+<td>T04</td>
+<td>Planificado; no validación nativa implícita</td>
+</tr>
+<tr>
+<td>R09</td>
+<td>T02, T03, T26</td>
+<td>Planificado; no validación nativa implícita</td>
+</tr>
+<tr>
+<td>R10</td>
+<td>T03, T04</td>
+<td>Planificado; no validación nativa implícita</td>
+</tr>
+<tr>
+<td>R11</td>
+<td>T03, T05, T06, T23</td>
+<td>Planificado; no validación nativa implícita</td>
+</tr>
+<tr>
+<td>R12</td>
+<td>T06, T15, T23</td>
+<td>Planificado; no validación nativa implícita</td>
+</tr>
+<tr>
+<td>R13</td>
+<td>T15</td>
+<td>Planificado; no validación nativa implícita</td>
+</tr>
+<tr>
+<td>R14</td>
+<td>T08, T15</td>
+<td>Planificado; no validación nativa implícita</td>
+</tr>
+<tr>
+<td>R15</td>
+<td>T08, T09, T16, T19</td>
+<td>Planificado; no validación nativa implícita</td>
+</tr>
+<tr>
+<td>R16</td>
+<td>T09</td>
+<td>Planificado; no validación nativa implícita</td>
+</tr>
+<tr>
+<td>R17</td>
+<td>T10, T11, T12, T17</td>
+<td>Planificado; no validación nativa implícita</td>
+</tr>
+<tr>
+<td>R18</td>
+<td>T12, T13, T17, T26</td>
+<td>Planificado; no validación nativa implícita</td>
+</tr>
+<tr>
+<td>R19</td>
+<td>T11, T14</td>
+<td>Planificado; no validación nativa implícita</td>
+</tr>
+<tr>
+<td>R20</td>
+<td>T10, T14, T17</td>
+<td>Planificado; no validación nativa implícita</td>
+</tr>
+<tr>
+<td>R21</td>
+<td>T24</td>
+<td>Planificado; no validación nativa implícita</td>
+</tr>
+<tr>
+<td>R22</td>
+<td>T16, T17, T18</td>
+<td>Planificado; no validación nativa implícita</td>
+</tr>
+<tr>
+<td>R23</td>
+<td>T10, T16, T18</td>
+<td>Planificado; no validación nativa implícita</td>
+</tr>
+<tr>
+<td>R24</td>
+<td>T19, T26</td>
+<td>Planificado; no validación nativa implícita</td>
+</tr>
+<tr>
+<td>R25</td>
+<td>T21</td>
+<td>Planificado; no validación nativa implícita</td>
+</tr>
+<tr>
+<td>R26</td>
+<td>T20</td>
+<td>Planificado; no validación nativa implícita</td>
+</tr>
+<tr>
+<td>R27</td>
+<td>T20</td>
+<td>Planificado; no validación nativa implícita</td>
+</tr>
+<tr>
+<td>R28</td>
+<td>T09</td>
+<td>Planificado; no validación nativa implícita</td>
+</tr>
+<tr>
+<td>R29</td>
+<td>T07, T13, T22</td>
+<td>Planificado; no validación nativa implícita</td>
+</tr>
+<tr>
+<td>R30</td>
+<td>T12, T22</td>
+<td>Planificado; no validación nativa implícita</td>
+</tr>
+<tr>
+<td>R31</td>
+<td>T01, T05, T25</td>
+<td>Planificado; no validación nativa implícita</td>
+</tr>
+<tr>
+<td>R32</td>
+<td>T01, T08, T15, T17, T22, T24</td>
+<td>Planificado; no validación nativa implícita</td>
+</tr>
+<tr>
+<td>R33</td>
+<td>T07, T21, T24, T26</td>
+<td>Planificado; no validación nativa implícita</td>
+</tr>
+<tr>
+<td>R34</td>
+<td>T02, T25, T26</td>
+<td>Planificado; no validación nativa implícita</td>
+</tr>
+<tr>
+<td>R35</td>
+<td>T03, T23, T26</td>
+<td>Planificado; no validación nativa implícita</td>
+</tr>
+<tr>
+<td>R36</td>
+<td>T00, T23</td>
+<td>Planificado; no validación nativa implícita</td>
+</tr>
+</tbody>
+</table>
+<p>Para la descripción y aceptación de cada requisito, consultar <a href="#chapter-1">01</a>. Para dependencias y pruebas, consultar <a href="plans/PLAN-MAESTRO.md">el plan</a>. No se marca cumplido un requisito completo porque una parte del prototipo lo simule.</p>
+</section><footer>Expediente de Axx Desktop. Las fuentes oficiales están en el capítulo 24. Los archivos de referencia conservan la distinción entre pruebas históricas y validación nativa pendiente.</footer></main><script>const q=document.getElementById('search');q.addEventListener('input',()=>{const needle=q.value.trim().toLocaleLowerCase('es');document.querySelectorAll('.chapter').forEach(s=>s.hidden=needle&&!s.textContent.toLocaleLowerCase('es').includes(needle));});document.querySelectorAll('aside a').forEach(a=>a.addEventListener('click',()=>{q.value='';document.querySelectorAll('.chapter').forEach(s=>s.hidden=false);}));</script></body></html>

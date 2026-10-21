@@ -1,0 +1,24 @@
+{
+  "timestamp_utc": "2026-10-20T21:15:23.774883+00:00",
+  "revision": "C",
+  "command": "python -m unittest discover -s backend/connect/tests -p test_provider.py -v",
+  "exit_code": 0,
+  "duration_seconds": 4.058,
+  "offline_passed": 47,
+  "live_opt_in_skipped": 1,
+  "network_or_account_mutations_performed": false,
+  "native_actions_performed": false,
+  "source_hashes": {
+    "backend/connect/provider.py": "1b42649773d78d3970b1957d3dda9adea28d3e46090df328d5989c4492956d98",
+    "backend/connect/tests/test_provider.py": "dcc9f3b865ef4220ea1cf21b898aaec28f65bea63909cfc29c2505b3fddbe73b"
+  },
+  "verified_contracts": [
+    "Axx-local disconnect and logout compatibility alias without shared account revoke RPC",
+    "Opt-out survives backend restart; no automatic spawn/account RPC or inference while off",
+    "Explicit reconnect/login opt-in; active disconnect/reconnect rejects BUSY before startup-lock wait",
+    "Total70-second budget from admission including startup/version/auth/quota/thread/turn and dispatcher waits; bounded3-second correlated cleanup",
+    "Missing served model/provider fails MODEL_UNVERIFIED; exact model comparison retained",
+    "Observed account changes revalidated after quota and before turn/dispatcher"
+  ],
+  "live_evidence_note": "Existing actual inference, translation and interrupt/resume evidence predates revision C. This revision intentionally ran controlled tests only."
+}

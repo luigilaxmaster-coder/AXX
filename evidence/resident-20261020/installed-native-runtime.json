@@ -1,0 +1,33 @@
+{
+  "backendInstance": "c66309b3-804e-40ea-af80-5f92a48257a8",
+  "backendPort": 63156,
+  "backendReady": true,
+  "dataDirectory": "C:\\Users\\luigi\\AppData\\Local\\Axx",
+  "desktop": {
+    "anchorX": 102.0,
+    "anchorY": 102.0,
+    "height": 204.0,
+    "ready": true,
+    "scaleFactor": 1.25,
+    "screenX": 1099.0,
+    "screenY": 484.0,
+    "spaceAbove": 387.2,
+    "spaceBelow": 428.8,
+    "spaceLeft": 879.2,
+    "spaceRight": 656.8,
+    "virtualDesktopError": null,
+    "width": 204.0,
+    "workHeight": 816.0,
+    "workWidth": 1536.0
+  },
+  "executable": "C:\\Users\\luigi\\AppData\\Local\\Programs\\Axx\\Axx.exe",
+  "pid": 13968,
+  "schemaVersion": 1,
+  "timestampUtc": "1792521105Z",
+  "version": "0.20.3",
+  "windowPosition": {
+    "x": 972,
+    "y": 357
+  },
+  "windowVisible": true
+}

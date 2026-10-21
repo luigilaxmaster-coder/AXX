@@ -1,0 +1,16 @@
+{
+  "codex_version": "0.160.0",
+  "method": "mcpServerStatus/list",
+  "transport": "stdio",
+  "result": "RPC_TIMEOUT",
+  "timeout_seconds": 20,
+  "runtime_inventory_verified": false,
+  "enforced_controls": [
+    "explicit per-server/per-plugin enabled=false overrides from effective config names",
+    "environments empty",
+    "read-only sandbox",
+    "shell/apps/multi_agent/hooks disabled",
+    "dynamic callback allowlist",
+    "runtime requests outside Axx denied or surfaced"
+  ]
+}

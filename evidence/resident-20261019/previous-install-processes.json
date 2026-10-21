@@ -1,0 +1,74 @@
+[
+  {
+    "ProcessId": 15880,
+    "ParentProcessId": 17460,
+    "ExecutablePath": "C:\\Users\\luigi\\AppData\\Local\\Programs\\Axx\\Axx.exe",
+    "CreationDate": "2026-10-19T19:12:00.665375-04:00"
+  },
+  {
+    "ProcessId": 29708,
+    "ParentProcessId": 15880,
+    "ExecutablePath": "C:\\Program Files (x86)\\Microsoft\\EdgeWebView\\Application\\155.0.4283.62\\msedgewebview2.exe",
+    "CreationDate": "2026-10-19T19:12:00.783369-04:00"
+  },
+  {
+    "ProcessId": 33232,
+    "ParentProcessId": 15880,
+    "ExecutablePath": "C:\\Users\\luigi\\AppData\\Local\\Programs\\Axx\\resources\\axx-backend.exe",
+    "CreationDate": "2026-10-19T19:12:01.408476-04:00"
+  },
+  {
+    "ProcessId": 26200,
+    "ParentProcessId": 29708,
+    "ExecutablePath": "C:\\Program Files (x86)\\Microsoft\\EdgeWebView\\Application\\155.0.4283.62\\msedgewebview2.exe",
+    "CreationDate": "2026-10-19T19:12:00.826615-04:00"
+  },
+  {
+    "ProcessId": 10544,
+    "ParentProcessId": 29708,
+    "ExecutablePath": "C:\\Program Files (x86)\\Microsoft\\EdgeWebView\\Application\\155.0.4283.62\\msedgewebview2.exe",
+    "CreationDate": "2026-10-19T19:12:01.068664-04:00"
+  },
+  {
+    "ProcessId": 12068,
+    "ParentProcessId": 29708,
+    "ExecutablePath": "C:\\Program Files (x86)\\Microsoft\\EdgeWebView\\Application\\155.0.4283.62\\msedgewebview2.exe",
+    "CreationDate": "2026-10-19T19:12:01.07177-04:00"
+  },
+  {
+    "ProcessId": 18648,
+    "ParentProcessId": 29708,
+    "ExecutablePath": "C:\\Program Files (x86)\\Microsoft\\EdgeWebView\\Application\\155.0.4283.62\\msedgewebview2.exe",
+    "CreationDate": "2026-10-19T19:12:01.118015-04:00"
+  },
+  {
+    "ProcessId": 12248,
+    "ParentProcessId": 29708,
+    "ExecutablePath": "C:\\Program Files (x86)\\Microsoft\\EdgeWebView\\Application\\155.0.4283.62\\msedgewebview2.exe",
+    "CreationDate": "2026-10-19T19:12:01.231394-04:00"
+  },
+  {
+    "ProcessId": 11572,
+    "ParentProcessId": 33232,
+    "ExecutablePath": "C:\\WINDOWS\\system32\\conhost.exe",
+    "CreationDate": "2026-10-19T19:12:01.527475-04:00"
+  },
+  {
+    "ProcessId": 12148,
+    "ParentProcessId": 33232,
+    "ExecutablePath": "C:\\Users\\luigi\\AppData\\Local\\Programs\\Axx\\resources\\axx-backend.exe",
+    "CreationDate": "2026-10-19T19:12:06.30818-04:00"
+  },
+  {
+    "ProcessId": 12332,
+    "ParentProcessId": 12148,
+    "ExecutablePath": "C:\\Users\\luigi\\AppData\\Local\\Programs\\Axx\\resources\\ai-memory.exe",
+    "CreationDate": "2026-10-19T19:12:07.425309-04:00"
+  },
+  {
+    "ProcessId": 29604,
+    "ParentProcessId": 12332,
+    "ExecutablePath": "C:\\WINDOWS\\system32\\conhost.exe",
+    "CreationDate": "2026-10-19T19:12:07.457507-04:00"
+  }
+]

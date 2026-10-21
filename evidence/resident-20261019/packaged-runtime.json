@@ -1,0 +1,72 @@
+{
+  "binary": "C:\\Users\\luigi\\Desktop\\Axx assistant\\src-tauri\\resources\\axx-backend.exe",
+  "binary_sha256": "8312ce40f16db6b024cf2a8bac1268b0ae15f867e089002138e1f16884d909ac",
+  "workspace": "C:\\Users\\luigi\\AppData\\Local\\Temp\\axx-resident-packaged-l_zy11k9",
+  "checks": [
+    "owned_bundled_ai_memory_ready",
+    "actual_mcp_recipe_write_query_read",
+    "actual_mcp_page_persisted_after_backend_restart",
+    "verified_procedure_reused_after_restart_without_model",
+    "real_cli_anything_blender_render_verified_png",
+    "real_windows_tts_pcm_wav_verified",
+    "real_bundled_cpu_tiny_transcribed_synthetic_tts",
+    "typed_remote_inference_missing_credentials"
+  ],
+  "physical_microphone_verified": false,
+  "speaker_playback_verified": false,
+  "remote_inference": "BLOCKED_CREDENTIALS",
+  "blender": {
+    "path": "C:\\Users\\luigi\\AppData\\Local\\Temp\\axx-resident-packaged-l_zy11k9\\artifacts\\resident-cli.png",
+    "size": 37697,
+    "sha256": "b4a6cc75c9180f6b8ec31a5598e75e7bda0999589b808c0f13c70a1a2cdd29e5",
+    "width": 256,
+    "height": 256,
+    "adapter": "HKUDS/CLI-Anything blender",
+    "upstream_commit": "34f519533bc175d2fe287ab8316b0dd99bb9cc43",
+    "application": "C:\\Program Files\\Blender Foundation\\Blender 4.5\\blender.exe",
+    "application_version": "Blender 4.5.5 LTS (hash 836beaaf597a built 2025-11-18 01:33:26)",
+    "exit_code": 0,
+    "script_sha256": "592b377c0f13e504c7583cbf4fb878a7a77557924b86a563f0d6d4b921290128",
+    "scene_path": "C:\\Users\\luigi\\AppData\\Local\\Temp\\axx-resident-packaged-l_zy11k9\\artifacts\\.cli-anything\\aff28ba7-df0f-4228-acb5-2774467922df\\scene.blend-cli.json",
+    "logs_directory": "C:\\Users\\luigi\\AppData\\Local\\Temp\\axx-resident-packaged-l_zy11k9\\artifacts\\.cli-anything\\aff28ba7-df0f-4228-acb5-2774467922df",
+    "duration_ms": 6078.0,
+    "method": "original-adapter-generated-script-plus-real-blender-headless"
+  },
+  "transcription": {
+    "elapsed_seconds": 1.969,
+    "text": "Hello, this is a local voice transcription test. The desktop assistant is ready.",
+    "segments": [
+      {
+        "start": 0.0,
+        "end": 4.0,
+        "text": "Hello, this is a local voice transcription test."
+      },
+      {
+        "start": 4.0,
+        "end": 6.0,
+        "text": "The desktop assistant is ready."
+      }
+    ],
+    "language": "en",
+    "language_probability": 1,
+    "audio_duration_seconds": 6.49,
+    "silence_detected": false,
+    "engine": "faster-whisper",
+    "model": "tiny",
+    "device": "cpu",
+    "compute_type": "int8",
+    "task": "transcribe",
+    "translation_target": null,
+    "external_calls": 0,
+    "automatic_actions": false,
+    "timings_ms": {
+      "imports": 422,
+      "decode": 16,
+      "worker_total": 1360,
+      "model_load": 375,
+      "inference": 547
+    },
+    "input_sha256": "957c3e4501cc9cebcbdbc6e710fc3f8b007eca0a22de4c19d881dd68c6b9f3bf"
+  },
+  "result": "PASS"
+}

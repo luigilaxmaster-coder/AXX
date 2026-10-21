@@ -1,0 +1,28 @@
+[
+  {
+    "check": "baseline-tests",
+    "exit_code": 0
+  },
+  {
+    "check": "offline-demo",
+    "exit_code": 0
+  },
+  {
+    "check": "compile",
+    "exit_code": 0
+  },
+  {
+    "check": "baseline_bytes_match_persistent_version_1",
+    "result": "PASS"
+  },
+  {
+    "check": "local_markdown_links_and_json",
+    "result": "PASS"
+  },
+  {
+    "check": "powershell_script_execution",
+    "result": "NOT_RUN",
+    "reason": "Windows not available; no Windows installer or project source supplied",
+    "pwsh_available": false
+  }
+]

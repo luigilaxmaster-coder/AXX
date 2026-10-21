@@ -1,0 +1,22 @@
+{
+  "ok": true,
+  "plugin_version": "0.1.2",
+  "checks": [
+    {
+      "name": "plugin.json",
+      "schema_sha256": "0a4aad95ce337878ad38802ebf0daa3fde76abe3f65400c86bcbb1ec0b3ab883",
+      "passed": true
+    },
+    {
+      "name": "mcp.json",
+      "schema_sha256": "6539175bfcdf43085855183e86da40ea94b166547a72b47ae9a0a390516d3acb",
+      "passed": true
+    },
+    {
+      "name": "zip_single_root_complete_and_runtime_fields",
+      "passed": true,
+      "entry_count": 8
+    }
+  ],
+  "archive_sha256": "47b46d7c327ec5004ab1db047975dc97f093db8d8b45b9e9e4f36546c43c11a5"
+}

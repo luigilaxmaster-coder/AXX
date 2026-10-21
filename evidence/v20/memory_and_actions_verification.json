@@ -1,0 +1,57 @@
+{
+  "timestamp": "2026-10-19T20:41:40Z",
+  "environment": {
+    "platform": "win32",
+    "python_version": "3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)]",
+    "fingerprint": "2f922c14fa0dd629"
+  },
+  "tests": [
+    {
+      "name": "ai_memory_mcp_lifecycle",
+      "store": "MCP_SERVER_127.0.0.1:49374",
+      "status": "PASS",
+      "details": "Successfully performed write, query, server restart, and post-restart retrieval."
+    },
+    {
+      "name": "procedural_recipe_reuse_zero_llm_calls",
+      "store": "MCP_AND_SQLITE_STATE",
+      "status": "PASS",
+      "model_calls_used": 0,
+      "duration_ms": 16.0,
+      "verified_artifact": "C:\\Users\\luigi\\AppData\\Local\\Temp\\axx-e2e-8iwda_rv\\artifacts\\output_2.txt",
+      "sha256": "a637713867609a185badf0f3625b666cc8931c00a7995ff639e2ef1ec437feef"
+    },
+    {
+      "name": "offline_mcp_sqlite_fallback",
+      "store": "SQLITE_FALLBACK_state.db",
+      "status": "PASS",
+      "details": "Offline MCP gracefully handled, local SQLite authoritative storage succeeded."
+    },
+    {
+      "name": "real_system_tools_validation",
+      "status": "PASS",
+      "telemetry": {
+        "collected_keys": [
+          "os",
+          "release",
+          "version",
+          "architecture",
+          "python_version",
+          "disk_total_gb",
+          "disk_free_gb",
+          "pid"
+        ],
+        "python_version": "3.12.10"
+      },
+      "process_inspector": {
+        "pid": 24452,
+        "checked_active": true
+      }
+    },
+    {
+      "name": "action_interruption_recovery",
+      "status": "PASS",
+      "details": "Incomplete running actions preserved without silent duplication upon reboot."
+    }
+  ]
+}

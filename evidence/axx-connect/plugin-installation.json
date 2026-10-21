@@ -1,0 +1,23 @@
+{
+  "installed": [
+    {
+      "pluginId": "axx-connect@axx-local",
+      "name": "axx-connect",
+      "marketplaceName": "axx-local",
+      "version": "0.1.2",
+      "installed": true,
+      "enabled": true,
+      "source": {
+        "source": "local",
+        "path": "C:\\Users\\luigi\\Desktop\\Axx assistant\\plugins\\axx-connect"
+      },
+      "marketplaceSource": {
+        "sourceType": "local",
+        "source": "\\\\?\\C:\\Users\\luigi\\Desktop\\Axx assistant\\plugins"
+      },
+      "installPolicy": "AVAILABLE",
+      "authPolicy": "ON_USE"
+    }
+  ],
+  "available": []
+}

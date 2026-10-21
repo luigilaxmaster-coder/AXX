@@ -1,0 +1,17 @@
+[
+  {
+    "ProcessId": 24672,
+    "ParentProcessId": 10480,
+    "ExecutablePath": "C:\\Users\\luigi\\AppData\\Local\\Axx\\resident-candidate-0.20.2\\Axx.exe"
+  },
+  {
+    "ProcessId": 5592,
+    "ParentProcessId": 24672,
+    "ExecutablePath": "C:\\Program Files (x86)\\Microsoft\\EdgeWebView\\Application\\155.0.4283.62\\msedgewebview2.exe"
+  },
+  {
+    "ProcessId": 25952,
+    "ParentProcessId": 24672,
+    "ExecutablePath": "C:\\Users\\luigi\\AppData\\Local\\Axx\\resident-candidate-0.20.2\\resources\\axx-backend.exe"
+  }
+]

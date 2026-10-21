@@ -1,0 +1,21 @@
+{
+  "baseline_manifest": "31/31 match before changes",
+  "baseline_cleanup_harness": "20 passed; assertions and immutable baseline unchanged",
+  "git": "absent",
+  "os": {
+    "Caption": "Microsoft Windows 11 Home",
+    "OSArchitecture": "64 bits",
+    "Version": "10.0.26200"
+  },
+  "baseline_original": "20 executed,19 teardown errors WinError32 unclosed SQLite",
+  "date": "2026-10-19T17:59:21.3841195-04:00",
+  "backup": "C:\\Users\\luigi\\AppData\\Local\\Axx\\backups\\delivery-20261019-175611",
+  "canonical_project": "C:\\Users\\luigi\\Desktop\\Axx assistant",
+  "tools": {
+    "node": "v24.14.1",
+    "tauri": "tauri-cli 2.12.3",
+    "rustc": "rustc 1.96.0 (ac68faa20 2026-05-25)",
+    "cargo": "cargo 1.96.0 (30a34c682 2026-05-25)",
+    "python": "Python 3.12.10"
+  }
+}

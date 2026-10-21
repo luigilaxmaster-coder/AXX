@@ -1,0 +1,16 @@
+{
+  "classification": "CONTROLLED_BROWSER_IPC_ONLY",
+  "revision": "2.1",
+  "physical_native_execution": false,
+  "app_source_version": "0.20.0",
+  "fixture_engine_state": "disconnected",
+  "inference_verified": false,
+  "source": "Full production Axx.html and external scripts; only native IPC is controlled",
+  "visible_status": "Motor: disconnected · Ejecutor: disponible · controlled-model",
+  "image": "C:\\Users\\luigi\\Desktop\\Axx assistant\\evidence\\axx-connect\\ui-connect-settings-controlled-revision21.png",
+  "source_sha256": {
+    "Axx.html": "f37743df90bfb6d5f34e25b92f367c38c86233f125ace7fd8b427701352c96a0",
+    "scripts/axx-connect.js": "0ab6ecda5db22ea7f8160c5f5beb92e5849a402c8fb1c4b7cb5b5f7a230fe6c3",
+    "scripts/test-axx-connect.cjs": "e0306d5a63344b8c0231780bc714a7db21ba1e0099f1cbc18faab3b1221e8af8"
+  }
+}

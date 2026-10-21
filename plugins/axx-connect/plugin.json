@@ -1,0 +1,26 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "axx-connect",
+  "version": "0.1.2",
+  "description": "Conecta un host local con las capacidades y ejecutores existentes de Axx para Windows mediante MCP autenticado.",
+  "author": {
+    "name": "Axx"
+  },
+  "extensions": {
+    "com.openai": {
+      "requires_local_executor": true,
+      "interface": {
+        "displayName": "Axx Connect",
+        "shortDescription": "Herramientas locales de Axx",
+        "longDescription": "Consulta el estado real, descubre capacidades y ejecuta operaciones tipadas mediante el mismo registro, permisos, memoria y ejecutores de Axx. Requiere Axx iniciado en Windows; no ofrece acceso remoto desde ChatGPT web.",
+        "developerName": "Axx",
+        "category": "Productivity",
+        "capabilities": [
+          "Read",
+          "Write"
+        ],
+        "defaultPrompt": "Comprueba Axx y muestra sus capacidades disponibles antes de ejecutar mi tarea."
+      }
+    }
+  }
+}

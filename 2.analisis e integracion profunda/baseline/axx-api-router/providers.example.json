@@ -1,0 +1,47 @@
+{
+  "timeout_seconds": 20,
+  "max_attempts": 3,
+  "providers": [
+    {
+      "name": "groq",
+      "base_url": "https://api.groq.com/openai/v1",
+      "model": "REPLACE_WITH_MODEL_CONFIRMED_IN_YOUR_ACCOUNT",
+      "api_key_env": "GROQ_API_KEY",
+      "enabled": false,
+      "free_confirmed": false,
+      "daily_attempt_limit": 30,
+      "max_output_tokens": 1024,
+      "capabilities": [
+        "text"
+      ],
+      "tasks": [
+        "chat",
+        "code",
+        "summarize",
+        "translate"
+      ],
+      "allow_sensitive": false
+    },
+    {
+      "name": "openrouter",
+      "base_url": "https://openrouter.ai/api/v1",
+      "model": "REPLACE_WITH_CURRENT_FREE_MODEL_ID",
+      "api_key_env": "OPENROUTER_API_KEY",
+      "enabled": false,
+      "free_confirmed": false,
+      "daily_attempt_limit": 20,
+      "max_output_tokens": 1024,
+      "capabilities": [
+        "text"
+      ],
+      "tasks": [
+        "chat",
+        "code",
+        "summarize",
+        "translate"
+      ],
+      "allow_sensitive": false
+    }
+  ],
+  "max_request_bytes": 2097152
+}

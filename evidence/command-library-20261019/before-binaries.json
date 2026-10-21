@@ -1,0 +1,22 @@
+[
+  {
+    "path": "dist\\axx-backend.exe",
+    "backup": "C:\\Users\\luigi\\Desktop\\Axx assistant\\evidence\\command-library-20261019\\before-binaries\\dist_axx-backend.exe",
+    "sha256": "8312CE40F16DB6B024CF2A8BAC1268B0AE15F867E089002138E1F16884D909AC"
+  },
+  {
+    "path": "src-tauri\\resources\\axx-backend.exe",
+    "backup": "C:\\Users\\luigi\\Desktop\\Axx assistant\\evidence\\command-library-20261019\\before-binaries\\src-tauri_resources_axx-backend.exe",
+    "sha256": "8312CE40F16DB6B024CF2A8BAC1268B0AE15F867E089002138E1F16884D909AC"
+  },
+  {
+    "path": "src-tauri\\target\\release\\Axx.exe",
+    "backup": "C:\\Users\\luigi\\Desktop\\Axx assistant\\evidence\\command-library-20261019\\before-binaries\\src-tauri_target_release_Axx.exe",
+    "sha256": "F96D608734BAD25965C4BF34058F3E0B7A67062B0E640C50248F6B1DCF8B1626"
+  },
+  {
+    "path": "src-tauri\\target\\release\\bundle\\nsis\\Axx_0.20.2_x64-setup.exe",
+    "backup": "C:\\Users\\luigi\\Desktop\\Axx assistant\\evidence\\command-library-20261019\\before-binaries\\src-tauri_target_release_bundle_nsis_Axx_0.20.2_x64-setup.exe",
+    "sha256": "397DBE36A026925F0284D5CC42DAFAF75236AB2A361F7BA71443D63A49FF06BF"
+  }
+]

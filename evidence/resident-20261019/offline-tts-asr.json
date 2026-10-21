@@ -1,0 +1,56 @@
+{
+  "source": "synthetic_windows_sapi_audio",
+  "physical_microphone_verified": false,
+  "elapsed_seconds": 1.968,
+  "tts": {
+    "engine": "windows-sapi",
+    "mime": "audio/wav",
+    "voice": "Microsoft Zira Desktop",
+    "language": "en-US",
+    "duration_seconds": 6.49,
+    "playback_verified": false,
+    "external_calls": 0,
+    "evidence": {
+      "sha256": "957c3e4501cc9cebcbdbc6e710fc3f8b007eca0a22de4c19d881dd68c6b9f3bf",
+      "size": 207726,
+      "frames": 103840,
+      "sample_rate": 16000,
+      "script_sha256": "4428ebd8b0ba853e9b4b8150c2a91b6797103ed5f12f8b2826d37184188662a8"
+    }
+  },
+  "transcription": {
+    "text": "Hello, this is a local voice transcription test. The desktop assistant is ready.",
+    "segments": [
+      {
+        "start": 0.0,
+        "end": 4.0,
+        "text": "Hello, this is a local voice transcription test."
+      },
+      {
+        "start": 4.0,
+        "end": 6.0,
+        "text": "The desktop assistant is ready."
+      }
+    ],
+    "language": "en",
+    "language_probability": 1,
+    "audio_duration_seconds": 6.49,
+    "silence_detected": false,
+    "engine": "faster-whisper",
+    "model": "tiny",
+    "device": "cpu",
+    "compute_type": "int8",
+    "task": "transcribe",
+    "translation_target": null,
+    "external_calls": 0,
+    "automatic_actions": false,
+    "timings_ms": {
+      "imports": 781,
+      "decode": 31,
+      "worker_total": 1469,
+      "model_load": 219,
+      "inference": 438
+    },
+    "input_sha256": "957c3e4501cc9cebcbdbc6e710fc3f8b007eca0a22de4c19d881dd68c6b9f3bf"
+  }
+}

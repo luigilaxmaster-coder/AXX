@@ -1,0 +1,15 @@
+{
+    "path":  "C:\\Users\\luigi\\Desktop\\Axx assistant\\dist\\axx-connect-0.1.2.zip",
+    "sha256":  "47B46D7C327EC5004AB1DB047975DC97F093DB8D8B45B9E9E4F36546C43C11A5",
+    "entries":  [
+                    "axx-connect/.mcp.json",
+                    "axx-connect/mcp.json",
+                    "axx-connect/plugin.json",
+                    "axx-connect/README.md",
+                    "axx-connect/.codex-plugin/plugin.json",
+                    "axx-connect/server/launch.ps1",
+                    "axx-connect/skills/axx-connect/SKILL.md",
+                    "axx-connect/skills/axx-connect/references/operations.md"
+                ],
+    "version":  "0.1.2"
+}

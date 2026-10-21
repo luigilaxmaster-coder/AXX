@@ -1,0 +1,15 @@
+{
+  "observed_utc": "2026-10-19T23:03:00.9563558+00:00",
+  "path": "C:\\Users\\luigi\\Desktop\\Axx assistant\\build\\.windows-delivery.lock",
+  "available": false,
+  "owners": [
+    {
+      "pid": 31360,
+      "name": "powershell",
+      "app": "Windows PowerShell",
+      "start_utc": "2026-10-19T22:58:35.5152237Z",
+      "cpu_seconds": 2.109375,
+      "session": 3
+    }
+  ]
+}

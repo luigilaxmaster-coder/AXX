@@ -1,0 +1,53 @@
+{
+  "backendInstance": "dc252b61-6614-4560-b99b-fd4e86995186",
+  "backendPort": 64645,
+  "backendReady": true,
+  "dataDirectory": "C:\\Users\\luigi\\AppData\\Local\\Axx",
+  "desktop": {
+    "anchorX": 152.0,
+    "anchorY": 152.0,
+    "height": 318.0,
+    "pinned": false,
+    "ready": true,
+    "reducedMotion": true,
+    "roam": true,
+    "scaleFactor": 1.25,
+    "screenX": 1174.0,
+    "screenY": 614.5,
+    "spaceAbove": 491.6,
+    "spaceBelow": 324.4,
+    "spaceLeft": 939.2,
+    "spaceRight": 596.8,
+    "virtualDesktopError": null,
+    "width": 304.0,
+    "workHeight": 816.0,
+    "workWidth": 1536.0
+  },
+  "executable": "C:\\Users\\luigi\\AppData\\Local\\Programs\\Axx\\Axx.exe",
+  "motion": {
+    "automaticSteps": 0,
+    "currentAnchor": {
+      "x": 1174.0,
+      "y": 614.5
+    },
+    "manualAnchor": {
+      "x": 1640.0,
+      "y": 740.0
+    },
+    "mode": "idle",
+    "pausedReason": "interaction-or-work",
+    "pinned": false,
+    "reducedMotion": true,
+    "roam": true,
+    "roamSteps": 0
+  },
+  "pid": 25976,
+  "schemaVersion": 1,
+  "timestampUtc": "2026-10-19T23:32:24.156Z",
+  "version": "0.20.4",
+  "windowPosition": {
+    "x": 984,
+    "y": 425
+  },
+  "windowVisible": true
+}

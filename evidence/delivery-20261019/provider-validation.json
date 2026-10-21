@@ -1,0 +1,43 @@
+{
+  "allow_paid": false,
+  "real_conversation": "BLOCKED_CREDENTIALS",
+  "record_status": "DOCUMENTED_BLOCKED_CREDENTIALS",
+  "verified_at": "2026-10-19T18:03:11.4423711-04:00",
+  "providers": [
+    {
+      "credential_present": false,
+      "runtime_result": "NOT_EXECUTED",
+      "account_tier": "UNVERIFIED",
+      "documented_zero_cost": true,
+      "name": "openrouter-free",
+      "capabilities_verified": [],
+      "configured_model": "openrouter/free",
+      "remote_quota": "UNKNOWN",
+      "base_url": "https://openrouter.ai/api/v1",
+      "official_docs": "https://openrouter.ai/docs/guides/routing/routers/free-router",
+      "configured_capabilities": [
+        "text"
+      ],
+      "credential_variable": "OPENROUTER_API_KEY",
+      "effective_model": null
+    },
+    {
+      "configured_model": "gemini-2.0-flash",
+      "reason": "Official shutdown2026-06-01; no credential",
+      "enabled": false,
+      "official_docs": "https://ai.google.dev/gemini-api/docs/deprecations",
+      "name": "gemini-free-tier"
+    },
+    {
+      "reason": "No OLLAMA_API_KEY; starter-credit/account conditions unverified",
+      "enabled": false,
+      "official_docs": [
+        "https://docs.ollama.com/cloud",
+        "https://ollama.com/pricing"
+      ],
+      "name": "ollama-cloud"
+    }
+  ],
+  "notes": "No credential values or personal prompts read or transmitted. No model download or inference call performed.",
+  "redundancy": "NOT_VERIFIED"
+}

@@ -1,0 +1,11 @@
+# Prompt para iniciar la ejecución real de Axx
+
+Trabaja sobre las fuentes de Axx20 que están en este workspace. El HTML fue el prototipo de interacción: ahora quiero la aplicación real de Windows, no otra página ni otro diseño. Lee AGENTS.md y el expediente técnico adjunto. Conserva la entidad 3D líquida sin rostro, los materiales, las 24 formas, las preferencias guardadas, el chat mínimo, la órbita de herramientas, Morph Reach y los controles reales del cuerpo.
+
+Empieza por M0 y M1 del PLAN-MAESTRO. Inspecciona primero archivos reales, versiones y hashes; ejecuta las pruebas de la base y el preflight de mi PC. No inventes rutas. Añade Tauri2/Rust aprovechando el build TypeScript actual. El primer recorrido tiene que funcionar desde otra aplicación: abrir Axx, llamar con Alt+Mayús+A, devolver con doble A, detener seguimiento con Esc, ver la figura sin marco, pasar clics fuera de ella, abrir una herramienta y mantener tamaño/forma después de reiniciar. No confundas atajos DOM con globales ni un canvas transparente con click-through real.
+
+Después avanza por los gates: persistencia SQLite, runtime de tareas, audio/ASR y dictado externo seguro, traducción/lector, conexiones reales, captura con halo físico y guardado recuperable, instalador y actualización. Hey Axx permanece desactivado hasta su evaluación real. Integra mediante puertos, sin crear servicios duplicados ni borrar funcionalidades del prototipo.
+
+No reduzcas calidad para mejorar rendimiento. No copies credenciales de ChatGPT/Codex/OpenCode, no simules una IA conectada, no presentes mocks de micrófono/pantalla como pruebas físicas. Los nombres internos del expediente son contratos por implementar, no APIs ya existentes. Instala dependencias o descarga modelos solo con la autorización necesaria y fija versiones/hashes/licencias.
+
+Continúa autónomamente en tareas autorizadas y seguras; pregunta únicamente ante permisos, operaciones destructivas o decisiones que cambien coste/identidad. Devuelve evidencia por tarea, build real cuando exista y una distinción precisa entre implementado, validado y pendiente. No publiques ni distribuyas sin autorización. No cierres con una promesa de capacidades: entrega el código, los logs y un recorrido de uso comprobado.

@@ -1,0 +1,58 @@
+[
+  {
+    "name": "faster-whisper",
+    "version": "1.2.1",
+    "licenses": [
+      "src-tauri\\resources\\licenses\\faster-whisper\\LICENSE"
+    ]
+  },
+  {
+    "name": "ctranslate2",
+    "version": "4.7.1",
+    "licenses": []
+  },
+  {
+    "name": "av",
+    "version": "17.0.1",
+    "licenses": [
+      "src-tauri\\resources\\licenses\\av\\LICENSE.txt"
+    ]
+  },
+  {
+    "name": "numpy",
+    "version": "2.4.4",
+    "licenses": [
+      "src-tauri\\resources\\licenses\\numpy\\LICENSE.txt",
+      "src-tauri\\resources\\licenses\\numpy\\LICENSE.txt",
+      "src-tauri\\resources\\licenses\\numpy\\COPYING",
+      "src-tauri\\resources\\licenses\\numpy\\LICENSE",
+      "src-tauri\\resources\\licenses\\numpy\\LICENSE.md",
+      "src-tauri\\resources\\licenses\\numpy\\LICENSE",
+      "src-tauri\\resources\\licenses\\numpy\\LICENSE.md",
+      "src-tauri\\resources\\licenses\\numpy\\LICENSE.txt",
+      "src-tauri\\resources\\licenses\\numpy\\LICENSE",
+      "src-tauri\\resources\\licenses\\numpy\\LICENSE.md",
+      "src-tauri\\resources\\licenses\\numpy\\LICENSE.md",
+      "src-tauri\\resources\\licenses\\numpy\\LICENSE.md",
+      "src-tauri\\resources\\licenses\\numpy\\LICENSE.md",
+      "src-tauri\\resources\\licenses\\numpy\\LICENSE.md",
+      "src-tauri\\resources\\licenses\\numpy\\LICENSE.md",
+      "src-tauri\\resources\\licenses\\numpy\\LICENSE.md",
+      "src-tauri\\resources\\licenses\\numpy\\LICENSE.txt",
+      "src-tauri\\resources\\licenses\\numpy\\LICENSE",
+      "src-tauri\\resources\\licenses\\numpy\\LICENSE.md"
+    ]
+  },
+  {
+    "name": "tokenizers",
+    "version": "0.22.2",
+    "licenses": []
+  },
+  {
+    "name": "huggingface-hub",
+    "version": "1.11.0",
+    "licenses": [
+      "src-tauri\\resources\\licenses\\huggingface-hub\\LICENSE"
+    ]
+  }
+]

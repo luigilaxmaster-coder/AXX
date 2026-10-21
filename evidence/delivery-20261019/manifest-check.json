@@ -1,0 +1,188 @@
+[
+  {
+    "file": "DELIVERY_STATUS.md",
+    "match": true,
+    "actual": "61ac4e8d770f4fab1132111d99ee198500fb64643839f0976c7a36ac6018ef8d",
+    "expected": "61ac4e8d770f4fab1132111d99ee198500fb64643839f0976c7a36ac6018ef8d"
+  },
+  {
+    "file": "PROMPT_MAESTRO_INTEGRACION.md",
+    "match": true,
+    "actual": "2c4aebba50716d2ee85c1375541d9ba8d74f39fa74911cb432d6741fd7547de3",
+    "expected": "2c4aebba50716d2ee85c1375541d9ba8d74f39fa74911cb432d6741fd7547de3"
+  },
+  {
+    "file": "START_HERE.md",
+    "match": true,
+    "actual": "03c90a8b6ca089dfe0347cdfb8343d5e2aeb040f184e1325a309ca2a6da77a3f",
+    "expected": "03c90a8b6ca089dfe0347cdfb8343d5e2aeb040f184e1325a309ca2a6da77a3f"
+  },
+  {
+    "file": "baseline/axx-api-router/EVOLUTION.md",
+    "match": true,
+    "actual": "009ee109e23da5e194f1cdd5ce7177330b2d29927b4d73ebb11eeb368427724d",
+    "expected": "009ee109e23da5e194f1cdd5ce7177330b2d29927b4d73ebb11eeb368427724d"
+  },
+  {
+    "file": "baseline/axx-api-router/README.md",
+    "match": true,
+    "actual": "dceedd05829d6cdd03e3ddb92c87ba6f3293ae221c51ce78562682cc1594af74",
+    "expected": "dceedd05829d6cdd03e3ddb92c87ba6f3293ae221c51ce78562682cc1594af74"
+  },
+  {
+    "file": "baseline/axx-api-router/demo.py",
+    "match": true,
+    "actual": "83fcc02ff3ce1badcb46602f5837518aee7f8c6fa2dc640f532a6d0928c5e603",
+    "expected": "83fcc02ff3ce1badcb46602f5837518aee7f8c6fa2dc640f532a6d0928c5e603"
+  },
+  {
+    "file": "baseline/axx-api-router/providers.example.json",
+    "match": true,
+    "actual": "e9acb6f3b71368ed74304988da6b72dfb5c8ac4c9cec7ce9d0294bf51dbb9ca0",
+    "expected": "e9acb6f3b71368ed74304988da6b72dfb5c8ac4c9cec7ce9d0294bf51dbb9ca0"
+  },
+  {
+    "file": "baseline/axx-api-router/request.example.json",
+    "match": true,
+    "actual": "84b0c71ec04d209c8483c6401c169215fe525997f003549cc6b55e20240ecf8f",
+    "expected": "84b0c71ec04d209c8483c6401c169215fe525997f003549cc6b55e20240ecf8f"
+  },
+  {
+    "file": "baseline/axx-api-router/router.py",
+    "match": true,
+    "actual": "b3ed85aed098c5ddcdbaa7153fae7f79d049bd0c8fbf240f3ee373d0cb09d0c6",
+    "expected": "b3ed85aed098c5ddcdbaa7153fae7f79d049bd0c8fbf240f3ee373d0cb09d0c6"
+  },
+  {
+    "file": "baseline/axx-api-router/tests/test_router.py",
+    "match": true,
+    "actual": "3e49c75a63f16dc69cbc1e0964bfdf33d591fa997a1384157c2852825751f2ef",
+    "expected": "3e49c75a63f16dc69cbc1e0964bfdf33d591fa997a1384157c2852825751f2ef"
+  },
+  {
+    "file": "docs/01_ESTADO_Y_AUDITORIA.md",
+    "match": true,
+    "actual": "f714f0f6b3ef30597198bce20b0cde61610d26d24be1192dfc51bebb53936c92",
+    "expected": "f714f0f6b3ef30597198bce20b0cde61610d26d24be1192dfc51bebb53936c92"
+  },
+  {
+    "file": "docs/02_ESPECIFICACION.md",
+    "match": true,
+    "actual": "d190278a2166d271a748214e3bab09f094927ef7f8fa37e7189f3ad6fd147c61",
+    "expected": "d190278a2166d271a748214e3bab09f094927ef7f8fa37e7189f3ad6fd147c61"
+  },
+  {
+    "file": "docs/03_CONTRATOS.md",
+    "match": true,
+    "actual": "e64b80ed5387c784fd15ad77546192d876cb26d65aac54120fbdc408d3979e6c",
+    "expected": "e64b80ed5387c784fd15ad77546192d876cb26d65aac54120fbdc408d3979e6c"
+  },
+  {
+    "file": "docs/04_PLAN_IMPLEMENTACION.md",
+    "match": true,
+    "actual": "52a7d0491ce5817264f5d427a21dee972cac239e82f652fc5354e0bb75baa0fe",
+    "expected": "52a7d0491ce5817264f5d427a21dee972cac239e82f652fc5354e0bb75baa0fe"
+  },
+  {
+    "file": "docs/05_WINDOWS_Y_EMPAQUETADO.md",
+    "match": true,
+    "actual": "1f8d3396e4926d391f4d58b02b759607a7ae64cb61787bae45b9988a7b0c5033",
+    "expected": "1f8d3396e4926d391f4d58b02b759607a7ae64cb61787bae45b9988a7b0c5033"
+  },
+  {
+    "file": "docs/06_PROVEEDORES_Y_CATALOGO.md",
+    "match": true,
+    "actual": "0f2883ce04951a272a952043d8c53cce58032a8570e802572d26f5f1b33c15ac",
+    "expected": "0f2883ce04951a272a952043d8c53cce58032a8570e802572d26f5f1b33c15ac"
+  },
+  {
+    "file": "docs/07_ACEPTACION_Y_PRUEBAS.md",
+    "match": true,
+    "actual": "5cc47aeefb1c93071302a6e65408825965c392afe78dc9754767005780ddf1ad",
+    "expected": "5cc47aeefb1c93071302a6e65408825965c392afe78dc9754767005780ddf1ad"
+  },
+  {
+    "file": "docs/08_OPERACION_Y_ROLLBACK.md",
+    "match": true,
+    "actual": "34bae04c114911de12e5f1b1c98876c9415c3e886006e2419326ad42ad48f247",
+    "expected": "34bae04c114911de12e5f1b1c98876c9415c3e886006e2419326ad42ad48f247"
+  },
+  {
+    "file": "docs/09_MEMORIA_PROCEDURAL.md",
+    "match": true,
+    "actual": "3d3ba4ff9299ff73264c921276595ab27e5c6c2b7acbdffacf69f92998f1d0ac",
+    "expected": "3d3ba4ff9299ff73264c921276595ab27e5c6c2b7acbdffacf69f92998f1d0ac"
+  },
+  {
+    "file": "docs/10_CUOTAS_Y_COLA.md",
+    "match": true,
+    "actual": "6d3182e87185464037beac3a366d0a9611fabd65a623e4398207860a2f1ab58e",
+    "expected": "6d3182e87185464037beac3a366d0a9611fabd65a623e4398207860a2f1ab58e"
+  },
+  {
+    "file": "docs/11_REGLAS_DEL_EJECUTOR.md",
+    "match": true,
+    "actual": "16288f1b4360a06a4d3ac55d0fbac86617a2732f436b70d17e2bcc0cdd22723c",
+    "expected": "16288f1b4360a06a4d3ac55d0fbac86617a2732f436b70d17e2bcc0cdd22723c"
+  },
+  {
+    "file": "docs/12_REFERENCIAS.md",
+    "match": true,
+    "actual": "2be9e143d10f3cb27d8b894792ea12b01100f160288cb47f7fb816f5ae2039e7",
+    "expected": "2be9e143d10f3cb27d8b894792ea12b01100f160288cb47f7fb816f5ae2039e7"
+  },
+  {
+    "file": "evidence/baseline-tests.txt",
+    "match": true,
+    "actual": "b7973a69b92786c35f2159f88b85c4f5eeee9f894cbb9cd801b660981b87dadc",
+    "expected": "b7973a69b92786c35f2159f88b85c4f5eeee9f894cbb9cd801b660981b87dadc"
+  },
+  {
+    "file": "evidence/compile.txt",
+    "match": true,
+    "actual": "d4742918a9f006067118ce54a80e723600faee0435b9e95c97e30db5ab2fd001",
+    "expected": "d4742918a9f006067118ce54a80e723600faee0435b9e95c97e30db5ab2fd001"
+  },
+  {
+    "file": "evidence/offline-demo.txt",
+    "match": true,
+    "actual": "a9aca90670bebf87f2b76543048f42f5fa8b87b7f87778dba2f6f49ed0d42d3c",
+    "expected": "a9aca90670bebf87f2b76543048f42f5fa8b87b7f87778dba2f6f49ed0d42d3c"
+  },
+  {
+    "file": "evidence/verification.json",
+    "match": true,
+    "actual": "da79794ae7755ddbef532f261eac87472b16fed896f91893a912dc586cbaecef",
+    "expected": "da79794ae7755ddbef532f261eac87472b16fed896f91893a912dc586cbaecef"
+  },
+  {
+    "file": "scripts/verify_baseline.ps1",
+    "match": true,
+    "actual": "be736f7f55c334b25b6b3e8a8e95fc3e67e22ba29c7c2af99c986cde982ea969",
+    "expected": "be736f7f55c334b25b6b3e8a8e95fc3e67e22ba29c7c2af99c986cde982ea969"
+  },
+  {
+    "file": "templates/DELIVERY_STATUS.md",
+    "match": true,
+    "actual": "916fd4380dcb93d7b9c02353dcf4e39ff28cdc86d1261c93098383f7324c37b7",
+    "expected": "916fd4380dcb93d7b9c02353dcf4e39ff28cdc86d1261c93098383f7324c37b7"
+  },
+  {
+    "file": "templates/PROJECT_MAP.md",
+    "match": true,
+    "actual": "839a7de38e8529200735268eb39f734aa1ddd9668d5f8ccffa74c67ceb01d27f",
+    "expected": "839a7de38e8529200735268eb39f734aa1ddd9668d5f8ccffa74c67ceb01d27f"
+  },
+  {
+    "file": "templates/PROVIDER_VALIDATION.json",
+    "match": true,
+    "actual": "451b36877944305e5e63d309a8f98e832ae4c7396a690a33f495c6df72aaca9f",
+    "expected": "451b36877944305e5e63d309a8f98e832ae4c7396a690a33f495c6df72aaca9f"
+  },
+  {
+    "file": "templates/TASK_BOARD.md",
+    "match": true,
+    "actual": "c2441a9e66b735440c1bccb7d801c8c6e7ce8c4c8b42f348ae8602265c1a1bfd",
+    "expected": "c2441a9e66b735440c1bccb7d801c8c6e7ce8c4c8b42f348ae8602265c1a1bfd"
+  }
+]

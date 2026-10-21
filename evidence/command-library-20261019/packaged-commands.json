@@ -1,0 +1,82 @@
+{
+  "binary": "C:\\Users\\luigi\\Desktop\\Axx assistant\\dist\\axx-backend.exe",
+  "binary_sha256": "b068054371b2107a739f9ba6fefbd369f3efdfcd05942ee1a056d33a5cdbafff",
+  "workspace": "C:\\Users\\luigi\\AppData\\Local\\Temp\\axx-command-package-ge77byyb",
+  "checks": [
+    {
+      "name": "unauthenticated catalog denied",
+      "passed": true
+    },
+    {
+      "name": "frozen catalog contains all documentary IDs and three closed adapters",
+      "passed": true
+    },
+    {
+      "name": "verified source provenance bundled",
+      "passed": true
+    },
+    {
+      "name": "same canonical ID from text and recognized voice",
+      "passed": true
+    },
+    {
+      "name": "real telemetry observed and verified",
+      "passed": true
+    },
+    {
+      "name": "real frozen process active",
+      "passed": true
+    },
+    {
+      "name": "write requires review and boolean approval",
+      "passed": true
+    },
+    {
+      "name": "approved actual artifact matches SHA256",
+      "passed": true
+    },
+    {
+      "name": "idempotent replay does not rewrite",
+      "passed": true
+    },
+    {
+      "name": "legacy action cannot bypass policy",
+      "passed": true
+    },
+    {
+      "name": "disabled Blender cannot bypass policy",
+      "passed": true
+    },
+    {
+      "name": "original documentary recipe remains blocked",
+      "passed": true
+    },
+    {
+      "name": "saved recipe registration uses observed action evidence",
+      "passed": true
+    }
+  ],
+  "physical_microphone_verified": false,
+  "speaker_playback_verified": false,
+  "external_services_used": false,
+  "counts": {
+    "total": 7566,
+    "imported": 7562,
+    "enabled": 3,
+    "blocked": 7563,
+    "builtins": 4,
+    "verified_operations": 0,
+    "source": {
+      "total": 7562,
+      "principal": 7351,
+      "supplements": 211,
+      "reviewed": 2447,
+      "legacy": 4904,
+      "full_recipes": 4,
+      "enabled": 0,
+      "verified": 0
+    }
+  },
+  "passed": false,
+  "error": "KeyError: 'schema'"
+}

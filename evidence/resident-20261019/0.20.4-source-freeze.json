@@ -1,0 +1,47 @@
+[
+  {
+    "path": "C:\\Users\\luigi\\Desktop\\Axx assistant\\build\\resident-release-0.20.3\\src-tauri\\src\\lib.rs",
+    "bytes": 47750,
+    "sha256": "E502899D8080E3A10D6F56D7661728C517EE630CF22816CA01E33063FAA509B2"
+  },
+  {
+    "path": "C:\\Users\\luigi\\Desktop\\Axx assistant\\build\\resident-release-0.20.3\\src-tauri\\src\\resident.rs",
+    "bytes": 34806,
+    "sha256": "BDC68B12D45385EE8AAC23B16AE2C5D8BEA7F69D70C78E6C6D1CE270240EDE42"
+  },
+  {
+    "path": "C:\\Users\\luigi\\Desktop\\Axx assistant\\build\\resident-release-0.20.3\\src-tauri\\Cargo.toml",
+    "bytes": 1219,
+    "sha256": "16F408AA6D5BA4938DFDC60271A12625D38543A6BA86EDCB9C5CD01C6C5D5E27"
+  },
+  {
+    "path": "C:\\Users\\luigi\\Desktop\\Axx assistant\\build\\resident-release-0.20.3\\src-tauri\\Cargo.lock",
+    "bytes": 111332,
+    "sha256": "F65A1D018AC0B2E1900F3B4607064E248EC0193E32DDA9A2BD169E3CA9DE3FFC"
+  },
+  {
+    "path": "C:\\Users\\luigi\\Desktop\\Axx assistant\\build\\resident-release-0.20.3\\src-tauri\\tauri.conf.json",
+    "bytes": 1323,
+    "sha256": "5E1929E4BAF0FF6E90D66938A152E8531B9E441183E8238E7C0891BDFAEF0AA1"
+  },
+  {
+    "path": "C:\\Users\\luigi\\Desktop\\Axx assistant\\build\\resident-release-0.20.3\\src-tauri\\tests\\embedded_assets.rs",
+    "bytes": 2861,
+    "sha256": "3490BA8C145EA2C10BB1AF3DFEA6DF223610411CAC9F553205E41EED9AB82464"
+  },
+  {
+    "path": "C:\\Users\\luigi\\Desktop\\Axx assistant\\build\\resident-release-0.20.3\\1.AXX\\Axx.html",
+    "bytes": 1731032,
+    "sha256": "EBB78A1B865EE818A4A2DD432839E6BE7304ADFCA58326880695C5B501722554"
+  },
+  {
+    "path": "C:\\Users\\luigi\\Desktop\\Axx assistant\\build\\resident-release-0.20.3\\1.AXX\\scripts\\native-voice.js",
+    "bytes": 14172,
+    "sha256": "E61076C5081F8C442C054097731A7A15A25A1817E8035C6DAABEDB7594537555"
+  },
+  {
+    "path": "C:\\Users\\luigi\\Desktop\\Axx assistant\\build\\resident-release-0.20.3\\src-tauri\\resources\\axx-backend.exe",
+    "bytes": 169976093,
+    "sha256": "8312CE40F16DB6B024CF2A8BAC1268B0AE15F867E089002138E1F16884D909AC"
+  }
+]

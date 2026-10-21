@@ -1,0 +1,57 @@
+{
+  "record_status": "BLOCKED_CREDENTIALS",
+  "verified_at": "2026-10-19T18:36:56.1493380-04:00",
+  "allow_paid": false,
+  "secret_resolution": "Process environment named by api_key_env; no key exposed to WebView; DPAPI store not implemented",
+  "evidence": "evidence/resident-20261019/packaged-runtime.json",
+  "providers": [
+    {
+      "name": "openrouter-free",
+      "enabled_in_config": true,
+      "authenticated": false,
+      "text_test": "BLOCKED_CREDENTIALS",
+      "credential_available": false,
+      "base_url": "https://openrouter.ai/api/v1",
+      "executed": false,
+      "official_docs": [
+        "https://openrouter.ai/docs/guides/routing/routers/free-router"
+      ],
+      "model": "openrouter/free",
+      "credential_variable": "OPENROUTER_API_KEY",
+      "pricing": {
+        "account_specific_validation": "NOT_RUN",
+        "quota_remaining": null,
+        "route": "Documented zero-cost free router"
+      }
+    },
+    {
+      "name": "gemini-free-tier",
+      "enabled_in_config": false,
+      "authenticated": false,
+      "credential_available": false,
+      "executed": false,
+      "official_docs": [
+        "https://ai.google.dev/gemini-api/docs/deprecations"
+      ],
+      "reason": "Retired model; no replacement enabled without account/model validation",
+      "model": "gemini-2.0-flash",
+      "credential_variable": "GEMINI_API_KEY"
+    },
+    {
+      "reason": "No explicit OLLAMA_API_KEY configured; private keys from another application were not adopted. Free account allowance and model remain unverified",
+      "credential_variable": "OLLAMA_API_KEY",
+      "enabled_in_config": false,
+      "executed": false,
+      "authenticated": false,
+      "official_docs": [
+        "https://docs.ollama.com/cloud",
+        "https://ollama.com/pricing"
+      ],
+      "name": "ollama-cloud",
+      "credential_available": false
+    }
+  ],
+  "failover_live": "NOT_RUN",
+  "typed_missing_key_test": "PASS; NO_PROVIDER_AVAILABLE",
+  "sensitive_data_approved": false
+}

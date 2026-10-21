@@ -1,0 +1,39 @@
+cwd: /workspace/scratch/ca31fdbdcb15/Axx-Integration-Execution/baseline/axx-api-router
+command: ['/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python', '-m', 'unittest', 'discover', '-s', 'tests', '-v']
+exit: 0
+STDOUT
+
+STDERR
+test_all_exhausted_has_bounded_attempts (test_router.RouterTests.test_all_exhausted_has_bounded_attempts) ... failure provider=a status=503
+failure provider=b status=503
+ok
+test_auth_failure_switches (test_router.RouterTests.test_auth_failure_switches) ... failure provider=a status=401
+ok
+test_bad_request_is_not_retried (test_router.RouterTests.test_bad_request_is_not_retried) ... failure provider=a status=400
+ok
+test_http_endpoint_rejected (test_router.RouterTests.test_http_endpoint_rejected) ... ok
+test_invalid_response_switches (test_router.RouterTests.test_invalid_response_switches) ... failure provider=a status=502
+ok
+test_local_daily_cap (test_router.RouterTests.test_local_daily_cap) ... ok
+test_metrics_count_failover (test_router.RouterTests.test_metrics_count_failover) ... failure provider=a status=429
+ok
+test_missing_keys_skip (test_router.RouterTests.test_missing_keys_skip) ... ok
+test_negative_tokens_rejected (test_router.RouterTests.test_negative_tokens_rejected) ... ok
+test_no_unapproved_paid_provider (test_router.RouterTests.test_no_unapproved_paid_provider) ... ok
+test_output_limit_is_enforced (test_router.RouterTests.test_output_limit_is_enforced) ... ok
+test_privacy_filter (test_router.RouterTests.test_privacy_filter) ... ok
+test_quota_switches_and_persists_cooldown (test_router.RouterTests.test_quota_switches_and_persists_cooldown) ... failure provider=a status=429
+ok
+test_request_size_limit (test_router.RouterTests.test_request_size_limit) ... ok
+test_reset_preserves_usage (test_router.RouterTests.test_reset_preserves_usage) ... failure provider=a status=401
+ok
+test_status_explains_local_quota (test_router.RouterTests.test_status_explains_local_quota) ... ok
+test_stream_rejected (test_router.RouterTests.test_stream_rejected) ... ok
+test_success_keeps_messages (test_router.RouterTests.test_success_keeps_messages) ... ok
+test_task_routes_to_matching_provider (test_router.RouterTests.test_task_routes_to_matching_provider) ... ok
+test_tools_require_capability (test_router.RouterTests.test_tools_require_capability) ... ok
+
+----------------------------------------------------------------------
+Ran 20 tests in 0.278s
+
+OK

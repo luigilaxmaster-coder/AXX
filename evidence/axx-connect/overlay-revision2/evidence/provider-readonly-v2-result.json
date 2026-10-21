@@ -1,0 +1,29 @@
+{
+  "classification": "REAL_PINNED_APPSERVER_STATUS_NO_INFERENCE",
+  "created_at_utc": "2026-10-20T21:33:47.100324+00:00",
+  "source_sha256": "6bd174d5ef87eaefa2f4e5c0584a01797221ed5890411e44fd745d6bd2e900b7",
+  "codex_executable_sha256": "fdda5fa3cf3fb3d000b876720742857676293e4315e4b045fae6f8bd7e866d1d",
+  "codex_version": "0.160.0",
+  "state": "authenticated",
+  "authenticated": true,
+  "inference_verified": false,
+  "models_in_catalog": 7,
+  "rpc_methods": [
+    "initialize",
+    "config/read",
+    "model/list",
+    "account/read",
+    "account/read"
+  ],
+  "turn_start_sent": false,
+  "credentials_copied": false,
+  "auth_mutation_rpc_sent": false,
+  "native_gui_tested": false,
+  "executor_tested": false,
+  "builtin_inventory_complete": false,
+  "diagnostic": null,
+  "ok": true,
+  "elapsed_seconds": 4.156,
+  "owned_process_closed": true,
+  "source_unchanged": true
+}

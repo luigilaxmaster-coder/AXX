@@ -1,0 +1,21 @@
+{
+  "mcpServers": {
+    "axx-connect": {
+      "command": "powershell.exe",
+      "args": [
+        "-NoLogo",
+        "-NoProfile",
+        "-NonInteractive",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${PLUGIN_ROOT}/server/launch.ps1"
+      ],
+      "env_vars": [
+        "AXX_CONNECT_DATA_DIR"
+      ],
+      "startup_timeout_sec": 30,
+      "tool_timeout_sec": 30
+    }
+  }
+}

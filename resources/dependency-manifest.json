@@ -1,0 +1,10 @@
+{
+  "version": "3.1.1",
+  "name": "ai-memory",
+  "exe_bytes": 58050560,
+  "exe_sha256": "C2BA1391A763E3D68E2B1CB10677F428934D1F54DDF066103C6A9DBEA372DC11",
+  "license": "src-tauri/resources/ai-memory-LICENSE",
+  "archive_sha256": "26a295fd3268adc5774168c4b01d462c554d65deaa9cda59eba5d592c160ab4f",
+  "source": "https://github.com/akitaonrails/ai-memory/releases/tag/v3.1.1",
+  "embedding_provider": "none"
+}

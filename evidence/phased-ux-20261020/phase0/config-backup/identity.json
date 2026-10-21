@@ -1,0 +1,8 @@
+[
+  [
+    "axx-studio-v2",
+    "{\"camera\": [485.1153972286288, 0.08], \"layout\": {\"axx.body15\": \"180\", \"axx.orbit12\": \"{\\\"narrow/chat\\\":{\\\"x\\\":10,\\\"y\\\":97.265625}}\", \"axx.orbit17.spacing\": \"1.2\"}, \"settings\": {\"actionMorph\": true, \"alwaysOnTop\": true, \"form\": 19, \"keepForm\": true, \"motionStyle\": \"breathing\", \"palette\": 1, \"quality\": \"balanced\", \"reducedMotion\": false, \"scale\": 0.65, \"shortcut\": \"Alt+Shift+A\", \"showLabel\": true, \"staticMode\": false}, \"studio\": {\"actionMorph\": true, \"autoRotate\": true, \"camera\": [112.65402122872996, 0.08], \"exposure\": 0.35, \"floor\": false, \"fluidity\": 2.3, \"form\": 19, \"intensity\": 1.7, \"keepForm\": true, \"lightAngle\": 3.141592653589793, \"living\": true, \"motionStyle\": \"breathing\", \"palette\": 1, \"roughness\": 0.015, \"scale\": 0.65, \"view\": 0}, \"version\": 1}",
+    10061,
+    "2026-10-20T20:07:05.235497+00:00"
+  ]
+]

@@ -1,0 +1,25 @@
+{
+  "revision": "V2/D",
+  "timestamp_utc": "2026-10-20T21:28:30.1796277Z",
+  "command": "python -X faulthandler -m unittest backend.connect.tests.test_provider -v",
+  "exit_code": 0,
+  "tests_total": 62,
+  "tests_offline_passed": 61,
+  "tests_live_skipped": 1,
+  "elapsed_seconds": 9.06,
+  "test_log": "provider-revision-d-tests.txt",
+  "source_sha256": {
+    "backend/connect/service.py": "c2a8af7f5be9a68c262d23766f18f9e728ffd0d6d4e2cd65317b478d4bc2eb6d",
+    "backend/connect/tests/test_provider.py": "594fc5e985466cb3e1025e7c35bc44a037b29616424c7e5a44cb3ec5b16bfd3a",
+    "backend/connect/provider.py": "b0ad60abd87beee031a35643ed1be57928e4c1c023884be27a20f94f8183eea4",
+    "backend/connect/tests/test_service.py": "b8a78ef6c46e52aeee59b068601d242c734943ea1b8a4c9ab3dbf4947a9ad577"
+  },
+  "validation_scope": "Controlled offline tests only. No model inference, real account mutations, network calls or desktop actions were executed for V2/D.",
+  "atomic_admission": "The provider guard is entered at the service durable admission boundary and at the dedicated writer claim. Account epoch, account fingerprint, cancellation and remaining deadline are rechecked. A committed admission may precede physical completion; no rollback is claimed.",
+  "lock_order": "service lock then brief provider guard; provider never holds its lock while calling service dispatcher or waiting for pipe completion.",
+  "transport": "Single stdin owner, bounded queue and caller wait, deadline check before claim, reply wait recalculated after write/flush. Uncertain messages are not replayed. Only the owned child is terminated.",
+  "cleanup": "One absolute three-second shutdown budget reserves terminate/kill waits; exhausted write budgets do not add an extra reap wait. Scheduling and OS calls are not hard real-time guarantees.",
+  "local_disconnect": "Persisted Axx-local opt-out. No account/logout RPC. Explicit reconnect/login is required to opt in again.",
+  "service_validation": "core-revision2-final.log/result.json records the independently run 21-test service suite on the service hashes above.",
+  "historical": "Revision C evidence remains historical. Previous real inference/interrupt evidence predates V2/D and does not verify this exact source."
+}

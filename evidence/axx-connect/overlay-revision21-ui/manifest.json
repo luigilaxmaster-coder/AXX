@@ -1,0 +1,50 @@
+{
+  "revision": "V2.1 frontend only",
+  "created_at_utc": "2026-10-20T21:42:01.980388+00:00",
+  "baseline": "overlay-revision2 / immutable ZIP 50a801e89eb319fc1b6ac43080c19a026f345d4b2060dc24567802ca6971e964",
+  "files": [
+    {
+      "path": "1.AXX/scripts/axx-connect.js",
+      "base_sha256": "4a2df604b163023194a36455bce7b8a87e5c617901b756438d36758f45f7eb02",
+      "sha256": "0ab6ecda5db22ea7f8160c5f5beb92e5849a402c8fb1c4b7cb5b5f7a230fe6c3",
+      "bytes": 26706
+    },
+    {
+      "path": "1.AXX/scripts/test-axx-connect.cjs",
+      "base_sha256": "50372d012f4850ccc5f7a4bd1819fbcf135f45619f00f1d11ab666c8ab4ea6f1",
+      "sha256": "e0306d5a63344b8c0231780bc714a7db21ba1e0099f1cbc18faab3b1221e8af8",
+      "bytes": 55142
+    }
+  ],
+  "receipts": [
+    {
+      "path": "ui-connect-tests-revision21.log",
+      "sha256": "f2974296cfb239b9cfa5349bffeff0df1eaf7da23b55a9106955d716c966686b",
+      "bytes": 4516
+    },
+    {
+      "path": "ui-connect-settings-controlled-revision21.json",
+      "sha256": "21c5a683a548c971a37652138ad91e7002fd485bf70f9cdcc86527e1802a7989",
+      "bytes": 834
+    },
+    {
+      "path": "ui-connect-settings-controlled-revision21.png",
+      "sha256": "73315bd6c49002ee4c08e70eb2ffe856a37b5d6bbb647affdf0ade80cf551312",
+      "bytes": 87557
+    }
+  ],
+  "incremental_reconstruction_verified": true,
+  "all_other_v2_source_files_unchanged": true,
+  "controlled_ui_checks_passed": 33,
+  "uncaught_errors": [],
+  "changes": [
+    "Monotonic deadline and validation after asynchronous replies",
+    "Abort does not await a hung cancellation acknowledgement",
+    "Obsolete engine/history responses adopt the newest refresh result",
+    "Only explicit authenticated:true proves session authentication"
+  ],
+  "native_gui_tested": false,
+  "inference_executed": false,
+  "builtin_inventory_complete": false,
+  "activation_gate": "OPEN; no change to native C3 ownership or runtime-isolation acceptance."
+}

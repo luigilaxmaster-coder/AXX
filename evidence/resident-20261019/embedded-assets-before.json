@@ -1,0 +1,118 @@
+{
+  "assets": [
+    {
+      "embedded_bytes": 5888,
+      "key": "/scripts/test-desktop-frontend.cjs"
+    },
+    {
+      "embedded_bytes": 70231,
+      "key": "/favicon.ico"
+    },
+    {
+      "embedded_bytes": 41676,
+      "key": "/MANUAL.html"
+    },
+    {
+      "embedded_bytes": 370,
+      "key": "/LEEME.md"
+    },
+    {
+      "embedded_bytes": 173978,
+      "key": "/Axx-20-movil.png"
+    },
+    {
+      "embedded_bytes": 3750,
+      "key": "/scripts/native-voice-fallback.draft.js"
+    },
+    {
+      "embedded_bytes": 866,
+      "key": "/scripts/server20.mjs"
+    },
+    {
+      "embedded_bytes": 4957,
+      "key": "/scripts/command-library.js"
+    },
+    {
+      "embedded_bytes": 0,
+      "key": "/Axx.html"
+    },
+    {
+      "embedded_bytes": 3903,
+      "key": "/IMPLEMENTACION.md"
+    },
+    {
+      "embedded_bytes": 516091,
+      "key": "/Axx-20-movimiento.png"
+    },
+    {
+      "embedded_bytes": 2366,
+      "key": "/POR-IMPLEMENTAR.md"
+    },
+    {
+      "embedded_bytes": 7641,
+      "key": "/PLAN-MAESTRO.md"
+    },
+    {
+      "embedded_bytes": 1204,
+      "key": "/PROMPT-EJECUCION.md"
+    },
+    {
+      "embedded_bytes": 38795,
+      "key": "/MANUAL-COMPLETO.md"
+    },
+    {
+      "embedded_bytes": 1204,
+      "key": "/PROMPT-EJECUCION (1).md"
+    },
+    {
+      "embedded_bytes": 4117,
+      "key": "/scripts/native-voice.js"
+    },
+    {
+      "embedded_bytes": 633709,
+      "key": "/icon.png"
+    },
+    {
+      "embedded_bytes": 557827,
+      "key": "/Axx-20-apariencia.png"
+    },
+    {
+      "embedded_bytes": 322668,
+      "key": "/Axx-20-base.png"
+    },
+    {
+      "embedded_bytes": 2427,
+      "key": "/05-WINDOWS.md"
+    },
+    {
+      "embedded_bytes": 1311,
+      "key": "/AGENTS.md"
+    },
+    {
+      "embedded_bytes": 3661,
+      "key": "/LEEME (1).md"
+    },
+    {
+      "embedded_bytes": 4324,
+      "key": "/VALIDACION.md"
+    }
+  ],
+  "failures": [
+    "Axx.html: asset missing or Brotli decompression failed"
+  ],
+  "manifest_dir": "C:\\Users\\luigi\\Desktop\\Axx assistant\\build\\resident-release-0.20.3\\src-tauri",
+  "passed": false,
+  "required": [
+    {
+      "error": "Asset missing or Brotli decompression failed",
+      "key": "Axx.html",
+      "passed": false
+    },
+    {
+      "key": "scripts/native-voice.js",
+      "marker_present": true,
+      "passed": true,
+      "readable_bytes": 14172
+    }
+  ]
+}

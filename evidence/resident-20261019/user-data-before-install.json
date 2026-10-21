@@ -1,0 +1,16 @@
+{
+  "integrity": "ok",
+  "counts": {
+    "operations": 2,
+    "recipes": 0,
+    "recipe_versions": 0
+  },
+  "providers_sha256": "1d16fc85b0a65c1806b9983f161532e0eb010ab8f5cfd99326e436242db81223",
+  "native_preferences": {
+    "version": 2,
+    "anchor_screen_x": 1640.0,
+    "anchor_screen_y": 740.0,
+    "always_on_top": true,
+    "monitor": "\\\\.\\DISPLAY1"
+  }
+}

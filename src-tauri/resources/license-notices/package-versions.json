@@ -1,0 +1,68 @@
+[
+  {
+    "name": "faster-whisper",
+    "version": "1.2.1",
+    "license": "MIT",
+    "license_expression": null,
+    "license_files": [
+      "src-tauri\\resources\\license-notices\\faster-whisper\\faster_whisper-1.2.1.dist-info\\LICENSE"
+    ]
+  },
+  {
+    "name": "ctranslate2",
+    "version": "4.7.1",
+    "license": "MIT",
+    "license_expression": null,
+    "license_files": []
+  },
+  {
+    "name": "av",
+    "version": "17.0.1",
+    "license": null,
+    "license_expression": "BSD-3-Clause",
+    "license_files": [
+      "src-tauri\\resources\\license-notices\\av\\av-17.0.1.dist-info\\licenses\\LICENSE.txt"
+    ]
+  },
+  {
+    "name": "numpy",
+    "version": "2.4.4",
+    "license": null,
+    "license_expression": "BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0",
+    "license_files": [
+      "src-tauri\\resources\\license-notices\\numpy\\numpy-2.4.4.dist-info\\licenses\\LICENSE.txt",
+      "src-tauri\\resources\\license-notices\\numpy\\numpy-2.4.4.dist-info\\licenses\\numpy\\_core\\include\\numpy\\libdivide\\LICENSE.txt",
+      "src-tauri\\resources\\license-notices\\numpy\\numpy-2.4.4.dist-info\\licenses\\numpy\\_core\\src\\common\\pythoncapi-compat\\COPYING",
+      "src-tauri\\resources\\license-notices\\numpy\\numpy-2.4.4.dist-info\\licenses\\numpy\\_core\\src\\highway\\LICENSE",
+      "src-tauri\\resources\\license-notices\\numpy\\numpy-2.4.4.dist-info\\licenses\\numpy\\_core\\src\\multiarray\\dragon4_LICENSE.txt",
+      "src-tauri\\resources\\license-notices\\numpy\\numpy-2.4.4.dist-info\\licenses\\numpy\\_core\\src\\npysort\\x86-simd-sort\\LICENSE.md",
+      "src-tauri\\resources\\license-notices\\numpy\\numpy-2.4.4.dist-info\\licenses\\numpy\\_core\\src\\umath\\svml\\LICENSE",
+      "src-tauri\\resources\\license-notices\\numpy\\numpy-2.4.4.dist-info\\licenses\\numpy\\fft\\pocketfft\\LICENSE.md",
+      "src-tauri\\resources\\license-notices\\numpy\\numpy-2.4.4.dist-info\\licenses\\numpy\\linalg\\lapack_lite\\LICENSE.txt",
+      "src-tauri\\resources\\license-notices\\numpy\\numpy-2.4.4.dist-info\\licenses\\numpy\\ma\\LICENSE",
+      "src-tauri\\resources\\license-notices\\numpy\\numpy-2.4.4.dist-info\\licenses\\numpy\\random\\LICENSE.md",
+      "src-tauri\\resources\\license-notices\\numpy\\numpy-2.4.4.dist-info\\licenses\\numpy\\random\\src\\distributions\\LICENSE.md",
+      "src-tauri\\resources\\license-notices\\numpy\\numpy-2.4.4.dist-info\\licenses\\numpy\\random\\src\\mt19937\\LICENSE.md",
+      "src-tauri\\resources\\license-notices\\numpy\\numpy-2.4.4.dist-info\\licenses\\numpy\\random\\src\\pcg64\\LICENSE.md",
+      "src-tauri\\resources\\license-notices\\numpy\\numpy-2.4.4.dist-info\\licenses\\numpy\\random\\src\\philox\\LICENSE.md",
+      "src-tauri\\resources\\license-notices\\numpy\\numpy-2.4.4.dist-info\\licenses\\numpy\\random\\src\\sfc64\\LICENSE.md",
+      "src-tauri\\resources\\license-notices\\numpy\\numpy-2.4.4.dist-info\\licenses\\numpy\\random\\src\\splitmix64\\LICENSE.md"
+    ]
+  },
+  {
+    "name": "tokenizers",
+    "version": "0.22.2",
+    "license": null,
+    "license_expression": null,
+    "license_files": []
+  },
+  {
+    "name": "huggingface-hub",
+    "version": "1.11.0",
+    "license": "Apache-2.0",
+    "license_expression": null,
+    "license_files": [
+      "src-tauri\\resources\\license-notices\\huggingface-hub\\huggingface_hub-1.11.0.dist-info\\licenses\\LICENSE"
+    ]
+  }
+]

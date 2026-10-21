@@ -1,0 +1,95 @@
+{
+  "kind": "STATIC_IDENTITY_AND_PROFILE_REVIEW_ONLY",
+  "atUtc": "2026-10-20T20:11:18.399137+00:00",
+  "stage": "C:\\Users\\luigi\\Desktop\\Axx assistant\\build\\phased-ux-20261020",
+  "candidateSha256": "AB498F1A138C603617CC12A58C9F4F76317DBFEDEBE1FB11DDF78711361AE7A8",
+  "referenceSha256": "C93C68EA9E9A63EE392487384941B5EE85C8D3E1F88E024FFD081CBE287458EB",
+  "checks": {
+    "FORMS": {
+      "count": 24,
+      "expected": 24,
+      "names": [
+        "Core",
+        "Flow",
+        "Pearl",
+        "Torus",
+        "Split",
+        "Wave",
+        "Bloom",
+        "Fold",
+        "Spike",
+        "Drift",
+        "Orbit",
+        "Morph",
+        "Cushion",
+        "Trefoil",
+        "Nova",
+        "Heart",
+        "Infinity",
+        "Helix",
+        "Knot",
+        "Petal",
+        "Prism",
+        "Capsule",
+        "Crescent",
+        "Ripple"
+      ],
+      "sameDeclarationAsReference": true,
+      "sha256": "DD30D0AAAA3785DBCB8C384C95219E365CF721F7C22B17AA2956A9462025B59D"
+    },
+    "PALETTES": {
+      "count": 9,
+      "expected": 9,
+      "names": [
+        "Obsidian",
+        "Nebula",
+        "Ocean",
+        "Sunset",
+        "Amethyst",
+        "Emerald",
+        "Champagne",
+        "Silver",
+        "Void"
+      ],
+      "sameDeclarationAsReference": true,
+      "sha256": "85A0F86B7046876AB95A55CC6BF91B105C0C2E05C14A69E33554F016623EC974"
+    },
+    "softwareShapeGeometry": {
+      "sameSourceAsReference": true,
+      "candidateSha256": "A3D75A4A937704A261B385C248D6B188FB90D21DE765B806A35F191E5C0A71B6",
+      "referenceSha256": "A3D75A4A937704A261B385C248D6B188FB90D21DE765B806A35F191E5C0A71B6"
+    },
+    "CpuRaster": {
+      "sameSourceAsReference": true,
+      "candidateSha256": "AB3AD7D0AA9FE05F6A2CC5F4E0615A4A241051DF0BC1F98B7BB52FD645D3B8DF",
+      "referenceSha256": "AB3AD7D0AA9FE05F6A2CC5F4E0615A4A241051DF0BC1F98B7BB52FD645D3B8DF"
+    },
+    "proceduralRenderer": {
+      "softwareRendererPresent": true,
+      "bodyMesh112x72": true,
+      "materialLut512x512": true,
+      "studioPreferenceKeyPresent": true
+    },
+    "packageIdentity": {
+      "identifier": "com.axx.desktop",
+      "frontendDist": "../1.AXX",
+      "mainUrl": "Axx.html"
+    }
+  },
+  "configBackupObserved": [
+    {
+      "name": "identity.json",
+      "bytes": 956
+    },
+    {
+      "name": "native-window.json",
+      "bytes": 133
+    }
+  ],
+  "limits": [
+    "Static source comparison only; no renderer frame, visual quality or installed behavior acceptance.",
+    "Root and reference untouched by this reviewer.",
+    "Identity/native-window configuration backup observed; it does not establish a complete recoverable backup of state.db, secrets store, WebView profile or other user artifacts.",
+    "Data preservation and readback after installation remain integrator acceptance."
+  ]
+}

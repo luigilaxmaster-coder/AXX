@@ -1,0 +1,369 @@
+{
+  "request_id": "live-telemetry-20261020-v1",
+  "conversation_id": "axx-connect-probe-v1",
+  "model": "gpt-6.1-sol",
+  "thread_id": "01a15b0f-d4ec-7f43-b043-df4233aa2510",
+  "turn_id": "01a15b0f-f38e-70f0-8ade-80479780bc0a",
+  "state": "completed",
+  "response": "Ejecutaré la prueba de lectura solicitada, Señor.\nAXX_CONNECT_TOOL_OK",
+  "error": null,
+  "usage": {
+    "total": {
+      "totalTokens": 65503,
+      "inputTokens": 65095,
+      "cachedInputTokens": 32000,
+      "cacheWriteInputTokens": 0,
+      "outputTokens": 408,
+      "reasoningOutputTokens": 332
+    },
+    "last": {
+      "totalTokens": 32908,
+      "inputTokens": 32899,
+      "cachedInputTokens": 32000,
+      "cacheWriteInputTokens": 0,
+      "outputTokens": 9,
+      "reasoningOutputTokens": 0
+    },
+    "modelContextWindow": 475000
+  },
+  "duration_ms": 35890,
+  "tool_results": [
+    {
+      "tool": "axx_execute_action",
+      "call_id": "exec-a5effdb4-a146-4093-88f7-cfb9781b3d08",
+      "result": {
+        "operation_id": "axx-connect-provider-telemetry-v1",
+        "command_id": "axx.system.telemetry",
+        "inputs": {},
+        "source": "text",
+        "state": "succeeded",
+        "requires_approval": false,
+        "postconditions_passed": true,
+        "evidence": {
+          "collected_keys": [
+            "os",
+            "release",
+            "version",
+            "architecture",
+            "python_version",
+            "disk_total_gb",
+            "disk_free_gb",
+            "pid"
+          ],
+          "python_version": "3.12.10"
+        },
+        "output": {
+          "os": "Windows",
+          "release": "11",
+          "version": "10.0.26200",
+          "architecture": "AMD64",
+          "python_version": "3.12.10",
+          "disk_total_gb": 952.6,
+          "disk_free_gb": 69.69,
+          "pid": 31164
+        },
+        "cancel_requested": false,
+        "error": null,
+        "duration_ms": 640.0,
+        "action_operation_id": "cmd-0064e11d3b3b14fd52f153d3d7abd730bb307ce7a77febbc69b2a83b8c90b5d3",
+        "tool_name": "system_telemetry",
+        "model_calls_used": 0,
+        "model_calls_source": "deterministic_no_model_path"
+      }
+    }
+  ],
+  "events": [
+    {
+      "seq": 1,
+      "type": "run/accepted",
+      "data": {},
+      "at": 1792529125.1116638
+    },
+    {
+      "seq": 2,
+      "type": "thread/ready",
+      "data": {
+        "thread_id": "01a15b0f-d4ec-7f43-b043-df4233aa2510",
+        "resumed": false
+      },
+      "at": 1792529134.4615738
+    },
+    {
+      "seq": 3,
+      "type": "turn/dispatched",
+      "data": {
+        "turn_id": "01a15b0f-f38e-70f0-8ade-80479780bc0a"
+      },
+      "at": 1792529138.1335733
+    },
+    {
+      "seq": 4,
+      "type": "turn/started",
+      "data": {
+        "turn_id": "01a15b0f-f38e-70f0-8ade-80479780bc0a"
+      },
+      "at": 1792529138.2330856
+    },
+    {
+      "seq": 5,
+      "type": "item/agentMessage/delta",
+      "data": {
+        "delta": "Ej"
+      },
+      "at": 1792529155.3464851
+    },
+    {
+      "seq": 6,
+      "type": "item/agentMessage/delta",
+      "data": {
+        "delta": "ecut"
+      },
+      "at": 1792529155.3928695
+    },
+    {
+      "seq": 7,
+      "type": "item/agentMessage/delta",
+      "data": {
+        "delta": "aré"
+      },
+      "at": 1792529155.4568837
+    },
+    {
+      "seq": 8,
+      "type": "item/agentMessage/delta",
+      "data": {
+        "delta": " la"
+      },
+      "at": 1792529155.464809
+    },
+    {
+      "seq": 9,
+      "type": "item/agentMessage/delta",
+      "data": {
+        "delta": " prueba"
+      },
+      "at": 1792529155.4733717
+    },
+    {
+      "seq": 10,
+      "type": "item/agentMessage/delta",
+      "data": {
+        "delta": " de"
+      },
+      "at": 1792529155.4814563
+    },
+    {
+      "seq": 11,
+      "type": "item/agentMessage/delta",
+      "data": {
+        "delta": " lectura"
+      },
+      "at": 1792529155.4898858
+    },
+    {
+      "seq": 12,
+      "type": "item/agentMessage/delta",
+      "data": {
+        "delta": " solicit"
+      },
+      "at": 1792529155.4985619
+    },
+    {
+      "seq": 13,
+      "type": "item/agentMessage/delta",
+      "data": {
+        "delta": "ada"
+      },
+      "at": 1792529155.5081115
+    },
+    {
+      "seq": 14,
+      "type": "item/agentMessage/delta",
+      "data": {
+        "delta": ","
+      },
+      "at": 1792529155.5156584
+    },
+    {
+      "seq": 15,
+      "type": "item/agentMessage/delta",
+      "data": {
+        "delta": " Señor"
+      },
+      "at": 1792529155.524609
+    },
+    {
+      "seq": 16,
+      "type": "item/agentMessage/delta",
+      "data": {
+        "delta": ".\n"
+      },
+      "at": 1792529155.533688
+    },
+    {
+      "seq": 17,
+      "type": "tool/started",
+      "data": {
+        "tool": "axx_execute_action",
+        "call_id": "exec-a5effdb4-a146-4093-88f7-cfb9781b3d08"
+      },
+      "at": 1792529157.318991
+    },
+    {
+      "seq": 18,
+      "type": "tool/completed",
+      "data": {
+        "tool": "axx_execute_action",
+        "call_id": "exec-a5effdb4-a146-4093-88f7-cfb9781b3d08",
+        "result": {
+          "operation_id": "axx-connect-provider-telemetry-v1",
+          "command_id": "axx.system.telemetry",
+          "inputs": {},
+          "source": "text",
+          "state": "succeeded",
+          "requires_approval": false,
+          "postconditions_passed": true,
+          "evidence": {
+            "collected_keys": [
+              "os",
+              "release",
+              "version",
+              "architecture",
+              "python_version",
+              "disk_total_gb",
+              "disk_free_gb",
+              "pid"
+            ],
+            "python_version": "3.12.10"
+          },
+          "output": {
+            "os": "Windows",
+            "release": "11",
+            "version": "10.0.26200",
+            "architecture": "AMD64",
+            "python_version": "3.12.10",
+            "disk_total_gb": 952.6,
+            "disk_free_gb": 69.69,
+            "pid": 31164
+          },
+          "cancel_requested": false,
+          "error": null,
+          "duration_ms": 640.0,
+          "action_operation_id": "cmd-0064e11d3b3b14fd52f153d3d7abd730bb307ce7a77febbc69b2a83b8c90b5d3",
+          "tool_name": "system_telemetry",
+          "model_calls_used": 0,
+          "model_calls_source": "deterministic_no_model_path"
+        }
+      },
+      "at": 1792529158.00157
+    },
+    {
+      "seq": 19,
+      "type": "thread/tokenUsage/updated",
+      "data": {
+        "usage": {
+          "total": {
+            "totalTokens": 32595,
+            "inputTokens": 32196,
+            "cachedInputTokens": 0,
+            "cacheWriteInputTokens": 0,
+            "outputTokens": 399,
+            "reasoningOutputTokens": 332
+          },
+          "last": {
+            "totalTokens": 32595,
+            "inputTokens": 32196,
+            "cachedInputTokens": 0,
+            "cacheWriteInputTokens": 0,
+            "outputTokens": 399,
+            "reasoningOutputTokens": 332
+          },
+          "modelContextWindow": 475000
+        }
+      },
+      "at": 1792529158.1648421
+    },
+    {
+      "seq": 20,
+      "type": "item/agentMessage/delta",
+      "data": {
+        "delta": "AX"
+      },
+      "at": 1792529159.581873
+    },
+    {
+      "seq": 21,
+      "type": "item/agentMessage/delta",
+      "data": {
+        "delta": "X"
+      },
+      "at": 1792529159.7507794
+    },
+    {
+      "seq": 22,
+      "type": "item/agentMessage/delta",
+      "data": {
+        "delta": "_CONNECT"
+      },
+      "at": 1792529159.9645793
+    },
+    {
+      "seq": 23,
+      "type": "item/agentMessage/delta",
+      "data": {
+        "delta": "_TOOL"
+      },
+      "at": 1792529160.134103
+    },
+    {
+      "seq": 24,
+      "type": "item/agentMessage/delta",
+      "data": {
+        "delta": "_OK"
+      },
+      "at": 1792529160.3430982
+    },
+    {
+      "seq": 25,
+      "type": "thread/tokenUsage/updated",
+      "data": {
+        "usage": {
+          "total": {
+            "totalTokens": 65503,
+            "inputTokens": 65095,
+            "cachedInputTokens": 32000,
+            "cacheWriteInputTokens": 0,
+            "outputTokens": 408,
+            "reasoningOutputTokens": 332
+          },
+          "last": {
+            "totalTokens": 32908,
+            "inputTokens": 32899,
+            "cachedInputTokens": 32000,
+            "cacheWriteInputTokens": 0,
+            "outputTokens": 9,
+            "reasoningOutputTokens": 0
+          },
+          "modelContextWindow": 475000
+        }
+      },
+      "at": 1792529160.531197
+    },
+    {
+      "seq": 26,
+      "type": "turn/completed",
+      "data": {
+        "status": "completed",
+        "error": null
+      },
+      "at": 1792529160.7790263
+    }
+  ],
+  "auth": {
+    "state": "connected",
+    "authenticated": true,
+    "inference_verified": true,
+    "model": "gpt-6.1-sol",
+    "allow_paid": false
+  }
+}

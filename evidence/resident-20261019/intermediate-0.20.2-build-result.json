@@ -1,0 +1,92 @@
+﻿{
+    "artifacts":  [
+                      {
+                          "architecture":  "x86_64",
+                          "path":  "C:\\Users\\luigi\\Desktop\\Axx assistant\\src-tauri\\target\\release\\bundle\\nsis\\Axx_0.20.2_x64-setup.exe",
+                          "sha256":  "397DBE36A026925F0284D5CC42DAFAF75236AB2A361F7BA71443D63A49FF06BF",
+                          "bytes":  190281609,
+                          "version":  "0.20.2"
+                      },
+                      {
+                          "architecture":  "x86_64",
+                          "path":  "C:\\Users\\luigi\\Desktop\\Axx assistant\\src-tauri\\target\\release\\Axx.exe",
+                          "sha256":  "F96D608734BAD25965C4BF34058F3E0B7A67062B0E640C50248F6B1DCF8B1626",
+                          "bytes":  13948416,
+                          "version":  "0.20.2"
+                      },
+                      {
+                          "architecture":  "x86_64",
+                          "path":  "C:\\Users\\luigi\\Desktop\\Axx assistant\\dist\\axx-backend.exe",
+                          "sha256":  "8312CE40F16DB6B024CF2A8BAC1268B0AE15F867E089002138E1F16884D909AC",
+                          "bytes":  169976093,
+                          "version":  "0.20.2"
+                      }
+                  ],
+    "started":  "2026-10-19T18:34:15.0768987-04:00",
+    "completed":  "2026-10-19T18:37:31.7780009-04:00",
+    "steps":  [
+                  {
+                      "exit_code":  0,
+                      "command":  "Reuse backend with verified source and binary hashes"
+                  },
+                  {
+                      "exit_code":  0,
+                      "command":  "node_modules\\.bin\\tauri.cmd build --bundles nsis"
+                  }
+              ],
+    "source_hashes":  {
+                          "C:\\Users\\luigi\\Desktop\\Axx assistant\\backend\\memory\\ai_memory_adapter.py":  "F845462EECC5188B71490B9BD304B5C4A91626388583A0566236964DA0840942",
+                          "src-tauri\\Cargo.toml":  "3B5A922208A859ACB7CFEFFFC22450AB2A131F8368C97BCC56DB8135E5EC853F",
+                          "C:\\Users\\luigi\\Desktop\\Axx assistant\\vendor\\cli_anything_blender\\UPSTREAM.json":  "51BE324E52DDED8514367585117CF9ADF7D77543D9590A05A0414F7C2DBA2ED2",
+                          "C:\\Users\\luigi\\Desktop\\Axx assistant\\src-tauri\\src\\main.rs":  "E5DFAB54C7A9843285D54FF5A783C00813CD3F28D1BB2F6982AA348697CBB1C4",
+                          "C:\\Users\\luigi\\Desktop\\Axx assistant\\backend\\actions\\executor.py":  "48A523EB1EEBFA22F882FD207D1CC5FB574D6E7252EEE0638074135FD1C19ABE",
+                          "C:\\Users\\luigi\\Desktop\\Axx assistant\\backend\\actions\\tools.py":  "33DE8FAF5A1606342B1AF2B773F3BCCB80B345226E8BE12F2A83399A48748C9A",
+                          "C:\\Users\\luigi\\Desktop\\Axx assistant\\resources\\providers.default.json":  "3AA78013F69087D7C728B8CE6A71DDE98C3DD40744F45A494E1EBF15EDD94BE0",
+                          "C:\\Users\\luigi\\Desktop\\Axx assistant\\1.AXX\\Axx-20-base.png":  "9D06793267C5E714675E72347D444668663C9DAD06E19CCC5C6D312BBD6BEE72",
+                          "C:\\Users\\luigi\\Desktop\\Axx assistant\\1.AXX\\Axx-20-movimiento.png":  "D7E01A79C08CF8B2632B49DDE06B87643094DBB7D5F6DEEFE2D56FDE694544A8",
+                          "src-tauri\\resources\\ai-memory.exe":  "C2BA1391A763E3D68E2B1CB10677F428934D1F54DDF066103C6A9DBEA372DC11",
+                          "C:\\Users\\luigi\\Desktop\\Axx assistant\\backend\\__init__.py":  "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
+                          "src-tauri\\tauri.conf.json":  "A9C3C56F5C62639960264635CCF04771FD301323B59BF35CF00D5FDE5450A89D",
+                          "C:\\Users\\luigi\\Desktop\\Axx assistant\\vendor\\cli_anything_blender\\cli_anything\\blender\\core\\materials.py":  "929E71B9D1D0806EC957F2937729EDCEA4CE704DE9908B12E5CA42B23AC810A3",
+                          "C:\\Users\\luigi\\Desktop\\Axx assistant\\1.AXX\\scripts\\native-voice-fallback.draft.js":  "5CF8D6C6E816FCFC31D8A2E5C37F8DF05776997B8836CF4AE24735003D0F171C",
+                          "C:\\Users\\luigi\\Desktop\\Axx assistant\\backend\\speech\\windows_tts.py":  "1619368D4A954CCD1D467BB654C614EC82D620EC5EE7EC12947BF92B476C604F",
+                          "C:\\Users\\luigi\\Desktop\\Axx assistant\\backend\\memory\\procedural_memory.py":  "9A189B944C42F822B216603EF561EE9393581A2FDF11401AD203F663B4DCF8D6",
+                          "C:\\Users\\luigi\\Desktop\\Axx assistant\\vendor\\cli_anything_blender\\cli_anything\\blender\\__init__.py":  "4F1A443E44EDE93965E0DCF3E54AA7D50C39018675704EC2F8FCFF58DD36670D",
+                          "C:\\Users\\luigi\\Desktop\\Axx assistant\\vendor\\cli_anything_blender\\cli_anything\\blender\\utils\\bpy_gen.py":  "B31B7E8EED5E4648FF42BB18CD558B7FECF34AC168F6396A0C95398651679172",
+                          "C:\\Users\\luigi\\Desktop\\Axx assistant\\resources\\dependency-manifest.json":  "569AE507D260E00864AC4794AAD2FD927E66A76D941C36211AC889496C1B3540",
+                          "C:\\Users\\luigi\\Desktop\\Axx assistant\\backend\\inference\\process_manager.py":  "8895EAB13B43C18BD9E1C7C8021FB4BFFF0A122B2F56F85B52BB0C488EC6B911",
+                          "C:\\Users\\luigi\\Desktop\\Axx assistant\\1.AXX\\icon.png":  "F246A5A651BB8110071CAEC33E028CFA63CE300A86F39777B26B9F78431C3EDD",
+                          "C:\\Users\\luigi\\Desktop\\Axx assistant\\1.AXX\\favicon.ico":  "B74934DDC2E052D81CFEAD20AABD12227E69AA36545F189D2C6A547E02D6D9E2",
+                          "C:\\Users\\luigi\\Desktop\\Axx assistant\\resources\\models\\faster-whisper-tiny\\model.bin":  "DCB76C6586FC06CBDAC6DD21F14CFD129CC4CDD9DCE19BF4FFA62E59CBE6E6D1",
+                          "C:\\Users\\luigi\\Desktop\\Axx assistant\\vendor\\cli_anything_blender\\cli_anything\\blender\\utils\\__init__.py":  "D113712AC6830BB8925EF4E7C95595F724C8B9D1D266D428E227E4F9078F109C",
+                          "C:\\Users\\luigi\\Desktop\\Axx assistant\\backend\\sync\\identity_sync.py":  "EE44004CE14AACDD6F519EEC0B3BE3035F2E012313D9762AB1F577854C4424E0",
+                          "C:\\Users\\luigi\\Desktop\\Axx assistant\\backend\\sync\\__init__.py":  "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
+                          "C:\\Users\\luigi\\Desktop\\Axx assistant\\backend\\inference\\adapter.py":  "4265D44A02489E6AC097FBDFA8AD4E1A0A1A34D0BF4FED1F5B3691C93162CB01",
+                          "axx-backend.spec":  "6C88B99108760822D10F433AB28F624BB7FF76D79EBFCD8017FEE2ABAA96FB8D",
+                          "C:\\Users\\luigi\\Desktop\\Axx assistant\\1.AXX\\Axx-20-apariencia.png":  "3B6CE3CCA51E67D563EA40E240FA6B7287A27B1BD5C64A955F856FA8F4554000",
+                          "C:\\Users\\luigi\\Desktop\\Axx assistant\\1.AXX\\scripts\\native-voice.js":  "E61076C5081F8C442C054097731A7A15A25A1817E8035C6DAABEDB7594537555",
+                          "C:\\Users\\luigi\\Desktop\\Axx assistant\\1.AXX\\MANUAL.html":  "15A92C15FEA9E2F361A4EAEE557D0D158B5BB30E1E2E201E9EA27DB1576703B8",
+                          "C:\\Users\\luigi\\Desktop\\Axx assistant\\resources\\models\\faster-whisper-tiny\\vocabulary.txt":  "34CE3FE1C5041027B3F8D42912270993F986DBC4BB34CF27F951E34A1E453913",
+                          "C:\\Users\\luigi\\Desktop\\Axx assistant\\backend\\actions\\cli_blender.py":  "F2EAEECC9EC1EBFBAE95FAF303258C964A3EDB8855D44F1DCA86B8A4C8DBF52A",
+                          "C:\\Users\\luigi\\Desktop\\Axx assistant\\src-tauri\\src\\resident.rs":  "0B07A19BC9D4F9C4EC5221DC1A04B5BE5BFCF5D61324722272C92D07746EE5D2",
+                          "C:\\Users\\luigi\\Desktop\\Axx assistant\\resources\\models\\faster-whisper-tiny\\config.json":  "A73A28CDFE1C43CCC7202FA333D1F89C202477271407AE9A7F19AFA52039CAC8",
+                          "C:\\Users\\luigi\\Desktop\\Axx assistant\\backend\\inference\\__init__.py":  "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
+                          "C:\\Users\\luigi\\Desktop\\Axx assistant\\backend\\speech\\__init__.py":  "35A1940D22582698434551531FB0BCE0DB78E334C0F9D58A897D718C2C52748C",
+                          "C:\\Users\\luigi\\Desktop\\Axx assistant\\backend\\inference\\router.py":  "D7DDC4EC14B99C67D47A4FEBEBFDE952BC418DCEDD516A4502E12FCFCEEAF460",
+                          "C:\\Users\\luigi\\Desktop\\Axx assistant\\vendor\\cli_anything_blender\\cli_anything\\blender\\core\\__init__.py":  "B386C9081618A0E02D0E2813F1F93A234C5561624A9F2B875568A27EDC20DC78",
+                          "C:\\Users\\luigi\\Desktop\\Axx assistant\\vendor\\cli_anything_blender\\cli_anything\\blender\\core\\render.py":  "5B64D52800D4033B9AA8AEAE9DF5358F55A969A78CCF7542B30272137747AB4C",
+                          "C:\\Users\\luigi\\Desktop\\Axx assistant\\vendor\\cli_anything_blender\\cli_anything\\blender\\core\\lighting.py":  "7FA9010966F47D05E82A195AA73E8AE623E6DA5E239E59F4262B7911A6F40539",
+                          "C:\\Users\\luigi\\Desktop\\Axx assistant\\1.AXX\\Axx.html":  "1CC9A0E4F2B54C9B3012226B39E832882B266EF2BCBAB9B3302B7C1FA592AD45",
+                          "C:\\Users\\luigi\\Desktop\\Axx assistant\\backend\\memory\\__init__.py":  "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
+                          "C:\\Users\\luigi\\Desktop\\Axx assistant\\backend\\actions\\__init__.py":  "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
+                          "C:\\Users\\luigi\\Desktop\\Axx assistant\\1.AXX\\Axx-20-movil.png":  "0781C658E97235D4ABD9AC0FF9374CD4070D4F845B056A88535C59350CAA8509",
+                          "C:\\Users\\luigi\\Desktop\\Axx assistant\\vendor\\cli_anything_blender\\cli_anything\\blender\\utils\\blender_backend.py":  "9532E8E4C368D950A98EE0EB9F1BA28EABAAC57BA3938A703A16F4978F07262E",
+                          "C:\\Users\\luigi\\Desktop\\Axx assistant\\resources\\models\\faster-whisper-tiny\\tokenizer.json":  "FB7B63191E9BB045082C79FD742A3106A12C99513AB30DF4A0D47FA6CB6FD0AB",
+                          "C:\\Users\\luigi\\Desktop\\Axx assistant\\src-tauri\\src\\lib.rs":  "88F7D329EFE6E940FDE29FCF244959AE93D41C56BD7E7BD6CAEF19245EF15419",
+                          "C:\\Users\\luigi\\Desktop\\Axx assistant\\backend\\speech\\offline_asr.py":  "1209041D593EC5D38D4E70E5AAB53E048DD2D1D824827F77E5A6E44C3F75F3F2",
+                          "C:\\Users\\luigi\\Desktop\\Axx assistant\\vendor\\cli_anything_blender\\cli_anything\\blender\\core\\objects.py":  "599AA8BB91C647C062DCBBCFEA019AC1A80552FCA92662AC91211CD55927702A",
+                          "C:\\Users\\luigi\\Desktop\\Axx assistant\\vendor\\cli_anything_blender\\cli_anything\\blender\\core\\scene.py":  "139F46C9462E90670FDB704358AF7F32841AD537ACBE6E33E2EF57C5089AA18E",
+                          "C:\\Users\\luigi\\Desktop\\Axx assistant\\resources\\asr-model-manifest.json":  "529D2486C45D6214F57A324A9D71947E1E4B1B6020E2143DA04EB6790D1D6A27",
+                          "C:\\Users\\luigi\\Desktop\\Axx assistant\\backend\\server.py":  "F5021ADA0544473775E581B1A58437C226788AF989291C3D2FE867616250347F"
+                      }
+}

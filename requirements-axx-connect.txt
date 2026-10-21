@@ -1,0 +1,2 @@
+# MCP stdio transport pinned to the installed/tested official Python SDK.
+mcp==1.30.0

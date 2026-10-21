@@ -1,0 +1,25 @@
+{
+  "mocked": false,
+  "native_gui_tested": false,
+  "data_directory": "C:\\Users\\luigi\\Desktop\\Axx assistant\\evidence\\axx-connect\\live-a1be182234",
+  "checks": [
+    "real_backend_authenticated_identity",
+    "invalid_effect_rejected",
+    "shipped_launcher_mcp_executor_and_idempotency",
+    "codex_host_plugin_to_executor_return"
+  ],
+  "ok": true,
+  "engine": {
+    "state": "checking",
+    "authenticated": false,
+    "inference_verified": false,
+    "model": null
+  },
+  "mcp_probe_exit": 0,
+  "host_exit": 0,
+  "host": {
+    "plugin_tool_observed": true,
+    "verified_operations": 1,
+    "reply_observed": true
+  }
+}

@@ -1,0 +1,6 @@
+cwd: /workspace/scratch/ca31fdbdcb15/Axx-Integration-Execution/baseline/axx-api-router
+command: ['/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python', '-m', 'compileall', '-q', 'router.py', 'demo.py', 'tests']
+exit: 0
+STDOUT
+
+STDERR

@@ -1,0 +1,71 @@
+cwd: /workspace/scratch/ca31fdbdcb15/Axx-Integration-Execution/baseline/axx-api-router
+command: ['/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python', 'demo.py']
+exit: 0
+STDOUT
+{
+  "mode": "OFFLINE_SIMULATION",
+  "result": {
+    "choices": [
+      {
+        "message": {
+          "role": "assistant",
+          "content": "Respuesta simulada desde el respaldo."
+        }
+      }
+    ],
+    "axx_router": {
+      "provider": "respaldo",
+      "model": "offline-demo",
+      "attempts": 2
+    }
+  },
+  "status": {
+    "day_utc": "2026-10-19",
+    "providers": [
+      {
+        "name": "principal",
+        "model": "offline-demo",
+        "state": "cooldown",
+        "capabilities": [
+          "text"
+        ],
+        "tasks": [
+          "*"
+        ],
+        "attempts_today": 1,
+        "daily_attempt_limit": 10,
+        "cooldown_remaining_seconds": 120,
+        "metrics": {
+          "successes": 0,
+          "failures": 1,
+          "mean_attempt_ms": 0.0,
+          "last_status": 429
+        }
+      },
+      {
+        "name": "respaldo",
+        "model": "offline-demo",
+        "state": "ready",
+        "capabilities": [
+          "text"
+        ],
+        "tasks": [
+          "*"
+        ],
+        "attempts_today": 1,
+        "daily_attempt_limit": 10,
+        "cooldown_remaining_seconds": 0,
+        "metrics": {
+          "successes": 1,
+          "failures": 0,
+          "mean_attempt_ms": 0.0,
+          "last_status": 200
+        }
+      }
+    ],
+    "quota_source": "local_attempts_only"
+  }
+}
+
+STDERR
+failure provider=principal status=429

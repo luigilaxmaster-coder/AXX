@@ -1,0 +1,7 @@
+{
+  "version": 2,
+  "anchor_screen_x": 1203.5,
+  "anchor_screen_y": 511.25,
+  "always_on_top": true,
+  "monitor": "\\\\.\\DISPLAY1"
+}

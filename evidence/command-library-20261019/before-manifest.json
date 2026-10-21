@@ -1,0 +1,197 @@
+[
+  {
+    "path": "backend\\__init__.py",
+    "sha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
+    "bytes": 0
+  },
+  {
+    "path": "backend\\server.py",
+    "sha256": "F5021ADA0544473775E581B1A58437C226788AF989291C3D2FE867616250347F",
+    "bytes": 25524
+  },
+  {
+    "path": "backend\\actions\\__init__.py",
+    "sha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
+    "bytes": 0
+  },
+  {
+    "path": "backend\\actions\\cli_blender.py",
+    "sha256": "F2EAEECC9EC1EBFBAE95FAF303258C964A3EDB8855D44F1DCA86B8A4C8DBF52A",
+    "bytes": 9681
+  },
+  {
+    "path": "backend\\actions\\executor.py",
+    "sha256": "48A523EB1EEBFA22F882FD207D1CC5FB574D6E7252EEE0638074135FD1C19ABE",
+    "bytes": 9786
+  },
+  {
+    "path": "backend\\actions\\tools.py",
+    "sha256": "33DE8FAF5A1606342B1AF2B773F3BCCB80B345226E8BE12F2A83399A48748C9A",
+    "bytes": 11985
+  },
+  {
+    "path": "backend\\actions\\tests\\__init__.py",
+    "sha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
+    "bytes": 0
+  },
+  {
+    "path": "backend\\actions\\tests\\test_action_executor.py",
+    "sha256": "87B8282DC2B0FEDF806EE4DEC01E2AFFD5243B0907B93C8AFE3AFDC4CB1047DE",
+    "bytes": 3168
+  },
+  {
+    "path": "backend\\inference\\__init__.py",
+    "sha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
+    "bytes": 0
+  },
+  {
+    "path": "backend\\inference\\adapter.py",
+    "sha256": "4265D44A02489E6AC097FBDFA8AD4E1A0A1A34D0BF4FED1F5B3691C93162CB01",
+    "bytes": 12979
+  },
+  {
+    "path": "backend\\inference\\process_manager.py",
+    "sha256": "8895EAB13B43C18BD9E1C7C8021FB4BFFF0A122B2F56F85B52BB0C488EC6B911",
+    "bytes": 6660
+  },
+  {
+    "path": "backend\\inference\\router.py",
+    "sha256": "D7DDC4EC14B99C67D47A4FEBEBFDE952BC418DCEDD516A4502E12FCFCEEAF460",
+    "bytes": 34404
+  },
+  {
+    "path": "backend\\inference\\tests\\__init__.py",
+    "sha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
+    "bytes": 0
+  },
+  {
+    "path": "backend\\inference\\tests\\test_hardened_router.py",
+    "sha256": "BBBE0C6585F251A361099837DFA1A6B24DED34003E473B7C4E320CF93AD02EDD",
+    "bytes": 13437
+  },
+  {
+    "path": "backend\\memory\\__init__.py",
+    "sha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
+    "bytes": 0
+  },
+  {
+    "path": "backend\\memory\\ai_memory_adapter.py",
+    "sha256": "F845462EECC5188B71490B9BD304B5C4A91626388583A0566236964DA0840942",
+    "bytes": 11627
+  },
+  {
+    "path": "backend\\memory\\procedural_memory.py",
+    "sha256": "9A189B944C42F822B216603EF561EE9393581A2FDF11401AD203F663B4DCF8D6",
+    "bytes": 16032
+  },
+  {
+    "path": "backend\\memory\\tests\\__init__.py",
+    "sha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
+    "bytes": 0
+  },
+  {
+    "path": "backend\\memory\\tests\\test_procedural_memory.py",
+    "sha256": "25EB85F8224F9B8B7189CFEF4DAB03DFAD95557FBB2637A47F393039BBCDFAAF",
+    "bytes": 4404
+  },
+  {
+    "path": "backend\\speech\\__init__.py",
+    "sha256": "35A1940D22582698434551531FB0BCE0DB78E334C0F9D58A897D718C2C52748C",
+    "bytes": 76
+  },
+  {
+    "path": "backend\\speech\\offline_asr.py",
+    "sha256": "1209041D593EC5D38D4E70E5AAB53E048DD2D1D824827F77E5A6E44C3F75F3F2",
+    "bytes": 12706
+  },
+  {
+    "path": "backend\\speech\\windows_tts.py",
+    "sha256": "1619368D4A954CCD1D467BB654C614EC82D620EC5EE7EC12947BF92B476C604F",
+    "bytes": 9690
+  },
+  {
+    "path": "backend\\sync\\__init__.py",
+    "sha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
+    "bytes": 0
+  },
+  {
+    "path": "backend\\sync\\identity_sync.py",
+    "sha256": "EE44004CE14AACDD6F519EEC0B3BE3035F2E012313D9762AB1F577854C4424E0",
+    "bytes": 3482
+  },
+  {
+    "path": "backend\\sync\\test_identity_sync.py",
+    "sha256": "2562D4776695437AACFFFDACF1062330F686295DC3D61235660C47AFDCF63013",
+    "bytes": 1794
+  },
+  {
+    "path": "backend\\tests\\__init__.py",
+    "sha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
+    "bytes": 0
+  },
+  {
+    "path": "backend\\tests\\test_delivery_contract.py",
+    "sha256": "AC2FCC1EFB91700B4D40181B271F9DDE8E8BE1B10F970E08ADB443A565D358BD",
+    "bytes": 14161
+  },
+  {
+    "path": "backend\\tests\\test_server_smoke.py",
+    "sha256": "BD35859BF9094901DA890432F17118AC5261BC7D61F1D72F0E3A3305FE3E3289",
+    "bytes": 6237
+  },
+  {
+    "path": "backend\\tests\\verify_resident_packaged.py",
+    "sha256": "C4096E58CF77588BAB5FE05EA24A219BA5340D6444937EE6D2B4061FE3D346BA",
+    "bytes": 7799
+  },
+  {
+    "path": "1.AXX\\Axx.html",
+    "sha256": "1CC9A0E4F2B54C9B3012226B39E832882B266EF2BCBAB9B3302B7C1FA592AD45",
+    "bytes": 1722125
+  },
+  {
+    "path": "1.AXX\\scripts\\native-voice-fallback.draft.js",
+    "sha256": "5CF8D6C6E816FCFC31D8A2E5C37F8DF05776997B8836CF4AE24735003D0F171C",
+    "bytes": 12649
+  },
+  {
+    "path": "1.AXX\\scripts\\native-voice.js",
+    "sha256": "E61076C5081F8C442C054097731A7A15A25A1817E8035C6DAABEDB7594537555",
+    "bytes": 14172
+  },
+  {
+    "path": "1.AXX\\scripts\\server20.mjs",
+    "sha256": "7159D4AD95164487B24607D8946D6253490A9825F8A696A87B452138976CBAF5",
+    "bytes": 2232
+  },
+  {
+    "path": "1.AXX\\scripts\\test-desktop-frontend.cjs",
+    "sha256": "E8848AFE4A17C22C8DFA054B008425914BFBF5E4C8F08C04CB12FD24ED93CD64",
+    "bytes": 19923
+  },
+  {
+    "path": "src-tauri\\src\\lib.rs",
+    "sha256": "88F7D329EFE6E940FDE29FCF244959AE93D41C56BD7E7BD6CAEF19245EF15419",
+    "bytes": 41999
+  },
+  {
+    "path": "src-tauri\\src\\main.rs",
+    "sha256": "E5DFAB54C7A9843285D54FF5A783C00813CD3F28D1BB2F6982AA348697CBB1C4",
+    "bytes": 179
+  },
+  {
+    "path": "src-tauri\\src\\resident.rs",
+    "sha256": "0B07A19BC9D4F9C4EC5221DC1A04B5BE5BFCF5D61324722272C92D07746EE5D2",
+    "bytes": 20450
+  },
+  {
+    "path": "axx-backend.spec",
+    "sha256": "6C88B99108760822D10F433AB28F624BB7FF76D79EBFCD8017FEE2ABAA96FB8D",
+    "bytes": 1874
+  },
+  {
+    "path": "package.json",
+    "sha256": "BA6BA2B67ED1B8BE2F9D4790EC9C682A765A23B61596AEDCDEFE3E4B75A1EE1F",
+    "bytes": 326
+  }
+]

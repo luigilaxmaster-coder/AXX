@@ -1,0 +1,13 @@
+{
+  "name": "axx-desktop",
+  "version": "0.20.2",
+  "private": true,
+  "description": "Axx Windows desktop distribution",
+  "scripts": {
+    "tauri": "tauri",
+    "build:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-windows.ps1"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.12.3"
+  }
+}

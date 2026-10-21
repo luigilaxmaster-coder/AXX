@@ -1,0 +1,15 @@
+{
+  "timestamp": "2026-10-19T23:27:44.867893+00:00",
+  "backup": "C:\\Users\\luigi\\AppData\\Local\\Axx\\backups\\resident-20261019\\before-0.20.4-install",
+  "integrity": "ok",
+  "counts": {
+    "operations": 2,
+    "recipes": 0,
+    "recipe_versions": 0
+  },
+  "configuration_sha256": {
+    "providers.json": "1D16FC85B0A65C1806B9983F161532E0EB010AB8F5CFD99326E436242DB81223",
+    "native-window.json": "2F5031495D9D91AF724A643DC41D84B05F5487FE2BAA1D83F085E0C31CF017B1"
+  },
+  "previous_executable_sha256": "8A8445198E6F45C09F60A1519B726CD97667DB84510675507BF36E6DD10F47CD"
+}

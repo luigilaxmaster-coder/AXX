@@ -1,0 +1,17 @@
+{
+  "name": "axx-desktop",
+  "version": "0.20.3",
+  "private": true,
+  "description": "Axx Windows desktop distribution",
+  "scripts": {
+    "tauri": "tauri",
+    "build:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-windows.ps1",
+    "connect:install": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-axx-connect.ps1",
+    "connect:diagnose": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/diagnose-axx-connect.ps1",
+    "connect:package": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-axx-connect.ps1",
+    "connect:uninstall": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/uninstall-axx-connect.ps1"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.12.3"
+  }
+}

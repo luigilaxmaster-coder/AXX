@@ -1,0 +1,24 @@
+{
+  "result": "PASS",
+  "version": "0.20.4",
+  "installed_directory": "C:\\Users\\luigi\\AppData\\Local\\Programs\\Axx",
+  "tauri_bundle_marker": "Tauri UNK -> NSS; exactly three bytes",
+  "installed_exe_sha256": "2670d8cfbaf8567c57d669b0c238b7086dbc25410086d876e0821982dc0a8d20",
+  "release_exe_sha256": "def7a390713934d45e56edc28f39dc1bc87f6d93b41aee81aec1237ae1101b07",
+  "backend_sha256": "8312ce40f16db6b024cf2a8bac1268b0ae15f867e089002138e1f16884d909ac",
+  "ai_memory_sha256": "c2ba1391a763e3d68e2b1cb10677f428934d1f54ddf066103c6a9dbea372dc11",
+  "files": [
+    {
+      "path": "C:\\Users\\luigi\\AppData\\Local\\Programs\\Axx\\Axx.exe",
+      "bytes": 13961728
+    },
+    {
+      "path": "C:\\Users\\luigi\\AppData\\Local\\Programs\\Axx\\resources\\axx-backend.exe",
+      "bytes": 169976093
+    },
+    {
+      "path": "C:\\Users\\luigi\\AppData\\Local\\Programs\\Axx\\resources\\ai-memory.exe",
+      "bytes": 58050560
+    }
+  ]
+}

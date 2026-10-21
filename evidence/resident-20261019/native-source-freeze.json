@@ -1,0 +1,27 @@
+[
+  {
+    "path": "C:\\Users\\luigi\\Desktop\\Axx assistant\\src-tauri\\Cargo.toml",
+    "sha256": "2FCBA256B184AF15B44743120F472B97FB80690A8CDD167BFF4101A451EF2E6B",
+    "bytes": 1144
+  },
+  {
+    "path": "C:\\Users\\luigi\\Desktop\\Axx assistant\\src-tauri\\Cargo.lock",
+    "sha256": "178FB4A87DA1268C1275F8BA86E85AB0A2F6AF0307A1D188A4320315FC67DD2E",
+    "bytes": 111323
+  },
+  {
+    "path": "C:\\Users\\luigi\\Desktop\\Axx assistant\\src-tauri\\tauri.conf.json",
+    "sha256": "1BAFA451D246974E5DBA4A4589F24D08B84A49A31CD5335705566F57ED95433F",
+    "bytes": 1292
+  },
+  {
+    "path": "C:\\Users\\luigi\\Desktop\\Axx assistant\\src-tauri\\src\\lib.rs",
+    "sha256": "7A61209EE9966B3CF2B192D2D9B587992A1C18F84B7D823C9CA13C5F4F903FE4",
+    "bytes": 44287
+  },
+  {
+    "path": "C:\\Users\\luigi\\Desktop\\Axx assistant\\src-tauri\\src\\resident.rs",
+    "sha256": "E6B1497B5EC2AC0C2FB347ACDADF1E968CE2CE036AAB122D71F855BE862DDB2A",
+    "bytes": 20958
+  }
+]

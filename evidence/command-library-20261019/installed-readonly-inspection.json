@@ -1,0 +1,23 @@
+{
+  "observed_utc": "2026-10-19T23:07:01.5658956+00:00",
+  "installed_files": [
+    {
+      "path": "C:\\Users\\luigi\\AppData\\Local\\Programs\\Axx\\Axx.exe",
+      "bytes": 13929984,
+      "sha256": "E8222511B934D72E71967EDC40627D60860C85D67284C96A55F487DC0734DBB1"
+    },
+    {
+      "path": "C:\\Users\\luigi\\AppData\\Local\\Programs\\Axx\\resources\\axx-backend.exe",
+      "bytes": 170605097,
+      "sha256": "B068054371B2107A739F9BA6FEFBD369F3EFDFCD05942EE1A056D33A5CDBAFFF"
+    },
+    {
+      "path": "C:\\Users\\luigi\\AppData\\Local\\Programs\\Axx\\resources\\ai-memory.exe",
+      "bytes": 58050560,
+      "sha256": "C2BA1391A763E3D68E2B1CB10677F428934D1F54DDF066103C6A9DBEA372DC11"
+    }
+  ],
+  "verified_backend_sha256": "90e704b164e4fb8184407ee2a5e378aeb39da6da58245edd38ce00a18e56feb0",
+  "modified": false,
+  "backend_matches_verified": false
+}

@@ -1,0 +1,12 @@
+{
+  "name": "axx-local",
+  "interface": { "displayName": "Axx local" },
+  "plugins": [
+    {
+      "name": "axx-connect",
+      "source": { "source": "local", "path": "./axx-connect" },
+      "policy": { "installation": "AVAILABLE", "authentication": "ON_USE" },
+      "category": "Productivity"
+    }
+  ]
+}

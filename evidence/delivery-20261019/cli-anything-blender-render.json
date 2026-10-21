@@ -1,0 +1,38 @@
+{
+  "success": true,
+  "output": {
+    "path": "C:\\Users\\luigi\\AppData\\Local\\Axx\\artifacts\\cli-anything-delivery-evidence.png",
+    "size": 37697,
+    "sha256": "6cc5923073475b27099493ed108f34db3798fb10c6de217d5355a5e3bb2ec48b",
+    "width": 256,
+    "height": 256,
+    "adapter": "HKUDS/CLI-Anything blender",
+    "upstream_commit": "34f519533bc175d2fe287ab8316b0dd99bb9cc43",
+    "application": "C:\\Program Files\\Blender Foundation\\Blender 4.5\\blender.exe",
+    "application_version": "Blender 4.5.5 LTS (hash 836beaaf597a built 2025-11-18 01:33:26)",
+    "exit_code": 0,
+    "script_sha256": "d028eeec33a66f673a10787b691e65f118a97a34dceab1439a453f83656db5e4",
+    "scene_path": "C:\\Users\\luigi\\AppData\\Local\\Axx\\artifacts\\.cli-anything\\fbb252fe-de72-417e-8748-57f63ca9a4df\\scene.blend-cli.json",
+    "logs_directory": "C:\\Users\\luigi\\AppData\\Local\\Axx\\artifacts\\.cli-anything\\fbb252fe-de72-417e-8748-57f63ca9a4df",
+    "duration_ms": 922.0,
+    "method": "original-adapter-generated-script-plus-real-blender-headless"
+  },
+  "error": null,
+  "evidence": {
+    "path": "C:\\Users\\luigi\\AppData\\Local\\Axx\\artifacts\\cli-anything-delivery-evidence.png",
+    "size": 37697,
+    "sha256": "6cc5923073475b27099493ed108f34db3798fb10c6de217d5355a5e3bb2ec48b",
+    "width": 256,
+    "height": 256,
+    "adapter": "HKUDS/CLI-Anything blender",
+    "upstream_commit": "34f519533bc175d2fe287ab8316b0dd99bb9cc43",
+    "application": "C:\\Program Files\\Blender Foundation\\Blender 4.5\\blender.exe",
+    "application_version": "Blender 4.5.5 LTS (hash 836beaaf597a built 2025-11-18 01:33:26)",
+    "exit_code": 0,
+    "script_sha256": "d028eeec33a66f673a10787b691e65f118a97a34dceab1439a453f83656db5e4",
+    "scene_path": "C:\\Users\\luigi\\AppData\\Local\\Axx\\artifacts\\.cli-anything\\fbb252fe-de72-417e-8748-57f63ca9a4df\\scene.blend-cli.json",
+    "logs_directory": "C:\\Users\\luigi\\AppData\\Local\\Axx\\artifacts\\.cli-anything\\fbb252fe-de72-417e-8748-57f63ca9a4df",
+    "duration_ms": 922.0,
+    "method": "original-adapter-generated-script-plus-real-blender-headless"
+  }
+}

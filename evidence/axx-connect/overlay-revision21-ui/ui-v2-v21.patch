@@ -1,0 +1,339 @@
+--- a/1.AXX/scripts/axx-connect.js
++++ b/1.AXX/scripts/axx-connect.js
+@@ -7,7 +7,7 @@
+     const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+     const terminal = new Set(['completed', 'failed', 'cancelled', 'interrupted', 'unknown', 'limit_reached']);
+     const c = Axx.companion;
+-    const state = { active: null, engine: null, polling: false, last: null, disposed: false, loginPending: false };
++    const state = { active: null, engine: null, polling: false, last: null, disposed: false, loginPending: false, refreshSeq: 0, refreshPromise: null };
+     const card = document.createElement('section');
+     card.className = 'setup-card'; card.id = 'axx-connect';
+     card.innerHTML = '<strong>Axx Connect</strong><p id="axx-connect-status" role="status">Desconectado · comprobando runtime.</p><label class="setting">Modelo del catálogo<select id="axx-connect-model"><option value="">Selecciona un modelo</option></select></label><div class="quick-row"><button id="axx-connect-refresh">Diagnóstico</button><button id="axx-connect-reconnect">Reconectar Axx</button><button id="axx-connect-verify">Verificar conexión</button><button id="axx-connect-stop">Detener</button></div><p class="micro-copy">Codex gestiona la sesión ChatGPT. Seleccionar un modelo no inicia inferencia; pulsa Verificar conexión para probarlo. No hay sustitución automática de modelo o proveedor.</p><details><summary>Tareas y resultados</summary><pre id="axx-connect-history" style="white-space:pre-wrap;max-height:220px;overflow:auto"></pre></details><div id="axx-connect-interventions"></div>';
+@@ -28,23 +28,35 @@
+         select.value = selected; select.disabled = !!state.active;
+     }
+ 
+-    async function refresh() {
+-        const result = await api('GET', 'status?engine=1');
+-        state.engine = result.engine;
+-        const e = result.engine || {};
+-        renderModels(e);
+-        const authenticated = e.local_connection_enabled !== false && (e.authenticated === true || e.account?.type === 'chatgpt');
+-        const verified = authenticated && e.inference_verified === true && e.model === c.data.prefs.model;
+-        const engineState = e.state === 'connected' && !verified ? 'autenticado · modelo seleccionado por verificar' : e.state;
+-        status('Motor: ' + (engineState || (authenticated ? 'autenticado · inferencia por verificar' : 'desconectado')) + ' · Ejecutor: ' + (result.executor === 'ready' ? 'disponible' : 'desconectado') + (e.model ? ' · ' + e.model : ''));
+-        $('chatgpt-badge')?.classList.toggle('connected', verified);
+-        if ($('chatgpt-badge-text')) $('chatgpt-badge-text').textContent = verified ? 'Inferencia verificada' : authenticated ? 'Sesión autenticada · verificar motor' : 'Desconectado';
+-        if ($('chatgpt-user-label')) $('chatgpt-user-label').textContent = e.account?.planType || e.plan_type || 'Sesión gestionada por Codex';
+-        if ($('chatgpt-auth-unauthed')) $('chatgpt-auth-unauthed').hidden = authenticated;
+-        if ($('chatgpt-auth-authed')) $('chatgpt-auth-authed').hidden = !authenticated;
+-        const history = await api('GET', 'history');
+-        $('axx-connect-history').textContent = JSON.stringify(history, null, 2);
+-        return result;
++    function refresh() {
++        const sequence = ++state.refreshSeq;
++        const pending = (async () => {
++            try {
++                const result = await api('GET', 'status?engine=1');
++                if (sequence !== state.refreshSeq) return state.refreshPromise;
++                state.engine = result.engine;
++                const e = result.engine || {};
++                renderModels(e);
++                const authenticated = e.local_connection_enabled !== false && e.authenticated === true;
++                const verified = authenticated && e.inference_verified === true && e.model === c.data.prefs.model;
++                const engineState = ['connected', 'authenticated'].includes(e.state) && !authenticated ? 'desconectado · autenticación no acreditada' : e.state === 'connected' && !verified ? 'autenticado · modelo seleccionado por verificar' : e.state;
++                status('Motor: ' + (engineState || (authenticated ? 'autenticado · inferencia por verificar' : 'desconectado')) + ' · Ejecutor: ' + (result.executor === 'ready' ? 'disponible' : 'desconectado') + (e.model ? ' · ' + e.model : ''));
++                $('chatgpt-badge')?.classList.toggle('connected', verified);
++                if ($('chatgpt-badge-text')) $('chatgpt-badge-text').textContent = verified ? 'Inferencia verificada' : authenticated ? 'Sesión autenticada · verificar motor' : 'Desconectado';
++                if ($('chatgpt-user-label')) $('chatgpt-user-label').textContent = e.account?.planType || e.plan_type || 'Sesión gestionada por Codex';
++                if ($('chatgpt-auth-unauthed')) $('chatgpt-auth-unauthed').hidden = authenticated;
++                if ($('chatgpt-auth-authed')) $('chatgpt-auth-authed').hidden = !authenticated;
++                const history = await api('GET', 'history');
++                if (sequence !== state.refreshSeq) return state.refreshPromise;
++                $('axx-connect-history').textContent = JSON.stringify(history, null, 2);
++                return result;
++            } catch (failure) {
++                if (sequence !== state.refreshSeq) return state.refreshPromise;
++                throw failure;
++            }
++        })();
++        state.refreshPromise = pending;
++        return pending;
+     }
+ 
+     function interventions(run) {
+@@ -75,18 +87,22 @@
+         if (state.active) throw new Error('BUSY: hay un turno de Axx Connect activo.');
+         const requestId = crypto.randomUUID();
+         state.active = requestId;
+-        const deadline = Date.now() + 75000;
++        const deadline = performance.now() + 75000;
+         const cancel = () => { void api('POST', 'cancel', {request_id: requestId}).catch(e => status(error(e))); };
+         signal?.addEventListener('abort', cancel, {once: true});
+         const bounded = promise => {
+             let timer, abort;
+             const stopWaiting = new Promise((resolve, reject) => {
+-                timer = setTimeout(() => reject(connectionError('DEADLINE_EXCEEDED', 'Timeout. Consulta la tarea antes de repetir acciones con efectos.')), Math.max(0, deadline - Date.now()));
++                timer = setTimeout(() => reject(connectionError('DEADLINE_EXCEEDED', 'Timeout. Consulta la tarea antes de repetir acciones con efectos.')), Math.max(0, deadline - performance.now()));
+                 abort = () => reject(new DOMException('Cancelado; consulta los efectos completados.', 'AbortError'));
+                 signal?.addEventListener('abort', abort, {once:true});
+                 if (signal?.aborted) abort();
+             });
+-            return Promise.race([promise, stopWaiting]).finally(() => { clearTimeout(timer); signal?.removeEventListener('abort', abort); });
++            return Promise.race([promise, stopWaiting]).then(value => {
++                if (performance.now() >= deadline) throw connectionError('DEADLINE_EXCEEDED', 'Timeout. Consulta la tarea antes de repetir acciones con efectos.');
++                if (signal?.aborted) throw new DOMException('Cancelado; consulta los efectos completados.', 'AbortError');
++                return value;
++            }).finally(() => { clearTimeout(timer); signal?.removeEventListener('abort', abort); });
+         };
+         let started;
+         let after = 0, observed = '', last;
+@@ -95,10 +111,9 @@
+             started = api('POST', 'start', {...body, request_id: requestId});
+             await bounded(started);
+             if (signal?.aborted) {
+-                await api('POST', 'cancel', {request_id: requestId});
+                 throw new DOMException('Cancelado; consulta los efectos completados.', 'AbortError');
+             }
+-            while (Date.now() < deadline) {
++            while (performance.now() < deadline) {
+                 if (signal?.aborted) throw new DOMException('Cancelado; los efectos completados se conservan.', 'AbortError');
+                 last = await bounded(api('GET', 'run?request_id=' + encodeURIComponent(requestId) + '&after=' + after));
+                 state.last = last;
+--- a/1.AXX/scripts/test-axx-connect.cjs
++++ b/1.AXX/scripts/test-axx-connect.cjs
+@@ -3,6 +3,7 @@
+ const fs = require('node:fs');
+ const path = require('node:path');
+ const http = require('node:http');
++const {createHash} = require('node:crypto');
+ const {createRequire} = require('node:module');
+ const bundledRequire = createRequire(path.join(process.env.USERPROFILE, '.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/package.json'));
+ const {chromium} = bundledRequire('playwright');
+@@ -35,6 +36,8 @@
+         if (name === 'desktop_layout') return {...desktop,...args};
+         if (name !== 'backend_request') return null;
+         const {method,path:route,body} = args;
++        const intercepted = window.__connectIntercept?.({method,path:route,body});
++        if (intercepted) return await intercepted.response;
+         if (route === '/axx-api/connect/status' || route === '/axx-api/connect/status?engine=1') {
+           const disconnected=window.__engineDisconnected || window.__localDisconnected;
+           return {executor:'ready',ui_connected:true,engine:{state:disconnected?'disconnected':'authenticated',authenticated:!disconnected,
+@@ -425,6 +428,193 @@
+     assert.ok(getDeadline.budgets.length>=3);assert.ok(getDeadline.budgets.at(-1)<getDeadline.budgets[0]-100,'Each poll must consume the original shared deadline');
+     assert.ok(getDeadline.cancels.length>=1);for (const body of getDeadline.cancels) assert.deepEqual(body,{request_id:getDeadline.requestId});
+     checks.push('A hung poll consumes the same shrinking UI deadline, preserves streamed partial text after its late reply and cancels only its owned request');
++
++    const wallClockJumps=await page.evaluate(async()=>{
++      await Axx.connect.refresh();
++      const nativeDateNow=Date.now, nativeTimeout=window.setTimeout;
++      const ownNow=Object.getOwnPropertyDescriptor(performance,'now'), budgets=[], jumps=[];
++      let monotonic=1000, wall=1700000000000;
++      Object.defineProperty(performance,'now',{configurable:true,value:()=>monotonic});
++      Date.now=()=>wall;
++      window.setTimeout=(callback,ms,...args)=>{
++        if(ms>=70000) budgets.push(ms);
++        return nativeTimeout(callback,ms,...args);
++      };
++      window.__connectIntercept=({path,body})=>{
++        if(path==='/axx-api/connect/start') {
++          wall-=86400000;jumps.push('backward');monotonic+=100;
++          return {response:{request_id:body.request_id,state:'accepted'}};
++        }
++        if(path.startsWith('/axx-api/connect/run?')) {
++          wall+=172800000;jumps.push('forward');monotonic+=150;
++          return {response:{state:'completed',response:'MONOTONIC_OK',events:[],model:'controlled-model'}};
++        }
++      };
++      try {
++        return {result:await Axx.connect.run({message:'Wall-clock adjustments during IPC',model:'controlled-model'}),budgets,jumps};
++      } finally {
++        delete window.__connectIntercept;Date.now=nativeDateNow;window.setTimeout=nativeTimeout;
++        if(ownNow) Object.defineProperty(performance,'now',ownNow);else delete performance.now;
++        await Axx.connect.refresh();
++      }
++    });
++    assert.equal(wallClockJumps.result.text,'MONOTONIC_OK');assert.deepEqual(wallClockJumps.jumps,['backward','forward']);
++    assert.equal(wallClockJumps.budgets.length,2);
++    assert.ok(wallClockJumps.budgets.every(ms=>ms>74000 && ms<=75000),JSON.stringify(wallClockJumps.budgets));
++    assert.ok(wallClockJumps.budgets[1]<wallClockJumps.budgets[0]);
++    checks.push('Backward and forward wall-clock jumps neither extend the shared elapsed-time budget nor reject an on-time IPC result');
++
++    const lateWinner=await page.evaluate(async()=>{
++      await Axx.connect.refresh();
++      const nativeTimeout=window.setTimeout, ownNow=Object.getOwnPropertyDescriptor(performance,'now');
++      const before=window.__calls.length, beforeLast=Axx.connect.state.last, deltas=[], heldTimers=[];
++      let monotonic=1000;
++      Object.defineProperty(performance,'now',{configurable:true,value:()=>monotonic});
++      // Hold deadline callbacks to model an event-loop stall. The fulfilled IPC
++      // promise can win the race, but its result has already missed the budget.
++      window.setTimeout=(callback,ms,...args)=>{
++        if(ms===0 || ms>=70000) {heldTimers.push({callback,ms});return -heldTimers.length;}
++        return nativeTimeout(callback,ms,...args);
++      };
++      window.__connectIntercept=({path,body})=>{
++        if(path==='/axx-api/connect/start') return {response:{request_id:body.request_id,state:'accepted'}};
++        if(path.startsWith('/axx-api/connect/run?')) {
++          monotonic=76001;
++          return {response:{state:'completed',response:'LATE_RESULT_MUST_NOT_RENDER',events:[],model:'controlled-model'}};
++        }
++      };
++      try {
++        let result;
++        try {result={ok:true,value:await Axx.connect.run({message:'Late IPC wins before overdue timer callback',model:'controlled-model'},undefined,text=>deltas.push(text))};}
++        catch(error) {result={ok:false,code:error.code,name:error.name,message:error.message};}
++        const calls=window.__calls.slice(before).filter(call=>call.name==='backend_request');
++        return {result,deltas,heldTimers:heldTimers.map(timer=>timer.ms),unchangedLast:Axx.connect.state.last===beforeLast,
++          active:Axx.connect.state.active,requestId:calls.find(call=>call.args.path==='/axx-api/connect/start').args.body.request_id,
++          starts:calls.filter(call=>call.args.path==='/axx-api/connect/start').length,
++          cancels:calls.filter(call=>call.args.path==='/axx-api/connect/cancel').map(call=>call.args.body)};
++      } finally {
++        delete window.__connectIntercept;window.setTimeout=nativeTimeout;
++        if(ownNow) Object.defineProperty(performance,'now',ownNow);else delete performance.now;
++        await Axx.connect.refresh();
++      }
++    });
++    assert.equal(lateWinner.result.ok,false);assert.equal(lateWinner.result.code,'DEADLINE_EXCEEDED');
++    assert.equal(lateWinner.active,null);assert.equal(lateWinner.unchangedLast,true);assert.deepEqual(lateWinner.deltas,[]);
++    assert.equal(lateWinner.starts,1);assert.ok(lateWinner.heldTimers.includes(0));assert.ok(lateWinner.cancels.length>=1);
++    for(const body of lateWinner.cancels) assert.deepEqual(body,{request_id:lateWinner.requestId});
++    checks.push('An IPC completion after elapsed-time expiry is rejected even when its Promise wins before the overdue deadline callback; no late text or state is accepted');
++
++    const abortAfterAck=await page.evaluate(async()=>{
++      await Axx.connect.refresh();
++      const nativeTimeout=window.setTimeout, controller=new AbortController(), signal=controller.signal;
++      const remove=signal.removeEventListener.bind(signal), before=window.__calls.length, cancelReplies=[];
++      let ackDelivered=false, abortDelivered=false, pending;
++      window.__runs['revision21-foreign-run']={request_id:'revision21-foreign-run',state:'processing'};
++      window.__connectIntercept=({path,body})=>{
++        if(path==='/axx-api/connect/start') {ackDelivered=true;return {response:{request_id:body.request_id,state:'accepted'}};}
++        if(path==='/axx-api/connect/cancel') return {response:new Promise(resolve=>cancelReplies.push(resolve))};
++      };
++      // Deliver a real abort between ACK listener cleanup and the caller's next
++      // continuation, rather than relying on nondeterministic microtask timing.
++      signal.removeEventListener=function(type,listener,...args) {
++        remove(type,listener,...args);
++        if(type==='abort' && ackDelivered && !abortDelivered) {abortDelivered=true;controller.abort();}
++      };
++      try {
++        pending=Axx.connect.run({message:'Abort immediately after ACK with unavailable cancellation endpoint',model:'controlled-model'},signal)
++          .then(()=>({ok:true}),error=>({ok:false,name:error.name,message:error.message}));
++        const requestId=Axx.connect.state.active;
++        const result=await Promise.race([pending,new Promise(resolve=>nativeTimeout(()=>resolve({hung:true}),250))]);
++        return {result,requestId,ackDelivered,abortDelivered,active:Axx.connect.state.active,pendingCancelReplies:cancelReplies.length,
++          foreignState:window.__runs['revision21-foreign-run'].state,
++          cancels:window.__calls.slice(before).filter(call=>call.args?.path==='/axx-api/connect/cancel').map(call=>call.args.body),
++          polls:window.__calls.slice(before).filter(call=>call.args?.path?.startsWith('/axx-api/connect/run?')).length};
++      } finally {
++        delete signal.removeEventListener;
++        for(const resolve of cancelReplies) resolve({cancelled:true});
++        await pending;delete window.__connectIntercept;await Axx.connect.refresh();
++      }
++    });
++    assert.equal(abortAfterAck.ackDelivered,true);assert.equal(abortAfterAck.abortDelivered,true);assert.equal(abortAfterAck.result.hung,undefined);
++    assert.equal(abortAfterAck.result.name,'AbortError');assert.equal(abortAfterAck.active,null);assert.equal(abortAfterAck.polls,0);
++    assert.ok(abortAfterAck.pendingCancelReplies>=1);assert.equal(abortAfterAck.foreignState,'processing');
++    for(const body of abortAfterAck.cancels) assert.deepEqual(body,{request_id:abortAfterAck.requestId});
++    checks.push('Abort immediately after the start ACK clears the owned turn without waiting for any cancellation reply and never polls or cancels another request');
++
++    const refreshOrder=await page.evaluate(async()=>{
++      await Axx.connect.refresh();
++      const nativeTimeout=window.setTimeout, companion=Axx.companion, prior={...companion.data.prefs};
++      const deferred=()=>{let resolve;const promise=new Promise(yes=>{resolve=yes;});return {promise,resolve};};
++      const snapshot=(marker,connected)=>({marker,executor:'ready',engine:{marker,state:connected?'connected':'disconnected',
++        authenticated:connected,inference_verified:connected,account:connected?{type:'chatgpt',planType:marker}:null,
++        model:'controlled-model',models:connected?['controlled-model']:[],local_connection_enabled:connected}});
++      const staleStatus=deferred(), staleHistory=deferred(), connectStatus=deferred();
++      let phase='status', statuses=0, histories=0, historyWaiting=false;
++      window.__connectIntercept=({path})=>{
++        if(path==='/axx-api/connect/status?engine=1') {
++          const index=statuses++;
++          if(phase==='status') return {response:index===0?staleStatus.promise:snapshot('new-status',false)};
++          if(phase==='history') return {response:snapshot(index===0?'old-history-status':'new-history-status',index===0)};
++          if(phase==='connect') return {response:index===0?connectStatus.promise:snapshot('new-connect-status',false)};
++        }
++        if(path==='/axx-api/connect/history') {
++          if(phase==='history' && histories++===0) {historyWaiting=true;return {response:staleHistory.promise};}
++          return {response:{operations:[{operation_id:'new-'+phase+'-history'}]}};
++        }
++      };
++      try {
++        companion.data.prefs.provider='chatgpt';companion.data.prefs.model='controlled-model';companion.save();
++        const oldStatus=Axx.connect.refresh(), newStatus=await Axx.connect.refresh();
++        staleStatus.resolve(snapshot('obsolete-status',true));const returnedStatus=await oldStatus;
++        const afterStatus={returned:returnedStatus.marker,latest:newStatus.marker,engine:Axx.connect.state.engine.marker,
++          history:JSON.parse(document.getElementById('axx-connect-history').textContent).operations[0].operation_id};
++        phase='history';statuses=histories=0;
++        const oldHistory=Axx.connect.refresh();
++        while(!historyWaiting) await new Promise(resolve=>nativeTimeout(resolve,0));
++        const newHistory=await Axx.connect.refresh();staleHistory.resolve({operations:[{operation_id:'obsolete-history'}]});
++        const returnedHistory=await oldHistory;
++        const afterHistory={returned:returnedHistory.marker,latest:newHistory.marker,engine:Axx.connect.state.engine.marker,
++          history:JSON.parse(document.getElementById('axx-connect-history').textContent).operations[0].operation_id};
++        phase='connect';statuses=histories=0;
++        const before=window.__calls.filter(call=>call.args?.path==='/axx-api/connect/start').length;
++        const connecting=companion.brain.connect(companion.data.prefs).then(()=>({ok:true}),error=>({ok:false,code:error.code,message:error.message}));
++        const current=await Axx.connect.refresh();connectStatus.resolve(snapshot('obsolete-connect-status',true));
++        const result=await connecting;
++        return {afterStatus,afterHistory,connect:{result,latest:current.marker,engine:Axx.connect.state.engine.marker,
++          connected:companion.brain.connected,starts:window.__calls.filter(call=>call.args?.path==='/axx-api/connect/start').length-before,
++          history:JSON.parse(document.getElementById('axx-connect-history').textContent).operations[0].operation_id}};
++      } finally {
++        delete window.__connectIntercept;companion.data.prefs=prior;companion.save();await Axx.connect.refresh();
++      }
++    });
++    assert.deepEqual(refreshOrder.afterStatus,{returned:'new-status',latest:'new-status',engine:'new-status',history:'new-status-history'});
++    assert.deepEqual(refreshOrder.afterHistory,{returned:'new-history-status',latest:'new-history-status',engine:'new-history-status',history:'new-history-history'});
++    assert.equal(refreshOrder.connect.result.ok,false);assert.match(refreshOrder.connect.result.code,/MODEL_NOT_AVAILABLE|DISCONNECTED/);
++    assert.equal(refreshOrder.connect.engine,'new-connect-status');assert.equal(refreshOrder.connect.latest,'new-connect-status');
++    assert.equal(refreshOrder.connect.history,'new-connect-history');assert.equal(refreshOrder.connect.connected,false);assert.equal(refreshOrder.connect.starts,0);
++    checks.push('Late concurrent status/history replies cannot overwrite newer engine/history or give a superseded connect caller stale permission to start inference');
++
++    const contradictoryAuth=await page.evaluate(async()=>{
++      await Axx.connect.refresh();
++      const companion=Axx.companion, prior={...companion.data.prefs};
++      const before=window.__calls.filter(call=>call.args?.path==='/axx-api/connect/start').length;
++      companion.data.prefs.model='controlled-model';companion.save();
++      window.__connectIntercept=({path})=>path==='/axx-api/connect/status?engine=1'?{response:{executor:'ready',engine:{state:'connected',
++        authenticated:false,inference_verified:true,model:'controlled-model',models:['controlled-model'],local_connection_enabled:true,
++        account:{type:'chatgpt',planType:'CONTRADICTORY_CONTROLLED_AUTH'}}}}:undefined;
++      try {
++        await Axx.connect.refresh();
++        return {connected:document.getElementById('chatgpt-badge').classList.contains('connected'),
++          badge:document.getElementById('chatgpt-badge-text').textContent,status:document.getElementById('axx-connect-status').textContent,
++          unauthHidden:document.getElementById('chatgpt-auth-unauthed').hidden,authedHidden:document.getElementById('chatgpt-auth-authed').hidden,
++          starts:window.__calls.filter(call=>call.args?.path==='/axx-api/connect/start').length-before};
++      } finally {delete window.__connectIntercept;companion.data.prefs=prior;companion.save();await Axx.connect.refresh();}
++    });
++    assert.equal(contradictoryAuth.connected,false);assert.equal(contradictoryAuth.badge,'Desconectado');
++    assert.equal(contradictoryAuth.unauthHidden,false);assert.equal(contradictoryAuth.authedHidden,true);assert.equal(contradictoryAuth.starts,0);
++    assert.doesNotMatch(contradictoryAuth.status,/autenticad|authenticated/i);
++    checks.push('Explicit authenticated:false keeps badge, authentication panels and engine label disconnected despite a ChatGPT account, connected state and matching inference proof');
++
+     await page.reload();await page.waitForFunction(()=>window.Axx?.connect && Axx.desktop?.ready);
+     const restoredIdentity=await page.evaluate(()=>({form:Axx.app.store.data.settings.form,palette:Axx.app.store.data.settings.palette,motion:Axx.app.store.data.settings.motionStyle,size:Axx.companion.bodySizePreference}));
+     assert.deepEqual(restoredIdentity,{form:2,palette:4,motion:'organic',size:320});
+@@ -434,17 +624,18 @@
+       Axx.companion.syncPreferences();Axx.companion.openFeature('ai');await Axx.connect.refresh();
+     });
+     await page.locator('#axx-connect').scrollIntoViewIfNeeded();
+-    const screenshotPath=path.resolve(root,'../evidence/axx-connect/ui-connect-settings-controlled-revision2.png');
++    const screenshotPath=path.resolve(root,'../evidence/axx-connect/ui-connect-settings-controlled-revision21.png');
+     await page.screenshot({path:screenshotPath,fullPage:true});
+-    const screenshotMetadata={classification:'CONTROLLED_BROWSER_IPC_ONLY',revision:2,physical_native_execution:false,
++    const sourceHashes=Object.fromEntries(['Axx.html','scripts/axx-connect.js','scripts/test-axx-connect.cjs'].map(name=>[name,createHash('sha256').update(fs.readFileSync(path.resolve(root,name))).digest('hex')]));
++    const screenshotMetadata={classification:'CONTROLLED_BROWSER_IPC_ONLY',revision:'2.1',physical_native_execution:false,
+       app_source_version:await page.evaluate(()=>Axx.VERSION),fixture_engine_state:'disconnected',inference_verified:false,
+       source:'Full production Axx.html and external scripts; only native IPC is controlled',
+-      visible_status:await page.locator('#axx-connect-status').textContent(),image:screenshotPath};
+-    fs.writeFileSync(path.resolve(root,'../evidence/axx-connect/ui-connect-settings-controlled-revision2.json'),JSON.stringify(screenshotMetadata,null,2));
++      visible_status:await page.locator('#axx-connect-status').textContent(),image:screenshotPath,source_sha256:sourceHashes};
++    fs.writeFileSync(path.resolve(root,'../evidence/axx-connect/ui-connect-settings-controlled-revision21.json'),JSON.stringify(screenshotMetadata,null,2));
+     assert.match(screenshotMetadata.visible_status,/desconectado|disconnected/i);
+     checks.push('Controlled screenshot shows the actual existing Axx Connect settings with engine disconnected and inference unverified');
+     assert.deepEqual(errors,[]);
+-    console.log(JSON.stringify({classification:'CONTROLLED_BROWSER_IPC_ONLY',revision:2,version:await page.evaluate(()=>Axx.VERSION),checks,passed:checks.length,uncaught_errors:errors},null,2));
++    console.log(JSON.stringify({classification:'CONTROLLED_BROWSER_IPC_ONLY',revision:'2.1',version:await page.evaluate(()=>Axx.VERSION),checks,passed:checks.length,uncaught_errors:errors,screenshot:screenshotPath,source_sha256:sourceHashes},null,2));
+   } finally {
+     await browser.close();await new Promise(resolve=>server.close(resolve));
+   }

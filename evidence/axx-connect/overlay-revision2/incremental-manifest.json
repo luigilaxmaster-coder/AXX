@@ -1,0 +1,102 @@
+{
+  "baseline": "overlay-revision1",
+  "created_at_utc": "2026-10-20T21:34:25.415489+00:00",
+  "files": [
+    {
+      "path": "1.AXX/Axx.html",
+      "base_sha256": "cff0e4cf134eadf8ea2eabf6a9be83fd98c5260545861b53c4537fbb28fe027e",
+      "sha256": "858c0fa9a84387f316bbc8801bb10b054ef8d6d7d517554c57c9763375fac2da",
+      "bytes": 1794191
+    },
+    {
+      "path": "1.AXX/scripts/axx-connect.js",
+      "base_sha256": "d6216ed835fa8ce1e909feca32683f8e0badcaf93087034744cb5c449ecc6dd2",
+      "sha256": "4a2df604b163023194a36455bce7b8a87e5c617901b756438d36758f45f7eb02",
+      "bytes": 25668
+    },
+    {
+      "path": "1.AXX/scripts/test-axx-connect.cjs",
+      "base_sha256": "d1996d53ed08082aaf25ff4fbeea675086919abf62407941b7b187a74aa52ac9",
+      "sha256": "50372d012f4850ccc5f7a4bd1819fbcf135f45619f00f1d11ab666c8ab4ea6f1",
+      "bytes": 40397
+    },
+    {
+      "path": "backend/connect/http_api.py",
+      "base_sha256": "813d34abbb41c357fea84d3612bdf56a888667a22b5fe9bcab2f0427324b94bc",
+      "sha256": "ab03c9662a5a27c16ee4c655b7e55f5d5f58cb010976f86a91ac976267d625bd",
+      "bytes": 7447
+    },
+    {
+      "path": "backend/connect/provider.py",
+      "base_sha256": "a22c2b640a8f2a9e87ac55c4c1df4601a3a7ef4accd0b5e9d8fd7fbbc1f0bb02",
+      "sha256": "6bd174d5ef87eaefa2f4e5c0584a01797221ed5890411e44fd745d6bd2e900b7",
+      "bytes": 68595
+    },
+    {
+      "path": "backend/connect/service.py",
+      "base_sha256": "df5266c49f8ceb5be538eafed8805526693df24598621d4ba05bf0944d75442e",
+      "sha256": "c2a8af7f5be9a68c262d23766f18f9e728ffd0d6d4e2cd65317b478d4bc2eb6d",
+      "bytes": 25540
+    },
+    {
+      "path": "backend/connect/tests/test_http.py",
+      "base_sha256": "ad7933c7661c6ccf3b78f845fc6ad653c03ef1bbd27a83b08e2f38eb04f77883",
+      "sha256": "84baef1165444b347f55358bee68f7cbd1877ebf52e2c3010d4e1563afc1454d",
+      "bytes": 5598
+    },
+    {
+      "path": "backend/connect/tests/test_provider.py",
+      "base_sha256": "231baee3317f9330cde628d1a3f9e217eb63a0333869bec3f806a2eb94b967ec",
+      "sha256": "350dfe5475e94ad1ef87c6b37f6dbef35203bc711b6ddf32408d2fe2f6692f2e",
+      "bytes": 61931
+    },
+    {
+      "path": "backend/connect/tests/test_service.py",
+      "base_sha256": "ddc026503d14380df8058005eb48a6558d6f2aa73f4569cfc0434b407dc3d87d",
+      "sha256": "b8a78ef6c46e52aeee59b068601d242c734943ea1b8a4c9ab3dbf4947a9ad577",
+      "bytes": 26362
+    },
+    {
+      "path": "docs/axx-connect/architecture.md",
+      "base_sha256": "fd15e1f09afc29d798e8b8b50c62ab5d2be49c8925b197b11e822fa08e68e58e",
+      "sha256": "a024c312a0ac832107598e46eb8ab1b658c4fb026850f714baca587297fa0d74",
+      "bytes": 6733
+    },
+    {
+      "path": "docs/axx-connect/authentication.md",
+      "base_sha256": "fbfcaec574a52d272807654b085abb7ff16072bf25955781186a635244f04f03",
+      "sha256": "eff93586c6bbab334a60fb355c9788693f84c2d859ea507e37c7f5d307dcd450",
+      "bytes": 4338
+    },
+    {
+      "path": "docs/axx-connect/README.md",
+      "base_sha256": "577222f206840e8d9381ee4cad71ef45ec51203457a5693a34447f120b4ab08b",
+      "sha256": "51fd63aef1868704054c3d8d30e9840e75c50fb9716e2786b130253f4b75c227",
+      "bytes": 6813
+    },
+    {
+      "path": "docs/axx-connect/recovery.md",
+      "base_sha256": "08474e52fe5e581225534d47a147582cf4ac3782cfd2531fec9fa2bb49152bd8",
+      "sha256": "d1f5e9ac3cd1219cafefb1dc39dfcaeaa84192b8cf0087536287d2852ca771b9",
+      "bytes": 3489
+    },
+    {
+      "path": "docs/axx-connect/validation.md",
+      "base_sha256": "4e843916ab2631da88eb5a2af4027bafafc67ffe3116cbbb174db7b7e7700c14",
+      "sha256": "4da514774d25f0e8a26733eb5e9afe2dd0c400e35c68c8417a31fbd8d5487fad",
+      "bytes": 8377
+    },
+    {
+      "path": "evidence/axx-connect/auth-decision.md",
+      "base_sha256": null,
+      "sha256": "ce37db0fa7542eaf338caa69c9f6807a547cedd04077a75ab453a8574525ced6",
+      "bytes": 6934
+    },
+    {
+      "path": "scripts/make-axx-connect-overlay.py",
+      "base_sha256": "003542ddd7071cf9f44430476a7cd53c874ce20d55962664ea7a69490c3ae2fd",
+      "sha256": "c3118563071bb959d0b1ea1ea1846d387308799bad11be78b7db174f8bef38fe",
+      "bytes": 4323
+    }
+  ]
+}

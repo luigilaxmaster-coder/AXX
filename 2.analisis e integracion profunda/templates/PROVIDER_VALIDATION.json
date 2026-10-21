@@ -1,0 +1,49 @@
+{
+  "record_status": "UNVALIDATED_TEMPLATE",
+  "provider_name": null,
+  "connection_name": null,
+  "account_reference": null,
+  "model_id": null,
+  "base_url": null,
+  "verified_at_utc": null,
+  "official_docs": [],
+  "pricing": {
+    "tier": null,
+    "zero_cost_confirmed": null,
+    "auto_recharge_disabled": null
+  },
+  "quota": {
+    "scope": null,
+    "source": "unknown",
+    "requests_remaining": null,
+    "tokens_remaining": null,
+    "reset_at_utc": null
+  },
+  "capability_tests": {
+    "text": {
+      "result": "NOT_RUN",
+      "evidence_path": null
+    },
+    "json": {
+      "result": "NOT_RUN",
+      "evidence_path": null
+    },
+    "tools": {
+      "result": "NOT_RUN",
+      "evidence_path": null
+    },
+    "vision": {
+      "result": "NOT_RUN",
+      "evidence_path": null
+    }
+  },
+  "data_policy": {
+    "approved_for_sensitive": false,
+    "source_url": null,
+    "notes": null
+  },
+  "activation": {
+    "enabled": false,
+    "reason": "Requires account-specific validation; no secrets in this record"
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "checks": [
+    "server_owned_ai_memory_ready",
+    "verified_recipe_synchronized_and_read_back_via_real_service",
+    "deterministic_second_artifact_from_verified_recipe"
+  ],
+  "workspace": "C:\\Users\\luigi\\AppData\\Local\\Temp\\axx-backend-memory-o6ofts9j",
+  "memory": {
+    "backend": "ai-memory",
+    "available": true,
+    "fallback": false,
+    "version": "3.1.1",
+    "embedding_provider": "none",
+    "scope": {
+      "workspace": "axx",
+      "project": "procedural"
+    },
+    "owned_pid": 34892,
+    "error": null,
+    "last_sync": {
+      "recipe_id": "source-owned-memory",
+      "page_id": "01a15634-5e43-7581-867b-dc54163cf8fb",
+      "verified_readback": true
+    }
+  },
+  "result": "PASS",
+  "log_tail": "INFO:axx.server:Private Axx backend ready on loopback port 54657\n"
+}

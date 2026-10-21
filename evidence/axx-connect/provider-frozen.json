@@ -1,0 +1,18 @@
+{
+  "timestamp_utc": "2026-10-20T21:02:57.506885+00:00",
+  "frozen": true,
+  "source_hashes": {
+    "backend/connect/provider.py": "a22c2b640a8f2a9e87ac55c4c1df4601a3a7ef4accd0b5e9d8fd7fbbc1f0bb02",
+    "backend/connect/registry.py": "8605810bf07a66c6b11843401c425592c14f84920b72b4f20e8e79ae59c862a8",
+    "backend/connect/service.py": "d64d87bf18a8576467de3d1307cb1defa41655ad3f75eacd4e41cd36598d574a",
+    "backend/connect/tests/test_provider.py": "231baee3317f9330cde628d1a3f9e217eb63a0333869bec3f806a2eb94b967ec"
+  },
+  "provider_tests": {
+    "offline_passed": 32,
+    "live_opt_in_skipped": 1,
+    "total": 33
+  },
+  "latest_live": "provider-latest-live.json",
+  "post_live_change": "Only rejection semantics on account binding mismatch: failed ACCOUNT_CHANGED instead of completed; full offline tests pass. No additional actual model call required by parent.",
+  "previous_real_interrupt_resume": "provider-final-live.json"
+}

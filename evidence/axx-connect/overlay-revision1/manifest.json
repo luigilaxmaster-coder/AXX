@@ -1,0 +1,329 @@
+{
+  "baseline": "C:\\Users\\luigi\\Desktop\\Axx assistant\\evidence\\axx-connect\\baseline-20261020-164023",
+  "git_repository": false,
+  "files": [
+    {
+      "path": ".gitignore",
+      "change": "update",
+      "base_sha256": "d59bf6608b105046d2c51248bc124865659270fec1ecbe283398321db2deca82",
+      "sha256": "9af163893b343102dea71b589c96f2b615a5d002ff61e1429d791438d40559d9",
+      "bytes": 312,
+      "base_note": "Base reconstructed only by removing the four known added ignore entries; review this hunk manually."
+    },
+    {
+      "path": "1.AXX/Axx.html",
+      "change": "update",
+      "base_sha256": "a0ce622adaa32fa9ae859842b26d2b67219cdf73b973b23a8178dbc93ac3d915",
+      "sha256": "cff0e4cf134eadf8ea2eabf6a9be83fd98c5260545861b53c4537fbb28fe027e",
+      "bytes": 1794468
+    },
+    {
+      "path": "1.AXX/scripts/axx-connect.js",
+      "change": "new",
+      "base_sha256": null,
+      "sha256": "d6216ed835fa8ce1e909feca32683f8e0badcaf93087034744cb5c449ecc6dd2",
+      "bytes": 21438
+    },
+    {
+      "path": "1.AXX/scripts/test-axx-connect.cjs",
+      "change": "new",
+      "base_sha256": null,
+      "sha256": "d1996d53ed08082aaf25ff4fbeea675086919abf62407941b7b187a74aa52ac9",
+      "bytes": 22450
+    },
+    {
+      "path": "1.AXX/scripts/test-desktop-frontend.cjs",
+      "change": "update",
+      "base_sha256": "c1547b11f0891c7fb0889ed7375c3369e0c7da20c59b0fdaff413fde4c0aeece",
+      "sha256": "4843a0e37a66c63433f965a0b8d8a039fc181b54991b9d71df937cc5af3460a1",
+      "bytes": 24151
+    },
+    {
+      "path": "backend/connect/__init__.py",
+      "change": "new",
+      "base_sha256": null,
+      "sha256": "f5e1a52291d6684ec66a75a712ba312e639f07c22dd62ca5ec13eb676a2bcef8",
+      "bytes": 80
+    },
+    {
+      "path": "backend/connect/http_api.py",
+      "change": "new",
+      "base_sha256": null,
+      "sha256": "813d34abbb41c357fea84d3612bdf56a888667a22b5fe9bcab2f0427324b94bc",
+      "bytes": 7181
+    },
+    {
+      "path": "backend/connect/mcp_server.py",
+      "change": "new",
+      "base_sha256": null,
+      "sha256": "65956f62639b580cb7d37817b0ff72e23a5bf3ab3a009f5779975fa349f7db21",
+      "bytes": 7991
+    },
+    {
+      "path": "backend/connect/provider.py",
+      "change": "new",
+      "base_sha256": null,
+      "sha256": "a22c2b640a8f2a9e87ac55c4c1df4601a3a7ef4accd0b5e9d8fd7fbbc1f0bb02",
+      "bytes": 46653
+    },
+    {
+      "path": "backend/connect/registry.py",
+      "change": "new",
+      "base_sha256": null,
+      "sha256": "8605810bf07a66c6b11843401c425592c14f84920b72b4f20e8e79ae59c862a8",
+      "bytes": 19918
+    },
+    {
+      "path": "backend/connect/service.py",
+      "change": "new",
+      "base_sha256": null,
+      "sha256": "df5266c49f8ceb5be538eafed8805526693df24598621d4ba05bf0944d75442e",
+      "bytes": 22250
+    },
+    {
+      "path": "backend/connect/tests/test_http.py",
+      "change": "new",
+      "base_sha256": null,
+      "sha256": "ad7933c7661c6ccf3b78f845fc6ad653c03ef1bbd27a83b08e2f38eb04f77883",
+      "bytes": 2848
+    },
+    {
+      "path": "backend/connect/tests/test_mcp.py",
+      "change": "new",
+      "base_sha256": null,
+      "sha256": "959f2889343cf68a67670092ab4e266710bfb6e83e1bf6ad3ad5ad52ca03bc21",
+      "bytes": 2041
+    },
+    {
+      "path": "backend/connect/tests/test_provider.py",
+      "change": "new",
+      "base_sha256": null,
+      "sha256": "231baee3317f9330cde628d1a3f9e217eb63a0333869bec3f806a2eb94b967ec",
+      "bytes": 29943
+    },
+    {
+      "path": "backend/connect/tests/test_service.py",
+      "change": "new",
+      "base_sha256": null,
+      "sha256": "ddc026503d14380df8058005eb48a6558d6f2aa73f4569cfc0434b407dc3d87d",
+      "bytes": 16810
+    },
+    {
+      "path": "backend/server.py",
+      "change": "update",
+      "base_sha256": "b6dd2a5f8fad35cac1f152a9e8312677e48cc86aee84488d4e198e59ca93db76",
+      "sha256": "a9ffdf9933f77185bcd998bea3664798965e02302b6c493624629551256b6e0f",
+      "bytes": 42894
+    },
+    {
+      "path": "docs/axx-connect/architecture.md",
+      "change": "new",
+      "base_sha256": null,
+      "sha256": "fd15e1f09afc29d798e8b8b50c62ab5d2be49c8925b197b11e822fa08e68e58e",
+      "bytes": 5180
+    },
+    {
+      "path": "docs/axx-connect/authentication.md",
+      "change": "new",
+      "base_sha256": null,
+      "sha256": "fbfcaec574a52d272807654b085abb7ff16072bf25955781186a635244f04f03",
+      "bytes": 4056
+    },
+    {
+      "path": "docs/axx-connect/capabilities.md",
+      "change": "new",
+      "base_sha256": null,
+      "sha256": "6de068ea14bb5c8b3683ddd6e0d2c41e3214e91af132f8dcbdbe4c801aab3e85",
+      "bytes": 2784
+    },
+    {
+      "path": "docs/axx-connect/config.example.json",
+      "change": "new",
+      "base_sha256": null,
+      "sha256": "31c7f683e75de27752819640014409e2235f559e4e347845c93e80418dc2c068",
+      "bytes": 135
+    },
+    {
+      "path": "docs/axx-connect/README.md",
+      "change": "new",
+      "base_sha256": null,
+      "sha256": "577222f206840e8d9381ee4cad71ef45ec51203457a5693a34447f120b4ab08b",
+      "bytes": 6321
+    },
+    {
+      "path": "docs/axx-connect/recovery.md",
+      "change": "new",
+      "base_sha256": null,
+      "sha256": "08474e52fe5e581225534d47a147582cf4ac3782cfd2531fec9fa2bb49152bd8",
+      "bytes": 2634
+    },
+    {
+      "path": "docs/axx-connect/runtime.example.json",
+      "change": "new",
+      "base_sha256": null,
+      "sha256": "64e4b98e4935fd33424c060fe0a899e7cedcf746b0d9313360bb5cc21e85c0bd",
+      "bytes": 119
+    },
+    {
+      "path": "docs/axx-connect/validation.md",
+      "change": "new",
+      "base_sha256": null,
+      "sha256": "4e843916ab2631da88eb5a2af4027bafafc67ffe3116cbbb174db7b7e7700c14",
+      "bytes": 5813
+    },
+    {
+      "path": "package.json",
+      "change": "update",
+      "base_sha256": "b615ed1f338a60c2c3220f312125d2e309f30373429392764cff2e7de6547bb2",
+      "sha256": "211f15bb2900c02a6834cbea0e1e439d33c9c14bae43f98c3263dd932f19b04c",
+      "bytes": 789
+    },
+    {
+      "path": "plugins/.agents/plugins/marketplace.json",
+      "change": "new",
+      "base_sha256": null,
+      "sha256": "48ac60416fd4cb232d245aa0c8d35108a6e37c9f87a60efdbc1193f4c10a5b61",
+      "bytes": 308
+    },
+    {
+      "path": "plugins/axx-connect/.codex-plugin/plugin.json",
+      "change": "new",
+      "base_sha256": null,
+      "sha256": "73cb7a5768508f2c7cfa8f426723ca0f193265040a1f4d623ed622f04b2f3f7c",
+      "bytes": 885
+    },
+    {
+      "path": "plugins/axx-connect/.mcp.json",
+      "change": "new",
+      "base_sha256": null,
+      "sha256": "8cff839be0eda90708ebb884d5cc56d17cc0d6990153500b32565159a965cc07",
+      "bytes": 430
+    },
+    {
+      "path": "plugins/axx-connect/mcp.json",
+      "change": "new",
+      "base_sha256": null,
+      "sha256": "d9b6db9e1a6723b87baf46780f30d84d0bec0ee4ef9a98387a2c3f0b85f106a7",
+      "bytes": 317
+    },
+    {
+      "path": "plugins/axx-connect/plugin.json",
+      "change": "new",
+      "base_sha256": null,
+      "sha256": "1fd1f0b7b904869ff5ee905a4e7404d2b4619d6d32764457879fe90660f76eb9",
+      "bytes": 1032
+    },
+    {
+      "path": "plugins/axx-connect/README.md",
+      "change": "new",
+      "base_sha256": null,
+      "sha256": "2d34b7f32d2d000857d6496d5da633ad302d1fb349ef59d371e1d97f20589dc2",
+      "bytes": 1663
+    },
+    {
+      "path": "plugins/axx-connect/server/launch.ps1",
+      "change": "new",
+      "base_sha256": null,
+      "sha256": "fddced909033b82c0d38a603ab01a6b366cf302d302800c0bf78015e3a63460e",
+      "bytes": 2095
+    },
+    {
+      "path": "plugins/axx-connect/skills/axx-connect/references/operations.md",
+      "change": "new",
+      "base_sha256": null,
+      "sha256": "59f8c85ab7332221c07af08d184e618e2e8468f02c2522d63d79d15b098caf9a",
+      "bytes": 1119
+    },
+    {
+      "path": "plugins/axx-connect/skills/axx-connect/SKILL.md",
+      "change": "new",
+      "base_sha256": null,
+      "sha256": "6e05806a5c4f145f45c1f72e5fd3780326a196e3a7b522c861cc6e56181cc8be",
+      "bytes": 2391
+    },
+    {
+      "path": "requirements-axx-connect.txt",
+      "change": "new",
+      "base_sha256": null,
+      "sha256": "6c56f8ec61f12ef922992108019271b75253b4eb758944d9d5689f794fb04fbe",
+      "bytes": 86
+    },
+    {
+      "path": "scripts/axx-connect-common.ps1",
+      "change": "new",
+      "base_sha256": null,
+      "sha256": "ac8155ec389c863637a9c814419187f2bfe96835dd31717529bc2a82c6d6538d",
+      "bytes": 1823
+    },
+    {
+      "path": "scripts/build-axx-connect.ps1",
+      "change": "new",
+      "base_sha256": null,
+      "sha256": "6d477afd0cc95903c545cd30b8a6548ec69c90f486ab306a7c4de3587ee8d279",
+      "bytes": 1397
+    },
+    {
+      "path": "scripts/diagnose-axx-connect.ps1",
+      "change": "new",
+      "base_sha256": null,
+      "sha256": "082ff0ba33fdcf0bd4f272461747c9b5b2a42b5c99eac6f5cd72adb0670a9bf8",
+      "bytes": 1655
+    },
+    {
+      "path": "scripts/diagnose-axx-plugin-host.py",
+      "change": "new",
+      "base_sha256": null,
+      "sha256": "f635b08419dbd82ee15bf66df692a79b6f68c13e959fdb3355a087695f5540a7",
+      "bytes": 5622
+    },
+    {
+      "path": "scripts/export-axx-connect-inventory.py",
+      "change": "new",
+      "base_sha256": null,
+      "sha256": "c168933e11eb5d1aa2b58238da08da712021e29c753453a586da6485316fcd87",
+      "bytes": 1354
+    },
+    {
+      "path": "scripts/install-axx-connect.ps1",
+      "change": "new",
+      "base_sha256": null,
+      "sha256": "71f7605ab9de8880d6109a29e86fb749b6d1560a14900630af55f2a125f3ebe8",
+      "bytes": 6217
+    },
+    {
+      "path": "scripts/make-axx-connect-overlay.py",
+      "change": "new",
+      "base_sha256": null,
+      "sha256": "003542ddd7071cf9f44430476a7cd53c874ce20d55962664ea7a69490c3ae2fd",
+      "bytes": 3831
+    },
+    {
+      "path": "scripts/package-axx-connect.ps1",
+      "change": "new",
+      "base_sha256": null,
+      "sha256": "712f5fcd1763fbe3f81674ce52120ea7ee9c48964a0a1571ef6386dda60213a4",
+      "bytes": 3889
+    },
+    {
+      "path": "scripts/probe-axx-connect.py",
+      "change": "new",
+      "base_sha256": null,
+      "sha256": "8cb142384ea070d8c125d855931364b3388eb02eaba0787990a7a6640bafb07b",
+      "bytes": 6396
+    },
+    {
+      "path": "scripts/uninstall-axx-connect.ps1",
+      "change": "new",
+      "base_sha256": null,
+      "sha256": "f3c116c2ae61c00438531e3f4a8529b496074e50594a5276d0b93836d57a67b8",
+      "bytes": 683
+    },
+    {
+      "path": "scripts/verify-axx-connect-live.py",
+      "change": "new",
+      "base_sha256": null,
+      "sha256": "8052af96ed6b69c44849667b0265a87e27bcb913cd45c0a86c8af33f8da847f2",
+      "bytes": 7811
+    }
+  ]
+}

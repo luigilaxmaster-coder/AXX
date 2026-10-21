@@ -1,0 +1,234 @@
+[
+  {
+    "path": "backend\\__init__.py",
+    "sha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  },
+  {
+    "path": "backend\\commands.py",
+    "sha256": "25642C1F6E3931E9568742A7B3FBC903D6CAB358D47D8AB4C57A3583C7D523C4"
+  },
+  {
+    "path": "backend\\server.py",
+    "sha256": "87A6A70B4F661799361682E8A44AD3ABF8C30D94B03E7C85FDD70DBA6317DAD5"
+  },
+  {
+    "path": "backend\\actions\\__init__.py",
+    "sha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  },
+  {
+    "path": "backend\\actions\\cli_blender.py",
+    "sha256": "F2EAEECC9EC1EBFBAE95FAF303258C964A3EDB8855D44F1DCA86B8A4C8DBF52A"
+  },
+  {
+    "path": "backend\\actions\\executor.py",
+    "sha256": "7EFB34CEB5C37220390F8A13D284DD6E16595FF98126770A5FD520447CBE8AA8"
+  },
+  {
+    "path": "backend\\actions\\tools.py",
+    "sha256": "8DC87E341DBB497DE701106337DB418B25D666496432D7F1E6F1D5C3C1B792B1"
+  },
+  {
+    "path": "backend\\actions\\tests\\__init__.py",
+    "sha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  },
+  {
+    "path": "backend\\actions\\tests\\test_action_executor.py",
+    "sha256": "87B8282DC2B0FEDF806EE4DEC01E2AFFD5243B0907B93C8AFE3AFDC4CB1047DE"
+  },
+  {
+    "path": "backend\\actions\\tests\\test_executor_guards.py",
+    "sha256": "0227BFF4F08044BDC81DD37F307E8FAF62C7C13075B42EA5D7F8E33A2C2E60C8"
+  },
+  {
+    "path": "backend\\inference\\__init__.py",
+    "sha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  },
+  {
+    "path": "backend\\inference\\adapter.py",
+    "sha256": "4265D44A02489E6AC097FBDFA8AD4E1A0A1A34D0BF4FED1F5B3691C93162CB01"
+  },
+  {
+    "path": "backend\\inference\\process_manager.py",
+    "sha256": "8895EAB13B43C18BD9E1C7C8021FB4BFFF0A122B2F56F85B52BB0C488EC6B911"
+  },
+  {
+    "path": "backend\\inference\\router.py",
+    "sha256": "D7DDC4EC14B99C67D47A4FEBEBFDE952BC418DCEDD516A4502E12FCFCEEAF460"
+  },
+  {
+    "path": "backend\\inference\\tests\\__init__.py",
+    "sha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  },
+  {
+    "path": "backend\\inference\\tests\\test_hardened_router.py",
+    "sha256": "BBBE0C6585F251A361099837DFA1A6B24DED34003E473B7C4E320CF93AD02EDD"
+  },
+  {
+    "path": "backend\\memory\\__init__.py",
+    "sha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  },
+  {
+    "path": "backend\\memory\\ai_memory_adapter.py",
+    "sha256": "F845462EECC5188B71490B9BD304B5C4A91626388583A0566236964DA0840942"
+  },
+  {
+    "path": "backend\\memory\\procedural_memory.py",
+    "sha256": "9A189B944C42F822B216603EF561EE9393581A2FDF11401AD203F663B4DCF8D6"
+  },
+  {
+    "path": "backend\\memory\\tests\\__init__.py",
+    "sha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  },
+  {
+    "path": "backend\\memory\\tests\\test_procedural_memory.py",
+    "sha256": "25EB85F8224F9B8B7189CFEF4DAB03DFAD95557FBB2637A47F393039BBCDFAAF"
+  },
+  {
+    "path": "backend\\speech\\__init__.py",
+    "sha256": "35A1940D22582698434551531FB0BCE0DB78E334C0F9D58A897D718C2C52748C"
+  },
+  {
+    "path": "backend\\speech\\offline_asr.py",
+    "sha256": "1209041D593EC5D38D4E70E5AAB53E048DD2D1D824827F77E5A6E44C3F75F3F2"
+  },
+  {
+    "path": "backend\\speech\\windows_tts.py",
+    "sha256": "1619368D4A954CCD1D467BB654C614EC82D620EC5EE7EC12947BF92B476C604F"
+  },
+  {
+    "path": "backend\\sync\\__init__.py",
+    "sha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  },
+  {
+    "path": "backend\\sync\\identity_sync.py",
+    "sha256": "EE44004CE14AACDD6F519EEC0B3BE3035F2E012313D9762AB1F577854C4424E0"
+  },
+  {
+    "path": "backend\\sync\\test_identity_sync.py",
+    "sha256": "2562D4776695437AACFFFDACF1062330F686295DC3D61235660C47AFDCF63013"
+  },
+  {
+    "path": "backend\\tests\\__init__.py",
+    "sha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  },
+  {
+    "path": "backend\\tests\\test_command_library.py",
+    "sha256": "E2FC6FF20D433E354F798021893828F1C09BCC2F7D32E459EC9416644F66E04B"
+  },
+  {
+    "path": "backend\\tests\\test_commands_http.py",
+    "sha256": "5D2CBA50258FC5E9D32359561C92A69626680DEF2F448C6A20D54B80B0620BBC"
+  },
+  {
+    "path": "backend\\tests\\test_delivery_contract.py",
+    "sha256": "F033EA79C705BC7CE866A7CAD322936C99C9FC0CC5601C40A619A74C6BA1A111"
+  },
+  {
+    "path": "backend\\tests\\test_server_smoke.py",
+    "sha256": "BD35859BF9094901DA890432F17118AC5261BC7D61F1D72F0E3A3305FE3E3289"
+  },
+  {
+    "path": "backend\\tests\\verify_resident_packaged.py",
+    "sha256": "C4096E58CF77588BAB5FE05EA24A219BA5340D6444937EE6D2B4061FE3D346BA"
+  },
+  {
+    "path": "resources\\asr-model-manifest.json",
+    "sha256": "529D2486C45D6214F57A324A9D71947E1E4B1B6020E2143DA04EB6790D1D6A27"
+  },
+  {
+    "path": "resources\\command-library.json",
+    "sha256": "8FA6BEC7B0BFE59690E2510A7348B25A8B7EC9A8581822C1D628FA72161C1C47"
+  },
+  {
+    "path": "resources\\command-library.provenance.json",
+    "sha256": "BBC1FDF229834CEF1460EC2E1C50A2C88AA1B21DDAAF1BFDEFEF6F2D6EB5F2CB"
+  },
+  {
+    "path": "resources\\dependency-manifest.json",
+    "sha256": "569AE507D260E00864AC4794AAD2FD927E66A76D941C36211AC889496C1B3540"
+  },
+  {
+    "path": "resources\\providers.default.json",
+    "sha256": "3AA78013F69087D7C728B8CE6A71DDE98C3DD40744F45A494E1EBF15EDD94BE0"
+  },
+  {
+    "path": "resources\\models\\faster-whisper-tiny\\config.json",
+    "sha256": "A73A28CDFE1C43CCC7202FA333D1F89C202477271407AE9A7F19AFA52039CAC8"
+  },
+  {
+    "path": "resources\\models\\faster-whisper-tiny\\model.bin",
+    "sha256": "DCB76C6586FC06CBDAC6DD21F14CFD129CC4CDD9DCE19BF4FFA62E59CBE6E6D1"
+  },
+  {
+    "path": "resources\\models\\faster-whisper-tiny\\tokenizer.json",
+    "sha256": "FB7B63191E9BB045082C79FD742A3106A12C99513AB30DF4A0D47FA6CB6FD0AB"
+  },
+  {
+    "path": "resources\\models\\faster-whisper-tiny\\vocabulary.txt",
+    "sha256": "34CE3FE1C5041027B3F8D42912270993F986DBC4BB34CF27F951E34A1E453913"
+  },
+  {
+    "path": "vendor\\cli_anything_blender\\BLENDER.md",
+    "sha256": "E4EF9A0D20E229918B6AA8D360C0F6CBE448C468B69EA55AE0314B2F6B74ED91"
+  },
+  {
+    "path": "vendor\\cli_anything_blender\\LICENSE",
+    "sha256": "0CFF1A8AC2A381870A2C57CBE9B25F95BEA0925B39B7FBF6A04EC23DF7C77760"
+  },
+  {
+    "path": "vendor\\cli_anything_blender\\UPSTREAM.json",
+    "sha256": "51BE324E52DDED8514367585117CF9ADF7D77543D9590A05A0414F7C2DBA2ED2"
+  },
+  {
+    "path": "vendor\\cli_anything_blender\\axx_tests\\test_boundary.py",
+    "sha256": "78784EFD934911310853D8B2EA04DA38FCA515B4A4ADCBB170CE23D83B94209B"
+  },
+  {
+    "path": "vendor\\cli_anything_blender\\cli_anything\\blender\\__init__.py",
+    "sha256": "4F1A443E44EDE93965E0DCF3E54AA7D50C39018675704EC2F8FCFF58DD36670D"
+  },
+  {
+    "path": "vendor\\cli_anything_blender\\cli_anything\\blender\\README.md",
+    "sha256": "94EE8D3466E98AED8213C8DDA49D2850C9CFD47C12ACA85D499CD23B927CDA2D"
+  },
+  {
+    "path": "vendor\\cli_anything_blender\\cli_anything\\blender\\core\\__init__.py",
+    "sha256": "B386C9081618A0E02D0E2813F1F93A234C5561624A9F2B875568A27EDC20DC78"
+  },
+  {
+    "path": "vendor\\cli_anything_blender\\cli_anything\\blender\\core\\lighting.py",
+    "sha256": "7FA9010966F47D05E82A195AA73E8AE623E6DA5E239E59F4262B7911A6F40539"
+  },
+  {
+    "path": "vendor\\cli_anything_blender\\cli_anything\\blender\\core\\materials.py",
+    "sha256": "929E71B9D1D0806EC957F2937729EDCEA4CE704DE9908B12E5CA42B23AC810A3"
+  },
+  {
+    "path": "vendor\\cli_anything_blender\\cli_anything\\blender\\core\\objects.py",
+    "sha256": "599AA8BB91C647C062DCBBCFEA019AC1A80552FCA92662AC91211CD55927702A"
+  },
+  {
+    "path": "vendor\\cli_anything_blender\\cli_anything\\blender\\core\\render.py",
+    "sha256": "5B64D52800D4033B9AA8AEAE9DF5358F55A969A78CCF7542B30272137747AB4C"
+  },
+  {
+    "path": "vendor\\cli_anything_blender\\cli_anything\\blender\\core\\scene.py",
+    "sha256": "139F46C9462E90670FDB704358AF7F32841AD537ACBE6E33E2EF57C5089AA18E"
+  },
+  {
+    "path": "vendor\\cli_anything_blender\\cli_anything\\blender\\utils\\__init__.py",
+    "sha256": "D113712AC6830BB8925EF4E7C95595F724C8B9D1D266D428E227E4F9078F109C"
+  },
+  {
+    "path": "vendor\\cli_anything_blender\\cli_anything\\blender\\utils\\blender_backend.py",
+    "sha256": "9532E8E4C368D950A98EE0EB9F1BA28EABAAC57BA3938A703A16F4978F07262E"
+  },
+  {
+    "path": "vendor\\cli_anything_blender\\cli_anything\\blender\\utils\\bpy_gen.py",
+    "sha256": "B31B7E8EED5E4648FF42BB18CD558B7FECF34AC168F6396A0C95398651679172"
+  },
+  {
+    "path": "axx-backend.spec",
+    "sha256": "359DA112F1BE8561EADF91321A565CFEFEC5F3FEBCA086E5A46A72DB6D9B9007"
+  }
+]

@@ -1,0 +1,38 @@
+test_real_http_discovery_executor_and_subscription_inference (test_provider.LiveProviderProcessTests.test_real_http_discovery_executor_and_subscription_inference) ... skipped 'Opt-in real process/account tests'
+test_account_updated_epoch_invalidates_late_completion_even_before_read (test_provider.ProviderTests.test_account_updated_epoch_invalidates_late_completion_even_before_read) ... ok
+test_auth_failure_invalidates_prior_inference (test_provider.ProviderTests.test_auth_failure_invalidates_prior_inference) ... ok
+test_busy_same_conversation (test_provider.ProviderTests.test_busy_same_conversation) ... ok
+test_cancel_after_admission_while_dispatch_was_inflight (test_provider.ProviderTests.test_cancel_after_admission_while_dispatch_was_inflight) ... ok
+test_cancel_interrupts_and_never_claims_rollback (test_provider.ProviderTests.test_cancel_interrupts_and_never_claims_rollback) ... ok
+test_different_served_model_stops_before_turn_without_false_verification (test_provider.ProviderTests.test_different_served_model_stops_before_turn_without_false_verification) ... ok
+test_duplicate_request_is_not_redispatched (test_provider.ProviderTests.test_duplicate_request_is_not_redispatched) ... ok
+test_dynamic_tool_forces_origin_and_parent (test_provider.ProviderTests.test_dynamic_tool_forces_origin_and_parent) ... ok
+test_error_redaction_and_classification (test_provider.ProviderTests.test_error_redaction_and_classification) ... ok
+test_forged_or_colliding_operation_id_never_grants_cancel_ownership (test_provider.ProviderTests.test_forged_or_colliding_operation_id_never_grants_cancel_ownership) ... ok
+test_included_usage_denial_stops_before_model_turn (test_provider.ProviderTests.test_included_usage_denial_stops_before_model_turn) ... ok
+test_invalid_input_and_bool_cursor_rejected (test_provider.ProviderTests.test_invalid_input_and_bool_cursor_rejected) ... ok
+test_late_account_a_completion_cannot_verify_new_account_b (test_provider.ProviderTests.test_late_account_a_completion_cannot_verify_new_account_b) ... ok
+test_late_notifications_from_previous_turn_are_ignored (test_provider.ProviderTests.test_late_notifications_from_previous_turn_are_ignored) ... ok
+test_late_tool_result_does_not_revive_interrupted_or_disconnected_turn (test_provider.ProviderTests.test_late_tool_result_does_not_revive_interrupted_or_disconnected_turn) ... ok
+test_limit_reached_no_fallback (test_provider.ProviderTests.test_limit_reached_no_fallback) ... ok
+test_missing_included_usage_permission_fails_closed (test_provider.ProviderTests.test_missing_included_usage_permission_fails_closed) ... ok
+test_notifications_buffer_until_expected_turn_is_known (test_provider.ProviderTests.test_notifications_buffer_until_expected_turn_is_known) ... ok
+test_out_of_order_rpc_responses_correlate (test_provider.ProviderTests.test_out_of_order_rpc_responses_correlate) ... ok
+test_parent_transport_and_api_secrets_do_not_enter_runtime (test_provider.ProviderTests.test_parent_transport_and_api_secrets_do_not_enter_runtime) ... ok
+test_recursion_origin_and_parent_rejected (test_provider.ProviderTests.test_recursion_origin_and_parent_rejected) ... ok
+test_restart_marks_unfinished_unknown_and_preserves_idempotence (test_provider.ProviderTests.test_restart_marks_unfinished_unknown_and_preserves_idempotence) ... ok
+test_resume_uses_persisted_thread_and_readonly_environment (test_provider.ProviderTests.test_resume_uses_persisted_thread_and_readonly_environment) ... ok
+test_revoked_session_never_starts_turn (test_provider.ProviderTests.test_revoked_session_never_starts_turn) ... ok
+test_runtime_approval_is_pending_and_cannot_bypass_registry (test_provider.ProviderTests.test_runtime_approval_is_pending_and_cannot_bypass_registry) ... ok
+test_runtime_process_loss_keeps_effects_unknown (test_provider.ProviderTests.test_runtime_process_loss_keeps_effects_unknown) ... ok
+test_slow_old_account_read_cannot_replace_newer_observed_context (test_provider.ProviderTests.test_slow_old_account_read_cannot_replace_newer_observed_context) ... ok
+test_status_requires_actual_inference (test_provider.ProviderTests.test_status_requires_actual_inference) ... ok
+test_stream_completion_and_event_cursor (test_provider.ProviderTests.test_stream_completion_and_event_cursor) ... ok
+test_translation_uses_isolated_thread_and_no_tools (test_provider.ProviderTests.test_translation_uses_isolated_thread_and_no_tools) ... ok
+test_translation_validates_purpose_languages_and_duplicate_fingerprint (test_provider.ProviderTests.test_translation_validates_purpose_languages_and_duplicate_fingerprint) ... ok
+test_unknown_tool_not_dispatched (test_provider.ProviderTests.test_unknown_tool_not_dispatched) ... ok
+
+----------------------------------------------------------------------
+Ran 33 tests in 3.462s
+
+OK (skipped=1)

@@ -1,0 +1,11 @@
+{
+  "classification": "CONTROLLED_BROWSER_IPC_ONLY",
+  "revision": 2,
+  "physical_native_execution": false,
+  "app_source_version": "0.20.0",
+  "fixture_engine_state": "disconnected",
+  "inference_verified": false,
+  "source": "Full production Axx.html and external scripts; only native IPC is controlled",
+  "visible_status": "Motor: disconnected · Ejecutor: disponible · controlled-model",
+  "image": "C:\\Users\\luigi\\Desktop\\Axx assistant\\evidence\\axx-connect\\ui-connect-settings-controlled-revision2.png"
+}

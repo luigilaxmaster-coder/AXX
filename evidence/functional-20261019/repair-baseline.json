@@ -1,0 +1,12 @@
+{
+  "source": "C:\\Users\\luigi\\Desktop\\Axx assistant\\build\\resident-release-0.20.3",
+  "workspace": "C:\\Users\\luigi\\Desktop\\Axx assistant\\build\\functional-repair-0.21.0",
+  "timestamp": "2026-10-19T23:45:47.431109+00:00",
+  "base_html_sha256": "EBB78A1B865EE818A4A2DD432839E6BE7304ADFCA58326880695C5B501722554",
+  "base_backend_sha256": "8312CE40F16DB6B024CF2A8BAC1268B0AE15F867E089002138E1F16884D909AC",
+  "base_native_sha256": {
+    "src-tauri/src/lib.rs": "E502899D8080E3A10D6F56D7661728C517EE630CF22816CA01E33063FAA509B2",
+    "src-tauri/src/resident.rs": "BDC68B12D45385EE8AAC23B16AE2C5D8BEA7F69D70C78E6C6D1CE270240EDE42"
+  },
+  "canonical_changed": false
+}

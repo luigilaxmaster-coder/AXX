@@ -1,0 +1,11 @@
+{
+  "suite": "backend.connect.tests.test_service",
+  "utc": "2026-10-20T21:23:36.070774+00:00",
+  "exit_code": 0,
+  "duration_seconds": 20.407,
+  "log": "C:\\Users\\luigi\\Desktop\\Axx assistant\\evidence\\axx-connect\\core-revision2-final.log",
+  "sha256": {
+    "backend/connect/service.py": "c2a8af7f5be9a68c262d23766f18f9e728ffd0d6d4e2cd65317b478d4bc2eb6d",
+    "backend/connect/tests/test_service.py": "b8a78ef6c46e52aeee59b068601d242c734943ea1b8a4c9ab3dbf4947a9ad577"
+  }
+}
