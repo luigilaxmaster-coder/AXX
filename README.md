@@ -1,22 +1,22 @@
-# Axx — Asistente de Escritorio Autónomo y Entidad Residente 3D
+# Axx — Autonomous Resident Desktop AI Assistant & 3D Entity
 
 <p align="center">
   <img src="docs/images/logo.png" alt="Axx Logo" width="180" style="border-radius: 24px; box-shadow: 0 12px 32px rgba(0,0,0,0.35);" />
 </p>
 
 <p align="center">
-  <strong>Entidad residente para Windows 11 con interfaz 3D háptica, motor de inferencia multi-proveedor con tolerancia a fallos, reconocimiento de voz offline y memoria procedimental.</strong>
+  <strong>A resident entity for Windows 11 featuring a haptic 3D interface, multi-provider inference engine with automated failover, offline voice recognition, and procedural memory.</strong>
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Plataforma-Windows%2011%20%2F%2010-0078D4?logo=windows" alt="Windows 11" />
+  <img src="https://img.shields.io/badge/Platform-Windows%2011%20%2F%2010-0078D4?logo=windows" alt="Windows 11" />
   <img src="https://img.shields.io/badge/Host-Tauri%20v2%20%7C%20Rust-F74C00?logo=rust" alt="Tauri v2" />
   <img src="https://img.shields.io/badge/Backend-Python%203.12%20FastAPI-3776AB?logo=python" alt="Python 3.12" />
   <img src="https://img.shields.io/badge/Frontend-WebGL%20%2F%20Three.js-black?logo=webgl" alt="WebGL" />
-  <img src="https://img.shields.io/badge/Voz%20Offline-Faster--Whisper%20Tiny-green" alt="Faster-Whisper" />
-  <img src="https://img.shields.io/badge/Protocolo-Model%20Context%20Protocol%20(MCP)-blueviolet" alt="MCP" />
-  <img src="https://img.shields.io/badge/Versi%C3%B3n%20Instalada-v0.22.5-informational" alt="Version" />
-  <img src="https://img.shields.io/badge/Desarrollo-En%20Mejora%20Activa-yellow?logo=git" alt="Active Development" />
+  <img src="https://img.shields.io/badge/Offline%20Voice-Faster--Whisper%20Tiny-green" alt="Faster-Whisper" />
+  <img src="https://img.shields.io/badge/Protocol-Model%20Context%20Protocol%20(MCP)-blueviolet" alt="MCP" />
+  <img src="https://img.shields.io/badge/Installed%20Version-v0.22.5-informational" alt="Version" />
+  <img src="https://img.shields.io/badge/Development-Active%20Refinement-yellow?logo=git" alt="Active Development" />
 </p>
 
 <p align="center">
@@ -25,97 +25,97 @@
 
 ---
 
-## 💡 About — El Manifiesto de Axx
+## 💡 About — The Axx Manifesto
 
-> *"La inteligencia artificial no debe vivir encerrada dentro de una pestaña del navegador ni detrás de un frío cuadro de chat. **Axx** rompe ese paradigma: una entidad viva, háptica y residente directamente sobre tu escritorio de Windows que te acompaña en tiempo real, respeta tu privacidad con modelos locales, jamás interrumpe tu pantalla y responde con máxima fiabilidad gracias a una arquitectura híbrida con conmutación por error en caliente."*
+> *"Artificial intelligence should not remain trapped inside a browser tab or behind a sterile chat box. **Axx** shatters that paradigm: a living, haptic entity residing directly on your Windows desktop that accompanies you in real time, respects your privacy with local models, never obstructs your screen, and responds with rock-solid reliability through a hot-failover hybrid architecture."*
 
 ---
 
-## 🚧 Estado del Proyecto: En Proceso Activo de Mejora Continua
+## 📸 System Showcase & Visual Interface
+
+| 3D Entity at Rest (Base) | Parametric Shapes & Appearance Selector |
+| :---: | :---: |
+| ![Axx Base](docs/images/axx-base.png) | ![Axx Appearance](docs/images/axx-appearance.png) |
+| *Organic fluid avatar with dynamic Fresnel shading and liquid physics* | *24 parametric volumetric geometries and 9 harmonic HSL color palettes* |
+
+| Movement Dynamics & Spring Physics | Axx Connect Settings (MCP & Providers) |
+| :---: | :---: |
+| ![Axx Motion](docs/images/axx-motion.png) | ![Axx Settings](docs/images/axx-settings.png) |
+| *Critically-damped spring controllers and haptic jitter filtering* | *LLM provider manager, DPAPI-encrypted tokens, and MCP tool registry* |
+
+---
+
+## 🚧 Project Status: Active Continuous Improvement
 
 > [!NOTE]
-> **Axx se encuentra en desarrollo activo y evolución constante.** El núcleo actual opera sobre la entrega consolidada **v0.22.5**, mientras se integran y verifican las optimizaciones del **candidato v0.22.6+**.
+> **Axx is under active development and continuous refinement.** The current core operates on the validated production baseline **v0.22.5**, while ongoing enhancements and hardening are being actively integrated for **Candidate v0.22.6+**.
 
-### 🟢 Capacidades Consolidadas y Operativas (v0.22.5)
-- **Arranque y Resiliencia Nativa:** Arranque controlado en menos de 10 segundos con registro de logs desacoplado, sin bloqueos ni pánicos por redirección de flujos estándar.
-- **Entidad 3D y Shaders Líquidos:** Malla paramétrica de 24 formas volumétricas, sombreado de Fresnel en tiempo real y renderizador de respaldo por software 2x.
-- **Click-Through Transparente:** La ventana ignora clics en zonas vacías mediante la API Win32 (`WM_NCHITTEST`), permitiendo usar tus aplicaciones de fondo con total fluidez.
-- **Failover Multi-Proveedor:** Tolerancia a caídas con conmutación instantánea entre Ollama local y APIs en la nube ante errores 429 (`Retry-After`) o 5xx.
-- **Memoria Episódica:** Integración de persistencia procedural y adaptadores MCP.
+### 🟢 Consolidated & Fully Operational (v0.22.5)
+- **Native Startup & Crash Resilience:** Controlled launch in under 10 seconds with dedicated log-file isolation, preventing panics from broken standard streams.
+- **Dual 3D Shading Engine:** Parametric mesh of 24 volumetric shapes, real-time Fresnel shaders, and a 2x super-sampled CPU software fallback.
+- **Transparent Click-Through:** Borderless desktop window that dynamically passes pointer clicks through transparent zones using the Win32 API (`WM_NCHITTEST`), ensuring complete background desktop usability.
+- **Multi-Provider Hot-Failover:** Zero-downtime tolerance with instantaneous failover between local Ollama instances and cloud APIs upon 429 (`Retry-After`) or 5xx status codes.
+- **Episodic Memory & MCP Core:** Integrated procedural SQLite memory and Model Context Protocol schema validation.
 
-### 🟡 Áreas en Refinamiento y Pruebas Activas (Candidato 0.22.6+)
-- **Calibración de Micrófono & ASR:** Certificación de captura de audio y supresión de eco en hardware variado antes de activar el dictado continuo como predeterminado.
-- **Dinámica Multimonitor y DPI Asimétrico:** Perfeccionamiento del arrastre háptico y anclaje elástico cuando existen múltiples pantallas con factores de escala (DPI) mixtos.
-- **Ampliación de Catálogo MCP:** Incorporación de nuevos conectores de sistema para automatización de tareas y desarrollo sin exponer credenciales.
-- **Consumo de Memoria en Segundo Plano:** Optimización continua del footprint de RAM y tiempo de respuesta en reposo.
-
----
-
-## 📸 Galería y Vistas del Sistema
-
-| Entidad 3D en Reposo (Base) | Selector de Formas y Apariencia |
-| :---: | :---: |
-| ![Axx Base](docs/images/axx-base.png) | ![Axx Apariencia](docs/images/axx-appearance.png) |
-| *Avatar orgánico con sombreado de Fresnel y simulación de líquido* | *24 geometrías paramétricas y 9 paletas de color HSL* |
-
-| Físicas y Dinámica de Movimiento | Configuración Axx Connect (MCP / Proveedores) |
-| :---: | :---: |
-| ![Axx Movimiento](docs/images/axx-motion.png) | ![Axx Ajustes](docs/images/axx-settings.png) |
-| *Controlador de inercia por resortes y filtrado háptico* | *Gestor de proveedores LLM, tokens seguros y herramientas MCP* |
+### 🟡 Active Refinement & Upcoming Enhancements (Candidate 0.22.6+)
+- **Microphone Hardware Calibration & ASR Tuning:** Deep acoustic verification across diverse audio hardware and noise profiles prior to enabling continuous hands-free dictation by default.
+- **Multi-Monitor & Mixed-DPI Dynamics:** Hardening haptic drags and elastic screen snapping across multi-monitor layouts with heterogeneous display scaling factors.
+- **Expanded MCP Tool Library:** Ingestion of sandboxed system automation and developer utility tools with token isolation.
+- **Background Memory Footprint:** Ongoing optimization of standby RAM footprint and idle CPU wake cycles.
 
 ---
 
-## 🌟 ¿Qué es Axx?
+## 🌟 What is Axx?
 
-**Axx** es un asistente de inteligencia artificial de escritorio de última generación diseñado para integrarse de forma natural en el flujo de trabajo de Windows. A diferencia de las ventanas de chat tradicionales o navegadores web, Axx vive directamente sobre el escritorio como una entidad fluida y viva.
+**Axx** is a next-generation resident desktop artificial intelligence assistant built specifically for Windows. Unlike conventional web-based chat apps, Axx lives directly on the user's desktop canvas as a fluid, responsive companion.
 
-### Principios Fundamentales:
-1. **Presencia Orgánica No Invasiva:** Flota en una ventana transparente sin bordes que ignora clics en áreas transparentes (*click-through* total mediante Win32 API), permitiendo interactuar con tus aplicaciones de fondo sin interrupciones.
-2. **Inferencia Resiliente Híbrida:** Orquestador de modelos de IA con conmutación en caliente (*failover* automático) entre modelos locales offline (Ollama) y proveedores en la nube (OpenAI, Anthropic, OpenRouter).
-3. **Privacidad y Voz Local:** Reconocimiento de voz por hardware local utilizando `faster-whisper-tiny`, sin transmitir fragmentos de audio a servidores externos.
-4. **Memoria y Herramientas (MCP):** Memoria episódica y contextual persistente gestionada con `ai-memory` y compatibilidad con el estándar *Model Context Protocol* para ejecutar acciones del sistema de forma segura.
+### Core Architectural Pillars:
+1. **Non-Invasive Desktop Presence:** Floats in a borderless, transparent window that forwards clicks in empty spaces to the underlying active applications via native Win32 window region mapping.
+2. **Resilient Hybrid Inference:** Autonomous model routing with automated hot-failover between offline local models (Ollama) and cloud APIs (OpenAI, Anthropic, OpenRouter).
+3. **Local Voice & Privacy by Design:** On-device hardware-accelerated speech-to-text using `faster-whisper-tiny`. Audio never leaves the local machine.
+4. **Persistent Memory & MCP Tools:** Long-term episodic context powered by `ai-memory` paired with industry-standard *Model Context Protocol* (MCP) for safe, structured desktop tool invocation.
 
 ---
 
-## 🏛️ Arquitectura del Sistema
+## 🏛️ System Architecture
 
-Axx está diseñado con una arquitectura modular desacoplada de alto rendimiento compuesta por tres pilares: **Host Nativo (Rust/Tauri)**, **Frontend Gráfico Háptico (WebGL/HTML5)** y **Backend de Inferencia y Servicios (Python)**.
+Axx is engineered with a modular, high-performance architecture split across three primary tiers: **Native Host (Rust/Tauri 2)**, **Haptic Graphical Frontend (WebGL/HTML5)**, and **Inference & Services Backend (Python 3.12)**.
 
 ```mermaid
 graph TB
-    subgraph WindowsOS ["Sistema Operativo Windows 11 / 10"]
-        Desktop["Escritorio y Ventanas del Usuario"]
-        AudioInput["Micrófono / Entrada de Audio"]
-        Tray["Bandeja del Sistema (Tray Icon)"]
+    subgraph WindowsOS ["Windows 11 / 10 Operating System"]
+        Desktop["Desktop Canvas & Background Applications"]
+        AudioInput["Microphone / System Audio Input"]
+        Tray["System Tray Notification Icon"]
     end
 
-    subgraph Host ["Host Nativo (Tauri 2 / Rust)"]
-        WinManager["Gestor de Ventana Transparente<br/>(WS_EX_LAYERED, Click-Through)"]
-        HitTest["Mapeador de Regiones (SetWindowRgn)"]
-        HotkeyEngine["Escuchador Global de Atajos<br/>(Alt+Shift+A / Alt+Shift+T / Esc)"]
-        ProcessSuper["Supervisor de Procesos Hijos<br/>(Lanza y monitorea axx-backend)"]
+    subgraph Host ["Native Desktop Host (Tauri 2 / Rust)"]
+        WinManager["Transparent Layered Window Manager<br/>(WS_EX_LAYERED, Click-Through)"]
+        HitTest["Region Mapper & Hit Testing (SetWindowRgn)"]
+        HotkeyEngine["Global Low-Level Keyboard Hooks<br/>(Alt+Shift+A / Alt+Shift+T / Esc)"]
+        ProcessSuper["Sidecar Process Supervisor<br/>(Manages headless axx-backend)"]
     end
 
-    subgraph Frontend ["Frontend Háptico (1.AXX/Axx.html)"]
-        Liquid["Motor WebGL (LiquidRenderer)<br/>16,128 triángulos, Raymarching & Fresnel"]
+    subgraph Frontend ["Haptic Frontend (1.AXX/Axx.html)"]
+        Liquid["LiquidRenderer WebGL Engine<br/>16,128 Triangles, Raymarching & Fresnel"]
         SoftEngine["SoftwareRenderer Fallback (2x Supersampling)"]
-        Springs["Física de Resortes Críticos (Inercia & Jitter Filter)"]
-        Dock["Dock Radial Multifase (Nivel 0, 1, 2)"]
+        Springs["Critical Spring Dynamics (Inertia & Jitter Filter)"]
+        Dock["Multi-Level Radial FlowDock (Level 0, 1, 2)"]
     end
 
-    subgraph Backend ["Backend de Inferencia & Servicios (Python 3.12)"]
-        RouterCore["Router Inteligente con Failover Secuencial"]
-        WhisperASR["Motor de Voz Local (Faster-Whisper Tiny)"]
-        MemoryMCP["Adaptador ai-memory & MCP Tools"]
-        SQLiteState[("Persistencia SQLite (state.db)<br/>Cuotas, Cooldowns y Métricas")]
+    subgraph Backend ["Inference & Services Backend (Python 3.12)"]
+        RouterCore["Intelligent Sequential Router & Hot-Failover"]
+        WhisperASR["Local Speech Engine (Faster-Whisper Tiny)"]
+        MemoryMCP["ai-memory Adapter & MCP Tool Host"]
+        SQLiteState[("SQLite Persistence (state.db)<br/>Daily Quotas, Cooldowns & Latency")]
     end
 
-    subgraph AIProviders ["Ecosistema de Modelos de Lenguaje"]
-        OllamaLocal["Ollama Local (Offline / Privado)"]
-        CloudAI["Proveedores Cloud (OpenAI / Claude / Groq)"]
+    subgraph AIProviders ["Language Model Infrastructure"]
+        OllamaLocal["Local Ollama (Offline / Fully Private)"]
+        CloudAI["Cloud Providers (OpenAI / Claude / Groq)"]
     end
 
-    %% Conexiones
+    %% Connections
     AudioInput --> WhisperASR
     Desktop <--> WinManager
     Tray --> WinManager
@@ -129,189 +129,189 @@ graph TB
     RouterCore <--> SQLiteState
     RouterCore --> MemoryMCP
     RouterCore --> OllamaLocal
-    RouterCore -. Failover en caliente .-> CloudAI
+    RouterCore -. Seamless Hot-Failover .-> CloudAI
 ```
 
 ---
 
-## 🔄 Diagramas de Flujo Operativos
+## 🔄 Operational Flowcharts
 
-### 1. Flujo de Inferencia con Failover Automático
-Este diagrama describe cómo Axx gestiona cada solicitud del usuario garantizando alta disponibilidad sin importar caídas o saturaciones de proveedores:
+### 1. Multi-Provider Inference with Automated Failover
+This sequence diagram demonstrates how Axx processes incoming user queries while guaranteeing high availability against upstream outages, rate limits, or quota exhaustions:
 
 ```mermaid
 sequenceDiagram
     autonumber
-    actor Usuario
-    participant UI as Frontend (Dock / Voz)
+    actor User as User
+    participant UI as Frontend (Dock / Voice)
     participant Router as Backend Router
     participant DB as SQLite (state.db)
-    participant ProvA as Proveedor A (Primario / Ollama)
-    participant ProvB as Proveedor B (Respaldo / Cloud)
+    participant ProvA as Provider A (Primary / Ollama)
+    participant ProvB as Provider B (Fallback / Cloud)
 
-    Usuario->>UI: Dictado de voz o mensaje de texto
-    UI->>Router: Petición HTTP / JSON sanitizado
-    Router->>DB: Verificar cuota diaria UTC y Cooldown de ProvA
-    alt ProvA disponible y con cuota
-        Router->>ProvA: Solicitud con deadline estricto (Wall-clock)
-        alt Respuesta exitosa (200 OK)
-            ProvA-->>Router: Tokens generados
-            Router->>DB: Registrar métricas de latencia y éxito
-            Router-->>UI: Respuesta procesada
-            UI-->>Usuario: Síntesis visual y háptica
-        else Fallo (429 Rate Limit / 503 Overloaded)
-            ProvA-->>Router: Error con Retry-After
-            Router->>DB: Marcar ProvA en Cooldown (saturado a 24h máx.)
-            Router->>ProvB: Conmutación en caliente inmediata a ProvB
-            ProvB-->>Router: Tokens generados
-            Router->>DB: Registrar éxito de ProvB
-            Router-->>UI: Respuesta procesada
-            UI-->>Usuario: Respuesta entregada sin interrupción
+    User->>UI: Voice dictation or text query
+    UI->>Router: Sanitized JSON HTTP request
+    Router->>DB: Check daily UTC quota & Cooldown status for ProvA
+    alt ProvA available and quota valid
+        Router->>ProvA: Strict wall-clock deadline request
+        alt Successful Generation (200 OK)
+            ProvA-->>Router: Response stream / tokens
+            Router->>DB: Log latency and increment success counter
+            Router-->>UI: Formatted response payload
+            UI-->>User: Visual rendering & haptic response
+        else Upstream Failure (429 Rate Limit / 503 Overloaded)
+            ProvA-->>Router: Error with Retry-After header
+            Router->>DB: Place ProvA in Cooldown (bounded to 24h max)
+            Router->>ProvB: Immediate hot-failover to Provider B
+            ProvB-->>Router: Successful tokens generated
+            Router->>DB: Log ProvB telemetry
+            Router-->>UI: Formatted response payload
+            UI-->>User: Seamless response delivered without disruption
         end
-    else ProvA en Cooldown o Cuota agotada
-        Router->>ProvB: Envío directo a Proveedor Secundario
-        ProvB-->>Router: Tokens generados
-        Router-->>UI: Respuesta procesada
+    else ProvA in Cooldown or Daily Quota Exceeded
+        Router->>ProvB: Direct routing to Secondary Provider
+        ProvB-->>Router: Successful response
+        Router-->>UI: Formatted response payload
     end
 ```
 
 ---
 
-### 2. Ciclo de Interacción Háptica y Paso de Clics (*Click-Through*)
-Axx se mantiene sobre la pantalla sin bloquear el trabajo habitual del usuario mediante un algoritmo continuo de cálculo de opacidad:
+### 2. Haptic Interaction & Click-Through Lifecycle
+Axx hovers over the active workspace without obstructing background productivity through continuous opacity calculations:
 
 ```mermaid
 flowchart TD
-    Start["Cursor se desplaza por la pantalla"] --> HitCheck{"¿El cursor está sobre un píxel<br/>opaco del Avatar o Menú?"}
+    Start["Pointer Moves Across Display"] --> HitCheck{"Is cursor over an opaque pixel<br/>of the Avatar or Active Menu?"}
     
-    HitCheck -- NO (Zona Transparente) --> Pass["Windows envía WM_NCHITTEST con HTTRANSPARENT"]
-    Pass --> DesktopClick["El clic impacta directamente en la aplicación detrás de Axx (Chrome, VSCode, etc.)"]
+    HitCheck -- NO (Transparent Zone) --> Pass["Windows dispatches WM_NCHITTEST with HTTRANSPARENT"]
+    Pass --> DesktopClick["Click passes straight through to underlying window (VSCode, Browser, etc.)"]
     
-    HitCheck -- SÍ (Sobre la Entidad) --> EvalJitter{"¿Desplazamiento > 7 píxeles?"}
-    EvalJitter -- NO --> ClickAvatar["Interacción: Abrir/Replegar Dock Radial"]
-    EvalJitter -- SÍ --> DragAvatar["Arrastrar físicamente el avatar por la pantalla con inercia elástica"]
+    HitCheck -- YES (Over Avatar) --> EvalJitter{"Has pointer drag delta<br/>exceeded 7 pixels?"}
+    EvalJitter -- NO --> ClickAvatar["Process Click: Expand/Collapse Radial FlowDock"]
+    EvalJitter -- YES --> DragAvatar["Engage physical drag across screen with elastic spring inertia"]
     
-    ClickAvatar --> ShowLevel["Despliegue de herramientas según nivel (Herramientas, Ajustes, Chat)"]
+    ClickAvatar --> ShowLevel["Reveal contextual level (Tools, Settings, Quick Chat)"]
 ```
 
 ---
 
-## ⚡ Características Principales
+## ⚡ Core Features
 
-### 🔮 1. Entidad 3D y Renderizado Dual
-- **Motor WebGL Primario (`LiquidRenderer`):**
-  - Malla procedural de **112 × 72 segmentos** (16.128 triángulos).
-  - Sombreado de raymarching en tiempo real con aberración cromática especular, efecto Fresnel y tabla de mapeo (LUT) bilineal de 512 × 512.
-- **Motor de Software de Respaldo (`SoftwareRenderer` / `CpuRaster`):**
-  - Diseñado para laptops en modo de ahorro de energía o GPUs integradas de baja potencia.
-  - Supermuestreo exacto a doble resolución (`resolve2x`) con mezcla premultiplicada de alfa para evitar bordes dentados.
-- **24 Formas Paramétricas Volumétricas:**
-  - *Catálogo Base:* `Core`, `Flow`, `Pearl`, `Torus`, `Split`, `Wave`, `Bloom`, `Fold`, `Spike`, `Drift`, `Orbit`, `Morph`.
-  - *Catálogo Avanzado v20:* `Cushion`, `Trefoil`, `Nova`, `Heart`, `Infinity`, `Helix`, `Knot`, `Petal`, `Prism`, `Capsule`, `Crescent`, `Ripple`.
-  - *Identidad Protegida:* La bandera `keepForm: true` en `localStorage` evita que animaciones temporales modifiquen permanentemente la forma elegida por el usuario.
+### 🔮 1. Dual 3D Rendering Pipeline
+- **Primary WebGL Engine (`LiquidRenderer`):**
+  - Procedural surface mesh composed of **112 × 72 segments** (16,128 triangles).
+  - Real-time procedural raymarching with specular chromatic aberration, Fresnel contours, and a 512 × 512 bilinear lookup table (LUT).
+- **CPU Software Engine Fallback (`SoftwareRenderer` / `CpuRaster`):**
+  - Engineered for battery-saving laptops, virtualized environments, and low-power integrated graphics.
+  - Strict 2x super-sampling resolution (`resolve2x`) with pre-multiplied alpha blending to eliminate edge aliasing.
+- **24 Volumetric Parametric Geometries:**
+  - *Classic Catalog:* `Core`, `Flow`, `Pearl`, `Torus`, `Split`, `Wave`, `Bloom`, `Fold`, `Spike`, `Drift`, `Orbit`, `Morph`.
+  - *v20 Advanced Catalog:* `Cushion`, `Trefoil`, `Nova`, `Heart`, `Infinity`, `Helix`, `Knot`, `Petal`, `Prism`, `Capsule`, `Crescent`, `Ripple`.
+  - *Protected Identity:* The `keepForm: true` flag in local persistence guarantees that ephemeral animation routines never overwrite the user's selected shape.
 
-### 🛡️ 2. Motor de Inferencia Resiliente (Router)
-- **Tolerancia a Fallos Probada:** Implementa las 10 protecciones fundamentales de robustez:
-  - Timeouts basados en reloj de pared (*wall-clock* estricto de 70 s) para evitar ataques o bloqueos por conexiones lentas (*slowloris*).
-  - Sanitización de respuestas JSON y rechazo de constantes inválidas (`NaN`, `Infinity`).
-  - Límite de `Retry-After` acotado a un máximo de 24 horas con parseo RFC 2822.
-  - Distinción entre errores de credenciales (401) y políticas de moderación (403), evitando reintentos infinitos inútiles.
-  - Cancelación activa limpia de subprocesos cuando el usuario pulsa `Esc`.
+### 🛡️ 2. Production-Hardened Inference Router
+- **Battle-Tested Resilience:** Built upon 10 strict defensive reliability patterns (H01–H10):
+  - True wall-clock timeouts (70-second absolute deadline) to nullify slowloris stream stall attacks.
+  - Strict JSON typing and rejection of non-standard numeric constants (`NaN`, `Infinity`).
+  - RFC 2822 timezone-aware `Retry-After` parsing clamped to a maximum 24-hour window.
+  - Clean separation between credential authentication faults (401) and policy/regional blocks (403).
+  - Clean asynchronous child-process cancellation whenever the user hits `Esc`.
 
-### 🎙️ 3. Voz y Transcripción Offline
-- Modelo **Faster-Whisper Tiny** preinstalado en la ruta de recursos.
-- Transcripción instantánea de comandos de voz con cero consumo de cuota externa y total confidencialidad.
+### 🎙️ 3. Private Local Voice Processing
+- Bundled **Faster-Whisper Tiny** model verified with SHA256 integrity checks.
+- Rapid local audio transcription with zero latency overhead and absolute privacy.
 
-### 🧠 4. Memoria Persistente y Herramientas MCP
-- Motor `ai-memory` integrado para recordar preferencias del usuario, sesiones previas y estado del sistema.
-- Interfaz extensible para ejecutar comandos en el sistema operativo mediante el estándar de la industria **Model Context Protocol (MCP)**.
+### 🧠 4. Episodic Memory & MCP Protocol
+- Embedded `ai-memory` adapter storing cross-session contextual recall.
+- Open integration via Anthropic's **Model Context Protocol (MCP)**, allowing Axx to inspect and interact with the local operating system safely.
 
-### ⌨️ 5. Control Global del Sistema
-| Atajo | Acción |
+### ⌨️ 5. Global Keyboard Shortcuts
+| Shortcut | Action |
 | :--- | :--- |
-| `Alt + Mayús + A` | Invocar y ordenar a Axx que siga suavemente el cursor. |
-| `Alt + Mayús + A, A` (doble pulsación < 450 ms) | Orden de regreso inmediato a la posición base de reposo. |
-| `Alt + Mayús + T` | Abrir directamente el panel de herramientas y ajustes. |
-| `Esc` | Cancelar seguimiento, abortar inferencia en curso o cerrar paneles. |
+| `Alt + Shift + A` | Summon Axx to smoothly track the cursor position. |
+| `Alt + Shift + A, A` (double-tap < 450 ms) | Command Axx to return immediately to its resting base position. |
+| `Alt + Shift + T` | Open the Tools & Settings radial palette directly. |
+| `Esc` | Abort active tracking, cancel in-flight inference, or collapse open menus. |
 
 ---
 
-## 📂 Estructura del Repositorio
+## 📂 Repository Structure
 
 ```plaintext
 AXX/
-├── 1.AXX/                         # Frontend WebGL, CSS háptico y lógica de la entidad
-│   ├── Axx.html                   # Runtime completo de interacción, shaders y máquinas de estado
-│   └── scripts/                   # Scripts auxiliares de integración UI
-├── backend/                       # Núcleo de servicios en Python
-│   ├── connect/                   # Módulos de conexión MCP, proveedores y API HTTP
-│   ├── inference/                 # Integración con motores de lenguaje y Ollama
-│   ├── memory/                    # Adaptador de memoria persistente SQLite/ai-memory
-│   ├── speech/                    # Motor de reconocimiento de voz Faster-Whisper
-│   └── server.py                  # Servidor principal de servicios locales
-├── src-tauri/                     # Host de escritorio en Rust (Tauri 2)
-│   ├── Cargo.toml                 # Dependencias nativas de Rust
-│   ├── tauri.conf.json            # Configuración de ventana transparente y empaquetado
+├── 1.AXX/                         # WebGL frontend, haptic CSS, and resident runtime
+│   ├── Axx.html                   # Complete 3D runtime, GLSL shaders, and state machines
+│   └── scripts/                   # UI bridging and interaction scripts
+├── backend/                       # Python service core
+│   ├── connect/                   # MCP host, HTTP API endpoints, and provider registries
+│   ├── inference/                 # LLM client adapters and local Ollama integrations
+│   ├── memory/                    # SQLite procedural memory and ai-memory adapters
+│   ├── speech/                    # Offline Faster-Whisper transcription engine
+│   └── server.py                  # Primary headless local services server
+├── src-tauri/                     # Native Rust host (Tauri v2)
+│   ├── Cargo.toml                 # Rust dependencies and compiler optimizations
+│   ├── tauri.conf.json            # Transparent window settings and NSIS bundle config
 │   └── src/
-│       ├── main.rs                # Punto de entrada de la aplicación nativa
-│       ├── lib.rs                 # Comandos Tauri, bandeja del sistema e inicialización
-│       └── resident.rs            # Gestión de ventana Win32, click-through y hotkeys
-├── resources/                     # Modelos y manifiestos del sistema
-│   ├── models/faster-whisper-tiny/# Pesos y tokenizador del modelo ASR offline
-│   ├── command-library.json       # Catálogo de recetas de comandos verificados
-│   └── providers.default.json     # Plantilla por defecto de proveedores
-├── scripts/                       # Scripts de compilación, verificación y pruebas
-│   ├── build-windows.ps1          # Pipeline integral de compilación nativa en Windows
-│   ├── start-axx.ps1              # Lanzador rápido para desarrollo
-│   └── verify-installed-files.py  # Verificador de integridad criptográfica SHA256
-├── docs/                          # Documentación detallada e imágenes
-│   └── images/                    # Capturas, diagramas e isotipo oficial
-├── package.json                   # Dependencias de Node.js y scripts de Tauri
-├── providers.json                 # Configuración activa de proveedores LLM
-└── README.md                      # Esta guía técnica
+│       ├── main.rs                # Application native entrypoint
+│       ├── lib.rs                 # Tauri commands, system tray, and lifecycle
+│       └── resident.rs            # Win32 API window manager, click-through & hotkeys
+├── resources/                     # Model weights and cryptographic manifests
+│   ├── models/faster-whisper-tiny/# Pre-packaged local ASR weights, config & tokenizer
+│   ├── command-library.json       # Catalog of verified desktop actions and recipes
+│   └── providers.default.json     # Default template for upstream LLM providers
+├── scripts/                       # Build automation, verification & diagnostic test harnesses
+│   ├── build-windows.ps1          # Production packaging script for Windows
+│   ├── start-axx.ps1              # Rapid development launcher
+│   └── verify-installed-files.py  # SHA256 cryptographic post-build audit
+├── docs/                          # Architectural documentation and assets
+│   └── images/                    # High-resolution screenshots, flowcharts & official logo
+├── package.json                   # Node.js dependencies and Tauri CLI scripts
+├── providers.json                 # Active upstream model provider configuration
+└── README.md                      # Technical repository documentation
 ```
 
 ---
 
-## 🚀 Guía de Instalación y Ejecución
+## 🚀 Getting Started & Development
 
-### Requisitos Previos
-- **Sistema Operativo:** Windows 10 u 11 (64 bits).
-- **Node.js:** v18.0 o superior (`npm` o `pnpm`).
-- **Rust:** Versión estable 1.78+ con herramienta de compilación MSVC (`rustup toolchain install stable-x86_64-pc-windows-msvc`).
-- **Python:** Versión 3.11 o 3.12 (recomendado 3.12) agregada al `PATH`.
+### Prerequisites
+- **Operating System:** Windows 10 or 11 (64-bit).
+- **Node.js:** v18.0 or later (`npm` or `pnpm`).
+- **Rust:** Stable 1.78+ with the MSVC toolchain (`rustup toolchain install stable-x86_64-pc-windows-msvc`).
+- **Python:** Version 3.11 or 3.12 (3.12 recommended) on the system `PATH`.
 
-### 1. Clonar el Repositorio
+### 1. Clone the Repository
 ```bash
 git clone https://github.com/luigilaxmaster-coder/AXX.git
 cd AXX
 ```
 
-### 2. Instalar Dependencias
+### 2. Install Dependencies
 ```powershell
-# Instalar dependencias de frontend y CLI de Tauri
+# Install frontend packages and Tauri CLI
 npm install
 
-# Instalar dependencias de Python del backend
+# Install Python backend dependencies
 pip install -r requirements-axx-connect.txt
 ```
 
-### 3. Ejecutar en Modo Desarrollo
-Puedes iniciar el entorno completo de desarrollo con recarga en caliente ejecutando:
+### 3. Launch in Development Mode
+To start the live development environment with hot-reloading:
 
 ```powershell
 npm run tauri dev
 ```
-*O utilizando el script automatizado de inicio:*
+*Alternatively, you can run the automated launcher script:*
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\start-axx.ps1
 ```
 
 ---
 
-## ⚙️ Configuración de Proveedores de IA (`providers.json`)
+## ⚙️ Provider Configuration (`providers.json`)
 
-Para configurar tus modelos y proveedores de inferencia, personaliza el archivo `providers.json` en la raíz del proyecto:
+Customize `providers.json` at the root of the project to define local models or cloud endpoints:
 
 ```json
 {
@@ -343,36 +343,36 @@ Para configurar tus modelos y proveedores de inferencia, personaliza el archivo 
 
 ---
 
-## 📦 Compilación para Producción (Instalador de Windows)
+## 📦 Building for Production (Windows NSIS Installer)
 
-Para generar el instalador final verificado (`.exe` NSIS):
+To compile and package the audited release executable (`.exe` NSIS):
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\build-windows.ps1
 ```
 
-El script ejecuta automáticamente:
-1. Verificación de integridad criptográfica de modelos y dependencias contra los manifiestos JSON.
-2. Empaquetado aislado del backend en Python mediante PyInstaller (`dist/axx-backend.exe`).
-3. Compilación optimizada en modo Release con el compilador de Rust.
-4. Generación del instalador NSIS para Windows listo para distribución en `src-tauri/target/release/bundle/nsis/`.
+The script automatically executes:
+1. Cryptographic SHA256 integrity validation of all local models and binaries against declared manifests.
+2. Isolated packaging of the Python backend into a standalone binary via PyInstaller (`dist/axx-backend.exe`).
+3. Release-mode compilation of the Rust host.
+4. Final packaging of the NSIS installer located at `src-tauri/target/release/bundle/nsis/`.
 
 ---
 
-## 🔒 Privacidad y Seguridad
+## 🔒 Security & Privacy Guarantees
 
-- **Cero Telemetría Forzada:** Toda la telemetría operativa y métricas de latencia se almacenan estrictamente en la base de datos local SQLite (`state.db`).
-- **Aislamiento de Tokens:** Las claves y tokens de acceso se almacenan cifradas mediante DPAPI de Windows a nivel de usuario en perfiles protegidos.
-- **Ejecución Segura:** Las herramientas y comandos del sistema operativo implementan una lista estricta de validación que impide la ejecución arbitraria de comandos no aprobados.
+- **Zero Forced Telemetry:** Runtime metrics and performance data remain strictly inside local SQLite stores (`state.db`).
+- **DPAPI Secret Encryption:** API keys and credentials are encrypted using the Windows Data Protection API (DPAPI) locked to the current Windows user profile.
+- **Sandboxed Command Execution:** Operating system commands execute strictly within an approved catalog, preventing arbitrary or untrusted code execution.
 
 ---
 
-## 📄 Licencia
+## 📄 License
 
-Este proyecto se distribuye bajo los términos de la licencia especificada en el repositorio. Consulta los archivos de licencias de dependencias en `src-tauri/resources/licenses/` para más detalles sobre librerías de terceros (Faster-Whisper, NumPy, AI-Memory).
+This project is distributed under the license terms specified in the repository. Refer to `src-tauri/resources/licenses/` for license notices regarding third-party components (Faster-Whisper, NumPy, AI-Memory).
 
 ---
 
 <p align="center">
-  Hecho con excelencia y dedicación por <a href="https://github.com/luigilaxmaster-coder"><strong>luigilaxmaster-coder</strong></a>
+  Engineered with precision and dedication by <a href="https://github.com/luigilaxmaster-coder"><strong>luigilaxmaster-coder</strong></a>
 </p>
