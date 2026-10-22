@@ -1,6 +1,7 @@
 param([string]$PythonExecutable = 'python', [switch]$SkipBackend, [switch]$BackendOnly,
       [string]$EvidenceDirectory = 'evidence\resident-20261019')
 $ErrorActionPreference = 'Stop'
+Import-Module Microsoft.PowerShell.Utility
 $projectRoot = Split-Path $PSScriptRoot -Parent
 $evidencePath = Join-Path $projectRoot $EvidenceDirectory
 New-Item -ItemType Directory -Path $evidencePath -Force | Out-Null
@@ -10,6 +11,8 @@ $buildLock = [IO.File]::Open($buildLockPath, 'OpenOrCreate', 'ReadWrite', 'None'
 Push-Location $projectRoot
 try {
     $dependency = Get-Content -LiteralPath 'resources\dependency-manifest.json' -Raw | ConvertFrom-Json
+    & $PythonExecutable -c 'import PIL, pypdf'
+    if ($LASTEXITCODE -ne 0) { throw 'Install requirements-converter.txt before building the Axx backend' }
     if ((Get-FileHash -LiteralPath 'src-tauri\resources\ai-memory.exe' -Algorithm SHA256).Hash -ne $dependency.exe_sha256) {
         throw 'ai-memory executable differs from the verified official dependency manifest'
     }
@@ -19,13 +22,13 @@ try {
         if ((Get-FileHash -LiteralPath $modelPath -Algorithm SHA256).Hash -ne $file.sha256) { throw "ASR model hash differs: $modelPath" }
     }
     $sourceFiles = @(Get-ChildItem -LiteralPath '1.AXX' -File -Recurse | Where-Object { $_.Extension -in '.html','.js','.css','.json','.png','.ico','.svg','.woff','.woff2' } | ForEach-Object FullName) + @('axx-backend.spec', 'src-tauri\tauri.conf.json', 'src-tauri\Cargo.toml', 'src-tauri\resources\ai-memory.exe')
-    $sourceFiles += @(Get-ChildItem backend,src-tauri\src,resources,vendor -File -Recurse | Where-Object { $_.Extension -in '.py','.rs','.json','.bin','.txt' -and $_.FullName -notmatch '\\(__pycache__|tests)\\' -and $_.Name -notlike 'test_*.py' } | ForEach-Object FullName)
+    $sourceFiles += @(Get-ChildItem backend,src-tauri\src,resources,vendor -File -Recurse | Where-Object { $_.Extension -in '.py','.rs','.json','.bin','.txt','.zip' -and $_.FullName -notmatch '\\(__pycache__|tests)\\' -and $_.Name -notlike 'test_*.py' } | ForEach-Object FullName)
     $before = @{}
     foreach ($file in $sourceFiles) { $before[$file] = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash }
     $steps = @()
     $started = [DateTimeOffset]::Now
     $backendInputs = @{}
-    foreach ($file in @(Get-ChildItem backend,resources,vendor -File -Recurse | Where-Object { $_.Extension -in '.py','.json','.bin','.txt' -and $_.FullName -notmatch '\\(__pycache__|tests)\\' -and $_.Name -notlike 'test_*.py' } | ForEach-Object FullName) + @('axx-backend.spec')) {
+    foreach ($file in @(Get-ChildItem backend,resources,vendor -File -Recurse | Where-Object { $_.Extension -in '.py','.json','.bin','.txt','.zip' -and $_.FullName -notmatch '\\(__pycache__|tests)\\' -and $_.Name -notlike 'test_*.py' } | ForEach-Object FullName) + @('axx-backend.spec')) {
         $backendInputs[$file] = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash
     }
     $backendReceiptPath = Join-Path $projectRoot 'build\backend-build-receipt.json'

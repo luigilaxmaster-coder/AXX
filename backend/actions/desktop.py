@@ -53,6 +53,12 @@ def validate_inputs(kind, inputs):
     elif kind == 'open_app':
         if inputs.get('app') not in APPS:
             raise ValueError('Aplicación no disponible. Puedes abrir calculadora, bloc de notas, Paint o explorador.')
+    elif kind == 'installed_app':
+        if not isinstance(inputs.get('app_id'), str) or not 1 <= len(inputs['app_id']) <= 1024:
+            raise ValueError('Selecciona una aplicación instalada.')
+    elif kind == 'list_apps':
+        if inputs:
+            raise ValueError('La lista de aplicaciones no admite parámetros.')
     elif kind == 'search':
         if inputs.get('engine') not in ENGINES or not isinstance(inputs.get('query'), str) or not 1 <= len(inputs['query'].strip()) <= 500:
             raise ValueError('Indica una búsqueda y un buscador compatible.')
@@ -63,7 +69,18 @@ def validate_inputs(kind, inputs):
         raise ValueError('Acción desconocida.')
 
 
-def resolve_desktop(text, source):
+def resolve_desktop(text, source, context=None):
+    context = {} if context is None else context
+    if not isinstance(context, dict) or set(context)-{'engine','query','url'}:
+        raise ValueError('Contexto de acción inválido.')
+    if any(not isinstance(v,str) or len(v)>2048 for v in context.values()):
+        raise ValueError('Contexto de acción inválido.')
+    def search_result(engine, query):
+        engine = 'google' if engine == 'internet' else engine
+        inputs = {'engine':engine,'query':query.strip()}
+        validate_inputs('search', inputs)
+        return {'match':'exact','command_id':'axx.desktop.search','inputs':inputs}
+    missing = {'match':'needs_input','message':'¿Qué quieres buscar? Puedes decir «busca gatitos en YouTube».'}
     shell = re.fullmatch(r'(?:/powershell\s+|ejecuta\s+en\s+powershell:\s*)(.+)', text.strip(), re.I | re.S)
     if shell:
         if source != 'text':
@@ -74,6 +91,25 @@ def resolve_desktop(text, source):
     raw = re.sub(r'^por favor[,\s]+', '', raw, flags=re.I)
     raw = re.sub(r'^(?:puedes|podrias|podrías|quiero que)\s+', '', raw, flags=re.I)
     raw = re.sub(r'\s+por favor[?.!]*$', '', raw, flags=re.I)
+    raw = re.sub(r'^pero\s+', '', raw, flags=re.I)
+    if plain(raw).strip(' .!?') in ('mis aplicaciones', 'aplicaciones instaladas', 'lista de aplicaciones', 'muestra mis aplicaciones'):
+        return {'match': 'exact', 'command_id': 'axx.desktop.list_apps', 'inputs': {}}
+    engine_pattern = r'(youtube|google|bing|duckduckgo|internet)'
+    # Compound open+search is a single typed URL action, not two unrelated effects.
+    compound = re.fullmatch(r'(?:abre|abrir|abreme|ábreme)\s+'+engine_pattern+r'\s+y\s+(?:busca|buscar|buscame|búscame)(?:\s+(.+))?',raw,re.I)
+    if compound:return search_result(compound[1].lower(),compound[2]) if compound[2] else missing
+    slash = re.fullmatch(r'/(?:search|buscar)\s+'+engine_pattern+r'(?:\s+(.+))?',raw,re.I)
+    if slash:return search_result(slash[1].lower(),slash[2]) if slash[2] else missing
+    if re.fullmatch(r'(?:busca|buscar|buscame|búscame)\s+en\s+'+engine_pattern,raw,re.I):return missing
+    if re.fullmatch(r'(?:abrela|ábrela|abrelo|ábrelo|abrirlo|abre(?:\s+la)?\s+busqueda)(?:\s+en\s+(?:el\s+)?navegador)?[.!?]*',raw,re.I):
+        if context.get('query') and context.get('engine') in ENGINES:return search_result(context['engine'],context['query'])
+        if context.get('url'):
+            return {'match':'exact','command_id':'axx.desktop.open_url','inputs':{'url':validate_url(context['url'])}}
+        return {'match':'needs_input','message':'Indica el enlace o la búsqueda que quieres abrir.'}
+    if plain(raw).strip(' .!?') in ('si','confirmar','confirmo'):
+        return {'match':'needs_input','message':'No hay una acción pendiente de esa confirmación. Indica qué quieres abrir o buscar.'}
+    music = re.fullmatch(r'(?:ponme|pon|reproduce|reproducir|escuchar)(?:\s+(.+))?',raw,re.I)
+    if music:return search_result('youtube',music[1]) if music[1] else missing
     # Preserve URL case and query punctuation. Only trim sentence marks for named targets.
     opening = re.fullmatch(r'(?:abre|abrir|abras|abreme|ábreme|inicia|ejecuta)\s+(?:(?:la|el)\s+)?(.+)', raw, re.I)
     if opening:
@@ -88,23 +124,47 @@ def resolve_desktop(text, source):
             url = target if re.match(r'https?://', target, re.I) else 'https://' + target
             validate_url(url)
             return {'match': 'exact', 'command_id': 'axx.desktop.open_url', 'inputs': {'url': url}}
-        return {'match': 'unsupported', 'message': 'No tengo un acceso configurado para esa aplicación. Puedo abrir YouTube, páginas web, calculadora, bloc de notas, Paint y explorador. Para un comando concreto escribe /powershell seguido del comando y revisa la aprobación.'}
+        if not re.search(r'[;&|\n\r]', target):
+            from .windows_apps import find_app
+            try:
+                candidates = find_app(name, plain)
+            except (OSError, ValueError, subprocess.TimeoutExpired):
+                return {'match': 'unsupported', 'message': 'No pude consultar las aplicaciones de Windows. Prueba «mis aplicaciones» para reintentar.'}
+            if len(candidates) == 1:
+                return {'match': 'exact', 'command_id': 'axx.desktop.installed_app', 'inputs': {'app_id': candidates[0]['app_id']}}
+            if candidates:
+                return {'match': 'ambiguous', 'message': 'Hay varias aplicaciones. Usa «abre» y el nombre completo: ' + ', '.join(c['name'] for c in candidates[:12]), 'candidates': candidates[:12]}
+        return {'match': 'unsupported', 'message': 'No encontré una aplicación instalada con ese nombre. Consulta «mis aplicaciones» o indica una dirección web.'}
     search = re.fullmatch(r'(?:busca|buscar|buscame|búscame)\s+en\s+(youtube|google|bing|duckduckgo|internet)\s+(.+)', raw, re.I)
     if search:
         engine, query = search[1].lower(), search[2]
     else:
         search = re.fullmatch(r'(?:busca|buscar|buscame|búscame)\s+(.+?)\s+en\s+(youtube|google|bing|duckduckgo|internet)[.!?]*', raw, re.I)
         if not search:
+            bare = re.fullmatch(r'(?:busca|buscar|buscame|búscame)(?:\s+(.+))?',raw,re.I)
+            if bare:
+                return search_result(context.get('engine') if context.get('engine') in ENGINES else 'google',bare[1]) if bare[1] else missing
+            if raw.startswith(('/search','/buscar')):return missing
             return None
         query, engine = search[1], search[2].lower()
-    return {'match': 'exact', 'command_id': 'axx.desktop.search', 'inputs': {'engine': 'google' if engine == 'internet' else engine, 'query': query}}
+    return search_result(engine, query)
 
 
 def open_target(kind, inputs):
     validate_inputs(kind, inputs)
     if os.name != 'nt':
         raise ValueError('Esta acción requiere Axx para Windows.')
-    if kind == 'open_app':
+    if kind in ('installed_app', 'list_apps'):
+        from .windows_apps import installed_apps
+        rows = installed_apps()
+        if kind == 'list_apps':
+            return {'success': True, 'output': {'applications': rows},
+                    'evidence': {'verification': 'windows_inventory', 'count': len(rows)}}
+        app = next((row for row in rows if row['app_id'] == inputs['app_id']), None)
+        if not app:
+            raise ValueError('La aplicación no aparece en el inventario de Windows. Actualiza la lista.')
+        target, label = 'shell:AppsFolder\\' + app['app_id'], app['name']
+    elif kind == 'open_app':
         label, relative, _ = APPS[inputs['app']]
         target = str(Path(os.environ.get('SystemRoot', r'C:\Windows')) / relative)
         if not Path(target).is_file():

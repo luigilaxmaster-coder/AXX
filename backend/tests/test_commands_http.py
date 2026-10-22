@@ -57,6 +57,18 @@ class CommandsHttpTests(unittest.TestCase):
         self.assertEqual(result['cancelled_operations'], 0)
         self.assertEqual(self.commands.get(pending['operation_id'])['state'], 'awaiting_approval')
 
+    def test_conversational_context_crosses_transport_and_details_are_read_only(self):
+        status, result = self.request('commands/resolve', {'text': 'busca afraid', 'source': 'text', 'context': {'engine': 'youtube'}})
+        self.assertEqual(status, 200)
+        self.assertEqual(result['inputs'], {'engine': 'youtube', 'query': 'afraid'})
+        self.assertEqual(self.request('commands/resolve', {'text': 'busca gatos', 'context': {'execute': True}})[0], 400)
+        self.assertEqual(self.request('commands/resolve', {'text': 'busca gatos', 'context': []})[0], 400)
+        status, details = self.request('commands/details?id=AXX-02-0147')
+        self.assertEqual(status, 200)
+        self.assertEqual(details['command']['adapter_id'], 'axx.file.sha256')
+        self.assertEqual(self.executor.list_operations(), [])
+        self.assertEqual(self.request('commands/details?id=AXX-02-0147', auth=False)[0], 401)
+
     def test_legacy_routes_cannot_bypass_catalog_policy(self):
         status, _ = self.request('actions/execute', {'tool_name': 'desktop_powershell', 'inputs': {'script': 'Get-Date'}})
         self.assertEqual(status, 403)

@@ -99,6 +99,14 @@ class ProviderSettingsTests(unittest.TestCase):
         with self.assertRaises(ValueError): self.save()
         self.adapter.active_requests.clear()
 
+    def test_same_model_preserves_verified_capabilities(self):
+        self.save()
+        self.adapter.config['providers'][0]['capabilities'] = ['text', 'vision']
+        self.save()
+        self.assertEqual(self.adapter.config['providers'][0]['capabilities'], ['text', 'vision'])
+        settings.save({'provider': 'ollama', 'name': 'Local', 'model': 'another-model'}, self.adapter, self.path)
+        self.assertEqual(self.adapter.config['providers'][0]['capabilities'], ['text'])
+
     def test_rejects_key_in_model_field(self):
         with self.assertRaisesRegex(ValueError, 'clave de API'):
             settings.save({'provider':'ollama_cloud', 'name':'cloud', 'model':'a'*32+'.'+'B'*24}, self.adapter, self.path)

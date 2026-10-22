@@ -31,6 +31,7 @@ from backend.inference import provider_settings
 from backend.actions.executor import ActionExecutor, ActionExecutionError
 from backend.actions.tools import list_tools
 from backend.commands import CommandService, ApprovalRequired, parse_command_json, ADAPTERS
+from backend.action_learning import ActionLearning
 from backend.memory.procedural_memory import ProceduralMemory
 from backend.memory.ai_memory_adapter import AiMemoryAdapter
 from backend.sync.identity_sync import IdentityStore
@@ -43,6 +44,8 @@ from backend.connect.http_api import ConnectHTTP, publish_endpoint, remove_endpo
 from backend.connect.service import ConnectService
 from backend.connect.provider import CodexProvider, ProviderError
 from backend.screen_recording import ScreenRecordingService
+from backend.magic_pen import MagicPenService, monitors as pen_monitors
+from backend.converter import ConverterService
 
 LOG = logging.getLogger('axx.server')
 MAX_BODY = 2 * 1024 * 1024
@@ -66,7 +69,10 @@ class ThreadedHTTPServer(socketserver.ThreadingMixIn, HTTPServer):
 class AxxBridgeHandler(BaseHTTPRequestHandler):
     adapter = executor = memory = identity = speech = transcription = None
     commands = None
+    learning = None
     recording = None
+    magic_pen = None
+    converter = None
     chatgpt_auth = chatgpt_adapter = None
     connect = provider = None
     frontend_path = root_dir / '1.AXX' / 'Axx.html'
@@ -150,6 +156,32 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
             self.wfile.write(content)
             self.close_connection = True
             return
+
+        if (path == '/mobile' or path.startswith('/mobile/')) and not self.server.host_owned:
+            rel = path[len('/mobile'):].lstrip('/') or 'index.html'
+            mobile_dir = (root_dir / 'mobile').resolve()
+            target_file = (mobile_dir / rel).resolve()
+            if target_file.is_file() and (target_file == mobile_dir or mobile_dir in target_file.parents):
+                mimes = {
+                    '.html': 'text/html; charset=utf-8',
+                    '.css': 'text/css; charset=utf-8',
+                    '.js': 'application/javascript; charset=utf-8',
+                    '.json': 'application/json; charset=utf-8',
+                    '.png': 'image/png',
+                    '.svg': 'image/svg+xml',
+                    '.ico': 'image/x-icon'
+                }
+                content = target_file.read_bytes()
+                self.send_response(200)
+                self.send_header('Content-Type', mimes.get(target_file.suffix.lower(), 'application/octet-stream'))
+                self.send_header('Content-Length', str(len(content)))
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.send_header('Connection', 'close')
+                self.end_headers()
+                self.wfile.write(content)
+                self.close_connection = True
+                return
+
         if not self._authorized():
             return
         try:
@@ -188,17 +220,30 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                 self._send_json(200, {'providers': provider_settings.public_entries(self.adapter.config)})
             elif path == '/axx-api/actions':
                 self._send_json(200, {'tools': list_tools(), 'artifact_root': str(self.executor.workspace_root)})
-            elif path in ('/axx-api/commands', '/axx-api/commands/operations'):
+            elif path in ('/axx-api/learning/actions', '/axx-api/learning/plan'):
+                if not self.learning:
+                    self._unsupported('Aprendizaje de acciones no disponible')
+                    return
+                query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+                if path.endswith('/actions'):
+                    if query: raise ValueError('La lista no admite parámetros')
+                    self._send_json(200, {'actions': self.learning.list_actions()})
+                else:
+                    if set(query) != {'id'} or len(query['id']) != 1: raise ValueError('ID de plan requerido')
+                    self._send_json(200, self.learning.get(query['id'][0]))
+            elif path in ('/axx-api/commands', '/axx-api/commands/operations', '/axx-api/commands/details'):
                 if not self.commands:
                     self._unsupported('Command library service is unavailable')
                     return
                 query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query, keep_blank_values=True)
-                allowed = {'q', 'limit', 'offset'} if path == '/axx-api/commands' else {'operation_id'}
+                allowed = {'q', 'limit', 'offset'} if path == '/axx-api/commands' else {'id'} if path.endswith('/details') else {'operation_id'}
                 if set(query) - allowed or any(len(values) != 1 for values in query.values()):
                     raise ValueError('Invalid command query fields')
                 if path == '/axx-api/commands':
                     self._send_json(200, self.commands.search(query.get('q', [''])[0],
                         int(query.get('limit', ['30'])[0]), int(query.get('offset', ['0'])[0])))
+                elif path.endswith('/details'):
+                    self._send_json(200, self.commands.details(query.get('id', [''])[0]))
                 elif 'operation_id' in query:
                     operation = self.commands.get(query['operation_id'][0])
                     self._send_json(200 if operation else 404, {'operation': operation})
@@ -285,6 +330,49 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
         path = urllib.parse.urlsplit(self.path).path
         try:
             if ConnectHTTP(self).post(path, body):
+                return
+            if path.startswith('/axx-api/converter/'):
+                if not self.converter:
+                    raise ValueError('Convertidor no disponible.')
+                operation = path.rsplit('/', 1)[-1]
+                if operation == 'new':
+                    result = self.converter.new(body.get('files'))
+                elif operation == 'upload':
+                    result = self.converter.upload(body.get('id'), body.get('index'), body.get('offset'), body.get('data'))
+                elif operation == 'probe':
+                    result = self.converter.probe(body.get('id'))
+                elif operation == 'run':
+                    result = self.converter.run(body.get('id'), body.get('operation'), body.get('options'))
+                elif operation == 'status':
+                    result = self.converter.status(body.get('id'))
+                elif operation == 'cancel':
+                    result = self.converter.cancel(body.get('id'))
+                elif operation == 'history':
+                    result = self.converter.history()
+                elif operation == 'open':
+                    result = self.converter.open_result(body.get('id'))
+                else:
+                    raise ValueError('Operación de convertidor no disponible.')
+                self._send_json(200, result)
+                return
+            if path.startswith('/axx-api/pen/'):
+                if not self.magic_pen:
+                    raise ValueError('Magic Pen no disponible.')
+                operation = path.rsplit('/', 1)[-1]
+                if operation == 'status':
+                    result = {'capabilities': self.magic_pen.capabilities(), 'monitors': pen_monitors(), 'history': self.magic_pen.list()}
+                elif operation == 'get':
+                    result = self.magic_pen.get(body.get('id'), image=True)
+                elif operation in {'capture', 'save', 'export', 'analyze'}:
+                    try:
+                        result = getattr(self.magic_pen, operation)(body)
+                    except OSError as exc:
+                        self._send_json(409 if isinstance(exc, FileExistsError) else 500,
+                            {'error': {'code': 'FILE_EXISTS' if isinstance(exc, FileExistsError) else 'EXPORT_FAILED', 'message': str(exc)}})
+                        return
+                else:
+                    raise ValueError('Operación de Magic Pen no disponible.')
+                self._send_json(200, result)
                 return
             if path == '/axx-api/chat':
                 if body.get('provider') == 'chatgpt' or body.get('mode') == 'auth':
@@ -385,12 +473,27 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                     'client_id': self.chatgpt_auth.get_client_id(),
                     'message': 'ID de cliente de OpenAI guardado con éxito.'
                 })
+            elif path.startswith('/axx-api/learning/'):
+                if not self.learning:
+                    self._unsupported('Aprendizaje de acciones no disponible')
+                    return
+                action = path.rsplit('/', 1)[-1]
+                fields = {'propose': {'text', 'operation_id', 'context', 'model', 'provider_name'},
+                          'execute': {'operation_id', 'approved'}, 'cancel': {'operation_id'}}
+                if action not in fields or set(body) - fields[action]: raise ValueError('Campos de aprendizaje inválidos')
+                if action == 'propose':
+                    result = self.learning.propose(body.get('text'), body.get('operation_id'), body.get('context'), body.get('model', ''), body.get('provider_name', ''))
+                elif action == 'execute':
+                    result = self.learning.execute(body.get('operation_id'), body.get('approved', False))
+                else:
+                    result = self.learning.cancel(body.get('operation_id'))
+                self._send_json(200, result)
             elif path.startswith('/axx-api/commands/'):
                 if not self.commands:
                     self._unsupported('Command library service is unavailable')
                     return
                 fields = {
-                    'resolve': {'text', 'source'},
+                    'resolve': {'text', 'source', 'context'},
                     'prepare': {'command_id', 'inputs', 'source', 'operation_id'},
                     'execute': {'operation_id', 'approved'},
                     'cancel': {'operation_id'},
@@ -399,7 +502,7 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                 if action not in fields or set(body) - fields[action]:
                     raise ValueError('Unsupported command request fields')
                 if action == 'resolve':
-                    result = self.commands.resolve(body.get('text'), body.get('source', 'text'))
+                    result = self.commands.resolve(body.get('text'), body.get('source', 'text'), body.get('context'))
                 elif action == 'prepare':
                     result = self.commands.prepare(body.get('command_id'), body.get('inputs', {}),
                         body.get('source', 'text'), body.get('operation_id'))
@@ -420,6 +523,8 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                 # This must not wait on action_lock, which the active render owns.
                 if self.commands:
                     self.commands.cancel()
+                if self.learning:
+                    self.learning.cancel_all()
                 from backend.actions.cli_blender import cancel_active
                 cancelled_count = cancel_active()
                 if self.speech:
@@ -750,8 +855,13 @@ def run_server(host='127.0.0.1', port=4173, config_path='providers.json', state_
         services.append(executor)
         recording = ScreenRecordingService(executor.workspace_root)
         services.append(recording)
+        magic_pen = MagicPenService(executor.workspace_root, adapter)
+        converter = ConverterService(executor.workspace_root)
         commands = CommandService(executor)
         services.append(commands)
+        learning = ActionLearning(commands, adapter)
+        commands.learning = learning
+        services.append(learning)
         speech = WindowsSpeechService(state_dir)
         services.append(speech)
         transcription = OfflineTranscriptionService(state_dir)
@@ -769,11 +879,12 @@ def run_server(host='127.0.0.1', port=4173, config_path='providers.json', state_
         provider = CodexProvider(commands, state_path, state_dir, dispatcher=connect.dispatch)
         services.append(provider)
         handler = type('ConfiguredAxxHandler', (AxxBridgeHandler,), {
-            'adapter': adapter, 'executor': executor, 'commands': commands,
+            'adapter': adapter, 'executor': executor, 'commands': commands, 'learning': learning,
             'memory': memory, 'identity': identity, 'speech': speech,
             'transcription': transcription, 'chatgpt_auth': chatgpt_auth,
             'chatgpt_adapter': chatgpt_adapter, 'config_path': Path(config_path),
-            'connect': connect, 'provider': provider, 'recording': recording
+            'connect': connect, 'provider': provider, 'recording': recording, 'magic_pen': magic_pen,
+            'converter': converter
         })
         server = ThreadedHTTPServer((host, port), handler)
         publish_endpoint(state_dir, server)

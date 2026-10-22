@@ -1,0 +1,4 @@
+# Verified speech resources must retain the bytes recorded by their manifest.
+resources/models/faster-whisper-tiny/config.json text eol=lf
+resources/models/faster-whisper-tiny/tokenizer.json text eol=lf
+resources/models/faster-whisper-tiny/vocabulary.txt text eol=lf

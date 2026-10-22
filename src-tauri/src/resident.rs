@@ -3,6 +3,7 @@ use super::*;
 use tauri::{PhysicalPosition, WebviewWindow};
 
 static ACTIVE_PANEL_DRAG: AtomicBool = AtomicBool::new(false);
+static STABLE_SURFACE: AtomicBool = AtomicBool::new(false);
 static LAST_LAYOUT_INSTANT: Mutex<Option<Instant>> = Mutex::new(None);
 
 #[allow(dead_code)]
@@ -138,6 +139,10 @@ fn apply(app: &AppHandle, resize: bool) -> Result<(), String> {
     let state = app.state::<HostState>();
     let mut g = state.resident.lock().unwrap().clone();
     let a = nearest(&w, g.screen_x, g.screen_y);
+    if STABLE_SURFACE.load(Ordering::Relaxed) {
+        g.anchor_x = ((g.screen_x - a.x) / a.scale).clamp(0., g.width);
+        g.anchor_y = ((g.screen_y - a.y) / a.scale).clamp(0., g.height);
+    }
     let (x, y) = constrained_origin(&g, a);
     g.screen_x = x + g.anchor_x * a.scale;
     g.screen_y = y + g.anchor_y * a.scale;
@@ -228,6 +233,7 @@ pub fn desktop_layout(
     anchor_y: f64,
     ready: Option<bool>,
     panel_drag: Option<bool>,
+    stable_surface: Option<bool>,
 ) -> Result<DesktopStatus, String> {
     if let Some(dragging) = panel_drag {
         set_panel_drag(dragging);
@@ -248,12 +254,22 @@ pub fn desktop_layout(
         return Err("Invalid bounded resident content geometry".into());
     }
     let state = app.state::<HostState>();
+    if let Some(stable) = stable_surface {
+        STABLE_SURFACE.store(stable, Ordering::Relaxed);
+    }
     {
         let mut g = state.resident.lock().unwrap();
         g.width = width;
         g.height = height;
         g.anchor_x = anchor_x;
         g.anchor_y = anchor_y;
+        if STABLE_SURFACE.load(Ordering::Relaxed) {
+            if let Some(w) = app.get_webview_window("main") {
+                let a = nearest(&w, g.screen_x, g.screen_y);
+                g.screen_x = a.x + anchor_x * a.scale;
+                g.screen_y = a.y + anchor_y * a.scale;
+            }
+        }
         if ready == Some(true) {
             g.ready = true;
         }
@@ -264,6 +280,20 @@ pub fn desktop_layout(
         show_passive(&app)?;
         super::write_runtime_snapshot(&app);
     }
+    status(&app).ok_or_else(|| "Resident window unavailable".into())
+}
+#[tauri::command]
+pub fn desktop_move_body(app: AppHandle, x: f64, y: f64) -> Result<DesktopStatus, String> {
+    if !x.is_finite() || !y.is_finite() {
+        return Err("Invalid body position".into());
+    }
+    {
+        let state = app.state::<HostState>();
+        let mut g = state.resident.lock().unwrap();
+        g.screen_x = x;
+        g.screen_y = y;
+    }
+    apply(&app, false)?;
     status(&app).ok_or_else(|| "Resident window unavailable".into())
 }
 #[tauri::command]
@@ -539,7 +569,7 @@ pub fn follow_cursor(app: &AppHandle, x: f64, y: f64) {
         return;
     }
     let mut g = state.resident.lock().unwrap().clone();
-    if !g.ready || g.width > 520. || g.height > 560. {
+    if !g.ready || (!STABLE_SURFACE.load(Ordering::Relaxed) && (g.width > 520. || g.height > 560.)) {
         return;
     }
     let Some(w) = app.get_webview_window("main") else {
@@ -555,6 +585,9 @@ pub fn follow_cursor(app: &AppHandle, x: f64, y: f64) {
     g.screen_y += (ty - g.screen_y) * 0.22;
     *state.resident.lock().unwrap() = g;
     let _ = apply(app, false);
+    if STABLE_SURFACE.load(Ordering::Relaxed) {
+        let _ = w.emit("axx-desktop-layout", status(app));
+    }
 }
 pub fn install_tray(app: &AppHandle) -> tauri::Result<()> {
     use tauri::{

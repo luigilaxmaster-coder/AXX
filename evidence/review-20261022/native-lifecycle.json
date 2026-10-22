@@ -1,0 +1,571 @@
+{
+  "views": [
+    {
+      "id": "layout11",
+      "closed": true
+    },
+    {
+      "id": "screen",
+      "closed": true
+    },
+    {
+      "id": "music",
+      "closed": true
+    },
+    {
+      "id": "organic",
+      "closed": true
+    },
+    {
+      "id": "dictation",
+      "closed": true
+    },
+    {
+      "id": "reader",
+      "closed": true
+    },
+    {
+      "id": "translation",
+      "closed": true
+    },
+    {
+      "id": "transcript",
+      "closed": true
+    },
+    {
+      "id": "morphui",
+      "closed": true
+    },
+    {
+      "id": "roadmap",
+      "closed": true
+    },
+    {
+      "id": "magicpen",
+      "closed": true
+    },
+    {
+      "id": "converter",
+      "closed": true
+    },
+    {
+      "id": "experience",
+      "closed": true
+    },
+    {
+      "id": "stopwatch",
+      "closed": true
+    },
+    {
+      "id": "textstudio",
+      "closed": true
+    },
+    {
+      "id": "images",
+      "closed": true
+    },
+    {
+      "id": "chat",
+      "closed": true
+    },
+    {
+      "id": "timer",
+      "closed": true
+    },
+    {
+      "id": "notes",
+      "closed": true
+    },
+    {
+      "id": "todos",
+      "closed": true
+    },
+    {
+      "id": "calculator",
+      "closed": true
+    },
+    {
+      "id": "files",
+      "closed": true
+    },
+    {
+      "id": "focus",
+      "closed": true
+    },
+    {
+      "id": "appearance",
+      "closed": true
+    },
+    {
+      "id": "lab",
+      "closed": true
+    },
+    {
+      "id": "audio",
+      "closed": true
+    },
+    {
+      "id": "sound",
+      "closed": true
+    },
+    {
+      "id": "ai",
+      "closed": true
+    },
+    {
+      "id": "settings",
+      "closed": true
+    },
+    {
+      "id": "inbox",
+      "closed": true
+    },
+    {
+      "id": "help",
+      "closed": true
+    }
+  ],
+  "metrics": {
+    "baseline": {
+      "frames": 17,
+      "range_x": 0,
+      "range_y": 0,
+      "covered_frames": 0,
+      "outside_frames": 0
+    },
+    "layout11:open": {
+      "frames": 38,
+      "range_x": 0,
+      "range_y": 0,
+      "covered_frames": 0,
+      "outside_frames": 0
+    },
+    "layout11:close": {
+      "frames": 49,
+      "range_x": 0,
+      "range_y": 0,
+      "covered_frames": 0,
+      "outside_frames": 0
+    },
+    "screen:open": {
+      "frames": 34,
+      "range_x": 0,
+      "range_y": 0,
+      "covered_frames": 0,
+      "outside_frames": 0
+    },
+    "screen:close": {
+      "frames": 49,
+      "range_x": 0,
+      "range_y": 0,
+      "covered_frames": 0,
+      "outside_frames": 0
+    },
+    "music:open": {
+      "frames": 33,
+      "range_x": 0,
+      "range_y": 0,
+      "covered_frames": 0,
+      "outside_frames": 0
+    },
+    "music:close": {
+      "frames": 49,
+      "range_x": 0,
+      "range_y": 0,
+      "covered_frames": 0,
+      "outside_frames": 0
+    },
+    "organic:open": {
+      "frames": 34,
+      "range_x": 0,
+      "range_y": 0,
+      "covered_frames": 0,
+      "outside_frames": 0
+    },
+    "organic:close": {
+      "frames": 49,
+      "range_x": 0,
+      "range_y": 0,
+      "covered_frames": 0,
+      "outside_frames": 0
+    },
+    "dictation:open": {
+      "frames": 34,
+      "range_x": 0,
+      "range_y": 0,
+      "covered_frames": 0,
+      "outside_frames": 0
+    },
+    "dictation:close": {
+      "frames": 49,
+      "range_x": 0,
+      "range_y": 0,
+      "covered_frames": 0,
+      "outside_frames": 0
+    },
+    "reader:open": {
+      "frames": 33,
+      "range_x": 0,
+      "range_y": 0,
+      "covered_frames": 0,
+      "outside_frames": 0
+    },
+    "reader:close": {
+      "frames": 50,
+      "range_x": 0,
+      "range_y": 0,
+      "covered_frames": 0,
+      "outside_frames": 0
+    },
+    "translation:open": {
+      "frames": 34,
+      "range_x": 0,
+      "range_y": 0,
+      "covered_frames": 0,
+      "outside_frames": 0
+    },
+    "translation:close": {
+      "frames": 48,
+      "range_x": 0,
+      "range_y": 0,
+      "covered_frames": 0,
+      "outside_frames": 0
+    },
+    "transcript:open": {
+      "frames": 34,
+      "range_x": 0,
+      "range_y": 0,
+      "covered_frames": 0,
+      "outside_frames": 0
+    },
+    "transcript:close": {
+      "frames": 49,
+      "range_x": 0,
+      "range_y": 0,
+      "covered_frames": 0,
+      "outside_frames": 0
+    },
+    "morphui:open": {
+      "frames": 33,
+      "range_x": 0,
+      "range_y": 0,
+      "covered_frames": 0,
+      "outside_frames": 0
+    },
+    "morphui:close": {
+      "frames": 48,
+      "range_x": 0,
+      "range_y": 0,
+      "covered_frames": 0,
+      "outside_frames": 0
+    },
+    "roadmap:open": {
+      "frames": 34,
+      "range_x": 0,
+      "range_y": 0,
+      "covered_frames": 0,
+      "outside_frames": 0
+    },
+    "roadmap:close": {
+      "frames": 49,
+      "range_x": 0,
+      "range_y": 0,
+      "covered_frames": 0,
+      "outside_frames": 0
+    },
+    "magicpen:open": {
+      "frames": 34,
+      "range_x": 0,
+      "range_y": 0,
+      "covered_frames": 0,
+      "outside_frames": 0
+    },
+    "magicpen:close": {
+      "frames": 50,
+      "range_x": 0,
+      "range_y": 0,
+      "covered_frames": 0,
+      "outside_frames": 0
+    },
+    "converter:open": {
+      "frames": 35,
+      "range_x": 0,
+      "range_y": 0,
+      "covered_frames": 0,
+      "outside_frames": 0
+    },
+    "converter:close": {
+      "frames": 48,
+      "range_x": 0,
+      "range_y": 0,
+      "covered_frames": 0,
+      "outside_frames": 0
+    },
+    "experience:open": {
+      "frames": 34,
+      "range_x": 0,
+      "range_y": 0,
+      "covered_frames": 0,
+      "outside_frames": 0
+    },
+    "experience:close": {
+      "frames": 49,
+      "range_x": 0,
+      "range_y": 0,
+      "covered_frames": 0,
+      "outside_frames": 0
+    },
+    "stopwatch:open": {
+      "frames": 33,
+      "range_x": 0,
+      "range_y": 0,
+      "covered_frames": 0,
+      "outside_frames": 0
+    },
+    "stopwatch:close": {
+      "frames": 48,
+      "range_x": 0,
+      "range_y": 0,
+      "covered_frames": 0,
+      "outside_frames": 0
+    },
+    "textstudio:open": {
+      "frames": 32,
+      "range_x": 0,
+      "range_y": 0,
+      "covered_frames": 0,
+      "outside_frames": 0
+    },
+    "textstudio:close": {
+      "frames": 48,
+      "range_x": 0,
+      "range_y": 0,
+      "covered_frames": 0,
+      "outside_frames": 0
+    },
+    "images:open": {
+      "frames": 32,
+      "range_x": 0,
+      "range_y": 0,
+      "covered_frames": 0,
+      "outside_frames": 0
+    },
+    "images:close": {
+      "frames": 52,
+      "range_x": 0,
+      "range_y": 0,
+      "covered_frames": 0,
+      "outside_frames": 0
+    },
+    "chat:open": {
+      "frames": 36,
+      "range_x": 0,
+      "range_y": 0,
+      "covered_frames": 0,
+      "outside_frames": 0
+    },
+    "chat:close": {
+      "frames": 49,
+      "range_x": 0,
+      "range_y": 0,
+      "covered_frames": 0,
+      "outside_frames": 0
+    },
+    "timer:open": {
+      "frames": 34,
+      "range_x": 0,
+      "range_y": 0,
+      "covered_frames": 0,
+      "outside_frames": 0
+    },
+    "timer:close": {
+      "frames": 48,
+      "range_x": 0,
+      "range_y": 0,
+      "covered_frames": 0,
+      "outside_frames": 0
+    },
+    "notes:open": {
+      "frames": 32,
+      "range_x": 0,
+      "range_y": 0,
+      "covered_frames": 0,
+      "outside_frames": 0
+    },
+    "notes:close": {
+      "frames": 49,
+      "range_x": 0,
+      "range_y": 0,
+      "covered_frames": 0,
+      "outside_frames": 0
+    },
+    "todos:open": {
+      "frames": 33,
+      "range_x": 0,
+      "range_y": 0,
+      "covered_frames": 0,
+      "outside_frames": 0
+    },
+    "todos:close": {
+      "frames": 50,
+      "range_x": 0,
+      "range_y": 0,
+      "covered_frames": 0,
+      "outside_frames": 0
+    },
+    "calculator:open": {
+      "frames": 34,
+      "range_x": 0,
+      "range_y": 0,
+      "covered_frames": 0,
+      "outside_frames": 0
+    },
+    "calculator:close": {
+      "frames": 50,
+      "range_x": 0,
+      "range_y": 0,
+      "covered_frames": 0,
+      "outside_frames": 0
+    },
+    "files:open": {
+      "frames": 34,
+      "range_x": 0,
+      "range_y": 0,
+      "covered_frames": 0,
+      "outside_frames": 0
+    },
+    "files:close": {
+      "frames": 50,
+      "range_x": 0,
+      "range_y": 0,
+      "covered_frames": 0,
+      "outside_frames": 0
+    },
+    "focus:open": {
+      "frames": 34,
+      "range_x": 0,
+      "range_y": 0,
+      "covered_frames": 0,
+      "outside_frames": 0
+    },
+    "focus:close": {
+      "frames": 48,
+      "range_x": 0,
+      "range_y": 0,
+      "covered_frames": 0,
+      "outside_frames": 0
+    },
+    "appearance:open": {
+      "frames": 33,
+      "range_x": 0,
+      "range_y": 0,
+      "covered_frames": 0,
+      "outside_frames": 0
+    },
+    "appearance:close": {
+      "frames": 49,
+      "range_x": 0,
+      "range_y": 0,
+      "covered_frames": 0,
+      "outside_frames": 0
+    },
+    "lab:open": {
+      "frames": 34,
+      "range_x": 0,
+      "range_y": 0,
+      "covered_frames": 0,
+      "outside_frames": 0
+    },
+    "lab:close": {
+      "frames": 50,
+      "range_x": 0,
+      "range_y": 0,
+      "covered_frames": 0,
+      "outside_frames": 0
+    },
+    "audio:open": {
+      "frames": 32,
+      "range_x": 0,
+      "range_y": 0,
+      "covered_frames": 0,
+      "outside_frames": 0
+    },
+    "audio:close": {
+      "frames": 49,
+      "range_x": 0,
+      "range_y": 0,
+      "covered_frames": 0,
+      "outside_frames": 0
+    },
+    "sound:open": {
+      "frames": 33,
+      "range_x": 0,
+      "range_y": 0,
+      "covered_frames": 0,
+      "outside_frames": 0
+    },
+    "sound:close": {
+      "frames": 49,
+      "range_x": 0,
+      "range_y": 0,
+      "covered_frames": 0,
+      "outside_frames": 0
+    },
+    "ai:open": {
+      "frames": 34,
+      "range_x": 0,
+      "range_y": 0,
+      "covered_frames": 0,
+      "outside_frames": 0
+    },
+    "ai:close": {
+      "frames": 52,
+      "range_x": 0,
+      "range_y": 0,
+      "covered_frames": 0,
+      "outside_frames": 0
+    },
+    "settings:open": {
+      "frames": 36,
+      "range_x": 0,
+      "range_y": 0,
+      "covered_frames": 0,
+      "outside_frames": 0
+    },
+    "settings:close": {
+      "frames": 51,
+      "range_x": 0,
+      "range_y": 0,
+      "covered_frames": 0,
+      "outside_frames": 0
+    },
+    "inbox:open": {
+      "frames": 50,
+      "range_x": 0,
+      "range_y": 0,
+      "covered_frames": 0,
+      "outside_frames": 0
+    },
+    "inbox:close": {
+      "frames": 51,
+      "range_x": 0,
+      "range_y": 0,
+      "covered_frames": 0,
+      "outside_frames": 0
+    },
+    "help:open": {
+      "frames": 32,
+      "range_x": 0,
+      "range_y": 0,
+      "covered_frames": 0,
+      "outside_frames": 0
+    },
+    "help:close": {
+      "frames": 37,
+      "range_x": 0,
+      "range_y": 0,
+      "covered_frames": 0,
+      "outside_frames": 0
+    }
+  }
+}

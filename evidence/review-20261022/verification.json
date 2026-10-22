@@ -1,0 +1,45 @@
+{
+  "date": "2026-10-22",
+  "version": "0.20.10",
+  "python": {
+    "command": "python -m unittest discover -s backend/tests -p 'test_*.py'",
+    "passed": 99
+  },
+  "rust": {
+    "command": "cargo test --manifest-path src-tauri/Cargo.toml --lib",
+    "passed": 14,
+    "ignored": 1
+  },
+  "browser": {
+    "magic_pen": "passed",
+    "converter": "passed",
+    "actions": "passed",
+    "internal_actions": 6,
+    "interaction": {
+      "final_passed": 8,
+      "initial_intermittent_failure": "Magic Pen panel release position; two subsequent isolated runs passed",
+      "uncaught_errors": 0
+    }
+  },
+  "frozen_backend": {
+    "sha256": "c729df6f124f1681c9c503fab92b3a51d3c4e701ca91afb09e918e68bbcaa96d",
+    "jpeg": "2x2 reopened",
+    "pdf": "2 pages reopened"
+  },
+  "installer": {
+    "path": "dist/Axx_0.20.10_convertidor-20261022_x64-setup.exe",
+    "sha256": "d44aa4e96b15bbd7792bf1a0c71800866bff17e634bfb3479ea1dfb926f261d7",
+    "bytes": 247334589
+  },
+  "pending": [
+    "Physical Alt+Shift+A test stopped by user Escape in prior session",
+    "Mixed DPI and physical stylus",
+    "Dedicated OCR provider",
+    "Investigate intermittent browser release-position assertion under concurrent test load"
+  ],
+  "excluded": [
+    "Private screenshots",
+    "Generated binaries and source snapshots",
+    "Separate mobile prototype"
+  ]
+}

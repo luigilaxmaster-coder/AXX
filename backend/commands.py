@@ -18,6 +18,7 @@ import unicodedata
 import uuid
 
 from .actions.desktop import APPS, ENGINES, resolve_desktop, validate_inputs as validate_desktop_inputs
+from .procedure_library import ProcedureLibrary
 
 TERMINAL = {'succeeded', 'failed', 'blocked', 'cancelled', 'expired', 'unknown'}
 
@@ -25,6 +26,23 @@ TERMINAL = {'succeeded', 'failed', 'blocked', 'cancelled', 'expired', 'unknown'}
 class ApprovalRequired(ValueError):
     pass
 ADAPTERS = {
+    'axx.file.sha256': {
+        'title': 'Calcular SHA256 de un archivo', 'tool': 'file_inspection', 'risk': 'local_file_read',
+        'description': 'Lee un archivo local de hasta 512 MiB tras revisar su ruta. Detecta cambios durante la lectura.',
+        'aliases': [], 'parameters': {'path': {'type': 'string', 'required': True, 'maxLength': 240}}},
+    'axx.file.compare': {
+        'title': 'Comparar dos archivos por SHA256', 'tool': 'file_inspection', 'risk': 'local_file_read',
+        'description': 'Compara el contenido de dos archivos locales estables, sin modificarlos.',
+        'aliases': [], 'parameters': {'path': {'type': 'string', 'required': True, 'maxLength': 240},
+                                    'other_path': {'type': 'string', 'required': True, 'maxLength': 240}}},
+    'axx.desktop.list_apps': {
+        'title': 'Aplicaciones instaladas', 'tool': 'desktop_list_apps', 'risk': 'read',
+        'description': 'Consulta los nombres y accesos registrados por Windows.',
+        'aliases': ['mis aplicaciones', 'aplicaciones instaladas'], 'parameters': {}},
+    'axx.desktop.installed_app': {
+        'title': 'Abrir aplicación instalada', 'tool': 'desktop_installed_app', 'risk': 'desktop_open', 'requires_approval': False,
+        'description': 'Abre un acceso observado en el inventario de Windows. En el chat puedes decir «abre» y su nombre.',
+        'aliases': [], 'parameters': {'app_id': {'type': 'string', 'required': True, 'maxLength': 1024}}},
     'axx.desktop.open_url': {
         'title': 'Abrir página web', 'tool': 'desktop_open_url', 'risk': 'desktop_open', 'requires_approval': False,
         'description': 'Abre una dirección http o https en el navegador predeterminado.',
@@ -58,6 +76,10 @@ ADAPTERS = {
 }
 
 
+# Explicit implementation bindings; imported prose cannot add to this map.
+PROCEDURE_BINDINGS = {'AXX-02-0147': 'axx.file.sha256', 'AXX-02-0148': 'axx.file.compare'}
+
+
 def normalized(value):
     return ' '.join(''.join(c for c in unicodedata.normalize('NFKD', value.lower())
                            if not unicodedata.combining(c)).strip(' .?!¿¡').split())
@@ -84,6 +106,7 @@ class CommandService:
     """Persist intent, bind approval to immutable inputs, observe actual executor results."""
     def __init__(self, executor, library_path=None):
         self.executor = executor
+        self.learning = None
         self.lock = threading.RLock()
         self.execution_gate = threading.Lock()
         self.closed = False
@@ -154,6 +177,21 @@ class CommandService:
             self.import_counts = payload.get('counts', {})
         except (OSError, ValueError, KeyError, TypeError) as exc:
             self.library_error = f'Biblioteca documental no disponible: {type(exc).__name__}'
+        self.procedures = ProcedureLibrary(path.with_name('procedure-library.zip'))
+        for key, row in self.procedures.records.items():
+            item = self.commands.get(key, {'id': key, 'voice_phrases': [], 'aliases': []})
+            item.update({k: row[k] for k in ('title', 'description', 'category', 'source_member')})
+            item.update(has_recipe_details=True, execution_enabled=False, parameters={}, risk='unreviewed',
+                        blocked_reason='Procedimiento disponible para consulta; falta automatización validada',
+                        source_status='DOCUMENTED_NOT_EXECUTED',
+                        source={'kind': 'documentary', 'member': row['source_member']})
+            self.commands[key] = item
+        for key, adapter_id in PROCEDURE_BINDINGS.items():
+            if key in self.commands:
+                adapter = self.commands[adapter_id]
+                self.commands[key].update({name: adapter[name] for name in
+                    ('execution_enabled', 'parameters', 'risk', 'requires_approval', 'blocked_reason', 'validation_level')})
+                self.commands[key]['adapter_id'] = adapter_id
         self.imported = sum(c['source']['kind'] == 'documentary' for c in self.commands.values())
         self.search_index = {key: normalized(' '.join([c['id'], c['title'], c.get('description', ''),
             c.get('category', ''), ' '.join(c.get('voice_phrases', [])), ' '.join(c.get('aliases', []))]))
@@ -161,7 +199,7 @@ class CommandService:
         self.documentary_phrases = {}
         for command_id, command in self.commands.items():
             if command['source']['kind'] == 'documentary':
-                for phrase in command.get('voice_phrases', []):
+                for phrase in [command['title'], *command.get('voice_phrases', [])]:
                     self.documentary_phrases.setdefault(normalized(phrase), set()).add(command_id)
 
     def close(self):
@@ -181,15 +219,21 @@ class CommandService:
         hits = [c for key, c in self.commands.items() if all(term in self.search_index[key] for term in terms)]
         with self.lock:
             verified = self.db.execute("SELECT COUNT(*) FROM command_runs WHERE state='succeeded'").fetchone()[0]
-        enabled = len(ADAPTERS)
+        enabled = sum(bool(c['execution_enabled']) for c in self.commands.values())
         return {'commands': hits[offset:offset + limit], 'matched': len(hits), 'offset': offset,
                 'counts': {'total': len(self.commands), 'imported': self.imported, 'enabled': enabled,
                            'blocked': len(self.commands) - enabled, 'builtins': len(self.commands) - self.imported,
                            'verified_operations': verified, 'source': self.import_counts},
                 'provenance': self.provenance, 'library_error': self.library_error,
+                'procedure_count': len(self.procedures.records), 'procedure_error': self.procedures.error,
                 'artifact_root': str(self.executor.workspace_root)}
 
-    def resolve(self, text, source='text'):
+    def details(self, command_id):
+        if not isinstance(command_id, str) or command_id not in self.commands:
+            raise ValueError('Comando desconocido')
+        return {'command': self.commands[command_id], 'procedure': self.procedures.get(command_id)}
+
+    def resolve(self, text, source='text', context=None):
         if source not in ('text', 'voice') or not isinstance(text, str) or not 1 <= len(text) <= 70000:
             raise ValueError('Texto u origen de comando inválido')
         explicit = re.fullmatch(r'/comando\s+([A-Za-z0-9_.-]{1,128})(?:\s+(\{.*\}))?\s*', text.strip(), re.S)
@@ -198,23 +242,34 @@ class CommandService:
             if command_id not in self.commands:
                 return {'match': 'none', 'candidates': [], 'error': {'code': 'NOT_FOUND', 'message': 'Comando desconocido'}}
             inputs = parse_command_json(explicit[2]) if explicit[2] else {}
-            return {'match': 'exact', 'command_id': command_id, 'inputs': inputs}
+            return {'match': 'exact', 'command_id': command_id, 'inputs': inputs,
+                    'parameters': self.commands[command_id]['parameters'],
+                    'execution_enabled': self.commands[command_id]['execution_enabled'],
+                    'has_recipe_details': self.commands[command_id].get('has_recipe_details', False)}
         phrase = normalized(text)
         matches = [command_id for command_id, adapter in ADAPTERS.items()
                    if phrase in [normalized(s) for s in adapter['aliases']] or phrase == normalized(command_id)]
         if len(matches) == 1:
-            return {'match': 'exact', 'command_id': matches[0], 'inputs': {}}
-        desktop = resolve_desktop(text, source)
-        if desktop:
+            return {'match': 'exact', 'command_id': matches[0], 'inputs': {}, 'parameters': self.commands[matches[0]]['parameters']}
+        desktop = resolve_desktop(text, source, context)
+        if desktop and desktop.get('match') == 'exact':
             return desktop
+        if self.learning:
+            learned = self.learning.find(text)
+            if learned:
+                return {'match': 'learned', 'action_id': learned['id'], 'title': learned['title']}
         # A documented phrase may select its disabled record for inspection, never an adapter.
         if not matches:
             matches = sorted(self.documentary_phrases.get(phrase, []))
             if len(matches) == 1:
-                return {'match': 'exact', 'command_id': matches[0], 'inputs': {}, 'execution_enabled': False}
+                return {'match': 'exact', 'command_id': matches[0], 'inputs': {}, 'execution_enabled': self.commands[matches[0]]['execution_enabled'],
+                        'parameters': self.commands[matches[0]]['parameters'],
+                        'has_recipe_details': self.commands[matches[0]].get('has_recipe_details', False)}
+        if desktop:
+            return desktop
         return {'match': 'ambiguous' if matches else 'none', 'candidates': matches}
 
-    def _validate_inputs(self, command_id, inputs, require_new=True):
+    def _validate_inputs(self, command_id, inputs, require_new=True, check_files=True):
         if not isinstance(inputs, dict):
             raise ValueError('Los parámetros deben ser un objeto JSON')
         schema = self.commands[command_id]['parameters']
@@ -236,6 +291,15 @@ class CommandService:
             validate_desktop_inputs(ADAPTERS[command_id]['tool'].removeprefix('desktop_'), inputs)
         if command_id == 'axx.process.inspect':
             inputs.setdefault('pid', os.getpid())
+        if command_id in ('axx.file.sha256', 'axx.file.compare'):
+            from .actions.file_inspection import validate_path
+            for value in inputs.values():
+                if check_files:
+                    validate_path(value)
+                else:
+                    from .actions.tools import artifact_path_error
+                    if not Path(value).is_absolute() or artifact_path_error(value):
+                        raise ValueError('Indica la ruta absoluta de un archivo local.')
         if command_id == 'axx.artifact.write':
             raw = inputs['path']
             parts = raw.replace('\\', '/').split('/')
@@ -268,6 +332,8 @@ class CommandService:
             return [json.loads(row[0]) for row in self.db.execute('SELECT result_json FROM command_runs ORDER BY created_at DESC LIMIT 50')]
 
     def prepare(self, command_id, inputs, source='text', operation_id=None):
+        if isinstance(command_id, str):
+            command_id = PROCEDURE_BINDINGS.get(command_id, command_id)
         if not isinstance(command_id, str) or command_id not in self.commands or source not in ('text', 'voice'):
             raise ValueError('Comando u origen desconocido')
         if command_id == 'axx.shell.powershell' and source != 'text':
@@ -327,7 +393,7 @@ class CommandService:
                 except ValueError as exc:
                     return self._save(result | {'state': 'failed', 'error': {'code': 'PRECONDITION_CHANGED', 'message': str(exc)}})
                 result.update(state='running')
-                if result['command_id'] == 'axx.shell.powershell':
+                if result['command_id'] in ('axx.shell.powershell', 'axx.file.sha256', 'axx.file.compare'):
                     self.cancel_events[operation_id] = threading.Event()
                 self._save(result)
             try:

@@ -16,6 +16,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 mod resident;
 mod system_media;
 mod capture;
+mod magic_pen;
 
 const MAX_MESSAGE: usize = 8 * 1024 * 1024;
 
@@ -930,6 +931,10 @@ unsafe extern "system" fn keyboard_hook(code: i32, wparam: usize, lparam: isize)
         let event = unsafe { &*(lparam as *const KBDLLHOOKSTRUCT) };
         if event.vkCode == 0x1b {
             if let Some(app) = KEYBOARD_APP.get() {
+                if magic_pen::ACTIVE.load(Ordering::Acquire) {
+                    let _ = app.emit("axx-pen-escape", ());
+                    return unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) };
+                }
                 let state = app.state::<HostState>();
                 if state.frontend_active.load(Ordering::Relaxed)
                     || state.follow.load(Ordering::Relaxed)
@@ -1083,6 +1088,8 @@ pub fn run() {
             capture::capture_selection_finish,
             capture::capture_cancel_selection,
             capture::capture_halo,
+            magic_pen::magic_pen_capture,
+            magic_pen::magic_pen_session,
             backend_request,
             window_action,
             set_timer,
@@ -1090,6 +1097,7 @@ pub fn run() {
             set_topmost,
             set_shortcut,
             resident::desktop_layout,
+            resident::desktop_move_body,
             resident::desktop_activity
         ])
         .setup(|app| {

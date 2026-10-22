@@ -388,18 +388,53 @@ class DesktopTool(BaseTool):
     def verify_postconditions(self, inputs, result):
         if self.kind == 'powershell':
             valid = result.success and result.evidence.get('exit_code') == 0 and not result.evidence.get('cancelled')
+        elif self.kind == 'list_apps':
+            valid = result.success and isinstance(result.output.get('applications'), list) and result.evidence.get('count') == len(result.output['applications'])
         else:
             valid = result.success and result.evidence.get('accepted') is True
         return bool(valid), 'Execution result checked' if valid else result.error or 'Desktop action failed'
 
 
+class FileInspectionTool(BaseTool):
+    name = 'file_inspection'
+    description = 'SHA256 of explicitly selected, stable local files'
+
+    def verify_preconditions(self, inputs):
+        from .file_inspection import validate_path
+        try:
+            validate_path(inputs.get('path'))
+            if 'other_path' in inputs:
+                validate_path(inputs['other_path'])
+            return True, 'Local paths validated'
+        except (ValueError, OSError) as exc:
+            return False, str(exc)
+
+    def execute(self, inputs):
+        return self.execute_cancellable(inputs, None, threading.Event())
+
+    def execute_cancellable(self, inputs, workspace_root, cancelled):
+        from .file_inspection import inspect_files
+        try:
+            output = inspect_files(inputs, cancelled)
+            return ToolResult(True, output=output, evidence={'verification': 'stable_file_sha256', 'files': output['files']})
+        except (ValueError, OSError) as exc:
+            return ToolResult(False, error=str(exc), evidence={'cancelled': cancelled.is_set()})
+
+    def verify_postconditions(self, inputs, result):
+        files = (result.output or {}).get('files', [])
+        valid = result.success and len(files) == (2 if 'other_path' in inputs else 1) and all(
+            re.fullmatch('[a-f0-9]{64}', f.get('sha256', '')) for f in files)
+        return bool(valid), 'Stable SHA256 verified' if valid else result.error or 'Hash unavailable'
+
+
 # Registry of available tools
 TOOL_REGISTRY: dict[str, BaseTool] = {
+    FileInspectionTool.name: FileInspectionTool(),
     FileArtifactTool.name: FileArtifactTool(),
     SystemTelemetryTool.name: SystemTelemetryTool(),
     ProcessStateTool.name: ProcessStateTool(),
     BlenderRenderFixtureTool.name: BlenderRenderFixtureTool(),
-    **{('desktop_' + kind): DesktopTool(kind) for kind in ('open_url', 'open_app', 'search', 'powershell')},
+    **{('desktop_' + kind): DesktopTool(kind) for kind in ('open_url', 'open_app', 'installed_app', 'list_apps', 'search', 'powershell')},
 }
 
 def get_tool(name: str) -> BaseTool | None:

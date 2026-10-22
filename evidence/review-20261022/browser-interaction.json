@@ -1,0 +1,15 @@
+{
+  "kind": "BROWSER_POINTER_WITH_NATIVE_IPC_FIXTURE",
+  "passed": [
+    "Orbit \u2192 catalog accepts real pointer clicks and opens Chat",
+    "Catalog tabs, search, Notes and Calculator remain clickable after repeated navigation",
+    "Tool controls show icons with accessible names, without visible captions",
+    "Unchanged visibility does not repeatedly request native layout",
+    "Shared panels keep one drag owner, survive an in-flight layout and commit without snapping",
+    "Resize, cancel and fixed panels preserve interaction state",
+    "Dragging the avatar previews locally and commits its position once on release",
+    "Tentacle stays attached during a long hover and retracts continuously on exit"
+  ],
+  "failures": [],
+  "errors": []
+}

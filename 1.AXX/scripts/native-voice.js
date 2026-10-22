@@ -166,19 +166,23 @@
                 if (id !== this.generation) return;
                 this.pending = false;
                 if (typeof data.text !== 'string' || !data.text.trim()) throw new Error('No se reconoció una frase. El destino no se ha modificado.');
-                this.owner.onFinal?.(data.text); this.owner.onInterim?.(''); this.change('idle'); this.owner.onEnded?.();
+                this.owner.onFinal?.(data.text);
+                // A voice command may transfer the microphone to another session.
+                if (id !== this.generation) return;
+                this.owner.onInterim?.(''); this.change('idle'); this.owner.onEnded?.();
             } catch (error) { this.fail(id, error); }
         }
         fail(id, error) { if (id !== this.generation) return; this.pending = false; this.release(); this.recorder = null; this.change('error'); this.owner.onInterim?.(''); this.owner.onError?.(error instanceof Error ? error.message : String(error)); }
         stop() { this.generation++; if (this.pending) cancelWorker(); this.pending = false; const recorder = this.recorder; this.recorder = null; if (recorder) { recorder.ondataavailable = recorder.onstop = recorder.onerror = recorder.onstart = null; if (recorder.state !== 'inactive') recorder.stop(); } this.release(); this.chunks = []; if (state.activeCapture === this) state.activeCapture = null; this.change('idle'); }
     }
     state.sessions = [];
-    for (const owner of [Axx.voice13?.capture, Axx.symbiosis?.dictation, Axx.flow?.capture]) if (owner) {
+    state.attach = owner => {
         const local = new LocalDictation(owner); state.sessions.push(local);
         Object.defineProperty(owner, 'available', { configurable: true, get: () => !!navigator.mediaDevices?.getUserMedia && typeof MediaRecorder !== 'undefined' });
         owner.start = lang => { void local.start(lang); }; owner.finish = () => local.finish();
         owner.stop = () => local.stop();
-    }
+    };
+    for (const owner of [Axx.voice13?.capture, Axx.symbiosis?.dictation, Axx.flow?.capture]) if (owner) state.attach(owner);
 
     if (!window.__contractCalls && !window.__calls) {
         const supportedLangs = new Set(['es', 'en', 'fr', 'pt', 'de', 'it']);

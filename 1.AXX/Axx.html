@@ -1485,6 +1485,18 @@ body.axx-resident .v13-panel-head {
     user-select: none;
     -webkit-user-select: none;
 }
+/* Keep a moving surface on one compositor layer; restore glass at rest. */
+body.axx-resident .resident-manipulating {
+    will-change: transform;
+    transition: none!important;
+    animation: none!important;
+    backdrop-filter: none!important;
+    box-shadow: 0 8px 24px #0005,inset 0 0 0 1px #bbd9ff25!important;
+}
+body.axx-resident :is(.panel-head,.flow-library-head,.organic-satellite-head,.v13-panel-head) {
+    flex-shrink: 0;
+    touch-action: none;
+}
 </style></head>
 <body class="companion-mode native axx-resident">
 <div class="boot-status" id="boot" role="status" hidden>Abriendo Axx…</div>
@@ -7557,6 +7569,8 @@ var Axx;
         throw new Error('Falta el control ' + id); return n; }
     const families = { actions: 'Acciones', focus: 'Enfocar', matter: 'Materia', states: 'Estados', settings: 'Ajustes' };
     Axx.FEATURES = [
+        { id: 'magicpen', family: 'actions', title: 'Magic Pen', description: 'Captura, selecciona, pregunta y anota. Guarda el original y una copia anotada.', view: 'magicpen', availability: 'CAPTURA LOCAL · VISIÓN SEGÚN PROVEEDOR' },
+        { id: 'converter', family: 'actions', title: 'Convertidor y PDF', description: 'Convierte PNG/JPEG y organiza páginas PDF con resultados verificados.', view: 'converter', availability: 'LOCAL · AXX DESKTOP' },
         { id: 'experience', family: 'states', title: 'Probar Axx', description: 'Recorre contacto, dock y una cuenta atrás real de diez segundos.', view: 'experience', availability: 'LOCAL · INICIO EXPLÍCITO' },
         { id: "stopwatch", family: "actions", title: "Cronómetro con vueltas", description: "Mide actividades, marca vueltas y exporta los tiempos.", view: "stopwatch", availability: "DISPONIBLE · LOCAL" },
         { id: "textstudio", family: "actions", title: "Taller de texto", description: "Limpia, ordena, elimina duplicados, extrae enlaces o formatea JSON.", view: "textstudio", availability: "DISPONIBLE · LOCAL" },
@@ -7974,6 +7988,9 @@ var Axx;
             this.bindDockDrag();
         }
         keydown(e) {
+            if (e.key === 'Escape' && Axx.magicPen?.isOpen()) {
+                e.preventDefault(); e.stopImmediatePropagation(); Axx.magicPen.close(); return;
+            }
             if (e.key === 'Escape')
                 this.recallGesture18.reset();
             if (e.key === 'Escape' && this.data.prefs.follow) {
@@ -11439,7 +11456,7 @@ var Axx;
             this.frameTime += dt;
             if (this.frameTime > .045) {
                 this.frameTime = 0;
-                this.layout();
+                if (!Axx.resident) this.layout();
             }
             const state = this.companion.voiceDelegate?.state();
             if (state) {
@@ -12252,6 +12269,8 @@ var Axx;
     const fx = (id) => { const el = document.getElementById(id); if (!el)
         throw new Error('Falta ' + id); return el; };
     const ICONS = {
+        pen: '<path d="m18 2 4 4-14 14H4v-4L18 2zM14.5 5.5l4 4"/><circle cx="7" cy="17" r="1"/>',
+        magicpen: '<path d="m18 2 4 4-14 14H4v-4L18 2zM14.5 5.5l4 4"/><circle cx="7" cy="17" r="1"/>',
         music: '<path d="M9 18V5l11-2v13M9 8l11-2"/><ellipse cx="6" cy="18" rx="3" ry="3"/><ellipse cx="17" cy="16" rx="3" ry="3"/>',
         screen: '<rect x="2" y="3" width="20" height="14" rx="3"/><path d="M8 21h8M12 17v4"/><circle cx="12" cy="10" r="3"/>',
         calculator: '<rect x="5" y="2" width="14" height="20" rx="3"/><path d="M8 6h8M8 11h1m6 0h1M8 15h1m6 0h1M8 19h1m6 0h1"/>',
@@ -12285,10 +12304,10 @@ var Axx;
         undo: '<path d="M3 10h12a6 6 0 0 1 0 12M3 10l6-6M3 10l6 6"/>', image: '<rect x="2" y="3" width="20" height="18" rx="3"/><circle cx="8" cy="9" r="2"/><path d="m2 17 5-4 5 4 4-5 6 5"/>'
     };
     function icon(name) { return '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round">' + (ICONS[name] || ICONS.sparkle) + '</svg>'; }
-    const LABELS = { music: 'Música', screen: 'Grabar pantalla', layout11: 'Ajustar espacio', chat: 'Chat', dictation: 'Dictar', reader: 'Leer', translation: 'Traducir', notes: 'Notas', timer: 'Temporizador', todos: 'Tareas', calculator: 'Calcular', stopwatch: 'Cronómetro', textstudio: 'Editar texto', images: 'Imágenes', reach: 'Archivos y apps', files: 'Huella de archivo', organic: 'Cuadernos', appearance: 'Apariencia', morphui: 'Modos y materia', studio: 'Girar en 3D', focus: 'Concentración', focusNow: 'Enfocar 25 min', transcript: 'Transcribir / vídeo', ai: 'Conectar IA', sound: 'Sonidos', settings: 'Datos y sistema', inbox: 'Actividad', help: 'Ayuda', roadmap: 'Próximamente', experience: 'Probar Axx', lab: 'Animaciones', audio: 'Audio reactivo', tour: 'Cómo se abre' };
-    const TOOL_ICONS = { music: 'music', screen: 'screen', layout11: 'app', chat: 'chat', dictation: 'mic', reader: 'read', translation: 'translate', notes: 'note', timer: 'timer', todos: 'task', calculator: 'calculator', stopwatch: 'timer', textstudio: 'edit', images: 'image', reach: 'file', files: 'hash', organic: 'book', ai: 'sparkle', sound: 'read', settings: 'settings', morphui: 'cube', transcript: 'waveform', appearance: 'palette', studio: 'rotate', focus: 'focus', focusNow: 'focus', inbox: 'activity', help: 'help', roadmap: 'route', experience: 'play', lab: 'lab', audio: 'waveform', tour: 'route' };
+    const LABELS = { converter: 'Convertidor', magicpen: 'Magic Pen', music: 'Música', screen: 'Grabar pantalla', layout11: 'Ajustar espacio', chat: 'Chat', dictation: 'Dictar', reader: 'Leer', translation: 'Traducir', notes: 'Notas', timer: 'Temporizador', todos: 'Tareas', calculator: 'Calcular', stopwatch: 'Cronómetro', textstudio: 'Editar texto', images: 'Imágenes', reach: 'Archivos y apps', files: 'Huella de archivo', organic: 'Cuadernos', appearance: 'Apariencia', morphui: 'Modos y materia', studio: 'Girar en 3D', focus: 'Concentración', focusNow: 'Enfocar 25 min', transcript: 'Transcribir / vídeo', ai: 'Conectar IA', sound: 'Sonidos', settings: 'Datos y sistema', inbox: 'Actividad', help: 'Ayuda', roadmap: 'Próximamente', experience: 'Probar Axx', lab: 'Animaciones', audio: 'Audio reactivo', tour: 'Cómo se abre' };
+    const TOOL_ICONS = { converter: 'file', magicpen: 'pen', music: 'music', screen: 'screen', layout11: 'app', chat: 'chat', dictation: 'mic', reader: 'read', translation: 'translate', notes: 'note', timer: 'timer', todos: 'task', calculator: 'calculator', stopwatch: 'timer', textstudio: 'edit', images: 'image', reach: 'file', files: 'hash', organic: 'book', ai: 'sparkle', sound: 'read', settings: 'settings', morphui: 'cube', transcript: 'waveform', appearance: 'palette', studio: 'rotate', focus: 'focus', focusNow: 'focus', inbox: 'activity', help: 'help', roadmap: 'route', experience: 'play', lab: 'lab', audio: 'waveform', tour: 'route' };
     const GROUPS = {
-        create: { label: 'Crear', icon: 'note', ids: ['chat', 'dictation', 'screen', 'notes', 'organic', 'textstudio', 'images'] },
+        create: { label: 'Crear', icon: 'note', ids: ['magicpen', 'converter', 'chat', 'dictation', 'screen', 'notes', 'organic', 'textstudio', 'images'] },
         work: { label: 'Productividad', icon: 'timer', ids: ['timer', 'todos', 'focus', 'calculator', 'stopwatch', 'reach', 'files'] },
         assist: { label: 'Asistencia', icon: 'sparkle', ids: ['music', 'reader', 'layout11', 'translation', 'transcript', 'ai', 'appearance', 'morphui', 'studio', 'sound', 'settings', 'audio', 'lab', 'inbox', 'help', 'roadmap', 'experience', 'tour'] }
     };
@@ -12319,7 +12338,7 @@ var Axx;
         clock = 0;
         navClock = 0;
         activeAnimations = [];
-        favorites = ['dictation', 'music', 'screen', 'timer', 'chat'];
+        favorites = ['magicpen', 'dictation', 'music', 'screen', 'timer', 'chat', 'converter'];
         synchronizing = false;
         lastKey = '';
         history = [];
@@ -12345,6 +12364,8 @@ var Axx;
                 }
             }
             catch { }
+            if (!this.favorites.includes('magicpen')) this.favorites.push('magicpen');
+            if (!this.favorites.includes('converter')) this.favorites.push('converter');
             companion.onAvatarTap = () => this.tap();
             companion.onNavigation = () => this.navigationChanged();
             symbiosis.onReviewDictation = () => this.openReview();
@@ -12553,6 +12574,10 @@ var Axx;
             return true;
         }
         select(id) {
+            if (id === 'magicpen') {
+                Axx.magicPen?.open();
+                return;
+            }
             if (id === 'dictation' && this.dictationLauncher) {
                 this.dictationLauncher();
                 return;
@@ -12900,7 +12925,7 @@ var Axx;
             e.hidden = true; }
         frame(dt) {
             this.clock += Math.min(dt, .1);
-            this.layout();
+            if (!Axx.resident) this.layout();
             const visible = this.app.machine.visible;
             fx('flow-root').classList.toggle('flow-invisible', !visible);
             this.delivery.canvas.hidden = !visible;
@@ -13317,6 +13342,10 @@ var Axx;
             window.addEventListener('pagehide', () => { this.screen.dispose(); this.music.dispose(); });
         }
         select(kind) {
+            if (kind === 'magicpen') {
+                Axx.magicPen?.open();
+                return;
+            }
             if (this.selected === kind)
                 return;
             if (this.selected === 'dictation')
@@ -13589,7 +13618,7 @@ var Axx;
             ac('a11-capture-text').textContent = (s.state === 'paused' ? 'Captura pausada · compartiendo' : 'Grabando pantalla') + ' · ' + this.time(s.clock.elapsed() / 1000);
             this.activities();
             this.sessionSync19?.();
-            this.geometryDirty = true;
+            if (!Axx.resident) this.geometryDirty = true;
         }
         activities() {
             const list = [];
@@ -13737,7 +13766,7 @@ var Axx;
         }
         frame(dt) {
             this.frameTime += dt;
-            if (this.geometryDirty || this.selected || this.companion.data.prefs.follow) {
+            if (this.geometryDirty || (!Axx.resident && (this.selected || this.companion.data.prefs.follow))) {
                 this.layout();
                 this.geometryDirty = false;
             }
@@ -13763,9 +13792,9 @@ var Axx;
 var Axx;
 (function (Axx) {
     const oe = (id) => document.getElementById(id);
-    const SHORT_NAMES = { dictation: 'Dictar', music: 'Música', screen: 'Grabar', timer: 'Tiempo', chat: 'Chat', reader: 'Leer', notes: 'Notas', stopwatch: 'Cronómetro', 'source-system': 'Este equipo', 'source-local': 'Mis archivos', 'source-youtube': 'YouTube', 'source-spotify': 'Spotify', 'source-tabs': 'Pestañas' };
-    const TINTS = { dictation: '#a7dff0', music: '#c2b1ef', screen: '#a6cabf', timer: '#e6c4a7', chat: '#9bc8ff', 'source-local': '#a8d9ff', 'source-youtube': '#f39baf', 'source-spotify': '#93dcb6', 'source-tabs': '#c8b3f5' };
-    const SYMBOLS = { music: '<path d="M9 17V5l11-2v12"/><ellipse cx="5.5" cy="18" rx="3.5" ry="3"/><ellipse cx="16.5" cy="16" rx="3.5" ry="3"/>', screen: '<rect x="2" y="3" width="20" height="14" rx="3"/><path d="M8 21h8M12 17v4"/><circle cx="12" cy="10" r="2.5"/>' };
+    const SHORT_NAMES = { converter: 'Convertidor', magicpen: 'Magic Pen', dictation: 'Dictar', music: 'Música', screen: 'Grabar', timer: 'Tiempo', chat: 'Chat', reader: 'Leer', notes: 'Notas', stopwatch: 'Cronómetro', 'source-system': 'Este equipo', 'source-local': 'Mis archivos', 'source-youtube': 'YouTube', 'source-spotify': 'Spotify', 'source-tabs': 'Pestañas' };
+    const TINTS = { converter: '#a7d7c3', magicpen: '#b8aaff', dictation: '#a7dff0', music: '#c2b1ef', screen: '#a6cabf', timer: '#e6c4a7', chat: '#9bc8ff', 'source-local': '#a8d9ff', 'source-youtube': '#f39baf', 'source-spotify': '#93dcb6', 'source-tabs': '#c8b3f5' };
+    const SYMBOLS = { magicpen: '<path d="m18 2 4 4-14 14H4v-4L18 2zM14.5 5.5l4 4"/><circle cx="7" cy="17" r="1"/>', music: '<path d="M9 17V5l11-2v12"/><ellipse cx="5.5" cy="18" rx="3.5" ry="3"/><ellipse cx="16.5" cy="16" rx="3.5" ry="3"/>', screen: '<rect x="2" y="3" width="20" height="14" rx="3"/><path d="M8 21h8M12 17v4"/><circle cx="12" cy="10" r="2.5"/>' };
     /** A spatial launcher layered on the existing Flow and real action executors. */
     class OrbitExperience {
         app;
@@ -13933,7 +13962,12 @@ var Axx;
                 return;
             } allClick?.call(oe('flow-all'), e); };
             const previousBack = this.companion.extraEscape;
-            this.companion.extraEscape = () => { if (this.flow.nav.step === 2 && this.group === 'music') {
+            this.companion.extraEscape = () => {
+                if (Axx.magicPen?.isOpen()) {
+                    Axx.magicPen.close();
+                    return true;
+                }
+                if (this.flow.nav.step === 2 && this.group === 'music') {
                 this.openTools();
                 return true;
             } return !!previousBack?.(); };
@@ -14119,6 +14153,14 @@ var Axx;
         choose(id) {
             this.cancelEntry();
             this.hot = null;
+            if (id === 'magicpen') {
+                this.group = 'tools';
+                this.companion.setPresentationSizeLimit(null);
+                this.flow.compactTools();
+                this.compactCenter();
+                Axx.magicPen?.open();
+                return;
+            }
             if (id === 'music') {
                 this.openMusicSources();
                 return;
@@ -18534,8 +18576,8 @@ var Axx;
                     }
                 }
             });
-            const observer = new MutationObserver(changes => { if (changes.some(change => change.type === 'attributes' || [...change.addedNodes, ...change.removedNodes].some(node => node instanceof Element && (node.matches('.organic-satellite') || node.querySelector('.organic-satellite'))))) this.schedule(); });
-            observer.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['hidden'] });
+            const observer = new MutationObserver(changes => { if (changes.some(change => change.type === 'attributes' ? (change.oldValue === null) === change.target.hasAttribute('hidden') : [...change.addedNodes, ...change.removedNodes].some(node => node instanceof Element && (node.matches('.organic-satellite') || node.querySelector('.organic-satellite'))))) this.schedule(); });
+            observer.observe(document.body, { subtree: true, childList: true, attributes: true, attributeOldValue: true, attributeFilter: ['hidden'] });
             this.fold(false);
             this.updateHelp();
             this.simplifyInterface();
@@ -18689,6 +18731,26 @@ var Axx;
         }
         bindDrag() {
             const isBody = target => target instanceof Element && (target.id === 'avatar' || target.closest('#a11-main-button'));
+            const finishPanel = () => {
+                const gesture = this.panelDrag || this.panelResize;
+                if (!gesture) return;
+                // Commit before releasing capture: lostpointercapture can run synchronously.
+                this.panelDrag = null;
+                this.panelResize = null;
+                if (gesture.el) {
+                    if (gesture.currentDx !== undefined) {
+                        gesture.el.style.setProperty('left', (gesture.clientLeft + gesture.currentDx) + 'px', 'important');
+                        gesture.el.style.setProperty('top', (gesture.clientTop + gesture.currentDy) + 'px', 'important');
+                        gesture.el.style.setProperty('transform', 'none', 'important');
+                    }
+                    gesture.el.classList.remove('resident-manipulating');
+                }
+                if (gesture.target?.hasPointerCapture?.(gesture.id)) gesture.target.releasePointerCapture(gesture.id);
+                if (gesture.moved) this.savePanelPositions();
+                this.layoutAgain = false;
+                void Axx.app?.bridge?.command('desktop_activity', { active: this.invoked, follow: false, panelDrag: false }).catch(() => {});
+                this.schedule();
+            };
             const isInteractiveOrContent = target => {
                 if (!(target instanceof Element)) return false;
                 return !!target.closest('button, input, select, textarea, summary, a, [role=button], [contenteditable="true"], label, .resident-resize-handle, [data-resize-handle], .panel-view, pre, code, .conversation, .response, [data-scrollable]');
@@ -18708,6 +18770,7 @@ var Axx;
                 if (resizeHandle) {
                     const panelEl = resizeHandle.closest('#panel, #flow-sheet, .organic-satellite, #v13-dock, #v13-settings, #v13-pad, [data-panel-id]') || document.getElementById('panel');
                     const panelId = panelEl?.id || 'panel';
+                    if (panelEl?.dataset.windowLocked === 'true') { event.stopImmediatePropagation(); return; }
                     const currentBox = this.boxes.find(b => b.id === panelId) || { width: 420, height: 560 };
                     this.panelResize = {
                         id: event.pointerId,
@@ -18720,7 +18783,9 @@ var Axx;
                         initialHeight: currentBox.height || panelEl.offsetHeight || 560,
                         moved: false
                     };
+                    panelEl?.classList.add('resident-manipulating');
                     resizeHandle.setPointerCapture?.(event.pointerId);
+                    void Axx.app?.bridge?.command('desktop_activity', { active: true, follow: false, panelDrag: true }).catch(() => {});
                     event.preventDefault();
                     event.stopImmediatePropagation();
                     return;
@@ -18730,6 +18795,8 @@ var Axx;
                     const panelEl = head.closest('#panel, #flow-sheet, .organic-satellite, #v13-dock, #v13-settings, #v13-pad, [data-panel-id]') || document.getElementById('panel');
                     const panelId = panelEl?.id || 'panel';
                     const currentBox = this.boxes.find(b => b.id === panelId) || { x: 0, y: 0 };
+                    if (panelEl?.dataset.windowLocked === 'true') { event.stopImmediatePropagation(); return; }
+                    const rect = panelEl.getBoundingClientRect();
                     this.panelDrag = {
                         id: event.pointerId,
                         target: head,
@@ -18739,18 +18806,22 @@ var Axx;
                         startY: event.clientY,
                         initialBoxX: currentBox.x,
                         initialBoxY: currentBox.y,
+                        clientLeft: rect.left,
+                        clientTop: rect.top,
                         currentDx: 0,
                         currentDy: 0,
                         moved: false
                     };
+                    panelEl.classList.add('resident-manipulating');
                     head.setPointerCapture?.(event.pointerId);
                     void Axx.app?.bridge?.command('desktop_activity', { active: true, follow: false, panelDrag: true }).catch(() => {});
                     event.preventDefault();
+                    event.stopImmediatePropagation();
                     return;
                 }
                 if (!isBody(event.target) || !Axx.app.renderer.hitTest(event.clientX, event.clientY)) return;
                 event.preventDefault(); event.stopImmediatePropagation();
-                this.drag = { id: event.pointerId, x: event.clientX, y: event.clientY, target: event.target, moved: false };
+                this.drag = { id: event.pointerId, x: event.clientX, y: event.clientY, target: event.target, moved: false, anchor: { ...this.anchor }, geometry: { ...this.geometry } };
                 event.target.setPointerCapture?.(event.pointerId); Axx.app.renderer.setPressed(true);
             }, true);
             document.addEventListener('pointermove', event => {
@@ -18815,71 +18886,40 @@ var Axx;
                 const drag = this.drag;
                 if (!drag || event.pointerId !== drag.id) return;
                 event.preventDefault(); event.stopImmediatePropagation();
-                if (drag.moved || Math.hypot(event.clientX - drag.x, event.clientY - drag.y) <= 4) return;
+                if (!drag.moved && Math.hypot(event.clientX - drag.x, event.clientY - drag.y) <= 4) return;
                 drag.moved = true; this.suppressClickUntil = performance.now() + 1200;
-                if (drag.target.hasPointerCapture?.(drag.id)) drag.target.releasePointerCapture(drag.id);
                 Axx.companion.data.prefs.follow = false; this.activity();
-                void Axx.app.bridge.action('drag').catch(e => Axx.app.toast(String(e))).finally(() => { this.drag = null; Axx.app.renderer.setPressed(false); Axx.app.renderer.releaseDrag(); this.schedule(); });
+                const margin = this.size / 2 + 12;
+                this.anchor = { x: Axx.clamp(drag.anchor.x + event.clientX - drag.x, margin, innerWidth - margin), y: Axx.clamp(drag.anchor.y + event.clientY - drag.y, margin, innerHeight - margin) };
+                this.paintBody();
             }, true);
             document.addEventListener('pointerup', event => {
-                const pr = this.panelResize;
-                if (pr && event.pointerId === pr.id) {
+                const gesture = this.panelDrag || this.panelResize;
+                if (gesture && event.pointerId === gesture.id) {
                     event.preventDefault();
                     event.stopImmediatePropagation();
-                    if (pr.target?.hasPointerCapture?.(pr.id)) pr.target.releasePointerCapture(pr.id);
-                    if (pr.moved) {
-                        this.savePanelPositions();
-                    }
-                    this.panelResize = null;
-                    this.schedule();
-                    return;
-                }
-                const pd = this.panelDrag;
-                if (pd && event.pointerId === pd.id) {
-                    event.preventDefault();
-                    event.stopImmediatePropagation();
-                    if (pd.target?.hasPointerCapture?.(pd.id)) pd.target.releasePointerCapture(pd.id);
-                    if (pd.el) {
-                        pd.el.style.setProperty('transform', 'none', 'important');
-                    }
-                    if (pd.moved) {
-                        this.savePanelPositions();
-                    }
-                    this.panelDrag = null;
-                    void Axx.app?.bridge?.command('desktop_activity', { active: this.invoked, follow: false, panelDrag: false }).catch(() => {});
-                    this.schedule();
+                    finishPanel();
                     return;
                 }
                 const drag = this.drag;
                 if (!drag || event.pointerId !== drag.id) return;
                 event.preventDefault(); event.stopImmediatePropagation();
+                const wasDrag = drag.moved;
+                this.drag = null;
                 if (drag.target.hasPointerCapture?.(drag.id)) drag.target.releasePointerCapture(drag.id);
-                const wasDrag = drag.moved || (Math.hypot(event.clientX - drag.x, event.clientY - drag.y) > 4);
-                this.drag = null; Axx.app.renderer.setPressed(false); Axx.app.renderer.releaseDrag();
-                if (!wasDrag) this.tap(); else { this.suppressClickUntil = performance.now() + 800; this.schedule(); }
+                Axx.app.renderer.setPressed(false); Axx.app.renderer.releaseDrag();
+                if (!wasDrag) this.tap(); else {
+                    this.suppressClickUntil = performance.now() + 800;
+                    const g = drag.geometry, scale = g.scaleFactor || 1;
+                    void Axx.app.bridge.command('desktop_move_body', { x: g.screenX + (this.anchor.x - drag.anchor.x) * scale, y: g.screenY + (this.anchor.y - drag.anchor.y) * scale })
+                        .then(status => { this.geometry = status; this.schedule(); })
+                        .catch(error => { this.anchor = drag.anchor; this.paintBody(); this.schedule(); Axx.app.toast(String(error)); });
+                }
             }, true);
             document.addEventListener('click', event => { if (isBody(event.target) && (performance.now() < this.suppressClickUntil)) { event.preventDefault(); event.stopImmediatePropagation(); } }, true);
             const clear = () => {
-                if (this.panelResize) {
-                    if (this.panelResize.target?.hasPointerCapture?.(this.panelResize.id)) {
-                        this.panelResize.target.releasePointerCapture(this.panelResize.id);
-                    }
-                    if (this.panelResize.moved) this.savePanelPositions();
-                    this.panelResize = null;
-                    this.schedule();
-                }
-                if (this.panelDrag) {
-                    if (this.panelDrag.target?.hasPointerCapture?.(this.panelDrag.id)) {
-                        this.panelDrag.target.releasePointerCapture(this.panelDrag.id);
-                    }
-                    if (this.panelDrag.el) {
-                        this.panelDrag.el.style.setProperty('transform', 'none', 'important');
-                    }
-                    if (this.panelDrag.moved) this.savePanelPositions();
-                    this.panelDrag = null;
-                    void Axx.app?.bridge?.command('desktop_activity', { active: this.invoked, follow: false, panelDrag: false }).catch(() => {});
-                    this.schedule();
-                }
+                finishPanel();
+                if (this.drag?.moved) { this.anchor = this.drag.anchor; this.paintBody(); }
                 this.drag = null; Axx.app.renderer.setPressed(false); Axx.app.renderer.releaseDrag();
             };
             window.addEventListener('blur', clear);
@@ -18896,10 +18936,12 @@ var Axx;
         schedule() { if (this.pendingLayout) return; this.pendingLayout = true; setTimeout(() => { this.pendingLayout = false; void this.layout(); }, 0); }
         visible(id) { const n = document.getElementById(id); return n && !n.hidden && n.getClientRects().length > 0; }
         async layout() {
+            if (this.panelDrag || this.panelResize || this.drag?.moved) { this.layoutAgain = true; return; }
             if (this.layoutBusy) { this.layoutAgain = true; return; }
             this.layoutBusy = true;
             try {
                 const state = await Axx.app.bridge.status();
+                if (this.panelDrag || this.panelResize || this.drag?.moved) return;
                 this.geometry = state.desktop || this.geometry || { workWidth: screen.availWidth || 1280, workHeight: screen.availHeight || 900, spaceLeft: 800, spaceRight: 300, spaceAbove: 500, spaceBelow: 300 };
                 const g = this.geometry, size = this.size, half = size / 2, margin = 72;
                 const boxes = [{ id: 'stage', x: -half, y: -half, width: size, height: size }];
@@ -18952,7 +18994,7 @@ var Axx;
                     add('flow-pill', -56, ry + 48, 48, 48); add('flow-all', 8, ry + 48, 48, 48);
                 }
                 if (step === 3) panelBox('flow-sheet', 430, 460);
-                if (panel) panelBox('panel', ['chat','ai'].includes(Axx.companion.dock.selected) ? 520 : Axx.companion.dock.selected === 'music' ? 460 : 420, Axx.companion.dock.selected === 'ai' ? 720 : Axx.companion.dock.selected === 'chat' ? 650 : 570);
+                if (panel) panelBox('panel', Axx.companion.dock.selected === 'magicpen' ? 640 : ['chat','ai'].includes(Axx.companion.dock.selected) ? 520 : Axx.companion.dock.selected === 'music' ? 460 : 420, ['ai','magicpen'].includes(Axx.companion.dock.selected) ? 720 : Axx.companion.dock.selected === 'chat' ? 650 : 570);
                 for (const id of extraIds) if (this.visible(id)) {
                     const opposite = id === 'v13-dock' && (panel || this.visible('v13-pad') || this.visible('v13-settings'));
                     panelBox(id, id === 'v13-dock' ? 320 : 420, id === 'v13-dock' ? 400 : 530,
@@ -18960,9 +19002,9 @@ var Axx;
                 }
                 for (const [index, surface] of surfaces.entries()) { if (!surface.el.id) surface.el.id = 'resident-surface-' + index; panelBox(surface.el.id, 420, 530); }
                 if (Axx.actions.selected && opened) add('a11-mini-controls', -130, size * .30 + 46, 260, 46);
-                const pad = opened ? margin : 12;
-                const minX = Math.min(...boxes.map(b => b.x)) - pad, minY = Math.min(...boxes.map(b => b.y)) - pad;
-                const width = Math.ceil(Math.max(...boxes.map(b => b.x + b.width)) - minX + pad), height = Math.ceil(Math.max(...boxes.map(b => b.y + b.height)) - minY + pad);
+                // Keep the transparent work area stable across tool navigation; resizing it exposes mismatched native/DOM frames.
+                const width = Math.min(g.workWidth || 1920, 4096), height = Math.min(g.workHeight || 1080, 4096);
+                const minX = -Axx.clamp(g.spaceLeft ?? width / 2, half + 12, width - half - 12), minY = -Axx.clamp(g.spaceAbove ?? height / 2, half + 12, height - half - 12);
                 this.anchor = { x: -minX, y: -minY }; this.boxes = boxes;
                 this.paintBody();
                 for (const box of boxes) {
@@ -18991,7 +19033,7 @@ var Axx;
                 if (key !== this.layoutKey) {
                     this.layoutKey = key;
                     if (this.firstFrame) this.startup.readyDispatched = true;
-                    const actual = await Axx.app.bridge.command('desktop_layout', { width, height, anchorX: this.anchor.x, anchorY: this.anchor.y, ready: this.firstFrame });
+                    const actual = await Axx.app.bridge.command('desktop_layout', { width, height, anchorX: this.anchor.x, anchorY: this.anchor.y, ready: this.firstFrame, stableSurface: true });
                     if (actual?.ready === true) this.startup.readyAcknowledged = true;
                     if (actual?.workWidth) this.geometry = actual;
                     Axx.app.renderer.resize();
@@ -19032,6 +19074,7 @@ var Axx;
                 void Axx.app.bridge.listen('axx-show', payload => Axx.resident ? Axx.resident.summon(payload?.follow !== false) : Axx.home18?.call());
                 void Axx.app.bridge.listen('axx-recenter', () => Axx.resident ? Axx.resident.home(false) : Axx.home18?.home());
                 void Axx.app.bridge.listen('axx-settings', () => { Axx.flow.select('settings'); Axx.resident?.schedule(); });
+                void Axx.app.bridge.listen('axx-desktop-layout', geometry => { if (geometry && Axx.resident) { Axx.resident.geometry = geometry; Axx.resident.schedule(); } });
                 void Axx.app.bridge.listen('axx-cursor', p => {
                     if (!Number.isFinite(p?.x) || !Number.isFinite(p?.y)) return;
                     Axx.companion.pointer = { x: p.x, y: p.y, known: true, inside: p.x >= 0 && p.y >= 0 && p.x < innerWidth && p.y < innerHeight };
@@ -19257,4 +19300,4 @@ body[data-media16-source="system"] .m16-cover,body[data-media16-source="system"]
 body[data-media16-source="system"] #view-music .m16-now{padding:12px;margin-top:8px}
 body[data-media16-source="system"] #view-music .m16-transport{margin:8px 0 0}
 body[data-media16-source="system"] #view-music .m16-compact{padding:10px 14px;margin-top:8px}
-</style><script src="scripts/native-voice.js"></script><script src="scripts/command-library.js"></script><script src="scripts/axx-connect.js"></script><script src="scripts/providers.js"></script><script src="scripts/native-music.js"></script><script src="scripts/native-capture.js"></script></body></html>
+</style><script src="scripts/native-voice.js"></script><script src="scripts/command-library.js"></script><script src="scripts/axx-connect.js"></script><script src="scripts/providers.js"></script><script src="scripts/native-music.js"></script><script src="scripts/native-capture.js"></script><script src="scripts/magic-pen.js"></script><script src="scripts/converter.js"></script><link rel="stylesheet" href="scripts/panel-design.css"></body></html>

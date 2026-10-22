@@ -93,6 +93,9 @@ pub async fn capture_halo(app:AppHandle,window:WebviewWindow,region:Option<Regio
     if !["running","paused","countdown","stopping"].contains(&phase.as_str()) {close(&app,"capture-halo");return Ok(());}
     let r=region.ok_or("Falta el área")?;let b=bounds();
     if r.width<16||r.height<16||r.x<b.x||r.y<b.y||r.x as i64+r.width as i64>b.x as i64+b.width as i64||r.y as i64+r.height as i64>b.y as i64+b.height as i64{return Err("Área fuera del escritorio".into());}
+    if crate::magic_pen::BUSY.load(std::sync::atomic::Ordering::Acquire) {
+        return Err("Espera a que termine la captura de Magic Pen antes de cambiar el halo".into());
+    }
     protect(&window)?;
     let halo=if let Some(w)=app.get_webview_window("capture-halo"){w} else {surface(&app,"capture-halo","capture-overlay.html?mode=halo".into(),r,false)?};
     halo.set_position(PhysicalPosition::new(r.x,r.y)).map_err(|e|e.to_string())?;

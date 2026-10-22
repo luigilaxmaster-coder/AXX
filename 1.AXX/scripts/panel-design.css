@@ -1,0 +1,117 @@
+/* Shared surfaces only. No animation, blur or layout work is added. */
+/* The orbit shares this container with the catalog, but must stay transparent. */
+body.native.axx-resident[data-flow-step="2"] #flow-sheet {
+  background: transparent!important;
+  border: 0!important;
+  border-radius: 0!important;
+  box-shadow: none!important;
+}
+body.native.axx-resident :is(#panel,#flow-sheet,#v13-dock,#v13-settings,#v13-pad,.organic-satellite) {
+  --ui-surface: #121620;
+  --ui-raised: #1a202c;
+  --ui-border: #ffffff14;
+  --ui-text: #e8ebf3;
+  --ui-muted: #9ba6bb;
+  --ui-accent: #c2b5f5;
+  color: var(--ui-text);
+  font-family: "Segoe UI Variable", "Segoe UI", sans-serif;
+  background: var(--ui-surface)!important;
+  border: 1px solid var(--ui-border)!important;
+  border-radius: 18px!important;
+  box-shadow: 0 12px 32px #0004!important;
+  backdrop-filter: none!important;
+}
+body.native.axx-resident #panel { padding: 20px!important; }
+body.native.axx-resident :is(#panel,#flow-sheet,#v13-dock,#v13-settings,#v13-pad,.organic-satellite) :is(.panel-head,.flow-library-head,.organic-satellite-head,.v13-panel-head) {
+  gap: 12px;
+  padding-bottom: 14px!important;
+  border-bottom: 1px solid var(--ui-border)!important;
+  background: transparent;
+}
+body.native.axx-resident #panel #panel-title,
+body.native.axx-resident :is(.organic-satellite-head,.v13-panel-head,.flow-library-head) h2 {
+  color: var(--ui-text);
+  font-size: 20px!important;
+  font-weight: 600!important;
+  letter-spacing: -.5px!important;
+  line-height: 1.3;
+}
+body.native.axx-resident #panel .panel-view { padding-top: 18px; scrollbar-color: #495266 transparent; }
+body.native.axx-resident :is(#panel,#v13-dock,#v13-settings,#v13-pad,.organic-satellite) :is(.panel-description,.micro-copy,.note-save-status,.privacy-line,.scope-note) {
+  color: var(--ui-muted);
+  line-height: 1.6;
+}
+body.native.axx-resident #panel :is(.section-title,.micro-label) {
+  color: var(--ui-muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .7px;
+}
+body.native.axx-resident :is(#panel,#flow-sheet,#v13-dock,#v13-settings,#v13-pad,.organic-satellite) button {
+  border-radius: 9px;
+  box-shadow: none!important;
+  text-shadow: none!important;
+  transition: background-color 100ms, border-color 100ms, color 100ms!important;
+}
+body.native.axx-resident #panel :is(.quick-row,.suggestion-grid,.states-grid,.a11-align,.a11-window-tools) button,
+body.native.axx-resident #panel :is(.wide-button,#new-note),
+body.native.axx-resident :is(.panel-head,.organic-satellite-head,.v13-panel-head) button {
+  color: #c6cddd;
+  background: #ffffff05!important;
+  border: 1px solid var(--ui-border)!important;
+}
+body.native.axx-resident #panel button:hover:not(:disabled) { border-color: #c2b5f54a; }
+body.native.axx-resident #panel :is(button.primary,.id20-apply>button:first-child,#chat-send,#mp-ask) {
+  color: #201b32!important;
+  background: var(--ui-accent)!important;
+  border-color: transparent!important;
+  font-weight: 600;
+}
+body.native.axx-resident :is(#panel,#v13-settings,#v13-pad,.organic-satellite) :is(input,textarea,select):not([type=range]):not([type=checkbox]):not([type=radio]):not([type=color]):not([type=file]) {
+  color: var(--ui-text);
+  background: #0e121a!important;
+  border: 1px solid #ffffff1c!important;
+  border-radius: 10px!important;
+  box-shadow: none!important;
+}
+body.native.axx-resident :is(#panel,#v13-settings,#v13-pad) :is(input,textarea)::placeholder { color: #77839a; opacity: 1; }
+body.native.axx-resident #panel :is(.setup-card,.id20-card,.compat-info,.motion-profile,.settings-section,.profile-card,.chat-empty,.mp-answer) {
+  background: var(--ui-raised)!important;
+  border-color: var(--ui-border)!important;
+  border-radius: 12px!important;
+  box-shadow: none!important;
+}
+body.native.axx-resident #panel :is(.panel-info-fold,.calc-converter-fold,.todos-advanced-fold,.stopwatch-advanced-fold) {
+  background: #ffffff03;
+  border: 1px solid var(--ui-border);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+body.native.axx-resident #panel :is(.panel-info-summary,.calc-converter-summary,.todos-advanced-summary,.stopwatch-advanced-summary) { color: var(--ui-muted); font-size: 12px; }
+body.native.axx-resident :is(#panel,#flow-sheet,#v13-settings) :is([role=tablist],.v13-tabs,.s19-tabs,.reach-tabs,.mp-modebar,#m16-sources,#flow-tabs) {
+  gap: 4px;
+  padding: 4px;
+  background: #0c1018!important;
+  border: 1px solid var(--ui-border)!important;
+  border-radius: 11px;
+}
+body.native.axx-resident :is(#panel,#flow-sheet,#v13-settings) :is([role=tab],.v13-tabs button,.s19-tabs button,.reach-tabs button,.mp-modebar button,#m16-sources button,#flow-tabs button) {
+  border: 1px solid transparent!important;
+  border-radius: 7px;
+  color: var(--ui-muted);
+  background: transparent!important;
+  box-shadow: none!important;
+}
+body.native.axx-resident :is(#panel,#flow-sheet,#v13-settings) :is([aria-selected=true],.v13-tabs button[aria-pressed=true],.mp-modebar button[aria-pressed=true],#flow-tabs button.active) {
+  color: #e3dafa!important;
+  background: #c2b5f517!important;
+  border-color: #c2b5f527!important;
+}
+body.native.axx-resident #flow-grid .flow-tool { background: #1a202c!important; border-color: #ffffff14; box-shadow: none!important; border-radius: 12px!important; }
+body.native.axx-resident #panel :is(.chat-composer,.mp-composer,.id20-apply) { background: #1a202c!important; border-color: #ffffff1c!important; box-shadow: none!important; backdrop-filter: none!important; }
+body.native.axx-resident #panel :is(button,input,textarea,select,summary):focus-visible { outline: 2px solid var(--ui-accent)!important; outline-offset: 2px!important; box-shadow: none!important; }
+body.native.axx-resident #panel .mp-answer { padding: 14px; border-left: 2px solid #c2b5f55c; }
+body.native.axx-resident .resident-manipulating { box-shadow: 0 6px 18px #0003!important; }
+@media (prefers-reduced-motion: reduce) {
+  body.native.axx-resident :is(#panel,#flow-sheet,#v13-dock,#v13-settings,#v13-pad,.organic-satellite) button { transition: none!important; }
+}

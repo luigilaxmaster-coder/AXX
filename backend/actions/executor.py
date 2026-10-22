@@ -106,7 +106,9 @@ class ActionExecutor:
         inputs = dict(inputs)
         permitted = {'file_artifact_writer': {'path', 'content'}, 'system_telemetry': set(), 'process_state_inspector': {'pid'},
                      'blender_render_fixture': {'filename'}, 'desktop_open_url': {'url'}, 'desktop_open_app': {'app'},
-                     'desktop_search': {'query', 'engine'}, 'desktop_powershell': {'script'}}
+                     'desktop_search': {'query', 'engine'}, 'desktop_powershell': {'script'},
+                     'desktop_installed_app': {'app_id'}, 'desktop_list_apps': set(),
+                     'file_inspection': {'path', 'other_path'}}
         if set(inputs) - permitted.get(tool_name, set()):
             raise ActionExecutionError('Unexpected action inputs')
         if tool_name == 'file_artifact_writer' and isinstance(inputs.get('path'), str):

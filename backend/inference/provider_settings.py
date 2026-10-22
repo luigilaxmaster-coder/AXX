@@ -138,9 +138,10 @@ def save(body, adapter, config_path):
         local = local_address(urllib.parse.urlsplit(url).hostname)
         free = local or (kind == 'openrouter' and (model.endswith(':free') or model == 'openrouter/free'))
         billing = body.get('billing_allowed') is True
+        capabilities = list(old['capabilities']) if old and old['model'] == model else ['text']
         entry = dict(name=name, kind=kind, base_url=url, protocol=protocol, model=model, api_key_env=env,
                      enabled=body.get('enabled', True) is True, free_confirmed=free, billing_allowed=billing,
-                     daily_attempt_limit=1000, max_output_tokens=2048, capabilities=['text'], auth_optional=local)
+                     daily_attempt_limit=1000, max_output_tokens=2048, capabilities=capabilities, auth_optional=local)
         config['providers'] = [entry if p['name'] == name else p for p in config.get('providers', [])]
         if not old:
             config['providers'].append(entry)
