@@ -1,0 +1,49 @@
+{
+  "kind": "BROWSER_POINTER_WITH_NATIVE_IPC_FIXTURE",
+  "passed": [
+    "Orbit \u2192 catalog accepts real pointer clicks and opens Chat",
+    "Catalog tabs, search, Notes and Calculator remain clickable after repeated navigation",
+    "Tool controls show icons with accessible names, without visible captions",
+    "Unchanged visibility does not repeatedly request native layout",
+    "Shared panels keep one drag owner, survive an in-flight layout and commit without snapping",
+    "Resize, cancel and fixed panels preserve interaction state",
+    "Dragging the avatar previews locally and commits its position once on release",
+    "Tentacle stays attached during a long hover and retracts continuously on exit"
+  ],
+  "failures": [
+    {
+      "name": "Panel movement stops at the work-area edge before release",
+      "error": "AssertionError [ERR_ASSERTION]: drag preview passed the work-area edge\n    at C:\\Users\\PD2\\Desktop\\axx\\1.AXX\\scripts\\test-tools-interaction.cjs:146:14\n    at async check (C:\\Users\\PD2\\Desktop\\axx\\1.AXX\\scripts\\test-tools-interaction.cjs:42:13)\n    at async C:\\Users\\PD2\\Desktop\\axx\\1.AXX\\scripts\\test-tools-interaction.cjs:132:5",
+      "state": {
+        "step": 4,
+        "tool": "magicpen",
+        "busy": false,
+        "pending": false,
+        "panelHidden": false
+      }
+    },
+    {
+      "name": "A status reply from before an avatar drag cannot restore its old position",
+      "error": "AssertionError [ERR_ASSERTION]: stale status briefly painted the pre-drag position\n    at C:\\Users\\PD2\\Desktop\\axx\\1.AXX\\scripts\\test-tools-interaction.cjs:225:14\n    at async check (C:\\Users\\PD2\\Desktop\\axx\\1.AXX\\scripts\\test-tools-interaction.cjs:42:13)\n    at async C:\\Users\\PD2\\Desktop\\axx\\1.AXX\\scripts\\test-tools-interaction.cjs:203:5",
+      "state": {
+        "step": 0,
+        "tool": "",
+        "busy": false,
+        "pending": false,
+        "panelHidden": true
+      }
+    },
+    {
+      "name": "The small avatar can be placed near a screen corner without snapping back",
+      "error": "AssertionError [ERR_ASSERTION]: small avatar was restricted to {\"x\":92,\"y\":92}\n    at C:\\Users\\PD2\\Desktop\\axx\\1.AXX\\scripts\\test-tools-interaction.cjs:239:14\n    at async check (C:\\Users\\PD2\\Desktop\\axx\\1.AXX\\scripts\\test-tools-interaction.cjs:42:13)\n    at async C:\\Users\\PD2\\Desktop\\axx\\1.AXX\\scripts\\test-tools-interaction.cjs:229:5",
+      "state": {
+        "step": 0,
+        "tool": "",
+        "busy": false,
+        "pending": false,
+        "panelHidden": true
+      }
+    }
+  ],
+  "errors": []
+}

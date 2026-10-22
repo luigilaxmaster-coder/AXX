@@ -1,18 +1,18 @@
 # Axx — Autonomous Resident Desktop AI Assistant & 3D Entity
 
-## Descargar Axx 0.20.10 para Windows
+## Descargar Axx 0.20.11 para Windows
 
-**[⬇ Descargar instalador para Windows x64 · 247 MB](https://github.com/luigilaxmaster-coder/AXX/releases/download/v0.20.10/Axx_0.20.10_x64-setup.exe)**
+**[⬇ Descargar instalador para Windows x64 · 247 MB](https://github.com/luigilaxmaster-coder/AXX/releases/download/v0.20.11/Axx_0.20.11_x64-setup.exe)**
 
-[Ver la versión de prueba y sus archivos](https://github.com/luigilaxmaster-coder/AXX/releases/tag/v0.20.10) · [Verificación del instalador descargado](docs/VERIFICACION-INSTALADOR-0.20.10.md) · [Comprobar SHA256](https://github.com/luigilaxmaster-coder/AXX/releases/download/v0.20.10/SHA256SUMS.txt)
+[Ver la versión de prueba y sus archivos](https://github.com/luigilaxmaster-coder/AXX/releases/tag/v0.20.11) · [Correcciones y pruebas de 0.20.11](docs/ARRASTRE-Y-ATAJO-0.20.11.md) · [Comprobar SHA256](https://github.com/luigilaxmaster-coder/AXX/releases/download/v0.20.11/SHA256SUMS.txt)
 
 Descarga el `.exe`, ejecútalo en la otra PC y abre Axx desde su acceso instalado. **No necesitas instalar Python ni Node.** Para las preguntas de IA, configura un proveedor en Ajustes; tus credenciales y tu historial no se transfieren con el instalador.
 
-**Instalador comprobado desde GitHub:** archivo NSIS íntegro, 38 módulos de backend y 30 archivos de interfaz/código nativo contrastados con las fuentes. Su backend arrancó con datos nuevos y pasó las pruebas de Magic Pen con imagen sintética, exportación PNG, conversión JPEG/PDF y acciones con aprobación. Contiene los últimos cambios funcionales de escritorio; los cambios posteriores de documentación y pruebas no requieren otro instalador.
+**Nuevo en 0.20.11:** el muñeco puede arrastrarse cerca del borde aunque esté encogido. Se eliminó el salto producido por respuestas antiguas de posición y se corrigió el límite de arrastre de los paneles. Pasaron 12 pruebas de interacción, 99 Python y 29 Rust; el instalador se compiló, extrajo e instaló localmente. La prueba física final de arrastre y `Alt+Shift+A` sigue pendiente y no se presenta como aprobada.
 
 **Para la otra PC:** Windows x64; pruebas nativas realizadas en Windows 11. Si falta WebView2, la instalación necesita Internet para descargarlo. El instalador no está firmado digitalmente, por lo que Windows puede avisar de un editor desconocido. Está listo para probarlo, pero aún no está validado en tu segundo equipo.
 
-Incluye **Magic Pen**, paneles modernizados, menú circular transparente, mejoras del movimiento del muñeco, acciones de escritorio y conversión local de imágenes/PDF. Es una **versión de prueba**: siguen pendientes la validación en otra PC, el atajo físico `Alt+Shift+A`, DPI mixtos y un fallo intermitente de arrastre.
+Incluye **Magic Pen**, paneles modernizados, menú circular transparente, movimiento del muñeco, acciones de escritorio y conversión local de imágenes/PDF. Es una **versión de prueba**: siguen pendientes la validación en otra PC, la comprobación física del atajo y el arrastre, DPI mixtos y lápiz físico.
 
 ---
 
@@ -31,7 +31,7 @@ Incluye **Magic Pen**, paneles modernizados, menú circular transparente, mejora
   <img src="https://img.shields.io/badge/Frontend-WebGL%20%2F%20HTML5-black?logo=webgl" alt="WebGL" />
   <img src="https://img.shields.io/badge/Offline%20Voice-Faster--Whisper%20Tiny-green" alt="Faster-Whisper" />
   <img src="https://img.shields.io/badge/Protocol-Model%20Context%20Protocol%20(MCP)-blueviolet" alt="MCP" />
-  <img src="https://img.shields.io/badge/Source%20Version-v0.20.10-informational" alt="Source version 0.20.10" />
+  <img src="https://img.shields.io/badge/Source%20Version-v0.20.11-informational" alt="Source version 0.20.11" />
   <img src="https://img.shields.io/badge/Development-Active%20Refinement-yellow?logo=git" alt="Active Development" />
 </p>
 
@@ -72,7 +72,7 @@ A visual presentation of Axx's liquid character. See the validation reports belo
 ## 🚧 Project Status: Active Continuous Improvement
 
 > [!NOTE]
-> **Axx is under active development.** The current source manifests use **v0.20.10**, and a [Windows x64 test installer is published](https://github.com/luigilaxmaster-coder/AXX/releases/tag/v0.20.10). Validation is recorded per feature; a working UI or build does not by itself certify every hardware-dependent behavior.
+> **Axx is under active development.** The current source manifests use **v0.20.11**, and a [Windows x64 test installer is published](https://github.com/luigilaxmaster-coder/AXX/releases/tag/v0.20.11). Validation is recorded per feature; a working UI or build does not by itself certify every hardware-dependent behavior.
 
 ### 🟢 Implemented capabilities
 - **Native Startup:** Resident Windows application with a local backend and a launcher fallback to the executable built from this repository.
@@ -81,7 +81,15 @@ A visual presentation of Axx's liquid character. See the validation reports belo
 - **Multi-Provider Connections:** Local/LAN Ollama, Ollama Cloud, LM Studio, Anthropic, Groq and compatible APIs, with model discovery and DPAPI-protected credentials. Explicit connection selection keeps requests on the selected provider/model; it does not silently switch platforms on failure.
 - **Episodic Memory & MCP Core:** Integrated procedural SQLite memory and Model Context Protocol schema validation.
 
-### Latest changes — October 22, 2026 · v0.20.10
+### Latest changes — October 22, 2026 · v0.20.11
+
+- Allow the small avatar to be placed near screen edges without a margin based on its transparent canvas.
+- Discard stale layout replies after dragging and wait for native position commits before recalculating layout.
+- Bound panels during the gesture and preserve their positions at 150% display scale in the regression fixture.
+- Pass 12 interaction checks, 99 Python tests and 29 Rust tests (one helper ignored). Native installation succeeded; physical drag and shortcut acceptance remain pending as authorized by the user.
+- [Full verification and limits](docs/ARRASTRE-Y-ATAJO-0.20.11.md).
+
+### Previous changes — October 22, 2026 · v0.20.10
 
 - **Magic Pen MP-H1:** clean capture, point/rectangle/lasso selection, basic editable ink, questions through a configured vision provider and verified PNG export.
 - **Desktop panels:** shared minimal styling, a transparent circular menu and one drag controller. The avatar previews movement locally and commits its position on release.

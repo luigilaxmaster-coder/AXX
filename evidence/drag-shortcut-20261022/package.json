@@ -1,0 +1,46 @@
+{
+  "version": "0.20.11",
+  "build_commands": [
+    {
+      "exit_code": 0,
+      "command": "python -m PyInstaller --noconfirm --clean axx-backend.spec"
+    },
+    {
+      "exit_code": 0,
+      "command": "node_modules\\.bin\\tauri.cmd build --bundles nsis"
+    }
+  ],
+  "artifacts": [
+    {
+      "architecture": "x86_64",
+      "sha256": "4104765597B6248BB285B51E655C59C6F3F066F3BBBE51782DF86266A1D6611C",
+      "bytes": 247335144,
+      "version": "0.20.11",
+      "name": "Axx_0.20.11_x64-setup.exe"
+    },
+    {
+      "architecture": "x86_64",
+      "sha256": "39C25C09FE14738CC87DA6EBD886739123B5BCAC65F94909F4C7313C6B6198BF",
+      "bytes": 14457856,
+      "version": "0.20.11",
+      "name": "Axx.exe"
+    },
+    {
+      "architecture": "x86_64",
+      "sha256": "75AA77C7285665ACE872052DF6FEDE7703E258FE4FD781F2B0583E3990B309F0",
+      "bytes": 227008941,
+      "version": "0.20.11",
+      "name": "axx-backend.exe"
+    }
+  ],
+  "packaged_executable_sha256": "cddce449a5c08000bab3485d0f517ed89e9cc5dffd49096f8f37cb994b8993de",
+  "native_bundle_marker": "Only UNK -> NSS differs from compiled executable; all other bytes equal",
+  "installed_executable_matches_package": true,
+  "backend_matches_package": true,
+  "python_tests": 99,
+  "rust_tests": 29,
+  "rust_ignored": 1,
+  "browser_interaction_tests": 12,
+  "native_pointer_test": "Pending: Computer Use rejects transparent-window coordinates",
+  "native_shortcut_test": "Pending: Windows input interrupted/rejected; user authorized publication with this test pending"
+}

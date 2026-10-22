@@ -1,5 +1,13 @@
 # Change log
 
+## 0.20.11 — 2026-10-22 · Free avatar dragging
+
+- Remove the transparent-canvas margin that prevented placing the small avatar near a screen corner.
+- Reject layout responses started before a drag and defer layout while the native body position is being committed.
+- Clamp panel previews during movement and convert saved positions between physical pixels and logical coordinates.
+- Add regression coverage for corner placement, late replies, panel boundaries and 150% display scale. Twelve interaction checks, 99 Python tests and 29 Rust tests pass; one Rust helper is ignored.
+- Build and install the new NSIS package. Physical drag and global-shortcut acceptance remain pending; the user explicitly authorized publication with that limitation. [Details](docs/ARRASTRE-Y-ATAJO-0.20.11.md).
+
 ## 0.20.10 — 2026-10-22 · Windows test release
 
 - Publish the [Windows x64 installer](https://github.com/luigilaxmaster-coder/AXX/releases/tag/v0.20.10), checksum and installation notes as GitHub release assets.

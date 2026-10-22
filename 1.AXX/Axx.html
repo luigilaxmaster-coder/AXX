@@ -18475,6 +18475,8 @@ var Axx;
         pendingLayout = false;
         layoutBusy = false;
         layoutAgain = false;
+        layoutRevision = 0;
+        bodyMovePending = false;
         drag = null;
         suppressClickUntil = 0;
         anchor = { x: 152, y: 152 };
@@ -18765,13 +18767,14 @@ var Axx;
                 return target.closest('.resident-resize-handle, [data-resize-handle]');
             };
             document.addEventListener('pointerdown', event => {
-                if (event.button !== 0) return;
+                if (event.button !== 0 || this.bodyMovePending) return;
                 const resizeHandle = isResizeHandle(event.target);
                 if (resizeHandle) {
                     const panelEl = resizeHandle.closest('#panel, #flow-sheet, .organic-satellite, #v13-dock, #v13-settings, #v13-pad, [data-panel-id]') || document.getElementById('panel');
                     const panelId = panelEl?.id || 'panel';
                     if (panelEl?.dataset.windowLocked === 'true') { event.stopImmediatePropagation(); return; }
                     const currentBox = this.boxes.find(b => b.id === panelId) || { width: 420, height: 560 };
+                    this.layoutRevision++;
                     this.panelResize = {
                         id: event.pointerId,
                         target: resizeHandle,
@@ -18797,6 +18800,7 @@ var Axx;
                     const currentBox = this.boxes.find(b => b.id === panelId) || { x: 0, y: 0 };
                     if (panelEl?.dataset.windowLocked === 'true') { event.stopImmediatePropagation(); return; }
                     const rect = panelEl.getBoundingClientRect();
+                    this.layoutRevision++;
                     this.panelDrag = {
                         id: event.pointerId,
                         target: head,
@@ -18821,6 +18825,7 @@ var Axx;
                 }
                 if (!isBody(event.target) || !Axx.app.renderer.hitTest(event.clientX, event.clientY)) return;
                 event.preventDefault(); event.stopImmediatePropagation();
+                this.layoutRevision++;
                 this.drag = { id: event.pointerId, x: event.clientX, y: event.clientY, target: event.target, moved: false, anchor: { ...this.anchor }, geometry: { ...this.geometry } };
                 event.target.setPointerCapture?.(event.pointerId); Axx.app.renderer.setPressed(true);
             }, true);
@@ -18862,13 +18867,17 @@ var Axx;
                     const dy = event.clientY - pd.startY;
                     if (!pd.moved && Math.hypot(dx, dy) <= 4) return;
                     pd.moved = true;
-                    pd.currentDx = dx;
-                    pd.currentDy = dy;
-                    const newX = pd.initialBoxX + dx;
-                    const newY = pd.initialBoxY + dy;
                     const g = this.geometry || {};
-                    const screenX = Number.isFinite(g.screenX) ? g.screenX + newX : undefined;
-                    const screenY = Number.isFinite(g.screenY) ? g.screenY + newY : undefined;
+                    const box = this.boxes.find(item => item.id === pd.panelId);
+                    const minX = -g.spaceLeft + 72, maxX = g.spaceRight - (box?.width || pd.el.offsetWidth) - 72;
+                    const minY = -g.spaceAbove + 72, maxY = g.spaceBelow - (box?.height || pd.el.offsetHeight) - 72;
+                    const newX = minX <= maxX ? Axx.clamp(pd.initialBoxX + dx, minX, maxX) : pd.initialBoxX;
+                    const newY = minY <= maxY ? Axx.clamp(pd.initialBoxY + dy, minY, maxY) : pd.initialBoxY;
+                    pd.currentDx = newX - pd.initialBoxX;
+                    pd.currentDy = newY - pd.initialBoxY;
+                    const scale = g.scaleFactor || 1;
+                    const screenX = Number.isFinite(g.screenX) ? g.screenX + newX * scale : undefined;
+                    const screenY = Number.isFinite(g.screenY) ? g.screenY + newY * scale : undefined;
                     this.panelPositions[pd.panelId] = {
                         ...(this.panelPositions[pd.panelId] || {}),
                         screenX,
@@ -18879,7 +18888,7 @@ var Axx;
                     const b = this.boxes.find(item => item.id === pd.panelId);
                     if (b) { b.x = newX; b.y = newY; }
                     if (pd.el) {
-                        pd.el.style.setProperty('transform', `translate3d(${dx}px, ${dy}px, 0)`, 'important');
+                        pd.el.style.setProperty('transform', `translate3d(${pd.currentDx}px, ${pd.currentDy}px, 0)`, 'important');
                     }
                     return;
                 }
@@ -18889,7 +18898,7 @@ var Axx;
                 if (!drag.moved && Math.hypot(event.clientX - drag.x, event.clientY - drag.y) <= 4) return;
                 drag.moved = true; this.suppressClickUntil = performance.now() + 1200;
                 Axx.companion.data.prefs.follow = false; this.activity();
-                const margin = this.size / 2 + 12;
+                const margin = 12;
                 this.anchor = { x: Axx.clamp(drag.anchor.x + event.clientX - drag.x, margin, innerWidth - margin), y: Axx.clamp(drag.anchor.y + event.clientY - drag.y, margin, innerHeight - margin) };
                 this.paintBody();
             }, true);
@@ -18905,6 +18914,7 @@ var Axx;
                 if (!drag || event.pointerId !== drag.id) return;
                 event.preventDefault(); event.stopImmediatePropagation();
                 const wasDrag = drag.moved;
+                this.bodyMovePending = wasDrag;
                 this.drag = null;
                 if (drag.target.hasPointerCapture?.(drag.id)) drag.target.releasePointerCapture(drag.id);
                 Axx.app.renderer.setPressed(false); Axx.app.renderer.releaseDrag();
@@ -18912,8 +18922,9 @@ var Axx;
                     this.suppressClickUntil = performance.now() + 800;
                     const g = drag.geometry, scale = g.scaleFactor || 1;
                     void Axx.app.bridge.command('desktop_move_body', { x: g.screenX + (this.anchor.x - drag.anchor.x) * scale, y: g.screenY + (this.anchor.y - drag.anchor.y) * scale })
-                        .then(status => { this.geometry = status; this.schedule(); })
-                        .catch(error => { this.anchor = drag.anchor; this.paintBody(); this.schedule(); Axx.app.toast(String(error)); });
+                        .then(status => { this.geometry = status; })
+                        .catch(error => { this.anchor = drag.anchor; this.paintBody(); Axx.app.toast(String(error)); })
+                        .finally(() => { this.bodyMovePending = false; this.schedule(); });
                 }
             }, true);
             document.addEventListener('click', event => { if (isBody(event.target) && (performance.now() < this.suppressClickUntil)) { event.preventDefault(); event.stopImmediatePropagation(); } }, true);
@@ -18936,12 +18947,14 @@ var Axx;
         schedule() { if (this.pendingLayout) return; this.pendingLayout = true; setTimeout(() => { this.pendingLayout = false; void this.layout(); }, 0); }
         visible(id) { const n = document.getElementById(id); return n && !n.hidden && n.getClientRects().length > 0; }
         async layout() {
-            if (this.panelDrag || this.panelResize || this.drag?.moved) { this.layoutAgain = true; return; }
+            if (this.panelDrag || this.panelResize || this.drag || this.bodyMovePending) { this.layoutAgain = true; return; }
             if (this.layoutBusy) { this.layoutAgain = true; return; }
             this.layoutBusy = true;
             try {
+                const revision = this.layoutRevision;
                 const state = await Axx.app.bridge.status();
-                if (this.panelDrag || this.panelResize || this.drag?.moved) return;
+                // A reply started before a gesture must never repaint its old position.
+                if (revision !== this.layoutRevision || this.panelDrag || this.panelResize || this.drag || this.bodyMovePending) { this.layoutAgain = true; return; }
                 this.geometry = state.desktop || this.geometry || { workWidth: screen.availWidth || 1280, workHeight: screen.availHeight || 900, spaceLeft: 800, spaceRight: 300, spaceAbove: 500, spaceBelow: 300 };
                 const g = this.geometry, size = this.size, half = size / 2, margin = 72;
                 const boxes = [{ id: 'stage', x: -half, y: -half, width: size, height: size }];
@@ -18972,8 +18985,8 @@ var Axx;
                     let x = defaultX, y = defaultY;
                     if (saved) {
                         if (Number.isFinite(saved.screenX) && Number.isFinite(saved.screenY) && Number.isFinite(g.screenX) && Number.isFinite(g.screenY)) {
-                            x = Math.round(saved.screenX - g.screenX);
-                            y = Math.round(saved.screenY - g.screenY);
+                            x = Math.round((saved.screenX - g.screenX) / (g.scaleFactor || 1));
+                            y = Math.round((saved.screenY - g.screenY) / (g.scaleFactor || 1));
                         } else if (Number.isFinite(saved.relX) && Number.isFinite(saved.relY)) {
                             x = saved.relX;
                             y = saved.relY;
@@ -19004,7 +19017,7 @@ var Axx;
                 if (Axx.actions.selected && opened) add('a11-mini-controls', -130, size * .30 + 46, 260, 46);
                 // Keep the transparent work area stable across tool navigation; resizing it exposes mismatched native/DOM frames.
                 const width = Math.min(g.workWidth || 1920, 4096), height = Math.min(g.workHeight || 1080, 4096);
-                const minX = -Axx.clamp(g.spaceLeft ?? width / 2, half + 12, width - half - 12), minY = -Axx.clamp(g.spaceAbove ?? height / 2, half + 12, height - half - 12);
+                const minX = -Axx.clamp(g.spaceLeft ?? width / 2, 12, width - 12), minY = -Axx.clamp(g.spaceAbove ?? height / 2, 12, height - 12);
                 this.anchor = { x: -minX, y: -minY }; this.boxes = boxes;
                 this.paintBody();
                 for (const box of boxes) {
