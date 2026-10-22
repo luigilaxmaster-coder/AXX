@@ -1,0 +1,20 @@
+{
+  "image": {
+    "format": "JPEG",
+    "width": 2,
+    "height": 2
+  },
+  "pdf": {
+    "pages": 2,
+    "page_sizes_pt": [
+      [
+        100.0,
+        200.0
+      ],
+      [
+        100.0,
+        200.0
+      ]
+    ]
+  }
+}

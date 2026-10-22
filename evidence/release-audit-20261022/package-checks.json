@@ -1,0 +1,10 @@
+{
+  "pe_architectures": {
+    "Axx.exe": "x86_64",
+    "resources/axx-backend.exe": "x86_64",
+    "resources/ai-memory.exe": "x86_64"
+  },
+  "private_runtime_files_in_backend_archive": [],
+  "webview2_install_mode": "downloadBootstrapper",
+  "installer_signature": "NotSigned"
+}

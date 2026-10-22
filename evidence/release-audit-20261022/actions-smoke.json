@@ -1,0 +1,25 @@
+{
+  "kind": "FULL_HTML_FROZEN_BACKEND_REAL_EFFECTS",
+  "binary": "GitHub installer: resources/axx-backend.exe",
+  "sha256": "c729df6f124f1681c9c503fab92b3a51d3c4e701ca91afb09e918e68bbcaa96d",
+  "model_transport": "controlled local OpenAI-compatible response fixture",
+  "modelCalls": 2,
+  "learnedActions": 2,
+  "checks": [
+    "full procedure details loaded",
+    "new request reaches model planner",
+    "approval shows exact steps before effects",
+    "real file creation and SHA256 verification",
+    "learned workflow persisted",
+    "repeat executes without model",
+    "compound YouTube search handed to Windows",
+    "context and slash search resolve correctly",
+    "no normal chat inference used",
+    "no JavaScript exceptions"
+  ],
+  "limitations": [
+    "Tauri IPC emulated by test bridge",
+    "Windows browser handoff checked; loaded YouTube page not inspected",
+    "Model reasoning quality is not measured by this fixture"
+  ]
+}

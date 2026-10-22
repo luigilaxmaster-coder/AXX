@@ -1,0 +1,121 @@
+{
+  "commit": "168e47bc46674879e9635e7b91303494eeef5413",
+  "installer_sha256": "d44aa4e96b15bbd7792bf1a0c71800866bff17e634bfb3479ea1dfb926f261d7",
+  "executables": {
+    "Axx.exe": "681c347792bac65811dd45bb0f42e46d29ceac68cc132a9c3cb36c53edf091c0",
+    "resources/axx-backend.exe": "c729df6f124f1681c9c503fab92b3a51d3c4e701ca91afb09e918e68bbcaa96d"
+  },
+  "source_modules": [
+    "backend/__init__.py",
+    "backend/action_learning.py",
+    "backend/actions/__init__.py",
+    "backend/actions/cli_blender.py",
+    "backend/actions/desktop.py",
+    "backend/actions/executor.py",
+    "backend/actions/file_inspection.py",
+    "backend/actions/tools.py",
+    "backend/actions/windows_apps.py",
+    "backend/auth/__init__.py",
+    "backend/auth/callback_page.py",
+    "backend/auth/chatgpt_auth.py",
+    "backend/commands.py",
+    "backend/connect/__init__.py",
+    "backend/connect/http_api.py",
+    "backend/connect/mcp_server.py",
+    "backend/connect/provider.py",
+    "backend/connect/registry.py",
+    "backend/connect/service.py",
+    "backend/converter.py",
+    "backend/inference/__init__.py",
+    "backend/inference/adapter.py",
+    "backend/inference/chatgpt_adapter.py",
+    "backend/inference/process_manager.py",
+    "backend/inference/provider_settings.py",
+    "backend/inference/router.py",
+    "backend/magic_pen.py",
+    "backend/memory/__init__.py",
+    "backend/memory/ai_memory_adapter.py",
+    "backend/memory/procedural_memory.py",
+    "backend/procedure_library.py",
+    "backend/screen_recording.py",
+    "backend/server.py",
+    "backend/speech/__init__.py",
+    "backend/speech/offline_asr.py",
+    "backend/speech/windows_tts.py",
+    "backend/sync/__init__.py",
+    "backend/sync/identity_sync.py"
+  ],
+  "frontend_and_native_sources": [
+    "1.AXX/Axx-20-apariencia.png",
+    "1.AXX/Axx-20-base.png",
+    "1.AXX/Axx-20-movil.png",
+    "1.AXX/Axx-20-movimiento.png",
+    "1.AXX/Axx.html",
+    "1.AXX/MANUAL.html",
+    "1.AXX/capture-overlay.html",
+    "1.AXX/favicon.ico",
+    "1.AXX/icon.png",
+    "1.AXX/scripts/axx-connect.js",
+    "1.AXX/scripts/command-library.js",
+    "1.AXX/scripts/converter.css",
+    "1.AXX/scripts/converter.js",
+    "1.AXX/scripts/magic-pen.css",
+    "1.AXX/scripts/magic-pen.js",
+    "1.AXX/scripts/native-capture.js",
+    "1.AXX/scripts/native-music.js",
+    "1.AXX/scripts/native-voice-fallback.draft.js",
+    "1.AXX/scripts/native-voice.js",
+    "1.AXX/scripts/panel-design.css",
+    "1.AXX/scripts/providers.js",
+    "src-tauri/Cargo.lock",
+    "src-tauri/Cargo.toml",
+    "src-tauri/src/capture.rs",
+    "src-tauri/src/lib.rs",
+    "src-tauri/src/magic_pen.rs",
+    "src-tauri/src/main.rs",
+    "src-tauri/src/resident.rs",
+    "src-tauri/src/system_media.rs",
+    "src-tauri/tauri.conf.json"
+  ],
+  "resources": [
+    {
+      "file": "resources/providers.default.json",
+      "sha256": "0e3f80cd238d459e3f2a395e6c8921fa5b050d37920fd8366cee00be222817ab"
+    },
+    {
+      "file": "resources/command-library.json",
+      "sha256": "05e4d65c8c2de746da4e922bdeb1516d455754518648a4dc8173b6f3c59a821c"
+    },
+    {
+      "file": "resources/procedure-library.zip",
+      "sha256": "6279cb030c0dcf8c79601eced394ba59df80b0ac2769fd341ee701a16fe4feb0"
+    },
+    {
+      "file": "models/faster-whisper-tiny/config.json",
+      "sha256": "a73a28cdfe1c43ccc7202fa333d1f89c202477271407ae9a7f19afa52039cac8"
+    },
+    {
+      "file": "models/faster-whisper-tiny/model.bin",
+      "sha256": "dcb76c6586fc06cbdac6dd21f14cfd129cc4cdd9dce19bf4ffa62e59cbe6e6d1"
+    },
+    {
+      "file": "models/faster-whisper-tiny/tokenizer.json",
+      "sha256": "fb7b63191e9bb045082c79fd742a3106a12c99513ab30df4a0d47fa6cb6fd0ab"
+    },
+    {
+      "file": "models/faster-whisper-tiny/vocabulary.txt",
+      "sha256": "34ce3fe1c5041027b3f8d42912270993f986dbc4bb34cf27f951e34a1e453913"
+    }
+  ],
+  "native_packaging_difference": "Only the Tauri UNK -> NSS bundle marker (3 bytes); all other bytes match the compiled snapshot.",
+  "bundled_dependencies": [
+    "pypdf",
+    "PIL",
+    "faster_whisper",
+    "av",
+    "ctranslate2",
+    "tokenizers",
+    "ai-memory.exe"
+  ],
+  "passed": true
+}

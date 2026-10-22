@@ -3,6 +3,7 @@
 ## 0.20.10 — 2026-10-22 · Windows test release
 
 - Publish the [Windows x64 installer](https://github.com/luigilaxmaster-coder/AXX/releases/tag/v0.20.10), checksum and installation notes as GitHub release assets.
+- Download and extract that GitHub installer; compare 38 backend modules, 30 frontend/native source files and packaged resources. Verify its extracted backend with fresh data, Magic Pen synthetic-image export, image/PDF conversion and action approval tests. [Installer verification and second-PC instructions](docs/VERIFICACION-INSTALADOR-0.20.10.md).
 - Add Magic Pen MP-H1: clean capture, point/rectangle/lasso selection, editable ink, provider-backed visual questions and verified PNG export.
 - Modernize shared panels, restore the transparent circular menu and stabilize panel/avatar drag handling without changing saved avatar identity.
 - Add verified desktop action learning, installed-app discovery, file hashes and bounded local image/PDF conversion.

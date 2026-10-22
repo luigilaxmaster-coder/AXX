@@ -4,9 +4,13 @@
 
 **[⬇ Descargar instalador para Windows x64 · 247 MB](https://github.com/luigilaxmaster-coder/AXX/releases/download/v0.20.10/Axx_0.20.10_x64-setup.exe)**
 
-[Ver la versión de prueba y sus archivos](https://github.com/luigilaxmaster-coder/AXX/releases/tag/v0.20.10) · [Cambios y pruebas](docs/REVISION-ENTREGA-20261022.md) · [Comprobar SHA256](https://github.com/luigilaxmaster-coder/AXX/releases/download/v0.20.10/SHA256SUMS.txt)
+[Ver la versión de prueba y sus archivos](https://github.com/luigilaxmaster-coder/AXX/releases/tag/v0.20.10) · [Verificación del instalador descargado](docs/VERIFICACION-INSTALADOR-0.20.10.md) · [Comprobar SHA256](https://github.com/luigilaxmaster-coder/AXX/releases/download/v0.20.10/SHA256SUMS.txt)
 
 Descarga el `.exe`, ejecútalo en la otra PC y abre Axx desde su acceso instalado. **No necesitas instalar Python ni Node.** Para las preguntas de IA, configura un proveedor en Ajustes; tus credenciales y tu historial no se transfieren con el instalador.
+
+**Instalador comprobado desde GitHub:** archivo NSIS íntegro, 38 módulos de backend y 30 archivos de interfaz/código nativo contrastados con las fuentes. Su backend arrancó con datos nuevos y pasó las pruebas de Magic Pen con imagen sintética, exportación PNG, conversión JPEG/PDF y acciones con aprobación. Contiene los últimos cambios funcionales de escritorio; los cambios posteriores de documentación y pruebas no requieren otro instalador.
+
+**Para la otra PC:** Windows x64; pruebas nativas realizadas en Windows 11. Si falta WebView2, la instalación necesita Internet para descargarlo. El instalador no está firmado digitalmente, por lo que Windows puede avisar de un editor desconocido. Está listo para probarlo, pero aún no está validado en tu segundo equipo.
 
 Incluye **Magic Pen**, paneles modernizados, menú circular transparente, mejoras del movimiento del muñeco, acciones de escritorio y conversión local de imágenes/PDF. Es una **versión de prueba**: siguen pendientes la validación en otra PC, el atajo físico `Alt+Shift+A`, DPI mixtos y un fallo intermitente de arrastre.
 

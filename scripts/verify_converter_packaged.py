@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import secrets
 import subprocess
+import sys
 import tempfile
 import time
 import urllib.request
@@ -16,7 +17,7 @@ import psutil
 
 
 root = Path(__file__).resolve().parents[1]
-binary = root / 'dist' / 'axx-backend.exe'
+binary = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else root / 'dist' / 'axx-backend.exe'
 assert binary.is_file(), binary
 with tempfile.TemporaryDirectory(prefix='axx-converter-smoke-') as directory:
     folder = Path(directory)

@@ -1,0 +1,18 @@
+{
+  "kind": "DOWNLOADED_INSTALLER_BACKEND_WITH_SYNTHETIC_IMAGE",
+  "fresh_data_directory": true,
+  "authentication_401": true,
+  "selection_shapes": [
+    "point",
+    "rect",
+    "lasso"
+  ],
+  "ink_persisted": true,
+  "exported_verified": [
+    "original",
+    "annotated"
+  ],
+  "original_unchanged": true,
+  "missing_vision_reported": true,
+  "passed": true
+}
