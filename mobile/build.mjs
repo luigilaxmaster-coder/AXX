@@ -1,0 +1,19 @@
+import {mkdir, copyFile, cp, readFile, writeFile} from 'node:fs/promises';
+import {createHash} from 'node:crypto';
+await mkdir(new URL('www', import.meta.url), {recursive:true});
+await copyFile(new URL('client.html', import.meta.url), new URL('www/index.html', import.meta.url));
+for (const name of ['css', 'icons']) await cp(new URL(name, import.meta.url), new URL('www/'+name, import.meta.url), {recursive:true});
+await mkdir(new URL('www/js', import.meta.url), {recursive:true});
+await copyFile(new URL('js/live-client.js', import.meta.url), new URL('www/js/live-client.js', import.meta.url));
+await copyFile(new URL('js/remote-voice.js', import.meta.url), new URL('www/js/remote-voice.js', import.meta.url));
+await copyFile(new URL('js/remote-control.js', import.meta.url), new URL('www/js/remote-control.js', import.meta.url));
+// Use the exact desktop geometry/material code; no independently maintained mobile avatar.
+const desktop = await readFile(new URL('../1.AXX/Axx.html', import.meta.url), 'utf8');
+const start = desktop.indexOf('<script>"use strict";');
+const marker = '    Axx.SoftwareRenderer = SoftwareRenderer;';
+const end = desktop.indexOf('})(Axx || (Axx = {}));', desktop.indexOf(marker));
+if (start < 0 || end < start || desktop.indexOf(marker) < start) throw new Error('Desktop renderer boundary changed; update extraction before building');
+const renderer = desktop.slice(start + '<script>'.length, end + '})(Axx || (Axx = {}));'.length);
+if (renderer.includes('new Axx.App(') || !renderer.includes('class SoftwareRenderer')) throw new Error('Invalid desktop renderer extraction');
+await writeFile(new URL('www/js/desktop-avatar.js', import.meta.url), renderer);
+await writeFile(new URL('www/renderer-source.json', import.meta.url), JSON.stringify({source:'1.AXX/Axx.html',sha256:createHash('sha256').update(renderer).digest('hex')},null,2));

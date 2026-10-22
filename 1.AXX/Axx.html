@@ -7795,7 +7795,7 @@ var Axx;
                 this.app.toast('Detén la respuesta antes de iniciar otra conversación.');
                 return;
             } if (this.data.messages.length && !confirm('¿Cerrar este hilo e iniciar una conversación vacía? Exporta antes para conservar una copia.'))
-                return; this.data.messages = []; delete this.data.connectConversationId; this.attachment = null; this.sayStatus(''); this.renderAttachment(); this.renderChat(); this.save(); });
+                return; this.data.messages = []; this.data.sharedConversationId = Axx.newId(); delete this.data.connectConversationId; this.attachment = null; this.sayStatus(''); this.renderAttachment(); this.renderChat(); this.save(); });
             click('chat-attach', () => node('chat-file').click());
             node('chat-file').onchange = () => { const input = node('chat-file'); const file = input.files?.[0]; input.value = ''; if (file)
                 void this.attach(file); };
@@ -19313,4 +19313,5 @@ body[data-media16-source="system"] .m16-cover,body[data-media16-source="system"]
 body[data-media16-source="system"] #view-music .m16-now{padding:12px;margin-top:8px}
 body[data-media16-source="system"] #view-music .m16-transport{margin:8px 0 0}
 body[data-media16-source="system"] #view-music .m16-compact{padding:10px 14px;margin-top:8px}
-</style><script src="scripts/native-voice.js"></script><script src="scripts/command-library.js"></script><script src="scripts/axx-connect.js"></script><script src="scripts/providers.js"></script><script src="scripts/native-music.js"></script><script src="scripts/native-capture.js"></script><script src="scripts/magic-pen.js"></script><script src="scripts/converter.js"></script><link rel="stylesheet" href="scripts/panel-design.css"></body></html>
+</style><script src="scripts/native-voice.js"></script><script src="scripts/command-library.js"></script><script src="scripts/axx-connect.js"></script><script src="scripts/providers.js"></script><script src="scripts/native-music.js"></script><script src="scripts/native-capture.js"></script><script src="scripts/magic-pen.js"></script><script src="scripts/converter.js"></script><script src="scripts/mobile-gateway.js"></script>
+<script src="scripts/remote-voice.js"></script><script src="scripts/remote-control.js"></script><link rel="stylesheet" href="scripts/panel-design.css"></body></html>

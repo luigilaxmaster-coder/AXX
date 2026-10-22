@@ -46,6 +46,7 @@ from backend.connect.provider import CodexProvider, ProviderError
 from backend.screen_recording import ScreenRecordingService
 from backend.magic_pen import MagicPenService, monitors as pen_monitors
 from backend.converter import ConverterService
+from backend.mobile.http_api import MobileHTTP
 
 LOG = logging.getLogger('axx.server')
 MAX_BODY = 2 * 1024 * 1024
@@ -185,6 +186,8 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
         if not self._authorized():
             return
         try:
+            if MobileHTTP(self).get(path):
+                return
             if ConnectHTTP(self).get(path):
                 return
             if path == '/axx-api/status':
@@ -329,6 +332,8 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
             return
         path = urllib.parse.urlsplit(self.path).path
         try:
+            if MobileHTTP(self).post(path, body):
+                return
             if ConnectHTTP(self).post(path, body):
                 return
             if path.startswith('/axx-api/converter/'):
@@ -887,6 +892,9 @@ def run_server(host='127.0.0.1', port=4173, config_path='providers.json', state_
             'converter': converter
         })
         server = ThreadedHTTPServer((host, port), handler)
+        from backend.mobile.gateway import MobileGateway
+        server.mobile = MobileGateway.for_backend(server, state_path, state_dir)
+        services.append(server.mobile)
         publish_endpoint(state_dir, server)
         if ready_path:
             ready_path.parent.mkdir(parents=True, exist_ok=True)

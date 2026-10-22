@@ -1,0 +1,8 @@
+{
+  "appId": "com.axx.mobile",
+  "appName": "Axx Mobile",
+  "webDir": "www",
+  "loggingBehavior": "none",
+  "android": {"allowMixedContent": false, "backgroundColor": "#090B10"},
+  "server": {"androidScheme": "https"}
+}

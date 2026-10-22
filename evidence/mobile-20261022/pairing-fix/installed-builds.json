@@ -1,0 +1,49 @@
+{
+  "apk": {
+    "sha256": "7b588332186de4380243efd3bf9742343f6e632105ce70c3e9241aaaec0b21ed",
+    "bytes": 11642616
+  },
+  "installer": {
+    "sha256": "cdf0d0bf9155f79431859c2af24793359ef2e2cc96a58e216894e33f2fb7df30",
+    "bytes": 247466702
+  },
+  "installed_desktop": {
+    "sha256": "30050ac97b0caf8ad7f69efbd7beebb248dd381bc1521da189a18d9706a8d586",
+    "bytes": 14468096
+  },
+  "installed_backend": {
+    "sha256": "c22eafef15106300a1f239a497f99fe122c9b60092e738b086708fbed59924b9",
+    "bytes": 227144107
+  },
+  "android_version_code": 16,
+  "android_min_sdk": 29,
+  "android_target_sdk": 36,
+  "android_physical_model": "Samsung SM-A217M",
+  "android_api": 31,
+  "install_method": "adb install --no-streaming -r",
+  "install_result": "Success",
+  "windows_installer_exit": 0,
+  "backup_verified_files": 500,
+  "verification": {
+    "backend_tests": 27,
+    "browser_contract_tests": 4,
+    "android_transport_tests": 4,
+    "android_voice_tests": 1,
+    "android_example_test": 1,
+    "android_lint_errors": 0,
+    "android_lint_warnings": 32,
+    "native_camera_permission_denied_and_granted": true,
+    "native_portrait_scanner_open": true,
+    "real_tls_pairing_using_qr_link": true,
+    "character_and_conversation_sync": true,
+    "optical_scan": "user-confirmed on preceding APK 16; final APK repackaged with stylesheet whitespace cleanup",
+    "existing_backend_regression_tests": 99,
+    "installed_performance_build_backend_ready": true,
+    "physical_input_acceptance": "pending",
+    "hook_delay_probe": {
+      "kind": "synthetic Windows SendInput-to-hook callback; not end-to-end phone latency",
+      "before_median_ms": 48.76365,
+      "after_median_ms": 0.0667
+    }
+  }
+}

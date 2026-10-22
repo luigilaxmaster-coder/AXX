@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/axx_home_root" android:layout_width="match_parent" android:layout_height="match_parent"
+    android:orientation="vertical" android:gravity="center" android:background="@android:color/transparent"
+    android:contentDescription="@string/axx_home_open">
+    <ImageView android:id="@+id/axx_home_image" android:layout_width="48dp" android:layout_height="48dp"
+        android:src="@mipmap/ic_launcher_foreground" android:scaleType="fitCenter" android:importantForAccessibility="no" />
+    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Axx"
+        android:textSize="14sp" android:textColor="#FFFFFFFF" android:shadowColor="#FF000000" android:shadowRadius="3"
+        android:maxLines="1" android:importantForAccessibility="no" />
+</LinearLayout>

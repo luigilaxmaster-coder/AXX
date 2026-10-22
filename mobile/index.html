@@ -1,0 +1,792 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#090B10" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Axx Mobile" />
+  <meta name="description" content="Control móvil completo, taller visual Magic Pen y sincronización con Axx Desktop" />
+  <link rel="icon" type="image/png" href="icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <link rel="manifest" href="manifest.json" />
+  <title>Axx Mobile · Asistente y Taller Visual</title>
+  <link rel="stylesheet" href="css/design-system.css" />
+  <link rel="stylesheet" href="css/components.css" />
+</head>
+<body>
+
+<div id="app-viewport">
+
+  <!-- ======================================================================
+       CABECERA PRINCIPAL (PC Seleccionada, Conexión y Ajustes)
+       ====================================================================== -->
+  <header class="app-header">
+    <button class="header-pc-selector" id="header-pc-btn" title="Cambiar o vincular PC">
+      <svg class="pc-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+        <line x1="8" y1="21" x2="16" y2="21"></line>
+        <line x1="12" y1="17" x2="12" y2="21"></line>
+      </svg>
+      <span class="status-dot online" id="pc-status-dot"></span>
+      <span class="pc-name" id="header-pc-name">Acer Spin 3 · Win 11</span>
+    </button>
+
+    <div class="header-actions">
+      <button class="qr-pair-btn" id="header-pair-btn" title="Vincular equipo por QR">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="3" y="3" width="7" height="7"></rect>
+          <rect x="14" y="3" width="7" height="7"></rect>
+          <rect x="14" y="14" width="7" height="7"></rect>
+          <rect x="3" y="14" width="7" height="7"></rect>
+        </svg>
+        <span>Vincular</span>
+      </button>
+
+      <button class="icon-btn" id="header-settings-btn" title="Ajustes y Proveedores">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="3"></circle>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- ======================================================================
+       CONTENEDOR DE VISTAS (AXX / ESCRITORIO / TRABAJO)
+       ====================================================================== -->
+  <main class="app-content">
+
+    <!-- --------------------------------------------------------------------
+         VISTA 1: AXX (Avatar 3D Líquido, Anillo Radial y Conversación)
+         -------------------------------------------------------------------- -->
+    <section class="view-pane active" id="view-axx">
+      <div class="axx-stage-container">
+        <div class="stage-glow"></div>
+        <div class="axx-canvas-stage">
+          <canvas id="axx-avatar-canvas" width="560" height="560"></canvas>
+          <div class="avatar-status-pill">
+            <span class="status-dot online"></span>
+            <span id="avatar-status-text">En reposo</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Anillo de Herramientas Radiales Adaptable -->
+      <div class="radial-tools-bar" role="toolbar" aria-label="Herramientas de Axx">
+        <button class="tool-chip-btn" data-tool="dictate" title="Dictar y traducir">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+            <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+            <line x1="12" y1="19" x2="12" y2="23"></line>
+            <line x1="8" y1="23" x2="16" y2="23"></line>
+          </svg>
+          <span>Dictado</span>
+        </button>
+
+        <button class="tool-chip-btn" data-tool="magic-pen" title="Taller Visual Magic Pen">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <path d="m12 19 7-7 3 3-7 7-3-3z"></path>
+            <path d="m18 13-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"></path>
+            <path d="m2 2 7.586 7.586"></path>
+            <circle cx="11" cy="11" r="2"></circle>
+          </svg>
+          <span>Magic Pen</span>
+        </button>
+
+        <button class="tool-chip-btn" data-tool="record" title="Grabar pantalla">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect>
+            <circle cx="12" cy="12" r="5" fill="currentColor"></circle>
+          </svg>
+          <span>Grabar</span>
+        </button>
+
+        <button class="tool-chip-btn" data-tool="timer" title="Temporizador de concentración">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <circle cx="12" cy="12" r="10"></circle>
+            <polyline points="12 6 12 12 16 14"></polyline>
+          </svg>
+          <span>Tiempo</span>
+        </button>
+
+        <button class="tool-chip-btn" data-tool="music" title="Música del sistema">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <path d="M9 18V5l12-2v13"></path>
+            <circle cx="6" cy="18" r="3"></circle>
+            <circle cx="18" cy="16" r="3"></circle>
+          </svg>
+          <span>Música</span>
+        </button>
+
+        <button class="tool-chip-btn" data-tool="reach" title="Morph Reach: traer archivos">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+            <polyline points="14 2 14 8 20 8"></polyline>
+            <line x1="12" y1="18" x2="12" y2="12"></line>
+            <line x1="9" y1="15" x2="15" y2="15"></line>
+          </svg>
+          <span>Reach</span>
+        </button>
+      </div>
+
+      <!-- Barra de Conversación Inferior Flotante -->
+      <div class="conversation-dock">
+        <div class="audio-meter-bar" id="audio-meter-bar">
+          <span class="meter-spark"></span>
+          <span class="meter-spark"></span>
+          <span class="meter-spark"></span>
+          <span class="meter-spark"></span>
+          <span class="meter-spark"></span>
+          <span class="meter-spark"></span>
+          <span class="meter-spark"></span>
+          <span class="meter-spark"></span>
+        </div>
+
+        <div class="composer-row">
+          <button class="icon-btn" id="open-chat-drawer-btn" title="Historial de conversación">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+            </svg>
+          </button>
+
+          <input type="text" class="composer-input" id="composer-text-input" placeholder="Habla o escribe a Axx..." autocomplete="off" />
+
+          <button class="voice-record-btn" id="voice-record-btn" title="Mantener o pulsar para hablar">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+              <line x1="12" y1="19" x2="12" y2="23"></line>
+              <line x1="8" y1="23" x2="16" y2="23"></line>
+            </svg>
+          </button>
+
+          <button class="icon-btn" id="send-msg-btn" title="Enviar texto">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="22" y1="2" x2="11" y2="13"></line>
+              <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Cajón de Conversación Expandible -->
+      <aside class="conversation-drawer" id="conversation-drawer">
+        <div class="drawer-header">
+          <div class="status-pill">
+            <span class="status-dot online"></span>
+            <span>Sesión activa · Transcripción y Respuestas</span>
+          </div>
+          <button class="icon-btn" id="close-chat-drawer-btn" title="Cerrar cajón">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
+        </div>
+
+        <div class="chat-message-list" id="chat-message-list">
+          <div class="chat-bubble axx">
+            <div>Hola. Estoy listo en tu <strong>Acer Spin 3</strong>. Puedes encargarme tareas, dictar notas, controlar el escritorio o revisar renders y planos con Magic Pen.</div>
+            <div class="eyebrow" style="margin-top:4px;font-size:8px;opacity:0.6;">17:30</div>
+          </div>
+        </div>
+      </aside>
+    </section>
+
+    <!-- --------------------------------------------------------------------
+         VISTA 2: ESCRITORIO REMOTO (Mirar, Controlar, Marcar)
+         -------------------------------------------------------------------- -->
+    <section class="view-pane" id="view-desktop">
+      <div class="desktop-view-container">
+        <!-- Barra de herramientas superior -->
+        <div class="desktop-toolbar">
+          <select id="monitor-select" style="min-height:34px;padding:4px 8px;font-size:11px;border-radius:var(--radius-xs);">
+            <option value="1">Monitor 1 (1080p)</option>
+            <option value="2">Monitor 2 (4K Cava)</option>
+          </select>
+
+          <div class="mode-selector-pills">
+            <button class="mode-pill active" data-mode="look">Mirar</button>
+            <button class="mode-pill" data-mode="control">Controlar</button>
+            <button class="mode-pill" data-mode="mark">Marcar</button>
+          </div>
+
+          <div style="display:flex;gap:4px;">
+            <button class="icon-btn" id="btn-zoom-in" style="width:34px;height:34px;font-size:16px;">+</button>
+            <button class="icon-btn" id="btn-zoom-out" style="width:34px;height:34px;font-size:16px;">−</button>
+          </div>
+        </div>
+
+        <!-- Lienzo de Pantalla Remota -->
+        <div class="desktop-screen-viewport">
+          <div class="mode-indicator-watermark" id="mode-watermark">Modo Mirar (Solo lectura)</div>
+
+          <div class="screen-canvas-wrapper" id="remote-screen-wrapper">
+            <!-- Representación de alta resolución del escritorio activo de Windows -->
+            <svg id="remote-desktop-canvas" viewBox="0 0 1920 1080" style="width:100%;height:auto;background:#0d1118;border-radius:4px;box-shadow:0 0 20px rgba(0,0,0,0.8);">
+              <!-- Ventana de Blender Simulada con Render Cava de Vino -->
+              <rect x="0" y="0" width="1920" height="40" fill="#1e222b"/>
+              <text x="20" y="26" fill="#a5afbf" font-size="16" font-family="sans-serif">Blender 4.2 · [Cava_Vino_Final.blend] — Cycles Render Preview (GPU Iris Xe)</text>
+              <rect x="0" y="40" width="1920" height="1040" fill="#141820"/>
+
+              <!-- Zona de la Cava de Madera -->
+              <rect x="380" y="140" width="1160" height="780" fill="#241912" stroke="#4a3424" stroke-width="4" rx="8"/>
+              <!-- Estantes y botellas -->
+              <line x1="380" y1="360" x2="1540" y2="360" stroke="#5a3d2c" stroke-width="8"/>
+              <line x1="380" y1="580" x2="1540" y2="580" stroke="#5a3d2c" stroke-width="8"/>
+              <line x1="380" y1="800" x2="1540" y2="800" stroke="#5a3d2c" stroke-width="8"/>
+
+              <!-- Botellas y cristal protegidos -->
+              <g fill="#1a3b30" opacity="0.85">
+                <rect x="440" y="240" width="45" height="110" rx="6"/>
+                <rect x="510" y="240" width="45" height="110" rx="6"/>
+                <rect x="580" y="240" width="45" height="110" rx="6"/>
+                <rect x="650" y="240" width="45" height="110" rx="6"/>
+              </g>
+              <text x="440" y="220" fill="#9CE5D3" font-size="14" font-family="sans-serif">ZONA PROTEGIDA: Botellas de colección</text>
+
+              <!-- Zona de madera editable -->
+              <rect x="800" y="400" width="680" height="360" fill="none" stroke="#B8AAFF" stroke-width="3" stroke-dasharray="8 6"/>
+              <text x="820" y="440" fill="#B8AAFF" font-size="18" font-family="sans-serif" font-weight="bold">ZONA A EDITAR: Acabado madera roble oscuro</text>
+
+              <!-- Cursor del mouse remoto -->
+              <polygon points="960,540 960,570 972,560 985,575 993,570 980,555 995,555" fill="#FFFFFF" stroke="#000000" stroke-width="2"/>
+            </svg>
+          </div>
+        </div>
+
+        <!-- Dock de Control Inferior: Teclado y Trackpad -->
+        <div class="desktop-control-dock">
+          <!-- Modificadores de Teclado Windows -->
+          <div class="keyboard-modifiers-bar">
+            <button class="key-toggle-btn" data-key="ctrl">Ctrl</button>
+            <button class="key-toggle-btn" data-key="alt">Alt</button>
+            <button class="key-toggle-btn" data-key="shift">Shift</button>
+            <button class="key-toggle-btn" data-key="win">Win</button>
+            <button class="key-toggle-btn" data-key="tab">Tab</button>
+            <button class="key-toggle-btn" data-key="esc">Esc</button>
+            <button class="key-toggle-btn" data-key="enter">Enter</button>
+            <button class="key-toggle-btn" data-key="alt-tab">Alt+Tab</button>
+            <button class="key-toggle-btn" data-key="win-d">Win+D</button>
+          </div>
+
+          <!-- Superficie de Trackpad Táctil Relativo -->
+          <div class="trackpad-surface" id="trackpad-surface">
+            <span>Desliza para mover cursor · 2 dedos para scroll</span>
+          </div>
+
+          <div class="trackpad-clicks">
+            <button class="trackpad-click-btn" id="btn-trackpad-left">Clic Izquierdo</button>
+            <button class="trackpad-click-btn" id="btn-trackpad-right">Clic Derecho</button>
+          </div>
+
+          <!-- Barra de Arbitraje de Control Exclusivo -->
+          <div class="control-handshake-bar">
+            <div class="handshake-status">
+              <span class="status-dot online"></span>
+              <span id="arbitration-owner-text">Control exclusivo: Axx (Asistente)</span>
+            </div>
+
+            <div style="display:flex;gap:var(--space-8);">
+              <button class="btn secondary" id="btn-toggle-exclusive-control" style="min-height:36px;padding:0 12px;font-size:11px;">
+                Tomar el control
+              </button>
+              <button class="btn danger emergency-stop-btn" id="btn-emergency-stop">
+                DETENER
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- --------------------------------------------------------------------
+         VISTA 3: CENTRO DE TRABAJO (Tareas, Decisiones, Archivos, Memoria)
+         -------------------------------------------------------------------- -->
+    <section class="view-pane" id="view-work">
+      <div class="work-center-container">
+        <!-- Pestañas del centro de trabajo -->
+        <div class="work-tabs-bar">
+          <button class="work-tab-btn active" data-work-tab="tasks">Tareas (4)</button>
+          <button class="work-tab-btn" data-work-tab="decisions">Decisiones (1)</button>
+          <button class="work-tab-btn" data-work-tab="files">Archivos</button>
+          <button class="work-tab-btn" data-work-tab="memory">Memoria y Rutinas</button>
+        </div>
+
+        <div class="work-pane-content">
+
+          <!-- Subpanel: Tareas -->
+          <div class="work-subpane" id="work-subpane-tasks">
+            <!-- Tarea 1: Activa -->
+            <div class="task-card">
+              <div class="task-card-header">
+                <span class="status-pill"><span class="status-dot busy"></span> Ejecutando</span>
+                <span class="eyebrow">PC: Acer Spin 3</span>
+              </div>
+              <div class="task-card-title">Exportar Renders y Vistas Cava</div>
+              <div class="text-muted">Etapa: Exportando fotogramas 4K con Cycles</div>
+              <div class="task-progress-bar">
+                <div class="task-progress-fill" style="width: 85%;"></div>
+              </div>
+              <div class="task-card-actions">
+                <button class="btn secondary btn-retrieve-file" data-file="Cava_Vino_Final_Render.png" style="min-height:32px;padding:0 10px;font-size:11px;">
+                  Recuperar al móvil (4.8 MB)
+                </button>
+              </div>
+            </div>
+
+            <!-- Tarea 2: Bloqueada (Requiere Intervención) -->
+            <div class="task-card" style="border-color: rgba(229, 184, 105, 0.4);">
+              <div class="task-card-header">
+                <span class="status-pill" style="color:var(--state-amber);"><span class="status-dot warn"></span> Requiere Decisión</span>
+                <span class="eyebrow">PC: Acer Spin 3</span>
+              </div>
+              <div class="task-card-title">Generar Cuadro Comparativo de Puertas</div>
+              <div class="text-muted">Bloqueada: Discrepancia en cota detectada en plano</div>
+              <div class="task-card-actions">
+                <button class="btn primary" onclick="document.querySelector('[data-work-tab=decisions]').click()" style="min-height:32px;padding:0 10px;font-size:11px;">
+                  Resolver decisión pendiente
+                </button>
+              </div>
+            </div>
+
+            <!-- Tarea 3: Completada -->
+            <div class="task-card">
+              <div class="task-card-header">
+                <span class="status-pill"><span class="status-dot online"></span> Completada</span>
+                <span class="eyebrow">Verificado SHA256</span>
+              </div>
+              <div class="task-card-title">Comprobación de Máscara Roble Oscuro</div>
+              <div class="text-muted">Evidencia: Mapa de diferencias aprobado al 100%</div>
+              <div class="task-card-actions">
+                <button class="btn secondary btn-retrieve-file" data-file="Variante_Roble_Verificada.png" style="min-height:32px;padding:0 10px;font-size:11px;">
+                  Descargar evidencia (5.1 MB)
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Subpanel: Decisiones e Intervenciones -->
+          <div class="work-subpane" id="work-subpane-decisions" hidden>
+            <div class="decision-card">
+              <div style="display:flex;align-items:center;justify-content:space-between;">
+                <span class="eyebrow" style="color:var(--state-amber);">Intervención de Usuario Requerida</span>
+                <span class="eyebrow">Tarea #102</span>
+              </div>
+              <div class="decision-prompt">
+                <strong>Discrepancia en cota de apertura:</strong>
+                Axx detectó que en el plano de planta (Pág. 4) la cota figura como <strong>1,80 m</strong>, mientras que la ficha técnica de herrajes exige <strong>1,85 m</strong> para giro libre de 90°. ¿Cuál prevalece?
+              </div>
+              <div class="decision-options-grid">
+                <button class="decision-option-btn" data-dec-id="dec-201" data-opt-id="opt-1">
+                  <strong>Opción 1: Plano (1,80 m)</strong>
+                  <span class="text-quiet">Conserva muro existente</span>
+                </button>
+                <button class="decision-option-btn" data-dec-id="dec-201" data-opt-id="opt-2">
+                  <strong>Opción 2: Ficha (1,85 m)</strong>
+                  <span class="text-quiet">Recomendado por fabricante</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Subpanel: Archivos y Proyectos -->
+          <div class="work-subpane" id="work-subpane-files" hidden>
+            <div class="text-muted" style="margin-bottom:8px;font-family:var(--font-mono);font-size:11px;">
+              Directorio PC: C:\Proyectos\Cava_Residencial
+            </div>
+
+            <div class="file-item-row">
+              <div class="file-info">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                <div>
+                  <div class="file-name">Cava_Vino_Final_Render.png</div>
+                  <div class="text-quiet">4.8 MB · Render final verificado</div>
+                </div>
+              </div>
+              <button class="btn secondary btn-retrieve-file" data-file="Cava_Vino_Final_Render.png" style="min-height:32px;padding:0 8px;font-size:11px;">
+                Descargar
+              </button>
+            </div>
+
+            <div class="file-item-row">
+              <div class="file-info">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                <div>
+                  <div class="file-name">Cuadro_Materiales_Extraccion.csv</div>
+                  <div class="text-quiet">42 KB · Tablas extraídas con procedencia</div>
+                </div>
+              </div>
+              <button class="btn secondary btn-retrieve-file" data-file="Cuadro_Materiales_Extraccion.csv" style="min-height:32px;padding:0 8px;font-size:11px;">
+                Descargar
+              </button>
+            </div>
+          </div>
+
+          <!-- Subpanel: Memoria y Rutinas -->
+          <div class="work-subpane" id="work-subpane-memory" hidden>
+            <div class="h3">Auditoría de Memoria de Axx</div>
+            <p class="text-muted" style="margin-bottom:12px;">Consulta y corrige hechos, decisiones y parámetros recordados por el asistente.</p>
+
+            <div class="task-card">
+              <div class="eyebrow" style="color:var(--accent-lavender);">Ámbito: Proyecto Cava_Residencial</div>
+              <div style="font-size:13px;color:var(--text-primary);margin:4px 0;">
+                "La cava de vino utiliza siempre roble americano con poro abierto y tiradores ocultos."
+              </div>
+              <div class="text-quiet">Procedencia: Instrucción directa de voz · 20 Oct 2026</div>
+            </div>
+
+            <div class="h3" style="margin-top:16px;">Rutinas Guardadas</div>
+            <div class="task-card">
+              <div class="task-card-header">
+                <strong>Modo Revisión de Acabados</strong>
+                <span class="status-pill" id="routine-version-label">v2.1</span>
+              </div>
+              <div class="text-muted">5 pasos automatizados: Blender → Extraer evidencia → Máscara PROTEGER → Inpaint Roble → Comparación.</div>
+              <div class="task-card-actions" style="margin-top:8px;">
+                <button class="btn secondary" id="btn-routine-rollback" style="min-height:32px;padding:0 10px;font-size:11px;">
+                  Revertir a versión previa (v2.0)
+                </button>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ======================================================================
+       NAVEGACIÓN INFERIOR PERSISTENTE (Axx / Escritorio / Trabajo)
+       ====================================================================== -->
+  <nav class="app-bottom-nav">
+    <button class="nav-item active" data-target="axx" id="btn-nav-axx">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+        <circle cx="12" cy="12" r="10"></circle>
+        <circle cx="12" cy="12" r="4" fill="currentColor"></circle>
+      </svg>
+      <span>Axx</span>
+    </button>
+
+    <button class="nav-item" data-target="desktop" id="btn-nav-desktop">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+        <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+        <line x1="8" y1="21" x2="16" y2="21"></line>
+        <line x1="12" y1="17" x2="12" y2="21"></line>
+      </svg>
+      <span>Escritorio</span>
+    </button>
+
+    <button class="nav-item" data-target="work" id="btn-nav-work">
+      <div class="nav-badge">1</div>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+        <rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect>
+        <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path>
+      </svg>
+      <span>Trabajo</span>
+    </button>
+  </nav>
+
+</div>
+
+<!-- ========================================================================
+     MODAL DE TALLER VISUAL MAGIC PEN
+     ======================================================================== -->
+<div class="magic-pen-modal" id="magic-pen-modal">
+  <div class="magic-pen-header">
+    <div style="display:flex;align-items:center;gap:var(--space-8);">
+      <button class="icon-btn" id="close-magic-pen-btn" style="width:36px;height:36px;">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="18" y1="6" x2="6" y2="18"></line>
+          <line x1="6" y1="6" x2="18" y2="18"></line>
+        </svg>
+      </button>
+      <div>
+        <div style="font-size:13px;font-weight:600;color:var(--text-primary);">Magic Pen · Taller Visual</div>
+        <div class="text-quiet">Cava_Vino_Final.png · [Evidencia Congelada]</div>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:6px;">
+      <button class="btn primary" id="btn-magic-to-task" style="min-height:34px;padding:0 12px;font-size:11px;">
+        Convertir en Tarea
+      </button>
+    </div>
+  </div>
+
+  <!-- Lienzo de Dibujo y Selección -->
+  <div class="magic-canvas-viewport" id="magic-canvas-viewport">
+    <!-- Riel Flotante de Herramientas -->
+    <div class="magic-tools-rail">
+      <button class="magic-tool-btn active" data-tool="lasso" title="Lazo de selección libre">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
+      </button>
+      <button class="magic-tool-btn" data-tool="rect" title="Selección rectangular">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
+      </button>
+      <button class="magic-tool-btn" data-tool="pen" title="Pluma de precisión">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/></svg>
+      </button>
+      <button class="magic-tool-btn" data-tool="mask_edit" title="Pintar zona EDITAR">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#B8AAFF" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v8"/></svg>
+      </button>
+      <button class="magic-tool-btn" data-tool="mask_protect" title="Pintar zona PROTEGER">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#9CE5D3" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+      </button>
+      <button class="magic-tool-btn" data-tool="measure" title="Cotas y dimensiones">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12h20"/><path d="M2 7v10"/><path d="M22 7v10"/></svg>
+      </button>
+    </div>
+
+    <!-- Fichas de Selección Activas -->
+    <div class="selection-chips-tray">
+      <div class="selection-chip active" data-selection-id="A">
+        <span>Ficha A · Madera Cava (EDITAR)</span>
+      </div>
+      <div class="selection-chip" data-selection-id="B">
+        <span>Ficha B · Puertas y Cristales (PROTEGER)</span>
+      </div>
+    </div>
+
+    <!-- Lienzo SVG/Canvas Interactivo -->
+    <svg id="magic-pen-canvas" viewBox="0 0 1000 700" style="width:100%;height:100%;background:#090d14;">
+      <!-- Capa de evidencia de imagen -->
+      <rect x="100" y="80" width="800" height="540" fill="#1b140f" stroke="#362217" stroke-width="2"/>
+
+      <!-- Zona EDITAR pintada por el usuario (Lavanda con patrón diagonal) -->
+      <rect x="220" y="160" width="340" height="380" fill="rgba(184, 170, 255, 0.22)" stroke="#B8AAFF" stroke-width="3" stroke-dasharray="6 4"/>
+      <text x="240" y="200" fill="#B8AAFF" font-size="16" font-family="sans-serif" font-weight="bold">EDITAR [Ficha A]</text>
+
+      <!-- Zona PROTEGER pintada por el usuario (Menta con contorno de seguridad) -->
+      <rect x="600" y="160" width="260" height="380" fill="rgba(156, 229, 211, 0.20)" stroke="#9CE5D3" stroke-width="3"/>
+      <text x="620" y="200" fill="#9CE5D3" font-size="16" font-family="sans-serif" font-weight="bold">PROTEGER [Ficha B]</text>
+
+      <!-- Capa de Respuestas Dibujadas por Axx (Regiones numeradas y cotas) -->
+      <g>
+        <circle cx="390" cy="350" r="22" fill="#B8AAFF" opacity="0.9"/>
+        <text x="384" y="356" fill="#0E121A" font-size="16" font-weight="bold" font-family="sans-serif">1</text>
+        <line x1="390" y1="375" x2="390" y2="430" stroke="#B8AAFF" stroke-width="2"/>
+        <rect x="300" y="435" width="220" height="36" fill="rgba(17,21,29,0.9)" stroke="#B8AAFF" rx="4"/>
+        <text x="312" y="458" fill="#F3F5F7" font-size="12" font-family="sans-serif">Veta de roble reorientada 90°</text>
+
+        <!-- Cotas encadenadas calculadas -->
+        <line x1="220" y1="560" x2="560" y2="560" stroke="#FFFFFF" stroke-width="1.5"/>
+        <line x1="220" y1="550" x2="220" y2="570" stroke="#FFFFFF" stroke-width="1.5"/>
+        <line x1="560" y1="550" x2="560" y2="570" stroke="#FFFFFF" stroke-width="1.5"/>
+        <text x="360" y="580" fill="#FFFFFF" font-size="13" font-family="sans-serif">3,40 m netos</text>
+      </g>
+    </svg>
+  </div>
+
+  <!-- Panel Contextual Inferior de Magic Pen -->
+  <div class="magic-context-panel">
+    <div class="magic-action-buttons-row">
+      <button class="btn secondary" id="btn-magic-guide">Muéstrame cómo hacerlo</button>
+      <button class="btn secondary" onclick="document.getElementById('table-provenance-box').hidden = !document.getElementById('table-provenance-box').hidden">
+        Ver Tabla con Procedencia
+      </button>
+      <button class="btn secondary" onclick="document.getElementById('variant-compare-box').hidden = !document.getElementById('variant-compare-box').hidden">
+        Comparar Variantes
+      </button>
+    </div>
+
+    <!-- Inspector de Procedencia por Celda (Requisito Documentos y Datos) -->
+    <div id="table-provenance-box" style="margin-top:8px;" hidden>
+      <div class="eyebrow">Extracción con Procedencia Celda a Celda (Toca cualquier celda para ver fuente)</div>
+      <table class="provenance-inspector-table">
+        <thead>
+          <tr>
+            <th>Elemento</th>
+            <th>Lectura Original</th>
+            <th>Valor Corregido</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="prov-cell" data-row="0" data-col="0">Altura Cava</td>
+            <td class="prov-cell" data-row="0" data-col="1">2,40 m</td>
+            <td class="prov-cell" data-row="0" data-col="2">2,40 m</td>
+          </tr>
+          <tr>
+            <td class="prov-cell active-cell" data-row="1" data-col="0">Ancho Módulo</td>
+            <td class="prov-cell active-cell" data-row="1" data-col="1">1,80 m</td>
+            <td class="prov-cell active-cell" data-row="1" data-col="2">1,85 m (Corregido)</td>
+          </tr>
+          <tr>
+            <td class="prov-cell" data-row="2" data-col="0">Acabado Madera</td>
+            <td class="prov-cell" data-row="2" data-col="1">Roble Americano</td>
+            <td class="prov-cell" data-row="2" data-col="2">Roble Oscuro Mate</td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="status-pill" id="provenance-inspect-badge" style="margin-top:8px;display:block;">
+        <strong>Procedencia:</strong> Plano_Pág4: [x:210, y:340, w:75, h:30]<br/>
+        <small>Lectura original del plano: <code>1,80 m</code> · Ajuste verificado según ficha técnica.</small>
+      </div>
+    </div>
+
+    <!-- Comparador de Variantes (Split Slider Requisito Imágenes y Renders) -->
+    <div id="variant-compare-box" style="margin-top:8px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;">
+        <span class="eyebrow">Comparador de Variantes: Original vs Roble Oscuro</span>
+        <span class="text-quiet">50% / 50%</span>
+      </div>
+
+      <div class="variant-compare-container">
+        <!-- Imagen Original (Base) -->
+        <svg class="variant-img-base" viewBox="0 0 800 400" preserveAspectRatio="none">
+          <rect width="800" height="400" fill="#2b1a11"/>
+          <text x="250" y="200" fill="#d4b595" font-size="28" font-family="sans-serif">ORIGINAL: Roble Claro</text>
+        </svg>
+
+        <!-- Imagen Variante (Overlay con clip-path) -->
+        <svg class="variant-img-overlay" viewBox="0 0 800 400" preserveAspectRatio="none">
+          <rect width="800" height="400" fill="#140c08"/>
+          <text x="250" y="200" fill="#B8AAFF" font-size="28" font-family="sans-serif">VARIANTE: Roble Oscuro Mate</text>
+        </svg>
+
+        <div class="variant-split-divider">
+          <div class="variant-split-handle">↔</div>
+        </div>
+      </div>
+
+      <input type="range" min="0" max="100" value="50" id="variant-split-range" style="width:100%;margin-top:8px;accent-color:var(--accent-lavender);" />
+    </div>
+  </div>
+</div>
+
+<!-- ========================================================================
+     MODAL DE VINCULACIÓN POR QR Y CÓDIGO MANUAL
+     ======================================================================== -->
+<div class="sheet-modal-backdrop" id="pairing-modal-backdrop">
+  <div class="bottom-sheet-panel">
+    <div style="display:flex;align-items:center;justify-content:space-between;">
+      <div class="h2">Vincular Axx Desktop</div>
+      <button class="icon-btn" id="close-pairing-modal-btn">×</button>
+    </div>
+
+    <p class="text-muted">Abre Axx en tu PC, ve a "Conectar Móvil" y enfoca su código QR con la cámara o escribe el código de 6 caracteres.</p>
+
+    <div class="qr-scanner-frame">
+      <div class="qr-scan-line"></div>
+      <!-- Simulación de código QR SVG para demostración y vinculación directa -->
+      <svg width="160" height="160" viewBox="0 0 100 100" fill="#B8AAFF">
+        <rect x="10" y="10" width="25" height="25" fill="none" stroke="#B8AAFF" stroke-width="5"/>
+        <rect x="17" y="17" width="11" height="11"/>
+        <rect x="65" y="10" width="25" height="25" fill="none" stroke="#B8AAFF" stroke-width="5"/>
+        <rect x="72" y="17" width="11" height="11"/>
+        <rect x="10" y="65" width="25" height="25" fill="none" stroke="#B8AAFF" stroke-width="5"/>
+        <rect x="17" y="72" width="11" height="11"/>
+        <!-- Puntos aleatorios de datos -->
+        <rect x="42" y="12" width="6" height="6"/><rect x="52" y="12" width="6" height="6"/>
+        <rect x="42" y="24" width="6" height="6"/><rect x="48" y="32" width="6" height="6"/>
+        <rect x="65" y="45" width="6" height="6"/><rect x="75" y="55" width="6" height="6"/>
+        <rect x="42" y="65" width="6" height="6"/><rect x="52" y="75" width="6" height="6"/>
+        <rect x="65" y="75" width="6" height="6"/><rect x="80" y="80" width="6" height="6"/>
+      </svg>
+    </div>
+
+    <div>
+      <label class="eyebrow" style="margin-bottom:6px;display:block;">Código manual o Dirección IP</label>
+      <div style="display:flex;gap:var(--space-8);">
+        <input type="text" id="manual-pairing-input" value="127.0.0.1:4173" style="flex:1;" />
+        <button class="btn primary" id="btn-confirm-pairing" onclick="window.AxxBridge.pairFromQR(document.getElementById('manual-pairing-input').value); document.getElementById('pairing-modal-backdrop').classList.remove('open');">
+          Conectar
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ========================================================================
+     MODAL DE AJUSTES Y DIAGNÓSTICO POR CAPACIDAD
+     ======================================================================== -->
+<div class="sheet-modal-backdrop" id="settings-modal-backdrop">
+  <div class="bottom-sheet-panel">
+    <div style="display:flex;align-items:center;justify-content:space-between;">
+      <div class="h2">Ajustes y Proveedores</div>
+      <button class="icon-btn" id="close-settings-modal-btn">×</button>
+    </div>
+
+    <div>
+      <label class="eyebrow">Modelo de Inferencia Activo</label>
+      <select style="width:100%;margin-top:6px;">
+        <option>Llama 3.2 3B Instruct (Free Confirmed · Local)</option>
+        <option>Codex Provider (Runtime Oficial)</option>
+        <option>OpenRouter Free Failover</option>
+      </select>
+    </div>
+
+    <div>
+      <label class="eyebrow">Voz y Salida de Audio</label>
+      <select style="width:100%;margin-top:6px;">
+        <option>Helena (Castellano Natural)</option>
+        <option>Sabina (Español Neutro)</option>
+        <option>Raúl (Español Masculino)</option>
+      </select>
+    </div>
+
+    <div style="margin-top:10px;">
+      <div class="h3">Diagnóstico y Prueba por Capacidad</div>
+      <p class="text-muted" style="margin-bottom:8px;">Verifica de forma independiente cada etapa antes de depender de ella.</p>
+
+      <!-- Prueba Visión -->
+      <div style="background:var(--bg-surface-elevated);padding:10px;border-radius:var(--radius-sm);margin-bottom:8px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;">
+          <strong>Capacidad de Visión Multimodal</strong>
+          <button class="btn secondary" id="btn-test-vision" style="min-height:30px;padding:0 8px;font-size:10px;">Probar Visión</button>
+        </div>
+        <div class="text-quiet" id="diag-vision-result" style="margin-top:4px;">Sin probar en esta sesión.</div>
+      </div>
+
+      <!-- Prueba Voz y ASR -->
+      <div style="background:var(--bg-surface-elevated);padding:10px;border-radius:var(--radius-sm);margin-bottom:8px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;">
+          <strong>Reconocimiento de Voz (ASR) y TTS</strong>
+          <button class="btn secondary" id="btn-test-speech" style="min-height:30px;padding:0 8px;font-size:10px;">Probar Voz</button>
+        </div>
+        <div class="text-quiet" id="diag-speech-result" style="margin-top:4px;">Sin probar en esta sesión.</div>
+      </div>
+
+      <!-- Prueba Latencia -->
+      <div style="background:var(--bg-surface-elevated);padding:10px;border-radius:var(--radius-sm);">
+        <div style="display:flex;align-items:center;justify-content:space-between;">
+          <strong>Ping con PC (Acer Spin 3)</strong>
+          <button class="btn secondary" id="btn-test-ping" style="min-height:30px;padding:0 8px;font-size:10px;">Medir Latencia</button>
+        </div>
+        <div class="text-quiet" id="diag-ping-result" style="margin-top:4px;">Sin probar en esta sesión.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SCRIPTS DE LA APLICACIÓN MÓVIL -->
+<script src="js/avatar-engine.js"></script>
+<script src="js/axx-bridge.js"></script>
+<script src="js/voice-chat.js"></script>
+<script src="js/desktop-control.js"></script>
+<script src="js/magic-pen.js"></script>
+<script src="js/work-center.js"></script>
+<script src="js/settings-pairing.js"></script>
+<script src="js/system-surfaces.js"></script>
+<script src="js/navigation.js"></script>
+<script src="js/app.js"></script>
+
+<script>
+  // Registro automático del Service Worker para PWA instalable
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('./sw.js').then((reg) => {
+        console.log('Axx Mobile PWA Service Worker registrado', reg.scope);
+      }).catch((err) => {
+        console.warn('Registro de Service Worker falló', err);
+      });
+    });
+  }
+</script>
+
+</body>
+</html>

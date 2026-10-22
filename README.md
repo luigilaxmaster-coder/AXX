@@ -1,18 +1,12 @@
 # Axx — Autonomous Resident Desktop AI Assistant & 3D Entity
 
-## Descargar Axx 0.20.11 para Windows
+## Download Axx for Windows
 
-**[⬇ Descargar instalador para Windows x64 · 247 MB](https://github.com/luigilaxmaster-coder/AXX/releases/download/v0.20.11/Axx_0.20.11_x64-setup.exe)**
+**[Download Windows x64 test installer · v0.20.11](https://github.com/luigilaxmaster-coder/AXX/releases/download/v0.20.11/Axx_0.20.11_x64-setup.exe)** · [Release files](https://github.com/luigilaxmaster-coder/AXX/releases/tag/v0.20.11) · [SHA-256](https://github.com/luigilaxmaster-coder/AXX/releases/download/v0.20.11/SHA256SUMS.txt)
 
-[Ver la versión de prueba y sus archivos](https://github.com/luigilaxmaster-coder/AXX/releases/tag/v0.20.11) · [Correcciones y pruebas de 0.20.11](docs/ARRASTRE-Y-ATAJO-0.20.11.md) · [Comprobar SHA256](https://github.com/luigilaxmaster-coder/AXX/releases/download/v0.20.11/SHA256SUMS.txt)
+Run the installer and open Axx. Python and Node are not required. Configure your own AI provider in Settings; credentials and conversation history are not included in the installer. Windows may need Internet to install WebView2. The installer is unsigned.
 
-Descarga el `.exe`, ejecútalo en la otra PC y abre Axx desde su acceso instalado. **No necesitas instalar Python ni Node.** Para las preguntas de IA, configura un proveedor en Ajustes; tus credenciales y tu historial no se transfieren con el instalador.
-
-**Nuevo en 0.20.11:** el muñeco puede arrastrarse cerca del borde aunque esté encogido. Se eliminó el salto producido por respuestas antiguas de posición y se corrigió el límite de arrastre de los paneles. Pasaron 12 pruebas de interacción, 99 Python y 29 Rust; el instalador se compiló, extrajo e instaló localmente. La prueba física final de arrastre y `Alt+Shift+A` sigue pendiente y no se presenta como aprobada.
-
-**Para la otra PC:** Windows x64; pruebas nativas realizadas en Windows 11. Si falta WebView2, la instalación necesita Internet para descargarlo. El instalador no está firmado digitalmente, por lo que Windows puede avisar de un editor desconocido. Está listo para probarlo, pero aún no está validado en tu segundo equipo.
-
-Incluye **Magic Pen**, paneles modernizados, menú circular transparente, movimiento del muñeco, acciones de escritorio y conversión local de imágenes/PDF. Es una **versión de prueba**: siguen pendientes la validación en otra PC, la comprobación física del atajo y el arrastre, DPI mixtos y lápiz físico.
+**The published v0.20.11 download predates the mobile integration below.** Current mobile builds are local development artifacts; pushing source does not update the published installer. See [mobile setup and validation](docs/mobile/README.md).
 
 ---
 
@@ -81,34 +75,26 @@ A visual presentation of Axx's liquid character. See the validation reports belo
 - **Multi-Provider Connections:** Local/LAN Ollama, Ollama Cloud, LM Studio, Anthropic, Groq and compatible APIs, with model discovery and DPAPI-protected credentials. Explicit connection selection keeps requests on the selected provider/model; it does not silently switch platforms on failure.
 - **Episodic Memory & MCP Core:** Integrated procedural SQLite memory and Model Context Protocol schema validation.
 
-### Latest changes — October 22, 2026 · v0.20.11
+### Latest updates · October 22, 2026
 
-- Allow the small avatar to be placed near screen edges without a margin based on its transparent canvas.
-- Discard stale layout replies after dragging and wait for native position commits before recalculating layout.
-- Bound panels during the gesture and preserve their positions at 150% display scale in the regression fixture.
-- Pass 12 interaction checks, 99 Python tests and 29 Rust tests (one helper ignored). Native installation succeeded; physical drag and shortcut acceptance remain pending as authorized by the user.
-- [Full verification and limits](docs/ARRASTRE-Y-ATAJO-0.20.11.md).
+| Area | Changes | Status |
+| --- | --- | --- |
+| Android companion | Real desktop character/material, shared conversation and tasks, transparent home shortcut | Implemented; physical checks recorded per feature |
+| Pairing | Explicit camera permission, PC identity preview, one-use TLS-pinned QR, full 120-second renewal window, external camera links | Regression tests pass; user confirmed optical scan and connection |
+| Remote input | Full-screen trackpad and larger keys, bounded input queue, local input priority, 3-second lease, material-derived cursor, event-driven Windows input monitoring | Partial physical validation; full gesture and mixed-DPI acceptance pending |
+| Remote voice | PC shortcut → Android capture → existing local Whisper → review/desktop conversation | Real capture/transcription checked; spoken command-to-result acceptance pending |
+| Presentation | English mobile UI and mobile controls in desktop Settings; compact release summary | Current source/builds |
 
-### Previous changes — October 22, 2026 · v0.20.10
+[Mobile operation, contracts and test report](docs/mobile/README.md) · [Feature traceability](docs/mobile/TRAZABILIDAD.md) · [Changelog](CHANGELOG.md)
 
-- **Magic Pen MP-H1:** clean capture, point/rectangle/lasso selection, basic editable ink, questions through a configured vision provider and verified PNG export.
-- **Desktop panels:** shared minimal styling, a transparent circular menu and one drag controller. The avatar previews movement locally and commits its position on release.
-- **Desktop actions:** installed-app discovery, explicit action plans with approval, verified file hashing and reusable procedures.
-- **Local converter:** PNG/JPEG conversion and PDF page merge/extraction, with input limits and verified output.
-- **Validation:** 99 Python tests and 14 Rust tests passed, with one Rust helper ignored. Previous native checks covered opening/closing 31 views. One browser drag assertion failed intermittently; two subsequent runs passed. The physical summon shortcut and mixed-DPI hardware checks remain pending.
+<details>
+<summary>Earlier desktop updates</summary>
 
-See the [delivery review](docs/REVISION-ENTREGA-20261022.md), [converter guide](docs/CONVERTIDOR-Y-PDF.md) and [published installer](https://github.com/luigilaxmaster-coder/AXX/releases/tag/v0.20.10).
+- **v0.20.11:** avatar edge dragging, stale-position response rejection and panel bounds. Earlier validation: 12 interaction checks, 99 Python tests and 29 Rust tests; physical drag/shortcut and second-PC checks remain pending. [Report](docs/ARRASTRE-Y-ATAJO-0.20.11.md).
+- **v0.20.10:** Magic Pen MP-H1, desktop panels, reviewed desktop actions and local image/PDF conversion. [Delivery review](docs/REVISION-ENTREGA-20261022.md) · [Converter guide](docs/CONVERTIDOR-Y-PDF.md).
+- **October 21:** provider discovery, chat actions, native music controls and silent area recording. [Providers](docs/PROVEEDORES-API-LOCAL.md) · [Chat actions](docs/COMANDOS-DESDE-CHAT.md) · [Area recording](docs/GRABACION-DE-AREA.md).
 
-### Previous changes — October 21, 2026
-
-- Clickable tool controls, icon buttons, smoother tentacle rendering and sound recovery.
-- More usable chat composition, reading and scrolling; stable dictation controls and isolated speech cancellation.
-- [Provider and local model setup](docs/PROVEEDORES-API-LOCAL.md), including separate local/cloud Ollama catalogs.
-- [Desktop commands from chat](docs/COMANDOS-DESDE-CHAT.md): open supported apps/sites, search the web and review explicitly typed PowerShell before execution.
-- **System music:** discover Windows media sessions, select a player and tap Axx to pause/resume. Real Edge transport was verified. Output-level animation is implemented, but positive physical audio metering was not verified because the test session exposed no active output devices. Apps without Windows media controls cannot be universally paused.
-- **Area recording:** drag a rectangle on the desktop, see its boundary halo, and tap Axx to pause/resume. MP4 video is saved automatically to `%LOCALAPPDATA%/Axx/artifacts/recordings`; no browser picker or base64 video transfer is needed. This native mode currently records video without audio. [Usage and limits](docs/GRABACION-DE-AREA.md).
-
-See the [change log](CHANGELOG.md) and [music validation evidence](evidence/system-music-20261021/VERIFICATION.md) for checks and limits. These changes preceded the v0.20.10 test installer linked above.
+</details>
 
 ### 🟡 Active refinement and remaining validation
 - **Microphone Hardware Calibration & ASR Tuning:** Deep acoustic verification across diverse audio hardware and noise profiles prior to enabling continuous hands-free dictation by default.
