@@ -41,25 +41,50 @@ Run the installer and open Axx. Python and Node are not required. Configure your
 
 ---
 
-## 📸 System Showcase & Visual Interface
+## Axx on desktop and Android
 
-### Concept video
+The desktop remains the coordinator. Axx Mobile connects to the same conversation, tasks and services on your PC.
+
+### The character and its circular menu
+
+<p align="center">
+  <img src="docs/images/showcase/desktop-orbit.png" alt="Axx's dark liquid-metal character surrounded by circular shortcuts for Magic Pen, files, voice, music, capture, timer and chat" width="560" />
+</p>
+
+The existing renderer, reflections and radial shortcuts, captured at twice the display resolution with a close framing.
+
+### Connect, move and type
+
+<table>
+  <tr>
+    <th align="center">Pair with your PC</th>
+    <th align="center">Full-screen trackpad</th>
+    <th align="center">Remote keyboard</th>
+  </tr>
+  <tr>
+    <td valign="top"><img src="docs/images/showcase/mobile-pairing.png" alt="Axx Mobile pairing screen with Scan PC QR, a manual link option and explicit Connect confirmation" width="260" /></td>
+    <td valign="top"><img src="docs/images/showcase/mobile-trackpad.png" alt="Full-screen touch surface with a Take control action and separate left-click, drag and right-click buttons" width="260" /></td>
+    <td valign="top"><img src="docs/images/showcase/mobile-keyboard.png" alt="Remote keyboard with a text composer, large modifier keys, navigation keys and shortcut combinations" width="260" /></td>
+  </tr>
+  <tr>
+    <td>Scan the PC QR and confirm the connection.</td>
+    <td>Request permission, then use the dedicated touch area.</td>
+    <td>Compose text and use modifier keys and shortcuts.</td>
+  </tr>
+</table>
+
+These are presentation captures of the current UI in an isolated browser. The mobile views show the state before control authorization; they are not hardware acceptance evidence. [Capture details](docs/images/showcase/README.md) · [Physical verification and build hashes](docs/mobile/PAIRING-VERIFICATION.md).
+
+**Start on the same Wi-Fi:** open Axx Settings → **Connect your phone → Show new QR**, then choose **Scan PC QR** in Android. Mouse and keyboard access require a separate grant on the PC. [Setup, permissions and recovery](docs/mobile/README.md).
+
+<details>
+<summary>Watch the character concept video</summary>
 
 [![Watch the Axx concept video](docs/images/axx-video-preview.jpg)](https://github.com/luigilaxmaster-coder/AXX/raw/refs/heads/main/docs/media/axx-presentation.mp4)
 
-[▶ Watch or download the video](https://github.com/luigilaxmaster-coder/AXX/raw/refs/heads/main/docs/media/axx-presentation.mp4) · MP4 with audio · 10 seconds · 1280 × 720.
+[Watch or download](https://github.com/luigilaxmaster-coder/AXX/raw/refs/heads/main/docs/media/axx-presentation.mp4) · MP4 with audio · 10 seconds · 1280 × 720. This is a concept presentation; feature validation is recorded separately.
 
-A visual presentation of Axx's liquid character. See the validation reports below for tested application behavior.
-
-| 3D Entity at Rest (Base) | Parametric Shapes & Appearance Selector |
-| :---: | :---: |
-| ![Axx Base](docs/images/axx-base.png) | ![Axx Appearance](docs/images/axx-appearance.png) |
-| *Organic fluid avatar with dynamic Fresnel shading and liquid physics* | *24 parametric volumetric geometries and 9 harmonic HSL color palettes* |
-
-| Movement Dynamics & Spring Physics | Axx Connect Settings (MCP & Providers) |
-| :---: | :---: |
-| ![Axx Motion](docs/images/axx-motion.png) | ![Axx Settings](docs/images/axx-settings.png) |
-| *Critically-damped spring controllers and haptic jitter filtering* | *LLM provider manager, DPAPI-encrypted tokens, and MCP tool registry* |
+</details>
 
 ---
 
@@ -83,7 +108,7 @@ A visual presentation of Axx's liquid character. See the validation reports belo
 | Pairing | Explicit camera permission, PC identity preview, one-use TLS-pinned QR, full 120-second renewal window, external camera links | Regression tests pass; user confirmed optical scan and connection |
 | Remote input | Full-screen trackpad and larger keys, bounded input queue, local input priority, 3-second lease, material-derived cursor, event-driven Windows input monitoring | Partial physical validation; full gesture and mixed-DPI acceptance pending |
 | Remote voice | PC shortcut → Android capture → existing local Whisper → review/desktop conversation | Real capture/transcription checked; spoken command-to-result acceptance pending |
-| Presentation | English mobile UI and mobile controls in desktop Settings; compact release summary | Current source/builds |
+| Presentation | English mobile UI, compact update summary and a new high-resolution desktop/mobile gallery | UI previews; hardware results linked separately |
 
 [Mobile operation, contracts and test report](docs/mobile/README.md) · [Feature traceability](docs/mobile/TRAZABILIDAD.md) · [Changelog](CHANGELOG.md)
 
@@ -272,6 +297,7 @@ flowchart TD
 | `Alt + Shift + A, A` (double-tap < 450 ms) | Command Axx to return immediately to its resting base position. |
 | `Alt + Shift + T` | Open the Tools & Settings radial palette directly. |
 | `Esc` | Abort active tracking, cancel in-flight inference, or collapse open menus. |
+| `Ctrl + Alt + Shift + V` | Toggle the paired Android remote microphone session while Axx Mobile is visible and microphone permission is granted. |
 
 ---
 
@@ -285,9 +311,14 @@ AXX/
 ├── backend/                       # Python service core
 │   ├── connect/                   # MCP host, HTTP API endpoints, and provider registries
 │   ├── inference/                 # LLM client adapters and local Ollama integrations
+│   ├── mobile/                    # LAN gateway, pairing, shared state, remote input and voice
 │   ├── memory/                    # SQLite procedural memory and ai-memory adapters
 │   ├── speech/                    # Offline Faster-Whisper transcription engine
 │   └── server.py                  # Primary headless local services server
+├── mobile/                        # Android companion (Capacitor + native Android modules)
+│   ├── android/                   # Native transport, microphone, camera and home widget
+│   ├── client.html                # Operational mobile entrypoint
+│   └── js/                        # Shared desktop integration and full-screen controls
 ├── src-tauri/                     # Native Rust host (Tauri v2)
 │   ├── Cargo.toml                 # Rust dependencies and compiler optimizations
 │   ├── tauri.conf.json            # Transparent window settings and NSIS bundle config
@@ -334,6 +365,7 @@ npm install
 # Install Python backend dependencies
 pip install -r requirements-axx-connect.txt
 pip install -r requirements-converter.txt
+pip install -r requirements-mobile.txt
 ```
 
 ### 3. Launch in Development Mode
