@@ -1,8 +1,17 @@
 # Change log
 
+## 0.20.10 — 2026-10-22 · Windows test release
+
+- Publish the [Windows x64 installer](https://github.com/luigilaxmaster-coder/AXX/releases/tag/v0.20.10), checksum and installation notes as GitHub release assets.
+- Add Magic Pen MP-H1: clean capture, point/rectangle/lasso selection, editable ink, provider-backed visual questions and verified PNG export.
+- Modernize shared panels, restore the transparent circular menu and stabilize panel/avatar drag handling without changing saved avatar identity.
+- Add verified desktop action learning, installed-app discovery, file hashes and bounded local image/PDF conversion.
+- Preserve provider capabilities when saving the same model; include procedure archives in build integrity checks.
+- Verify 99 Python tests, 14 Rust tests and frontend contracts. Preserve the pending physical shortcut, mixed-DPI and intermittent drag checks in the [delivery review](docs/REVISION-ENTREGA-20261022.md).
+
 ## Unreleased — 2026-10-21
 
-Source version remains 0.20.3, matching package.json and the Tauri manifests.
+At that point, the source version was 0.20.3, matching package.json and the Tauri manifests.
 
 ### Interface and audio
 

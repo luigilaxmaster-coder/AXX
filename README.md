@@ -1,5 +1,17 @@
 # Axx — Autonomous Resident Desktop AI Assistant & 3D Entity
 
+## Descargar Axx 0.20.10 para Windows
+
+**[⬇ Descargar instalador para Windows x64 · 247 MB](https://github.com/luigilaxmaster-coder/AXX/releases/download/v0.20.10/Axx_0.20.10_x64-setup.exe)**
+
+[Ver la versión de prueba y sus archivos](https://github.com/luigilaxmaster-coder/AXX/releases/tag/v0.20.10) · [Cambios y pruebas](docs/REVISION-ENTREGA-20261022.md) · [Comprobar SHA256](https://github.com/luigilaxmaster-coder/AXX/releases/download/v0.20.10/SHA256SUMS.txt)
+
+Descarga el `.exe`, ejecútalo en la otra PC y abre Axx desde su acceso instalado. **No necesitas instalar Python ni Node.** Para las preguntas de IA, configura un proveedor en Ajustes; tus credenciales y tu historial no se transfieren con el instalador.
+
+Incluye **Magic Pen**, paneles modernizados, menú circular transparente, mejoras del movimiento del muñeco, acciones de escritorio y conversión local de imágenes/PDF. Es una **versión de prueba**: siguen pendientes la validación en otra PC, el atajo físico `Alt+Shift+A`, DPI mixtos y un fallo intermitente de arrastre.
+
+---
+
 <p align="center">
   <img src="docs/images/logo.png" alt="Axx Logo" width="180" style="border-radius: 24px; box-shadow: 0 12px 32px rgba(0,0,0,0.35);" />
 </p>
@@ -15,7 +27,7 @@
   <img src="https://img.shields.io/badge/Frontend-WebGL%20%2F%20HTML5-black?logo=webgl" alt="WebGL" />
   <img src="https://img.shields.io/badge/Offline%20Voice-Faster--Whisper%20Tiny-green" alt="Faster-Whisper" />
   <img src="https://img.shields.io/badge/Protocol-Model%20Context%20Protocol%20(MCP)-blueviolet" alt="MCP" />
-  <img src="https://img.shields.io/badge/Source%20Version-v0.20.3-informational" alt="Source version" />
+  <img src="https://img.shields.io/badge/Source%20Version-v0.20.10-informational" alt="Source version 0.20.10" />
   <img src="https://img.shields.io/badge/Development-Active%20Refinement-yellow?logo=git" alt="Active Development" />
 </p>
 
@@ -56,7 +68,7 @@ A visual presentation of Axx's liquid character. See the validation reports belo
 ## 🚧 Project Status: Active Continuous Improvement
 
 > [!NOTE]
-> **Axx is under active development.** The current source manifests and locally built Windows application use **v0.20.3**. Validation is recorded per feature; a working UI or build does not by itself certify every hardware-dependent behavior.
+> **Axx is under active development.** The current source manifests use **v0.20.10**, and a [Windows x64 test installer is published](https://github.com/luigilaxmaster-coder/AXX/releases/tag/v0.20.10). Validation is recorded per feature; a working UI or build does not by itself certify every hardware-dependent behavior.
 
 ### 🟢 Implemented capabilities
 - **Native Startup:** Resident Windows application with a local backend and a launcher fallback to the executable built from this repository.
@@ -65,7 +77,17 @@ A visual presentation of Axx's liquid character. See the validation reports belo
 - **Multi-Provider Connections:** Local/LAN Ollama, Ollama Cloud, LM Studio, Anthropic, Groq and compatible APIs, with model discovery and DPAPI-protected credentials. Explicit connection selection keeps requests on the selected provider/model; it does not silently switch platforms on failure.
 - **Episodic Memory & MCP Core:** Integrated procedural SQLite memory and Model Context Protocol schema validation.
 
-### Latest changes — October 21, 2026
+### Latest changes — October 22, 2026 · v0.20.10
+
+- **Magic Pen MP-H1:** clean capture, point/rectangle/lasso selection, basic editable ink, questions through a configured vision provider and verified PNG export.
+- **Desktop panels:** shared minimal styling, a transparent circular menu and one drag controller. The avatar previews movement locally and commits its position on release.
+- **Desktop actions:** installed-app discovery, explicit action plans with approval, verified file hashing and reusable procedures.
+- **Local converter:** PNG/JPEG conversion and PDF page merge/extraction, with input limits and verified output.
+- **Validation:** 99 Python tests and 14 Rust tests passed, with one Rust helper ignored. Previous native checks covered opening/closing 31 views. One browser drag assertion failed intermittently; two subsequent runs passed. The physical summon shortcut and mixed-DPI hardware checks remain pending.
+
+See the [delivery review](docs/REVISION-ENTREGA-20261022.md), [converter guide](docs/CONVERTIDOR-Y-PDF.md) and [published installer](https://github.com/luigilaxmaster-coder/AXX/releases/tag/v0.20.10).
+
+### Previous changes — October 21, 2026
 
 - Clickable tool controls, icon buttons, smoother tentacle rendering and sound recovery.
 - More usable chat composition, reading and scrolling; stable dictation controls and isolated speech cancellation.
@@ -74,7 +96,7 @@ A visual presentation of Axx's liquid character. See the validation reports belo
 - **System music:** discover Windows media sessions, select a player and tap Axx to pause/resume. Real Edge transport was verified. Output-level animation is implemented, but positive physical audio metering was not verified because the test session exposed no active output devices. Apps without Windows media controls cannot be universally paused.
 - **Area recording:** drag a rectangle on the desktop, see its boundary halo, and tap Axx to pause/resume. MP4 video is saved automatically to `%LOCALAPPDATA%/Axx/artifacts/recordings`; no browser picker or base64 video transfer is needed. This native mode currently records video without audio. [Usage and limits](docs/GRABACION-DE-AREA.md).
 
-See the [change log](CHANGELOG.md) and [music validation evidence](evidence/system-music-20261021/VERIFICATION.md) for checks and limits. These are source and local-build updates, not a newly published installer release.
+See the [change log](CHANGELOG.md) and [music validation evidence](evidence/system-music-20261021/VERIFICATION.md) for checks and limits. These changes preceded the v0.20.10 test installer linked above.
 
 ### 🟡 Active refinement and remaining validation
 - **Microphone Hardware Calibration & ASR Tuning:** Deep acoustic verification across diverse audio hardware and noise profiles prior to enabling continuous hands-free dictation by default.
@@ -313,6 +335,7 @@ npm install
 
 # Install Python backend dependencies
 pip install -r requirements-axx-connect.txt
+pip install -r requirements-converter.txt
 ```
 
 ### 3. Launch in Development Mode
