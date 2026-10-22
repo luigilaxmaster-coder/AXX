@@ -1,0 +1,15 @@
+{
+  "version": "0.20.10",
+  "snapshot": "C:/Users/PD2/Desktop/axx/build/converter-package-snapshot-20261022",
+  "installer": {
+    "path": "C:/Users/PD2/Desktop/axx/build/converter-package-snapshot-20261022/src-tauri/target/release/bundle/nsis/Axx_0.20.10_x64-setup.exe",
+    "delivery_copy": "C:/Users/PD2/Desktop/axx/dist/Axx_0.20.10_convertidor-20261022_x64-setup.exe",
+    "bytes": 247334589,
+    "sha256": "D44AA4E96B15BBD7792BF1A0C71800866BFF17E634BFB3479EA1DFB926F261D7"
+  },
+  "executable_sha256": "1C5C59019931BAE0FF7693A642336ACE890E4E1C7AD6F24F5AA70A722BCF5421",
+  "backend_sha256": "C729DF6F124F1681C9C503FAB92B3A51D3C4E701CA91AFB09E918E68BBCAA96D",
+  "frontend_html_sha256": "F03256E5A8A47BCDBE3871C555EADBAAB09BF6B5991B229DE3642FCF12E8B4BC",
+  "converter_js_sha256": "E54EC24FE2AF62D2DFFD4EFF6B2AC4B064C02BBEC66ADFFF7E4CDE487D5F145F",
+  "pypdf_license_sha256": "A97AC230E5F33EF10A5367A850EB01F91F1A0B064E34742C7794D2294557F524"
+}

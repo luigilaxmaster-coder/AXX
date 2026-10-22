@@ -7557,6 +7557,7 @@ var Axx;
         throw new Error('Falta el control ' + id); return n; }
     const families = { actions: 'Acciones', focus: 'Enfocar', matter: 'Materia', states: 'Estados', settings: 'Ajustes' };
     Axx.FEATURES = [
+        { id: 'converter', family: 'actions', title: 'Convertidor y PDF', description: 'Convierte PNG/JPEG y organiza páginas PDF con resultados verificados.', view: 'converter', availability: 'LOCAL · AXX DESKTOP' },
         { id: 'experience', family: 'states', title: 'Probar Axx', description: 'Recorre contacto, dock y una cuenta atrás real de diez segundos.', view: 'experience', availability: 'LOCAL · INICIO EXPLÍCITO' },
         { id: "stopwatch", family: "actions", title: "Cronómetro con vueltas", description: "Mide actividades, marca vueltas y exporta los tiempos.", view: "stopwatch", availability: "DISPONIBLE · LOCAL" },
         { id: "textstudio", family: "actions", title: "Taller de texto", description: "Limpia, ordena, elimina duplicados, extrae enlaces o formatea JSON.", view: "textstudio", availability: "DISPONIBLE · LOCAL" },
@@ -12285,10 +12286,10 @@ var Axx;
         undo: '<path d="M3 10h12a6 6 0 0 1 0 12M3 10l6-6M3 10l6 6"/>', image: '<rect x="2" y="3" width="20" height="18" rx="3"/><circle cx="8" cy="9" r="2"/><path d="m2 17 5-4 5 4 4-5 6 5"/>'
     };
     function icon(name) { return '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round">' + (ICONS[name] || ICONS.sparkle) + '</svg>'; }
-    const LABELS = { music: 'Música', screen: 'Grabar pantalla', layout11: 'Ajustar espacio', chat: 'Chat', dictation: 'Dictar', reader: 'Leer', translation: 'Traducir', notes: 'Notas', timer: 'Temporizador', todos: 'Tareas', calculator: 'Calcular', stopwatch: 'Cronómetro', textstudio: 'Editar texto', images: 'Imágenes', reach: 'Archivos y apps', files: 'Huella de archivo', organic: 'Cuadernos', appearance: 'Apariencia', morphui: 'Modos y materia', studio: 'Girar en 3D', focus: 'Concentración', focusNow: 'Enfocar 25 min', transcript: 'Transcribir / vídeo', ai: 'Conectar IA', sound: 'Sonidos', settings: 'Datos y sistema', inbox: 'Actividad', help: 'Ayuda', roadmap: 'Próximamente', experience: 'Probar Axx', lab: 'Animaciones', audio: 'Audio reactivo', tour: 'Cómo se abre' };
-    const TOOL_ICONS = { music: 'music', screen: 'screen', layout11: 'app', chat: 'chat', dictation: 'mic', reader: 'read', translation: 'translate', notes: 'note', timer: 'timer', todos: 'task', calculator: 'calculator', stopwatch: 'timer', textstudio: 'edit', images: 'image', reach: 'file', files: 'hash', organic: 'book', ai: 'sparkle', sound: 'read', settings: 'settings', morphui: 'cube', transcript: 'waveform', appearance: 'palette', studio: 'rotate', focus: 'focus', focusNow: 'focus', inbox: 'activity', help: 'help', roadmap: 'route', experience: 'play', lab: 'lab', audio: 'waveform', tour: 'route' };
+    const LABELS = { converter: 'Convertidor', music: 'Música', screen: 'Grabar pantalla', layout11: 'Ajustar espacio', chat: 'Chat', dictation: 'Dictar', reader: 'Leer', translation: 'Traducir', notes: 'Notas', timer: 'Temporizador', todos: 'Tareas', calculator: 'Calcular', stopwatch: 'Cronómetro', textstudio: 'Editar texto', images: 'Imágenes', reach: 'Archivos y apps', files: 'Huella de archivo', organic: 'Cuadernos', appearance: 'Apariencia', morphui: 'Modos y materia', studio: 'Girar en 3D', focus: 'Concentración', focusNow: 'Enfocar 25 min', transcript: 'Transcribir / vídeo', ai: 'Conectar IA', sound: 'Sonidos', settings: 'Datos y sistema', inbox: 'Actividad', help: 'Ayuda', roadmap: 'Próximamente', experience: 'Probar Axx', lab: 'Animaciones', audio: 'Audio reactivo', tour: 'Cómo se abre' };
+    const TOOL_ICONS = { converter: 'file', music: 'music', screen: 'screen', layout11: 'app', chat: 'chat', dictation: 'mic', reader: 'read', translation: 'translate', notes: 'note', timer: 'timer', todos: 'task', calculator: 'calculator', stopwatch: 'timer', textstudio: 'edit', images: 'image', reach: 'file', files: 'hash', organic: 'book', ai: 'sparkle', sound: 'read', settings: 'settings', morphui: 'cube', transcript: 'waveform', appearance: 'palette', studio: 'rotate', focus: 'focus', focusNow: 'focus', inbox: 'activity', help: 'help', roadmap: 'route', experience: 'play', lab: 'lab', audio: 'waveform', tour: 'route' };
     const GROUPS = {
-        create: { label: 'Crear', icon: 'note', ids: ['chat', 'dictation', 'screen', 'notes', 'organic', 'textstudio', 'images'] },
+        create: { label: 'Crear', icon: 'note', ids: ['converter', 'chat', 'dictation', 'screen', 'notes', 'organic', 'textstudio', 'images'] },
         work: { label: 'Productividad', icon: 'timer', ids: ['timer', 'todos', 'focus', 'calculator', 'stopwatch', 'reach', 'files'] },
         assist: { label: 'Asistencia', icon: 'sparkle', ids: ['music', 'reader', 'layout11', 'translation', 'transcript', 'ai', 'appearance', 'morphui', 'studio', 'sound', 'settings', 'audio', 'lab', 'inbox', 'help', 'roadmap', 'experience', 'tour'] }
     };
@@ -12319,7 +12320,7 @@ var Axx;
         clock = 0;
         navClock = 0;
         activeAnimations = [];
-        favorites = ['dictation', 'music', 'screen', 'timer', 'chat'];
+        favorites = ['dictation', 'music', 'screen', 'timer', 'chat', 'converter'];
         synchronizing = false;
         lastKey = '';
         history = [];
@@ -12341,10 +12342,11 @@ var Axx;
                 if (Array.isArray(f)) {
                     const valid = f.filter((id) => typeof id === 'string' && Axx.FEATURES.some(x => x.id === id));
                     if (valid.length)
-                        this.favorites = [...new Set(valid)].slice(0, 5);
+                        this.favorites = [...new Set(valid)].slice(0, 6);
                 }
             }
             catch { }
+            if (!this.favorites.includes('converter')) this.favorites.push('converter');
             companion.onAvatarTap = () => this.tap();
             companion.onNavigation = () => this.navigationChanged();
             symbiosis.onReviewDictation = () => this.openReview();
@@ -12688,7 +12690,7 @@ var Axx;
                 fav.setAttribute('aria-pressed', String(this.favorites.includes(f.id)));
                 fav.onclick = () => { if (this.favorites.includes(f.id))
                     this.favorites = this.favorites.filter(x => x !== f.id);
-                else if (this.favorites.length < 5)
+                else if (this.favorites.length < 6)
                     this.favorites.push(f.id);
                 else {
                     this.app.toast('Hay cinco accesos. Quita una estrella antes de fijar otro.');
@@ -13763,8 +13765,8 @@ var Axx;
 var Axx;
 (function (Axx) {
     const oe = (id) => document.getElementById(id);
-    const SHORT_NAMES = { dictation: 'Dictar', music: 'Música', screen: 'Grabar', timer: 'Tiempo', chat: 'Chat', reader: 'Leer', notes: 'Notas', stopwatch: 'Cronómetro', 'source-system': 'Este equipo', 'source-local': 'Mis archivos', 'source-youtube': 'YouTube', 'source-spotify': 'Spotify', 'source-tabs': 'Pestañas' };
-    const TINTS = { dictation: '#a7dff0', music: '#c2b1ef', screen: '#a6cabf', timer: '#e6c4a7', chat: '#9bc8ff', 'source-local': '#a8d9ff', 'source-youtube': '#f39baf', 'source-spotify': '#93dcb6', 'source-tabs': '#c8b3f5' };
+    const SHORT_NAMES = { converter: 'Convertidor', dictation: 'Dictar', music: 'Música', screen: 'Grabar', timer: 'Tiempo', chat: 'Chat', reader: 'Leer', notes: 'Notas', stopwatch: 'Cronómetro', 'source-system': 'Este equipo', 'source-local': 'Mis archivos', 'source-youtube': 'YouTube', 'source-spotify': 'Spotify', 'source-tabs': 'Pestañas' };
+    const TINTS = { converter: '#a7d7c3', dictation: '#a7dff0', music: '#c2b1ef', screen: '#a6cabf', timer: '#e6c4a7', chat: '#9bc8ff', 'source-local': '#a8d9ff', 'source-youtube': '#f39baf', 'source-spotify': '#93dcb6', 'source-tabs': '#c8b3f5' };
     const SYMBOLS = { music: '<path d="M9 17V5l11-2v12"/><ellipse cx="5.5" cy="18" rx="3.5" ry="3"/><ellipse cx="16.5" cy="16" rx="3.5" ry="3"/>', screen: '<rect x="2" y="3" width="20" height="14" rx="3"/><path d="M8 21h8M12 17v4"/><circle cx="12" cy="10" r="2.5"/>' };
     /** A spatial launcher layered on the existing Flow and real action executors. */
     class OrbitExperience {
@@ -19257,4 +19259,4 @@ body[data-media16-source="system"] .m16-cover,body[data-media16-source="system"]
 body[data-media16-source="system"] #view-music .m16-now{padding:12px;margin-top:8px}
 body[data-media16-source="system"] #view-music .m16-transport{margin:8px 0 0}
 body[data-media16-source="system"] #view-music .m16-compact{padding:10px 14px;margin-top:8px}
-</style><script src="scripts/native-voice.js"></script><script src="scripts/command-library.js"></script><script src="scripts/axx-connect.js"></script><script src="scripts/providers.js"></script><script src="scripts/native-music.js"></script><script src="scripts/native-capture.js"></script></body></html>
+</style><script src="scripts/native-voice.js"></script><script src="scripts/command-library.js"></script><script src="scripts/axx-connect.js"></script><script src="scripts/providers.js"></script><script src="scripts/native-music.js"></script><script src="scripts/native-capture.js"></script><script src="scripts/converter.js"></script></body></html>

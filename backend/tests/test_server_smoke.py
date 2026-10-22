@@ -18,6 +18,7 @@ from backend.inference.adapter import InferenceAdapter
 from backend.actions.executor import ActionExecutor
 from backend.memory.procedural_memory import ProceduralMemory
 from backend.sync.identity_sync import IdentityStore
+from backend.converter import ConverterService
 
 class ServerSmokeTests(unittest.TestCase):
     @classmethod
@@ -61,6 +62,7 @@ class ServerSmokeTests(unittest.TestCase):
         AxxBridgeHandler.executor = executor
         AxxBridgeHandler.memory = memory
         AxxBridgeHandler.identity = identity
+        AxxBridgeHandler.converter = ConverterService(cls.tmp.name)
 
         # Start on ephemeral port with ThreadedHTTPServer
         cls.server = ThreadedHTTPServer(('127.0.0.1', 0), AxxBridgeHandler)
@@ -152,6 +154,21 @@ class ServerSmokeTests(unittest.TestCase):
             self.assertEqual(resp.status, 200)
             data = json.loads(resp.read().decode('utf-8'))
             self.assertEqual(data['state'], 'succeeded')
+
+    def test_converter_endpoint(self):
+        request = urllib.request.Request(
+            f'http://127.0.0.1:{self.port}/axx-api/converter/new',
+            data=json.dumps({'files': [{'name': 'sample.png', 'size': 10}]}).encode('utf-8'),
+            headers={'Content-Type': 'application/json', **self.auth}, method='POST')
+        with urllib.request.urlopen(request, timeout=3.0) as response:
+            job = json.loads(response.read().decode('utf-8'))
+            self.assertEqual(job['state'], 'uploading')
+        cancel = urllib.request.Request(
+            f'http://127.0.0.1:{self.port}/axx-api/converter/cancel',
+            data=json.dumps({'id': job['id']}).encode('utf-8'),
+            headers={'Content-Type': 'application/json', **self.auth}, method='POST')
+        with urllib.request.urlopen(cancel, timeout=3.0) as response:
+            self.assertEqual(json.loads(response.read().decode('utf-8'))['state'], 'cancelled')
     def test_save_key_endpoint(self):
         save_body = {
             'provider': 'openrouter',

@@ -43,6 +43,7 @@ from backend.connect.http_api import ConnectHTTP, publish_endpoint, remove_endpo
 from backend.connect.service import ConnectService
 from backend.connect.provider import CodexProvider, ProviderError
 from backend.screen_recording import ScreenRecordingService
+from backend.converter import ConverterService
 
 LOG = logging.getLogger('axx.server')
 MAX_BODY = 2 * 1024 * 1024
@@ -67,6 +68,7 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
     adapter = executor = memory = identity = speech = transcription = None
     commands = None
     recording = None
+    converter = None
     chatgpt_auth = chatgpt_adapter = None
     connect = provider = None
     frontend_path = root_dir / '1.AXX' / 'Axx.html'
@@ -285,6 +287,30 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
         path = urllib.parse.urlsplit(self.path).path
         try:
             if ConnectHTTP(self).post(path, body):
+                return
+            if path.startswith('/axx-api/converter/'):
+                if not self.converter:
+                    raise ValueError('Convertidor no disponible.')
+                operation = path.rsplit('/', 1)[-1]
+                if operation == 'new':
+                    result = self.converter.new(body.get('files'))
+                elif operation == 'upload':
+                    result = self.converter.upload(body.get('id'), body.get('index'), body.get('offset'), body.get('data'))
+                elif operation == 'probe':
+                    result = self.converter.probe(body.get('id'))
+                elif operation == 'run':
+                    result = self.converter.run(body.get('id'), body.get('operation'), body.get('options'))
+                elif operation == 'status':
+                    result = self.converter.status(body.get('id'))
+                elif operation == 'cancel':
+                    result = self.converter.cancel(body.get('id'))
+                elif operation == 'history':
+                    result = self.converter.history()
+                elif operation == 'open':
+                    result = self.converter.open_result(body.get('id'))
+                else:
+                    raise ValueError('Operación de convertidor no disponible.')
+                self._send_json(200, result)
                 return
             if path == '/axx-api/chat':
                 if body.get('provider') == 'chatgpt' or body.get('mode') == 'auth':
@@ -750,6 +776,7 @@ def run_server(host='127.0.0.1', port=4173, config_path='providers.json', state_
         services.append(executor)
         recording = ScreenRecordingService(executor.workspace_root)
         services.append(recording)
+        converter = ConverterService(executor.workspace_root)
         commands = CommandService(executor)
         services.append(commands)
         speech = WindowsSpeechService(state_dir)
@@ -773,7 +800,8 @@ def run_server(host='127.0.0.1', port=4173, config_path='providers.json', state_
             'memory': memory, 'identity': identity, 'speech': speech,
             'transcription': transcription, 'chatgpt_auth': chatgpt_auth,
             'chatgpt_adapter': chatgpt_adapter, 'config_path': Path(config_path),
-            'connect': connect, 'provider': provider, 'recording': recording
+            'connect': connect, 'provider': provider, 'recording': recording,
+            'converter': converter
         })
         server = ThreadedHTTPServer((host, port), handler)
         publish_endpoint(state_dir, server)

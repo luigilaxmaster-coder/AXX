@@ -17,7 +17,7 @@ a = Analysis(
         'cli_anything.blender.core.scene', 'cli_anything.blender.core.objects',
         'cli_anything.blender.core.lighting', 'cli_anything.blender.core.render',
         'cli_anything.blender.utils.bpy_gen', 'faster_whisper', 'ctranslate2',
-        'av', 'numpy', 'tokenizers', 'huggingface_hub'],
+        'av', 'numpy', 'tokenizers', 'huggingface_hub', 'pypdf'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

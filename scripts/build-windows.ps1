@@ -1,6 +1,7 @@
 param([string]$PythonExecutable = 'python', [switch]$SkipBackend, [switch]$BackendOnly,
       [string]$EvidenceDirectory = 'evidence\resident-20261019')
 $ErrorActionPreference = 'Stop'
+Import-Module Microsoft.PowerShell.Utility
 $projectRoot = Split-Path $PSScriptRoot -Parent
 $evidencePath = Join-Path $projectRoot $EvidenceDirectory
 New-Item -ItemType Directory -Path $evidencePath -Force | Out-Null
@@ -10,6 +11,8 @@ $buildLock = [IO.File]::Open($buildLockPath, 'OpenOrCreate', 'ReadWrite', 'None'
 Push-Location $projectRoot
 try {
     $dependency = Get-Content -LiteralPath 'resources\dependency-manifest.json' -Raw | ConvertFrom-Json
+    & $PythonExecutable -c 'import PIL, pypdf'
+    if ($LASTEXITCODE -ne 0) { throw 'Install requirements-converter.txt before building the Axx backend' }
     if ((Get-FileHash -LiteralPath 'src-tauri\resources\ai-memory.exe' -Algorithm SHA256).Hash -ne $dependency.exe_sha256) {
         throw 'ai-memory executable differs from the verified official dependency manifest'
     }
