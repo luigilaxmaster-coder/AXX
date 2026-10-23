@@ -3,6 +3,8 @@ import json
 import shutil
 import tempfile
 import unittest
+from unittest.mock import patch
+from subprocess import CompletedProcess
 from pathlib import Path
 
 import release
@@ -114,6 +116,20 @@ class ReleaseTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 release.sync(self.root, value)
         self.assertEqual(original, (self.root / "package.json").read_bytes())
+
+    def test_draft_is_resolved_by_database_id(self):
+        result = CompletedProcess([], 0, '{"databaseId": 123}', '')
+        with patch.object(release.subprocess, "run", return_value=result) as command:
+            with patch.object(release, "run", return_value='{"draft": true}') as api:
+                self.assertTrue(release.remote_release("v1.2.3")["draft"])
+                self.assertIn("view", command.call_args.args[0])
+                api.assert_called_once_with("gh", "api", f"repos/{release.REPO}/releases/123")
+
+    def test_auth_failure_is_not_treated_as_missing_release(self):
+        result = CompletedProcess([], 1, '', 'HTTP 401: unauthorized')
+        with patch.object(release.subprocess, "run", return_value=result):
+            with self.assertRaisesRegex(RuntimeError, "401"):
+                release.remote_release("v1.2.3")
 
 
 if __name__ == "__main__":

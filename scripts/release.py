@@ -169,13 +169,16 @@ def validate_receipts(root: Path, build_path: Path, installed_path: Path) -> Pat
 
 
 def remote_release(tag: str):
-    result = subprocess.run(["gh", "api", f"repos/{REPO}/releases/tags/{tag}"],
+    # The REST lookup by tag omits unpublished drafts. gh release view also
+    # searches the authenticated draft list, then its database ID is unambiguous.
+    result = subprocess.run(["gh", "release", "view", tag, "--repo", REPO, "--json", "databaseId"],
                             text=True, encoding="utf-8", capture_output=True)
     if result.returncode:
-        if "HTTP 404" in result.stderr:
+        if result.stderr.strip().lower() == "release not found":
             return None
         raise RuntimeError(result.stderr.strip())
-    return json.loads(result.stdout)
+    release_id = int(json.loads(result.stdout)["databaseId"])
+    return json.loads(run("gh", "api", f"repos/{REPO}/releases/{release_id}"))
 
 
 def verify_asset(asset, path: Path):
@@ -213,6 +216,8 @@ def publish(args):
             "--draft", "--prerelease", "--title", f"Axx {current} - Windows x64 test release",
             "--notes-file", str(args.notes.resolve()))
         release = remote_release(tag)
+    if release is None:
+        raise RuntimeError("GitHub has not returned the new draft; retry after confirming it exists")
     if release["draft"] and release["target_commitish"] != commit:
         raise ValueError("Existing draft points to different source; inspect it before continuing")
     if not release["draft"]:
