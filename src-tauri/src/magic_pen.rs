@@ -32,6 +32,13 @@ pub async fn magic_pen_capture(app: AppHandle, window: WebviewWindow, monitor: S
     if window.label() != "main" { return Err("La captura sólo se inicia desde Axx".into()); }
     if BUSY.swap(true, Ordering::AcqRel) { return Err("Hay una captura en curso".into()); }
     let mut guard = CaptureGuard(Vec::new());
+    let position = window.inner_position().map_err(|e| e.to_string())?;
+    let scale = window.scale_factor().map_err(|e| e.to_string())?;
+    let monitor = if monitor.is_empty() {
+        let m = window.current_monitor().map_err(|e| e.to_string())?.ok_or("Pantalla no disponible")?;
+        let p = m.position(); let s = m.size();
+        format!("{},{},{},{}", p.x, p.y, p.x as i64 + s.width as i64, p.y as i64 + s.height as i64)
+    } else { monitor };
     #[cfg(windows)]
     for w in app.webview_windows().into_values() {
         let hwnd = w.hwnd().map_err(|e| e.to_string())?;
@@ -49,5 +56,11 @@ pub async fn magic_pen_capture(app: AppHandle, window: WebviewWindow, monitor: S
         crate::request_backend(&connection, "POST", "/axx-api/pen/capture", Some(json!({"monitor":monitor})))
     }).await.map_err(|e| e.to_string())?;
     drop(guard);
-    result
+    let mut document = result?;
+    if window.inner_position().map_err(|e| e.to_string())? != position
+        || window.scale_factor().map_err(|e| e.to_string())? != scale {
+        return Err("La pantalla cambió durante la captura. Selecciona otra vez.".into());
+    }
+    document["viewport"] = json!({"x":position.x,"y":position.y,"scale":scale});
+    Ok(document)
 }

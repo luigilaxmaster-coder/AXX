@@ -81,3 +81,32 @@
 #view-magicpen #mp-color { width: 26px !important; height: 26px !important; min-height: 0 !important; border-radius: 50%; }
 #view-magicpen #mp-zoom { font-size: 11px !important; height: 26px !important; }
 #view-magicpen #mp-question:focus { outline: none !important; box-shadow: none !important; }
+
+/* The resident WebView stays transparent; only the controls receive desktop input. */
+#mp-desktop { position: fixed; inset: 0; z-index: 12000; pointer-events: none; }
+#mp-desktop[hidden], #mp-desktop [hidden] { display: none !important; }
+#mp-desktop #view-magicpen { position: static; padding: 0; overflow: visible; pointer-events: none; }
+#mp-desktop #mp-canvas { position: fixed; margin: 0; max-width: none; background: transparent; touch-action: none; z-index: 0; }
+#mp-desktop #mp-toolbar, #mp-desktop #mp-widget { position: fixed; pointer-events: auto; background: #141923; border: 1px solid #ffffff18; border-radius: 16px; box-shadow: 0 8px 24px #0004; z-index: 1; }
+#mp-desktop #mp-toolbar { bottom: 20px; left: 50%; transform: translateX(-50%); width: max-content; max-width: calc(100vw - 24px); padding: 9px 12px 5px; }
+#mp-desktop .mp-desktop-title, #mp-desktop .mp-widget-head { display: flex; align-items: center; gap: 12px; color: #edf0f8; }
+#mp-desktop .mp-desktop-title strong, #mp-desktop .mp-widget-head strong { font-size: 12px; font-weight: 600; }
+#mp-desktop .mp-desktop-title > span { color: #828da1; font-size: 10px; }
+#mp-desktop #mp-done { margin-left: auto; min-height: 26px; font-size: 10px; color: #b2bacb; padding: 3px 8px; }
+#mp-desktop .mp-toolstrip { min-height: 44px; padding: 5px 0 0; gap: 7px; overflow-x: auto; }
+#mp-desktop .mp-toolgroup { gap: 2px; }
+#mp-desktop #mp-tool-hint { display: none; }
+#mp-desktop #mp-width { width: 45px; }
+#mp-desktop .mp-divider { margin: 0 3px; }
+#mp-desktop #mp-widget { width: min(350px, calc(100vw - 24px)); max-height: calc(100vh - 140px); box-sizing: border-box; padding: 14px; overflow-y: auto; scrollbar-width: thin; }
+#mp-desktop .mp-widget-head { margin-bottom: 12px; }
+#mp-desktop #mp-hide-answer { margin-left: auto; padding: 0; width: 26px; min-height: 26px; font-size: 20px; color: #9aa5ba; background: transparent; border: 0; }
+#mp-desktop .mp-composer { padding: 3px; background: #ffffff04; border-radius: 10px; }
+#mp-desktop #mp-question { font-size: 12px; }
+#mp-desktop #mp-answers .mp-answer { border: 0; padding: 0; margin: 12px 0; line-height: 1.65; }
+#mp-desktop #mp-answers .mp-answer:not(:last-child) { display: none; }
+#mp-desktop #mp-status { margin-bottom: 4px; }
+#mp-desktop .mp-save-section { padding: 10px 0 0; border-bottom: 0; }
+#mp-desktop .mp-save-section > summary > span { display: none; }
+#mp-desktop #mp-capability { margin-bottom: 0; }
+@media (max-width: 600px) { #mp-desktop #mp-toolbar { padding: 7px; } #mp-desktop .mp-desktop-title > span { display: none; } #mp-desktop #mp-width, #mp-desktop .mp-divider { display: none; } }

@@ -96,7 +96,7 @@ const { chromium } = runtime('playwright');
       assert.ok(calls <= 4, `unchanged panel triggered ${calls} status requests`);
     });
     await check('Shared panels keep one drag owner, survive an in-flight layout and commit without snapping', async () => {
-      for (const id of ['notes', 'calculator', 'dictation', 'screen', 'magicpen', 'chat']) {
+      for (const id of ['notes', 'calculator', 'dictation', 'screen', 'converter', 'chat']) {
         await page.evaluate(id => Axx.companion.openFeature(id), id);
         await page.waitForFunction(() => !Axx.resident.layoutBusy && !Axx.resident.pendingLayout, null, { polling: 50 });
         await page.evaluate(() => {
@@ -132,7 +132,7 @@ const { chromium } = runtime('playwright');
       }
     });
     await check('Panel movement stops at the work-area edge before release', async () => {
-      await page.evaluate(() => { Axx.resident.panelPositions = {}; Axx.companion.openFeature('magicpen'); });
+      await page.evaluate(() => { Axx.resident.panelPositions = {}; Axx.companion.openFeature('ai'); });
       await page.waitForFunction(() => !Axx.resident.layoutBusy && !Axx.resident.pendingLayout);
       const head = await page.locator('#panel .panel-head').boundingBox();
       const bounds = await page.evaluate(() => ({ bottom: Axx.resident.anchor.y + Axx.resident.geometry.spaceBelow - 72 }));
