@@ -300,6 +300,12 @@ def _uia(payload, cancelled=None):
         raise error_type('La respuesta de UI Automation excede el límite.')
     if result.returncode:
         message = result.stderr.strip()[:1000] or 'UI Automation rechazó la operación.'
+        try:
+            rejected = json.loads(result.stdout)
+        except (ValueError, TypeError):
+            rejected = None
+        if isinstance(rejected, dict) and rejected.get('success') is False and rejected.get('effect_started') is False:
+            raise ValueError(str(rejected.get('error', message))[:1000])
         raise error_type(message)
     try:
         response = json.loads(result.stdout)

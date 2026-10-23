@@ -2,6 +2,7 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 [Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false)
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+$effectStarted = $false
 
 try {
     Add-Type -AssemblyName UIAutomationClient
@@ -157,7 +158,7 @@ try {
         if ($request.expected_title -and $root.Current.Name -cne $request.expected_title) { throw 'Cambió la pestaña o el título aprobado.' }
         if (($request.operation -eq 'set_value' -and [AxxUiNative]::GetForegroundWindow().ToInt64() -ne [long]$request.window_id) -or
             $root.Current.ProcessId -ne [int]$request.pid) { throw 'La ventana perdió el foco o cambió antes del efecto.' }
-        if ($request.operation -eq 'set_value') { $pattern.SetValue([string]$request.value) }
+        if ($request.operation -eq 'set_value') { $effectStarted = $true; $pattern.SetValue([string]$request.value) }
         $actual = [string]$pattern.Current.Value
         $expectedBytes = [System.Text.UTF8Encoding]::new($false).GetBytes([string]$request.value)
         $actualBytes = [System.Text.UTF8Encoding]::new($false).GetBytes($actual)
@@ -173,6 +174,7 @@ try {
     }
     [Console]::Out.Write(($answer | ConvertTo-Json -Depth 8 -Compress))
 } catch {
+    [Console]::Out.Write((@{success=$false;error=$_.Exception.Message;effect_started=$effectStarted} | ConvertTo-Json -Compress))
     [Console]::Error.WriteLine($_.Exception.Message)
     exit 2
 }

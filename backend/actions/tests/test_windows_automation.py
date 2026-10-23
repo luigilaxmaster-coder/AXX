@@ -8,6 +8,15 @@ from backend.actions import windows_automation as automation
 
 
 class WindowsAutomationTests(unittest.TestCase):
+    def test_worker_proves_rejection_before_write_is_not_uncertain(self):
+        class Worker:
+            returncode=2
+            def communicate(self,input=None,timeout=None):
+                return b'{"success":false,"effect_started":false,"error":"focus lost"}',b'focus lost'
+        with patch.object(automation.os,'name','nt'),patch.object(automation.subprocess,'Popen',return_value=Worker()):
+            with self.assertRaises(ValueError) as caught:automation.set_control_value(12,45,'a'*64,'test')
+        self.assertNotIsInstance(caught.exception,automation.UncertainEffect)
+
     def test_foreground_observation_requires_target_title(self):
         snapshots = [
             [{'window_id': 101, 'pid': 9, 'title': 'Other app', 'foreground': True}],
