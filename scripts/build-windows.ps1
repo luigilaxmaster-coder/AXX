@@ -10,6 +10,8 @@ New-Item -ItemType Directory -Path (Split-Path $buildLockPath) -Force | Out-Null
 $buildLock = [IO.File]::Open($buildLockPath, 'OpenOrCreate', 'ReadWrite', 'None')
 Push-Location $projectRoot
 try {
+    & $PythonExecutable (Join-Path $PSScriptRoot 'release.py') check
+    if ($LASTEXITCODE -ne 0) { throw 'Desktop version or README is inconsistent; run scripts/release.py sync' }
     $dependency = Get-Content -LiteralPath 'resources\dependency-manifest.json' -Raw | ConvertFrom-Json
     & $PythonExecutable -c 'import PIL, pypdf'
     if ($LASTEXITCODE -ne 0) { throw 'Install requirements-converter.txt before building the Axx backend' }
