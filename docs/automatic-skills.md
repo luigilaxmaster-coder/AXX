@@ -186,4 +186,3 @@ claves**. Estas órdenes se interpretan localmente, sin inferencia. Se aplican a
 las siguientes solicitudes y conservan la memoria, las aclaraciones pendientes
 y las operaciones completadas. Una respuesta en curso debe terminar antes de
 cambiar la selección. Los nombres inexistentes o ambiguos no cambian nada.
-

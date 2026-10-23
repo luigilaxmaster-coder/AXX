@@ -21,7 +21,7 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
         if(name==='backend_request'){
           if(window.recordModelCommands)window.modelCommandRequests.push(args.path);
           if(args.path.startsWith('/axx-api/keyless/'))return {state:'waiting',tasks:{},message:'No anonymous fixture routes'};
-          if(args.path==='/axx-api/model-candidates')return {candidates:[
+          if(args.path==='/axx-api/model-candidates')return window.modelCatalog || {candidates:[
             {id:'pending',provider:'gemini',model_id:'gemini-3.8-flash',tasks:['plan'],status:'pending',matched_routes:[]},
             {id:'ready',provider:'groq',model_id:'openai/gpt-oss-120b',tasks:['parameters'],status:'discovered',matched_routes:[{name:'Free fixture',gateway_model_id:'auto:fixture'}]}
           ]};
@@ -126,6 +126,9 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
     await page.evaluate(()=>{Axx.companion.pending=null;});
     await page.evaluate(()=>Axx.companion.send('/modelo Modelo A'));
     assert.equal(await page.evaluate(()=>Axx.companion.data.prefs.apiConnection),'Modelo A');
+    await page.evaluate(()=>{window.modelCatalog={candidates:[{model_id:'native/model',matched_routes:[{name:'Modelo B'}]}]};});
+    await page.evaluate(()=>Axx.companion.send('/modelo native/model'));
+    assert.equal(await page.evaluate(()=>Axx.companion.data.prefs.apiConnection),'Modelo B');
     await page.evaluate(()=>Axx.companion.send('vuelve a automático'));
     assert.equal(await page.evaluate(()=>Axx.companion.data.prefs.selection_mode),'automatic_free');
     assert.equal(await page.evaluate(()=>Axx.modelSelection.parse('explica cómo cambiar el modelo')),null);
