@@ -257,12 +257,19 @@ def _uia(payload, cancelled=None):
     error_type = write_error if payload['operation'] == 'set_value' else ValueError
     # Windows PowerShell execution policy applies to script files. Pass the
     # fixed, packaged worker as a command payload instead of changing policy.
-    encoded_worker = base64.b64encode(script.read_text(encoding='utf-8-sig').encode('utf-16-le')).decode('ascii')
+    # Keep the Windows command line below 32K regardless of worker size/CRLF.
+    # This loader is constant; the bundled path is an environment value, and
+    # application arguments remain JSON on stdin, never script source.
+    loader = "& ([scriptblock]::Create([IO.File]::ReadAllText($env:AXX_UIA_WORKER, [Text.Encoding]::UTF8)))"
+    encoded_worker = base64.b64encode(loader.encode('utf-16-le')).decode('ascii')
+    runtime_names = {'SYSTEMROOT', 'WINDIR', 'TEMP', 'TMP', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'PROGRAMDATA', 'PSMODULEPATH'}
+    env = {key: value for key, value in os.environ.items() if key.upper() in runtime_names}
+    env['AXX_UIA_WORKER'] = str(script.resolve())
     try:
         process = subprocess.Popen([str(executable), '-NoLogo', '-NoProfile', '-NonInteractive', '-MTA',
                                     '-EncodedCommand', encoded_worker],
                                    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                   creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+                                   creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0), env=env)
         deadline = time.monotonic() + UIA_TIMEOUT_SECONDS
         input_bytes = request.encode('utf-8')
         first_communicate = True

@@ -54,6 +54,9 @@ class WindowsAutomationTests(unittest.TestCase):
         with patch.object(automation.os, 'name', 'nt'), patch.object(automation.subprocess, 'Popen', return_value=worker) as popen:
             result = automation.set_control_value(12, 45, control_id, 'test')
         command = popen.call_args.args[0]
+        self.assertLess(sum(map(len, command)), 2048)
+        self.assertTrue(popen.call_args.kwargs['env']['AXX_UIA_WORKER'].endswith('uia_worker.ps1'))
+        self.assertNotIn('AXX_HOST_TOKEN', popen.call_args.kwargs['env'])
         self.assertIn('-MTA', command)
         self.assertIn('-EncodedCommand', command)
         self.assertNotIn('test', command)
