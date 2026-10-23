@@ -30,6 +30,7 @@ try {
     if ($request.operation -in @('inspect', 'read_content')) {
         $reading = $request.operation -eq 'read_content'
         $remaining = 24000
+        $contentLimited = $false
         $windowTitle = $root.Current.Name
         if ($reading -and $windowTitle -cne $request.expected_title) { throw 'Cambió la ventana o página desde la preparación. Vuelve a seleccionarla y aprobar la lectura.' }
         $scope = $root
@@ -71,12 +72,14 @@ try {
             if ($reading -and -not $item.Current.IsOffscreen -and $remaining -gt 0) {
                 if ($hasValuePattern) {
                     $value = [string]$valuePattern.Current.Value
+                    if ($value.Length -gt [Math]::Min(8192, $remaining)) { $contentLimited = $true }
                     $value = $value.Substring(0, [Math]::Min($value.Length, [Math]::Min(8192, $remaining)))
                     $remaining -= $value.Length
                 }
                 # Read leaf text only: parent document text may include protected descendants.
                 if ($controlType -in @('ControlType.Text', 'ControlType.Hyperlink') -and $remaining -gt 0) {
                     $text = [string]$item.Current.Name
+                    if ($text.Length -gt [Math]::Min(2000, $remaining)) { $contentLimited = $true }
                     $text = $text.Substring(0, [Math]::Min($text.Length, [Math]::Min(2000, $remaining)))
                     $remaining -= $text.Length
                 }
@@ -84,6 +87,7 @@ try {
                     $textPattern = $null
                     if ($item.TryGetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern, [ref]$textPattern)) {
                         $text = $textPattern.DocumentRange.GetText([Math]::Min(8192, $remaining))
+                        if ($text.Length -ge [Math]::Min(8192, $remaining)) { $contentLimited = $true }
                         $remaining -= $text.Length
                     }
                 }
@@ -108,7 +112,7 @@ try {
         if ($reading) {
             if ($root.Current.Name -ne $windowTitle) { throw 'La ventana cambió durante la lectura. Vuelve a leerla.' }
             $answer.verification = 'uia_window_content_observed'
-            $answer.truncated = $answer.truncated -or $remaining -le 0
+            $answer.truncated = $answer.truncated -or $remaining -le 0 -or $contentLimited
             $answer['source'] = 'windows_accessibility'
             $answer['content_status'] = $(if (@($items | Where-Object { $_.text -or $_.value }).Count) { 'observed' } else { 'unavailable' })
             $answer['limitation'] = 'Solo contenido expuesto por la aplicación; puede faltar texto, enlaces o elementos fuera de pantalla. No es acceso al DOM.'
