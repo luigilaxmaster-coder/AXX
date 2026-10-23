@@ -28,10 +28,14 @@ if str(root_dir) not in sys.path:
 from backend.inference.router import parse_strict_json
 from backend.inference.adapter import InferenceAdapter, worker_main
 from backend.inference import provider_settings
+from backend.inference.freellmapi import FreeLLMAPIService
+from backend.inference.model_candidates import ModelCandidates
+from backend.inference.keyless import KeylessSetup
 from backend.actions.executor import ActionExecutor, ActionExecutionError
 from backend.actions.tools import list_tools
 from backend.commands import CommandService, ApprovalRequired, parse_command_json, ADAPTERS
 from backend.action_learning import ActionLearning
+from backend.demonstration import DemonstrationService, planning_reference
 from backend.memory.procedural_memory import ProceduralMemory
 from backend.memory.ai_memory_adapter import AiMemoryAdapter
 from backend.sync.identity_sync import IdentityStore
@@ -83,6 +87,10 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
     adapter = executor = memory = identity = speech = transcription = None
     commands = None
     learning = None
+    demonstration = None
+    freellmapi = None
+    model_candidates = None
+    keyless = None
     recording = None
     magic_pen = None
     converter = None
@@ -235,19 +243,49 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                 self._send_json(200, {'models': models, 'chatgpt_active': bool(self.chatgpt_auth and self.chatgpt_auth.is_authenticated())})
             elif path == '/axx-api/providers':
                 self._send_json(200, {'providers': provider_settings.public_entries(self.adapter.config)})
+            elif path == '/axx-api/model-candidates':
+                if not self.model_candidates:
+                    self._unsupported('Evaluación de modelos no disponible')
+                    return
+                self._send_json(200, self.model_candidates.catalog())
+            elif path == '/axx-api/keyless/status':
+                self._send_json(200, self.keyless.status() if self.keyless else {'state': 'idle', 'tasks': {}})
+            elif path == '/axx-api/freellmapi/status':
+                if not self.freellmapi:
+                    self._unsupported('Gateway no disponible')
+                    return
+                self._send_json(200, self.freellmapi.status(config=self.adapter.config))
             elif path == '/axx-api/actions':
                 self._send_json(200, {'tools': list_tools(), 'artifact_root': str(self.executor.workspace_root)})
-            elif path in ('/axx-api/learning/actions', '/axx-api/learning/plan'):
+            elif path in ('/axx-api/learning/actions', '/axx-api/learning/plan', '/axx-api/learning/plans', '/axx-api/learning/context'):
                 if not self.learning:
                     self._unsupported('Aprendizaje de acciones no disponible')
                     return
-                query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+                query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query, keep_blank_values=True)
                 if path.endswith('/actions'):
-                    if query: raise ValueError('La lista no admite parámetros')
-                    self._send_json(200, {'actions': self.learning.list_actions()})
+                    if set(query) - {'project_id'} or any(len(v) != 1 for v in query.values()): raise ValueError('Proyecto inválido')
+                    self._send_json(200, {'actions': self.learning.list_actions(query.get('project_id', [None])[0])})
+                elif path.endswith('/context') or path.endswith('/plans'):
+                    if set(query) - {'project_id'} or any(len(v) != 1 for v in query.values()): raise ValueError('Proyecto inválido')
+                    project = query.get('project_id', [''])[0]
+                    result = self.learning.context(project) if path.endswith('/context') else {'plans': self.learning.list_plans(project)}
+                    self._send_json(200, result)
                 else:
                     if set(query) != {'id'} or len(query['id']) != 1: raise ValueError('ID de plan requerido')
                     self._send_json(200, self.learning.get(query['id'][0]))
+            elif path in ('/axx-api/demonstration/status', '/axx-api/demonstration/list', '/axx-api/demonstration/get', '/axx-api/demonstration/inventory'):
+                if not self.demonstration:
+                    self._unsupported('Observación no disponible')
+                    return
+                query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+                action = path.rsplit('/', 1)[-1]
+                if action == 'get':
+                    if set(query) != {'id'} or len(query['id']) != 1: raise ValueError('ID de observación requerido')
+                    result = self.demonstration.get(query['id'][0])
+                else:
+                    if query: raise ValueError('Consulta inválida')
+                    result = {'demonstrations': self.demonstration.list()} if action == 'list' else getattr(self.demonstration, action)()
+                self._send_json(200, result)
             elif path in ('/axx-api/commands', '/axx-api/commands/operations', '/axx-api/commands/details'):
                 if not self.commands:
                     self._unsupported('Command library service is unavailable')
@@ -400,7 +438,7 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                     return
                 if set(body) - {'model', 'stream', 'axx_task', 'messages', 'temperature', 'max_tokens', 'tools',
                                 'request_id', 'conversation_id', 'deadline_ms', 'sensitivity',
-                                'provider', 'allow_fallback', 'mode', 'provider_name'}:
+                                'provider', 'allow_fallback', 'mode', 'provider_name', 'selection_mode'}:
                     raise ValueError('Unsupported chat fields')
 
                 model = body.get('model', '')
@@ -438,7 +476,7 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
 
                 envelope = {'provider_name': body.get('provider_name', ''), 'model': body.get('model', ''), 'task': body.get('axx_task', 'chat'), 'messages': body.get('messages', []),
                     'generation': {key: body[key] for key in ('temperature', 'max_tokens', 'tools') if key in body}}
-                for key in ('request_id', 'conversation_id', 'deadline_ms', 'sensitivity'):
+                for key in ('request_id', 'conversation_id', 'deadline_ms', 'sensitivity', 'selection_mode'):
                     if key in body:
                         envelope[key] = body[key]
                 result = self.adapter.route(envelope)
@@ -470,10 +508,35 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                     self.provider.cancel(request_id)
                 self._send_json(200, {'request_id': request_id, 'cancelled': self.adapter.cancel(request_id)})
             elif path == '/axx-api/providers/discover':
-                self._send_json(200, provider_settings.discover(body, self.adapter.config))
+                connection = self.freellmapi._body(body) if self.freellmapi and body.get('provider') == 'freellmapi' else body
+                self._send_json(200, provider_settings.discover(connection, self.adapter.config))
+            elif path == '/axx-api/keyless/start':
+                if set(body) - {'refresh'}: raise ValueError('Campos de preparación inválidos')
+                if not self.keyless:
+                    self._unsupported('Preparación sin claves no disponible')
+                    return
+                self._send_json(200, self.keyless.start(refresh=body.get('refresh', False)))
+            elif path in ('/axx-api/model-candidates/evaluate', '/axx-api/model-candidates/apply'):
+                if not self.model_candidates:
+                    self._unsupported('Evaluación de modelos no disponible')
+                    return
+                self._send_json(200, getattr(self.model_candidates, path.rsplit('/', 1)[-1])(body))
             elif path == '/axx-api/providers/save':
                 cfg_path = getattr(self, 'config_path', None) or Path(self.adapter.state_path).parent / 'providers.json'
-                self._send_json(200, provider_settings.save(body, self.adapter, cfg_path))
+                connection = self.freellmapi._body(body) if self.freellmapi and body.get('provider') == 'freellmapi' else body
+                self._send_json(200, provider_settings.save(connection, self.adapter, cfg_path))
+            elif path.startswith('/axx-api/freellmapi/'):
+                if not self.freellmapi:
+                    self._unsupported('Gateway no disponible')
+                    return
+                action = path.rsplit('/', 1)[-1]
+                fields = {'status': {'base_url', 'name', 'api_key', 'dashboard_token'},
+                          'profiles': {'base_url', 'name', 'api_key', 'dashboard_token', 'create', 'gateway_free_model_ids'},
+                          'discover': {'base_url', 'name', 'api_key', 'dashboard_token'},
+                          'start': set(), 'stop': set(), 'import_provider': {'source_name'}}
+                if action not in fields or set(body) - fields[action]: raise ValueError('Campos de gateway inválidos')
+                result = getattr(self.freellmapi, action)() if action in ('start', 'stop') else getattr(self.freellmapi, action)(body, self.adapter.config)
+                self._send_json(200, result)
             elif path == '/axx-api/auth/save-key':
                 # Compatibility path uses the same validation and protected credential store.
                 provider = body.get('provider', 'openrouter')
@@ -498,22 +561,50 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                     self._unsupported('Aprendizaje de acciones no disponible')
                     return
                 action = path.rsplit('/', 1)[-1]
-                fields = {'propose': {'text', 'operation_id', 'context', 'model', 'provider_name'},
-                          'execute': {'operation_id', 'approved'}, 'cancel': {'operation_id'}}
+                fields = {'propose': {'text', 'operation_id', 'context', 'model', 'provider_name', 'inputs', 'project_id', 'selection_mode'},
+                          'execute': {'operation_id', 'approved'}, 'cancel': {'operation_id'},
+                          'resume': {'operation_id', 'approved'}, 'configure': {'id', 'changes'},
+                          'repair': {'operation_id', 'text', 'inputs', 'model', 'provider_name', 'selection_mode'},
+                          'context': {'project_id', 'changes'}, 'compose': {'text', 'parts', 'operation_id', 'project_id'}}
                 if action not in fields or set(body) - fields[action]: raise ValueError('Campos de aprendizaje inválidos')
                 if action == 'propose':
-                    result = self.learning.propose(body.get('text'), body.get('operation_id'), body.get('context'), body.get('model', ''), body.get('provider_name', ''))
+                    context = body.get('context')
+                    if isinstance(context, dict) and 'demonstration' in context:
+                        reference = context['demonstration']
+                        if not self.demonstration or not isinstance(reference, dict): raise ValueError('Referencia de demostración inválida')
+                        record = self.demonstration.get(reference.get('demonstration_id'))
+                        context = context | {'demonstration': planning_reference(record)}
+                    result = self.learning.propose(body.get('text'), body.get('operation_id'), context, body.get('model', ''), body.get('provider_name', ''),
+                        inputs=body.get('inputs'), project_id=body.get('project_id', ''), selection_mode=body.get('selection_mode', 'manual'))
                 elif action == 'execute':
                     result = self.learning.execute(body.get('operation_id'), body.get('approved', False))
+                elif action == 'resume':
+                    result = self.learning.resume(body.get('operation_id'), body.get('approved', False))
+                elif action == 'repair':
+                    result = self.learning.repair(body.get('operation_id'), body.get('text', ''), inputs=body.get('inputs'),
+                        model=body.get('model', ''), provider_name=body.get('provider_name', ''), selection_mode=body.get('selection_mode', 'manual'))
+                elif action == 'configure':
+                    if not isinstance(body.get('changes'), dict): raise ValueError('Cambios requeridos')
+                    result = self.learning.configure(body.get('id'), body['changes'])
+                elif action == 'context':
+                    if not isinstance(body.get('changes'), dict): raise ValueError('Contexto requerido')
+                    result = self.learning.update_context(body.get('project_id', ''), body['changes'])
+                elif action == 'compose':
+                    result = self.learning.compose(body.get('text'), body.get('parts'), body.get('operation_id'), body.get('project_id', ''))
                 else:
                     result = self.learning.cancel(body.get('operation_id'))
                 self._send_json(200, result)
+            elif path in ('/axx-api/demonstration/start', '/axx-api/demonstration/stop'):
+                if not self.demonstration:
+                    self._unsupported('Observación no disponible')
+                    return
+                self._send_json(200, getattr(self.demonstration, path.rsplit('/', 1)[-1])(body))
             elif path.startswith('/axx-api/commands/'):
                 if not self.commands:
                     self._unsupported('Command library service is unavailable')
                     return
                 fields = {
-                    'resolve': {'text', 'source', 'context'},
+                    'resolve': {'text', 'source', 'context', 'project_id'},
                     'prepare': {'command_id', 'inputs', 'source', 'operation_id'},
                     'execute': {'operation_id', 'approved'},
                     'cancel': {'operation_id'},
@@ -522,7 +613,7 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                 if action not in fields or set(body) - fields[action]:
                     raise ValueError('Unsupported command request fields')
                 if action == 'resolve':
-                    result = self.commands.resolve(body.get('text'), body.get('source', 'text'), body.get('context'))
+                    result = self.commands.resolve(body.get('text'), body.get('source', 'text'), body.get('context'), body.get('project_id', ''))
                 elif action == 'prepare':
                     result = self.commands.prepare(body.get('command_id'), body.get('inputs', {}),
                         body.get('source', 'text'), body.get('operation_id'))
@@ -580,7 +671,7 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                 else:
                     self._send_json(200, self.transcription.transcribe(body))
             elif path == '/axx-api/translate':
-                if set(body) - {'text', 'source_lang', 'target_lang', 'request_id'}:
+                if set(body) - {'text', 'source_lang', 'target_lang', 'request_id', 'selection_mode'}:
                     raise ValueError('Unsupported translate fields')
                 text = body.get('text')
                 src_raw = str(body.get('source_lang') or 'es').strip()
@@ -597,7 +688,7 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                     self._send_json(200, {'ok': True, 'translated_text': text.strip(), 'source_lang': src, 'target_lang': tgt, 'engine': 'identity', 'request_id': req_id})
                     return
                 envelope = {
-                    'task': 'chat',
+                    'task': 'translation', 'selection_mode': body.get('selection_mode', 'manual'),
                     'request_id': req_id,
                     'messages': [
                         {
@@ -879,6 +970,16 @@ def run_server(host='127.0.0.1', port=4173, config_path='providers.json', state_
     try:
         adapter = InferenceAdapter(config, state_path=state_path)
         services.append(adapter)
+        freellmapi = FreeLLMAPIService(state_dir, config_path)
+        services.append(freellmapi)
+        try:
+            freellmapi.reconnect()
+        except (ValueError, OSError):
+            LOG.warning('FreeLLMAPI no disponible; las habilidades locales siguen habilitadas.')
+        model_candidates = ModelCandidates(adapter, freellmapi, config_path=config_path)
+        services.append(model_candidates)
+        keyless = KeylessSetup(model_candidates)
+        services.append(keyless)
         executor = ActionExecutor(db_path=state_path, workspace_root=state_dir / 'artifacts')
         services.append(executor)
         recording = ScreenRecordingService(executor.workspace_root)
@@ -890,6 +991,8 @@ def run_server(host='127.0.0.1', port=4173, config_path='providers.json', state_
         learning = ActionLearning(commands, adapter)
         commands.learning = learning
         services.append(learning)
+        demonstration = DemonstrationService(state_path)
+        services.append(demonstration)
         speech = WindowsSpeechService(state_dir)
         services.append(speech)
         transcription = OfflineTranscriptionService(state_dir)
@@ -907,7 +1010,7 @@ def run_server(host='127.0.0.1', port=4173, config_path='providers.json', state_
         provider = CodexProvider(commands, state_path, state_dir, dispatcher=connect.dispatch)
         services.append(provider)
         handler = type('ConfiguredAxxHandler', (AxxBridgeHandler,), {
-            'adapter': adapter, 'executor': executor, 'commands': commands, 'learning': learning,
+            'adapter': adapter, 'executor': executor, 'commands': commands, 'learning': learning, 'demonstration': demonstration, 'freellmapi': freellmapi, 'model_candidates': model_candidates, 'keyless': keyless,
             'memory': memory, 'identity': identity, 'speech': speech,
             'transcription': transcription, 'chatgpt_auth': chatgpt_auth,
             'chatgpt_adapter': chatgpt_adapter, 'config_path': Path(config_path),
@@ -927,6 +1030,7 @@ def run_server(host='127.0.0.1', port=4173, config_path='providers.json', state_
                                              'instance_id': server.instance_id}), encoding='utf-8')
             os.replace(temporary, ready_path)
         LOG.info('Private Axx backend ready on loopback port %s', server.server_port)
+        learning.start_recovery()
         server.serve_forever()
     except KeyboardInterrupt:
         pass

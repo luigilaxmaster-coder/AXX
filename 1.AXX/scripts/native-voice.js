@@ -282,6 +282,7 @@
                             const res = await Axx.backendRequest('POST', '/axx-api/translate', {
                                 text: String(text || ''),
                                 source_lang: src,
+                                selection_mode: Axx.companion.data.prefs.selection_mode || 'manual',
                                 target_lang: tgt,
                                 request_id
                             });

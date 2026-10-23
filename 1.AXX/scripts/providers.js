@@ -10,8 +10,18 @@
     }
     const panel = $('subpanel-api');
     panel.innerHTML = `
+      <label class="setting">Selección de modelos<select id="provider-selection-mode"><option value="automatic_free">Automático gratis · Sin claves</option><option value="manual">Manual · conexión seleccionada</option></select></label>
+      <p class="micro-copy">Axx prepara Kilo Gateway, OVHcloud y AI Horde y prueba sus modelos sin claves personales. Solo usa las rutas que superan las pruebas. Si no hay disponibilidad, conserva la tarea pendiente.</p>
+      <button id="keyless-refresh" type="button">Comprobar modelos sin claves</button><p id="keyless-status" role="status"></p>
+      <p class="micro-copy">Son servicios públicos externos. Kilo indica que registra peticiones y respuestas para entrenamiento. Las conexiones personales de abajo son opcionales.</p>
+      <details id="model-candidates-panel"><summary>Candidatos iniciales y evaluación</summary>
+        <p class="micro-copy">Los nombres propuestos se resuelven contra el catálogo efectivo. Una prueba usa una petición gratuita con datos de ejemplo; no ejecuta los comandos o código generados. Si pasa, se actualiza su preferencia para esa tarea.</p>
+        <button id="model-candidates-refresh" type="button">Actualizar catálogo de candidatos</button><div id="model-candidates-list"></div>
+        <p id="model-candidates-status" role="status"></p>
+      </details>
       <label class="setting">Conexiones guardadas<select id="provider-saved"><option value="">Nueva conexión</option></select></label>
       <label class="setting">Plataforma<select id="provider-kind">
+        <option value="freellmapi">FreeLLMAPI · gateway de modelos</option>
         <option value="ollama">Ollama local (modelos instalados)</option><option value="ollama_cloud">Ollama Cloud (con clave de API)</option><option value="compat">LM Studio</option>
         <option value="groq">Groq</option><option value="anthropic">Claude · Anthropic</option>
         <option value="openrouter">OpenRouter</option><option value="openai">OpenAI</option>
@@ -20,13 +30,33 @@
       <label class="setting">Nombre de la conexión<input class="field" id="provider-name" maxlength="80" placeholder="Por ejemplo: Ollama escritorio" /></label>
       <label class="setting">URL o IP del servidor<input class="field" id="provider-url" spellcheck="false" placeholder="http://192.168.1.50:11434/v1" /></label>
       <label class="setting" id="provider-protocol-row" hidden>Protocolo<select id="provider-protocol"><option value="openai">Compatible con OpenAI</option><option value="anthropic">Anthropic Messages</option></select></label>
-      <label class="setting">Clave de API — pega tu clave aquí<input class="field" id="provider-key" type="password" autocomplete="off" spellcheck="false" placeholder="No hace falta para Ollama local" /></label>
+      <label class="setting">Clave de API personal — opcional<input class="field" id="provider-key" type="password" autocomplete="off" spellcheck="false" placeholder="No se necesita en el modo sin claves" /></label>
+      <details id="gateway-controls"><summary>FreeLLMAPI: conexión y perfiles</summary>
+        <p class="micro-copy">Axx puede administrar la instalación local fijada o conectarse a una instancia externa por su URL. Solo cierra los procesos que inició.</p>
+        <div class="quick-row"><button id="gateway-start" type="button">Iniciar gateway local</button><button id="gateway-status" type="button">Comprobar conexión</button><button id="gateway-stop" type="button">Detener gateway de Axx</button></div>
+        <label class="setting">Sesión del panel externo (opcional)<input id="gateway-dashboard" class="field" type="password" autocomplete="off" placeholder="No se necesita con el gateway administrado"></label>
+        <label class="setting">Conexión gratuita de Axx para añadir al gateway<select id="gateway-import-source"></select></label><button id="gateway-import" type="button">Añadir esta conexión al gateway</button>
+        <button id="gateway-inspect" type="button">Consultar miembros y perfiles</button><div id="gateway-members"></div>
+        <p class="micro-copy">Marca solo las cuentas y modelos que no pueden consumir saldo. Axx comprueba miembros, capacidades y cuota antes de cada uso automático.</p>
+        <button id="gateway-profiles" type="button">Crear y guardar perfiles con los miembros marcados</button><p id="gateway-result" role="status"></p>
+      </details>
       <div class="quick-row"><button id="provider-discover" type="button">Consultar modelos</button></div>
       <label class="setting">Modelo disponible<select id="provider-model"><option value="">Pulsa Consultar modelos</option></select></label>
       <label class="setting" id="provider-manual-row" hidden>ID del modelo (no es una clave)<input class="field" id="provider-model-manual" maxlength="200" placeholder="Ejemplo: qwen3:4b" /></label>
       <p id="provider-catalog-status" class="micro-copy" role="status"></p>
       <label class="setting"><span><input id="provider-enabled" type="checkbox" checked /> Habilitar esta conexión</span></label>
       <label class="setting"><span><input id="provider-billing" type="checkbox" /> Autorizar el uso de mi cuota o saldo en este proveedor</span></label>
+      <details><summary>Aptitud para Automático · gratuito</summary>
+        <label class="setting">Coste de esta ruta<select id="provider-cost"><option value="unknown">Sin verificar</option><option value="direct_local">Modelo local directo</option><option value="free_tier">Cuota gratuita sin cobro posterior</option><option value="paid">De pago</option></select></label>
+        <label class="setting">Conexión<select id="provider-route"><option value="unknown">Sin verificar</option><option value="direct">Directa al proveedor</option><option value="proxy">Intermediario / proxy</option></select></label>
+        <label class="setting"><span><input id="provider-free" type="checkbox" /> Confirmo que esta ruta no puede consumir saldo ni activar cobros</span></label>
+        <label class="setting">Ventana de contexto declarada (tokens)<input id="provider-context" type="number" min="1" max="10000000" placeholder="Según el modelo"></label>
+        <label class="setting">Presupuesto máximo por imagen (tokens)<input id="provider-image-context" type="number" min="1" max="10000000" placeholder="Solo para visión"></label>
+        <label class="setting">Capacidades<select id="provider-capabilities" multiple size="3"><option value="text">Texto</option><option value="vision">Visión</option><option value="tools">Llamadas a herramientas</option></select></label>
+        <label class="setting">Tareas aptas<select id="provider-tasks" multiple size="8"><option value="chat">Conversación</option><option value="plan">Planes nuevos</option><option value="parameters">Interpretar parámetros</option><option value="repair">Reparar planes</option><option value="vision">Visión</option><option value="code">Código</option><option value="writing">Redacción</option><option value="translation">Traducción</option></select></label>
+        <label class="setting">Prioridad inicial (0 mejor, 100 menor)<input id="provider-priority" type="number" min="0" max="100" value="50"></label>
+        <p class="micro-copy">Declara únicamente capacidades y tareas que hayas comprobado. La prioridad se ajusta con resultados de Axx; una respuesta HTTP correcta no demuestra que la tarea haya funcionado. Un proxy local también puede cobrar.</p>
+      </details>
       <p class="micro-copy">Las APIs pueden cobrar por uso. Guardar o consultar el catálogo no envía mensajes. Las claves se protegen en este usuario de Windows.</p>
       <div class="quick-row provider-actions"><button class="primary" id="provider-save" type="button">Guardar y seleccionar</button><button id="provider-refresh" type="button">Actualizar conexiones</button></div>
       <p id="provider-status" class="tool-feedback" role="status"></p>`;
@@ -35,33 +65,44 @@
       ollama_cloud: 'https://ollama.com/v1',
       groq: 'https://api.groq.com/openai/v1', anthropic: 'https://api.anthropic.com/v1',
       openrouter: 'https://openrouter.ai/api/v1', openai: 'https://api.openai.com/v1',
-      gemini: 'https://generativelanguage.googleapis.com/v1beta/openai', custom: ''
+      gemini: 'https://generativelanguage.googleapis.com/v1beta/openai', custom: '', freellmapi: ''
     };
     let entries = [], busy = false;
     const status = text => { $('provider-status').textContent = text; };
     const payload = () => ({ provider: $('provider-kind').value, name: $('provider-name').value.trim(),
       base_url: $('provider-url').value.trim(), model: ($('provider-model').value === '__manual__' ? $('provider-model-manual').value : $('provider-model').value).trim(),
       protocol: $('provider-protocol').value, api_key: $('provider-key').value.trim(),
-      enabled: $('provider-enabled').checked, billing_allowed: $('provider-billing').checked });
+      enabled: $('provider-enabled').checked, billing_allowed: $('provider-billing').checked,
+      cost_evidence: $('provider-cost').value, route_kind: $('provider-route').value, free_confirmed: $('provider-free').checked,
+      context_window: Number($('provider-context').value) || undefined, image_context_tokens: Number($('provider-image-context').value) || undefined,
+      capabilities: [...$('provider-capabilities').selectedOptions].map(o => o.value), tasks: [...$('provider-tasks').selectedOptions].map(o => o.value),
+      task_priority: Object.fromEntries([...$('provider-tasks').selectedOptions].map(o => [o.value, Number($('provider-priority').value)])) });
+    $('provider-selection-mode').value = Axx.companion.data.prefs.selection_mode || 'automatic_free';
     const refresh = async () => {
       const selected = $('provider-saved').value || Axx.companion.data.prefs.apiConnection;
       const result = await Axx.backendRequest('GET', '/axx-api/providers');
       entries = result.providers || [];
+      $('gateway-import-source').replaceChildren(...entries.filter(p=>p.kind!=='freellmapi'&&p.free_confirmed&&!p.billing_allowed).map(p=>new Option(p.name,p.name)));
       $('provider-saved').replaceChildren(new Option('Nueva conexión', ''), ...entries.map(p => new Option(p.name + ' · ' + p.model, p.name)));
       if (entries.some(p => p.name === selected)) { $('provider-saved').value = selected; $('provider-saved').onchange(); }
     };
     const action = async (fn, clearKey = false) => {
       if (busy) return;
       busy = true;
-      panel.querySelectorAll('button,input,select').forEach(control => control.disabled = true);
+      const controls = [...panel.querySelectorAll('button,input,select')].map(control => [control, control.disabled]);
+      controls.forEach(([control]) => control.disabled = true);
       try { await fn(); } catch(e) { status(e.message || String(e)); }
-      finally { busy = false; if (clearKey) $('provider-key').value = ''; panel.querySelectorAll('button,input,select').forEach(control => control.disabled = false); }
+      finally { busy = false; if (clearKey) { $('provider-key').value = ''; $('gateway-dashboard').value = ''; } controls.forEach(([control, disabled]) => control.disabled = disabled); }
     };
     const platform = () => {
       $('provider-url').value = presets[$('provider-kind').value];
       $('provider-protocol-row').hidden = $('provider-kind').value !== 'custom';
       $('provider-key').value = ''; $('provider-model').value = ''; $('provider-billing').checked = false;
       $('provider-enabled').checked = true;
+      $('provider-cost').value = 'unknown'; $('provider-route').value = 'unknown'; $('provider-free').checked = false;
+      $('provider-context').value = ''; $('provider-image-context').value = ''; $('provider-priority').value = 50;
+      for (const option of $('provider-capabilities').options) option.selected = option.value === 'text';
+      for (const option of $('provider-tasks').options) option.selected = option.value === 'chat';
       $('provider-model').replaceChildren(new Option('Pulsa Consultar modelos', ''), new Option('Escribir ID manualmente…', '__manual__'));
       $('provider-manual-row').hidden = true; $('provider-model-manual').value = '';
       $('provider-key').placeholder = $('provider-kind').value === 'ollama' ? 'No hace falta para Ollama local' : 'Pega tu clave o deja vacío para conservar la guardada';
@@ -75,6 +116,11 @@
       $('provider-name').value = p.name; $('provider-url').value = p.base_url;
       $('provider-model').add(new Option(p.model, p.model), 1); $('provider-model').value = p.model;
       $('provider-protocol').value = p.protocol || 'openai'; $('provider-billing').checked = !!p.billing_allowed;
+      $('provider-cost').value = p.cost_evidence || 'unknown'; $('provider-route').value = p.route_kind || 'unknown'; $('provider-free').checked = !!p.free_confirmed;
+      $('provider-context').value = p.context_window || ''; $('provider-image-context').value = p.image_context_tokens || '';
+      $('provider-priority').value = p.task_priority?.chat ?? Object.values(p.task_priority || {})[0] ?? 50;
+      for (const option of $('provider-capabilities').options) option.selected = (p.capabilities || []).includes(option.value);
+      for (const option of $('provider-tasks').options) option.selected = (p.tasks || []).includes(option.value);
       $('provider-enabled').checked = p.enabled; status(p.has_key ? 'Clave guardada. Déjala vacía para conservarla.' : 'Conexión sin clave guardada.');
     };
     $('provider-model').onchange = () => { $('provider-manual-row').hidden = $('provider-model').value !== '__manual__'; };
@@ -97,6 +143,7 @@
       await Axx.backendRequest('POST', '/axx-api/providers/save', data);
       await refresh(); $('provider-saved').value = data.name;
       const c = Axx.companion; c.data.prefs.provider = 'bridge'; c.data.prefs.model = data.model;
+      c.data.prefs.selection_mode = 'manual'; $('provider-selection-mode').value = 'manual';
       c.data.prefs.apiConnection = data.name;
       $('ai-provider').value = 'bridge'; c.save();
       await c.connect();
@@ -105,8 +152,79 @@
       status(selected ? 'Conexión guardada y modelo seleccionado. Ya puedes abrir el chat.' : 'Conexión guardada. Revisa la clave, la habilitación y la autorización de cuota antes de usarla.');
     }, true);
     $('provider-refresh').onclick = () => action(refresh);
+    const showKeyless = result => {
+      if (!result) return;
+      const states = {idle:'Preparado para comprobar',preparing:'Preparando proveedores sin claves',evaluating:'Comprobando modelos',ready:'Modelos comprobados disponibles',waiting:'Sin modelos aptos por ahora',error:'No se pudo completar la comprobación',stopped:'Comprobación detenida'};
+      const tested = Object.values(result.tasks || {}), count = tested.reduce((sum, task) => sum + (task.applied?.length || 0), 0);
+      $('keyless-status').textContent = `${states[result.state] || result.state}${result.task ? ' · ' + result.task : ''} · ${count} preferencias verificadas. ${result.message || ''}`;
+    };
+    $('keyless-refresh').onclick = () => action(async () => showKeyless(await Axx.backendRequest('POST','/axx-api/keyless/start',{refresh:true})));
+    let checkingKeyless = false;
+    const keylessTimer = setInterval(async () => {
+      if (checkingKeyless || panel.hidden || Axx.companion.data.prefs.selection_mode !== 'automatic_free' || !Axx.isNative()) return;
+      checkingKeyless = true;
+      try { showKeyless(await Axx.backendRequest('GET','/axx-api/keyless/status')); }
+      catch(e) { $('keyless-status').textContent = e.message || 'No se pudo consultar la comprobación.'; }
+      finally { checkingKeyless = false; }
+    }, 2500);
+    window.addEventListener('pagehide', () => clearInterval(keylessTimer));
+    const refreshCandidates = async () => {
+      const result=await Axx.backendRequest('GET','/axx-api/model-candidates'), root=$('model-candidates-list');root.replaceChildren();
+      for(const candidate of result.candidates||[]){
+        const card=document.createElement('article');card.className='setup-card';
+        const title=document.createElement('strong');title.textContent=candidate.provider+' · '+candidate.model_id;
+        const state=document.createElement('p');state.textContent=(candidate.matched_routes?.length?'Ruta encontrada':'Pendiente de conexión gratuita')+' · '+(candidate.pending_reason||candidate.status);
+        const routes=document.createElement('p');routes.textContent=(candidate.matched_routes||[]).map(route=>route.name+' → '+(route.gateway_model_id||route.model||candidate.model_id)).join('\n');
+        const task=document.createElement('select');task.setAttribute('aria-label','Tarea para evaluar '+candidate.model_id);
+        const labels={chat:'Conversación',plan:'Planificación',parameters:'Parámetros',repair:'Reparación',vision:'Visión',code:'Código',writing:'Redacción',translation:'Traducción'};
+        for(const name of candidate.tasks||[])task.add(new Option(labels[name]||name,name));
+        const evaluate=document.createElement('button');evaluate.type='button';evaluate.textContent='Evaluar y actualizar preferencia';evaluate.disabled=!candidate.matched_routes?.length;
+        evaluate.onclick=()=>action(async()=>{
+          $('model-candidates-status').textContent='Evaluando '+candidate.model_id+'…';
+          const body={candidate_id:candidate.id,task:task.value};
+          const observed=await Axx.backendRequest('POST','/axx-api/model-candidates/evaluate',body);
+          let applied=false;
+          if(observed.passed&&observed.proof_mode==='actual'){await Axx.backendRequest('POST','/axx-api/model-candidates/apply',body);applied=true;}
+          $('model-candidates-status').textContent=`${candidate.model_id}: ${observed.passed?'prueba correcta':observed.status==='pending'?'pendiente':'necesita corrección'} · ${Math.round(observed.latency_ms||0)} ms${applied?' · preferencia actualizada':''}. ${observed.message||observed.result_summary||''}`;
+          await refreshCandidates();
+        });
+        card.append(title,state,routes,task,evaluate);root.append(card);
+      }
+    };
+    $('model-candidates-refresh').onclick=()=>action(refreshCandidates);
+    const gatewayBody = () => ({base_url:$('provider-url').value.trim(),name:$('provider-name').value.trim(),api_key:$('provider-key').value.trim(),dashboard_token:$('gateway-dashboard').value.trim()});
+    const gatewayCall = (operation, body={}) => Axx.backendRequest('POST','/axx-api/freellmapi/'+operation,body);
+    $('gateway-start').onclick = () => action(async()=>{
+      const result=await gatewayCall('start'); $('provider-kind').value='freellmapi'; platform(); $('provider-url').value=result.base_url||'';
+      $('gateway-controls').open=true; $('provider-name').value='FreeLLMAPI'; $('gateway-result').textContent=`Gateway ${result.connected?'conectado':'pendiente'} · ${result.ready_count||0} rutas disponibles · ${result.base_url||''}`;
+    });
+    $('gateway-status').onclick = () => action(async()=>{const result=await gatewayCall('status',gatewayBody());$('gateway-result').textContent=`${result.connected?'Conectado':'Sin conexión'} · ${result.ready_count||0} rutas listas · ${result.ownership==='managed'?'Administrado por Axx':'Instancia externa'} · ${result.message||result.base_url||''}`;});
+    $('gateway-stop').onclick = () => action(async()=>{await gatewayCall('stop');$('gateway-result').textContent='Gateway administrado detenido. Las instancias externas siguen bajo su propio control.';});
+    $('gateway-import').onclick = () => action(async()=>{await gatewayCall('import_provider',{source_name:$('gateway-import-source').value});$('gateway-result').textContent='Conexión añadida. Consulta los miembros y selecciona los que usarás.';});
+    const profiles = async create => {
+      const ids=[...$('gateway-members').querySelectorAll('input:checked')].map(n=>Number(n.value));
+      if(create&&!ids.length)throw new Error('Marca al menos una ruta cuya gratuidad hayas confirmado.');
+      const connection=gatewayBody(), result=await gatewayCall('profiles',{...connection,create,gateway_free_model_ids:ids});
+      $('gateway-members').replaceChildren();
+      for(const model of (result.models||[]).filter(m=>m.enabled===true&&m.contextWindow>0&&m.group_ready===true)){const label=document.createElement('label'),check=document.createElement('input');check.type='checkbox';check.value=model.id;check.checked=ids.includes(model.id);label.append(check,document.createTextNode(` ${model.platform} · ${model.modelId} (${model.contextWindow||'?'} tokens)`));label.className='setting';$('gateway-members').append(label);}
+      let saved=0;
+      if(create) for(const profile of result.profiles||[]) if(profile.verified){
+        await Axx.backendRequest('POST','/axx-api/providers/save',{provider:'freellmapi',...connection,...profile.provider_fields,name:'FreeLLMAPI '+profile.name,enabled:true,free_confirmed:true,billing_allowed:false,cost_evidence:'free_tier',gateway_free_model_ids:ids});saved++;
+      }
+      $('gateway-result').textContent=(create?`${saved} perfiles verificados y guardados. `:'')+(result.profiles||[]).map(p=>`${p.name}: ${p.verified?'listo':p.message||'pendiente de miembros'}`).join('\n');
+      if(create) await refresh();
+    };
+    $('gateway-inspect').onclick=()=>action(()=>profiles(false));
+    $('gateway-profiles').onclick=()=>action(()=>profiles(true),true);
+    $('provider-selection-mode').onchange = () => action(async () => {
+      const c = Axx.companion;
+      c.data.prefs.selection_mode = $('provider-selection-mode').value;
+      if (c.data.prefs.selection_mode === 'automatic_free') { c.data.prefs.provider = 'bridge'; $('ai-provider').value = 'bridge'; }
+      c.brain.reset(); c.save(); await c.connect();
+      status(c.data.prefs.selection_mode === 'automatic_free' ? 'Modo sin claves guardado. Axx está comprobando las rutas disponibles.' : 'Selección manual guardada.');
+    });
     $('tab-mode-api').addEventListener('click', () => { void action(refresh); });
-    platform();
+    $('provider-kind').value = 'ollama'; platform();
     // Local network requests also go through the host, avoiding browser CORS and exposing no credentials.
     $('ai-test').onclick = async () => {
       $('tab-mode-api').click();

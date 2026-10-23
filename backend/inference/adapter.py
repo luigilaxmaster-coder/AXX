@@ -1,6 +1,7 @@
 """Private inference boundary: bounded workers, wall deadline and cancellation."""
 from __future__ import annotations
 import json
+import copy
 import math
 import os
 from pathlib import Path
@@ -48,6 +49,8 @@ def worker_main(state_path: str) -> int:
             error_code = 'DEADLINE_EXCEEDED'
         response = {'ok': False, 'error': {'code': error_code, 'message': str(exc),
                     'retryable': error_code in ('UPSTREAM_TEMPORARY', 'NO_PROVIDER_AVAILABLE', 'STATE_UNAVAILABLE')}}
+        if type(getattr(exc, 'upstream_attempted', None)) is bool:
+            response['error']['upstream_attempted'] = exc.upstream_attempted
         code = 1
     finally:
         if router:
@@ -99,6 +102,12 @@ class InferenceAdapter:
         with self.lock:
             return self.router.status() if self.router else {'error': 'Adapter closed', 'providers': []}
 
+    def record_outcome(self, route: dict, task: str, outcome: str) -> dict:
+        with self.lock:
+            if self.router is None:
+                raise ValueError('Adapter closed')
+            return self.router.record_outcome(route, task, outcome)
+
     def cancel(self, request_id: str) -> bool:
         with self.lock:
             req = self.active_requests.get(request_id)
@@ -114,15 +123,18 @@ class InferenceAdapter:
         return True
 
     @staticmethod
-    def _error(request_id, code, message, retryable=False):
-        return {'request_id': request_id, 'ok': False,
+    def _error(request_id, code, message, retryable=False, upstream_attempted=None):
+        result = {'request_id': request_id, 'ok': False,
                 'error': {'code': code, 'retryable': retryable, 'message': message}}
+        if type(upstream_attempted) is bool:
+            result['error']['upstream_attempted'] = upstream_attempted
+        return result
 
-    def _worker_result(self, active, request):
+    def _worker_result(self, active, request, config_override=None):
         command = ([sys.executable, '--router-worker'] if getattr(sys, 'frozen', False)
                    else [sys.executable, '-m', 'backend.server', '--router-worker'])
         command += ['--state', str(self.state_path)]
-        data = json.dumps({'config': self.config, 'request': request,
+        data = json.dumps({'config': self.config if config_override is None else config_override, 'request': request,
                           'remaining_seconds': max(.001, active.deadline_mono - time.monotonic())},
                          allow_nan=False).encode('utf-8')
         if len(data) > MAX_WORKER_INPUT:
@@ -199,7 +211,12 @@ class InferenceAdapter:
             for pipe_thread in [writer, *readers]:
                 pipe_thread.join(timeout=max(0, cleanup_deadline - time.monotonic()))
 
-    def route(self, envelope: dict) -> dict:
+    def route_candidate(self, envelope: dict, provider_name: str, *, provider_override=None) -> dict:
+        """Internal evaluation boundary: exact configured route, unchanged free policy and capacity."""
+        return self.route(dict(envelope, selection_mode='automatic_free'), _candidate_provider=provider_name,
+                          _candidate_override=provider_override)
+
+    def route(self, envelope: dict, *, _candidate_provider=None, _candidate_override=None) -> dict:
         request_id = str(uuid.uuid4())
         if not isinstance(envelope, dict):
             return self._error(request_id, 'INVALID_REQUEST', 'Envelope must be an object')
@@ -215,15 +232,33 @@ class InferenceAdapter:
         with self.lock:
             if self.router is None:
                 return self._error(request_id, 'PROCESS_FAILURE', 'Adapter closed')
+            candidate_config = None
+            if _candidate_provider is not None:
+                providers = [p for p in self.config.get('providers', []) if p['name'] == _candidate_provider]
+                if len(providers) != 1 or envelope.get('selection_mode') != 'automatic_free':
+                    return self._error(request_id, 'INVALID_REQUEST', 'Invalid candidate route', upstream_attempted=False)
+                candidate_config = copy.deepcopy(self.config)
+                candidate_config['providers'] = copy.deepcopy(providers)
+                if _candidate_override is not None:
+                    if not isinstance(_candidate_override, dict) or any(_candidate_override.get(key) != providers[0].get(key)
+                            for key in ('name', 'base_url', 'api_key_env', 'gateway_dashboard_env', 'kind')):
+                        return self._error(request_id, 'INVALID_REQUEST', 'Candidate route identity changed', upstream_attempted=False)
+                    candidate_config['providers'] = [copy.deepcopy(_candidate_override)]
+                candidate_config['providers'][0]['candidate_only'] = False
+                # Isolation must retain the account limit imposed by every configured sibling route.
+                candidate_config['providers'][0]['scope_limit'] = min(
+                    self.router._scope_limit(providers[0]),
+                    candidate_config['providers'][0].get('scope_limit', providers[0]['daily_attempt_limit']))
             if request_id in self.active_requests or conversation_id in self.conversation_locks or len(self.active_requests) >= 2:
-                return self._error(request_id, 'BUSY', 'Inference capacity is busy', True)
+                return self._error(request_id, 'BUSY', 'Inference capacity is busy', True, upstream_attempted=False)
             self.active_requests[request_id], self.conversation_locks[conversation_id] = active, request_id
         try:
             request = {'messages': envelope.get('messages', []), 'axx_task': envelope.get('task', 'chat'),
+                       'selection_mode': envelope.get('selection_mode', 'manual'),
                        'axx_sensitive': envelope.get('sensitivity') == 'approved_sensitive'}
-            if envelope.get('model'):
+            if envelope.get('model') and request['selection_mode'] != 'automatic_free':
                 request['model'] = envelope['model']
-            if envelope.get('provider_name'):
+            if envelope.get('provider_name') and request['selection_mode'] != 'automatic_free':
                 request['provider_name'] = envelope['provider_name']
             generation = envelope.get('generation', {})
             if not isinstance(generation, dict):
@@ -236,13 +271,20 @@ class InferenceAdapter:
             self.router.validate_request(request)
             # Injection is reserved for deterministic offline tests.
             if self.router.transport is not http_transport:
-                raw_result = self.router.chat(request, deadline_time=active.deadline_mono)
+                if candidate_config is None:
+                    raw_result = self.router.chat(request, deadline_time=active.deadline_mono)
+                else:
+                    candidate_router = Router(candidate_config, state=self.state_path, transport=self.router.transport)
+                    try:
+                        raw_result = candidate_router.chat(request, deadline_time=active.deadline_mono)
+                    finally:
+                        candidate_router.close()
             else:
-                worker = self._worker_result(active, request)
+                worker = self._worker_result(active, request) if candidate_config is None else self._worker_result(active, request, candidate_config)
                 if not worker['ok']:
                     error = worker.get('error', {})
                     return self._error(request_id, error.get('code', 'PROCESS_FAILURE'),
-                                       error.get('message', 'Inference failed'), bool(error.get('retryable')))
+                                       error.get('message', 'Inference failed'), bool(error.get('retryable')), error.get('upstream_attempted'))
                 raw_result = worker['result']
             with active.lock:
                 if active.cancelled:
@@ -260,7 +302,8 @@ class InferenceAdapter:
             if active.cancelled:
                 code = 'CANCELLED'
             return self._error(request_id, code, 'Request cancelled' if active.cancelled else str(exc),
-                               code in ('NO_PROVIDER_AVAILABLE', 'STATE_UNAVAILABLE', 'UPSTREAM_TEMPORARY'))
+                               code in ('NO_PROVIDER_AVAILABLE', 'STATE_UNAVAILABLE', 'UPSTREAM_TEMPORARY'),
+                               getattr(exc, 'upstream_attempted', None))
         finally:
             with self.lock:
                 self.active_requests.pop(request_id, None)

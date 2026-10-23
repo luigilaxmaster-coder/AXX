@@ -10,14 +10,22 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
   const browser=await chromium.launch({headless:true,executablePath:process.env.AXX_TEST_CHROMIUM});
   try{
     const page=await browser.newPage({viewport:{width:1200,height:1000}}), errors=[];
+    page.setDefaultTimeout(20000);
     page.on('pageerror',e=>errors.push(e.message));
     await page.addInitScript(()=>{
-      window.testProviders=[];window.savedCalls=[];
+      window.testProviders=[];window.savedCalls=[];window.candidateCalls=[];
       window.__TAURI__={core:{invoke:async(name,args)=>{
         const desktop={workWidth:1920,workHeight:1080,spaceLeft:1000,spaceRight:920,spaceAbove:540,spaceBelow:540};
         if(name==='native_status')return {native:true,backendReady:false,shortcut:'Alt+Shift+A',desktop};
         if(name==='desktop_layout')return {...desktop,...args};
         if(name==='backend_request'){
+          if(args.path.startsWith('/axx-api/keyless/'))return {state:'waiting',tasks:{},message:'No anonymous fixture routes'};
+          if(args.path==='/axx-api/model-candidates')return {candidates:[
+            {id:'pending',provider:'gemini',model_id:'gemini-3.8-flash',tasks:['plan'],status:'pending',matched_routes:[]},
+            {id:'ready',provider:'groq',model_id:'openai/gpt-oss-120b',tasks:['parameters'],status:'discovered',matched_routes:[{name:'Free fixture',gateway_model_id:'auto:fixture'}]}
+          ]};
+          if(args.path==='/axx-api/model-candidates/evaluate'){window.candidateCalls.push(args.body);return {passed:true,proof_mode:window.candidateProof||'simulated',latency_ms:12};}
+          if(args.path==='/axx-api/model-candidates/apply'){window.candidateCalls.push({apply:args.body});return {applied:true};}
           if(args.path==='/axx-api/providers')return {providers:window.testProviders};
           if(args.path==='/axx-api/providers/discover')return {models:window.testModels || ['fixture-model','second-model']};
           if(args.path==='/axx-api/providers/save'){
@@ -32,6 +40,9 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
     });
     await page.goto(`http://127.0.0.1:${server.address().port}`);
     await page.waitForFunction(()=>window.Axx?.resident?.firstFrame);
+    assert.equal(await page.evaluate(()=>Axx.emptyCompanion().prefs.selection_mode),'automatic_free');
+    assert.equal(await page.evaluate(()=>Axx.decodeCompanion(JSON.stringify({version:4,prefs:{provider:'chatgpt'}})).prefs.selection_mode),'manual');
+    assert.equal(await page.evaluate(()=>Axx.decodeCompanion(JSON.stringify({version:4,prefs:{provider:'none',selection_mode:'manual'}})).prefs.provider),'none');
     await page.evaluate(()=>Axx.flow.select('ai'));
     await page.locator('#tab-mode-api').click();
     await page.locator('#provider-kind').selectOption('groq');
@@ -71,6 +82,20 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
     await page.locator('#ai-test').click();
     await page.waitForFunction(()=>document.getElementById('provider-catalog-status').textContent.includes('no tiene modelos instalados'));
     assert.equal(await page.locator('#provider-model').inputValue(),'');
+    await page.locator('#model-candidates-panel summary').click();
+    await page.locator('#model-candidates-refresh').click();
+    const candidateCards=page.locator('#model-candidates-list article');
+    await candidateCards.first().waitFor();
+    assert.equal(await candidateCards.first().locator('button').isDisabled(),true);
+    assert.match(await candidateCards.nth(1).textContent(),/auto:fixture/);
+    await candidateCards.nth(1).locator('button').click();
+    await page.waitForFunction(()=>window.candidateCalls.length===1);
+    assert.equal(await candidateCards.first().locator('button').isDisabled(),true);
+    assert.equal(await page.evaluate(()=>window.candidateCalls.some(c=>c.apply)),false);
+    await page.evaluate(()=>window.candidateProof='actual');
+    await candidateCards.nth(1).locator('button').click();
+    await page.waitForFunction(()=>window.candidateCalls.some(c=>c.apply));
+    assert.equal(await page.evaluate(()=>window.candidateCalls.at(-1).apply.task),'parameters');
     assert.deepEqual(errors,[]);
     fs.mkdirSync('evidence/providers-20261021',{recursive:true});
     await page.locator('#provider-kind').selectOption('ollama');
@@ -78,6 +103,6 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
     await page.locator('#provider-model').selectOption('__manual__');
     await page.locator('#provider-model-manual').fill('qwen3:4b');
     await page.screenshot({path:'evidence/providers-20261021/settings.png'});
-    console.log('PASS: provider presets, discovery, save, key clearing, no browser persistence, edit/disable, exact model and custom protocol');
+    console.log('PASS: provider presets, discovery, save, protected credentials, edit/disable, candidate pending states and real-only evaluation activation');
   }finally{await browser.close();server.close();}
 })().catch(e=>{console.error(e);process.exitCode=1});

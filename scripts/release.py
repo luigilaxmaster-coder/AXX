@@ -129,13 +129,13 @@ def check(root: Path) -> str:
 
 
 def source_inventory(root: Path) -> set[Path]:
-    paths = {root / p for p in ("axx-backend.spec", "src-tauri/tauri.conf.json",
+    paths = {root / p for p in ("axx-backend.spec", "scripts/setup-freellmapi.ps1", "src-tauri/tauri.conf.json",
                                 "src-tauri/Cargo.toml", "src-tauri/resources/ai-memory.exe")}
     paths.update(p for p in (root / "1.AXX").rglob("*") if p.is_file() and
                  p.suffix in (".html", ".js", ".css", ".json", ".png", ".ico", ".svg", ".woff", ".woff2"))
     for folder in ("backend", "src-tauri/src", "resources", "vendor"):
         paths.update(p for p in (root / folder).rglob("*") if p.is_file() and
-                     p.suffix in (".py", ".rs", ".json", ".bin", ".txt", ".zip") and
+                     p.suffix in (".ps1", ".py", ".rs", ".json", ".bin", ".txt", ".zip") and
                      not {"tests", "__pycache__"}.intersection(p.relative_to(root).parts) and
                      not p.name.startswith("test_"))
     return {p.resolve() for p in paths}

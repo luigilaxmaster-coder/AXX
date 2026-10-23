@@ -7,6 +7,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import email.utils
+import hashlib
 import json
 import logging
 import math
@@ -21,14 +22,41 @@ from typing import Any, Callable
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 
 LOG = logging.getLogger('axx.router')
+TASK_PROFILES = ('plan', 'parameters', 'repair', 'vision', 'code', 'writing', 'translation', 'chat')
+OUTCOMES = ('succeeded', 'failed', 'user_confirmed', 'user_rejected')
+MIN_TASK_OUTCOMES = 5
+
+
+def profile_id(provider):
+    # A changed endpoint/model must never inherit the old responder's quality score.
+    identity = {key: provider.get(key) for key in ('name', 'base_url', 'model', 'protocol', 'route_kind')}
+    if provider.get('kind') == 'freellmapi':
+        identity['gateway_member_ids'] = sorted(provider.get('gateway_member_ids', []))
+    return hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()[:32]
+
+
+def automatic_free(provider):
+    if provider.get('candidate_only') is True:
+        return False
+    if provider.get('billing_allowed', False) or provider.get('free_confirmed') is not True:
+        return False
+    if provider.get('kind') == 'freellmapi' and (provider.get('gateway_profile_verified') is not True
+            or not provider['model'].startswith('auto:axx_') or provider.get('route_kind') != 'proxy'
+            or not provider.get('gateway_attempt_limit')):
+        return False
+    evidence = provider.get('cost_evidence', 'unknown')
+    return evidence == 'free_tier' or (evidence == 'direct_local' and provider.get('route_kind') == 'direct'
+                                      and _is_local_endpoint(provider['base_url']))
 
 # Custom Exceptions with normalized error codes
 class RouterError(Exception):
     code = 'PROCESS_FAILURE'
-    def __init__(self, message: str, code: str | None = None):
+    def __init__(self, message: str, code: str | None = None, *, upstream_attempted: bool | None = None):
         super().__init__(message)
+        self.upstream_attempted = upstream_attempted
         if code:
             self.code = code
 
@@ -101,6 +129,8 @@ def _is_local_endpoint(base_url: str) -> bool:
         return False
 
 def _optional_auth(p):
+    if p.get('kind') == 'freellmapi':
+        return False
     return _is_loopback_http(p['base_url']) or (p.get('auth_optional') is True and _is_local_endpoint(p['base_url']))
 
 def http_transport(provider: dict, body: dict, timeout: float) -> dict:
@@ -134,9 +164,15 @@ def http_transport(provider: dict, body: dict, timeout: float) -> dict:
                 raise UpstreamError(502, message="Response payload exceeds 7 MiB limit")
             try:
                 data = parse_strict_json(raw)
+                if provider.get('kind') == 'freellmapi' and isinstance(data, dict):
+                    routed = urllib.parse.unquote(response.headers.get('X-Routed-Via', ''))
+                    platform, separator, model = routed.partition('/')
+                    if (separator and 0 < len(platform) <= 80 and 0 < len(model) <= 200
+                            and platform not in ('cache', 'idempotency', 'auto', 'fusion')):
+                        data['provider'], data['model'] = platform, model
                 if anthropic:
                     content = ''.join(part.get('text', '') for part in data.get('content', []) if part.get('type') == 'text')
-                    return {'choices': [{'message': {'role': 'assistant', 'content': content},
+                    return {'model': data.get('model'), 'choices': [{'message': {'role': 'assistant', 'content': content},
                                          'finish_reason': 'length' if data.get('stop_reason') == 'max_tokens' else 'stop'}]}
                 return data
             except (ValueError, UnicodeError) as exc:
@@ -225,7 +261,7 @@ class Router:
             for field in ('name', 'base_url', 'model', 'api_key_env'):
                 if not isinstance(p[field], str) or not p[field].strip():
                     raise ValueError(f'Invalid provider {field}')
-            for field in ('free_confirmed', 'allow_sensitive', 'billing_allowed', 'auth_optional'):
+            for field in ('free_confirmed', 'allow_sensitive', 'billing_allowed', 'auth_optional', 'gateway_profile_verified', 'candidate_only', 'gateway_keyless'):
                 if field in p and type(p[field]) is not bool:
                     raise ValueError(f'Invalid provider {field}')
             
@@ -259,6 +295,27 @@ class Router:
                 raise ValueError('scope_limit must be a positive integer')
             if 'quota_scope_id' in p and (not isinstance(p['quota_scope_id'], str) or not p['quota_scope_id'].strip()):
                 raise ValueError('quota_scope_id must be a non-empty string')
+            if p.get('cost_evidence', 'unknown') not in ('unknown', 'free_tier', 'direct_local', 'paid'):
+                raise ValueError('Invalid cost_evidence')
+            if p.get('route_kind', 'unknown') not in ('unknown', 'direct', 'proxy'):
+                raise ValueError('Invalid route_kind')
+            for field in ('context_window', 'image_context_tokens'):
+                if field in p and (type(p[field]) is not int or not 1 <= p[field] <= 10000000):
+                    raise ValueError(f'Invalid {field}')
+            priority = p.get('task_priority', {})
+            if (not isinstance(priority, dict) or any(task not in TASK_PROFILES or type(value) is not int
+                    or not 0 <= value <= 100 for task, value in priority.items())):
+                raise ValueError('Invalid task_priority')
+            for field, maximum in (('gateway_attempt_limit', 20), ('gateway_timeout_ms', 70000)):
+                if field in p and (type(p[field]) is not int or not 1 <= p[field] <= maximum):
+                    raise ValueError(f'Invalid {field}')
+            if 'gateway_free_model_ids' in p and (not isinstance(p['gateway_free_model_ids'], list)
+                    or len(p['gateway_free_model_ids']) > 100 or not all(type(value) is int and value > 0
+                                                                     for value in p['gateway_free_model_ids'])):
+                raise ValueError('Invalid gateway_free_model_ids')
+            if 'gateway_dashboard_env' in p and (not isinstance(p['gateway_dashboard_env'], str)
+                    or not p['gateway_dashboard_env'].startswith('AXX_API_') or len(p['gateway_dashboard_env']) > 100):
+                raise ValueError('Invalid gateway_dashboard_env')
 
     def _init_schema(self):
         # Schema with quota_scope_id (H04)
@@ -305,6 +362,13 @@ class Router:
                 last_status INTEGER
             )
         ''')
+        self.db.execute('''CREATE TABLE IF NOT EXISTS inference_routes (
+            route_id TEXT PRIMARY KEY, profile_id TEXT NOT NULL, task TEXT NOT NULL,
+            attribution_id TEXT NOT NULL, metadata TEXT NOT NULL)''')
+        self.db.execute('CREATE INDEX IF NOT EXISTS inference_routes_profile ON inference_routes(profile_id,task)')
+        self.db.execute('''CREATE TABLE IF NOT EXISTS task_outcomes (
+            route_id TEXT NOT NULL, category TEXT NOT NULL, outcome TEXT NOT NULL,
+            PRIMARY KEY(route_id,category))''')
         self.db.commit()
 
     def close(self):
@@ -409,7 +473,11 @@ class Router:
         """Validates chat request with null checks per field (H02, D)."""
         if not isinstance(request, dict):
             raise RequestError("Request must be a JSON object")
-        allowed = {'messages', 'axx_task', 'axx_sensitive', 'temperature', 'max_tokens', 'tools', 'stream', 'model', 'provider_name'}
+        allowed = {'messages', 'axx_task', 'axx_sensitive', 'temperature', 'max_tokens', 'tools', 'stream', 'model', 'provider_name', 'selection_mode'}
+        if request.get('selection_mode', 'manual') not in ('manual', 'automatic_free'):
+            raise RequestError('Invalid selection_mode')
+        if request.get('selection_mode') == 'automatic_free' and request.get('axx_task', 'chat') not in TASK_PROFILES:
+            raise RequestError('Unsupported automatic task profile')
         if 'provider_name' in request and (not isinstance(request['provider_name'], str) or len(request['provider_name']) > 80):
             raise RequestError('Invalid provider name')
         if 'model' in request and (not isinstance(request['model'], str) or len(request['model']) > 200):
@@ -523,6 +591,113 @@ class Router:
 
         return response
 
+    def _outcome_counts(self, profile, task, attribution=None):
+        sql = '''SELECT o.outcome,COUNT(*) FROM task_outcomes o JOIN inference_routes r USING(route_id)
+                 WHERE r.profile_id=? AND r.task=?'''
+        values = [profile, task]
+        if attribution:
+            sql += ' AND r.attribution_id=?'
+            values.append(attribution)
+        rows = self.db.execute(sql + ' GROUP BY o.outcome', values).fetchall()
+        return dict.fromkeys(OUTCOMES, 0) | dict(rows)
+
+    def record_outcome(self, route, task, outcome):
+        """Accept only a locally issued route receipt; execution and confirmation stay separate."""
+        if not isinstance(route, dict) or task not in TASK_PROFILES or outcome not in OUTCOMES:
+            raise ValueError('Invalid inference task outcome')
+        route_id = route.get('route_id')
+        if not isinstance(route_id, str) or not 1 <= len(route_id) <= 80:
+            raise ValueError('Missing inference route receipt')
+        try:
+            row = self.db.execute('SELECT metadata FROM inference_routes WHERE route_id=?', (route_id,)).fetchone()
+            if not row:
+                raise ValueError('Unknown inference route receipt')
+            recorded = json.loads(row[0])
+            if recorded != route or recorded['task'] != task:
+                raise ValueError('Inference outcome does not match its route receipt')
+            category = 'execution' if outcome in ('succeeded', 'failed') else 'confirmation'
+            with self.db:
+                self.db.execute('''INSERT INTO task_outcomes VALUES(?,?,?)
+                    ON CONFLICT(route_id,category) DO UPDATE SET outcome=excluded.outcome''', (route_id, category, outcome))
+            return self._outcome_counts(recorded['profile_id'], task, recorded['attribution_id'])
+        except sqlite3.Error as exc:
+            raise StateError(f'Cannot persist task outcome: {exc}') from None
+
+    def _route_metadata(self, provider, response, request, attempts, attempt_budget_used):
+        def reported(field):
+            value = response.get(field)
+            return value.strip() if isinstance(value, str) and 0 < len(value.strip()) <= 200 else None
+        responder_model, responder_provider = reported('model'), reported('provider')
+        if provider.get('route_kind') != 'direct' and responder_model == provider['model']:
+            responder_model = None
+        profile = profile_id(provider)
+        identity = 'reported' if responder_model else 'unverified_profile'
+        attribution = (hashlib.sha256(json.dumps([profile, responder_model, responder_provider]).encode()).hexdigest()[:32]
+                       if responder_model else profile)
+        mode = request.get('selection_mode', 'manual')
+        metadata = dict(provider=provider['name'], model=provider['model'] if mode == 'manual' else responder_model,
+                        configured_model=provider['model'], responder_model=responder_model, responder_provider=responder_provider,
+                        identity=identity, profile_id=profile, attribution_id=attribution, route_id=str(uuid.uuid4()),
+                        task=request.get('axx_task', 'chat'), selection_mode=mode, attempts=attempts,
+                        attempt_budget_used=attempt_budget_used)
+        try:
+            with self.db:
+                self.db.execute('INSERT INTO inference_routes VALUES(?,?,?,?,?)',
+                                (metadata['route_id'], profile, metadata['task'], attribution, json.dumps(metadata)))
+        except sqlite3.Error as exc:
+            raise StateError(f'Cannot persist inference route receipt: {exc}') from None
+        return metadata
+
+    def _automatic_candidates(self, request, task, needs_tools, image_count, deadline_time):
+        required = {'text'}
+        if needs_tools:
+            required.add('tools')
+        if image_count or task == 'vision':
+            required.add('vision')
+        # UTF-8 byte count is a conservative text budget without a model-specific tokenizer.
+        input_tokens = len(json.dumps({'messages': request['messages'], 'tools': request.get('tools')},
+                                     ensure_ascii=False).encode('utf-8')) + 1024
+        status = {p['name']: p for p in self.status()['providers']}
+        candidates = []
+        for provider in self.providers:
+            if not automatic_free(provider) or status[provider['name']]['state'] != 'ready_locally':
+                continue
+            if provider.get('kind') == 'freellmapi':
+                from .freellmapi import verify_provider
+                try:
+                    remaining = deadline_time - time.monotonic()
+                    if remaining <= 0:
+                        raise UpstreamError(504, message='Global inference deadline exceeded')
+                    configured_tasks = provider.get('tasks')
+                    provider = dict(provider, **verify_provider(provider, timeout=min(5, remaining)))
+                    if configured_tasks and '*' not in configured_tasks:
+                        provider['tasks'] = [t for t in provider.get('tasks', []) if t in configured_tasks]
+                        if task not in provider['tasks']:
+                            continue
+                    self._validate_config({'providers': [provider]})
+                except ValueError:
+                    continue
+                if not automatic_free(provider) or provider['gateway_attempt_limit'] > self.max_attempts:
+                    continue
+            if not required.issubset(provider['capabilities']):
+                continue
+            tasks = provider.get('tasks')
+            if tasks and '*' not in tasks and task not in tasks:
+                continue
+            if request.get('axx_sensitive') and not provider.get('allow_sensitive', False):
+                continue
+            # Unknown image token budgets are ineligible; a URL's length is not its image cost.
+            if image_count and not provider.get('image_context_tokens'):
+                continue
+            output = min(request.get('max_tokens', provider.get('max_output_tokens', 1024)), provider.get('max_output_tokens', 1024))
+            if provider.get('context_window', 0) < input_tokens + output + image_count * provider.get('image_context_tokens', 0):
+                continue
+            counts = self._outcome_counts(profile_id(provider), task)
+            total = counts['succeeded'] + counts['failed']
+            quality = counts['succeeded'] / total if total >= MIN_TASK_OUTCOMES else .5
+            candidates.append((-quality, provider.get('task_priority', {}).get(task, 50), len(candidates), provider))
+        return [candidate[-1] for candidate in sorted(candidates, key=lambda item: item[:3])]
+
     def chat(self, request: dict, deadline_time: float | None = None) -> dict:
         """Executes sequential failover with strict global deadline (H01-H10)."""
         self.validate_request(request)
@@ -535,24 +710,31 @@ class Router:
         req_task = request.get('axx_task', 'chat')
         req_sensitive = bool(request.get('axx_sensitive', False))
         needs_tools = bool(request.get('tools'))
-        needs_vision = any(isinstance(m.get('content'), list) and any(
-            isinstance(part, dict) and part.get('type') == 'image_url' for part in m['content'])
-            for m in request['messages'])
+        image_count = sum(1 for m in request['messages'] if isinstance(m.get('content'), list)
+                          for part in m['content'] if isinstance(part, dict) and part.get('type') == 'image_url')
+        needs_vision = bool(image_count)
+        automatic = request.get('selection_mode', 'manual') == 'automatic_free'
+        providers = self._automatic_candidates(request, req_task, needs_tools, image_count, deadline_time) if automatic else self.providers
 
         attempts = 0
+        attempt_budget_used = 0
         last_error = None
 
-        for p in self.providers:
+        for p in providers:
             # Check remaining global deadline budget
             time_left = deadline_time - time.monotonic()
             if time_left <= 0:
                 raise UpstreamError(504, message="Global inference deadline exceeded (70s budget)")
 
-            if not p.get('enabled', False):
+            if not p.get('enabled', False) or p.get('candidate_only') is True:
                 continue
-            if request.get('model') and request['model'] != p['model']:
+            gateway = automatic and p.get('kind') == 'freellmapi'
+            attempt_cost = p['gateway_attempt_limit'] if gateway else 1
+            if attempt_budget_used + attempt_cost > self.max_attempts:
                 continue
-            if request.get('provider_name') and request['provider_name'] != p['name']:
+            if not automatic and request.get('model') and request['model'] != p['model']:
+                continue
+            if not automatic and request.get('provider_name') and request['provider_name'] != p['name']:
                 continue
 
             # Cost policy check (H06, Section 6)
@@ -582,7 +764,10 @@ class Router:
                 continue
 
             attempts += 1
+            attempt_budget_used += attempt_cost
             call_timeout = min(self.timeout, time_left)
+            if gateway:
+                call_timeout = min(call_timeout, p.get('gateway_timeout_ms', 20000) / 1000)
             call_start = time.monotonic()
 
             try:
@@ -596,6 +781,8 @@ class Router:
                     payload['temperature'] = request['temperature']
                 if 'max_tokens' in request:
                     payload['max_tokens'] = min(request['max_tokens'], p.get('max_output_tokens', 1024))
+                elif automatic:
+                    payload['max_tokens'] = p.get('max_output_tokens', 1024)
                 if 'tools' in request and 'tools' in p.get('capabilities', []):
                     payload['tools'] = request['tools']
 
@@ -605,11 +792,7 @@ class Router:
                 elapsed = time.monotonic() - call_start
                 self._record(p['name'], success=True, elapsed=elapsed, status=200)
 
-                validated_resp['axx_router'] = {
-                    'provider': p['name'],
-                    'model': p['model'],
-                    'attempts': attempts
-                }
+                validated_resp['axx_router'] = self._route_metadata(p, validated_resp, request, attempts, attempt_budget_used)
                 return validated_resp
 
             except UpstreamError as err:
@@ -618,14 +801,14 @@ class Router:
                 last_error = err
 
                 # H07: Policy block must stop immediately, NO failover
-                if err.is_policy or err.status == 403:
+                if err.is_policy or (err.status == 403 and not automatic):
                     raise PolicyBlocked(f"Request blocked by content policy: {err}")
 
                 if err.status == 402:
                     raise PolicyBlocked('Provider requires payment; paid inference is disabled')
 
                 # 400 Bad Request: Do not retry (client error)
-                if err.status in (400, 401, 422):
+                if err.status in (400, 422) or (err.status == 401 and not automatic):
                     raise
 
                 # 429 Rate Limit: apply Retry-After cooldown
@@ -636,21 +819,24 @@ class Router:
                     self._cool(p, 30.0)
 
                 # Check max attempts limit
-                if attempts >= self.max_attempts:
+                if attempt_budget_used >= self.max_attempts:
                     break
 
+            except StateError:
+                raise
             except Exception as exc:
                 elapsed = time.monotonic() - call_start
                 self._record(p['name'], success=False, elapsed=elapsed, status=500)
                 last_error = exc
-                if attempts >= self.max_attempts:
+                if attempt_budget_used >= self.max_attempts:
                     break
 
         if last_error:
             if isinstance(last_error, RouterError):
+                last_error.upstream_attempted = attempts > 0
                 raise last_error
-            raise Exhausted(f"All eligible providers exhausted. Last error: {last_error}")
-        raise Exhausted("No eligible provider available for request criteria")
+            raise Exhausted(f"All eligible providers exhausted. Last error: {last_error}", upstream_attempted=attempts > 0)
+        raise Exhausted("No eligible provider available for request criteria", upstream_attempted=False)
 
     def status(self) -> dict:
         """Returns local health projection with explicit local quota semantics (H09)."""
@@ -718,6 +904,16 @@ class Router:
                 'quota_scope_id': scope_id,
                 'capabilities': p.get('capabilities', []),
                 'tasks': p.get('tasks', ['*']),
+                'automatic_free_eligible': (automatic_free(p) and bool(p.get('context_window'))
+                                            and 'text' in p['capabilities'] and state == 'ready_locally'
+                                            and p.get('gateway_attempt_limit', 1) <= self.max_attempts),
+                'cost_evidence': p.get('cost_evidence', 'unknown'),
+                'route_kind': p.get('route_kind', 'unknown'),
+                'context_window': p.get('context_window'),
+                'image_context_tokens': p.get('image_context_tokens'),
+                'task_priority': p.get('task_priority', {}),
+                'gateway_attempt_limit': p.get('gateway_attempt_limit'),
+                'gateway_profile_verified': p.get('gateway_profile_verified', False),
                 'attempts_today': attempts_today,
                 'daily_attempt_limit': p['daily_attempt_limit'],
                 'scope_attempts_today': scope_attempts,

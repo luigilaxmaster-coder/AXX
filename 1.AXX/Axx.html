@@ -2207,7 +2207,7 @@ var Axx;
         const v = p[s];
         return [s, { baseForm: Axx.STATE_FORM[s], entryDuration: ['transform', 'thinking'].includes(s) ? .85 : .45, exitDuration: .35, deformationAmplitude: v[1], flowSpeed: v[0], twist: v[2], damping: 16, breathing: s === 'focus' ? .006 : .016, dropletCount: ['idle', 'notification', 'success'].includes(s) ? 3 : 0, lightResponse: s === 'success' ? 1.18 : 1, audioReactivity: ['listening', 'speaking'].includes(s) ? 1 : 0, reducedMotionVariant: s === 'idle' ? 'subtle' : 'still' }];
     }));
-    function emptyCompanion() { return { version: 4, prefs: { follow: false, mode: 'companion', dockPinned: false, sound: 'discreet', volume: .3, mutedAll: false, soundCategories: { ui: true, state: true, notification: true }, voiceRead: false, voiceAutoSend: false, keepHistory: true, provider: 'none', endpoint: 'http://127.0.0.1:11434', model: '', personalityStyle: 'natural', personalityNotes: '', voiceLanguage: 'auto' }, messages: [], todos: [], draft: '', noteDraft: { title: '', text: '' } }; }
+    function emptyCompanion() { return { version: 4, prefs: { follow: false, mode: 'companion', dockPinned: false, sound: 'discreet', volume: .3, mutedAll: false, soundCategories: { ui: true, state: true, notification: true }, voiceRead: false, voiceAutoSend: false, keepHistory: true, provider: 'bridge', selection_mode: 'automatic_free', endpoint: 'http://127.0.0.1:11434', model: '', personalityStyle: 'natural', personalityNotes: '', voiceLanguage: 'auto' }, messages: [], todos: [], draft: '', noteDraft: { title: '', text: '' } }; }
     Axx.emptyCompanion = emptyCompanion;
     function localEndpoint(raw) { const u = new URL(raw); if (!['http:', 'https:'].includes(u.protocol) || !['localhost', '127.0.0.1', '[::1]'].includes(u.hostname) || u.username || u.password || u.search || u.hash || u.pathname !== '/')
         throw new Error('Utiliza solo un servidor local: http://127.0.0.1:11434 o http://localhost:1234.'); return u.origin; }
@@ -2258,6 +2258,9 @@ var Axx;
                 d.prefs.voiceLanguage = p.voiceLanguage;
             if (typeof p.apiConnection === 'string')
                 d.prefs.apiConnection = p.apiConnection.slice(0, 80);
+            d.prefs.selection_mode = ['manual', 'automatic_free'].includes(p.selection_mode) ? p.selection_mode : (p.provider && p.provider !== 'none' ? 'manual' : 'automatic_free');
+            if (d.prefs.selection_mode === 'automatic_free') d.prefs.provider = 'bridge';
+            if (typeof p.skillProject === 'string') d.prefs.skillProject = p.skillProject.slice(0, 128);
             if (Array.isArray(x.messages) && d.prefs.keepHistory)
                 d.messages = x.messages.filter((m) => m && typeof m.id === 'string' && ['user', 'assistant', 'notice'].includes(m.role) && typeof m.text === 'string' && ['local', 'model', 'error', 'notice'].includes(m.source) && Number.isFinite(m.at)).slice(-200).map((m) => ({ id: m.id.slice(0, 128), role: m.role, text: m.text.slice(0, 30000), source: m.source, status: m.status === 'pending' ? 'interrupted' : ['complete', 'interrupted', 'error'].includes(m.status) ? m.status : 'error', at: m.at, model: typeof m.model === 'string' ? m.model.slice(0, 200) : undefined }));
             if (Array.isArray(x.todos))
@@ -6409,10 +6412,11 @@ var Axx;
         signature = '';
         lastRoute = null;
         localRealtimeModels = new Set();
-        signatureOf(p) { return [p.provider, p.endpoint, p.model, p.apiConnection || ''].join('|'); }
+        signatureOf(p) { return [p.provider, p.endpoint, p.model, p.apiConnection || '', p.selection_mode || 'manual'].join('|'); }
         reset() { this.connected = false; this.inferenceVerified = false; this.models = []; this.signature = ''; this.localRealtimeModels.clear(); }
         async connect(p, signal) {
             this.reset();
+            if (p.selection_mode === 'automatic_free') p.provider = 'bridge';
             if (p.provider === 'none')
                 throw new Error('Selecciona un proveedor.');
             const ctrl = new AbortController(), cancel = () => ctrl.abort(), timeout = setTimeout(() => ctrl.abort(), 12000);
@@ -6436,6 +6440,13 @@ var Axx;
                     const metadata = await Axx.backendRequest('GET', '/axx-api/status', null, ctrl.signal);
                     this.providerName = String(metadata.provider || 'Router local de Axx');
                     const providers = Array.isArray(metadata.details?.providers) ? metadata.details.providers : [];
+                    if (p.selection_mode === 'automatic_free') {
+                        this.providerName = 'Automático gratis · Sin claves';
+                        if (Axx.isNative()) await Axx.backendRequest('POST', '/axx-api/keyless/start', {}, ctrl.signal);
+                        this.models = [...new Set(providers.filter(provider => provider.automatic_free_eligible).map(provider => provider.model))];
+                        this.connected = true; this.signature = this.signatureOf(p);
+                        return this.models;
+                    }
                     eligibleBridgeModels = new Set(providers.filter(provider => provider?.state === 'ready_locally' && typeof provider.model === 'string' && (!p.apiConnection || provider.name === p.apiConnection)).map(provider => provider.model));
                     this.localRealtimeModels = new Set(Array.isArray(metadata.details?.realtime_local_models) ? metadata.details.realtime_local_models.filter(model => typeof model === 'string') : []);
                     const data = await Axx.backendRequest('GET', '/axx-api/models', null, ctrl.signal);
@@ -6516,7 +6527,7 @@ var Axx;
             const ctrl = new AbortController(), cancel = () => ctrl.abort(), timeout = setTimeout(() => ctrl.abort(), 180000);
             signal.addEventListener('abort', cancel, { once: true });
             try {
-                if (p.provider === 'bridge' && Axx.isNative() && this.localRealtimeModels.has(p.model)
+                if (p.selection_mode !== 'automatic_free' && p.provider === 'bridge' && Axx.isNative() && this.localRealtimeModels.has(p.model)
                     && (!p.apiConnection || p.apiConnection === 'ollama-local') && window.__TAURI__?.event?.listen) {
                     const realtime = await this.localRealtimeChat(p.model, messages, ctrl.signal, onDelta);
                     if (realtime) return realtime;
@@ -6537,6 +6548,7 @@ var Axx;
                             stream: false,
                             request_id: requestId,
                             provider: p.provider,
+                            selection_mode: p.selection_mode || 'manual',
                             ...(p.provider === 'bridge' && p.apiConnection ? { provider_name: p.apiConnection } : {}),
                             allow_fallback: p.allow_fallback !== false
                         };
@@ -7640,7 +7652,8 @@ var Axx;
         { id: 'ai', family: 'settings', title: 'Conectar IA', description: 'Detecta modelos locales o utiliza el servidor de Axx.', view: 'ai', availability: 'REQUIERE UN PROVEEDOR REAL' },
         { id: 'settings', family: 'settings', title: 'Sistema y datos', description: 'Calidad, accesibilidad, copia de seguridad y diagnóstico.', view: 'settings', availability: 'DISPONIBLE · LOCAL' },
         { id: 'inbox', family: 'settings', title: 'Actividad', description: 'Consulta avisos sin interrumpir las tareas en ejecución.', view: 'inbox', availability: 'EVENTOS DE ESTA SESIÓN' },
-        { id: 'help', family: 'settings', title: 'Controles y alcance', description: 'Atajos, privacidad y diferencias entre HTML y Windows.', view: 'help', availability: 'GUÍA INCLUIDA' }
+        { id: 'help', family: 'settings', title: 'Controles y alcance', description: 'Atajos, privacidad y diferencias entre HTML y Windows.', view: 'help', availability: 'GUÍA INCLUIDA' },
+        { id: 'learn', family: 'actions', title: 'Aprende esto', description: 'Observa una demostración y prepara una habilidad verificable.', view: 'files', availability: 'OBSERVACIÓN LOCAL · CON APROBACIÓN' },
     ];
     function speechReplyText(value) {
         return String(value || '').slice(0, 7000)
@@ -7890,9 +7903,9 @@ var Axx;
                 node('convert-result').textContent = this.error(err);
             } };
             click('ai-test', () => { void this.connect(); });
-            click('ai-disconnect', () => { this.connecting?.abort(); this.cancelRequest(); this.brain.reset(); this.data.prefs.provider = 'none'; this.syncPreferences(); this.save(); node('ai-status').textContent = 'Desconectado. No se enviarán nuevas preguntas al proveedor.'; });
+            click('ai-disconnect', () => { this.connecting?.abort(); this.cancelRequest(); this.brain.reset(); this.data.prefs.provider = 'none'; this.data.prefs.selection_mode = 'manual'; this.syncPreferences(); this.save(); node('ai-status').textContent = 'Desconectado. No se enviarán nuevas preguntas al proveedor.'; });
             click('api-test-btn', () => { void this.connect(); });
-            click('api-disconnect-btn', () => { this.connecting?.abort(); this.cancelRequest(); this.brain.reset(); this.data.prefs.provider = 'none'; this.syncPreferences(); this.save(); node('ai-status').textContent = 'Desconectado.'; });
+            click('api-disconnect-btn', () => { this.connecting?.abort(); this.cancelRequest(); this.brain.reset(); this.data.prefs.provider = 'none'; this.data.prefs.selection_mode = 'manual'; this.syncPreferences(); this.save(); node('ai-status').textContent = 'Desconectado.'; });
             click('direct-api-save-btn', async () => {
                 const btn = node('direct-api-save-btn');
                 const provider = node('direct-api-provider')?.value || 'openrouter';
@@ -7930,12 +7943,14 @@ var Axx;
                 node('subpanel-chatgpt').hidden = mode !== 'chatgpt';
                 this.data.prefs.ai_mode = mode;
                 if (mode === 'local') {
+                    this.data.prefs.selection_mode = 'manual';
                     this.data.prefs.provider = node('local-server-type').value;
                     node('ai-provider').value = this.data.prefs.provider;
                 } else if (mode === 'api') {
                     this.data.prefs.provider = 'bridge';
                     node('ai-provider').value = 'bridge';
                 } else if (mode === 'chatgpt') {
+                    this.data.prefs.selection_mode = 'manual';
                     this.data.prefs.provider = 'chatgpt';
                     node('ai-provider').value = 'chatgpt';
                     void this.refreshChatGPTUI();
@@ -7950,7 +7965,7 @@ var Axx;
 
             node('local-server-type').onchange = () => {
                 const val = node('local-server-type').value;
-                this.data.prefs.provider = val;
+                this.data.prefs.selection_mode = 'manual'; this.data.prefs.provider = val;
                 node('ai-provider').value = val;
                 if (val === 'compat') this.data.prefs.endpoint = 'http://127.0.0.1:1234';
                 if (val === 'ollama') this.data.prefs.endpoint = 'http://127.0.0.1:11434';
@@ -8007,7 +8022,7 @@ var Axx;
                 this.save();
             };
 
-            node('ai-provider').onchange = () => { this.cancelRequest(); this.brain.reset(); const value = node('ai-provider').value; this.data.prefs.provider = value; if (value === 'compat')
+            node('ai-provider').onchange = () => { this.cancelRequest(); this.brain.reset(); const value = node('ai-provider').value; this.data.prefs.selection_mode = 'manual'; this.data.prefs.provider = value; if (value === 'compat')
                 this.data.prefs.endpoint = 'http://127.0.0.1:1234'; if (value === 'ollama')
                 this.data.prefs.endpoint = 'http://127.0.0.1:11434'; this.syncPreferences(); this.save(); };
             node('ai-endpoint').oninput = () => { this.brain.reset(); this.syncProvider(); };
@@ -9154,6 +9169,8 @@ var Axx;
             node('sound-volume').value = String(Math.round(p.volume * 100));
             node('sound-volume-label').textContent = Math.round(p.volume * 100) + '%';
             
+            const selectionMode = document.getElementById('provider-selection-mode');
+            if (selectionMode) selectionMode.value = p.selection_mode || 'manual';
             const mode = p.provider === 'chatgpt' ? 'chatgpt' : (p.provider === 'bridge' ? 'api' : 'local');
             document.querySelectorAll('.ai-mode-btn').forEach(b => b.classList.toggle('active', b.dataset.aiMode === mode));
             if (node('subpanel-local')) node('subpanel-local').hidden = mode !== 'local';
@@ -19455,5 +19472,5 @@ body[data-media16-source="system"] .m16-cover,body[data-media16-source="system"]
 body[data-media16-source="system"] #view-music .m16-now{padding:12px;margin-top:8px}
 body[data-media16-source="system"] #view-music .m16-transport{margin:8px 0 0}
 body[data-media16-source="system"] #view-music .m16-compact{padding:10px 14px;margin-top:8px}
-</style><script src="scripts/native-speech-stream.js"></script><script src="scripts/native-voice.js"></script><script src="scripts/command-library.js"></script><script src="scripts/axx-connect.js"></script><script src="scripts/providers.js"></script><script src="scripts/native-music.js"></script><script src="scripts/native-capture.js"></script><script src="scripts/magic-pen.js"></script><script src="scripts/converter.js"></script><script src="scripts/mobile-gateway.js"></script>
+</style><script src="scripts/native-speech-stream.js"></script><script src="scripts/native-voice.js"></script><script src="scripts/command-library.js"></script><script src="scripts/skill-library.js"></script><script src="scripts/axx-connect.js"></script><script src="scripts/providers.js"></script><script src="scripts/native-music.js"></script><script src="scripts/native-capture.js"></script><script src="scripts/magic-pen.js"></script><script src="scripts/converter.js"></script><script src="scripts/mobile-gateway.js"></script>
 <script src="scripts/remote-voice.js"></script><script src="scripts/remote-control.js"></script><script src="scripts/mobile-work-approval.js"></script><script src="scripts/avatar-remote.js"></script><link rel="stylesheet" href="scripts/panel-design.css"></body></html>

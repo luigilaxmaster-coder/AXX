@@ -107,8 +107,10 @@ class MobileHTTP:
             if set(body) - {'messages', 'conversation_id', 'inference', 'appearance'} or not {'messages','conversation_id','inference'} <= set(body):
                 raise ValueError('messages required')
             inference = body['inference']
-            if not isinstance(inference, dict) or set(inference) != {'provider','provider_name','model'} or any(not isinstance(v,str) or len(v)>200 for v in inference.values()):
+            if not isinstance(inference, dict) or not {'provider','provider_name','model'} <= set(inference) or set(inference) - {'provider','provider_name','model','selection_mode'} or any(not isinstance(v,str) or len(v)>200 for v in inference.values()):
                 raise ValueError('Invalid inference settings')
+            if inference.get('selection_mode', 'manual') not in ('manual', 'automatic_free'):
+                raise ValueError('Invalid selection mode')
             self.gateway.preferences = dict(inference)
             appearance = body.get('appearance')
             if appearance is not None:

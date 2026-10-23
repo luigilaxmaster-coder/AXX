@@ -6,6 +6,7 @@ Only an explicitly supplied, reviewed PowerShell script may be evaluated as code
 from __future__ import annotations
 
 import hashlib
+from contextlib import nullcontext
 import json
 import os
 from pathlib import Path, PureWindowsPath
@@ -106,6 +107,8 @@ ADAPTERS = {
 
 # Explicit implementation bindings; imported prose cannot add to this map.
 PROCEDURE_BINDINGS = {'AXX-02-0147': 'axx.file.sha256', 'AXX-02-0148': 'axx.file.compare'}
+PARALLEL_READ_COMMANDS = frozenset({'axx.file.sha256', 'axx.file.compare', 'axx.system.telemetry',
+                                   'axx.process.inspect', 'axx.desktop.list_apps', 'axx.desktop.list_windows'})
 
 
 def normalized(value):
@@ -137,6 +140,7 @@ class CommandService:
         self.learning = None
         self.lock = threading.RLock()
         self.execution_gate = threading.Lock()
+        self.parallel_operations = set()
         self.closed = False
         self.cancel_events = {}
         self.db = sqlite3.connect(str(executor.db_path), timeout=10, check_same_thread=False)
@@ -261,7 +265,9 @@ class CommandService:
             raise ValueError('Comando desconocido')
         return {'command': self.commands[command_id], 'procedure': self.procedures.get(command_id)}
 
-    def resolve(self, text, source='text', context=None):
+    def resolve(self, text, source='text', context=None, project_id=''):
+        if not isinstance(project_id, str) or len(project_id) > 128:
+            raise ValueError('Proyecto inválido')
         if source not in ('text', 'voice') or not isinstance(text, str) or not 1 <= len(text) <= 70000:
             raise ValueError('Texto u origen de comando inválido')
         explicit = re.fullmatch(r'/comando\s+([A-Za-z0-9_.-]{1,128})(?:\s+(\{.*\}))?\s*', text.strip(), re.S)
@@ -283,9 +289,11 @@ class CommandService:
         if desktop and desktop.get('match') == 'exact':
             return desktop
         if self.learning:
-            learned = self.learning.find(text)
+            learned = self.learning.find(text, project_id)
             if learned:
                 return {'match': 'learned', 'action_id': learned['id'], 'title': learned['title']}
+            if self.learning.recognizes(text, project_id):
+                return {'match': 'learned', 'action_id': None, 'title': text}
         # A documented phrase may select its disabled record for inspection, never an adapter.
         if not matches:
             matches = sorted(self.documentary_phrases.get(phrase, []))
@@ -400,9 +408,38 @@ class CommandService:
             self.db.commit()
             return result
 
-    def execute(self, operation_id, approved=False):
-        if not self.execution_gate.acquire(blocking=False):
-            raise ValueError('BUSY: hay una operación de catálogo en curso')
+    def renew(self, operation_id):
+        """Renew review time only when the immutable command has never reached the executor."""
+        with self.executor.lock, self.lock:
+            if self.closed:
+                raise ValueError('Servicio cerrado')
+            result = self.get(operation_id)
+            if not result:
+                raise ValueError('Operación desconocida')
+            if result['state'] not in ('prepared', 'awaiting_approval', 'expired') or result.get('cancel_requested'):
+                return result
+            action_id = 'cmd-' + hashlib.sha256(operation_id.encode()).hexdigest()
+            if self.executor.get_operation(action_id):
+                raise ValueError('La operación ya tiene un recibo del ejecutor; reconcilia su resultado')
+            inputs = self._validate_inputs(result['command_id'], result['inputs'])
+            if inputs != result['inputs']:
+                raise ValueError('Los parámetros preparados cambiaron')
+            self.db.execute('UPDATE command_runs SET expires_at=? WHERE operation_id=?', (time.time() + 300, operation_id))
+            return self._save(result | {'state': 'awaiting_approval' if result['requires_approval'] else 'prepared', 'error': None})
+
+    def execute(self, operation_id, approved=False, *, allow_parallel_read=False):
+        if type(allow_parallel_read) is not bool:
+            raise ValueError('allow_parallel_read debe ser booleano')
+        with self.lock:
+            if allow_parallel_read:
+                prepared = self.get(operation_id)
+                if not prepared or prepared['command_id'] not in PARALLEL_READ_COMMANDS:
+                    raise ValueError('Solo se permite paralelismo para lecturas independientes admitidas')
+                if self.execution_gate.locked() or operation_id in self.parallel_operations or len(self.parallel_operations) >= 2:
+                    raise ValueError('BUSY: hay una operación de catálogo en curso')
+                self.parallel_operations.add(operation_id)
+            elif self.parallel_operations or not self.execution_gate.acquire(blocking=False):
+                raise ValueError('BUSY: hay una operación de catálogo en curso')
         try:
             with self.lock:
                 result = self.get(operation_id)
@@ -421,19 +458,24 @@ class CommandService:
                 except ValueError as exc:
                     return self._save(result | {'state': 'failed', 'error': {'code': 'PRECONDITION_CHANGED', 'message': str(exc)}})
                 result.update(state='running')
-                if result['command_id'] in ('axx.shell.powershell', 'axx.shell.cmd', 'axx.file.sha256', 'axx.file.compare'):
+                if allow_parallel_read or result['command_id'] in ('axx.shell.powershell', 'axx.shell.cmd', 'axx.file.sha256', 'axx.file.compare'):
                     self.cancel_events[operation_id] = threading.Event()
                 self._save(result)
             try:
                 action_id = 'cmd-' + hashlib.sha256(operation_id.encode()).hexdigest()
                 # A legacy action may hold the executor. Check cancellation again at the dispatch boundary.
-                with self.executor.lock:
+                with nullcontext() if allow_parallel_read else self.executor.lock:
+                    if not allow_parallel_read:
+                        self.executor.wait_for_reads()
                     with self.lock:
                         current = self.get(operation_id)
                         if current['cancel_requested']:
                             return self._save(current | {'state': 'cancelled', 'error': {'code': 'CANCELLED', 'message': 'Cancelado antes de ejecutar.'}})
                     args = (ADAPTERS[result['command_id']]['tool'], result['inputs'], action_id)
-                    action = self.executor.execute_action(*args, cancel_event=self.cancel_events[operation_id]) if operation_id in self.cancel_events else self.executor.execute_action(*args)
+                    if allow_parallel_read:
+                        action = self.executor.execute_action(*args, cancel_event=self.cancel_events[operation_id], allow_parallel_read=True)
+                    else:
+                        action = self.executor.execute_action(*args, cancel_event=self.cancel_events[operation_id]) if operation_id in self.cancel_events else self.executor.execute_action(*args)
                 final = result | {key: action.get(key) for key in ('state', 'postconditions_passed', 'output', 'evidence', 'duration_ms')}
                 final.update(action_operation_id=action_id, tool_name=ADAPTERS[result['command_id']]['tool'])
                 final.update(model_calls_used=0, model_calls_source='deterministic_no_model_path')
@@ -449,7 +491,10 @@ class CommandService:
         finally:
             with self.lock:
                 self.cancel_events.pop(operation_id, None)
-            self.execution_gate.release()
+                if allow_parallel_read:
+                    self.parallel_operations.discard(operation_id)
+                else:
+                    self.execution_gate.release()
 
     def cancel(self, operation_id=None):
         with self.lock:

@@ -98,7 +98,7 @@ const root = path.resolve(__dirname, '..');
     const staleModel = await page.evaluate(async() => {
       const companion=Axx.companion;
       window.__originalModelPrefs={...companion.data.prefs};
-      companion.data.prefs.provider='chatgpt';companion.data.prefs.model='saved-model-missing-from-catalog';companion.save();
+      companion.data.prefs.selection_mode='manual';companion.data.prefs.provider='chatgpt';companion.data.prefs.model='saved-model-missing-from-catalog';companion.save();
       const before=window.__calls.filter(call=>call.args?.path==='/axx-api/connect/start').length;
       let error=null;try{await companion.brain.connect(companion.data.prefs);}catch(failure){error={code:failure.code,message:failure.message};}
       return {error,model:companion.data.prefs.model,saved:JSON.parse(localStorage.getItem('axx.companion.v4')).prefs.model,
@@ -247,7 +247,7 @@ const root = path.resolve(__dirname, '..');
 
     const decoder = await page.evaluate(() => {
       const companion=Axx.companion, prior={...companion.data.prefs};
-      companion.data.prefs.provider='chatgpt';companion.data.prefs.ai_mode='chatgpt';companion.data.prefs.model='controlled-model';
+      companion.data.prefs.selection_mode='manual';companion.data.prefs.provider='chatgpt';companion.data.prefs.ai_mode='chatgpt';companion.data.prefs.model='controlled-model';
       companion.data.connectConversationId='controlled-persisted-conversation';companion.save();
       const saved=localStorage.getItem('axx.companion.v4'), decoded=Axx.decodeCompanion(saved);
       const invalid=Axx.decodeCompanion(JSON.stringify({...companion.data,connectConversationId:'<invalid>'}));
@@ -280,7 +280,7 @@ const root = path.resolve(__dirname, '..');
       let plannerCalls=0;
       try {
         companion.send=()=>{plannerCalls++;throw new Error('Translation must not invoke the Axx planner');};
-        companion.data.prefs.provider='chatgpt';companion.data.prefs.model='controlled-model';companion.brain.connected=true;
+        companion.data.prefs.selection_mode='manual';companion.data.prefs.provider='chatgpt';companion.data.prefs.model='controlled-model';companion.brain.connected=true;
         companion.data.connectConversationId='main-conversation-must-survive';window.__runMode='stream';
         document.getElementById('translation-source').value=source;
         document.getElementById('translation-from').value='es';document.getElementById('translation-to').value='en';
@@ -322,7 +322,7 @@ const root = path.resolve(__dirname, '..');
     await page.evaluate(()=>{
       const companion=Axx.companion;
       window.__keyboardPrior={prefs:{...companion.data.prefs},connected:companion.brain.connected};
-      companion.data.prefs.provider='chatgpt';companion.data.prefs.model='controlled-model';companion.data.prefs.voiceRead=false;
+      companion.data.prefs.selection_mode='manual';companion.data.prefs.provider='chatgpt';companion.data.prefs.model='controlled-model';companion.data.prefs.voiceRead=false;
       companion.data.prefs.follow=false;companion.brain.connected=true;companion.syncPreferences();companion.openFeature('chat');
       companion.runLocal({type:'timer',ms:120000,kind:'timer'});
       window.__keyboardTimerBefore=JSON.stringify(Axx.app.store.data.timer);
@@ -563,7 +563,7 @@ const root = path.resolve(__dirname, '..');
         }
       };
       try {
-        companion.data.prefs.provider='chatgpt';companion.data.prefs.model='controlled-model';companion.save();
+        companion.data.prefs.selection_mode='manual';companion.data.prefs.provider='chatgpt';companion.data.prefs.model='controlled-model';companion.save();
         const oldStatus=Axx.connect.refresh(), newStatus=await Axx.connect.refresh();
         staleStatus.resolve(snapshot('obsolete-status',true));const returnedStatus=await oldStatus;
         const afterStatus={returned:returnedStatus.marker,latest:newStatus.marker,engine:Axx.connect.state.engine.marker,
@@ -620,7 +620,7 @@ const root = path.resolve(__dirname, '..');
     assert.deepEqual(restoredIdentity,{form:2,palette:4,motion:'organic',size:320});
     checks.push('A fresh production page instance restores the persisted visual identity without a parallel settings owner');
     await page.evaluate(async()=>{
-      window.__engineDisconnected=true;Axx.companion.data.prefs.provider='chatgpt';Axx.companion.brain.reset();
+      window.__engineDisconnected=true;Axx.companion.data.prefs.selection_mode='manual';Axx.companion.data.prefs.provider='chatgpt';Axx.companion.brain.reset();
       Axx.companion.syncPreferences();Axx.companion.openFeature('ai');await Axx.connect.refresh();
     });
     await page.locator('#axx-connect').scrollIntoViewIfNeeded();

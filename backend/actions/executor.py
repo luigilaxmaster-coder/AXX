@@ -21,6 +21,8 @@ import uuid
 from .tools import artifact_path_error, get_tool, ToolResult
 
 LOG = logging.getLogger('axx.executor')
+PARALLEL_READ_TOOLS = frozenset({'file_inspection', 'system_telemetry', 'process_state_inspector',
+                                'desktop_list_apps', 'desktop_list_windows'})
 
 class ActionExecutionError(Exception):
     pass
@@ -32,6 +34,8 @@ class ActionExecutor:
         self.workspace_root = Path(workspace_root or self.db_path.resolve().parent).resolve()
         self.workspace_root.mkdir(parents=True, exist_ok=True)
         self.lock = threading.RLock()
+        self.reads_done = threading.Condition(self.lock)
+        self.parallel_reads = 0
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.db = sqlite3.connect(str(self.db_path), timeout=10.0, check_same_thread=False)
         self._init_schema()
@@ -56,12 +60,14 @@ class ActionExecutor:
             ''')
 
     def close(self):
-        if hasattr(self, 'db') and self.db:
-            try:
-                self.db.close()
-            except Exception:
-                pass
-            self.db = None
+        with self.lock:
+            self.wait_for_reads()
+            if hasattr(self, 'db') and self.db:
+                try:
+                    self.db.close()
+                except Exception:
+                    pass
+                self.db = None
 
     def __enter__(self):
         return self
@@ -69,9 +75,27 @@ class ActionExecutor:
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
 
-    def execute_action(self, tool_name: str, inputs: dict, operation_id: str | None = None, cancel_event=None) -> dict:
+    def wait_for_reads(self):
+        with self.reads_done:
+            while self.parallel_reads:
+                self.reads_done.wait()
+
+    def execute_action(self, tool_name: str, inputs: dict, operation_id: str | None = None, cancel_event=None,
+                       *, allow_parallel_read=False) -> dict:
+        if type(allow_parallel_read) is not bool or (allow_parallel_read and (not isinstance(tool_name, str) or tool_name not in PARALLEL_READ_TOOLS)):
+            raise ValueError('Parallel execution requires an explicitly supported read tool')
         with self.lock:
-            return self._execute_action(tool_name, inputs, operation_id, cancel_event)
+            if not allow_parallel_read:
+                self.wait_for_reads()
+                return self._execute_action(tool_name, inputs, operation_id, cancel_event)
+            if self.parallel_reads >= 2:
+                raise ValueError('BUSY: two independent reads are already running')
+            self.parallel_reads += 1
+            try:
+                return self._execute_action(tool_name, inputs, operation_id, cancel_event, allow_parallel_read=True)
+            finally:
+                self.parallel_reads -= 1
+                self.reads_done.notify_all()
 
     def list_operations(self, limit: int = 20) -> list[dict]:
         with self.lock:
@@ -92,7 +116,8 @@ class ActionExecutor:
                 'inputs': json.loads(row[3]), 'output': result, 'postconditions_passed': False,
                 'evidence': json.loads(row[5]) if row[5] else {}, 'duration_ms': row[6]}
 
-    def _execute_action(self, tool_name: str, inputs: dict, operation_id: str | None = None, cancel_event=None) -> dict:
+    def _execute_action(self, tool_name: str, inputs: dict, operation_id: str | None = None, cancel_event=None,
+                        *, allow_parallel_read=False) -> dict:
         """Executes a registered tool with full pre- and post-condition verification."""
         if not isinstance(tool_name, str) or not isinstance(inputs, dict):
             raise ActionExecutionError('tool_name must be a string and inputs an object')
@@ -171,7 +196,14 @@ class ActionExecutor:
 
         # 4. Execute tool
         try:
-            tool_res: ToolResult = tool.execute_cancellable(inputs, self.workspace_root, cancel_event or threading.Event())
+            # Only the allowlisted read body may overlap; all ledger access stays serialized.
+            if allow_parallel_read:
+                self.lock.release()
+            try:
+                tool_res: ToolResult = tool.execute_cancellable(inputs, self.workspace_root, cancel_event or threading.Event())
+            finally:
+                if allow_parallel_read:
+                    self.lock.acquire()
         except Exception as exc:
             duration_ms = (time.monotonic() - start_time) * 1000.0
             result = {

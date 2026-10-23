@@ -18,6 +18,7 @@ PRESETS = {
     'ollama': ('http://127.0.0.1:11434/v1', 'openai'),
     'ollama_cloud': ('https://ollama.com/v1', 'openai'),
     'compat': ('http://127.0.0.1:1234/v1', 'openai'),
+    'freellmapi': ('', 'openai'),
     'groq': ('https://api.groq.com/openai/v1', 'openai'),
     'anthropic': ('https://api.anthropic.com/v1', 'anthropic'),
     'openrouter': ('https://openrouter.ai/api/v1', 'openai'),
@@ -66,7 +67,11 @@ def load_credentials(config_path):
             continue
 
 def public_entries(config):
-    return [{k: p.get(k) for k in ('name', 'kind', 'base_url', 'model', 'enabled', 'protocol', 'billing_allowed')}
+    return [{k: p.get(k) for k in ('name', 'kind', 'base_url', 'model', 'enabled', 'protocol', 'billing_allowed',
+                                 'free_confirmed', 'capabilities', 'tasks', 'context_window', 'image_context_tokens',
+                                 'task_priority', 'quota_scope_id', 'scope_limit', 'gateway_free_model_ids',
+                                 'gateway_attempt_limit', 'gateway_timeout_ms', 'gateway_profile_verified', 'gateway_keyless', 'candidate_only')}
+            | {'cost_evidence': p.get('cost_evidence', 'unknown'), 'route_kind': p.get('route_kind', 'unknown')}
             | {'has_key': bool(os.environ.get(p.get('api_key_env', '')))} for p in config.get('providers', [])]
 
 def describe(body):
@@ -78,6 +83,9 @@ def describe(body):
     return kind, url, protocol
 
 def discover(body, config):
+    if body.get('provider') == 'freellmapi':
+        from .freellmapi import discover as discover_gateway
+        return discover_gateway(body, config)
     kind, url, protocol = describe(body)
     old = next((p for p in config.get('providers', []) if p['name'] == body.get('name')), None)
     key = str(body.get('api_key') or '').strip()
@@ -136,16 +144,48 @@ def save(body, adapter, config_path):
             raise ValueError('Clave inválida')
         env = old['api_key_env'] if old else 'AXX_API_' + hashlib.sha256(name.encode()).hexdigest()[:24].upper()
         local = local_address(urllib.parse.urlsplit(url).hostname)
+        # Legacy manual eligibility; automatic mode also requires explicit downstream cost evidence.
         free = local or (kind == 'openrouter' and (model.endswith(':free') or model == 'openrouter/free'))
-        billing = body.get('billing_allowed') is True
         capabilities = list(old['capabilities']) if old and old['model'] == model else ['text']
-        entry = dict(name=name, kind=kind, base_url=url, protocol=protocol, model=model, api_key_env=env,
-                     enabled=body.get('enabled', True) is True, free_confirmed=free, billing_allowed=billing,
-                     daily_attempt_limit=1000, max_output_tokens=2048, capabilities=capabilities, auth_optional=local)
+        entry = dict(enabled=True, free_confirmed=free, billing_allowed=False, daily_attempt_limit=1000,
+                     max_output_tokens=2048, auth_optional=local, cost_evidence='unknown',
+                     route_kind='proxy' if kind == 'freellmapi' else 'unknown')
+        if old:
+            entry.update(old)
+            if old['model'] != model:
+                for field in ('tasks', 'context_window', 'image_context_tokens', 'task_priority'):
+                    entry.pop(field, None)
+                entry.update(free_confirmed=free, cost_evidence='unknown')
+        entry.update(name=name, kind=kind, base_url=url, protocol=protocol, model=model, api_key_env=env,
+                     capabilities=capabilities)
+        for field in ('enabled', 'free_confirmed', 'billing_allowed', 'cost_evidence', 'route_kind', 'capabilities',
+                      'tasks', 'context_window', 'image_context_tokens', 'task_priority', 'gateway_free_model_ids'):
+            if field in body:
+                entry[field] = body[field]
         config['providers'] = [entry if p['name'] == name else p for p in config.get('providers', [])]
         if not old:
             config['providers'].append(entry)
+        if kind == 'freellmapi':
+            entry.update(route_kind='proxy', gateway_profile_verified=False)
         Router._validate_config(None, config)
+        if kind == 'freellmapi' and (body.get('dashboard_token') or (entry.get('cost_evidence') == 'free_tier'
+                and entry.get('free_confirmed') and not entry.get('billing_allowed'))):
+            from .freellmapi import configure_gateway_credentials, verify_provider
+            dashboard_env = configure_gateway_credentials(body, config_path, name)
+            if dashboard_env:
+                entry['gateway_dashboard_env'] = dashboard_env
+            if entry.get('cost_evidence') == 'free_tier' and entry.get('free_confirmed') and not entry.get('billing_allowed'):
+                previous_key = os.environ.get(env)
+                try:
+                    if key:
+                        os.environ[env] = key
+                    entry.update(verify_provider(entry))
+                finally:
+                    if previous_key is None:
+                        os.environ.pop(env, None)
+                    else:
+                        os.environ[env] = previous_key
+            Router._validate_config(None, config)
         if key:
             if os.name != 'nt':
                 raise ValueError('En este sistema configura la clave mediante variables de entorno')

@@ -35,7 +35,7 @@
         const conversation_id=c.data.sharedConversationId;
         try {
             const messages=c.data.messages.filter(m=>['user','assistant','system'].includes(m.role) && m.status!=='pending' && typeof m.text==='string');
-            const inference={provider:c.data.prefs.provider||'', provider_name:c.data.prefs.apiConnection||'', model:c.data.prefs.model||''};
+            const inference={provider:c.data.prefs.provider||'', provider_name:c.data.prefs.apiConnection||'', model:c.data.prefs.model||'', selection_mode:c.data.prefs.selection_mode||'manual'};
             const result=await api('POST','messages',{conversation_id,messages,inference,appearance:appearance()});
             if(c.data.sharedConversationId!==conversation_id)return;
             const ids=new Set(c.data.messages.map(m=>m.id));

@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "source": "user_candidates_unverified",
+  "candidates": [
+    {"id":"gemini-3.8-flash","provider":"gemini","model_id":"gemini-3.8-flash","tasks":["chat","plan","vision","writing"],"priority":10},
+    {"id":"nvidia-nemotron-3-ultra","provider":"nvidia","model_id":"nvidia/nemotron-3-ultra-550b-a55b","tasks":["chat","plan","code","repair","writing"],"priority":20},
+    {"id":"groq-gpt-oss-120b","provider":"groq","model_id":"openai/gpt-oss-120b","tasks":["parameters"],"priority":10},
+    {"id":"openrouter-glm-5.3-flash","provider":"openrouter","model_id":"z-ai/glm-5.3-flash:free","tasks":["chat","plan","code","repair","vision"],"priority":30},
+    {"id":"openrouter-deepseek-v4-flash","provider":"openrouter","model_id":"deepseek/deepseek-v4-flash:free","tasks":["code","repair"],"priority":20},
+    {"id":"openrouter-qwen3.8-27b","provider":"openrouter","model_id":"qwen/qwen3.8-27b:free","tasks":["vision","parameters"],"priority":20}
+  ]
+}

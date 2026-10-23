@@ -146,6 +146,7 @@
     }
 
     Axx.BrainClient.prototype.connect = async function (p, signal) {
+        if (p.selection_mode === 'automatic_free') p.provider = 'bridge';
         if (p.provider !== 'chatgpt') return originalConnect.call(this, p, signal);
         this.reset();
         const result = await refresh(), engine = result.engine || {};
@@ -161,6 +162,7 @@
         return this.models;
     };
     Axx.BrainClient.prototype.chat = async function (p, messages, signal, onDelta) {
+        if (p.selection_mode === 'automatic_free') p.provider = 'bridge';
         if (p.provider !== 'chatgpt') return originalChat.call(this, p, messages, signal, onDelta);
         const system = messages.find(item => item.role === 'system')?.content || '';
         const translation = /^Translate (?:the user's text|the following text) from ([A-Za-z-]{2,20}) to ([A-Za-z-]{2,20})\./.exec(system);
@@ -203,7 +205,7 @@
     if ($('chatgpt-logout-btn')) {
         $('chatgpt-logout-btn').textContent = 'Desconectar Axx';
         $('chatgpt-logout-btn').title = 'Desconecta solo Axx. Conserva la sesión y las credenciales gestionadas por Codex.';
-        $('chatgpt-logout-btn').onclick = async () => { try { await api('POST', 'disconnect', {}); c.brain.reset(); c.data.prefs.provider = 'none'; c.save(); c.syncProvider(); await refresh(); } catch(e) { status(error(e)); } };
+        $('chatgpt-logout-btn').onclick = async () => { try { await api('POST', 'disconnect', {}); c.brain.reset(); c.data.prefs.provider = 'none'; c.data.prefs.selection_mode = 'manual'; c.save(); c.syncProvider(); await refresh(); } catch(e) { status(error(e)); } };
     }
     if ($('chatgpt-refresh-btn')) $('chatgpt-refresh-btn').onclick = () => void c.connect();
     $('axx-connect-refresh').onclick = () => void refresh().catch(e => status(error(e)));
@@ -216,7 +218,7 @@
         status('Modelo seleccionado: ' + selected + ' · sin inferencia. Pulsa Verificar conexión.');
     };
     $('axx-connect-reconnect').onclick = async () => { try { await api('POST','reconnect',{}); await refresh(); } catch(e) { status(error(e)); } };
-    $('axx-connect-verify').onclick = () => { c.data.prefs.provider = 'chatgpt'; c.data.prefs.ai_mode = 'chatgpt'; if ($('ai-provider')) $('ai-provider').value = 'chatgpt'; void c.connect(); };
+    $('axx-connect-verify').onclick = () => { c.data.prefs.selection_mode = 'manual'; c.data.prefs.provider = 'chatgpt'; c.data.prefs.ai_mode = 'chatgpt'; if ($('ai-provider')) $('ai-provider').value = 'chatgpt'; void c.connect(); };
     const stop = () => { if (state.active) void api('POST', 'cancel', {request_id: state.active}).catch(e => status(error(e))); if (state.loginPending) { state.loginPending = false; void api('POST','login-cancel',{}).catch(e => status(error(e))); } c.cancelRequest(); };
     $('axx-connect-stop').onclick = stop;
 

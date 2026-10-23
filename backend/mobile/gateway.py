@@ -273,7 +273,7 @@ class MobileGateway:
             return self.store.command(device_id, command_id)
         task_id = admission['task_id']
         preferences = dict(self.preferences or {})
-        if preferences.get('provider') != 'bridge' or not preferences.get('model') or not preferences.get('provider_name'):
+        if preferences.get('provider') != 'bridge' or (preferences.get('selection_mode') != 'automatic_free' and (not preferences.get('model') or not preferences.get('provider_name'))):
             self.store.finish_command(task_id, 'failed', {'error':{'code':'ENGINE_NOT_AVAILABLE',
                 'message':'Select a configured API connection in Axx. Mobile Axx Connect queries still require tool isolation verification.'}})
             return self.store.command(device_id, command_id)
@@ -289,7 +289,8 @@ class MobileGateway:
                     {'role':m['role'],'content':m['text']} for m in snapshot['messages'][-100:]
                 ]}
                 for key in ('model', 'provider_name'):
-                    request[key] = preferences[key]
+                    request[key] = preferences.get(key, '')
+                request['selection_mode'] = preferences.get('selection_mode', 'manual')
                 result = self.backend_call('POST', '/axx-api/chat', request)
                 if result.get('ok', True) is False:
                     self.store.finish_command(task_id, 'failed', result)
