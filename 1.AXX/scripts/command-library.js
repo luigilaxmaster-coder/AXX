@@ -314,7 +314,7 @@
                 const submit = Axx.companion.submit.bind(Axx.companion);
                 Axx.companion.submit = async () => {
                     const draft = node('chat-input').value.trim();
-                    if ((this.busy || this.operation) && !this.hasLocalIntent(draft) && !/^(?:\/cancelar-comando|cancelar comando|cancela el comando|\/comandos(?:\s+.*)?)$/i.test(draft)) {
+                    if ((this.busy || this.operation) && !Axx.modelSelection?.parse(draft) && !this.hasLocalIntent(draft) && !/^(?:\/cancelar-comando|cancelar comando|cancela el comando|\/comandos(?:\s+.*)?)$/i.test(draft)) {
                         Axx.app.toast('Hay un comando pendiente. Tu borrador se conserva; revisa el resultado o cancela el comando.');
                         return;
                     }
@@ -323,6 +323,14 @@
             }
             Axx.companion.send = async (text, metadata = {}) => {
                 const raw = String(text || '').trim();
+                const modelCommand = Axx.modelSelection?.parse(raw);
+                if (modelCommand) {
+                    Axx.companion._forceVoiceReplyOnce = false;
+                    Axx.companion.message('user', raw, 'local');
+                    try { Axx.companion.localNotice(await Axx.modelSelection.run(modelCommand)); }
+                    catch (error) { Axx.companion.localNotice('No se pudo consultar o cambiar el modelo: ' + errorText(error)); }
+                    Axx.resident?.schedule(); return;
+                }
                 const internal = this.internalAction(raw);
                 if (internal) {
                     Axx.companion._forceVoiceReplyOnce = false;

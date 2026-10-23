@@ -171,3 +171,19 @@ This release does not label arbitrary AutoCAD, Revit, SketchUp or Photoshop
 demonstrations as executable. Unsupported steps remain blocked. Desktop effects
 retain a single owner; any parallel work is restricted to explicitly supported
 independent reads.
+
+## Cambiar de modelo escribiendo
+
+En el chat, escribe `/modelos` para consultar las conexiones disponibles; usa
+`/modelo nombre de conexión`, `cambia de modelo a ID` o `usa el modelo ID` para
+seleccionar una. Los IDs nativos del catálogo se resuelven a una conexión de chat
+habilitada; si hay más de una, Axx pide el nombre exacto. La selección manual
+muestra las tareas admitidas por esa conexión y mantiene la autorización de cuota
+existente. No activa candidatos pendientes ni autoriza cobros nuevos.
+
+`/modelo automático` o `vuelve a automático` restaura **Automático gratis · Sin
+claves**. Estas órdenes se interpretan localmente, sin inferencia. Se aplican a
+las siguientes solicitudes y conservan la memoria, las aclaraciones pendientes
+y las operaciones completadas. Una respuesta en curso debe terminar antes de
+cambiar la selección. Los nombres inexistentes o ambiguos no cambian nada.
+

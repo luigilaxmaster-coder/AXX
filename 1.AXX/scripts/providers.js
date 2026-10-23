@@ -12,6 +12,7 @@
     panel.innerHTML = `
       <label class="setting">Selección de modelos<select id="provider-selection-mode"><option value="automatic_free">Automático gratis · Sin claves</option><option value="manual">Manual · conexión seleccionada</option></select></label>
       <p class="micro-copy">Axx prepara Kilo Gateway, OVHcloud y AI Horde y prueba sus modelos sin claves personales. Solo usa las rutas que superan las pruebas. Si no hay disponibilidad, conserva la tarea pendiente.</p>
+      <p class="micro-copy">También desde el chat: «/modelos», «cambia de modelo a nombre o ID» y «/modelo automático».</p>
       <button id="keyless-refresh" type="button">Comprobar modelos sin claves</button><p id="keyless-status" role="status"></p>
       <p class="micro-copy">Son servicios públicos externos. Kilo indica que registra peticiones y respuestas para entrenamiento. Las conexiones personales de abajo son opcionales.</p>
       <details id="model-candidates-panel"><summary>Candidatos iniciales y evaluación</summary>
@@ -68,6 +69,54 @@
       gemini: 'https://generativelanguage.googleapis.com/v1beta/openai', custom: '', freellmapi: ''
     };
     let entries = [], busy = false;
+    const normalize = value => String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+    Axx.modelSelection = {
+      parse(text) {
+        const raw = String(text || '').trim();
+        if (/^(?:\/modelos|(?:lista|muestra|ver) (?:los )?modelos)$/i.test(raw)) return {list:true};
+        const match = raw.match(/^(?:\/modelo(?:\s+|$)|(?:cambia(?:r)?(?: de)?(?: el)? modelo a|usa(?:r)? (?:el )?modelo)\s+)(.*)$/i);
+        if (match) return {target:match[1].trim()};
+        if (/^(?:vuelve|volver|cambia) a automatico(?: gratis)?(?: sin claves)?$/.test(normalize(raw))) return {target:'automatico'};
+        return null;
+      },
+      async run(command) {
+        const c = Axx.companion;
+        if (!Axx.isNative()) return 'El cambio de modelo requiere Axx para Windows.';
+        if (busy || c.pending || c.externalBusy || c.connecting) return 'Espera a que termine la respuesta o la conexión actual y vuelve a escribir la orden. La tarea se conserva.';
+        busy = true;
+        try {
+          const target = normalize(command.target);
+          const automatic = /^(?:auto|automatico(?: gratis)?(?: ·)?(?: sin claves)?)$/.test(target);
+          let selected;
+          if (!automatic) {
+            const result = await Axx.backendRequest('GET','/axx-api/status');
+            const saved = await Axx.backendRequest('GET','/axx-api/providers');
+            const available = (result.details?.providers || []).filter(p => p.state === 'ready_locally' && (saved.providers || []).some(s => s.name === p.name && !s.candidate_only));
+            const choices = () => available.map(p => `${p.name} → ${p.model}${p.tasks?.length ? ' (' + p.tasks.join(', ') + ')' : ''}`).join('\n');
+            if (command.list || !target) return 'Modo actual: ' + (c.data.prefs.selection_mode === 'automatic_free' ? 'Automático gratis · Sin claves' : c.data.prefs.apiConnection || c.data.prefs.model) + '\n' + (choices() || 'Todavía no hay conexiones disponibles.') + '\nEscribe «/modelo nombre de conexión», «cambia de modelo a ID» o «/modelo automático». Las conexiones con cuota mantienen tu autorización existente.';
+            const exact = available.filter(p => normalize(p.name) === target);
+            let matches = exact.length ? exact : available.filter(p => normalize(p.model) === target);
+            if (!matches.length) {
+              const catalog = await Axx.backendRequest('GET','/axx-api/model-candidates');
+              const names = new Set((catalog.candidates || []).filter(p => normalize(p.model_id) === target).flatMap(p => (p.matched_routes || []).map(r => r.name)));
+              matches = available.filter(p => names.has(p.name) && p.tasks?.includes('chat'));
+            }
+            if (matches.length !== 1) return (matches.length ? 'Hay varias conexiones para ese modelo. Escribe su nombre exacto.' : 'Ese modelo no tiene una conexión disponible. No cambié la selección.') + '\n' + choices();
+            selected = matches[0];
+          }
+          const before = {...c.data.prefs};
+          Object.assign(c.data.prefs, {provider:'bridge', selection_mode:automatic ? 'automatic_free' : 'manual'}, selected ? {apiConnection:selected.name,model:selected.model} : {});
+          $('ai-provider').value = 'bridge';
+          await c.connect();
+          if (!c.brain.connected || selected && c.data.prefs.model !== selected.model) {
+            Object.assign(c.data.prefs,before); c.brain.reset(); c.save(); c.syncPreferences();
+            return 'No se pudo conectar al modelo. Conservé la selección anterior y las tareas.';
+          }
+          c.save(); c.syncPreferences();
+          return (automatic ? 'Automático gratis · Sin claves activado.' : `Modelo seleccionado: ${selected.model} · ${selected.name}.${selected.tasks?.length ? ' Tareas: ' + selected.tasks.join(', ') + '.' : ''}`) + ' Se usará en las siguientes inferencias. La memoria y las operaciones completadas se conservan.';
+        } finally { busy = false; }
+      }
+    };
     const status = text => { $('provider-status').textContent = text; };
     const payload = () => ({ provider: $('provider-kind').value, name: $('provider-name').value.trim(),
       base_url: $('provider-url').value.trim(), model: ($('provider-model').value === '__manual__' ? $('provider-model-manual').value : $('provider-model').value).trim(),

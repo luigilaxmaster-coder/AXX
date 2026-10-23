@@ -13,12 +13,13 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
     page.setDefaultTimeout(20000);
     page.on('pageerror',e=>errors.push(e.message));
     await page.addInitScript(()=>{
-      window.testProviders=[];window.savedCalls=[];window.candidateCalls=[];
+      window.testProviders=[];window.savedCalls=[];window.candidateCalls=[];window.modelCommandRequests=[];
       window.__TAURI__={core:{invoke:async(name,args)=>{
         const desktop={workWidth:1920,workHeight:1080,spaceLeft:1000,spaceRight:920,spaceAbove:540,spaceBelow:540};
         if(name==='native_status')return {native:true,backendReady:false,shortcut:'Alt+Shift+A',desktop};
         if(name==='desktop_layout')return {...desktop,...args};
         if(name==='backend_request'){
+          if(window.recordModelCommands)window.modelCommandRequests.push(args.path);
           if(args.path.startsWith('/axx-api/keyless/'))return {state:'waiting',tasks:{},message:'No anonymous fixture routes'};
           if(args.path==='/axx-api/model-candidates')return {candidates:[
             {id:'pending',provider:'gemini',model_id:'gemini-3.8-flash',tasks:['plan'],status:'pending',matched_routes:[]},
@@ -96,6 +97,44 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
     await candidateCards.nth(1).locator('button').click();
     await page.waitForFunction(()=>window.candidateCalls.some(c=>c.apply));
     assert.equal(await page.evaluate(()=>window.candidateCalls.at(-1).apply.task),'parameters');
+    await page.evaluate(()=>{
+      window.testProviders=[{name:'Modelo A',model:'fixture-a',enabled:true,tasks:['chat']},{name:'Modelo B',model:'fixture-b',enabled:true,tasks:['chat']},
+        {name:'Pendiente',model:'unverified',enabled:true,candidate_only:true},{name:'Apagado',model:'disabled',enabled:false}];
+      window.modelNotices=[];
+      window.recordModelCommands=true;
+      Axx.companion.localNotice=text=>modelNotices.push(text);
+      Axx.commandLibrary.operation={operation_id:'keep-task',steps:[{state:'succeeded'}]};
+      Axx.commandLibrary.learningQuestion={operation_id:'keep-task',question:'keep'};
+    });
+    await page.evaluate(()=>{document.getElementById('chat-input').value='cambia de modelo a fixture-b';return Axx.companion.submit();});
+    assert.equal(await page.evaluate(()=>Axx.companion.data.prefs.model),'fixture-b');
+    assert.equal(await page.evaluate(()=>Axx.companion.data.prefs.selection_mode),'manual');
+    assert.match(await page.evaluate(()=>modelNotices.at(-1)),/Modelo seleccionado/);
+    assert.equal(await page.evaluate(()=>Axx.commandLibrary.operation.steps[0].state),'succeeded');
+    assert.equal(await page.evaluate(()=>Axx.commandLibrary.learningQuestion.question),'keep');
+    await page.evaluate(()=>Axx.companion.send('/modelos'));
+    assert.match(await page.evaluate(()=>modelNotices.at(-1)),/Modelo A/);
+    assert.doesNotMatch(await page.evaluate(()=>modelNotices.at(-1)),/unverified|disabled/);
+    await page.evaluate(()=>Axx.companion.send('/modelo inexistente'));
+    assert.equal(await page.evaluate(()=>Axx.companion.data.prefs.model),'fixture-b');
+    await page.evaluate(()=>testProviders.push({name:'Duplicado',model:'fixture-a',enabled:true}));
+    await page.evaluate(()=>Axx.companion.send('usa el modelo fixture-a'));
+    assert.match(await page.evaluate(()=>modelNotices.at(-1)),/varias conexiones/);
+    await page.evaluate(()=>{Axx.companion.pending=new AbortController();});
+    await page.evaluate(()=>Axx.companion.send('/modelo Modelo A'));
+    assert.equal(await page.evaluate(()=>Axx.companion.data.prefs.model),'fixture-b');
+    await page.evaluate(()=>{Axx.companion.pending=null;});
+    await page.evaluate(()=>Axx.companion.send('/modelo Modelo A'));
+    assert.equal(await page.evaluate(()=>Axx.companion.data.prefs.apiConnection),'Modelo A');
+    await page.evaluate(()=>Axx.companion.send('vuelve a automático'));
+    assert.equal(await page.evaluate(()=>Axx.companion.data.prefs.selection_mode),'automatic_free');
+    assert.equal(await page.evaluate(()=>Axx.modelSelection.parse('explica cómo cambiar el modelo')),null);
+    assert.equal(await page.evaluate(()=>modelCommandRequests.some(p=>/\/chat$|\/learning\/propose$|\/commands\/resolve$/.test(p))),false);
+    await page.reload();
+    await page.waitForFunction(()=>window.Axx?.resident?.firstFrame);
+    assert.equal(await page.evaluate(()=>Axx.companion.data.prefs.selection_mode),'automatic_free');
+    await page.evaluate(()=>Axx.flow.select('ai'));
+    await page.locator('#tab-mode-api').click();
     assert.deepEqual(errors,[]);
     fs.mkdirSync('evidence/providers-20261021',{recursive:true});
     await page.locator('#provider-kind').selectOption('ollama');
