@@ -56,7 +56,8 @@ Owner: root. Files: backend/server.py, 1.AXX/scripts/command-library.js, provide
 - [x] Library shows skill names, status, examples, parameters, favorites, projects and revisions. Bind inputs explicitly, compose selected skills, allow corrections and goal confirmation without upgrading unverified legacy evidence.
 - [x] Provide Aprende esto in existing radial feature via the commands/library panel; show recording state, selected window, stop/cancel and prepare candidate controls.
 - [x] Show real progress, waiting for capacity, resume and uncertain effects; render data with textContent, no injected markup.
-- [ ] End-to-end offline contracts and real native smoke/visual checks; build/install and publish only with repository release receipts and verified artifacts.
+- [x] End-to-end offline contracts and real native smoke/visual checks; build/install with repository release receipts and verified artifacts.
+- [ ] Publish the verified installer and synchronize the original checkout, preserving local changes.
 
 ## Implementation rulings
 - Execute the user-approved plan without another approval cycle. Isolated managed worktree keeps unrelated main changes intact.
@@ -65,6 +66,6 @@ Owner: root. Files: backend/server.py, 1.AXX/scripts/command-library.js, provide
 - Preserve the eight-step action limit and single owner of desktop input. At most two explicitly independent read operations may run together; desktop effects retain a single owner.
 
 ## Progress
-Core implementation and controlled integration checks complete. Native delivery remains in progress.
+Core implementation, controlled integration, installed native startup and visual model-command checks complete. Publication remains in progress.
 
 The user subsequently requested six initial model candidates and default anonymous setup through Kilo Gateway, OVHcloud and AI Horde. Candidate identity/evaluation and bounded background setup extend tasks 2 and 4. Models are activated only after actual exact-route task verification; insufficient catalog metadata remains pending.
