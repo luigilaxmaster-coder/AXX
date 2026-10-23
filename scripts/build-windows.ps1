@@ -15,6 +15,8 @@ try {
     $dependency = Get-Content -LiteralPath 'resources\dependency-manifest.json' -Raw | ConvertFrom-Json
     & $PythonExecutable -c 'import PIL, pypdf'
     if ($LASTEXITCODE -ne 0) { throw 'Install requirements-converter.txt before building the Axx backend' }
+    & $PythonExecutable -m backend.mobile.pairing_qr
+    if ($LASTEXITCODE -ne 0) { throw 'QR generation failed. Install the qrcode version pinned in requirements-mobile.txt before building' }
     if ((Get-FileHash -LiteralPath 'src-tauri\resources\ai-memory.exe' -Algorithm SHA256).Hash -ne $dependency.exe_sha256) {
         throw 'ai-memory executable differs from the verified official dependency manifest'
     }
@@ -53,6 +55,9 @@ try {
         }
         @{inputs=$backendInputs; sha256=(Get-FileHash -LiteralPath 'dist\axx-backend.exe' -Algorithm SHA256).Hash} | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $backendReceiptPath -Encoding UTF8
     }
+    & (Join-Path $projectRoot 'dist\axx-backend.exe') --verify-mobile-qr *> (Join-Path $evidencePath 'packaged-mobile-qr.json')
+    $steps += @{command='axx-backend.exe --verify-mobile-qr'; exit_code=$LASTEXITCODE}
+    if ($LASTEXITCODE -ne 0) { throw 'Packaged QR rendering failed; see packaged-mobile-qr.json' }
     Copy-Item -LiteralPath 'dist\axx-backend.exe' -Destination 'src-tauri\resources\axx-backend.exe' -Force
     if ($BackendOnly) {
         Get-Item -LiteralPath 'dist\axx-backend.exe' | Select-Object FullName,Length

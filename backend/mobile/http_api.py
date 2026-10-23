@@ -1,8 +1,7 @@
 """Desktop-only management routes, behind AxxBridgeHandler's host authentication."""
-import base64
-import io
 import urllib.parse
 import json
+from .pairing_qr import pairing_qr_base64
 
 
 def checked_appearance(value):
@@ -58,12 +57,7 @@ class MobileHTTP:
                 raise ValueError('Enable mobile access from desktop Axx')
             result = self.gateway.start()
             if 'pairing_uri' in result:
-                import qrcode
-                import qrcode.image.svg
-                image = qrcode.make(result['pairing_uri'], image_factory=qrcode.image.svg.SvgPathImage)
-                output = io.BytesIO()
-                image.save(output)
-                result['qr_svg_base64'] = base64.b64encode(output.getvalue()).decode('ascii')
+                result['qr_svg_base64'] = pairing_qr_base64(result['pairing_uri'])
         elif path == '/axx-api/mobile/stop':
             result = self.gateway.set_always_access(False)
         elif path == '/axx-api/mobile/always-access':

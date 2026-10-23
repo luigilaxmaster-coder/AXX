@@ -4,6 +4,9 @@ Android is a client of the existing Windows Axx instance. It shares the desktop 
 
 ## Latest revision
 
+- Windows 0.20.21 fixes the missing QR renderer in the packaged backend. Pairing
+  errors now stay visible across status refreshes; QR display no longer waits for
+  history sync. The build verifies actual SVG generation from the packaged EXE.
 - Full-screen trackpad and keyboard, larger touch targets and keys, compact settings overlay and input transport reuse.
 - Pairing camera permission is requested explicitly, with recovery instructions after denial. The scanner opens in portrait orientation.
 - Scanning or opening an `axx://pair` link previews the PC address and requires confirmation. External camera links can open Axx Mobile; availability of custom-link actions depends on the camera app.

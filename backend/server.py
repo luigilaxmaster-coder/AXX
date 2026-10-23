@@ -948,6 +948,7 @@ def main():
     parser = argparse.ArgumentParser(description='Axx private native-host backend')
     parser.add_argument('--router-worker', action='store_true')
     parser.add_argument('--transcribe-worker', action='store_true')
+    parser.add_argument('--verify-mobile-qr', action='store_true', help='Verify packaged QR rendering without starting services')
     parser.add_argument('--host', default='127.0.0.1')
     parser.add_argument('--port', type=int, default=4173)
     parser.add_argument('--config', default='providers.json')
@@ -956,6 +957,10 @@ def main():
     parser.add_argument('--ready-file')
     parser.add_argument('--mcp-server', action='store_true', help='Run Axx Connect MCP over stdio (no separate executor)')
     args = parser.parse_args()
+    if args.verify_mobile_qr:
+        from backend.mobile.pairing_qr import verify_qr_runtime
+        print(json.dumps(verify_qr_runtime()))
+        return 0
     if args.router_worker:
         return worker_main(args.state)
     if args.transcribe_worker:
