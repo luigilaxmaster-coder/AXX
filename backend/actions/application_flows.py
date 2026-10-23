@@ -82,12 +82,15 @@ def _execute_flow(kind, inputs, control, stages):
         if observation.get('truncated') or len(editors) != 1:
             raise ValueError('Notepad no expone un único editor completo con ValuePattern.')
         stages.append('editor_resolved')
-        output = windows._uia({'operation': 'set_value', 'window_id': target['window_id'], 'pid': target['pid'],
-                               'control_id': editors[0]['control_id'], 'value': inputs['value'],
-                               'expected_title': inputs['window_title']}, cancelled=control)
+        identity = {'window_id': target['window_id'], 'pid': target['pid'],
+                    'control_id': editors[0]['control_id'], 'expected_title': inputs['window_title']}
+        output = windows._uia(dict(identity, operation='set_value', value=inputs['value']), cancelled=control)
         expected = hashlib.sha256(inputs['value'].encode('utf-8')).hexdigest()
-        if output.get('value_sha256') != expected:
-            raise windows.UncertainEffect('La escritura requiere reconciliación: SHA256 diferente.')
+        if (output.get('value_sha256') != expected
+                or output.get('value_length') != len(inputs['value'].encode('utf-16-le')) // 2):
+            error = windows.UncertainEffect('La escritura requiere reconciliación: lectura diferente.')
+            error.target = identity
+            raise error
     stages.append('postcondition_verified')
     return {'success': True, 'output': output, 'evidence': {
         'accepted': True, 'verification': output['verification'], 'stages': stages,

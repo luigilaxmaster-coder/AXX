@@ -126,7 +126,10 @@ const {chromium} = createRequire(path.join(process.env.USERPROFILE, '.cache/code
     await page.locator('#gateway-inspect').click();
     await page.waitForFunction(()=>document.querySelector('#gateway-members input'));
     await page.locator('#gateway-members input').first().check();
-    await page.locator('#gateway-profiles').click();
+    // This is a handler/IPC contract; the resident panel can move during a coordinate click.
+    await page.waitForFunction(()=>!document.getElementById('gateway-profiles').disabled);
+    await page.waitForTimeout(500);
+    await page.locator('#gateway-profiles').evaluate(node=>node.click());
     await page.waitForFunction(()=>/perfiles verificados y guardados/.test(document.getElementById('gateway-result').textContent));
     const providers=(await request({method:'GET',path:'/axx-api/providers'})).providers;
     assert(providers.some(p=>p.model==='auto:axx_plan'&&p.gateway_profile_verified),await page.locator('#gateway-result').textContent());

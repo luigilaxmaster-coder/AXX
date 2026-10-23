@@ -1096,6 +1096,12 @@ pub fn run() {
         .manage(state)
         .plugin(
             tauri_plugin_log::Builder::default()
+                // A resident GUI outlives its launcher. Inherited stdout/stderr
+                // pipes may already be closed; fern's fallback would panic if
+                // both are unavailable. Keep diagnostics in the native log.
+                .targets([tauri_plugin_log::Target::new(
+                    tauri_plugin_log::TargetKind::LogDir { file_name: None },
+                )])
                 .level(log::LevelFilter::Info)
                 .build(),
         )

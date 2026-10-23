@@ -53,6 +53,21 @@ class ApplicationFlowTests(unittest.TestCase):
             with self.assertRaises(ValueError): execute_flow('notepad_text',{'window_title':'scratch','value':'a'},threading.Event())
             worker.assert_not_called()
 
+    def test_mismatched_readback_preserves_reconciliation_identity(self):
+        row = {'window_id': 123, 'pid': 10, 'title': 'scratch'}
+        editor = {'control_type': 'ControlType.Document', 'control_id': 'a'*64,
+                  'enabled': True, 'offscreen': False, 'supports_value_pattern': True}
+        with patch('backend.actions.windows_automation.list_windows', return_value=[row]), \
+             patch('backend.actions.windows_automation.process_name', return_value='notepad.exe'), \
+             patch('backend.actions.windows_automation.focus_window'), \
+             patch('backend.actions.windows_automation.inspect_controls', return_value={'controls': [editor]}), \
+             patch('backend.actions.windows_automation._uia', return_value={'value_sha256': '0'*64, 'value_length': 0}):
+            with self.assertRaises(UncertainEffect) as raised:
+                execute_flow('notepad_text', {'window_title': 'scratch', 'value': 'a'}, threading.Event())
+        self.assertEqual(raised.exception.target, {'window_id': 123, 'pid': 10,
+                         'control_id': 'a'*64, 'expected_title': 'scratch'})
+        self.assertIn('editor_resolved', raised.exception.partial_stages)
+
     def test_approval_unknown_and_idempotent_no_repeat(self):
         with tempfile.TemporaryDirectory() as directory:
             executor=ActionExecutor(Path(directory)/'state.db'); commands=CommandService(executor)
