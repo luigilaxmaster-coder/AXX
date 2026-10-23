@@ -5,7 +5,7 @@
 <!-- release:download:start -->
 **[Download Windows x64 test installer · v0.21.1](https://github.com/luigilaxmaster-coder/AXX/releases/download/v0.21.1/Axx_0.21.1_x64-setup.exe)** · [Release files](https://github.com/luigilaxmaster-coder/AXX/releases/tag/v0.21.1) · [SHA-256](https://github.com/luigilaxmaster-coder/AXX/releases/download/v0.21.1/SHA256SUMS.txt)
 
-Run the installer and open Axx. Python and Node are not required. Configure your own AI provider in Settings; credentials and conversation history are not included in the installer. Windows may need Internet to install WebView2. The installer is unsigned.
+Run the installer and open Axx. Python and Node are not required. Start with **Automático gratis · Sin claves**; Axx checks available free routes, whose availability can change. Personal API keys are optional in Settings. Credentials and conversation history are not included in the installer. Windows may need Internet to install WebView2. The installer is unsigned.
 
 The packaged backend may take longer on its first launch while Windows extracts and scans it. The native host allows up to 90 seconds for backend readiness and reports a startup error if that limit is exceeded.
 
@@ -44,6 +44,20 @@ Source is **v0.21.2**; the published Windows installer is **v0.21.1**. Delivery 
 > *"Axx brings a 3D assistant to the Windows desktop. Its local model and speech options keep those requests on the PC when configured; other providers follow their own connection settings."*
 
 ---
+
+## Desktop update · October 23, 2026
+
+### Read pages and applications
+
+Open a page or application in Windows and type `lee la página Título` or `lee la ventana Título` in Axx. You can also select it in **Biblioteca y archivos → Leer páginas y aplicaciones**. Review the selected window and approve the read. Text and observed links stay local until you choose **Usar en mi próxima pregunta al modelo**.
+
+This uses Windows accessibility across websites and applications, without a site allowlist. On YouTube, `abre el primer video` uses an observed result URL and ID. Links expire for opening after one minute. Coverage depends on exposed accessibility content; this is not universal DOM access or OCR. The installed 0.21.2 reader was verified on IANA: 2,804 text characters and 26 observed links. [Validation and limits](docs/releases/0.21.2.md).
+
+### Clear command approval and model switching
+
+Before execution, Axx shows numbered steps, inputs and destinations, with **Approve** and **Cancel** together. Exact commands remain available in an expandable section. Completed steps stay marked as preserved when a task is repaired.
+
+Type `/modelos` to list routes, `/modelo connection name` or `cambia de modelo a ID` to select one, and `vuelve a automático` to restore automatic selection. Learned deterministic procedures can run without inference; task recovery retains completed-operation records. [Free routes, procedural memory and model controls](docs/automatic-skills.md).
 
 ## Magic Pen directly on your desktop
 

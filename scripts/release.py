@@ -64,7 +64,7 @@ def render_readme(root: Path, current: str) -> str:
 <!-- release:download:start -->
 **[Download Windows x64 test installer · v{published}]({BASE}/download/v{published}/Axx_{published}_x64-setup.exe)** · [Release files]({BASE}/tag/v{published}) · [SHA-256]({BASE}/download/v{published}/SHA256SUMS.txt)
 
-Run the installer and open Axx. Python and Node are not required. Configure your own AI provider in Settings; credentials and conversation history are not included in the installer. Windows may need Internet to install WebView2. The installer is unsigned.
+Run the installer and open Axx. Python and Node are not required. Start with **Automático gratis · Sin claves**; Axx checks available free routes, whose availability can change. Personal API keys are optional in Settings. Credentials and conversation history are not included in the installer. Windows may need Internet to install WebView2. The installer is unsigned.
 
 The packaged backend may take longer on its first launch while Windows extracts and scans it. The native host allows up to 90 seconds for backend readiness and reports a startup error if that limit is exceeded.
 
