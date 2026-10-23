@@ -3,13 +3,13 @@
 ## Download Axx for Windows
 
 <!-- release:download:start -->
-**[Download Windows x64 test installer · v0.20.11](https://github.com/luigilaxmaster-coder/AXX/releases/download/v0.20.11/Axx_0.20.11_x64-setup.exe)** · [Release files](https://github.com/luigilaxmaster-coder/AXX/releases/tag/v0.20.11) · [SHA-256](https://github.com/luigilaxmaster-coder/AXX/releases/download/v0.20.11/SHA256SUMS.txt)
+**[Download Windows x64 test installer · v0.20.18](https://github.com/luigilaxmaster-coder/AXX/releases/download/v0.20.18/Axx_0.20.18_x64-setup.exe)** · [Release files](https://github.com/luigilaxmaster-coder/AXX/releases/tag/v0.20.18) · [SHA-256](https://github.com/luigilaxmaster-coder/AXX/releases/download/v0.20.18/SHA256SUMS.txt)
 
 Run the installer and open Axx. Python and Node are not required. Configure your own AI provider in Settings; credentials and conversation history are not included in the installer. Windows may need Internet to install WebView2. The installer is unsigned.
 
 The packaged backend may take longer on its first launch while Windows extracts and scans it. The native host allows up to 90 seconds for backend readiness and reports a startup error if that limit is exceeded.
 
-Source is **v0.20.18**; the published Windows installer is **v0.20.11**. Delivery of the newer source is pending publication. Android APKs remain local test artifacts until separately published. See [mobile setup and validation](docs/mobile/README.md) and the [version and release procedure](docs/RELEASING.md).
+Source and published Windows installer are both **v0.20.18**. Android APKs remain local test artifacts until separately published. See [mobile setup and validation](docs/mobile/README.md) and the [version and release procedure](docs/RELEASING.md).
 <!-- release:download:end -->
 
 ---
@@ -95,7 +95,7 @@ These are presentation captures of the current UI in an isolated browser. The mo
 ## 🚧 Project Status: Active Continuous Improvement
 
 > [!NOTE]
-> **Axx is under active development.** Source is **v0.20.18**; the published Windows installer is **v0.20.11**. Delivery of the newer source is pending publication. Validation is recorded per feature; a working UI or build does not by itself certify every hardware-dependent behavior.
+> **Axx is under active development.** Source and published Windows installer are both **v0.20.18**. Validation is recorded per feature; a working UI or build does not by itself certify every hardware-dependent behavior.
 
 ### 🟢 Implemented capabilities
 - **Native Startup:** Resident Windows application with a local backend and a launcher fallback to the executable built from this repository.
