@@ -63,6 +63,10 @@ class MobileTrustStore:
                     created_at REAL NOT NULL,
                     revoked_at REAL
                 );
+                CREATE TABLE IF NOT EXISTS mobile_access_settings (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL
+                );
                 CREATE TABLE IF NOT EXISTS mobile_commands (
                     device_id TEXT NOT NULL REFERENCES mobile_devices(device_id),
                     command_id TEXT NOT NULL,
@@ -76,6 +80,13 @@ class MobileTrustStore:
                     state TEXT NOT NULL,
                     result TEXT,
                     updated_at REAL NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS mobile_work_requests (
+                    operation_id TEXT PRIMARY KEY,
+                    device_id TEXT NOT NULL REFERENCES mobile_devices(device_id),
+                    command_id TEXT NOT NULL,
+                    inputs_json TEXT NOT NULL,
+                    created_at REAL NOT NULL
                 );
             """)
 
@@ -132,6 +143,27 @@ class MobileTrustStore:
         with self._pairing_lock:
             self._pairings.clear()
 
+    def access_settings(self):
+        with self._connect() as db:
+            rows = db.execute("SELECT key,value FROM mobile_access_settings WHERE key IN ('always_on','port')").fetchall()
+        values = {row['key']: row['value'] for row in rows}
+        try:
+            port = int(values.get('port', '0'))
+        except ValueError:
+            port = 0
+        return {'always_on': values.get('always_on') == '1', 'port': port if 0 <= port <= 65535 else 0}
+
+    def set_access_settings(self, *, always_on, port=None):
+        if type(always_on) is not bool or (port is not None and (type(port) is not int or not 1 <= port <= 65535)):
+            raise ValueError('Invalid mobile access settings')
+        with self._connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            db.execute("INSERT OR REPLACE INTO mobile_access_settings(key,value) VALUES('always_on',?)",
+                       ('1' if always_on else '0',))
+            if port is not None:
+                db.execute("INSERT OR REPLACE INTO mobile_access_settings(key,value) VALUES('port',?)", (str(port),))
+            db.commit()
+
     def authorize(self, credential, required_scope):
         return self.device_for(credential, required_scope) is not None
 
@@ -179,6 +211,35 @@ class MobileTrustStore:
         return [{"device_id": row["device_id"], "name": row["name"],
                  "scopes": json.loads(row["scopes_json"]), "created_at": row["created_at"],
                  "revoked": row["revoked_at"] is not None} for row in rows]
+
+    def record_work(self, operation_id, device_id, command_id, inputs):
+        encoded = json.dumps(inputs, sort_keys=True, ensure_ascii=False)
+        with self._connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            row = db.execute('SELECT device_id,command_id,inputs_json FROM mobile_work_requests WHERE operation_id=?',
+                             (operation_id,)).fetchone()
+            if row:
+                if row['device_id'] != device_id or row['command_id'] != command_id or row['inputs_json'] != encoded:
+                    raise ValueError('Work operation belongs to another request')
+            else:
+                db.execute('INSERT INTO mobile_work_requests VALUES(?,?,?,?,?)',
+                           (operation_id, device_id, command_id, encoded, time.time()))
+            db.commit()
+
+    def work_request(self, operation_id):
+        with self._connect() as db:
+            row = db.execute('SELECT * FROM mobile_work_requests WHERE operation_id=?', (operation_id,)).fetchone()
+        return ({'operation_id': row['operation_id'], 'device_id': row['device_id'],
+                 'command_id': row['command_id'], 'inputs': json.loads(row['inputs_json']),
+                 'created_at': row['created_at']} if row else None)
+
+    def pending_work_requests(self):
+        with self._connect() as db:
+            rows = db.execute('SELECT * FROM mobile_work_requests WHERE created_at>? ORDER BY created_at DESC LIMIT 30',
+                              (time.time() - 600,)).fetchall()
+        return [{'operation_id': row['operation_id'], 'device_id': row['device_id'],
+                 'command_id': row['command_id'], 'inputs': json.loads(row['inputs_json']),
+                 'created_at': row['created_at']} for row in rows]
 
     def admit_command(self, device_id, command_id, payload, task_id=None, now=None):
         if not isinstance(command_id, str) or not command_id.strip() or len(command_id) > 128:

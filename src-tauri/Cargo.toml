@@ -1,6 +1,6 @@
 [package]
 name = "axx"
-version = "0.20.11"
+version = "0.20.18"
 description = "Axx Desktop Assistant"
 authors = ["Axx Team"]
 license = ""
@@ -26,6 +26,7 @@ log = "0.4"
 tauri = { version = "2.12.4", features = ["tray-icon"] }
 tauri-plugin-log = "2"
 reqwest = { version = "0.13", default-features = false, features = ["blocking", "json"] }
+tokio = { version = "1", features = ["macros", "time"] }
 uuid = { version = "1", features = ["v4"] }
 
 [target.'cfg(windows)'.dependencies]

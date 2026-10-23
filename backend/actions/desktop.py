@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+import ctypes
 import os
 from pathlib import Path
 import re
@@ -62,9 +63,9 @@ def validate_inputs(kind, inputs):
     elif kind == 'search':
         if inputs.get('engine') not in ENGINES or not isinstance(inputs.get('query'), str) or not 1 <= len(inputs['query'].strip()) <= 500:
             raise ValueError('Indica una búsqueda y un buscador compatible.')
-    elif kind == 'powershell':
+    elif kind in ('powershell', 'cmd'):
         if not isinstance(inputs.get('script'), str) or not 1 <= len(inputs['script'].strip()) <= 8000 or '\x00' in inputs['script']:
-            raise ValueError('Escribe un comando PowerShell de hasta 8.000 caracteres.')
+            raise ValueError('Escribe un comando de hasta 8.000 caracteres.')
     else:
         raise ValueError('Acción desconocida.')
 
@@ -86,6 +87,11 @@ def resolve_desktop(text, source, context=None):
         if source != 'text':
             return {'match': 'unsupported', 'message': 'Escribe el comando PowerShell y revisa su aprobación; no se ejecutan scripts dictados.'}
         return {'match': 'exact', 'command_id': 'axx.shell.powershell', 'inputs': {'script': shell[1]}}
+    cmd = re.fullmatch(r'(?:/cmd\s+|ejecuta\s+en\s+cmd:\s*)(.+)', text.strip(), re.I | re.S)
+    if cmd:
+        if source != 'text':
+            return {'match': 'unsupported', 'message': 'Escribe el comando CMD y apruébalo en la PC.'}
+        return {'match': 'exact', 'command_id': 'axx.shell.cmd', 'inputs': {'script': cmd[1]}}
     raw = re.sub(r'^[¡¿\s]+', '', text.strip())
     raw = re.sub(r'^(?:(?:oye|hola)\s+)?axx[,\s]+', '', raw, flags=re.I)
     raw = re.sub(r'^por favor[,\s]+', '', raw, flags=re.I)
@@ -182,21 +188,25 @@ def open_target(kind, inputs):
             'evidence': {'verification': 'os_handoff', 'target': target, 'accepted': True}}
 
 
-def run_powershell(inputs, workspace, cancelled):
-    validate_inputs('powershell', inputs)
-    executable = Path(os.environ.get('SystemRoot', r'C:\Windows')) / 'System32/WindowsPowerShell/v1.0/powershell.exe'
+def run_shell(kind, inputs, workspace, cancelled):
+    validate_inputs(kind, inputs)
+    executable = Path(os.environ.get('SystemRoot', r'C:\Windows')) / ('System32/cmd.exe' if kind == 'cmd' else 'System32/WindowsPowerShell/v1.0/powershell.exe')
     if os.name != 'nt' or not executable.is_file():
-        raise ValueError('PowerShell de Windows no está disponible.')
-    # Fixed encoding/error setup plus the exact user-reviewed script; no language-model output.
-    script = "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); $OutputEncoding = [Console]::OutputEncoding; $ErrorActionPreference = 'Stop';\n" + inputs['script']
-    encoded = base64.b64encode(script.encode('utf-16-le')).decode('ascii')
+        raise ValueError('El intérprete de comandos de Windows no está disponible.')
+    # Fixed launcher and exact reviewed text. Never accept model output here.
+    if kind == 'cmd':
+        command = [str(executable), '/d', '/s', '/c', inputs['script']]
+    else:
+        script = "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); $OutputEncoding = [Console]::OutputEncoding; $ErrorActionPreference = 'Stop';\n" + inputs['script']
+        encoded = base64.b64encode(script.encode('utf-16-le')).decode('ascii')
+        command = [str(executable), '-NoLogo', '-NoProfile', '-NonInteractive', '-OutputFormat', 'Text', '-EncodedCommand', encoded]
     runtime_names = {'systemroot', 'windir', 'path', 'temp', 'tmp', 'userprofile', 'appdata', 'localappdata',
                      'programdata', 'programfiles', 'programfiles(x86)', 'commonprogramfiles', 'comspec',
                      'number_of_processors', 'processor_architecture', 'username', 'computername'}
     env = {key: value for key, value in os.environ.items() if key.lower() in runtime_names}
     if cancelled.is_set():
         return {'success': False, 'error': 'Comando cancelado antes de ejecutar.', 'evidence': {'cancelled': True}}
-    process, job = spawn_managed_process([str(executable), '-NoLogo', '-NoProfile', '-NonInteractive', '-OutputFormat', 'Text', '-EncodedCommand', encoded],
+    process, job = spawn_managed_process(command,
                                         cwd=str(workspace), env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     buffers = [bytearray(), bytearray()]
     overflow = threading.Event()
@@ -235,7 +245,16 @@ def run_powershell(inputs, workspace, cancelled):
         reason = 'Comando cancelado. Los cambios que ya haya realizado no se deshacen.'
     elif overflow.is_set():
         reason = 'Comando detenido: la salida superó el límite de 64 KiB.'
-    output = {'stdout': bytes(buffers[0]).decode('utf-8', errors='replace'), 'stderr': bytes(buffers[1]).decode('utf-8', errors='replace'), 'exit_code': process.returncode}
+    # cmd.exe writes in the Windows OEM code page when launched without a console.
+    # PowerShell explicitly uses UTF-8 above.
+    encoding = f'cp{ctypes.windll.kernel32.GetOEMCP()}' if kind == 'cmd' else 'utf-8'
+    output = {'stdout': bytes(buffers[0]).decode(encoding, errors='replace'),
+              'stderr': bytes(buffers[1]).decode(encoding, errors='replace'),
+              'exit_code': process.returncode}
     return {'success': reason is None and process.returncode == 0, 'output': output,
-            'error': reason or (f'PowerShell terminó con código {process.returncode}.' if process.returncode else None),
+            'error': reason or (f'{"CMD" if kind == "cmd" else "PowerShell"} terminó con código {process.returncode}.' if process.returncode else None),
             'evidence': {'exit_code': process.returncode, 'cancelled': cancelled.is_set(), 'verification': 'process_exit', 'cwd': str(workspace)}}
+
+
+def run_powershell(inputs, workspace, cancelled):
+    return run_shell('powershell', inputs, workspace, cancelled)

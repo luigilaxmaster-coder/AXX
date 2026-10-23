@@ -62,9 +62,13 @@ class WindowsSpeechService:
         self._busy = threading.Lock()
         self._voices_lock = threading.RLock()
         self._cached_voices = None
+        from .moss_tts import MossSpeechService
+        self.moss = MossSpeechService(data_dir)
+        self.available = self.available or self.moss.available
 
     def close(self):
         self.cancel_active()
+        self.moss.close()
 
     def cancel_active(self):
         with self._lock:
@@ -72,7 +76,7 @@ class WindowsSpeechService:
         for process, job, cancelled in active:
             cancelled.set()
             terminate_process_tree(process, job)
-        return len(active)
+        return len(active) + self.moss.cancel_active()
 
     def _run(self, request):
         if not self.available:
@@ -133,6 +137,10 @@ class WindowsSpeechService:
                 self._active.pop(run_id, None)
 
     def voices(self):
+        moss_voices = self.moss.voices()
+        if not self.executable.is_file():
+            return {'engine': 'local', 'available': bool(moss_voices), 'voices': moss_voices,
+                    'external_calls': 0, 'microphone_access': False}
         with self._voices_lock:
             if self._cached_voices is None:
                 result = self._run({'action': 'voices'})
@@ -140,10 +148,12 @@ class WindowsSpeechService:
                 if not isinstance(voices, list): raise SpeechError('PROCESS_FAILURE', 'Invalid installed voice list')
                 self._cached_voices = [v for v in voices if isinstance(v,dict) and isinstance(v.get('name'),str)
                                        and isinstance(v.get('language'),str) and v.get('enabled') is True]
-        return {'engine': 'windows-sapi', 'available': bool(self._cached_voices), 'voices': self._cached_voices,
+        return {'engine': 'local', 'available': bool(self._cached_voices or moss_voices), 'voices': self._cached_voices + moss_voices,
                 'external_calls': 0, 'microphone_access': False}
 
     def synthesize(self, body):
+        if isinstance(body, dict) and isinstance(body.get('voice'), str) and body['voice'].startswith('moss:'):
+            return self.moss.synthesize(body)
         if set(body) - {'text','voice','rate','volume'}:
             raise SpeechError('INVALID_REQUEST', 'Unsupported speech fields')
         text, voice, rate, volume = body.get('text'), body.get('voice'), body.get('rate',0), body.get('volume',100)

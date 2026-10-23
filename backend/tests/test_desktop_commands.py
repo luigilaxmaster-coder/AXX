@@ -29,6 +29,7 @@ class DesktopCommandTests(unittest.TestCase):
             ('busca gatos y perros en YouTube', 'axx.desktop.search', {'query': 'gatos y perros', 'engine': 'youtube'}),
             ('busca en Google clima La Paz', 'axx.desktop.search', {'query': 'clima La Paz', 'engine': 'google'}),
             ('/powershell Get-Date', 'axx.shell.powershell', {'script': 'Get-Date'}),
+            ('/cmd echo hola', 'axx.shell.cmd', {'script': 'echo hola'}),
         ]
         for text, command, inputs in cases:
             with self.subTest(text=text):
@@ -63,6 +64,22 @@ class DesktopCommandTests(unittest.TestCase):
             self.service.execute(pending['operation_id'])
         self.service.cancel(pending['operation_id'])
         self.assertEqual(self.service.execute(pending['operation_id'], True)['state'], 'cancelled')
+
+    @unittest.skipUnless(os.name == 'nt', 'Windows CMD integration')
+    def test_cmd_requires_approval_and_returns_real_exit_code(self):
+        with self.assertRaises(ValueError):
+            self.service.prepare('axx.shell.cmd', {'script': 'echo hola'}, 'voice')
+        pending = self.service.prepare('axx.shell.cmd', {'script': 'echo AXX_CMD_OK'})
+        with self.assertRaises(ApprovalRequired):
+            self.service.execute(pending['operation_id'])
+        result = self.service.execute(pending['operation_id'], True)
+        self.assertEqual(result['state'], 'succeeded', result)
+        self.assertIn('AXX_CMD_OK', result['output']['stdout'])
+        self.assertEqual(result['evidence']['exit_code'], 0)
+        accented = self.service.prepare('axx.shell.cmd', {'script': 'echo hola áxx'})
+        accented_result = self.service.execute(accented['operation_id'], True)
+        self.assertEqual(accented_result['state'], 'succeeded', accented_result)
+        self.assertIn('hola áxx', accented_result['output']['stdout'])
 
     @unittest.skipUnless(os.name == 'nt', 'Windows PowerShell integration')
     def test_real_powershell_output_and_error(self):

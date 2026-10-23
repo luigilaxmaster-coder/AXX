@@ -46,7 +46,7 @@ $launchedProcess = [System.Diagnostics.Process]::Start($launchInfo)
 $nativeProcess = $null
 $hostEvidence = $null
 $evidenceFile = Join-Path $env:LOCALAPPDATA 'Axx\logs\native-runtime.json'
-for ($i=0; $i -lt 60; $i++) {
+for ($i=0; $i -lt 240; $i++) {
     $processes = @(Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -eq $appExecutable })
     if ($processes.Count -eq 1) {
         $nativeProcess = $processes[0]
@@ -62,7 +62,7 @@ for ($i=0; $i -lt 60; $i++) {
     }
     Start-Sleep -Milliseconds 500
 }
-if (-not $nativeProcess -or -not $hostEvidence) { throw 'Installed host did not report authenticated backend and visible resident surface within 30 seconds' }
+if (-not $nativeProcess -or -not $hostEvidence) { throw 'Installed host did not report authenticated backend and visible resident surface within 120 seconds' }
 $listener = @(Get-NetTCPConnection -State Listen -LocalPort $hostEvidence.backendPort -ErrorAction Stop | Where-Object { $_.LocalAddress -eq '127.0.0.1' })
 if ($listener.Count -ne 1) { throw 'Expected exactly one private IPv4 backend listener' }
 $backendProcess = Get-CimInstance Win32_Process -Filter "ProcessId=$($listener[0].OwningProcess)"

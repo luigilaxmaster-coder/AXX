@@ -51,6 +51,18 @@ from backend.mobile.http_api import MobileHTTP
 LOG = logging.getLogger('axx.server')
 MAX_BODY = 2 * 1024 * 1024
 
+
+def local_realtime_models(config, inference_status):
+    """Advertise direct Ollama streaming only for the exact loopback endpoint we call."""
+    configured = {provider.get('model') for provider in config.get('providers', [])
+                  if isinstance(provider, dict) and provider.get('name') == 'ollama-local'
+                  and provider.get('enabled') is True
+                  and provider.get('protocol', 'openai') == 'openai'
+                  and str(provider.get('base_url', '')).rstrip('/') == 'http://127.0.0.1:11434/v1'}
+    return [provider['model'] for provider in inference_status.get('providers', [])
+            if provider.get('name') == 'ollama-local' and provider.get('state') == 'ready_locally'
+            and provider.get('model') in configured]
+
 class ThreadedHTTPServer(socketserver.ThreadingMixIn, HTTPServer):
     daemon_threads = True
     allow_reuse_address = False
@@ -191,10 +203,12 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
             if ConnectHTTP(self).get(path):
                 return
             if path == '/axx-api/status':
+                inference_status = self.adapter.get_status()
+                inference_status['realtime_local_models'] = local_realtime_models(self.adapter.config, inference_status)
                 self._send_json(200, {'ready': True, 'instance_id': self.server.instance_id,
                     'pid': os.getpid(), 'provider': 'Axx Hardened Inference Router',
                     'native': self.server.host_owned, 'desktop': {'available': os.name == 'nt' and self.server.host_owned,
-                    'platform': sys.platform}, 'details': self.adapter.get_status(),
+                    'platform': sys.platform}, 'details': inference_status,
                     'chatgpt_auth': self.chatgpt_auth.get_status() if self.chatgpt_auth else {'authenticated': False},
                     'memory': self.memory.ai_memory.status() if self.memory.ai_memory else {'backend': 'sqlite', 'available': False},
                     'features': {'actions': True, 'command_library': bool(self.commands), 'procedural_memory': True, 'spotify': False,
@@ -806,7 +820,7 @@ def resolve_app_paths(config_path='providers.json', state_path='state.db', data_
                     existing_cfg['providers'].insert(0, {
                         "name": "ollama-local",
                         "base_url": "http://127.0.0.1:11434/v1",
-                        "model": "llama3.2:1b",
+                        "model": "qwen2.5:3b",
                         "api_key_env": "OLLAMA_API_KEY",
                         "enabled": True,
                         "free_confirmed": True,
@@ -895,6 +909,7 @@ def run_server(host='127.0.0.1', port=4173, config_path='providers.json', state_
         from backend.mobile.gateway import MobileGateway
         server.mobile = MobileGateway.for_backend(server, state_path, state_dir)
         services.append(server.mobile)
+        server.mobile.resume()
         publish_endpoint(state_dir, server)
         if ready_path:
             ready_path.parent.mkdir(parents=True, exist_ok=True)

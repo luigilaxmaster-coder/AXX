@@ -4,6 +4,7 @@ import ipaddress
 import http.client
 import json
 import logging
+import math
 import os
 import socket
 import ssl
@@ -12,6 +13,7 @@ import time
 import uuid
 import tempfile
 import urllib.parse
+from collections import deque
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -129,6 +131,132 @@ class MobileGateway:
         self._pairing_deadline = 0
         self.preferences = None
         self.appearance = None
+        self._avatar_lock = threading.Lock()
+        self._avatar_sequence = 0
+        self._avatar_events = deque(maxlen=128)
+
+    def avatar_gesture(self, device_id, body):
+        if not isinstance(body, dict) or set(body) != {'kind', 'dx', 'dy'} or body['kind'] not in ('rotate', 'move', 'end'):
+            raise ValueError('Invalid avatar gesture')
+        dx, dy = body['dx'], body['dy']
+        if any(type(value) not in (int, float) or not math.isfinite(value) or abs(value) > 200 for value in (dx, dy)):
+            raise ValueError('Avatar gesture is out of range')
+        if body['kind'] == 'end' and (dx != 0 or dy != 0):
+            raise ValueError('Avatar end gesture must have zero movement')
+        with self._avatar_lock:
+            self._avatar_sequence += 1
+            event = {'sequence': self._avatar_sequence, 'device_id': device_id,
+                     'kind': body['kind'], 'dx': dx, 'dy': dy, 'at': time.monotonic()}
+            self._avatar_events.append(event)
+            return {'sequence': self._avatar_sequence}
+
+    def avatar_events(self, since):
+        if type(since) is not int or since < 0:
+            raise ValueError('Invalid avatar sequence')
+        with self._avatar_lock:
+            now = time.monotonic()
+            events = [{key: value for key, value in event.items() if key != 'at'}
+                      for event in self._avatar_events if event['sequence'] > since and now - event['at'] <= 2]
+            return {'sequence': self._avatar_sequence, 'events': events}
+
+    def clear_avatar_device(self, device_id):
+        with self._avatar_lock:
+            self._avatar_events = deque((event for event in self._avatar_events if event['device_id'] != device_id), maxlen=128)
+
+    def work_execute(self, device_id, body):
+        from backend.commands import ADAPTERS, TERMINAL
+        allowed = set(ADAPTERS)
+        if (not isinstance(body, dict) or set(body) != {'command_id', 'inputs', 'operation_id', 'approved'}
+                or body['command_id'] not in allowed or not isinstance(body['inputs'], dict)
+                or type(body['approved']) is not bool):
+            raise ValueError('Invalid Work command')
+        try:
+            operation_id = str(uuid.UUID(body['operation_id']))
+        except (TypeError, ValueError, AttributeError) as exc:
+            raise ValueError('Invalid Work operation ID') from exc
+        if operation_id != body['operation_id']:
+            raise ValueError('Invalid Work operation ID')
+        prepared = self.backend_call('POST', '/axx-api/commands/prepare',
+                                     {'command_id': body['command_id'], 'inputs': body['inputs'],
+                                      'source': 'text', 'operation_id': operation_id})
+        if prepared.get('ok') is False:
+            raise ValueError(prepared.get('error', {}).get('message', 'Work preparation failed'))
+        if prepared.get('state') in TERMINAL:
+            return prepared
+        self.store.record_work(operation_id, device_id, body['command_id'], prepared['inputs'])
+        risk = ADAPTERS[body['command_id']]['risk']
+        if risk not in ('read', 'desktop_open'):
+            return {**prepared, 'state': 'awaiting_pc_approval', 'pc_approval_required': True}
+        result = self.backend_call('POST', '/axx-api/commands/execute',
+                                   {'operation_id': operation_id, 'approved': True})
+        if result.get('ok') is False:
+            raise ValueError(result.get('error', {}).get('message', 'Work execution failed'))
+        return result
+
+    def work_operation(self, operation_id, device_id=None):
+        try:
+            canonical = str(uuid.UUID(operation_id))
+        except (TypeError, ValueError, AttributeError) as exc:
+            raise ValueError('Invalid Work operation ID') from exc
+        if canonical != operation_id:
+            raise ValueError('Invalid Work operation ID')
+        if device_id is not None:
+            record = self.store.work_request(operation_id)
+            if not record or record['device_id'] != device_id:
+                raise ValueError('Work operation does not belong to this phone')
+        result = self.backend_call('GET', '/axx-api/commands/operations?operation_id='+urllib.parse.quote(operation_id), None)
+        if result.get('ok') is False:
+            raise ValueError(result.get('error', {}).get('message', 'Work operation unavailable'))
+        return result.get('operation')
+
+    def work_catalog(self):
+        from backend.commands import ADAPTERS
+        return {'commands': [{'id': key, 'title': value['title'], 'description': value['description'],
+                              'risk': value['risk'], 'parameters': value['parameters'],
+                              'pc_approval_required': value['risk'] not in ('read', 'desktop_open')}
+                             for key, value in ADAPTERS.items()]}
+
+    def work_resolve(self, body):
+        if not isinstance(body, dict) or set(body) != {'text'} or not isinstance(body['text'], str) or not 1 <= len(body['text'].strip()) <= 8000:
+            raise ValueError('Escribe una orden de hasta 8.000 caracteres')
+        result = self.backend_call('POST', '/axx-api/commands/resolve', {'text': body['text'], 'source': 'text'})
+        if result.get('ok') is False:
+            raise ValueError(result.get('error', {}).get('message', 'No se pudo interpretar la orden'))
+        return result
+
+    def pending_work(self):
+        rows = self.store.pending_work_requests()
+        pending = []
+        approved_devices = {row['device_id'] for row in self.store.devices()
+                            if not row['revoked'] and 'tools.control' in row['scopes']}
+        for record in rows:
+            operation_id = record['operation_id']
+            if record['device_id'] not in approved_devices:
+                continue
+            from backend.commands import ADAPTERS
+            if ADAPTERS[record['command_id']]['risk'] in ('read', 'desktop_open'):
+                continue
+            operation = self.work_operation(operation_id)
+            if operation and operation['state'] == 'awaiting_approval':
+                pending.append(record)
+        return {'operations': pending}
+
+    def approve_work(self, body):
+        if not isinstance(body, dict) or set(body) != {'operation_id', 'approved'} or type(body['approved']) is not bool:
+            raise ValueError('Invalid Work approval')
+        operation_id = body['operation_id']
+        record = self.store.work_request(operation_id)
+        if not record:
+            raise ValueError('Unknown phone Work request')
+        if not any(row['device_id'] == record['device_id'] and not row['revoked'] and 'tools.control' in row['scopes']
+                   for row in self.store.devices()):
+            raise ValueError('This phone no longer has Work permission')
+        operation = self.work_operation(operation_id)
+        if not operation or operation['command_id'] != record['command_id'] or operation['inputs'] != record['inputs']:
+            raise ValueError('Work request changed before approval')
+        if not body['approved']:
+            return self.backend_call('POST', '/axx-api/commands/cancel', {'operation_id': operation_id})
+        return self.backend_call('POST', '/axx-api/commands/execute', {'operation_id': operation_id, 'approved': True})
 
     def admit_chat(self, device_id, body):
         if set(body) - {'command_id', 'operation', 'text', 'conversation_id'} or body.get('operation') != 'chat':
@@ -200,17 +328,19 @@ class MobileGateway:
 
     def status(self):
         with self._lock:
+            always_on = self.store.access_settings()['always_on']
             if not self.httpd:
-                return {"enabled": False, "devices": self.store.devices()}
+                return {"enabled": False, "always_on": always_on, "devices": self.store.devices()}
             return {"enabled": True, "endpoint": f"https://{self.httpd.server_address[0]}:{self.httpd.server_port}",
-                    "fingerprint": self._identity[2], "devices": self.store.devices()}
+                    "fingerprint": self._identity[2], "always_on": always_on, "devices": self.store.devices()}
 
-    def start(self):
+    def start(self, create_pairing=True):
         with self._lock:
             if self.httpd:
-                return self.pairing()
+                return self.pairing() if create_pairing else self.status()
             host = self.host_resolver()
             cert, key, fingerprint = _identity_files(self.data_dir, host)
+            settings = self.store.access_settings()
             gateway = self
 
             class Handler(BaseHTTPRequestHandler):
@@ -295,6 +425,17 @@ class MobileGateway:
                             command = gateway.store.command(self.device_id, query['command_id'][0])
                             self._send(200 if command else 404, {'ok':bool(command), 'data':command})
                             return
+                        if path == '/v1/work/operation':
+                            if not self._authorize('tools.control'): return
+                            query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+                            if set(query) != {'operation_id'} or len(query['operation_id']) != 1:
+                                raise ValueError('operation_id required')
+                            operation = gateway.work_operation(query['operation_id'][0], self.device_id)
+                            self._send(200 if operation else 404, {'ok': bool(operation), 'data': operation});return
+                        if path == '/v1/work/catalog':
+                            if self._authorize('tools.control'):
+                                self._send(200, {'ok': True, 'data': gateway.work_catalog()})
+                            return
                         if path == '/v1/appearance':
                             if self._authorize('query'):
                                 self._send(200, {'ok':True,'data':{'appearance':gateway.appearance}})
@@ -327,6 +468,15 @@ class MobileGateway:
                             if not self._authorize('query' if operation=='release' else 'input.control'):return
                             result=getattr(gateway.control,operation)(self.device_id,body)
                             self._send(200, {'ok':True,'data':result});return
+                        if path == '/v1/avatar/gesture':
+                            if not self._authorize('input.control'):return
+                            self._send(200, {'ok':True,'data':gateway.avatar_gesture(self.device_id,body)});return
+                        if path == '/v1/work/execute':
+                            if not self._authorize('tools.control'):return
+                            self._send(200, {'ok':True,'data':gateway.work_execute(self.device_id,body)});return
+                        if path == '/v1/work/resolve':
+                            if not self._authorize('tools.control'):return
+                            self._send(200, {'ok':True,'data':gateway.work_resolve(body)});return
                         if path == "/v1/pair/claim":
                             result = gateway.store.consume_pairing(body.get("code"), body.get("device_name", ""))
                             gateway._last_contact = time.monotonic()
@@ -374,19 +524,38 @@ class MobileGateway:
                     Path(temporary).unlink(missing_ok=True)
             else:
                 context.load_cert_chain(str(cert), str(key))
-            httpd = BoundedHTTPServer((host, 0), Handler)
+            httpd = BoundedHTTPServer((host, settings['port']), Handler)
             self.httpd = httpd
             self.thread = threading.Thread(target=httpd.serve_forever, name="axx-mobile-gateway", daemon=True)
             self.thread.start()
             self._identity = (cert, key, fingerprint)
             self._last_contact = time.monotonic()
             self._claimed = False
+            self.store.set_access_settings(always_on=settings['always_on'], port=httpd.server_port)
             def watchdog():
                 while self.httpd is httpd:
                     time.sleep(1)
                     self.expire_idle(httpd)
             threading.Thread(target=watchdog, name='axx-mobile-idle', daemon=True).start()
-            return self.pairing()
+            return self.pairing() if create_pairing else self.status()
+
+    def set_always_access(self, enabled):
+        if type(enabled) is not bool:
+            raise ValueError('enabled must be a boolean')
+        if enabled:
+            self.start(create_pairing=False)
+            self.store.set_access_settings(always_on=True, port=self.httpd.server_port)
+            return self.status()
+        self.store.set_access_settings(always_on=False)
+        self.stop()
+        return self.status()
+
+    def resume(self):
+        if self.store.access_settings()['always_on']:
+            try:
+                self.start(create_pairing=False)
+            except (OSError, RuntimeError):
+                LOG.exception('Persistent mobile access could not start')
 
     def pairing(self):
         with self._lock:
@@ -404,7 +573,7 @@ class MobileGateway:
     def expire_idle(self, server):
         with self._lock:
             now = time.monotonic()
-            if (self.httpd is server and now >= self._pairing_deadline
+            if (self.httpd is server and not self.store.access_settings()['always_on'] and now >= self._pairing_deadline
                     and now - self._last_contact > (30 if self._claimed else 120)):
                 self.stop()
 
@@ -415,6 +584,7 @@ class MobileGateway:
     def revoke(self, device_id):
         self.control.disconnect(device_id)
         self.voice.disconnect(device_id)
+        self.clear_avatar_device(device_id)
         return self.store.revoke(device_id)
 
     def stop(self):

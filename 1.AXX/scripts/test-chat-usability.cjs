@@ -74,6 +74,39 @@ const { chromium } = createRequire(path.join(process.env.USERPROFILE, '.cache/co
       assert.equal(await row.locator('img').count(),0);
       assert.equal(await page.evaluate(()=>window.injected),undefined);
     });
+    await check('Speech omits markup and punctuation while personality settings persist', async () => {
+      const result=await page.evaluate(() => {
+        document.getElementById('chat-personality-style').value='friendly';
+        document.getElementById('chat-personality-style').dispatchEvent(new Event('change'));
+        const notes=document.getElementById('chat-personality-notes');notes.value='Háblame de tú';notes.dispatchEvent(new Event('change'));
+        return {spoken:Axx.speechReplyText('Hola, **mundo**. [Mira](https://example.com), ¡gracias!'),
+                saved:Axx.decodeCompanion(localStorage.getItem('axx.companion.v4')).prefs};
+      });
+      assert.equal(result.spoken,'Hola mundo Mira ¡gracias');
+      assert.equal(result.saved.personalityStyle,'friendly');
+      assert.equal(result.saved.personalityNotes,'Háblame de tú');
+    });
+    await check('Local realtime chat delivers incremental text without exposing backend credentials', async () => {
+      const result=await page.evaluate(async () => {
+        const brain=new Axx.BrainClient(), deltas=[];
+        const invoke=Axx.nativeInvoke, listen=window.__TAURI__.event.listen;
+        let receiver, removed=false;
+        window.__TAURI__.event.listen=async (_event, callback)=>{receiver=callback;return ()=>{removed=true;};};
+        Axx.nativeInvoke=async (name,args)=>{
+          if(name!=='ollama_realtime_chat') throw new Error('Unexpected command');
+          receiver({payload:{request_id:args.requestId,delta:'Hola'}});
+          receiver({payload:{request_id:args.requestId,delta:', señor.'}});
+          return {text:'Hola, señor.',reason:'stop',route:{streamed_local:true,model:args.model}};
+        };
+        try {
+          const final=await brain.localRealtimeChat('qwen2.5:3b',[{role:'user',content:'Hola'}],new AbortController().signal,t=>deltas.push(t));
+          return {deltas,final,removed};
+        } finally {Axx.nativeInvoke=invoke;window.__TAURI__.event.listen=listen;}
+      });
+      assert.deepEqual(result.deltas,['Hola','Hola, señor.']);
+      assert.equal(result.final.route.streamed_local,true);
+      assert.equal(result.removed,true);
+    });
     await check('Closing and reopening the chat preserves the unsent draft', async () => {
       await page.locator('#chat-input').fill('Mi borrador pendiente');
       await page.locator('#chat20-close').click();

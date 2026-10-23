@@ -14,7 +14,7 @@ assert(!html.includes('X-Axx-Token'), 'Host credentials must not appear in the f
 assert(!html.includes("const apiBase ="), 'Production must not hardcode a development port');
 
 (async () => {
-  const server = http.createServer((req, res) => { if (['/scripts/native-capture.js', '/scripts/native-voice.js', '/scripts/native-music.js', '/scripts/command-library.js', '/scripts/axx-connect.js', '/scripts/providers.js'].includes(req.url)) { res.writeHead(200, { 'Content-Type': 'application/javascript' }); res.end(fs.readFileSync(path.join(__dirname, path.basename(req.url)))); } else { res.writeHead(200, { 'Content-Type': 'text/html' }); res.end(html); } });
+  const server = http.createServer((req, res) => { if (req.url?.startsWith('/scripts/') && req.url.endsWith('.js')) { const file=path.join(__dirname,path.basename(req.url)); if (fs.existsSync(file)) { res.writeHead(200, { 'Content-Type': 'application/javascript' }); res.end(fs.readFileSync(file)); return; } } res.writeHead(200, { 'Content-Type': 'text/html' }); res.end(html); });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const browser = await chromium.launch({ headless: true, executablePath: process.env.AXX_TEST_CHROMIUM || path.join(process.env.LOCALAPPDATA, 'ms-playwright/chromium_headless_shell-1248/chrome-headless-shell-win64/chrome-headless-shell.exe') });
   const results = [];
@@ -87,14 +87,13 @@ assert(!html.includes("const apiBase ="), 'Production must not hardcode a develo
     const nativeBackground = await page.evaluate(() => [document.documentElement, document.body].map(e => getComputedStyle(e).backgroundColor));
     assert.deepEqual(nativeBackground, ['rgba(0, 0, 0, 0)', 'rgba(0, 0, 0, 0)']);
     results.push('Native overlay backgrounds are transparent while the original UI surfaces remain');
-    console.error(await page.evaluate(() => ({ resident: !!Axx.resident, fatal: document.getElementById('fatal').textContent, toast: document.getElementById('toast').textContent, layout: window.__contractLayout, first: Axx.resident?.firstFrame })));
     await page.waitForFunction(() => window.__contractLayout?.ready === true);
-    console.error('resident: ready');
     const residentStartup = await page.evaluate(() => ({ layout: window.__contractLayout, size: Axx.resident.size, visibleButtons: [...document.querySelectorAll('button')].filter(n => n.getClientRects().length && getComputedStyle(n).visibility !== 'hidden').map(n => n.id) }));
-    assert.equal(residentStartup.layout.width, residentStartup.size + 24);
-    assert.equal(residentStartup.layout.height, residentStartup.size + 24);
+    assert.equal(residentStartup.layout.width, 1920);
+    assert.equal(residentStartup.layout.height, 1040);
+    assert.equal(residentStartup.layout.stableSurface, true);
     assert.deepEqual(residentStartup.visibleButtons, []);
-    console.error('resident: no startup controls');
+    await page.setViewportSize({ width: 1920, height: 1040 });
     const startupPng = await page.screenshot({ omitBackground: true });
     const alpha = await page.evaluate(async encoded => {
       const image = new Image(); image.src = 'data:image/png;base64,' + encoded; await image.decode();
@@ -105,22 +104,20 @@ assert(!html.includes("const apiBase ="), 'Production must not hardcode a develo
       return { paintedOutside, paintedBody };
     }, startupPng.toString('base64'));
     assert.equal(alpha.paintedOutside, 0); assert(alpha.paintedBody > 100);
-    console.error('resident: alpha verified');
-    results.push('Resident startup paints only the real liquid canvas, has zero alpha outside it and requests a compact window');
+    results.push('Resident startup paints only the real liquid canvas on a transparent, stable monitor surface');
     await page.evaluate(() => Axx.flow.select('chat'));
     await page.waitForFunction(() => window.__contractLayout.width > Axx.resident.size + 100);
-    console.error('resident: chat expanded');
     const expanded = await page.evaluate(() => window.__contractLayout);
     await page.setViewportSize({ width: expanded.width, height: expanded.height });
     await page.waitForFunction(() => document.getElementById('panel').getBoundingClientRect().width >= 400);
     assert(await page.evaluate(() => { const p = document.getElementById('panel').getBoundingClientRect(); return p.left >= 0 && p.top >= 0 && p.right <= innerWidth && p.bottom <= innerHeight; }));
     assert.equal(await page.evaluate(() => Axx.resident.size), residentStartup.size);
     await page.evaluate(() => Axx.resident.fold());
-    await page.waitForFunction(() => window.__contractLayout.width === Axx.resident.size + 24);
+    await page.waitForFunction(() => window.__contractLayout.width === 1920);
     await page.setViewportSize({ width: residentStartup.layout.width, height: residentStartup.layout.height });
-    console.error('resident: chat closed');
+    await page.locator('#panel').waitFor({ state: 'hidden' });
     assert.equal(await page.locator('#panel').isVisible(), false);
-    results.push('Opening and closing the existing chat requests content-sized native geometry without changing body size');
+    results.push('Opening and closing chat preserves the monitor surface and avatar size');
     const bodyPoint = await page.evaluate(() => {
       const r = document.getElementById('avatar').getBoundingClientRect();
       for (let radius = 0; radius < 100; radius += 5) for (let angle = 0; angle < Math.PI * 2; angle += .3) { const x = r.left + r.width / 2 + Math.cos(angle) * radius, y = r.top + r.height / 2 + Math.sin(angle) * radius; if (Axx.app.renderer.hitTest(x, y)) return { x, y }; }
@@ -128,10 +125,11 @@ assert(!html.includes("const apiBase ="), 'Production must not hardcode a develo
     });
     assert(bodyPoint);
     await page.mouse.move(bodyPoint.x, bodyPoint.y); await page.mouse.down(); await page.mouse.move(bodyPoint.x + 20, bodyPoint.y + 14); await page.mouse.up();
-    const dragCalls = await page.evaluate(() => window.__contractCalls.filter(c => c.name === 'window_action' && c.args?.action === 'drag'));
+    await page.waitForFunction(() => window.__contractCalls.some(c => c.name === 'desktop_move_body'));
+    const dragCalls = await page.evaluate(() => window.__contractCalls.filter(c => c.name === 'desktop_move_body'));
     assert.equal(dragCalls.length, 1);
     assert.equal(await page.evaluate(() => Axx.flow.nav.step), 0);
-    results.push('Dragging the opaque body past seven pixels invokes native drag exactly once and releasing opens no tool');
+    results.push('Dragging the opaque body invokes native body movement once and releasing opens no tool');
     await page.setViewportSize({ width: 1440, height: 960 });
     assert.equal(await page.evaluate(() => Axx.FORMS.length), 24);
     assert.equal(await page.evaluate(() => Axx.PALETTES.length), 9);

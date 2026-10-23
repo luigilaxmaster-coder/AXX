@@ -150,7 +150,7 @@ public class AxxTransportPlugin extends Plugin {
             // The QR certificate pin is the authority, independent of DHCP address changes.
             configureTls(profile.getString("fingerprint"),endpoint.getHost(),connection);
             connection.setInstanceFollowRedirects(false);
-            boolean control=path.startsWith("/v1/control/");
+            boolean control=path.startsWith("/v1/control/") || path.startsWith("/v1/avatar/");
             connection.setConnectTimeout(control?1500:6000);
             connection.setReadTimeout(control?1500:75000);
             connection.setRequestMethod(method);

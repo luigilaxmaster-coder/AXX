@@ -34,6 +34,13 @@ class MobileHTTP:
             self.h._send_json(200, self.gateway.voice.status())
         elif path == '/axx-api/mobile/control/status':
             self.h._send_json(200, self.gateway.control.status())
+        elif path == '/axx-api/mobile/avatar/events':
+            query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.h.path).query)
+            if set(query) != {'since'} or len(query['since']) != 1 or not query['since'][0].isdecimal():
+                raise ValueError('since must be a nonnegative integer')
+            self.h._send_json(200, self.gateway.avatar_events(int(query['since'][0])))
+        elif path == '/axx-api/mobile/work/pending':
+            self.h._send_json(200, self.gateway.pending_work())
         else:
             self.h._send_json(404, {'error': {'code':'NOT_FOUND'}})
         return True
@@ -58,8 +65,13 @@ class MobileHTTP:
                 image.save(output)
                 result['qr_svg_base64'] = base64.b64encode(output.getvalue()).decode('ascii')
         elif path == '/axx-api/mobile/stop':
-            self.gateway.stop()
-            result = self.gateway.status()
+            result = self.gateway.set_always_access(False)
+        elif path == '/axx-api/mobile/always-access':
+            if set(body) != {'enabled'} or type(body['enabled']) is not bool:
+                raise ValueError('enabled must be a boolean')
+            result = self.gateway.set_always_access(body['enabled'])
+        elif path == '/axx-api/mobile/work/approve':
+            result = self.gateway.approve_work(body)
         elif path == '/axx-api/mobile/revoke':
             if set(body) != {'device_id'} or not isinstance(body['device_id'], str):
                 raise ValueError('device_id required')
@@ -74,7 +86,9 @@ class MobileHTTP:
         elif path == '/axx-api/mobile/input-permission':
             if set(body)!={'device_id','enabled'}:raise ValueError('device_id and enabled required')
             result={'scopes':self.gateway.store.set_input_permission(body['device_id'],body['enabled'])}
-            if not body['enabled']:self.gateway.control.disconnect(body['device_id'])
+            if not body['enabled']:
+                self.gateway.control.disconnect(body['device_id'])
+                self.gateway.clear_avatar_device(body['device_id'])
         elif path == '/axx-api/mobile/control/material':
             result=self.gateway.control.material(body)
         elif path == '/axx-api/mobile/control/cancel':

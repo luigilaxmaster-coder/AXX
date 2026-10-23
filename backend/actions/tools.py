@@ -374,19 +374,19 @@ class DesktopTool(BaseTool):
             return False, str(exc)
 
     def execute(self, inputs):
-        if self.kind == 'powershell':
-            return ToolResult(False, error='PowerShell requires a workspace and explicit approval')
+        if self.kind in ('powershell', 'cmd'):
+            return ToolResult(False, error='Shell commands require a workspace and explicit approval')
         from .desktop import open_target
         return ToolResult(**open_target(self.kind, inputs))
 
     def execute_cancellable(self, inputs, workspace_root, cancelled):
-        if self.kind != 'powershell':
+        if self.kind not in ('powershell', 'cmd'):
             return self.execute(inputs)
-        from .desktop import run_powershell
-        return ToolResult(**run_powershell(inputs, workspace_root, cancelled))
+        from .desktop import run_shell
+        return ToolResult(**run_shell(self.kind, inputs, workspace_root, cancelled))
 
     def verify_postconditions(self, inputs, result):
-        if self.kind == 'powershell':
+        if self.kind in ('powershell', 'cmd'):
             valid = result.success and result.evidence.get('exit_code') == 0 and not result.evidence.get('cancelled')
         elif self.kind == 'list_apps':
             valid = result.success and isinstance(result.output.get('applications'), list) and result.evidence.get('count') == len(result.output['applications'])
@@ -434,7 +434,7 @@ TOOL_REGISTRY: dict[str, BaseTool] = {
     SystemTelemetryTool.name: SystemTelemetryTool(),
     ProcessStateTool.name: ProcessStateTool(),
     BlenderRenderFixtureTool.name: BlenderRenderFixtureTool(),
-    **{('desktop_' + kind): DesktopTool(kind) for kind in ('open_url', 'open_app', 'installed_app', 'list_apps', 'search', 'powershell')},
+    **{('desktop_' + kind): DesktopTool(kind) for kind in ('open_url', 'open_app', 'installed_app', 'list_apps', 'search', 'powershell', 'cmd')},
 }
 
 def get_tool(name: str) -> BaseTool | None:

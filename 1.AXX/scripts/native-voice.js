@@ -13,6 +13,9 @@
         if (!state.voicePromise) state.voicePromise = Axx.backendRequest('GET', '/axx-api/speech/voices').then(data => {
             if (!data.available || !Array.isArray(data.voices)) throw new Error('Windows no ofrece voces locales de lectura.');
             state.voices = data.voices.filter(v => v.enabled !== false && typeof v.name === 'string');
+            const savedRate = Number(localStorage.getItem('axx.voice.rate') || 1);
+            if (Number.isFinite(savedRate) && savedRate >= .75 && savedRate <= 1.3)
+                for (const reader of [Axx.symbiosis?.reader, Axx.voice13?.reader]) if (reader) reader.rate=savedRate;
             const webVoices = (!window.__contractCalls && 'speechSynthesis' in window) ? (window.speechSynthesis.getVoices() || []) : [];
             const savedURI = (!window.__contractCalls && localStorage.getItem('axx.voice.uri')) || '';
             if (savedURI) {
@@ -21,8 +24,8 @@
             }
             for (const [id, reader] of [['reader-voice', Axx.symbiosis?.reader], ['v13-voice', Axx.voice13?.reader], ['chat-voice-select', Axx.symbiosis?.reader]]) {
                 const select = document.getElementById(id); if (!select) continue;
-                select.replaceChildren(new Option('Voz local de Windows · automática', ''));
-                for (const voice of state.voices) select.add(new Option(voice.name + ' · ' + voice.language, 'sapi:' + voice.name));
+                select.replaceChildren(new Option('Voz rápida de Windows · automática', ''));
+                for (const voice of state.voices) select.add(new Option(voice.engine === 'moss-onnx' ? (voice.label || voice.name) : (voice.label || voice.name) + ' · ' + voice.language, voice.engine === 'moss-onnx' ? voice.name : 'sapi:' + voice.name));
                 for (const wv of webVoices) select.add(new Option(wv.name + ' · ' + wv.lang + ' (Sistema)', 'web:' + wv.voiceURI));
                 const targetVal = reader?.voiceURI || savedURI || '';
                 if ([...select.options].some(o => o.value === targetVal)) select.value = targetVal;
@@ -31,7 +34,7 @@
             const host = document.getElementById('view-reader');
             if (host && !document.getElementById('native-reader-engine')) {
                 const info = document.createElement('p'); info.id = 'native-reader-engine'; info.className = 'micro-copy';
-                info.textContent = 'Lectura local Windows SAPI. Voces instaladas: ' + state.voices.map(v => v.language).join(', ') + (state.voices.some(v => v.language?.startsWith('es')) ? '.' : '. No hay una voz española instalada; puedes elegir una voz disponible.');
+                info.textContent = state.voices.some(v => v.engine === 'moss-onnx') ? 'Voz automática: respuesta rápida de Windows. Voces Axx: muestras locales con preparación inicial del modelo.' : 'Lectura local Windows SAPI. Elige una voz instalada.';
                 host.prepend(info);
             }
             return state.voices;
@@ -46,10 +49,25 @@
         if (!Axx.isNative()) return browserCancel.call(this);
         this.generation++; clearTimeout(this.watchdog); this.watchdog = null; this.current = null;
         if (this.nativePending) { this.nativePending = false; cancelWorker(); }
+        this.nativePrefetch = null;
+        this.nativeVoiceName = null;
         if (this.nativeAudio) { this.nativeAudio.pause(); this.nativeAudio.removeAttribute('src'); this.nativeAudio.load(); this.nativeAudio = null; }
         if (this.nativeAudioUrl) URL.revokeObjectURL(this.nativeAudioUrl);
         this.nativeAudioUrl = null;
         window.speechSynthesis?.cancel();
+    };
+    proto.prefetchNativeNext = function () {
+        if (!Axx.isNative() || !this.nativeAudio || this.nativePrefetch || !this.nativeVoiceName) return;
+        const index = this.index + 1, text = this.chunks[index];
+        if (!text) return;
+        const generation = this.generation;
+        const request = { text, voice: this.nativeVoiceName,
+            rate: Math.max(-5, Math.min(5, Math.round((this.rate - 1) * 5))), volume: 100 };
+        const prefetch = { index, generation, promise: Axx.backendRequest('POST', '/axx-api/speech/synthesize', request) };
+        this.nativePrefetch = prefetch;
+        this.nativePending = true;
+        void prefetch.promise.then(() => { if (this.nativePrefetch === prefetch) this.nativePending = false; },
+            () => { if (this.nativePrefetch === prefetch) this.nativePending = false; });
     };
     proto.play = function () {
         if (Axx.isNative() && this.state === 'paused' && this.nativeAudio) {
@@ -74,25 +92,32 @@
             finally { this.voiceURI = prevURI; }
         }
         const text = this.chunks[this.index]?.slice(this.offset); if (!text) return;
-        this.cancelUtterance(); const generation = this.generation;
+        const carried = this.nativePrefetch?.index === this.index && this.nativePrefetch.generation === this.generation
+            ? this.nativePrefetch : null;
+        if (!carried) this.cancelUtterance();
+        const generation = this.generation;
         this.current = { engine: 'windows-sapi' }; this.nativePending = false; this.state = 'starting'; this.hasBoundary = false; this.onChange?.();
         void (async () => {
             try {
                 const voices = await state.refreshVoices();
                 if (generation !== this.generation) return;
-                const requested = this.voiceURI?.startsWith('sapi:') ? this.voiceURI.slice(5) : '';
-                const voice = voices.find(v => v.name === requested) || voices.find(v => v.language?.startsWith(this.lang.slice(0, 2))) || voices[0];
+                const requested = this.voiceURI?.startsWith('sapi:') ? this.voiceURI.slice(5) : this.voiceURI?.startsWith('moss:') ? this.voiceURI : '';
+                const voice = voices.find(v => v.name === requested)
+                    || voices.find(v => v.engine !== 'moss-onnx' && v.language?.startsWith(this.lang.slice(0, 2)))
+                    || voices.find(v => v.engine !== 'moss-onnx') || voices[0];
                 if (!voice) throw new Error('No hay una voz de Windows habilitada.');
                 this.nativePending = true;
-                const data = await Axx.backendRequest('POST', '/axx-api/speech/synthesize', { text, voice: voice.name, rate: Math.max(-5, Math.min(5, Math.round((this.rate - 1) * 5))), volume: 100 });
+                const data = carried ? await carried.promise : await Axx.backendRequest('POST', '/axx-api/speech/synthesize', { text, voice: voice.name, rate: Math.max(-5, Math.min(5, Math.round((this.rate - 1) * 5))), volume: 100 });
                 if (generation !== this.generation) return;
                 this.nativePending = false;
-                if (data.mime !== 'audio/wav' || typeof data.audio_base64 !== 'string' || data.audio_base64.length > 4 * 1024 * 1024) throw new Error('Windows no devolvió un archivo de voz válido.');
+                if (carried && this.nativePrefetch === carried) this.nativePrefetch = null;
+                if (data.mime !== 'audio/wav' || typeof data.audio_base64 !== 'string' || data.audio_base64.length > 17 * 1024 * 1024) throw new Error('El motor de voz no devolvió un WAV válido.');
                 const binary = atob(data.audio_base64), bytes = Uint8Array.from(binary, character => character.charCodeAt(0));
                 const url = URL.createObjectURL(new Blob([bytes], { type: data.mime })); this.nativeAudioUrl = url;
                 const audio = new Audio(url); this.nativeAudio = audio;
+                if (data.engine === 'moss-onnx') audio.playbackRate = Math.max(.75,Math.min(1.3,Number(this.rate)||1));
                 const valid = () => generation === this.generation && this.nativeAudio === audio;
-                audio.onplaying = () => { if (!valid()) return; this.state = 'speaking'; state.playback = { engine: data.engine, voice: data.voice, sha256: data.evidence?.sha256, playing_event: true, ended_event: false, duration_seconds: data.duration_seconds }; this.onChange?.(); };
+                audio.onplaying = () => { if (!valid()) return; this.state = 'speaking'; this.nativeVoiceName = voice.name; state.playback = { engine: data.engine, voice: data.voice, sha256: data.evidence?.sha256, playing_event: true, ended_event: false, duration_seconds: data.duration_seconds }; this.prefetchNativeNext(); this.onChange?.(); };
                 audio.onended = () => { if (!valid()) return; if (state.playback) state.playback.ended_event = true; this.nativeAudio = null; this.current = null; URL.revokeObjectURL(url); this.nativeAudioUrl = null; this.offset = this.wordOffset = this.wordLength = 0; if (++this.index < this.chunks.length) this.speakCurrent(); else { this.index = Math.max(0, this.chunks.length - 1); this.state = 'ended'; this.onChange?.(); this.onEnded?.(); } };
                 audio.onerror = () => { if (!valid()) return; this.cancelUtterance(); this.state = 'error'; this.onError?.('No se pudo reproducir el WAV de Windows. El texto se conserva.'); this.onChange?.(); };
                 await audio.play();

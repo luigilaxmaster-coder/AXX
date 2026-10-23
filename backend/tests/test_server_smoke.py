@@ -13,11 +13,24 @@ import unittest
 import urllib.request
 import urllib.error
 
-from backend.server import run_server, AxxBridgeHandler, ThreadedHTTPServer
+from backend.server import run_server, AxxBridgeHandler, ThreadedHTTPServer, local_realtime_models
 from backend.inference.adapter import InferenceAdapter
 from backend.actions.executor import ActionExecutor
 from backend.memory.procedural_memory import ProceduralMemory
 from backend.sync.identity_sync import IdentityStore
+
+
+class LocalRealtimeEligibilityTests(unittest.TestCase):
+    def test_requires_exact_enabled_loopback_provider_and_ready_model(self):
+        status = {'providers': [{'name': 'ollama-local', 'model': 'test-model', 'state': 'ready_locally'}]}
+        provider = {'name': 'ollama-local', 'model': 'test-model', 'enabled': True,
+                    'protocol': 'openai', 'base_url': 'http://127.0.0.1:11434/v1'}
+        self.assertEqual(local_realtime_models({'providers': [provider]}, status), ['test-model'])
+        for change in ({'enabled': False}, {'base_url': 'http://192.168.1.20:11434/v1'},
+                       {'base_url': 'http://127.0.0.1:1234/v1'}, {'protocol': 'anthropic'}):
+            self.assertEqual(local_realtime_models({'providers': [{**provider, **change}]}, status), [])
+        self.assertEqual(local_realtime_models({'providers': [provider]},
+                         {'providers': [{**status['providers'][0], 'state': 'disabled'}]}), [])
 
 class ServerSmokeTests(unittest.TestCase):
     @classmethod

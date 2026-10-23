@@ -1,8 +1,16 @@
 {
   "name": "axx-mobile",
-  "version": "0.1.0",
+  "version": "0.1.3",
   "private": true,
-  "scripts": {"build": "node build.mjs", "sync": "npm run build && cap sync android"},
-  "dependencies": {"@capacitor/core": "8.5.3", "@capacitor/android": "8.5.3"},
-  "devDependencies": {"@capacitor/cli": "8.5.3"}
+  "scripts": {
+    "build": "node build.mjs",
+    "sync": "npm run build && cap sync android"
+  },
+  "dependencies": {
+    "@capacitor/core": "8.5.3",
+    "@capacitor/android": "8.5.3"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.5.3"
+  }
 }

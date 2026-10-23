@@ -1,13 +1,13 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     fs,
     io::Read,
     path::PathBuf,
     process::{Child, Command, Stdio},
     sync::{
-        Mutex,
+        Arc, Mutex,
         atomic::{AtomicBool, Ordering},
     },
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
@@ -17,6 +17,7 @@ mod resident;
 mod system_media;
 mod capture;
 mod magic_pen;
+mod realtime_chat;
 
 const MAX_MESSAGE: usize = 8 * 1024 * 1024;
 
@@ -103,6 +104,7 @@ pub struct HostState {
     shortcut_error: Mutex<Option<String>>,
     remote_voice_shortcut_error: Mutex<Option<String>>,
     active_requests: Mutex<HashSet<String>>,
+    realtime_cancellations: Mutex<HashMap<String, Arc<AtomicBool>>>,
     data_dir: Mutex<PathBuf>,
     preferences_dirty: AtomicBool,
     runtime_revision: std::sync::atomic::AtomicU64,
@@ -240,7 +242,9 @@ fn request_backend(
     body: Option<Value>,
 ) -> Result<Value, String> {
     validate_route(method, path)?;
-    let timeout = if path == "/axx-api/speech/transcribe" {
+    let timeout = if path == "/axx-api/speech/synthesize" {
+        230
+    } else if path == "/axx-api/speech/transcribe" {
         95
     } else if path == "/axx-api/status"
         || path == "/axx-api/chat/cancel"
@@ -382,6 +386,9 @@ async fn backend_request(
 
 fn cancel_active(app: &AppHandle) {
     let state = app.state::<HostState>();
+    for cancelled in state.realtime_cancellations.lock().unwrap().values() {
+        cancelled.store(true, Ordering::Relaxed);
+    }
     let ids: Vec<String> = state
         .active_requests
         .lock()
@@ -695,13 +702,13 @@ fn spawn_backend(app: &AppHandle) -> Result<(), String> {
         }
     }
     *state.backend_child.lock().unwrap() = Some(child);
-    let deadline = Instant::now() + Duration::from_secs(25);
+    let deadline = Instant::now() + Duration::from_secs(90);
     let result = loop {
         if state.stopping.load(Ordering::Relaxed) {
             break Err("Axx is shutting down".into());
         }
         if Instant::now() >= deadline {
-            break Err("Axx backend startup timed out after 25 seconds".into());
+            break Err("Axx backend startup timed out after 90 seconds".into());
         }
         if state
             .backend_child
@@ -1103,6 +1110,9 @@ pub fn run() {
             magic_pen::magic_pen_capture,
             magic_pen::magic_pen_session,
             backend_request,
+            realtime_chat::ollama_realtime_chat,
+            realtime_chat::ollama_realtime_cancel,
+            realtime_chat::ollama_realtime_warmup,
             window_action,
             set_timer,
             hit_map,

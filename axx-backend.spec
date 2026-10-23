@@ -7,6 +7,7 @@ a = Analysis(
     pathex=[SPECPATH, str(Path(SPECPATH) / 'vendor' / 'cli_anything_blender')],
     binaries=collect_dynamic_libs('ctranslate2') + collect_dynamic_libs('av') + collect_dynamic_libs('tokenizers'),
     datas=[('resources/providers.default.json', 'resources'),
+           ('backend/speech/moss_worker.py', 'speech'),
            ('resources/command-library.json', 'resources'),
            ('resources/procedure-library.zip', 'resources'),
            ('master_icon.png', '.'),

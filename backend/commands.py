@@ -60,6 +60,10 @@ ADAPTERS = {
         'title': 'Ejecutar PowerShell', 'tool': 'desktop_powershell', 'risk': 'system_command',
         'description': 'Ejecuta el script escrito tras aprobarlo. Puede modificar archivos y ajustes. Devuelve salida, errores y código de salida. Límite: 30 segundos.',
         'aliases': [], 'parameters': {'script': {'type': 'string', 'required': True, 'maxLength': 8000}}},
+    'axx.shell.cmd': {
+        'title': 'Ejecutar CMD', 'tool': 'desktop_cmd', 'risk': 'system_command',
+        'description': 'Ejecuta el comando CMD escrito y aprobado en la PC. Devuelve salida, errores y código de salida. Límite: 30 segundos.',
+        'aliases': [], 'parameters': {'script': {'type': 'string', 'required': True, 'maxLength': 8000}}},
     'axx.system.telemetry': {
         'title': 'Información del sistema', 'tool': 'system_telemetry', 'risk': 'read',
         'description': 'Consulta el sistema y el espacio disponible; verifica la respuesta local.',
@@ -287,7 +291,7 @@ class CommandService:
                 if not isinstance(value, str) or len(value) > rule.get('maxLength', 65536) or len(value.encode('utf-8')) > rule.get('maxBytes', 262144):
                     raise ValueError(f'{name} debe ser texto dentro de los límites')
         inputs = dict(inputs)
-        if command_id.startswith('axx.desktop.') or command_id == 'axx.shell.powershell':
+        if command_id.startswith('axx.desktop.') or command_id in ('axx.shell.powershell', 'axx.shell.cmd'):
             validate_desktop_inputs(ADAPTERS[command_id]['tool'].removeprefix('desktop_'), inputs)
         if command_id == 'axx.process.inspect':
             inputs.setdefault('pid', os.getpid())
@@ -336,8 +340,8 @@ class CommandService:
             command_id = PROCEDURE_BINDINGS.get(command_id, command_id)
         if not isinstance(command_id, str) or command_id not in self.commands or source not in ('text', 'voice'):
             raise ValueError('Comando u origen desconocido')
-        if command_id == 'axx.shell.powershell' and source != 'text':
-            raise ValueError('Escribe el comando PowerShell y revisa su aprobación; no se ejecutan scripts dictados.')
+        if command_id in ('axx.shell.powershell', 'axx.shell.cmd') and source != 'text':
+            raise ValueError('Escribe el comando y revisa su aprobación; no se ejecutan scripts dictados.')
         op_id = str(uuid.uuid4()) if operation_id is None else operation_id
         if not isinstance(op_id, str) or not re.fullmatch(r'[A-Za-z0-9_.-]{1,128}', op_id):
             raise ValueError('operation_id inválido')
@@ -393,7 +397,7 @@ class CommandService:
                 except ValueError as exc:
                     return self._save(result | {'state': 'failed', 'error': {'code': 'PRECONDITION_CHANGED', 'message': str(exc)}})
                 result.update(state='running')
-                if result['command_id'] in ('axx.shell.powershell', 'axx.file.sha256', 'axx.file.compare'):
+                if result['command_id'] in ('axx.shell.powershell', 'axx.shell.cmd', 'axx.file.sha256', 'axx.file.compare'):
                     self.cancel_events[operation_id] = threading.Event()
                 self._save(result)
             try:

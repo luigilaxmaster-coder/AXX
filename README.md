@@ -6,7 +6,9 @@
 
 Run the installer and open Axx. Python and Node are not required. Configure your own AI provider in Settings; credentials and conversation history are not included in the installer. Windows may need Internet to install WebView2. The installer is unsigned.
 
-**The published v0.20.11 download predates the mobile integration below.** Current mobile builds are local development artifacts; pushing source does not update the published installer. See [mobile setup and validation](docs/mobile/README.md).
+The packaged backend may take longer on its first launch while Windows extracts and scans it. The native host allows up to 90 seconds for backend readiness and reports a startup error if that limit is exceeded.
+
+**The published v0.20.11 download predates the changes below.** The source manifests are at **v0.20.18**; the newer Windows installer and Android APK are local build artifacts until separately published. Pushing source does not replace a GitHub release. See [mobile setup and validation](docs/mobile/README.md).
 
 ---
 
@@ -15,7 +17,7 @@ Run the installer and open Axx. Python and Node are not required. Configure your
 </p>
 
 <p align="center">
-  <strong>A resident entity for Windows 11 featuring a haptic 3D interface, multi-provider inference engine with automated failover, offline voice recognition, and procedural memory.</strong>
+  <strong>A resident Windows assistant with a 3D interface, selectable AI providers, local speech tools, and procedural memory.</strong>
 </p>
 
 <p align="center">
@@ -25,7 +27,7 @@ Run the installer and open Axx. Python and Node are not required. Configure your
   <img src="https://img.shields.io/badge/Frontend-WebGL%20%2F%20HTML5-black?logo=webgl" alt="WebGL" />
   <img src="https://img.shields.io/badge/Offline%20Voice-Faster--Whisper%20Tiny-green" alt="Faster-Whisper" />
   <img src="https://img.shields.io/badge/Protocol-Model%20Context%20Protocol%20(MCP)-blueviolet" alt="MCP" />
-  <img src="https://img.shields.io/badge/Source%20Version-v0.20.11-informational" alt="Source version 0.20.11" />
+  <img src="https://img.shields.io/badge/Source%20Version-v0.20.18-informational" alt="Source version 0.20.18" />
   <img src="https://img.shields.io/badge/Development-Active%20Refinement-yellow?logo=git" alt="Active Development" />
 </p>
 
@@ -37,7 +39,7 @@ Run the installer and open Axx. Python and Node are not required. Configure your
 
 ## 💡 About — The Axx Manifesto
 
-> *"Artificial intelligence should not remain trapped inside a browser tab or behind a sterile chat box. **Axx** shatters that paradigm: a living, haptic entity residing directly on your Windows desktop that accompanies you in real time, respects your privacy with local models, never obstructs your screen, and responds with rock-solid reliability through a hot-failover hybrid architecture."*
+> *"Axx brings a 3D assistant to the Windows desktop. Its local model and speech options keep those requests on the PC when configured; other providers follow their own connection settings."*
 
 ---
 
@@ -91,7 +93,7 @@ These are presentation captures of the current UI in an isolated browser. The mo
 ## 🚧 Project Status: Active Continuous Improvement
 
 > [!NOTE]
-> **Axx is under active development.** The current source manifests use **v0.20.11**, and a [Windows x64 test installer is published](https://github.com/luigilaxmaster-coder/AXX/releases/tag/v0.20.11). Validation is recorded per feature; a working UI or build does not by itself certify every hardware-dependent behavior.
+> **Axx is under active development.** The current source manifests use **v0.20.18**. The [published Windows x64 test installer](https://github.com/luigilaxmaster-coder/AXX/releases/tag/v0.20.11) remains v0.20.11. Validation is recorded per feature; a working UI or build does not by itself certify every hardware-dependent behavior.
 
 ### 🟢 Implemented capabilities
 - **Native Startup:** Resident Windows application with a local backend and a launcher fallback to the executable built from this repository.
@@ -99,6 +101,19 @@ These are presentation captures of the current UI in an isolated browser. The mo
 - **Transparent Click-Through:** Borderless desktop window that dynamically passes pointer clicks through transparent zones using the Win32 API (`WM_NCHITTEST`), ensuring complete background desktop usability.
 - **Multi-Provider Connections:** Local/LAN Ollama, Ollama Cloud, LM Studio, Anthropic, Groq and compatible APIs, with model discovery and DPAPI-protected credentials. Explicit connection selection keeps requests on the selected provider/model; it does not silently switch platforms on failure.
 - **Episodic Memory & MCP Core:** Integrated procedural SQLite memory and Model Context Protocol schema validation.
+
+### Source update · October 23, 2026
+
+| Area | Behavior in this source | Operational limit |
+| --- | --- | --- |
+| Phone access | Pair each phone by a one-use QR, then approve its capabilities on the PC. Approved permissions persist and can be revoked. | A new installation or lost Android signing key can require pairing again. The phone and PC must be reachable on the local network. |
+| Remote character | Rotate and move the character from Android; the desktop receives gesture events and applies them to the native character. | Visual timing still depends on the network and active desktop window; verify with the physical phone. |
+| Work | Inspect the PC, open an allowed app, search, write a new artifact, choose an executable command, and review operation results. A lost response can be checked by operation ID; the phone can explicitly discard its local follow-up record. | Work permission is separate from mouse/keyboard permission. Discarding the record does not cancel a PC operation. |
+| Shell commands | Send `/powershell <script>` or `/cmd <command>` from the phone or desktop chat. The PC must approve each request; output and exit code are returned. | These are **arbitrary commands with the current Windows user's privileges**. Review the exact text before approval. Execution is capped at 30 seconds and 64 KiB of output; approval is not a sandbox. Voice dictation and model responses cannot directly run shell text. |
+| Chat | Select the configured local Ollama model for token-by-token text in the native window. The backend verifies that `ollama-local` points to `127.0.0.1:11434` before enabling the direct stream. Connecting preloads the selected model and requests a 30-minute keep-alive. The user can tune response style and language. | The first model load can still take tens of seconds; the preload starts in the background on connection. Other providers use their existing complete-response path. Prompt settings adjust responses; no model weights are trained. |
+| Speech | Automatic Windows voice starts quickly; optional Axx Alba, Nova, Aura, and Titán voices use local MOSS ONNX plus user-supplied reference audio. Text is cleaned before speech so punctuation markers are not read aloud. Speech can start from completed phrases while the local chat continues. | The custom voices require a separate local MOSS installation and samples in `%LOCALAPPDATA%\Axx\speech\voices\`; neither weights nor user audio are stored in Git. Their initial model load is much slower than Windows SAPI. Available Windows voices and language quality depend on the machine. |
+
+For the four optional voices, copy the reference clips as 24 kHz mono PCM WAV files named `axx-alba.wav`, `axx-nova.wav`, `axx-aura.wav`, and `axx-titan.wav` into `%LOCALAPPDATA%\Axx\speech\voices\`. Set `AXX_MOSS_TTS_ROOT` to the local `MOSS-TTS-Nano` directory if it is outside `~/Downloads/tts nano/MOSS-TTS-Nano`; that directory must contain its `.venv`, ONNX models, and runtime. Open the voice selector to choose one. The voice names are Axx names in both Spanish and English; audio quality in each language depends on the reference clip and local model.
 
 ### Latest updates · October 22, 2026
 
@@ -415,33 +430,34 @@ Customize `providers.json` at the root of the project to define local models or 
 
 ---
 
-## 📦 Building for Production (Windows NSIS Installer)
+## 📦 Building for Windows (NSIS Installer)
 
-To compile and package the audited release executable (`.exe` NSIS):
+With the pinned Node dependencies installed (`npm ci`), the Python build requirements available, and the declared local dependencies present, build the Windows test installer:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\build-windows.ps1
 ```
 
-The script automatically executes:
-1. Cryptographic SHA256 integrity validation of all local models and binaries against declared manifests.
+The script executes:
+1. SHA-256 validation of the declared AI memory binary and Faster-Whisper model files. Optional MOSS weights and user voice samples are external and are not packaged.
 2. Isolated packaging of the Python backend into a standalone binary via PyInstaller (`dist/axx-backend.exe`).
 3. Release-mode compilation of the Rust host.
 4. Final packaging of the NSIS installer located at `src-tauri/target/release/bundle/nsis/`.
 
 ---
 
-## 🔒 Security & Privacy Guarantees
+## 🔒 Security and privacy boundaries
 
 - **Zero Forced Telemetry:** Runtime metrics and performance data remain strictly inside local SQLite stores (`state.db`).
 - **DPAPI Secret Encryption:** API keys and credentials are encrypted using the Windows Data Protection API (DPAPI) locked to the current Windows user profile.
-- **Sandboxed Command Execution:** Operating system commands execute strictly within an approved catalog, preventing arbitrary or untrusted code execution.
+- **Shell approval:** PowerShell and CMD accept arbitrary user-written scripts only after explicit PC approval. They run with the Axx process user's Windows permissions; the workspace is a working directory, not an isolation boundary. Do not approve text you have not inspected.
+- **Phone authorization:** Pairing a phone does not grant all capabilities. Grant and revoke control or Work separately in desktop settings. Keep the PC and Android app updated together when the mobile protocol changes.
 
 ---
 
 ## 📄 License
 
-This project is distributed under the license terms specified in the repository. Refer to `src-tauri/resources/licenses/` for license notices regarding third-party components (Faster-Whisper, NumPy, AI-Memory).
+See `src-tauri/resources/licenses/` for third-party notices. No repository-wide license is declared here; contact the repository owner before assuming redistribution rights.
 
 ---
 

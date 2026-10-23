@@ -37,6 +37,7 @@
     }
     avatar?.setHidden(name !== 'axx');
     if (name === 'axx') avatar?.resize();
+    if (name === 'work') void refreshWorkCatalog();
     window.scrollTo(0,0);
   }
   function characterIcon() {
@@ -97,8 +98,8 @@
       if (!status.ready) throw new Error('The Axx engine is unavailable');
       await recover();
       const snapshot = await request('/v1/snapshot'); conversationId = snapshot.conversation_id; renderMessages(snapshot.messages); applyAppearance(snapshot.appearance);
-      const tasks = await request('/v1/tasks'); renderRows('tasks', tasks.operations || [], 'No recorded operations.', 'task');
-      const catalog = await request('/v1/catalog'); renderRows('catalog', catalog.tools || [], 'The PC has not published any tools.', 'tool');
+      try{const tasks=await request('/v1/tasks');renderRows('tasks',tasks.operations||[],'Todavía no hay operaciones registradas.','task');}
+      catch(e){$('tasks').textContent='No se pudo cargar la actividad: '+errorText(e);}
       connection(true, 'Connected to your PC');
       if (linking) {
         if (!snapshot.appearance) throw new Error('The PC has not shared its appearance yet. Tap Refresh to retry.');
@@ -154,6 +155,98 @@
     finally {busy=false; await refresh();}
   };
   $('recover').onclick=()=>refresh(); $('refresh').onclick=()=>paired?refresh():showPair();
+  let pendingWork=null;try{pendingWork=JSON.parse(localStorage.getItem('axx.mobile.pendingWork')||'null');}catch{}
+  if(!pendingWork||typeof pendingWork.operation_id!=='string'||typeof pendingWork.command_id!=='string')pendingWork=null;
+  const forgetWork=document.createElement('button');forgetWork.type='button';forgetWork.textContent='Olvidar seguimiento';forgetWork.disabled=!pendingWork;
+  $('work-refresh').insertAdjacentElement('afterend',forgetWork);
+  const setPendingWork=value=>{pendingWork=value;forgetWork.disabled=!value;if(value)localStorage.setItem('axx.mobile.pendingWork',JSON.stringify(value));else localStorage.removeItem('axx.mobile.pendingWork');};
+  forgetWork.onclick=()=>{
+    if(!pendingWork)return;
+    if(!window.confirm('Esto solo quita el seguimiento en el teléfono. La orden puede seguir pendiente en la PC. Revisa Axx antes de enviar otra.'))return;
+    setPendingWork(null);workStatus('Seguimiento local descartado. Comprueba la actividad y las aprobaciones en la PC.');
+  };
+  const workStatus=text=>{$('work-status').textContent=text;};
+  const commandCard=document.createElement('section');commandCard.className='live-card';commandCard.id='work-commands-card';
+  commandCard.innerHTML='<h2>Enviar una orden a Axx</h2><p class="hint">Escribe una orden conocida, como «estado del sistema», «abre calculadora», «/powershell Get-Date» o «/cmd dir». Los comandos del sistema necesitan aprobación en la PC.</p><form id="work-text-form"><label for="work-text">Orden</label><textarea id="work-text" rows="3" maxlength="8000" required placeholder="¿Qué quieres que haga Axx en la PC?"></textarea><button type="submit" class="primary">Enviar orden</button></form><details><summary>Todos los comandos ejecutables</summary><p class="hint">Los comandos documentados sin adaptador no se anuncian como ejecutables.</p><form id="work-generic-form"><label for="work-command-select">Comando</label><select id="work-command-select"></select><p id="work-command-description" class="hint"></p><div id="work-command-fields"></div><button type="submit">Preparar comando</button></form></details>';
+  $('pane-work').insertBefore(commandCard,$('pane-work').children[1]||null);
+  let workCatalog=[];
+  const workSelect=$('work-command-select'),workFields=$('work-command-fields');
+  function renderCommandFields(){
+    const command=workCatalog.find(row=>row.id===workSelect.value);
+    workFields.replaceChildren();$('work-command-description').textContent=command?(command.description+(command.pc_approval_required?' · Requiere aprobación en la PC.':'')):'';
+    if(!command)return;
+    for(const [name,rule] of Object.entries(command.parameters)){
+      const label=document.createElement('label');label.textContent=name;
+      let input;
+      if(Array.isArray(rule.enum)){input=document.createElement('select');for(const value of rule.enum)input.add(new Option(value,value));}
+      else if(name==='script'||name==='content'){input=document.createElement('textarea');input.rows=name==='script'?5:3;}
+      else{input=document.createElement('input');input.type=rule.type==='integer'?'number':'text';}
+      input.dataset.field=name;input.required=rule.required===true;
+      if(rule.maxLength)input.maxLength=rule.maxLength;
+      if(rule.minimum!==undefined)input.min=rule.minimum;
+      if(rule.maximum!==undefined)input.max=rule.maximum;
+      label.append(input);workFields.append(label);
+    }
+  }
+  async function refreshWorkCatalog(){
+    if(!online)return;
+    try{
+      const result=await request('/v1/work/catalog');
+      workCatalog=Array.isArray(result.commands)?result.commands:[];
+      const previous=workSelect.value;workSelect.replaceChildren(...workCatalog.map(row=>new Option(row.title+' · '+row.id,row.id)));
+      if(workCatalog.some(row=>row.id===previous))workSelect.value=previous;
+      renderCommandFields();
+    }catch(e){$('work-command-description').textContent='Aprueba Work para este teléfono en la PC: '+errorText(e);}
+  }
+  workSelect.onchange=renderCommandFields;
+  if(pendingWork)workStatus('Hay una operación pendiente de comprobar. Pulsa «Actualizar actividad».');
+  const workResult=result=>{$('work-result').textContent=JSON.stringify({state:result.state,output:result.output,evidence:result.evidence,error:result.error},null,2);};
+  async function checkWork(){
+    if(!pendingWork){await refresh();return;}
+    try{
+      const result=await request('/v1/work/operation?operation_id='+encodeURIComponent(pendingWork.operation_id));
+      workResult(result);workStatus(result.state==='awaiting_approval'?'Pendiente de aprobación en la PC: '+pendingWork.command_id:'Estado de '+pendingWork.command_id+': '+result.state);
+      if(['succeeded','failed','blocked','cancelled','expired','unknown'].includes(result.state))setPendingWork(null);
+      await refresh();
+    }catch(e){workStatus('No se pudo confirmar la operación. No la repetiré automáticamente: '+errorText(e));}
+  }
+  async function runWork(command_id,inputs,approved=false){
+    if(!paired||!online){workStatus('Primero conecta el teléfono con la PC.');return;}
+    if(pendingWork){workStatus('Hay una operación sin confirmar. Pulsa «Actualizar actividad» antes de enviar otra.');return;}
+    const operation_id=crypto.randomUUID();setPendingWork({operation_id,command_id});
+    workStatus('Enviando '+command_id+' a la PC…');
+    try{
+      const result=await request('/v1/work/execute',{command_id,inputs,operation_id,approved});
+      workResult(result);workStatus(result.pc_approval_required?'Revisa y aprueba esta orden en Axx de la PC.':'Resultado confirmado: '+result.state);
+      if(['succeeded','failed','blocked','cancelled','expired','unknown'].includes(result.state))setPendingWork(null);
+      await refresh();
+    }catch(e){workStatus('Entrega sin confirmar: '+errorText(e)+'. Pulsa «Actualizar actividad»; no se repetirá automáticamente.');}
+  }
+  $('work-health').onclick=()=>void runWork('axx.system.telemetry',{});
+  $('work-text-form').onsubmit=async e=>{
+    e.preventDefault();const text=$('work-text').value.trim();if(!text)return;
+    try{
+      const resolved=await request('/v1/work/resolve',{text});
+      if(resolved.match!=='exact'||!resolved.command_id){workStatus(resolved.message||'No reconozco esa orden. Elige un comando en la lista.');return;}
+      if(!workCatalog.some(row=>row.id===resolved.command_id)){workStatus('Ese comando está documentado, pero no tiene un ejecutor disponible.');return;}
+      await runWork(resolved.command_id,resolved.inputs||{});
+    }catch(error){workStatus('No se pudo preparar la orden: '+errorText(error));}
+  };
+  $('work-generic-form').onsubmit=e=>{
+    e.preventDefault();const inputs={};
+    for(const field of workFields.querySelectorAll('[data-field]'))inputs[field.dataset.field]=field.type==='number'?Number(field.value):field.value;
+    void runWork(workSelect.value,inputs);
+  };
+  $('work-app-form').onsubmit=e=>{e.preventDefault();void runWork('axx.desktop.open_app',{app:$('work-app').value});};
+  $('work-search-form').onsubmit=e=>{e.preventDefault();const query=$('work-search').value.trim();if(query)void runWork('axx.desktop.search',{query,engine:$('work-engine').value});};
+  $('work-note-form').onsubmit=e=>{
+    e.preventDefault();const name=$('work-note-name').value.trim(),content=$('work-note-content').value;
+    if(!/^[^\\/<>:"|?*\x00-\x1f.][^\\/<>:"|?*\x00-\x1f]{0,99}$/.test(name)||name.endsWith('.')){workStatus('Usa un nombre de archivo válido, sin carpetas ni caracteres reservados.');return;}
+    if(!content.trim()){workStatus('Escribe el contenido de la nota.');return;}
+    if(!window.confirm('Crear el archivo nuevo «'+name+'» en los artefactos de Axx de la PC?\n\nVista previa:\n'+content.slice(0,500))){workStatus('Creación cancelada.');return;}
+    void runWork('axx.artifact.write',{path:name,content},true);
+  };
+  $('work-refresh').onclick=()=>{void checkWork();void refreshWorkCatalog();};
   $('pin-shortcut').onclick=async()=>{
     const button=$('pin-shortcut');button.disabled=true;
     try {
@@ -173,12 +266,37 @@
   let appearanceKey='';
   $('avatar-motion').value=motionPreference;
   $('avatar-motion').onchange=()=>{localStorage.setItem('axx.mobile.motion',$('avatar-motion').value);appearanceKey='';if(desktopAppearance)applyAppearance(desktopAppearance);};
-  $('avatar-interact').onclick=()=>{
-    const active=$('avatar-interact').getAttribute('aria-pressed')!=='true';
-    $('avatar-interact').setAttribute('aria-pressed',String(active));
-    $('axx-avatar-canvas').classList.toggle('interactive',active);
-    $('avatar-help').textContent=active?'Tap to say hello. Drag Axx to rotate; use the margin to scroll.':'Tap Axx to say hello. Enable Rotate to drag it.';
-  };
+  let avatarMode='',gestureQueue=[],gestureSending=false,gestureTimer=0;
+  function gestureStatus(text){$('avatar-remote-status').textContent=text;}
+  async function sendGestures(){
+    if(gestureSending)return;gestureSending=true;
+    try{
+      while(gestureQueue.length){
+        const next=gestureQueue.shift();
+        await request('/v1/avatar/gesture',next);
+        gestureStatus(next.kind==='end'?'Gesto reflejado en la PC':'Sincronizando '+(next.kind==='rotate'?'rotación':'movimiento')+' con la PC…');
+      }
+    }catch(e){gestureQueue=[];gestureStatus('La PC no recibió el gesto: '+errorText(e)+'. Aprueba este teléfono en Axx de la PC.');}
+    finally{gestureSending=false;if(gestureQueue.length)queueGestureSend();}
+  }
+  function queueGestureSend(){if(gestureTimer)return;gestureTimer=setTimeout(()=>{gestureTimer=0;void sendGestures();},32);}
+  function gesture(kind,dx=0,dy=0){
+    if(!paired){gestureStatus('Empareja este teléfono con el QR de la PC.');return;}
+    const last=gestureQueue.at(-1),x=Math.max(-200,Math.min(200,dx)),y=Math.max(-200,Math.min(200,dy));
+    if(kind!=='end'&&last?.kind===kind&&Math.abs(last.dx+x)<=200&&Math.abs(last.dy+y)<=200){last.dx+=x;last.dy+=y;}
+    else gestureQueue.push({kind,dx:x,dy:y});
+    if(gestureQueue.length>64){gestureQueue=[];gestureStatus('La conexión está lenta. Vuelve a mover Axx.');return;}
+    queueGestureSend();
+  }
+  function setAvatarMode(mode){
+    avatarMode=avatarMode===mode?'':mode;
+    $('avatar-interact').setAttribute('aria-pressed',String(avatarMode==='rotate'));
+    $('avatar-move').setAttribute('aria-pressed',String(avatarMode==='move'));
+    $('axx-avatar-canvas').classList.toggle('interactive',!!avatarMode);
+    $('avatar-help').textContent=avatarMode==='rotate'?'Arrastra Axx para girarlo aquí y en la PC.':avatarMode==='move'?'Arrastra Axx para moverlo en la pantalla de la PC.':'Activa Rotate o Move y arrastra Axx con el dedo.';
+  }
+  $('avatar-interact').onclick=()=>setAvatarMode('rotate');
+  $('avatar-move').onclick=()=>setAvatarMode('move');
   function reactToTouch(){avatar?.react();interactionUntil=Date.now()+1800;$('avatar-state').textContent='Axx reacts to your touch';}
   const canvas=$('axx-avatar-canvas');
   canvas.onpointerdown=event=>{
@@ -190,11 +308,15 @@
     if(!pointer || pointer.id!==event.pointerId || !canvas.classList.contains('interactive'))return;
     const dx=event.clientX-pointer.x,dy=event.clientY-pointer.y;
     if(Math.hypot(event.clientX-pointer.startX,event.clientY-pointer.startY)>5)pointer.drag=true;
-    if(pointer.drag){avatar.rotate(dx*.012,dy*.012);avatar.draw(avatar.lastTime||0);interactionUntil=Date.now()+5000;$('avatar-state').textContent='Rotating with your finger';}
+    if(pointer.drag){
+      if(avatarMode==='rotate'){avatar?.rotate(dx*.012,dy*.012);avatar?.draw(avatar.lastTime||0);$('avatar-state').textContent='Rotating with your finger';}
+      else $('avatar-state').textContent='Moving Axx on your PC';
+      interactionUntil=Date.now()+5000;gesture(avatarMode,dx,dy);
+    }
     pointer.x=event.clientX;pointer.y=event.clientY;
   };
-  canvas.onpointerup=event=>{if(pointer?.id!==event.pointerId)return;if(!pointer.drag && Math.hypot(event.clientX-pointer.startX,event.clientY-pointer.startY)<8)reactToTouch();pointer=null;};
-  canvas.onpointercancel=()=>{pointer=null;};
+  canvas.onpointerup=event=>{if(pointer?.id!==event.pointerId)return;if(pointer.drag&&avatarMode)gesture('end');if(!pointer.drag && Math.hypot(event.clientX-pointer.startX,event.clientY-pointer.startY)<8)reactToTouch();pointer=null;};
+  canvas.onpointercancel=()=>{if(pointer?.drag&&avatarMode)gesture('end');pointer=null;};
   canvas.onkeydown=event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();reactToTouch();}else if(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(event.key)){event.preventDefault();avatar.rotate(event.key==='ArrowLeft'?-.15:event.key==='ArrowRight'?.15:0,event.key==='ArrowUp'?-.15:event.key==='ArrowDown'?.15:0);avatar.draw(avatar.lastTime||0);interactionUntil=Date.now()+5000;}};
   function applyAppearance(value){
     if(!value || !avatar)return;
