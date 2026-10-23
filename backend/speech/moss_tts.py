@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import queue
+import re
 import subprocess
 import sys
 import threading
@@ -219,7 +220,7 @@ class MossSpeechService:
                 self._request_id = None
 
     def _validate(self, body):
-        if not isinstance(body, dict) or set(body) - {'text', 'voice', 'rate', 'volume'}:
+        if not isinstance(body, dict) or set(body) - {'text', 'voice', 'rate', 'volume', 'language'}:
             raise SpeechError('INVALID_REQUEST', 'Unsupported speech fields')
         if not isinstance(body.get('text'), str) or not 1 <= len(body['text'].strip()) <= 220 or '\x00' in body['text']:
             raise SpeechError('INVALID_REQUEST', 'MOSS voice requires 1 to 220 characters')
@@ -229,6 +230,9 @@ class MossSpeechService:
             raise SpeechError('INVALID_REQUEST', 'Invalid voice speed')
         if type(body.get('volume', 100)) is not int or not 0 <= body.get('volume', 100) <= 100:
             raise SpeechError('INVALID_REQUEST', 'Invalid volume')
+        language = body.get('language', 'auto')
+        if not isinstance(language, str) or not re.fullmatch(r'auto|[a-zA-Z]{2,3}(?:-[a-zA-Z]{2,4})?', language):
+            raise SpeechError('INVALID_REQUEST', 'Invalid speech language')
 
     def prepare(self, body):
         if not isinstance(body, dict) or set(body) != {'voice'} or not isinstance(body['voice'], str) or body['voice'] not in self._voice_paths():
@@ -266,7 +270,8 @@ class MossSpeechService:
         def generate():
             iterator = None
             try:
-                request = {'id': stream['id'], 'voice': body['voice'], 'text': body['text'], 'stream': True}
+                request = {'id': stream['id'], 'voice': body['voice'], 'text': body['text'],
+                           'language': body.get('language', 'auto'), 'stream': True}
                 iterator = self._request(request)
                 for event in iterator:
                     raw = base64.b64decode(event['pcm_base64'], validate=True)
@@ -325,7 +330,8 @@ class MossSpeechService:
         request_id = uuid.uuid4().hex
         output = self.output_dir / f'{request_id}.wav'
         try:
-            for _ in self._request({'id': request_id, 'voice': body['voice'], 'text': body['text']}):
+            for _ in self._request({'id': request_id, 'voice': body['voice'], 'text': body['text'],
+                                   'language': body.get('language', 'auto')}):
                 pass
             size = output.stat().st_size
             if not 44 < size <= MAX_AUDIO:

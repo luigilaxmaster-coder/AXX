@@ -58,6 +58,19 @@ class MossStreamTests(unittest.TestCase):
         for body in ({'stream_id': 'x', 'after': -1}, {'stream_id': 'x', 'after': True}, {'stream_id': 'x', 'after': 0}):
             with self.assertRaises(SpeechError): self.service.poll_stream(body)
 
+    def test_selected_language_reaches_worker_and_invalid_language_is_rejected(self):
+        for language in (None, 2, '', 'es;command', 'spanish'):
+            with self.assertRaises(SpeechError):
+                self.service.start_stream({**self.body, 'language': language})
+        received = []
+        def generate(request):
+            received.append(request)
+            yield self.event()
+        with patch.object(self.service, '_request', side_effect=generate):
+            self.service.start_stream({**self.body, 'language': 'es-DO'})
+            self.finish()
+        self.assertEqual(received[0]['language'], 'es-DO')
+
     def test_invalid_audio_ends_stream_with_error(self):
         with patch.object(self.service, '_request', return_value=({**self.event(), 'sample_rate': 0} for _ in range(1))):
             sid = self.service.start_stream(self.body)['stream_id']

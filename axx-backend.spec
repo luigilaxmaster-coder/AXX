@@ -8,6 +8,7 @@ a = Analysis(
     binaries=collect_dynamic_libs('ctranslate2') + collect_dynamic_libs('av') + collect_dynamic_libs('tokenizers'),
     datas=[('resources/providers.default.json', 'resources'),
            ('backend/speech/moss_worker.py', 'speech'),
+           ('backend/speech/speech_text.py', 'speech'),
            ('resources/command-library.json', 'resources'),
            ('resources/procedure-library.zip', 'resources'),
            ('master_icon.png', '.'),

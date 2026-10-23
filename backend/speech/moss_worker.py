@@ -11,6 +11,11 @@ import sys
 import threading
 import time
 
+if __package__:
+    from .speech_text import prepare_spoken_text
+else:
+    from speech_text import prepare_spoken_text
+
 PERSONAL_VOICES = ('axx-alba', 'axx-nova', 'axx-aura', 'axx-titan')
 FALLBACK_VOICES = ('voz_referencia', 'voz_referencia_completo')
 
@@ -126,6 +131,16 @@ def create_runtime(model_root, cache_root):
             waveform = np.concatenate(waveforms) if waveforms else np.zeros((0, channels), dtype=np.float32)
             return {'text': text, 'text_token_ids': tokens, 'generated_frames': frames, 'waveform': waveform}
 
+        def estimate_voice_clone_inter_chunk_pause_seconds(self, text_chunk):
+            # Upstream adds this pause only to the completed WAV. Streaming must
+            # receive the same boundary, or long sentences run together.
+            seconds = .18 if str(text_chunk).rstrip().endswith((',', ';', ':')) else .24
+            if self.emit_pcm:
+                rate = int(self.codec_meta['codec_config']['sample_rate'])
+                channels = int(self.codec_meta['codec_config']['channels'])
+                self.emit_pcm(bytes(round(rate * seconds) * channels * 2), rate, channels)
+            return seconds
+
     threads = max(1, min(8, int(os.environ.get('AXX_MOSS_THREADS', str(min(4, os.cpu_count() or 2))))))
     return StreamingRuntime(model_dir=model_root, thread_count=threads, execution_provider='cpu')
 
@@ -198,8 +213,10 @@ def main():
                                   'elapsed_ms': round((time.monotonic() - started) * 1000)}), flush=True)
 
             runtime.emit_pcm = emit if request.get('stream') else None
-            runtime.synthesize(text=text, prompt_audio_path=voice, output_audio_path=output,
-                               streaming=True, sample_mode='fixed', enable_wetext=False)
+            spoken, language = prepare_spoken_text(text, request.get('language', 'auto'))
+            runtime.synthesize(text=spoken, prompt_audio_path=voice, output_audio_path=output,
+                               streaming=True, sample_mode='fixed', enable_wetext=False,
+                               enable_normalize_tts_text=language not in ('es', 'en'))
             print(json.dumps({'id': request_id, 'ok': True,
                               'elapsed_ms': round((time.monotonic() - started) * 1000)}), flush=True)
         except SynthesisCancelled:

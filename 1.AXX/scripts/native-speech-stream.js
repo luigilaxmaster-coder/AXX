@@ -12,6 +12,7 @@
     class CustomSpeechStream {
         constructor(reader, voice, generation) {
             this.reader = reader; this.voice = voice; this.generation = generation;
+            this.language = reader.lang || 'auto';
             this.context = context(); this.sources = new Set(); this.timers = new Set();
             this.stopped = false; this.pending = false; this.nextTime = 0;
             this.nextIndex = reader.index; this.started = performance.now(); this.played = false;
@@ -75,7 +76,7 @@
                 if (!this.valid()) return;
                 try {
                     response = await Axx.backendRequest('POST', '/axx-api/speech/stream/start',
-                        { text, voice: this.voice.name, rate: 0, volume: 100 });
+                        { text, voice: this.voice.name, language: this.language, rate: 0, volume: 100 });
                     break;
                 } catch (error) {
                     if (attempt >= 20 || !/BUSY|still preparing/i.test(String(error))) throw error;
