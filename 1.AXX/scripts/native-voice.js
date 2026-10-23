@@ -6,7 +6,29 @@
     if (privacyHint) privacyHint.textContent = 'Whisper convierte el audio en texto localmente en este equipo. Toca Axx para terminar y obtener la transcripción.';
     const privacyDetail = document.getElementById('v13-permission-state')?.nextElementSibling;
     if (privacyDetail?.tagName === 'P') privacyDetail.textContent = 'Dictado local con Whisper. El audio del micrófono no se envía a un proveedor de IA. Termina la captura para colocar la frase reconocida.';
-    const cancelWorker = () => void Axx.backendRequest('POST', '/axx-api/speech/cancel', {}).catch(() => {});
+    const cancelWorker = () => state.cancelPromise = Axx.backendRequest('POST', '/axx-api/speech/cancel', {}).catch(() => {});
+    state.prepareVoice = voice => {
+        const ticket = state.prepareTicket = (state.prepareTicket || 0) + 1;
+        if (!voice?.startsWith('moss:')) return;
+        void Axx.prepareSpeechAudio?.();
+        void (async () => {
+            let status = await Axx.backendRequest('POST', '/axx-api/speech/prepare', { voice });
+            for (let attempt = 0; attempt < 180 && ticket === state.prepareTicket; attempt++) {
+                const info = document.getElementById('native-reader-engine');
+                const ready = status.prepared_voices?.includes(voice);
+                if (info) { info.setAttribute('role', 'status'); info.textContent = ready
+                    ? 'Voz Axx lista · audio progresivo en español e inglés.'
+                    : 'Preparando la voz Axx por primera vez… Puedes escribir mientras se carga.'; }
+                if (ready) return;
+                await new Promise(resolve => setTimeout(resolve, 500));
+                if (ticket !== state.prepareTicket) return;
+                status = (await Axx.backendRequest('GET', '/axx-api/speech/status')).custom;
+                if (!status?.preparing_voice && !status?.prepared_voices?.includes(voice))
+                    status = await Axx.backendRequest('POST', '/axx-api/speech/prepare', { voice });
+            }
+        })().catch(() => { const info = document.getElementById('native-reader-engine');
+            if (info && ticket === state.prepareTicket) info.textContent = 'No se pudo preparar la voz. Vuelve a seleccionarla para reintentar.'; });
+    };
     const base64 = blob => new Promise((resolve, reject) => { const reader = new FileReader(); reader.onerror = () => reject(new Error('No se pudo leer el audio capturado.')); reader.onload = () => resolve(String(reader.result).split(',')[1]); reader.readAsDataURL(blob); });
     state.refreshVoices = async (force = false) => {
         if (force) state.voicePromise = null;
@@ -21,6 +43,7 @@
             if (savedURI) {
                 if (Axx.symbiosis?.reader && !Axx.symbiosis.reader.voiceURI) Axx.symbiosis.reader.voiceURI = savedURI;
                 if (Axx.voice13?.reader && !Axx.voice13.reader.voiceURI) Axx.voice13.reader.voiceURI = savedURI;
+                state.prepareVoice(savedURI);
             }
             for (const [id, reader] of [['reader-voice', Axx.symbiosis?.reader], ['v13-voice', Axx.voice13?.reader], ['chat-voice-select', Axx.symbiosis?.reader]]) {
                 const select = document.getElementById(id); if (!select) continue;
@@ -30,11 +53,15 @@
                 const targetVal = reader?.voiceURI || savedURI || '';
                 if ([...select.options].some(o => o.value === targetVal)) select.value = targetVal;
                 else select.value = '';
+                if (!select.dataset.customVoicePrepare) {
+                    select.dataset.customVoicePrepare = 'true';
+                    select.addEventListener('change', () => state.prepareVoice(select.value));
+                }
             }
             const host = document.getElementById('view-reader');
             if (host && !document.getElementById('native-reader-engine')) {
                 const info = document.createElement('p'); info.id = 'native-reader-engine'; info.className = 'micro-copy';
-                info.textContent = state.voices.some(v => v.engine === 'moss-onnx') ? 'Voz automática: respuesta rápida de Windows. Voces Axx: muestras locales con preparación inicial del modelo.' : 'Lectura local Windows SAPI. Elige una voz instalada.';
+                info.textContent = state.voices.some(v => v.engine === 'moss-onnx') ? 'Voces Axx: audio progresivo en español e inglés. El modelo se prepara al abrir Axx y la voz al seleccionarla; la primera preparación puede tardar.' : 'Lectura local Windows SAPI. Elige una voz instalada.';
                 host.prepend(info);
             }
             return state.voices;
@@ -49,6 +76,7 @@
         if (!Axx.isNative()) return browserCancel.call(this);
         this.generation++; clearTimeout(this.watchdog); this.watchdog = null; this.current = null;
         if (this.nativePending) { this.nativePending = false; cancelWorker(); }
+        if (this.nativeStream) { void this.nativeStream.stop(); this.nativeStream = null; }
         this.nativePrefetch = null;
         this.nativeVoiceName = null;
         if (this.nativeAudio) { this.nativeAudio.pause(); this.nativeAudio.removeAttribute('src'); this.nativeAudio.load(); this.nativeAudio = null; }
@@ -57,6 +85,7 @@
         window.speechSynthesis?.cancel();
     };
     proto.prefetchNativeNext = function () {
+        if (this.nativeStream) return;
         if (!Axx.isNative() || !this.nativeAudio || this.nativePrefetch || !this.nativeVoiceName) return;
         const index = this.index + 1, text = this.chunks[index];
         if (!text) return;
@@ -70,6 +99,10 @@
             () => { if (this.nativePrefetch === prefetch) this.nativePending = false; });
     };
     proto.play = function () {
+        if (this.state === 'paused' && this.nativeStream) {
+            const stream = this.nativeStream;
+            void stream.resume().then(() => { if (this.nativeStream === stream) { this.state = stream.played ? 'speaking' : 'starting'; this.onChange?.(); } }); return;
+        }
         if (Axx.isNative() && this.state === 'paused' && this.nativeAudio) {
             void this.nativeAudio.play().catch(error => { this.state = 'error'; this.onError?.(String(error)); this.onChange?.(); });
             return;
@@ -77,6 +110,9 @@
         return browserPlay.call(this);
     };
     proto.pause = function () {
+        if (this.nativeStream && ['starting', 'speaking'].includes(this.state)) {
+            void this.nativeStream.pause(); this.state = 'paused'; this.onChange?.(); return;
+        }
         if (Axx.isNative() && this.nativeAudio && ['starting', 'speaking'].includes(this.state)) {
             this.nativeAudio.pause(); this.state = 'paused'; this.onChange?.(); return;
         }
@@ -102,10 +138,20 @@
                 const voices = await state.refreshVoices();
                 if (generation !== this.generation) return;
                 const requested = this.voiceURI?.startsWith('sapi:') ? this.voiceURI.slice(5) : this.voiceURI?.startsWith('moss:') ? this.voiceURI : '';
+                if (requested.startsWith('moss:') && !voices.some(v => v.name === requested))
+                    throw new Error('La voz Axx seleccionada no está disponible. Comprueba su muestra local y vuelve a seleccionarla.');
                 const voice = voices.find(v => v.name === requested)
                     || voices.find(v => v.engine !== 'moss-onnx' && v.language?.startsWith(this.lang.slice(0, 2)))
                     || voices.find(v => v.engine !== 'moss-onnx') || voices[0];
                 if (!voice) throw new Error('No hay una voz de Windows habilitada.');
+                if (voice.engine === 'moss-onnx' && Axx.CustomSpeechStream) {
+                    await state.cancelPromise;
+                    if (generation !== this.generation) return;
+                    const stream = this.nativeStream = new Axx.CustomSpeechStream(this, voice, generation);
+                    this.current = { engine: 'moss-onnx', streaming: true };
+                    this.nativeVoiceName = voice.name;
+                    await stream.play(); return;
+                }
                 this.nativePending = true;
                 const data = carried ? await carried.promise : await Axx.backendRequest('POST', '/axx-api/speech/synthesize', { text, voice: voice.name, rate: Math.max(-5, Math.min(5, Math.round((this.rate - 1) * 5))), volume: 100 });
                 if (generation !== this.generation) return;
@@ -125,7 +171,7 @@
                 if (generation !== this.generation) return;
                 this.nativePending = false;
                 this.cancelUtterance();
-                if (!window.__contractCalls && 'speechSynthesis' in window) {
+                if (!this.voiceURI?.startsWith('moss:') && !window.__contractCalls && 'speechSynthesis' in window) {
                     try { browserSpeak.call(this); return; } catch { }
                 }
                 this.state = 'error'; this.onChange?.(); this.onError?.(error instanceof Error ? error.message : String(error));

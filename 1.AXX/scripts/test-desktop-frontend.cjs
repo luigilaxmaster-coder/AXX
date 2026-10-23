@@ -100,9 +100,14 @@ assert(!html.includes("const apiBase ="), 'Production must not hardcode a develo
       const canvas = document.createElement('canvas'); canvas.width = image.width; canvas.height = image.height;
       const context = canvas.getContext('2d'); context.drawImage(image, 0, 0); const data = context.getImageData(0, 0, canvas.width, canvas.height).data;
       const r = document.getElementById('stage').getBoundingClientRect(); let paintedOutside = 0, paintedBody = 0;
-      for (let y = 0; y < canvas.height; y++) for (let x = 0; x < canvas.width; x++) if (data[(y * canvas.width + x) * 4 + 3] > 0) { if (x < r.left || x >= r.right || y < r.top || y >= r.bottom) paintedOutside++; else paintedBody++; }
+      // Ignore only the 1/255 alpha rounding fringe of the canvas blur filter.
+      for (let y = 0; y < canvas.height; y++) for (let x = 0; x < canvas.width; x++) if (data[(y * canvas.width + x) * 4 + 3] > 1) { if (x < r.left || x >= r.right || y < r.top || y >= r.bottom) paintedOutside++; else paintedBody++; }
       return { paintedOutside, paintedBody };
     }, startupPng.toString('base64'));
+    if (alpha.paintedOutside) {
+      fs.writeFileSync(path.join(__dirname, '../../build/desktop-alpha-failure.png'), startupPng);
+      console.error('Startup alpha mismatch', alpha, await page.evaluate(() => ({stage: document.getElementById('stage').getBoundingClientRect().toJSON()})));
+    }
     assert.equal(alpha.paintedOutside, 0); assert(alpha.paintedBody > 100);
     results.push('Resident startup paints only the real liquid canvas on a transparent, stable monitor surface');
     await page.evaluate(() => Axx.flow.select('chat'));

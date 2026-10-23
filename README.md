@@ -9,7 +9,7 @@ Run the installer and open Axx. Python and Node are not required. Configure your
 
 The packaged backend may take longer on its first launch while Windows extracts and scans it. The native host allows up to 90 seconds for backend readiness and reports a startup error if that limit is exceeded.
 
-Source and published Windows installer are both **v0.20.18**. Android APKs remain local test artifacts until separately published. See [mobile setup and validation](docs/mobile/README.md) and the [version and release procedure](docs/RELEASING.md).
+Source is **v0.20.19**; the published Windows installer is **v0.20.18**. Delivery of the newer source is pending publication. Android APKs remain local test artifacts until separately published. See [mobile setup and validation](docs/mobile/README.md) and the [version and release procedure](docs/RELEASING.md).
 <!-- release:download:end -->
 
 ---
@@ -29,7 +29,7 @@ Source and published Windows installer are both **v0.20.18**. Android APKs remai
   <img src="https://img.shields.io/badge/Frontend-WebGL%20%2F%20HTML5-black?logo=webgl" alt="WebGL" />
   <img src="https://img.shields.io/badge/Offline%20Voice-Faster--Whisper%20Tiny-green" alt="Faster-Whisper" />
   <img src="https://img.shields.io/badge/Protocol-Model%20Context%20Protocol%20(MCP)-blueviolet" alt="MCP" />
-  <img src="https://img.shields.io/badge/Source%20Version-v0.20.18-informational" alt="Source version 0.20.18" />
+  <img src="https://img.shields.io/badge/Source%20Version-v0.20.19-informational" alt="Source version 0.20.19" />
   <img src="https://img.shields.io/badge/Development-Active%20Refinement-yellow?logo=git" alt="Active Development" />
 </p>
 
@@ -95,7 +95,7 @@ These are presentation captures of the current UI in an isolated browser. The mo
 ## 🚧 Project Status: Active Continuous Improvement
 
 > [!NOTE]
-> **Axx is under active development.** Source and published Windows installer are both **v0.20.18**. Validation is recorded per feature; a working UI or build does not by itself certify every hardware-dependent behavior.
+> **Axx is under active development.** Source is **v0.20.19**; the published Windows installer is **v0.20.18**. Delivery of the newer source is pending publication. Validation is recorded per feature; a working UI or build does not by itself certify every hardware-dependent behavior.
 
 ### 🟢 Implemented capabilities
 - **Native Startup:** Resident Windows application with a local backend and a launcher fallback to the executable built from this repository.
@@ -105,6 +105,14 @@ These are presentation captures of the current UI in an isolated browser. The mo
 - **Episodic Memory & MCP Core:** Integrated procedural SQLite memory and Model Context Protocol schema validation.
 
 ### Source update · October 23, 2026
+
+**0.20.19 custom speech:** PCM playback now begins while MOSS generates the rest
+of the phrase. The model stays loaded after normal cancellation; voice references
+are prepared on selection and cached privately. Eight CPU tests across the four
+voices and Spanish/English measured **359–391 ms to the first PCM chunk after
+preparation**. The installed Windows app started playback in **654–1041 ms**, with
+no buffer underruns in those eight test utterances. Cold startup still needs preparation, and pronunciation quality
+depends on the reference. See [measurements and limits](docs/releases/0.20.19.md).
 
 | Area | Behavior in this source | Operational limit |
 | --- | --- | --- |

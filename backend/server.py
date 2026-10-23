@@ -283,6 +283,7 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                     self._send_json(200, self.speech.voices())
             elif path == '/axx-api/speech/status':
                 self._send_json(200, {'tts': {'engine':'windows-sapi','configured':bool(self.speech and self.speech.available)},
+                                     'custom': self.speech.moss.status() if self.speech else {'available': False},
                                      'asr':self.transcription.status() if self.transcription else {'available':False}})
             elif path == '/axx-api/identity':
                 with self.server.action_lock:
@@ -560,6 +561,14 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                 if self.transcription:
                     cancelled_count += self.transcription.cancel_active()
                 self._send_json(200, {'cancelled': cancelled_count > 0, 'cancelled_operations': cancelled_count})
+            elif path in ('/axx-api/speech/stream/start', '/axx-api/speech/stream/poll', '/axx-api/speech/prepare'):
+                if not self.speech:
+                    self._unsupported('Custom speech service is unavailable')
+                else:
+                    action = {'/axx-api/speech/stream/start': self.speech.moss.start_stream,
+                              '/axx-api/speech/stream/poll': self.speech.moss.poll_stream,
+                              '/axx-api/speech/prepare': self.speech.moss.prepare}[path]
+                    self._send_json(200, action(body))
             elif path == '/axx-api/speech/synthesize':
                 if not self.speech:
                     self._unsupported('Windows speech service is unavailable')
