@@ -62,6 +62,23 @@ class CommandLibraryTests(unittest.TestCase):
         self.assertTrue(self.service.execute(result['operation_id'])['replayed'])
         self.assertEqual(len(self.executor.list_operations()), 1)
 
+    def test_window_read_reaches_executor_only_after_approval_and_replays_receipt(self):
+        inputs = {'window_id': '0x1234', 'pid': 10, 'expected_title': 'Example Domains'}
+        pending = self.prepare('axx.desktop.window.read', inputs)
+        observed = {'text': 'Observed page', 'links': [], 'verification': 'uia_window_content_observed'}
+        with patch('backend.actions.windows_automation.read_window_content', return_value=observed) as read:
+            with self.assertRaises(ValueError):
+                self.service.execute(pending['operation_id'])
+            read.assert_not_called()
+            result = self.service.execute(pending['operation_id'], approved=True)
+            self.assertEqual(result['state'], 'succeeded')
+            self.assertTrue(result['postconditions_passed'])
+            self.assertEqual(result['model_calls_used'], 0)
+            self.assertEqual(result['output'], observed)
+            self.assertEqual(read.call_args.args, (0x1234, 10, 'Example Domains'))
+            self.assertTrue(self.service.execute(pending['operation_id'], approved=True)['replayed'])
+            read.assert_called_once()
+
     def test_write_needs_explicit_boolean_approval_then_hashes_actual_file(self):
         pending = self.prepare('axx.artifact.write', {'path': 'notes/hello.txt', 'content': 'hola áxx'})
         self.assertEqual(pending['state'], 'awaiting_approval')

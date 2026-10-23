@@ -135,6 +135,7 @@ class ActionExecutor:
                      'desktop_installed_app': {'app_id'}, 'desktop_list_apps': set(),
                      'desktop_list_windows': set(),
                      'desktop_inspect_window': {'window_id', 'pid'},
+                     'desktop_read_window': {'window_id', 'pid', 'expected_title'},
                      'desktop_focus_window': {'window_id', 'pid'},
                      'desktop_set_window_value': {'window_id', 'pid', 'control_id', 'value'},
                      'file_inspection': {'path', 'other_path'}}
