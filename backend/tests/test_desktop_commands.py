@@ -5,7 +5,7 @@ import tempfile
 import threading
 import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 from backend.actions.executor import ActionExecutor
 from backend.commands import CommandService, ApprovalRequired
@@ -54,6 +54,47 @@ class DesktopCommandTests(unittest.TestCase):
                 self.service.prepare('axx.desktop.open_url', {'url': url})
         with self.assertRaises(ValueError):
             self.service.prepare('axx.desktop.open_app', {'app': 'calc & whoami'})
+
+    def test_window_capabilities_are_typed_and_writes_require_bound_approval(self):
+        with self.assertRaises(ValueError):
+            self.service.prepare('axx.desktop.window.set_value', {
+                'window_id': 'not-a-hwnd', 'pid': 45, 'control_id': 'a' * 64, 'value': 'hello'})
+        with self.assertRaises(ValueError):
+            self.service.prepare('axx.desktop.window.set_value', {
+                'window_id': '0x12', 'pid': True, 'control_id': 'a' * 64, 'value': 'hello'})
+        pending = self.service.prepare('axx.desktop.window.set_value', {
+            'window_id': '0x12', 'pid': 45, 'control_id': 'a' * 64, 'value': 'hello'})
+        self.assertEqual(pending['state'], 'awaiting_approval')
+        with self.assertRaises(ApprovalRequired):
+            self.service.execute(pending['operation_id'])
+        self.service.cancel(pending['operation_id'])
+
+    def test_window_observation_and_focus_use_verified_readbacks(self):
+        with patch('backend.actions.windows_automation.list_windows', return_value=[
+                {'window_id': 18, 'pid': 45, 'title': 'Notepad', 'class_name': 'Notepad', 'foreground': True}]), \
+             patch('backend.actions.windows_automation.inspect_controls', return_value={
+                'success': True, 'window_id': 18, 'pid': 45, 'controls': [], 'count': 0,
+                'truncated': False, 'verification': 'uia_control_tree_observed'}):
+            listed = self.service.prepare('axx.desktop.list_windows', {})
+            listed = self.service.execute(listed['operation_id'])
+            self.assertEqual(listed['state'], 'succeeded')
+            self.assertEqual(listed['output']['windows'][0]['pid'], 45)
+            inspected = self.service.prepare('axx.desktop.window.inspect', {'window_id': '12', 'pid': 45})
+            inspected = self.service.execute(inspected['operation_id'])
+            self.assertEqual(inspected['state'], 'succeeded')
+            self.assertTrue(inspected['postconditions_passed'])
+
+    def test_window_value_readback_is_hashed_and_only_succeeds_after_approval(self):
+        with patch('backend.actions.windows_automation.set_control_value', return_value={
+                'success': True, 'window_id': 18, 'pid': 45, 'control_id': 'a' * 64,
+                'value_sha256': 'a' * 64, 'value_length': 5, 'verification': 'uia_value_readback'}) as set_value:
+            pending = self.service.prepare('axx.desktop.window.set_value', {
+                'window_id': '12', 'pid': 45, 'control_id': 'a' * 64, 'value': 'hello'})
+            self.assertEqual(pending['state'], 'awaiting_approval')
+            result = self.service.execute(pending['operation_id'], approved=True)
+        self.assertEqual(result['state'], 'succeeded', result)
+        self.assertEqual(result['evidence']['value_sha256'], 'a' * 64)
+        set_value.assert_called_once_with(18, 45, 'a' * 64, 'hello', cancelled=ANY)
 
     def test_powershell_requires_approval_and_cannot_be_voice(self):
         with self.assertRaises(ValueError):

@@ -108,6 +108,10 @@ class ActionExecutor:
                      'blender_render_fixture': {'filename'}, 'desktop_open_url': {'url'}, 'desktop_open_app': {'app'},
                      'desktop_search': {'query', 'engine'}, 'desktop_powershell': {'script'}, 'desktop_cmd': {'script'},
                      'desktop_installed_app': {'app_id'}, 'desktop_list_apps': set(),
+                     'desktop_list_windows': set(),
+                     'desktop_inspect_window': {'window_id', 'pid'},
+                     'desktop_focus_window': {'window_id', 'pid'},
+                     'desktop_set_window_value': {'window_id', 'pid', 'control_id', 'value'},
                      'file_inspection': {'path', 'other_path'}}
         if set(inputs) - permitted.get(tool_name, set()):
             raise ActionExecutionError('Unexpected action inputs')

@@ -9,7 +9,7 @@ Run the installer and open Axx. Python and Node are not required. Configure your
 
 The packaged backend may take longer on its first launch while Windows extracts and scans it. The native host allows up to 90 seconds for backend readiness and reports a startup error if that limit is exceeded.
 
-Source and published Windows installer are both **v0.20.21**. Android APKs remain local test artifacts until separately published. See [mobile setup and validation](docs/mobile/README.md) and the [version and release procedure](docs/RELEASING.md).
+Source is **v0.20.22**; the published Windows installer is **v0.20.21**. Delivery of the newer source is pending publication. Android APKs remain local test artifacts until separately published. See [mobile setup and validation](docs/mobile/README.md) and the [version and release procedure](docs/RELEASING.md).
 <!-- release:download:end -->
 
 ---
@@ -29,7 +29,7 @@ Source and published Windows installer are both **v0.20.21**. Android APKs remai
   <img src="https://img.shields.io/badge/Frontend-WebGL%20%2F%20HTML5-black?logo=webgl" alt="WebGL" />
   <img src="https://img.shields.io/badge/Offline%20Voice-Faster--Whisper%20Tiny-green" alt="Faster-Whisper" />
   <img src="https://img.shields.io/badge/Protocol-Model%20Context%20Protocol%20(MCP)-blueviolet" alt="MCP" />
-  <img src="https://img.shields.io/badge/Source%20Version-v0.20.21-informational" alt="Source version 0.20.21" />
+  <img src="https://img.shields.io/badge/Source%20Version-v0.20.22-informational" alt="Source version 0.20.22" />
   <img src="https://img.shields.io/badge/Development-Active%20Refinement-yellow?logo=git" alt="Active Development" />
 </p>
 
@@ -95,7 +95,7 @@ These are presentation captures of the current UI in an isolated browser. The mo
 ## 🚧 Project Status: Active Continuous Improvement
 
 > [!NOTE]
-> **Axx is under active development.** Source and published Windows installer are both **v0.20.21**. Validation is recorded per feature; a working UI or build does not by itself certify every hardware-dependent behavior.
+> **Axx is under active development.** Source is **v0.20.22**; the published Windows installer is **v0.20.21**. Delivery of the newer source is pending publication. Validation is recorded per feature; a working UI or build does not by itself certify every hardware-dependent behavior.
 
 ### 🟢 Implemented capabilities
 - **Native Startup:** Resident Windows application with a local backend and a launcher fallback to the executable built from this repository.
@@ -103,6 +103,9 @@ These are presentation captures of the current UI in an isolated browser. The mo
 - **Transparent Click-Through:** Borderless desktop window that dynamically passes pointer clicks through transparent zones using the Win32 API (`WM_NCHITTEST`), ensuring complete background desktop usability.
 - **Multi-Provider Connections:** Local/LAN Ollama, Ollama Cloud, LM Studio, Anthropic, Groq and compatible APIs, with model discovery and DPAPI-protected credentials. Explicit connection selection keeps requests on the selected provider/model; it does not silently switch platforms on failure.
 - **Episodic Memory & MCP Core:** Integrated procedural SQLite memory and Model Context Protocol schema validation.
+- **Control de aplicaciones Windows (0.20.22):** inventario de apps y ventanas, apertura con evidencia de foco, inspección UIA y escritura aprobada a controles observados compatibles. La cobertura se valida por acción y aplicación; no se afirma control universal.
+
+See [application-control contracts and Windows acceptance limits](docs/CONTROL-DE-APLICACIONES.md).
 
 ### Source update · October 23, 2026
 
@@ -135,6 +138,10 @@ depends on the reference. See [measurements and limits](docs/releases/0.20.19.md
 | Shell commands | Send `/powershell <script>` or `/cmd <command>` from the phone or desktop chat. The PC must approve each request; output and exit code are returned. | These are **arbitrary commands with the current Windows user's privileges**. Review the exact text before approval. Execution is capped at 30 seconds and 64 KiB of output; approval is not a sandbox. Voice dictation and model responses cannot directly run shell text. |
 | Chat | Select the configured local Ollama model for token-by-token text in the native window. The backend verifies that `ollama-local` points to `127.0.0.1:11434` before enabling the direct stream. Connecting preloads the selected model and requests a 30-minute keep-alive. The user can tune response style and language. | The first model load can still take tens of seconds; the preload starts in the background on connection. Other providers use their existing complete-response path. Prompt settings adjust responses; no model weights are trained. |
 | Speech | Automatic Windows voice starts quickly; optional Axx Alba, Nova, Aura, and Titán voices use local MOSS ONNX plus user-supplied reference audio. Text is cleaned before speech so punctuation markers are not read aloud. Speech can start from completed phrases while the local chat continues. | The custom voices require a separate local MOSS installation and samples in `%LOCALAPPDATA%\Axx\speech\voices\`; neither weights nor user audio are stored in Git. Their initial model load is much slower than Windows SAPI. Available Windows voices and language quality depend on the machine. |
+
+### Windows application control
+
+The command catalog can list installed applications and visible windows, request focus, and inspect UI Automation controls. Opening an app is reported as ready for follow-up only after its matching foreground window is observed. Text writes target one observed control, require per-operation approval, and must pass a value readback. Installed-app detection does not mean that every app or action is supported; app-specific adapters remain gated on their own verification. See [application control contracts and limits](docs/CONTROL-DE-APLICACIONES.md).
 
 For the four optional voices, copy the reference clips as 24 kHz mono PCM WAV files named `axx-alba.wav`, `axx-nova.wav`, `axx-aura.wav`, and `axx-titan.wav` into `%LOCALAPPDATA%\Axx\speech\voices\`. Set `AXX_MOSS_TTS_ROOT` to the local `MOSS-TTS-Nano` directory if it is outside `~/Downloads/tts nano/MOSS-TTS-Nano`; that directory must contain its `.venv`, ONNX models, and runtime. Open the voice selector to choose one. The voice names are Axx names in both Spanish and English; audio quality in each language depends on the reference clip and local model.
 

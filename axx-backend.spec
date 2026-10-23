@@ -9,6 +9,7 @@ a = Analysis(
     datas=[('resources/providers.default.json', 'resources'),
            ('backend/speech/moss_worker.py', 'speech'),
            ('backend/speech/speech_text.py', 'speech'),
+           ('backend/actions/uia_worker.ps1', 'backend/actions'),
            ('resources/command-library.json', 'resources'),
            ('resources/procedure-library.zip', 'resources'),
            ('master_icon.png', '.'),

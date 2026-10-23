@@ -15,10 +15,10 @@ from urllib.parse import urlencode, urlsplit
 from backend.inference.process_manager import spawn_managed_process, terminate_process_tree
 
 APPS = {
-    'calculator': ('Calculadora', 'System32/calc.exe', ['calculadora', 'calc']),
+    'calculator': ('Calculadora', 'System32/calc.exe', ['calculadora', 'calculator', 'calc']),
     'notepad': ('Bloc de notas', 'System32/notepad.exe', ['bloc de notas', 'notepad']),
     'paint': ('Paint', 'System32/mspaint.exe', ['paint']),
-    'explorer': ('Explorador de archivos', 'explorer.exe', ['explorador', 'explorador de archivos']),
+    'explorer': ('Explorador de archivos', 'explorer.exe', ['explorador', 'explorador de archivos', 'file explorer', 'explorer']),
 }
 SITES = {'youtube': 'https://www.youtube.com/', 'google': 'https://www.google.com/',
          'gmail': 'https://mail.google.com/', 'github': 'https://github.com/',
@@ -60,6 +60,22 @@ def validate_inputs(kind, inputs):
     elif kind == 'list_apps':
         if inputs:
             raise ValueError('La lista de aplicaciones no admite parámetros.')
+    elif kind == 'list_windows':
+        if inputs:
+            raise ValueError('La lista de ventanas no admite parámetros.')
+    elif kind in ('inspect_window', 'focus_window'):
+        if set(inputs) != {'window_id', 'pid'}:
+            raise ValueError('Indica la ventana observada y su proceso.')
+        _validate_window_ref(inputs['window_id'], inputs['pid'])
+    elif kind == 'set_window_value':
+        if set(inputs) != {'window_id', 'pid', 'control_id', 'value'}:
+            raise ValueError('Indica ventana, proceso, control y texto.')
+        _validate_window_ref(inputs['window_id'], inputs['pid'])
+        if not isinstance(inputs['control_id'], str) or len(inputs['control_id']) != 64 or any(c not in '0123456789abcdef' for c in inputs['control_id']):
+            raise ValueError('control_id debe proceder de una observación UIA reciente.')
+        if not isinstance(inputs['value'], str) or len(inputs['value']) > 8192 or '\x00' in inputs['value']:
+            raise ValueError('El texto debe tener hasta 8.192 caracteres y no contener NUL.')
+        inputs['value'].encode('utf-16-le')
     elif kind == 'search':
         if inputs.get('engine') not in ENGINES or not isinstance(inputs.get('query'), str) or not 1 <= len(inputs['query'].strip()) <= 500:
             raise ValueError('Indica una búsqueda y un buscador compatible.')
@@ -68,6 +84,13 @@ def validate_inputs(kind, inputs):
             raise ValueError('Escribe un comando de hasta 8.000 caracteres.')
     else:
         raise ValueError('Acción desconocida.')
+
+
+def _validate_window_ref(window_id, pid):
+    if not isinstance(window_id, str) or not re.fullmatch(r'(?:0x)?[0-9a-fA-F]{1,16}', window_id):
+        raise ValueError('window_id debe ser un identificador hexadecimal observado.')
+    if type(pid) is not int or not 1 <= pid <= 0xFFFFFFFF:
+        raise ValueError('pid debe ser un entero Windows válido.')
 
 
 def resolve_desktop(text, source, context=None):
@@ -156,22 +179,48 @@ def resolve_desktop(text, source, context=None):
     return search_result(engine, query)
 
 
-def open_target(kind, inputs):
+def open_target(kind, inputs, cancelled=None):
     validate_inputs(kind, inputs)
     if os.name != 'nt':
         raise ValueError('Esta acción requiere Axx para Windows.')
     if kind in ('installed_app', 'list_apps'):
-        from .windows_apps import installed_apps
+        from .windows_apps import capability_status, installed_apps
         rows = installed_apps()
         if kind == 'list_apps':
-            return {'success': True, 'output': {'applications': rows},
-                    'evidence': {'verification': 'windows_inventory', 'count': len(rows)}}
+            applications = [capability_status(row) for row in rows]
+            return {'success': True, 'output': {'applications': applications},
+                    'evidence': {'verification': 'windows_inventory', 'count': len(applications)}}
         app = next((row for row in rows if row['app_id'] == inputs['app_id']), None)
         if not app:
             raise ValueError('La aplicación no aparece en el inventario de Windows. Actualiza la lista.')
         target, label = 'shell:AppsFolder\\' + app['app_id'], app['name']
+        app_aliases = ()
+    elif kind == 'list_windows':
+        from .windows_automation import list_windows
+        rows = list_windows()
+        return {'success': True, 'output': {'windows': rows},
+                'evidence': {'verification': 'visible_windows_inventory', 'accepted': True, 'count': len(rows)}}
+    elif kind in ('inspect_window', 'focus_window', 'set_window_value'):
+        from .windows_automation import focus_window, inspect_controls, set_control_value
+        window_id = int(inputs['window_id'], 16)
+        if kind == 'inspect_window':
+            output = inspect_controls(window_id, inputs['pid'], cancelled=cancelled)
+            evidence = {'verification': output['verification'], 'accepted': True,
+                        'window_id': window_id, 'pid': inputs['pid']}
+        elif kind == 'focus_window':
+            output = focus_window(window_id, inputs['pid'])
+            evidence = {'verification': output['verification'], 'accepted': True,
+                        'window_id': window_id, 'pid': inputs['pid']}
+        else:
+            output = set_control_value(window_id, inputs['pid'], inputs['control_id'], inputs['value'], cancelled=cancelled)
+            evidence = {'verification': output['verification'], 'accepted': True,
+                        'window_id': window_id, 'pid': inputs['pid'],
+                        'control_id': inputs['control_id'],
+                        'value_sha256': output['value_sha256'], 'value_length': output['value_length']}
+            output = {key: value for key, value in output.items() if key != 'success'}
+        return {'success': True, 'output': output, 'evidence': evidence}
     elif kind == 'open_app':
-        label, relative, _ = APPS[inputs['app']]
+        label, relative, app_aliases = APPS[inputs['app']]
         target = str(Path(os.environ.get('SystemRoot', r'C:\Windows')) / relative)
         if not Path(target).is_file():
             raise ValueError(f'{label} no está instalado en este equipo.')
@@ -182,10 +231,28 @@ def open_target(kind, inputs):
     else:
         target = validate_url(inputs['url'])
         label = target
+    before = []
+    if kind in ('installed_app', 'open_app'):
+        from .windows_automation import list_windows
+        before = list_windows()
     os.startfile(target)
-    # ShellExecute acceptance is observable; page load/window visibility is not.
-    return {'success': True, 'output': {'target': target, 'label': label},
-            'evidence': {'verification': 'os_handoff', 'target': target, 'accepted': True}}
+    # A shell handoff proves only that Windows accepted the launch request.
+    # UI actions remain blocked until a matching foreground window is observed.
+    evidence = {'verification': 'os_handoff', 'target': target, 'accepted': True,
+                'launch_requested': True, 'window_observed': False,
+                'foreground_verified': False, 'ready_for_action': False}
+    if kind in ('installed_app', 'open_app'):
+        from .windows_automation import observe_foreground
+        observed = observe_foreground(label, timeout=4.0, before=before,
+                                       aliases=app_aliases if kind == 'open_app' else (),
+                                       cancelled=cancelled)
+        evidence.update({key: observed[key] for key in
+                         ('launch_requested', 'window_observed', 'foreground_verified', 'ready_for_action')})
+        evidence['window_verification'] = observed['verification']
+        evidence['window'] = observed.get('window')
+    return {'success': True, 'output': {'target': target, 'label': label,
+                                        'ready_for_action': evidence['ready_for_action']},
+            'evidence': evidence}
 
 
 def run_shell(kind, inputs, workspace, cancelled):

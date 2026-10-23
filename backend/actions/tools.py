@@ -360,6 +360,8 @@ class BlenderRenderFixtureTool(BaseTool):
 
 class DesktopTool(BaseTool):
     """Fixed desktop adapters and explicitly approved PowerShell scripts."""
+    version = '1.1.0'
+
     def __init__(self, kind):
         self.kind = kind
         self.name = 'desktop_' + kind
@@ -380,10 +382,14 @@ class DesktopTool(BaseTool):
         return ToolResult(**open_target(self.kind, inputs))
 
     def execute_cancellable(self, inputs, workspace_root, cancelled):
-        if self.kind not in ('powershell', 'cmd'):
-            return self.execute(inputs)
-        from .desktop import run_shell
-        return ToolResult(**run_shell(self.kind, inputs, workspace_root, cancelled))
+        if self.kind in ('powershell', 'cmd'):
+            from .desktop import run_shell
+            return ToolResult(**run_shell(self.kind, inputs, workspace_root, cancelled))
+        from .desktop import open_target
+        try:
+            return ToolResult(**open_target(self.kind, inputs, cancelled=cancelled))
+        except ValueError as exc:
+            return ToolResult(False, error=str(exc), evidence={'cancelled': cancelled.is_set()})
 
     def verify_postconditions(self, inputs, result):
         if self.kind in ('powershell', 'cmd'):
@@ -434,7 +440,9 @@ TOOL_REGISTRY: dict[str, BaseTool] = {
     SystemTelemetryTool.name: SystemTelemetryTool(),
     ProcessStateTool.name: ProcessStateTool(),
     BlenderRenderFixtureTool.name: BlenderRenderFixtureTool(),
-    **{('desktop_' + kind): DesktopTool(kind) for kind in ('open_url', 'open_app', 'installed_app', 'list_apps', 'search', 'powershell', 'cmd')},
+    **{('desktop_' + kind): DesktopTool(kind) for kind in (
+        'open_url', 'open_app', 'installed_app', 'list_apps', 'search', 'powershell', 'cmd',
+        'list_windows', 'inspect_window', 'focus_window', 'set_window_value')},
 }
 
 def get_tool(name: str) -> BaseTool | None:

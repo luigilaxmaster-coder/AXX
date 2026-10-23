@@ -35,6 +35,15 @@ def installed_apps(refresh=False):
         return list(_cache)
 
 
+def capability_status(app):
+    """Keep installed-app discovery separate from per-action UIA readiness."""
+    if not isinstance(app, dict) or not isinstance(app.get('name'), str) or not isinstance(app.get('app_id'), str):
+        raise ValueError('Aplicación observada inválida.')
+    return {**app, 'status': {'detected': True, 'registered_routes': ['windows.uia.inspect', 'windows.uia.set_value'],
+                             'generic_route_registered': True, 'app_specific_actions_validated': [],
+                             'available': 'installed', 'control_availability': 'unknown'}}
+
+
 def find_app(name, normalize):
     rows = installed_apps()
     exact = [row for row in rows if normalize(row['name']) == name]

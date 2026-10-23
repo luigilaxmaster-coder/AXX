@@ -26,6 +26,29 @@ def get_current_env_fingerprint() -> str:
     info = f"{platform.system()}-{platform.release()}-{platform.machine()}-py{platform.python_version()}"
     return hashlib.sha256(info.encode('utf-8')).hexdigest()[:16]
 
+
+def get_action_env_fingerprint(command_ids=()) -> str:
+    """Bind learned action records to the exact registered adapter versions they use."""
+    ids = sorted(set(command_ids))
+    if not ids:
+        return get_current_env_fingerprint()
+    versions = {}
+    for command_id in ids:
+        if not isinstance(command_id, str) or not 1 <= len(command_id) <= 128:
+            raise ValueError('Invalid command id in environment fingerprint')
+        try:
+            from backend.commands import ADAPTERS
+            from backend.actions.tools import get_tool
+            adapter = ADAPTERS[command_id]
+            tool = get_tool(adapter['tool'])
+            if tool is None:
+                raise ValueError
+            versions[command_id] = {'tool_version': tool.version, 'parameters': adapter['parameters']}
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError(f'Unknown adapter in environment fingerprint: {command_id}') from exc
+    payload = json.dumps({'host': get_current_env_fingerprint(), 'adapters': versions}, sort_keys=True, separators=(',', ':'))
+    return hashlib.sha256(payload.encode('utf-8')).hexdigest()[:16]
+
 class Recipe:
     def __init__(
         self,

@@ -12,10 +12,12 @@ import time
 import uuid
 
 from .commands import ADAPTERS, ApprovalRequired, normalized, parse_command_json
-from .memory.procedural_memory import get_current_env_fingerprint
+from .memory.procedural_memory import get_action_env_fingerprint
 
 TERMINAL = {'succeeded', 'failed', 'cancelled', 'blocked', 'needs_input', 'expired', 'unknown'}
-ALLOWED = {key: value for key, value in ADAPTERS.items() if key != 'axx.shell.powershell'}
+ALLOWED = {key: value for key, value in ADAPTERS.items()
+           if key not in ('axx.shell.powershell', 'axx.desktop.window.set_value')
+           and not key.startswith('axx.desktop.window.')}
 
 
 class ActionLearning:
@@ -56,12 +58,21 @@ class ActionLearning:
     def list_actions(self):
         with self.lock:
             rows = self.db.execute('SELECT id,trigger,title,steps,environment,verified_at FROM learned_actions ORDER BY verified_at DESC').fetchall()
-        return [{'id': r[0], 'trigger': r[1], 'title': r[2], 'steps': json.loads(r[3]),
-                 'environment_matches': r[4] == get_current_env_fingerprint(), 'verified_at': r[5]} for r in rows]
+        result = []
+        for row in rows:
+            steps = json.loads(row[3])
+            try:
+                expected = get_action_env_fingerprint(step['command_id'] for step in steps)
+            except (KeyError, TypeError, ValueError):
+                expected = ''
+            result.append({'id': row[0], 'trigger': row[1], 'title': row[2], 'steps': steps,
+                           'environment_matches': row[4] == expected, 'verified_at': row[5]})
+        return result
 
     def find(self, text):
         phrase = normalized(text)
-        return next((row for row in self.list_actions() if text.strip() == row['trigger'] or phrase in (normalized(row['title']), row['id'])), None)
+        return next((row for row in self.list_actions() if row['environment_matches']
+                     and (text.strip() == row['trigger'] or phrase in (normalized(row['title']), row['id']))), None)
 
     def _validate_steps(self, steps):
         if not isinstance(steps, list) or not 1 <= len(steps) <= 8:
@@ -191,7 +202,8 @@ class ActionLearning:
             action_id = plan.get('learned_action_id') or 'learned.' + uuid.uuid4().hex
             with self.lock, self.db:
                 self.db.execute('INSERT INTO learned_actions VALUES (?,?,?,?,?,?) ON CONFLICT(trigger) DO UPDATE SET title=excluded.title,steps=excluded.steps,environment=excluded.environment,verified_at=excluded.verified_at',
-                    (action_id, plan.get('learned_trigger', plan['request'].strip()), plan['title'], json.dumps(steps), get_current_env_fingerprint(), time.time()))
+            (action_id, plan.get('learned_trigger', plan['request'].strip()), plan['title'], json.dumps(steps),
+             get_action_env_fingerprint(step['command_id'] for step in steps), time.time()))
             plan.update(state='succeeded', postconditions_passed=True, learned_action_id=action_id,
                         message='Pasos ejecutados y comprobados. Acción guardada: ' + plan['title'] + '. Puedes repetir la misma petición o escribir /accion ' + plan['title'] + '.')
             return self._save(plan)

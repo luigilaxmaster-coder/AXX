@@ -190,7 +190,7 @@
         isActionRequest(raw) {
             const text=raw.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/^[¡¿\s]+/,'')
                 .replace(/^(?:(?:oye|hola)\s+)?axx[,\s]+/,'').replace(/^por favor[,\s]+/,'').replace(/^(?:puedes|podrias|quiero que|pero)\s+/,'');
-            return /^(?:\/(?:search|buscar|comando|powershell)\b|(?:abre|abrir|abras|abreme|abrela|abrelo|inicia|ejecuta|busca|buscar|buscame|ponme|pon|reproduce|reproducir|escuchar|prepara|organiza|crea|crear|convierte|mueve|copia|renombra|comprime|extrae|descarga|instala|borra|elimina|envia|publica)\b)/.test(text);
+            return /^(?:\/(?:search|buscar|comando|powershell)\b|mis\s+ventanas\b|(?:lista|muestra)\s+(?:mis\s+)?(?:ventanas|aplicaciones)\b|(?:abre|abrir|abras|abreme|abrela|abrelo|inicia|ejecuta|busca|buscar|buscame|ponme|pon|reproduce|reproducir|escuchar|prepara|organiza|crea|crear|convierte|mueve|copia|renombra|comprime|extrae|descarga|instala|borra|elimina|envia|publica)\b)/.test(text);
         }
         internalAction(raw) {
             const plain = value => String(value).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
@@ -470,7 +470,9 @@
                 if (serial !== this.generation) return;
                 if (result.operation_id !== operation.operation_id) throw new Error('El resultado no corresponde al comando solicitado.');
                 this.lastOperation = result; this.operation = null; this.busy = false; this.renderOperation(result);
-                const verified = result.state === 'succeeded' && result.postconditions_passed === true;
+                const launchNeedsWindow = ['axx.desktop.open_app', 'axx.desktop.installed_app'].includes(result.command_id);
+                const verified = result.state === 'succeeded' && result.postconditions_passed === true
+                    && (!launchNeedsWindow || result.output?.ready_for_action === true);
                 let detail = '';
                 if (verified && result.evidence && typeof result.evidence === 'object') {
                     const ev = result.evidence;
@@ -482,7 +484,7 @@
                     } else if (ev.name && ev.pid) detail = ` (${ev.name}, PID ${ev.pid})`;
                 }
                 let message = verified ? 'Comando completado y verificado: ' + result.command_id + detail + '.' : result.state === 'cancelled' ? 'Comando cancelado. No se marcó como completado.' : 'Comando sin éxito verificado: ' + errorText(result.error || result.state) + '.';
-                if (verified && result.evidence?.verification === 'os_handoff') {
+                if (result.state === 'succeeded' && result.evidence?.verification === 'os_handoff') {
                     const target=result.evidence.target;
                     if(result.command_id==='axx.desktop.search')this.actionContext={engine:operation.inputs.engine,query:operation.inputs.query,url:target};
                     else if(result.command_id==='axx.desktop.open_url'){
@@ -490,7 +492,12 @@
                         const engine=({'youtube.com':'youtube','google.com':'google','bing.com':'bing','duckduckgo.com':'duckduckgo'})[host];
                         this.actionContext={url:target,...(engine?{engine}:{})};
                     }
-                    message = 'He enviado a Windows la apertura de ' + (result.output?.label || result.evidence.target) + '.';
+                    if (launchNeedsWindow && !result.output?.ready_for_action) {
+                        message = 'Windows aceptó abrir ' + (result.output?.label || result.evidence.target)
+                            + ', pero Axx no confirmó la ventana y el foco. Aún no puede actuar en esa aplicación.';
+                    } else if (launchNeedsWindow) {
+                        message = 'Ventana observada y foco confirmado para ' + (result.output?.label || result.evidence.target) + '.';
+                    } else message = 'He enviado a Windows la apertura de ' + (result.output?.label || result.evidence.target) + '.';
                     if (result.command_id === 'axx.desktop.search') message += ' Los resultados se abren en tu navegador.';
                 }
                 if (result.command_id === 'axx.shell.powershell') {
@@ -502,8 +509,13 @@
                 }
                 if (verified && result.command_id === 'axx.desktop.list_apps') {
                     const apps = result.output?.applications || [];
-                    message = `Windows registra ${apps.length} aplicaciones. Puedes decir «abre» y su nombre:\n\n` + apps.slice(0, 120).map(app => app.name).join('\n');
+                    message = `Windows registra ${apps.length} aplicaciones instaladas. La detección no implica que cada una tenga acciones compatibles:\n\n` + apps.slice(0, 120).map(app => `${app.name} — detectada; controles por app sin validar`).join('\n');
                     if (apps.length > 120) message += '\n\nLa lista completa está en el resultado de la biblioteca.';
+                }
+                if (verified && result.command_id === 'axx.desktop.list_windows') {
+                    const windows = result.output?.windows || [];
+                    message = windows.length ? `Ventanas visibles: ${windows.length}.\n\n` + windows.slice(0, 80).map(w => `${w.foreground ? '●' : '○'} ${w.title} — HWND 0x${Number(w.window_id).toString(16)}, PID ${w.pid}`).join('\n')
+                        : 'No se encontraron ventanas visibles con título.';
                 }
                 if (verified && result.evidence?.verification === 'stable_file_sha256') {
                     message = result.output.files.map(file => `${file.path}\nSHA256: ${file.sha256}\n${file.bytes} bytes`).join('\n\n');

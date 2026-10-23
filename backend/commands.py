@@ -39,6 +39,30 @@ ADAPTERS = {
         'title': 'Aplicaciones instaladas', 'tool': 'desktop_list_apps', 'risk': 'read',
         'description': 'Consulta los nombres y accesos registrados por Windows.',
         'aliases': ['mis aplicaciones', 'aplicaciones instaladas'], 'parameters': {}},
+    'axx.desktop.list_windows': {
+        'title': 'Ventanas visibles', 'tool': 'desktop_list_windows', 'risk': 'read',
+        'description': 'Consulta ventanas superiores visibles con título, proceso e indicador de foco; no lee el contenido de sus controles.',
+        'aliases': ['mis ventanas', 'ventanas abiertas', 'lista ventanas', 'lista mis ventanas', 'muestra mis ventanas'], 'parameters': {}},
+    'axx.desktop.window.inspect': {
+        'title': 'Observar controles de ventana', 'tool': 'desktop_inspect_window', 'risk': 'read',
+        'description': 'Observa el árbol limitado de controles UI Automation de una ventana identificada por HWND y PID observados.',
+        'aliases': [], 'parameters': {
+            'window_id': {'type': 'string', 'required': True, 'maxLength': 18},
+            'pid': {'type': 'integer', 'required': True, 'minimum': 1, 'maximum': 4294967295}}},
+    'axx.desktop.window.focus': {
+        'title': 'Enfocar ventana observada', 'tool': 'desktop_focus_window', 'risk': 'local_state', 'requires_approval': False,
+        'description': 'Solicita el foco para una ventana observada y verifica el foreground real de Windows.',
+        'aliases': [], 'parameters': {
+            'window_id': {'type': 'string', 'required': True, 'maxLength': 18},
+            'pid': {'type': 'integer', 'required': True, 'minimum': 1, 'maximum': 4294967295}}},
+    'axx.desktop.window.set_value': {
+        'title': 'Escribir en un control observado', 'tool': 'desktop_set_window_value', 'risk': 'workspace_write',
+        'description': 'Escribe texto exacto en un control único con ValuePattern, ligado a HWND, PID y AutomationId observados. Requiere aprobación por operación.',
+        'aliases': [], 'parameters': {
+            'window_id': {'type': 'string', 'required': True, 'maxLength': 18},
+            'pid': {'type': 'integer', 'required': True, 'minimum': 1, 'maximum': 4294967295},
+            'control_id': {'type': 'string', 'required': True, 'maxLength': 64},
+            'value': {'type': 'string', 'required': True, 'maxLength': 8192, 'maxBytes': 32768}}},
     'axx.desktop.installed_app': {
         'title': 'Abrir aplicación instalada', 'tool': 'desktop_installed_app', 'risk': 'desktop_open', 'requires_approval': False,
         'description': 'Abre un acceso observado en el inventario de Windows. En el chat puedes decir «abre» y su nombre.',
