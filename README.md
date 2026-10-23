@@ -12,6 +12,12 @@ The packaged backend may take longer on its first launch while Windows extracts 
 Source is **v0.21.1**; the published Windows installer is **v0.21.0**. Delivery of the newer source is pending publication. Android APKs remain local test artifacts until separately published. See [mobile setup and validation](docs/mobile/README.md) and the [version and release procedure](docs/RELEASING.md).
 <!-- release:download:end -->
 
+### Leer páginas y aplicaciones
+
+En Windows, abre la página o aplicación y escribe `lee la página Título` o `lee la ventana Título` en Axx. También puedes elegirla en **Biblioteca y archivos → Leer páginas y aplicaciones**. Revisa la ventana indicada y aprueba la lectura. El texto y los enlaces permanecen locales; el botón **Usar en mi próxima pregunta al modelo** permite compartir esa lectura con el modelo elegido.
+
+La función usa accesibilidad de Windows y no una lista de sitios permitidos. En YouTube añade `abre el primer video`, que utiliza el primer resultado visible observado. Los enlaces caducan para apertura al minuto. No garantiza lectura de interfaces dibujadas, documentos protegidos o aplicaciones sin accesibilidad. [Detalles y límites de 0.21.1](docs/releases/0.21.1.md).
+
 ---
 
 <p align="center">
