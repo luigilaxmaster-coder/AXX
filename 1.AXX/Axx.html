@@ -7628,7 +7628,7 @@ var Axx;
         throw new Error('Falta el control ' + id); return n; }
     const families = { actions: 'Acciones', focus: 'Enfocar', matter: 'Materia', states: 'Estados', settings: 'Ajustes' };
     Axx.FEATURES = [
-        { id: 'magicpen', family: 'actions', title: 'Magic Pen', description: 'Captura, selecciona, pregunta y anota. Guarda el original y una copia anotada.', view: 'magicpen', availability: 'CAPTURA LOCAL · VISIÓN SEGÚN PROVEEDOR' },
+        { id: 'magicpen', family: 'actions', title: 'Magic Pen', description: 'Selecciona y marca directamente sobre el escritorio. Recibe una explicación junto a lo señalado y exporta tus anotaciones.', view: 'magicpen', availability: 'CAPTURA LOCAL · VISIÓN SEGÚN PROVEEDOR' },
         { id: 'converter', family: 'actions', title: 'Convertidor y PDF', description: 'Convierte PNG/JPEG y organiza páginas PDF con resultados verificados.', view: 'converter', availability: 'LOCAL · AXX DESKTOP' },
         { id: 'experience', family: 'states', title: 'Probar Axx', description: 'Recorre contacto, dock y una cuenta atrás real de diez segundos.', view: 'experience', availability: 'LOCAL · INICIO EXPLÍCITO' },
         { id: "stopwatch", family: "actions", title: "Cronómetro con vueltas", description: "Mide actividades, marca vueltas y exporta los tiempos.", view: "stopwatch", availability: "DISPONIBLE · LOCAL" },
@@ -19216,7 +19216,7 @@ var Axx;
         }
         interactiveRegions() {
             const regions = [];
-            for (const n of document.querySelectorAll('#panel,#dock-shell,#flow-sheet,#flow-pill,#flow-fan>button,#flow-all,#reach-tray,#reach-preview,#ink-review,#v13-dock,#v13-settings,#v13-pad,#reader-mini,.organic-satellite,dialog[open],button,input,textarea,select,summary,.resident-resize-handle')) {
+            for (const n of document.querySelectorAll('#mp-canvas,#mp-toolbar,#mp-widget,#panel,#dock-shell,#flow-sheet,#flow-pill,#flow-fan>button,#flow-all,#reach-tray,#reach-preview,#ink-review,#v13-dock,#v13-settings,#v13-pad,#reader-mini,.organic-satellite,dialog[open],button,input,textarea,select,summary,.resident-resize-handle')) {
                 if (n.id === 'a11-main-button' || n.hidden || !n.getClientRects().length) continue;
                 const style = getComputedStyle(n); if (style.visibility === 'hidden' || style.pointerEvents === 'none' || Number(style.opacity) === 0) continue;
                 const r = n.getBoundingClientRect();

@@ -45,6 +45,19 @@ Source is **v0.21.2**; the published Windows installer is **v0.21.0**. Delivery 
 
 ---
 
+## Magic Pen directly on your desktop
+
+Open **Magic Pen** from the character's circular menu. Select a rectangle, point,
+lasso or the whole screen over the application you are using; the explanation
+appears in a nearby floating widget. Draw with the pen or marker, undo/redo ink,
+ask follow-up questions and export a verified original or annotated PNG.
+
+The desktop stays live. Axx takes a clean snapshot when you finish a selection or
+ask about your marks; it does not continuously send your screen to a model.
+**Use desktop** passes clicks through to other applications; **Escape** closes
+Magic Pen. Visual answers require an available vision provider configured on
+that PC. [Usage, limits and verification](docs/MAGIC-PEN-DESKTOP.md).
+
 ## Axx on desktop and Android
 
 The desktop remains the coordinator. Axx Mobile connects to the same conversation, tasks and services on your PC.
