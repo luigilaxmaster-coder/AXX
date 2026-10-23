@@ -66,7 +66,7 @@ const {chromium} = createRequire(path.join(process.env.USERPROFILE, '.cache/code
     });
     await page.goto('http://127.0.0.1:'+server.address().port);
     await page.waitForFunction(()=>window.Axx?.commandLibrary && window.Axx?.resident?.firstFrame);
-    await page.evaluate(()=>Object.assign(Axx.companion.data.prefs,{provider:'bridge',apiConnection:'plan-fixture',model:'plan-fixture',voiceRead:false,mutedAll:true}));
+    await page.evaluate(()=>Object.assign(Axx.companion.data.prefs,{provider:'bridge',selection_mode:'manual',apiConnection:'plan-fixture',model:'plan-fixture',voiceRead:false,mutedAll:true}));
     await page.evaluate(()=>Axx.commandLibrary.search('AXX-01-0001'));
     await page.waitForFunction(()=>document.getElementById('command-library-steps').textContent.includes('Windows'));
     console.log('Full imported procedure loaded');

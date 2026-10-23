@@ -63,10 +63,12 @@ def validate_inputs(kind, inputs):
     elif kind == 'list_windows':
         if inputs:
             raise ValueError('La lista de ventanas no admite parámetros.')
-    elif kind in ('inspect_window', 'focus_window'):
-        if set(inputs) != {'window_id', 'pid'}:
+    elif kind in ('inspect_window', 'read_window', 'focus_window'):
+        if set(inputs) != ({'window_id', 'pid', 'expected_title'} if kind == 'read_window' else {'window_id', 'pid'}):
             raise ValueError('Indica la ventana observada y su proceso.')
         _validate_window_ref(inputs['window_id'], inputs['pid'])
+        if kind == 'read_window' and (not isinstance(inputs['expected_title'], str) or not 1 <= len(inputs['expected_title']) <= 2048):
+            raise ValueError('Indica el título observado de la ventana.')
     elif kind == 'set_window_value':
         if set(inputs) != {'window_id', 'pid', 'control_id', 'value'}:
             raise ValueError('Indica ventana, proceso, control y texto.')
@@ -200,11 +202,12 @@ def open_target(kind, inputs, cancelled=None):
         rows = list_windows()
         return {'success': True, 'output': {'windows': rows},
                 'evidence': {'verification': 'visible_windows_inventory', 'accepted': True, 'count': len(rows)}}
-    elif kind in ('inspect_window', 'focus_window', 'set_window_value'):
-        from .windows_automation import focus_window, inspect_controls, set_control_value
+    elif kind in ('inspect_window', 'read_window', 'focus_window', 'set_window_value'):
+        from .windows_automation import focus_window, inspect_controls, read_window_content, set_control_value
         window_id = int(inputs['window_id'], 16)
-        if kind == 'inspect_window':
-            output = inspect_controls(window_id, inputs['pid'], cancelled=cancelled)
+        if kind in ('inspect_window', 'read_window'):
+            output = (read_window_content(window_id, inputs['pid'], inputs['expected_title'], cancelled=cancelled)
+                      if kind == 'read_window' else inspect_controls(window_id, inputs['pid'], cancelled=cancelled))
             evidence = {'verification': output['verification'], 'accepted': True,
                         'window_id': window_id, 'pid': inputs['pid']}
         elif kind == 'focus_window':

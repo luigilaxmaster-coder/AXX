@@ -32,6 +32,33 @@
             const section = document.createElement('section');
             section.id = 'command-library'; section.className = 'setup-card';
             section.innerHTML = `<strong>Biblioteca de comandos</strong>
+              <style>
+                #command-library-approval{border:1px solid #98bce870;border-radius:12px;padding:14px;margin:12px 0;background:#91b6ec0d}
+                #command-library-approval h3{font-size:15px;margin:0 0 8px;color:var(--text,#eef1f7)}
+                #command-library-approval p,#command-library-approval li{font-size:12px;line-height:1.6;color:var(--text,#eef1f7)}
+                #command-library-preview{padding-left:22px;margin:12px 0;overflow-wrap:anywhere}
+                #command-library-preview li{padding:8px 0;border-bottom:1px solid #ffffff18}
+                #command-library-preview strong{font-size:12px;color:inherit}
+                #command-library-preview pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:150px;overflow:auto;font:12px/1.6 ui-monospace,monospace;margin:4px 0}
+                #command-library-approve{width:100%;min-height:44px;background:#cbdcf5;color:#142338;font-weight:600;margin-top:12px}
+                #command-library-approve:disabled{opacity:.5}
+                #command-library-approval-actions{display:flex;align-items:stretch;gap:8px;margin-top:12px}
+                #command-library-approval-actions button{margin-top:0;min-height:44px}
+                #command-library-approval-actions #command-library-cancel{flex-shrink:0}
+                #command-library-approval summary{cursor:pointer;font-size:12px;margin-top:12px}
+                #command-library-controls{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}
+                #command-library-controls button{min-height:40px}
+                #command-library-approval :focus-visible{outline:2px solid #b9d6ff;outline-offset:3px}
+              </style>
+              <section id="command-library-approval" hidden aria-labelledby="command-library-approval-title">
+                <h3 id="command-library-approval-title">Revisa lo que hará Axx</h3>
+                <p id="command-library-approval-summary"></p><ol id="command-library-preview"></ol>
+                <p>Apruebas solo los pasos pendientes y los datos mostrados. Cancelar no deshace pasos ya completados.</p>
+                <details id="command-library-technical"><summary>Ver comandos y parámetros exactos</summary><pre id="command-library-raw" style="white-space:pre-wrap;overflow-wrap:anywhere;max-height:220px;overflow:auto"></pre></details>
+                <div id="command-library-approval-actions"><button id="command-library-approve" type="button">Aprobar y ejecutar</button></div>
+              </section>
+              <div id="command-library-controls"><button id="command-library-cancel" type="button" disabled>Cancelar tarea</button><button id="command-library-recover" type="button" disabled>Consultar resultado</button></div>
+              <p id="command-library-status" role="status">${Axx.isNative() ? 'Lista para consultar el backend de Axx.' : 'El catálogo ejecutable requiere Axx para Windows. Puedes seguir usando las herramientas locales.'}</p>
               <p>Busca una acción y revisa sus parámetros. Las recetas documentadas permanecen bloqueadas hasta disponer de un adaptador validado.</p>
               <p id="command-library-counts">Consulta el catálogo para ver su disponibilidad.</p>
               <button id="command-library-learned" type="button">Mis acciones aprendidas</button><div id="command-library-learned-list"></div>
@@ -40,10 +67,7 @@
               <p id="command-library-description"></p><p id="command-library-availability"></p>
               <details id="command-library-procedure" hidden><summary>Ver instrucciones, requisitos y comprobaciones</summary><div id="command-library-steps" style="max-height:340px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere"></div></details>
               <form id="command-library-parameters"><div id="command-library-fields"></div><button id="command-library-prepare" type="submit" disabled>Preparar comando</button></form>
-              <section id="command-library-approval" hidden aria-label="Aprobación del comando"><strong>Revisa antes de ejecutar</strong><pre id="command-library-preview" style="white-space:pre-wrap;word-break:break-word;max-height:220px;overflow:auto"></pre><p>Esta autorización se aplica únicamente al comando y los parámetros mostrados.</p><button id="command-library-approve" type="button">Aprobar y ejecutar este comando</button></section>
-              <div class="quick-row"><button id="command-library-cancel" type="button" disabled>Cancelar comando</button><button id="command-library-recover" type="button" disabled>Consultar resultado</button></div>
-              <p id="command-library-status" role="status">${Axx.isNative() ? 'Lista para consultar el backend de Axx.' : 'El catálogo ejecutable requiere Axx para Windows. Puedes seguir usando las herramientas locales.'}</p>
-              <pre id="command-library-result" style="white-space:pre-wrap;word-break:break-word;max-height:280px;overflow:auto" aria-live="polite"></pre>
+              <details><summary>Detalles del resultado</summary><pre id="command-library-result" style="white-space:pre-wrap;word-break:break-word;max-height:280px;overflow:auto"></pre></details>
               <p>Desde el chat: «abre YouTube», «abre calculadora», «busca música en YouTube» o «estado del sistema». Para un script escrito usa «/powershell Get-Date»: revisa el código y pulsa Aprobar. PowerShell puede modificar tu equipo; se detiene a los 30 segundos y Escape cancela la ejecución. «/comandos texto» busca acciones.</p>`;
             node('view-files').prepend(section);
             node('command-library-search-form').onsubmit = event => { event.preventDefault(); void this.search().catch(e => this.status(errorText(e))); };
@@ -74,7 +98,7 @@
             link.onclick = () => { this.open(); void this.search().catch(e => this.status(errorText(e))); };
             node('desktop-runtime')?.prepend(link);
         }
-        open() { Axx.companion.openFeature('files'); node('command-library').scrollIntoView({ block: 'nearest' }); Axx.resident?.schedule(); }
+        open() { Axx.companion.openFeature('files'); node(this.operation?.state === 'awaiting_approval' ? 'command-library-approval' : 'command-library').scrollIntoView({ block: 'start' }); Axx.resident?.schedule(); }
         connectExistingActions() {
             if (!Axx.desktop) return;
             const ids = { system_telemetry: 'axx.system.telemetry', process_state_inspector: 'axx.process.inspect', file_artifact_writer: 'axx.artifact.write' };
@@ -414,11 +438,9 @@
         renderOperation(operation) {
             node('command-library-result').textContent = JSON.stringify(operation, null, 2);
             const awaiting = operation?.state === 'awaiting_approval';
+            node(awaiting ? 'command-library-approval-actions' : 'command-library-controls').append(node('command-library-cancel'));
             node('command-library-approval').hidden = !awaiting;
-            if (awaiting) node('command-library-preview').textContent = operation.command_id === 'axx.shell.powershell'
-                ? 'PowerShell · puede modificar archivos y ajustes de este equipo.\nCarpeta de trabajo: Axx/artifacts. Límite: 30 segundos.\n\n' + operation.inputs.script
-                : JSON.stringify({ command_id: operation.command_id, inputs: operation.inputs, operation_id: operation.operation_id }, null, 2);
-            if (awaiting && operation.kind === 'learned_plan') node('command-library-preview').textContent = operation.title + '\n\n' + operation.steps.map((step, i) => `${i + 1}. ${step.command_id}\n${JSON.stringify(step.inputs, null, 2)}`).join('\n\n') + '\n\nAxx ejecutará estos pasos y los guardará si se verifican.';
+            if (awaiting) this.renderApproval(operation);
             node('command-library-approve').disabled = !awaiting || this.busy;
             node('command-library-cancel').disabled = !this.busy && !this.operation;
             node('command-library-recover').disabled = this.busy || this.cancellingGeneration === this.generation || !operation?.operation_id;
@@ -429,6 +451,39 @@
                 node('desktop-action-result').textContent = JSON.stringify(operation, null, 2);
             }
             Axx.resident?.schedule();
+        }
+        renderApproval(operation) {
+            const steps = operation.kind === 'learned_plan' ? operation.steps : [operation];
+            const titles = {'axx.artifact.write':'Crear archivo en Axx/artifacts', 'axx.file.sha256':'Comprobar el contenido del archivo (SHA-256)',
+                'axx.file.compare':'Comparar dos archivos', 'axx.shell.powershell':'Ejecutar script de PowerShell', 'axx.shell.cmd':'Ejecutar comando de CMD',
+                'axx.desktop.open_url':'Abrir página web', 'axx.desktop.search':'Buscar en el navegador', 'axx.desktop.window.set_value':'Escribir en la ventana seleccionada',
+                'axx.desktop.window.read':'Leer texto y enlaces de la ventana seleccionada'};
+            const labels = {path:'Archivo', other_path:'Segundo archivo', content:'Contenido que se guardará', script:'Código que se ejecutará',
+                url:'Dirección', query:'Búsqueda', engine:'Buscador', value:'Texto que se escribirá', window_id:'Ventana', pid:'Proceso', control_id:'Control', app:'Aplicación', expected_title:'Ventana o página que se leerá'};
+            const preview = node('command-library-preview'); preview.replaceChildren();
+            let completed = 0;
+            steps.forEach((step, index) => {
+                const done = operation.step_records?.[index]?.state === 'succeeded';
+                if (done) completed++;
+                const item = document.createElement('li'), title = document.createElement('strong');
+                title.textContent = (done ? 'Completado · ' : '') + (titles[step.command_id] || this.commands.find(c => c.id === step.command_id)?.title || step.command_id);
+                item.append(title);
+                if (done) { const note = document.createElement('p'); note.textContent = 'Se conserva el resultado. Este paso no se repetirá.'; item.append(note); }
+                for (const [key, value] of Object.entries(step.inputs || {})) {
+                    const label = document.createElement('div'), text = document.createElement('pre');
+                    label.textContent = labels[key] || key; text.textContent = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+                    text.tabIndex = 0; text.setAttribute('aria-label', label.textContent);
+                    item.append(label, text);
+                }
+                if (!done && ['axx.shell.powershell','axx.shell.cmd'].includes(step.command_id)) {
+                    const note = document.createElement('p'); note.textContent = 'Puede modificar archivos y ajustes del equipo. Carpeta de trabajo: Axx/artifacts. Límite: 30 segundos.'; item.append(note);
+                }
+                preview.append(item);
+            });
+            const pending = steps.length - completed;
+            node('command-library-approval-summary').textContent = (operation.title ? operation.title + ' · ' : '') + `${pending} ${pending === 1 ? 'paso pendiente' : 'pasos pendientes'}` + (completed ? ` · ${completed} ya completado(s)` : '') + '.';
+            node('command-library-approve').textContent = this.busy ? 'Ejecutando…' : `Aprobar y ejecutar ${pending === 1 ? '1 paso' : pending + ' pasos'}`;
+            node('command-library-raw').textContent = JSON.stringify({operation_id:operation.operation_id, steps}, null, 2);
         }
         async prepare(commandId, inputs, source) {
             return this.prepareRequest('/axx-api/commands/prepare', { command_id: commandId, inputs, source });
@@ -460,7 +515,7 @@
             this.busy = false; this.renderOperation(operation);
             if (operation.state === 'blocked') { this.status('Comando bloqueado: ' + errorText(operation.error)); return 'Comando bloqueado: ' + errorText(operation.error); }
             if (operation.state === 'cancelled') { this.status('Comando cancelado antes de ejecutar.'); return 'Comando cancelado antes de ejecutar.'; }
-            if (operation.state === 'awaiting_approval') { this.open(); this.status('Pendiente de tu aprobación del comando y sus parámetros.'); return 'Comando preparado. Revisa sus parámetros en Biblioteca y pulsa «Aprobar y ejecutar este comando».'; }
+            if (operation.state === 'awaiting_approval') { this.open(); this.status('Esperando tu aprobación. Revisa los pasos antes de ejecutar.'); return 'Comando preparado. Revisa los pasos en Biblioteca y pulsa «Aprobar y ejecutar».'; }
             return await this.execute(false);
         }
         async approve() {
@@ -482,6 +537,7 @@
                 const launchNeedsWindow = ['axx.desktop.open_app', 'axx.desktop.installed_app'].includes(result.command_id);
                 const verified = result.state === 'succeeded' && result.postconditions_passed === true
                     && (!launchNeedsWindow || result.output?.ready_for_action === true);
+                if (verified && result.command_id === 'axx.desktop.window.read') Axx.windowContent?.accept(result);
                 let detail = '';
                 if (verified && result.evidence && typeof result.evidence === 'object') {
                     const ev = result.evidence;

@@ -50,6 +50,13 @@ ADAPTERS = {
         'aliases': [], 'parameters': {
             'window_id': {'type': 'string', 'required': True, 'maxLength': 18},
             'pid': {'type': 'integer', 'required': True, 'minimum': 1, 'maximum': 4294967295}}},
+    'axx.desktop.window.read': {
+        'title': 'Leer contenido de una ventana', 'tool': 'desktop_read_window', 'risk': 'local_content_read',
+        'description': 'Lee texto y enlaces que una ventana expone a accesibilidad, tras aprobar. Excluye controles de contraseña. No equivale a acceso al DOM ni garantiza que la aplicación exponga todo el contenido.',
+        'aliases': [], 'parameters': {
+            'expected_title': {'type': 'string', 'required': True, 'maxLength': 2048},
+            'window_id': {'type': 'string', 'required': True, 'maxLength': 18},
+            'pid': {'type': 'integer', 'required': True, 'minimum': 1, 'maximum': 4294967295}}},
     'axx.desktop.window.focus': {
         'title': 'Enfocar ventana observada', 'tool': 'desktop_focus_window', 'risk': 'local_state', 'requires_approval': False,
         'description': 'Solicita el foco para una ventana observada y verifica el foreground real de Windows.',

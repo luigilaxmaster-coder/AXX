@@ -442,7 +442,7 @@ TOOL_REGISTRY: dict[str, BaseTool] = {
     BlenderRenderFixtureTool.name: BlenderRenderFixtureTool(),
     **{('desktop_' + kind): DesktopTool(kind) for kind in (
         'open_url', 'open_app', 'installed_app', 'list_apps', 'search', 'powershell', 'cmd',
-        'list_windows', 'inspect_window', 'focus_window', 'set_window_value')},
+        'list_windows', 'inspect_window', 'read_window', 'focus_window', 'set_window_value')},
 }
 
 def get_tool(name: str) -> BaseTool | None:

@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 import subprocess
 import time
+from urllib.parse import urlsplit, parse_qs
 
 MAX_WINDOWS = 512
 MAX_CONTROLS = 250
@@ -159,6 +160,43 @@ def focus_window(window_id, expected_pid):
 def inspect_controls(window_id, expected_pid, cancelled=None):
     return _uia({'operation': 'inspect', 'window_id': _positive_int(window_id, 'window_id'),
                  'pid': _positive_int(expected_pid, 'pid')}, cancelled=cancelled)
+
+
+def read_window_content(window_id, expected_pid, expected_title, cancelled=None):
+    if not isinstance(expected_title, str) or not 1 <= len(expected_title) <= 2048:
+        raise ValueError('Indica el título observado de la ventana.')
+    result = _uia({'operation': 'read_content', 'window_id': _positive_int(window_id, 'window_id'),
+                 'pid': _positive_int(expected_pid, 'pid'), 'expected_title': expected_title}, cancelled=cancelled)
+    return summarize_window_content(result)
+
+
+def summarize_window_content(result):
+    """Keep observed text and links; never infer destinations from labels."""
+    lines, links, seen = [], [], set()
+    visible = sorted((row for row in result.get('controls', []) if not row.get('offscreen')),
+                     key=lambda row: (row.get('bounds', {}).get('y', 0), row.get('bounds', {}).get('x', 0)))
+    for row in visible:
+        text = row.get('text') or row.get('value') or row.get('name') or ''
+        if text and text not in seen:
+            lines.append(text); seen.add(text)
+        if row.get('control_type') != 'ControlType.Hyperlink': continue
+        url = row.get('value', '')
+        try: parsed = urlsplit(url)
+        except ValueError: continue
+        if parsed.scheme not in ('http', 'https') or not parsed.hostname or parsed.username or parsed.password: continue
+        if any(link['url'] == url for link in links): continue
+        link = {'title': row.get('text') or row.get('name') or url, 'url': url, 'control_id': row['control_id']}
+        video_id = parse_qs(parsed.query).get('v', [''])[0]
+        if (parsed.hostname in ('youtube.com', 'www.youtube.com', 'm.youtube.com') and parsed.path == '/watch'
+                and row.get('automation_id') == 'video-title' and len(video_id) == 11
+                and all(c.isascii() and (c.isalnum() or c in '-_') for c in video_id)):
+            link['video_id'] = video_id
+        links.append(link)
+    text = '\n'.join(lines)
+    result.update(text=text[:24000], links=links, observed_at=time.time(),
+                  truncated=result.get('truncated', False) or len(text) > 24000,
+                  content_status='observed' if lines else 'unavailable')
+    return result
 
 
 def set_control_value(window_id, expected_pid, control_id, value, cancelled=None):

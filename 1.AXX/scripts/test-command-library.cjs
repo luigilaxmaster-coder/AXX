@@ -95,12 +95,25 @@ const { chromium } = bundledRequire('playwright');
     assert.equal(await page.locator('#chat-input').inputValue(), 'Este borrador debe conservarse');
     results.push('Submitting while a command awaits approval preserves the existing chat draft');
     const beforeApproval = await page.evaluate(() => calls.filter(call => call.route.endsWith('/execute')).length);
+    assert.match(await page.locator('#command-library-preview').innerText(), /Archivo\s+prueba.txt/);
+    assert.match(await page.locator('#command-library-preview').innerText(), /Contenido que se guardará/);
+    assert.equal(await page.locator('#command-library-approve').textContent(), 'Aprobar y ejecutar 1 paso');
+    assert.equal(await page.locator('#command-library-technical').getAttribute('open'), null);
     await page.evaluate(() => Axx.companion.send('sí', { source: 'voice' }));
     assert.equal(await page.evaluate(() => calls.filter(call => call.route.endsWith('/execute')).length), beforeApproval);
     await page.locator('#command-library-approve').click();
     await page.waitForFunction(() => !Axx.commandLibrary.busy);
     assert.equal(await page.evaluate(() => calls.filter(call => call.route.endsWith('/execute')).at(-1).body.approved), true);
     results.push('A write requires the visible parameter-bound approval button; spoken yes never approves');
+    await page.evaluate(() => Axx.commandLibrary.renderOperation({kind:'learned_plan', operation_id:'review-only', state:'awaiting_approval',
+      title:'Continuar tarea', steps:[{command_id:'axx.artifact.write',inputs:{path:'hecho.txt',content:'<img src=x onerror=window.injected=true>'}},
+      {command_id:'axx.file.sha256',inputs:{path:'hecho.txt'}}], step_records:[{state:'succeeded'},{state:'pending'}]}));
+    assert.match(await page.locator('#command-library-preview').innerText(), /Este paso no se repetirá/);
+    assert.equal(await page.locator('#command-library-approve').textContent(), 'Aprobar y ejecutar 1 paso');
+    assert.equal(await page.locator('#command-library-preview img').count(), 0);
+    assert.equal(await page.evaluate(() => calls.filter(call => call.route.endsWith('/execute')).length), beforeApproval + 1);
+    await page.evaluate(() => Axx.commandLibrary.renderOperation(Axx.commandLibrary.lastOperation));
+    results.push('Readable approval preserves literal inputs, distinguishes completed steps and never executes while rendering');
 
     await page.selectOption('#command-library-select', 'axx.process.inspect');
     await page.locator('[name="pid"]').fill('12.5');
