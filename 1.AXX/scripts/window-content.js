@@ -10,6 +10,12 @@
       <button id="window-content-refresh" type="button">Buscar ventanas abiertas</button>
       <label class="setting">Ventana<select id="window-content-select" class="field"><option value="">Busca una ventana</option></select></label>
       <button id="window-content-read" type="button" disabled>Revisar y leer contenido</button>
+      <button id="window-control-focus" type="button">Enfocar ventana</button>
+      <details><summary>Escribir en Notepad</summary><p>Elige un documento de Notepad arriba. Reemplaza su texto tras aprobar; no guarda el archivo.</p>
+      <label>Texto literal<textarea id="window-control-value" maxlength="8192" rows="4"></textarea></label>
+      <button id="window-control-write" type="button">Revisar escritura en Notepad</button></details>
+      <label>Carpeta local<input id="window-control-folder" placeholder="C:\\Users" maxlength="240"></label>
+      <button id="window-control-open-folder" type="button">Abrir y enfocar carpeta</button>
       <p id="window-content-status" role="status">También puedes escribir «lee la página Título» o «lee la ventana Nombre».</p>
       <pre id="window-content-text" style="white-space:pre-wrap;overflow-wrap:anywhere;max-height:240px;overflow:auto" tabindex="0" aria-label="Contenido observado"></pre>
       <div id="window-content-links"></div><button id="window-content-attach" type="button" hidden>Usar en mi próxima pregunta al modelo</button>`;
@@ -60,6 +66,19 @@
     }
     $('window-content-refresh').onclick = () => run(refresh);
     $('window-content-read').onclick = () => run(() => read(windows.find(w => String(w.window_id) === $('window-content-select').value)));
+    $('window-control-focus').onclick = () => run(async () => {
+        const target = windows.find(w => String(w.window_id) === $('window-content-select').value);
+        if (!target) throw new Error('Busca y selecciona una ventana primero.');
+        status(await commands.prepare('axx.desktop.window.focus', {window_id:'0x'+target.window_id.toString(16), pid:target.pid}, 'text'));
+    });
+    $('window-control-write').onclick = () => run(async () => {
+        const target = windows.find(w => String(w.window_id) === $('window-content-select').value);
+        if (!target) throw new Error('Busca y selecciona el documento de Notepad primero.');
+        status(await commands.prepare('axx.desktop.notepad.text', {window_title:target.title, value:$('window-control-value').value}, 'text'));
+    });
+    $('window-control-open-folder').onclick = () => run(async () => {
+        status(await commands.prepare('axx.desktop.explorer.folder', {path:$('window-control-folder').value.trim()}, 'text'));
+    });
     $('window-content-attach').onclick = () => run(() => {
         if (Axx.companion.attachment) throw new Error('Ya hay un adjunto. Envíalo o quítalo antes de añadir esta lectura.');
         if (!snapshot?.text) throw new Error('Lee una ventana primero.');

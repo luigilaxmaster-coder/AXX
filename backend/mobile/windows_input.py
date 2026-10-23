@@ -109,7 +109,8 @@ class WindowsInput:
 
     def status(self):
         with self.snapshot_lock:return dict(self.snapshot)
-    def grant(self,lease,ttl):return self._call('grant',lease,ttl)
+    def grant(self,lease,ttl,source='remote'):return self._call('grant',lease,ttl,source)
+    def focus(self,lease,window_id,pid):return self._call('focus',lease,window_id,pid)
     def renew(self,lease,ttl):return self._call('renew',lease,ttl)
     def events(self,lease,events):return self._call('events',lease,events)
     def cancel(self,reason):self.abort_reason=reason;self.abort.set();return self._call('cancel',reason)
@@ -149,6 +150,7 @@ class WindowsInput:
 
     def _cancel(self,reason,physical_key=None,physical_button=None):
         was_active=self.active
+        self.abort.set()
         self.active=False;self.reason=reason;self.lease='';self.deadline=0
         self._set_hooks(False)
         physical_key={0xa0:0x10,0xa1:0x10,0xa2:0x11,0xa3:0x11,0xa4:0x12,0xa5:0x12,0x5c:0x5b}.get(physical_key,physical_key)
@@ -179,8 +181,23 @@ class WindowsInput:
             if self.table is None or now-self.material_at>5:raise ValueError('Abre Axx en la PC para sincronizar su indicador')
             if any(self.user.GetAsyncKeyState(k)<0 for k in (1,2,4,0x10,0x11,0x12,0x5b,0x5c)):raise ValueError('Suelta los botones y modificadores físicos antes de conceder control')
             self._set_hooks(True)
-            self.abort.clear();self.abort_reason='expired_or_revoked';self.lease=args[0];self.deadline=now+args[1];self.active=True;self.reason='granted';self.granted_at=now;self.release_at=0;return
+            self.abort.clear();self.abort_reason='expired_or_revoked';self.lease=args[0];self.deadline=now+args[1];self.active=True;self.source=args[2];self.reason='granted';self.granted_at=now;self.release_at=0;return
         self._check(args[0])
+        if operation=='focus':
+            from backend.actions.windows_automation import _windows_api
+            user,_=_windows_api();hwnd=W.HWND(args[1]);pid=W.DWORD()
+            user.GetWindowThreadProcessId(hwnd,C.byref(pid))
+            if not user.IsWindow(hwnd) or pid.value!=args[2]:raise ValueError('La ventana cambió antes de enfocar')
+            user.IsIconic.argtypes=[W.HWND];user.IsIconic.restype=W.BOOL
+            user.ShowWindowAsync.argtypes=[W.HWND,C.c_int];user.ShowWindowAsync.restype=W.BOOL
+            if user.IsIconic(hwnd):user.ShowWindowAsync(hwnd,9)
+            if not user.SetForegroundWindow(hwnd):
+                # The documented ALT activation gesture stays on the single input owner.
+                self._check(args[0]);self.held_keys.add('Alt')
+                self._send([self._key('Alt',True),self._key('Alt',False)])
+                self.held_keys.discard('Alt')
+                user.SetForegroundWindow(hwnd)
+            return
         if operation=='renew':self.deadline=now+args[1];return
         if operation=='events':
             cursor=W.POINT()
@@ -248,7 +265,7 @@ class WindowsInput:
 
     def _publish(self):
         point=W.POINT();self.user.GetCursorPos(C.byref(point))
-        with self.snapshot_lock:self.snapshot={'active':self.active,'reason':self.reason,'keys':sorted(self.held_keys),'buttons':sorted(self.held_buttons),'cursor':{'x':point.x,'y':point.y},'overlay_visible':bool(self.active or self.release_at),'material_key':self.material_key,'monitors':self.monitors}
+        with self.snapshot_lock:self.snapshot={'active':self.active,'source':getattr(self,'source','remote') if self.active else 'physical','reason':self.reason,'keys':sorted(self.held_keys),'buttons':sorted(self.held_buttons),'cursor':{'x':point.x,'y':point.y},'overlay_visible':bool(self.active or self.release_at),'material_key':self.material_key,'monitors':self.monitors}
 
     def _run(self):
         try:

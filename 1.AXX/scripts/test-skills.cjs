@@ -30,7 +30,7 @@ const {chromium} = createRequire(path.join(process.env.USERPROFILE, '.cache/code
   await new Promise(r=>modelServer.listen(0,'127.0.0.1',r));
   const token=crypto.randomBytes(32).toString('hex'), ready=path.join(workspace,'ready.json');
   const log=fs.openSync(path.join(workspace,'backend.log'),'a');
-  const backend=spawn(sourceMode?'py':binary,[...(sourceMode?['-3.14',binary]:[]),'--port','0','--data-dir',workspace,'--ready-file',ready],{cwd:root,env:{...process.env,AXX_HOST_TOKEN:token},windowsHide:true,stdio:['ignore',log,log]});
+  const backend=spawn(sourceMode?(process.env.AXX_TEST_PYTHON||'python'):binary,[...(sourceMode?[binary]:[]),'--port','0','--data-dir',workspace,'--ready-file',ready],{cwd:root,env:{...process.env,AXX_HOST_TOKEN:token},windowsHide:true,stdio:['ignore',log,log]});
   let browser,server;
   try {
     const deadline=Date.now()+90000;

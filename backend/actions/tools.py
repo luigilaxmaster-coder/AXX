@@ -360,7 +360,7 @@ class BlenderRenderFixtureTool(BaseTool):
 
 class DesktopTool(BaseTool):
     """Fixed desktop adapters and explicitly approved PowerShell scripts."""
-    version = '1.1.0'
+    version = '1.2.0'
 
     def __init__(self, kind):
         self.kind = kind
@@ -378,22 +378,40 @@ class DesktopTool(BaseTool):
     def execute(self, inputs):
         if self.kind in ('powershell', 'cmd'):
             return ToolResult(False, error='Shell commands require a workspace and explicit approval')
-        from .desktop import open_target
-        return ToolResult(**open_target(self.kind, inputs))
+        return self.execute_cancellable(inputs, None, threading.Event())
 
     def execute_cancellable(self, inputs, workspace_root, cancelled):
+        return self.execute_with_control(inputs, workspace_root, cancelled, None)
+
+    def execute_with_control(self, inputs, workspace_root, cancelled, input_control):
         if self.kind in ('powershell', 'cmd'):
             from .desktop import run_shell
             return ToolResult(**run_shell(self.kind, inputs, workspace_root, cancelled))
         from .desktop import open_target
+        from .windows_automation import UncertainEffect
         try:
+            if self.kind in ('focus_window', 'set_window_value', 'notepad_text', 'explorer_folder', 'open_app'):
+                if input_control is None:
+                    raise ValueError('El dueño de entrada de Windows no está conectado a este ejecutor.')
+                with input_control.automation(cancelled) as control:
+                    return ToolResult(**open_target(self.kind, inputs, cancelled=control, control=control))
             return ToolResult(**open_target(self.kind, inputs, cancelled=cancelled))
+        except UncertainEffect as exc:
+            return ToolResult(False, error=str(exc), evidence={'effect_uncertain': True, 'reconciliation_required': True,
+                              'reconciliation_target': getattr(exc, 'target', None), 'partial_stages': getattr(exc, 'partial_stages', [])})
         except ValueError as exc:
-            return ToolResult(False, error=str(exc), evidence={'cancelled': cancelled.is_set()})
+            return ToolResult(False, error=str(exc), evidence={'cancelled': cancelled.is_set() or getattr(exc, 'input_cancelled', False), 'partial_stages': getattr(exc, 'partial_stages', [])})
 
     def verify_postconditions(self, inputs, result):
         if self.kind in ('powershell', 'cmd'):
             valid = result.success and result.evidence.get('exit_code') == 0 and not result.evidence.get('cancelled')
+        elif self.kind in ('set_window_value', 'notepad_text'):
+            import hashlib
+            valid = (result.success and result.evidence.get('verification') == 'uia_value_readback'
+                     and result.evidence.get('value_sha256') == hashlib.sha256(inputs['value'].encode('utf-8')).hexdigest()
+                     and result.evidence.get('value_length') == len(inputs['value'].encode('utf-16-le')) // 2)
+        elif self.kind == 'explorer_folder':
+            valid = result.success and result.evidence.get('verification') == 'shell_folder_and_foreground_readback' and result.output.get('foreground_verified') is True
         elif self.kind == 'list_apps':
             valid = result.success and isinstance(result.output.get('applications'), list) and result.evidence.get('count') == len(result.output['applications'])
         else:
@@ -442,7 +460,7 @@ TOOL_REGISTRY: dict[str, BaseTool] = {
     BlenderRenderFixtureTool.name: BlenderRenderFixtureTool(),
     **{('desktop_' + kind): DesktopTool(kind) for kind in (
         'open_url', 'open_app', 'installed_app', 'list_apps', 'search', 'powershell', 'cmd',
-        'list_windows', 'inspect_window', 'read_window', 'focus_window', 'set_window_value')},
+        'list_windows', 'inspect_window', 'read_window', 'focus_window', 'set_window_value', 'notepad_text', 'explorer_folder')},
 }
 
 def get_tool(name: str) -> BaseTool | None:

@@ -34,6 +34,7 @@ class ActionExecutor:
         self.workspace_root = Path(workspace_root or self.db_path.resolve().parent).resolve()
         self.workspace_root.mkdir(parents=True, exist_ok=True)
         self.lock = threading.RLock()
+        self.input_control = None
         self.reads_done = threading.Condition(self.lock)
         self.parallel_reads = 0
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -138,6 +139,7 @@ class ActionExecutor:
                      'desktop_read_window': {'window_id', 'pid', 'expected_title'},
                      'desktop_focus_window': {'window_id', 'pid'},
                      'desktop_set_window_value': {'window_id', 'pid', 'control_id', 'value'},
+                     'desktop_notepad_text': {'window_title', 'value'}, 'desktop_explorer_folder': {'path'},
                      'file_inspection': {'path', 'other_path'}}
         if set(inputs) - permitted.get(tool_name, set()):
             raise ActionExecutionError('Unexpected action inputs')
@@ -201,7 +203,10 @@ class ActionExecutor:
             if allow_parallel_read:
                 self.lock.release()
             try:
-                tool_res: ToolResult = tool.execute_cancellable(inputs, self.workspace_root, cancel_event or threading.Event())
+                if hasattr(tool, 'execute_with_control'):
+                    tool_res = tool.execute_with_control(inputs, self.workspace_root, cancel_event or threading.Event(), self.input_control)
+                else:
+                    tool_res: ToolResult = tool.execute_cancellable(inputs, self.workspace_root, cancel_event or threading.Event())
             finally:
                 if allow_parallel_read:
                     self.lock.acquire()
@@ -230,8 +235,8 @@ class ActionExecutor:
             post_msg = f'Cannot verify the possible effect; inspect it before retrying: {exc}'
             verification_unknown = True
         duration_ms = (time.monotonic() - start_time) * 1000.0
-        final_state = ('cancelled' if tool_res.evidence.get('cancelled') is True else
-                       'unknown' if verification_unknown else
+        final_state = ('unknown' if verification_unknown or tool_res.evidence.get('effect_uncertain') else
+                       'cancelled' if tool_res.evidence.get('cancelled') is True else
                        'succeeded' if (tool_res.success and post_ok) else 'failed')
         err_msg = None if final_state == 'succeeded' else (tool_res.error or post_msg)
 

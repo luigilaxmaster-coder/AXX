@@ -57,7 +57,7 @@
                 <details id="command-library-technical"><summary>Ver comandos y parámetros exactos</summary><pre id="command-library-raw" style="white-space:pre-wrap;overflow-wrap:anywhere;max-height:220px;overflow:auto"></pre></details>
                 <div id="command-library-approval-actions"><button id="command-library-approve" type="button">Aprobar y ejecutar</button></div>
               </section>
-              <div id="command-library-controls"><button id="command-library-cancel" type="button" disabled>Cancelar tarea</button><button id="command-library-recover" type="button" disabled>Consultar resultado</button></div>
+              <div id="command-library-controls"><button id="command-library-cancel" type="button" disabled>Cancelar tarea</button><button id="command-library-recover" type="button" disabled>Consultar resultado</button><button id="command-library-remember" type="button" hidden>Guardar procedimiento verificado</button></div>
               <p id="command-library-status" role="status">${Axx.isNative() ? 'Lista para consultar el backend de Axx.' : 'El catálogo ejecutable requiere Axx para Windows. Puedes seguir usando las herramientas locales.'}</p>
               <p>Busca una acción y revisa sus parámetros. Las recetas documentadas permanecen bloqueadas hasta disponer de un adaptador validado.</p>
               <p id="command-library-counts">Consulta el catálogo para ver su disponibilidad.</p>
@@ -74,6 +74,14 @@
             node('command-library-select').onchange = () => this.renderSelection();
             node('command-library-parameters').onsubmit = event => { event.preventDefault(); void this.fromSelection().catch(e => this.report(e)); };
             node('command-library-approve').onclick = () => { void this.approve().catch(e => this.report(e)); };
+            node('command-library-remember').onclick = () => {
+                const operation = this.lastOperation;
+                if (!operation || this.busy || this.operation) return;
+                node('command-library-remember').disabled = true;
+                void this.request('POST','/axx-api/learning/remember',{operation_id:operation.operation_id})
+                    .then(() => this.status('Procedimiento parametrizado guardado. Está disponible en Habilidades; cada repetición vuelve a resolver ventana y controles.'))
+                    .catch(e => this.report(e)).finally(() => {node('command-library-remember').disabled = false;});
+            };
             node('command-library-cancel').onclick = () => { void this.cancel(); };
             node('command-library-recover').onclick = () => { void this.recover().catch(e => this.status(errorText(e))); };
             node('command-library-learned').onclick = () => { void this.listLearned().catch(e => this.report(e)); };
@@ -444,6 +452,8 @@
             node('command-library-approve').disabled = !awaiting || this.busy;
             node('command-library-cancel').disabled = !this.busy && !this.operation;
             node('command-library-recover').disabled = this.busy || this.cancellingGeneration === this.generation || !operation?.operation_id;
+            node('command-library-recover').textContent = operation?.state === 'unknown' && operation.evidence?.reconciliation_required ? 'Revisar efecto sin repetir' : 'Consultar resultado';
+            node('command-library-remember').hidden = !(operation?.state === 'succeeded' && operation.postconditions_passed && ['axx.desktop.notepad.text','axx.desktop.explorer.folder'].includes(operation.command_id));
             node('command-library-prepare').disabled = this.busy || !!this.operation || !this.commands.find(item => item.id === node('command-library-select').value)?.execution_enabled;
             if (Axx.desktop) {
                 const verified = operation?.state === 'succeeded' && operation.postconditions_passed === true;
@@ -457,9 +467,11 @@
             const titles = {'axx.artifact.write':'Crear archivo en Axx/artifacts', 'axx.file.sha256':'Comprobar el contenido del archivo (SHA-256)',
                 'axx.file.compare':'Comparar dos archivos', 'axx.shell.powershell':'Ejecutar script de PowerShell', 'axx.shell.cmd':'Ejecutar comando de CMD',
                 'axx.desktop.open_url':'Abrir página web', 'axx.desktop.search':'Buscar en el navegador', 'axx.desktop.window.set_value':'Escribir en la ventana seleccionada',
-                'axx.desktop.window.read':'Leer texto y enlaces de la ventana seleccionada'};
+                'axx.desktop.window.read':'Leer texto y enlaces de la ventana seleccionada',
+                'axx.desktop.notepad.text':'Reemplazar texto en el documento de Notepad (sin guardar)',
+                'axx.desktop.explorer.folder':'Abrir y enfocar la carpeta en Explorador'};
             const labels = {path:'Archivo', other_path:'Segundo archivo', content:'Contenido que se guardará', script:'Código que se ejecutará',
-                url:'Dirección', query:'Búsqueda', engine:'Buscador', value:'Texto que se escribirá', window_id:'Ventana', pid:'Proceso', control_id:'Control', app:'Aplicación', expected_title:'Ventana o página que se leerá'};
+                url:'Dirección', query:'Búsqueda', engine:'Buscador', value:'Texto que se escribirá', window_title:'Título exacto del documento de Notepad', window_id:'Ventana', pid:'Proceso', control_id:'Control', app:'Aplicación', expected_title:'Ventana o página que se leerá'};
             const preview = node('command-library-preview'); preview.replaceChildren();
             let completed = 0;
             steps.forEach((step, index) => {
@@ -671,7 +683,9 @@
             const serial = this.generation;
             const revision = ++this.observationRevision;
             let result;
-            try { result = operation.kind === 'learned_plan'
+            try { result = operation.state === 'unknown' && operation.evidence?.reconciliation_required
+                ? { operation: await this.request('POST', '/axx-api/commands/reconcile', {operation_id:operation.operation_id}) }
+                : operation.kind === 'learned_plan'
                 ? { operation: await this.request('GET', '/axx-api/learning/plan?id=' + encodeURIComponent(operation.operation_id)) }
                 : await this.request('GET', '/axx-api/commands/operations?operation_id=' + encodeURIComponent(operation.operation_id)); }
             catch (error) { if (serial !== this.generation || revision !== this.observationRevision) return; throw error; }

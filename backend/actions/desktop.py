@@ -49,7 +49,10 @@ def validate_url(value):
 
 
 def validate_inputs(kind, inputs):
-    if kind == 'open_url':
+    if kind in ('notepad_text', 'explorer_folder'):
+        from .application_flows import validate_flow
+        validate_flow(kind, inputs)
+    elif kind == 'open_url':
         validate_url(inputs.get('url'))
     elif kind == 'open_app':
         if inputs.get('app') not in APPS:
@@ -181,10 +184,14 @@ def resolve_desktop(text, source, context=None):
     return search_result(engine, query)
 
 
-def open_target(kind, inputs, cancelled=None):
+def open_target(kind, inputs, cancelled=None, control=None):
     validate_inputs(kind, inputs)
     if os.name != 'nt':
         raise ValueError('Esta acción requiere Axx para Windows.')
+    if cancelled is not None and cancelled.is_set(): raise ValueError('Acción cancelada antes de abrir.')
+    if kind in ('notepad_text', 'explorer_folder'):
+        from .application_flows import execute_flow
+        return execute_flow(kind, inputs, control)
     if kind in ('installed_app', 'list_apps'):
         from .windows_apps import capability_status, installed_apps
         rows = installed_apps()
@@ -211,7 +218,7 @@ def open_target(kind, inputs, cancelled=None):
             evidence = {'verification': output['verification'], 'accepted': True,
                         'window_id': window_id, 'pid': inputs['pid']}
         elif kind == 'focus_window':
-            output = focus_window(window_id, inputs['pid'])
+            output = focus_window(window_id, inputs['pid'], control=control)
             evidence = {'verification': output['verification'], 'accepted': True,
                         'window_id': window_id, 'pid': inputs['pid']}
         else:
@@ -248,7 +255,8 @@ def open_target(kind, inputs, cancelled=None):
         from .windows_automation import observe_foreground
         observed = observe_foreground(label, timeout=4.0, before=before,
                                        aliases=app_aliases if kind == 'open_app' else (),
-                                       cancelled=cancelled)
+                                       cancelled=cancelled, control=control,
+                                       expected_process=Path(target).name.lower() if kind == 'open_app' and inputs['app'] in ('notepad', 'explorer') else None)
         evidence.update({key: observed[key] for key in
                          ('launch_requested', 'window_observed', 'foreground_verified', 'ready_for_action')})
         evidence['window_verification'] = observed['verification']

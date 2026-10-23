@@ -4,6 +4,26 @@ import json
 import threading
 import time
 import uuid
+from contextlib import contextmanager
+
+
+class AutomationLease:
+    """Cancellation view shared with the native hooks, never holds the UIA thread."""
+    def __init__(self, native, lease_id, cancelled):
+        self.native, self.lease_id, self.cancelled = native, lease_id, cancelled
+
+    def is_set(self):
+        return self.cancelled.is_set() or self.native.abort.is_set() or self.native.lease != self.lease_id
+
+    def wait(self, seconds):
+        deadline = time.monotonic() + seconds
+        while not self.is_set() and time.monotonic() < deadline:
+            self.cancelled.wait(min(.01, max(0, deadline - time.monotonic())))
+        return self.is_set()
+
+    def focus(self, window_id, pid):
+        if self.is_set(): raise ValueError('Control cancelado antes de enfocar')
+        self.native.focus(self.lease_id, window_id, pid)
 
 
 def checked_events(events):
@@ -105,12 +125,34 @@ class RemoteControl:
             if device is not None:
                 if not isinstance(body,dict) or set(body)!={'lease_id','boot_id'}:raise ValueError('Sesión requerida')
                 if not self.lease or self.lease['device_id']!=device or body['lease_id']!=self.lease['lease_id'] or body['boot_id']!=self.boot_id:raise ValueError('Sesión distinta')
+                if self.lease['state'] != 'granted' or (self.native and getattr(self.native, 'lease', self.lease['lease_id']) != self.lease['lease_id']):
+                    return self._state()
             if self.native:self.native.cancel(reason)
             return self._state()
 
     def material(self,body):
-        self._native().material(body)
+        with self.lock:self._native().material(body)
         return {'updated':True}
+
+    @contextmanager
+    def automation(self, cancelled):
+        with self.lock:
+            self._state()
+            if cancelled.is_set(): raise ValueError('Acción cancelada antes de tomar control')
+            native = self._native()
+            lease_id = str(uuid.uuid4())
+            native.grant(lease_id, 30., 'axx_automation')
+        lease = AutomationLease(native, lease_id, cancelled)
+        try:
+            yield lease
+        except Exception as exc:
+            exc.input_cancelled = lease.is_set()
+            raise
+        finally:
+            with self.lock:
+                # Do not revoke a new owner acquired after physical cancellation.
+                if native.lease == lease_id:
+                    native.cancel('released' if not lease.is_set() else 'automation_cancelled')
 
     def disconnect(self,device=None):
         with self.lock:

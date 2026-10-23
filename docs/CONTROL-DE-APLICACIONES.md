@@ -2,6 +2,16 @@
 
 ## Estado y alcance
 
+### Integración 0.21.3
+
+- P1: `ActionExecutor.input_control` recibe el mismo `MobileGateway.control` que arbitra el teléfono. Toda escritura, enfoque y apertura integrada toma una concesión exclusiva de `WindowsInput`. El hilo de hooks/SendInput permanece separado del worker COM MTA. Entrada local, Escape, cancelación explícita, pérdida del material visual y vencimiento revocan la concesión. La UI muestra el origen `axx_automation`, remoto o físico. Una concesión revocada no revive cuando otro controlador adquiere la entrada.
+- Foco: no se acoplan colas de entrada con `AttachThreadInput`. El dueño restaura ventanas minimizadas, solicita foreground y, si Windows lo rechaza, realiza el gesto ALT etiquetado de activación. Siempre vuelve a comprobar HWND/PID y foreground. No escribe si la activación falla. Notepad y Explorer se asocian también al ejecutable observado; un título de otra aplicación no acredita la apertura.
+- P2: `axx.desktop.explorer.folder(path)` abre una carpeta local y contrasta `Shell.Application.Windows().Document.Folder.Self.Path` y foreground. `axx.desktop.notepad.text(window_title,value)` resuelve un único Notepad con el título exacto seleccionado, enfoca, observa un único Document visible con ValuePattern y verifica longitud UTF-16 y SHA256 después de escribir. No guarda el archivo, envía formularios ni cierra pestañas. La selección de ventana y la escritura se ofrecen en el panel existente de lectura de aplicaciones. Los destinos ambiguos quedan bloqueados.
+- P3: «Guardar procedimiento verificado» toma exclusivamente un recibo exitoso del ejecutor y crea una habilidad parametrizada en la memoria existente. Se parametrizan `path` o `window_title`/`value`; nunca HWND, RuntimeId o coordenadas. Cada repetición pasa por CommandService y vuelve a resolver el destino, con los permisos y la huella del adaptador actuales. La evidencia de una ejecución concreta no certifica todos los parámetros posibles.
+- Recuperación: un worker de escritura interrumpido, con timeout o sin respuesta válida produce `unknown` y conserva destino y etapas parciales. El mismo operation_id no repite el efecto. Otra escritura en el mismo destino queda bloqueada hasta reconciliar. «Revisar efecto sin repetir» hace una lectura de ValuePattern y compara el texto aprobado; solo entonces cambia ambos recibos a éxito. Si el control desapareció o el contenido difiere, mantiene la incertidumbre para revisión manual.
+
+Referencias técnicas: [restricciones de foreground y gesto ALT](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-locksetforegroundwindow) y [hilos de UI Automation](https://learn.microsoft.com/en-us/windows/win32/winauto/uiauto-threading). La prioridad local limita el trabajo pendiente; no revierte efectos ya consumados ni garantiza detener una llamada ya recibida por un proveedor UIA externo.
+
 El control amplía el `CommandService` y el `ActionExecutor` existentes. La presencia de un programa en `Get-StartApps` prueba que Windows lo registra; no prueba que Axx pueda automatizarlo. El inventario informa por separado detección instalada, rutas genéricas UIA registradas y disponibilidad desconocida de sus controles. Cada aplicación necesita una prueba por acción antes de declarar esa acción validada.
 
 La apertura diferencia `launch_requested`, `window_observed`, `foreground_verified` y `ready_for_action`. `os.startfile` solo acredita el traspaso a Windows. Axx no debe continuar con escritura si no puede asociar y leer de vuelta una ventana en foreground cuyo título concuerde con el nombre/alias solicitado.
@@ -24,11 +34,11 @@ Las referencias HWND/PID y el `control_id` son efímeros: deben venir de la obse
 
 Una respuesta de timeout se considera incierta. Se inspecciona la ventana antes de repetir; la interfaz no reenvía el mismo efecto automáticamente. UIA sin `ValuePattern`, controles ambiguos, proceso cambiado, pérdida de foco o control fuera de pantalla hacen fallar cerrado. No se usa un fallback a coordenadas antiguas ni al shell.
 
-El cursor remoto continúa siendo propiedad de `WindowsInput`/`RemoteControl`. Estas acciones UIA semánticas no inyectan un segundo flujo de `SendInput`; la automatización por coordenadas, controles externos y superficies sin UIA siguen pendientes de adaptadores y puertas propios.
+El cursor continúa siendo propiedad de `WindowsInput`/`RemoteControl`. Las acciones semánticas toman su concesión y el foco usa su hilo de entrada. La automatización por coordenadas no se guarda como procedimiento; dispositivos externos y superficies sin UIA necesitan adaptadores y aceptación propios.
 
 ## Procedimientos reutilizables
 
-Los procedimientos solo se guardan después de completar y verificar todos sus pasos. La huella de compatibilidad combina Windows/Python con IDs, parámetros y versiones de adaptador; un cambio invalida la reutilización automática. Los procedimientos aprendidos no guardan controladores HWND/UIA ni texto de escritura. La acción concreta puede prepararse manualmente con aprobación ligada a la ventana y parámetros actuales.
+Los procedimientos solo se promueven a verificados después de comprobar sus pasos. La huella combina Windows/Python con IDs, parámetros y versiones de adaptador; un cambio invalida la reutilización automática. Los procedimientos aprendidos no guardan controladores HWND/UIA. Los nuevos flujos guardan plantillas tipadas; el usuario proporciona el texto y el destino para cada ejecución y revisa la aprobación. Los recibos locales conservan los parámetros concretos necesarios para auditoría y recuperación.
 
 ## Verificación
 

@@ -27,6 +27,15 @@ TERMINAL = {'succeeded', 'failed', 'blocked', 'cancelled', 'expired', 'unknown'}
 class ApprovalRequired(ValueError):
     pass
 ADAPTERS = {
+    'axx.desktop.notepad.text': {
+        'title': 'Escribir texto en un documento de Notepad', 'tool': 'desktop_notepad_text', 'risk': 'workspace_write',
+        'description': 'Resuelve una ventana de Notepad por su título exacto observado y su editor actual, reemplaza el texto con aprobación y verifica SHA256. No guarda el archivo ni cierra pestañas.',
+        'aliases': [], 'parameters': {'window_title': {'type': 'string', 'required': True, 'maxLength': 2048},
+            'value': {'type': 'string', 'required': True, 'maxLength': 8192, 'maxBytes': 32768}}},
+    'axx.desktop.explorer.folder': {
+        'title': 'Abrir y enfocar carpeta en Explorador', 'tool': 'desktop_explorer_folder', 'risk': 'local_state', 'requires_approval': False,
+        'description': 'Abre una carpeta local, resuelve su ventana mediante Shell y verifica ruta y foco. Reutilizable sin coordenadas guardadas.',
+        'aliases': [], 'parameters': {'path': {'type': 'string', 'required': True, 'maxLength': 240}}},
     'axx.file.sha256': {
         'title': 'Calcular SHA256 de un archivo', 'tool': 'file_inspection', 'risk': 'local_file_read',
         'description': 'Lee un archivo local de hasta 512 MiB tras revisar su ruta. Detecta cambios durante la lectura.',
@@ -401,6 +410,12 @@ class CommandService:
             enabled = command['execution_enabled']
             if enabled:
                 inputs = self._validate_inputs(command_id, inputs)
+                if command_id in ('axx.desktop.notepad.text', 'axx.desktop.window.set_value'):
+                    for row in self.db.execute("SELECT result_json FROM command_runs WHERE state='unknown' AND command_id=?", (command_id,)):
+                        previous = json.loads(row[0])
+                        identity = ('window_title',) if command_id == 'axx.desktop.notepad.text' else ('window_id', 'pid', 'control_id')
+                        if all(previous['inputs'].get(key) == inputs.get(key) for key in identity):
+                            raise ValueError('Hay una escritura incierta en ese destino. Usa Revisar efecto antes de preparar otra.')
             elif inputs != {}:
                 raise ValueError('El comando documental no admite parámetros ejecutables')
             approval = enabled and command.get('requires_approval', False)
@@ -465,8 +480,7 @@ class CommandService:
                 except ValueError as exc:
                     return self._save(result | {'state': 'failed', 'error': {'code': 'PRECONDITION_CHANGED', 'message': str(exc)}})
                 result.update(state='running')
-                if allow_parallel_read or result['command_id'] in ('axx.shell.powershell', 'axx.shell.cmd', 'axx.file.sha256', 'axx.file.compare'):
-                    self.cancel_events[operation_id] = threading.Event()
+                self.cancel_events[operation_id] = threading.Event()
                 self._save(result)
             try:
                 action_id = 'cmd-' + hashlib.sha256(operation_id.encode()).hexdigest()
@@ -502,6 +516,34 @@ class CommandService:
                     self.parallel_operations.discard(operation_id)
                 else:
                     self.execution_gate.release()
+
+    def reconcile(self, operation_id):
+        """Read back an uncertain UIA effect without dispatching it a second time."""
+        if not self.execution_gate.acquire(blocking=False): raise ValueError('Hay una operación en curso.')
+        try:
+            with self.executor.lock, self.lock:
+                result = self.get(operation_id)
+                if not result or result['state'] != 'unknown': raise ValueError('La operación no está pendiente de reconciliación.')
+                if result['command_id'] not in ('axx.desktop.notepad.text', 'axx.desktop.window.set_value'):
+                    raise ValueError('Esta operación necesita revisión manual de su efecto.')
+                target = result.get('evidence', {}).get('reconciliation_target')
+                if not target: raise ValueError('Falta una identidad verificable; revisa la ventana manualmente.')
+                from .actions.windows_automation import _uia
+                output = _uia(dict(target, operation='check_value', value=result['inputs']['value']))
+                expected_hash = hashlib.sha256(result['inputs']['value'].encode('utf-8')).hexdigest()
+                if output.get('value_sha256') != expected_hash or output.get('value_length') != len(result['inputs']['value'].encode('utf-16-le')) // 2:
+                    raise ValueError('El efecto todavía no coincide. La operación sigue incierta y no se repitió.')
+                evidence = dict(result['evidence'], effect_uncertain=False, reconciliation_required=False,
+                                reconciled=True, verification='uia_value_readback', value_sha256=output['value_sha256'], value_length=output['value_length'])
+                action_id = result['action_operation_id']
+                action = self.executor.get_operation(action_id)
+                if not action or action['state'] != 'unknown': raise ValueError('El recibo del ejecutor cambió.')
+                action.update(state='succeeded', postconditions_passed=True, error=None, output=output, evidence=evidence)
+                with self.executor.db:
+                    self.executor.db.execute("UPDATE operations SET state='succeeded', result_json=?, evidence_json=? WHERE operation_id=?", (json.dumps(action),json.dumps(evidence),action_id))
+                return self._save(result | {'state':'succeeded','postconditions_passed':True,'error':None,'output':output,'evidence':evidence})
+        finally:
+            self.execution_gate.release()
 
     def cancel(self, operation_id=None):
         with self.lock:

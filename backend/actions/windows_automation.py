@@ -21,6 +21,26 @@ MAX_UITEXT = 8192
 UIA_TIMEOUT_SECONDS = 8
 
 
+class UncertainEffect(ValueError):
+    """A dispatched write has no confirmed postcondition; never retry automatically."""
+
+
+def process_name(pid):
+    _, kernel = _windows_api()
+    kernel.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    kernel.OpenProcess.restype = wintypes.HANDLE
+    kernel.QueryFullProcessImageNameW.argtypes = [wintypes.HANDLE, wintypes.DWORD, wintypes.LPWSTR, ctypes.POINTER(wintypes.DWORD)]
+    kernel.QueryFullProcessImageNameW.restype = wintypes.BOOL
+    kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+    handle = kernel.OpenProcess(0x1000, False, pid)
+    if not handle: return ''
+    try:
+        name = ctypes.create_unicode_buffer(32768); size = wintypes.DWORD(len(name))
+        return Path(name.value).name.lower() if kernel.QueryFullProcessImageNameW(handle, 0, name, ctypes.byref(size)) else ''
+    finally:
+        kernel.CloseHandle(handle)
+
+
 def _positive_int(value, label):
     if type(value) is not int or value <= 0 or value > 0xFFFFFFFFFFFFFFFF:
         raise ValueError(f"{label} inválido")
@@ -93,7 +113,7 @@ def list_windows():
     return rows[:MAX_WINDOWS]
 
 
-def observe_foreground(expected_title=None, timeout=5.0, before=None, aliases=(), cancelled=None):
+def observe_foreground(expected_title=None, timeout=5.0, before=None, aliases=(), cancelled=None, control=None, expected_process=None):
     """Observe launch/focus state without inferring app readiness from dispatch."""
     if type(timeout) not in (int, float) or not 0.0 <= timeout <= 10.0:
         raise ValueError('Timeout de observación inválido')
@@ -105,12 +125,24 @@ def observe_foreground(expected_title=None, timeout=5.0, before=None, aliases=()
         if cancelled is not None and cancelled.is_set():
             raise ValueError('Observación cancelada antes de confirmar el foco.')
         windows = list_windows()
+        if expected_process:
+            candidates = [row for row in windows if process_name(row['pid']) == expected_process]
+            fresh = [row for row in candidates if row['window_id'] not in before_ids]
+            selected = fresh if fresh else candidates
+            active = [row for row in selected if row['foreground']]
+            target = active[0] if len(active) == 1 else selected[0] if len(selected) == 1 else None
+            if target:
+                if not target['foreground'] and control is not None:
+                    focus_window(target['window_id'], target['pid'], control)
+                current = next((row for row in list_windows() if row['window_id'] == target['window_id'] and row['pid'] == target['pid']), None)
+                ready = bool(current and current['foreground'])
+                return {'launch_requested': True, 'window_observed': True, 'foreground_verified': ready,
+                        'ready_for_action': ready, 'window': current, 'verification': 'process_window_readback' if ready else 'launch_handoff_only'}
         foreground = next((row for row in windows if row['foreground']), None)
         title = _normalize(foreground['title']) if foreground else ''
-        matches_name = any(expected in title for expected in expected_values)
-        observed_new = bool(foreground and foreground['window_id'] not in before_ids)
-        latest = foreground
-        if foreground and (matches_name or observed_new):
+        matches_name = not expected_process and any(expected in title for expected in expected_values)
+        latest = foreground if matches_name else None
+        if foreground and matches_name:
             break
         if time.monotonic() >= deadline:
             break
@@ -121,7 +153,7 @@ def observe_foreground(expected_title=None, timeout=5.0, before=None, aliases=()
     window_observed = latest is not None
     title = _normalize(latest.get('title', '')) if latest else ''
     title_matches = any(expected in title for expected in expected_values)
-    window_observed = bool(latest and (title_matches or latest['window_id'] not in before_ids))
+    window_observed = bool(latest and title_matches)
     foreground_verified = bool(latest and latest.get('foreground') and title_matches)
     ready = foreground_verified
     return {'launch_requested': True, 'window_observed': window_observed,
@@ -129,7 +161,7 @@ def observe_foreground(expected_title=None, timeout=5.0, before=None, aliases=()
             'window': latest, 'verification': 'foreground_window_observation' if ready else 'launch_handoff_only'}
 
 
-def focus_window(window_id, expected_pid):
+def focus_window(window_id, expected_pid, control=None):
     window_id = _positive_int(window_id, 'window_id')
     expected_pid = _positive_int(expected_pid, 'pid')
     user, kernel = _windows_api()
@@ -138,21 +170,19 @@ def focus_window(window_id, expected_pid):
     user.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
     if not user.IsWindow(hwnd) or pid.value != expected_pid:
         raise ValueError('La ventana observada ya no existe o cambió de proceso.')
-    foreground_hwnd = user.GetForegroundWindow()
-    foreground_thread = user.GetWindowThreadProcessId(foreground_hwnd, None) if foreground_hwnd else 0
-    current_thread = kernel.GetCurrentThreadId()
-    attached = bool(foreground_thread and foreground_thread != current_thread and
-                    user.AttachThreadInput(current_thread, foreground_thread, True))
-    try:
+    if control is None:
         if not user.SetForegroundWindow(hwnd):
-            raise ValueError('Windows no concedió el foco a la ventana solicitada.')
-    finally:
-        if attached:
-            user.AttachThreadInput(current_thread, foreground_thread, False)
-    time.sleep(0.08)
-    foreground = int(user.GetForegroundWindow() or 0)
-    if foreground != window_id:
-        raise ValueError('No se confirmó el foco de la ventana solicitada.')
+            raise ValueError('Windows no concedió el foco; se requiere el dueño de entrada de Axx.')
+    else:
+        control.focus(window_id, expected_pid)
+    deadline = time.monotonic() + 1.0
+    while int(user.GetForegroundWindow() or 0) != window_id:
+        if control is not None and control.is_set(): raise ValueError('Foco cancelado por entrada local.')
+        if time.monotonic() >= deadline: raise ValueError('No se confirmó el foco de la ventana solicitada.')
+        time.sleep(.02)
+    user.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+    if pid.value != expected_pid or (control is not None and control.is_set()):
+        raise ValueError('La identidad o el control cambió durante el enfoque.')
     return {'window_id': window_id, 'pid': expected_pid, 'foreground_verified': True,
             'verification': 'foreground_window_readback'}
 
@@ -219,6 +249,12 @@ def _uia(payload, cancelled=None):
     if not executable.is_file() or not script.is_file():
         raise ValueError('El worker UI Automation no está disponible en este runtime.')
     request = json.dumps(payload, ensure_ascii=False, separators=(',', ':'))
+    if cancelled is not None and cancelled.is_set(): raise ValueError('UI Automation cancelada antes del despacho.')
+    def write_error(message):
+        error = UncertainEffect(message)
+        error.target = {key: payload[key] for key in ('window_id', 'pid', 'control_id', 'expected_title') if key in payload}
+        return error
+    error_type = write_error if payload['operation'] == 'set_value' else ValueError
     # Windows PowerShell execution policy applies to script files. Pass the
     # fixed, packaged worker as a command payload instead of changing policy.
     encoded_worker = base64.b64encode(script.read_text(encoding='utf-8-sig').encode('utf-16-le')).decode('ascii')
@@ -234,12 +270,12 @@ def _uia(payload, cancelled=None):
             if cancelled is not None and cancelled.is_set():
                 process.kill()
                 process.communicate()
-                raise ValueError('UI Automation cancelada; comprueba el estado del control antes de reintentar.')
+                raise error_type('UI Automation cancelada; comprueba el estado del control antes de reintentar.')
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 process.kill()
                 process.communicate()
-                raise ValueError('UI Automation excedió el límite; verifica la ventana antes de reintentar.')
+                raise error_type('UI Automation excedió el límite; verifica la ventana antes de reintentar.')
             try:
                 stdout, stderr = process.communicate(input_bytes if first_communicate else None,
                                                      timeout=min(0.1, remaining))
@@ -255,18 +291,22 @@ def _uia(payload, cancelled=None):
         result.stderr = stderr.decode('utf-8', errors='replace')
         result.returncode = process.returncode
     except OSError as exc:
+        if 'process' in locals():
+            process.kill()
+            process.communicate()
+            raise error_type('Se perdió el canal del worker; comprueba el efecto antes de reintentar.') from exc
         raise ValueError('No se pudo iniciar el worker de UI Automation.') from exc
     if len(result.stdout.encode('utf-8', errors='replace')) > 512 * 1024:
-        raise ValueError('La respuesta de UI Automation excede el límite.')
+        raise error_type('La respuesta de UI Automation excede el límite.')
     if result.returncode:
         message = result.stderr.strip()[:1000] or 'UI Automation rechazó la operación.'
-        raise ValueError(message)
+        raise error_type(message)
     try:
         response = json.loads(result.stdout)
     except (json.JSONDecodeError, TypeError) as exc:
-        raise ValueError('UI Automation devolvió una respuesta inválida.') from exc
+        raise error_type('UI Automation devolvió una respuesta inválida.') from exc
     if not isinstance(response, dict) or response.get('success') is not True:
-        raise ValueError(str(response.get('error', 'UI Automation no confirmó el resultado.'))[:1000])
+        raise error_type(str(response.get('error', 'UI Automation no confirmó el resultado.'))[:1000])
     return response
 
 

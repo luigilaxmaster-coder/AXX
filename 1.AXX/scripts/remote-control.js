@@ -36,7 +36,7 @@
     try{
       const access=await api('GET','status');devices=(access.devices||[]).filter(d=>!d.revoked);
       renderDevices();
-      if(!access.enabled){materialKey='';return;}
+      // Desktop automation uses the same owner and indicator even without a paired phone.
       const r=Axx.app?.renderer;
       if(r?.materialTable){
         const table=r.materialTable(),body={key:r.lutKey,...options()};
@@ -51,7 +51,7 @@
         await api('POST','control/material',body);materialKey=body.key;
       }
       const state=await api('GET','control/status'),n=state.native;
-      $('rc-status').textContent=n.active?'Android control granted · '+n.cursor.x+', '+n.cursor.y+' · keys: '+(n.keys.join(', ')||'none'):'No remote control · '+(n.reason||'ready');
+      $('rc-status').textContent=n.active?(n.source==='axx_automation'?'Axx controla la aplicación':'Control desde el teléfono')+' · '+n.cursor.x+', '+n.cursor.y+' · teclas: '+(n.keys.join(', ')||'ninguna'):'Entrada física del usuario · '+(n.reason||'disponible');
     }catch(e){materialKey='';$('rc-status').textContent='Control unavailable: '+e.message;}
     finally{busy=false;}
   }

@@ -30,6 +30,48 @@ class Model:
 
 
 class SkillLearningTests(unittest.TestCase):
+    def test_remember_only_verified_application_receipts(self):
+        from contextlib import nullcontext
+        from types import SimpleNamespace
+        self.executor.input_control=SimpleNamespace(automation=lambda event:nullcontext(event))
+        pending=self.commands.prepare('axx.desktop.explorer.folder',{'path':r'C:\Users'})
+        with self.assertRaises(ValueError):self.learning.remember(pending['operation_id'])
+        with patch('backend.actions.application_flows.execute_flow',return_value={
+            'success':True,'output':{'foreground_verified':True},
+            'evidence':{'accepted':True,'verification':'shell_folder_and_foreground_readback'}}):
+            done=self.commands.execute(pending['operation_id'])
+        self.assertEqual(done['state'],'succeeded')
+        saved=self.learning.remember(done['operation_id'])
+        self.assertEqual(saved['status'],'verified')
+        self.assertEqual(saved['templates'][0]['inputs'],{'path':'{{path}}'})
+        self.assertEqual(self.learning.remember(done['operation_id'])['id'],saved['id'])
+        plan=self.learning.propose(saved['id'],inputs={'path':r'C:\Windows'})
+        self.assertEqual(plan['model_calls_used'],0)
+        self.assertEqual(plan['steps'][0]['inputs'],{'path':r'C:\Windows'})
+
+    def test_application_procedure_rebinds_parameters_and_keeps_approval(self):
+        skill = self.seed(request='base de control de aplicaciones')
+        skill = self.learning.configure(skill['id'], {
+            'title':'Editar documento observado', 'schema':{'type':'object','properties':{
+                'title':{'type':'string'},'text':{'type':'string'}},'required':['title','text']},
+            'templates':[{'command_id':'axx.desktop.notepad.text','inputs':{'window_title':'{{title}}','value':'{{text}}'}}]})
+        self.assertEqual(skill['status'],'candidate')
+        from contextlib import nullcontext
+        from types import SimpleNamespace
+        import hashlib
+        self.executor.input_control=SimpleNamespace(automation=lambda event:nullcontext(event))
+        for title,text in [('one - Notepad','uno'),('two - Notepad','dos')]:
+            plan=self.learning.propose(skill['id'],inputs={'title':title,'text':text})
+            self.assertEqual(plan['state'],'awaiting_approval')
+            self.assertEqual(plan['model_calls_used'],0)
+            with patch('backend.actions.application_flows.execute_flow',return_value={
+                'success':True,'output':{},'evidence':{'accepted':True,'verification':'uia_value_readback',
+                    'value_sha256':hashlib.sha256(text.encode()).hexdigest(),'value_length':len(text)}}) as run:
+                result=self.learning.execute(plan['operation_id'],True)
+                self.assertEqual(result['state'],'succeeded',result)
+                self.assertEqual(run.call_args.args[1],{'window_title':title,'value':text})
+        self.assertEqual(self.learning.skills.get(skill['id'])['status'],'verified')
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)

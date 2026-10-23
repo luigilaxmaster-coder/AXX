@@ -155,6 +155,29 @@ class ActionLearning:
     def update_context(self, project_id, body):
         return self.skills.update_context(project_id, body)
 
+    @active_operation
+    def remember(self, operation_id):
+        """Promote a real command receipt to a parameterized skill; never import code."""
+        result = self.commands.get(operation_id)
+        supported = {'axx.desktop.notepad.text', 'axx.desktop.explorer.folder'}
+        if (not result or result.get('command_id') not in supported or result['state'] != 'succeeded'
+                or result.get('postconditions_passed') is not True or not result.get('evidence')):
+            raise ValueError('Solo se guardan flujos de aplicación con efecto verificado por el ejecutor.')
+        command_id = result['command_id']; adapter = ALLOWED[command_id]
+        key = 'verified.' + hashlib.sha256(operation_id.encode()).hexdigest()
+        with self.lock:
+            if self.db.execute('SELECT 1 FROM skill_versions WHERE id=?', (key,)).fetchone(): return self.skills.get(key)
+            schema = validate_schema({'type':'object', 'properties':{
+                name:{'type':spec['type']} for name,spec in adapter['parameters'].items()},
+                'required':list(adapter['parameters'])})
+            self.skills.insert({'id':key,'version':1,'title':adapter['title'],'trigger':key,
+                'templates':[{'command_id':command_id,'inputs':{name:'{{'+name+'}}' for name in adapter['parameters']}}],
+                'schema':schema,'examples':[],'project_id':'','favorite':False,'checks':['executor_postconditions'],
+                'environment':get_action_env_fingerprint([command_id]),'executable':True,'created_at':time.time(),
+                'provenance':{'source':'verified_command','operation_id':operation_id}})
+            self.skills.record(key,1,operation_id,{'effect_verified':True,'verified_at':time.time(),'results':[result]})
+            return self.skills.get(key)
+
     def configure(self, action_id, body):
         body = bounded_object(body, 48000)
         allowed = {'version', 'title', 'objective', 'intent', 'schema', 'examples', 'templates', 'steps', 'checks', 'favorite', 'project_id', 'correction', 'goal_confirmed', 'inference'}

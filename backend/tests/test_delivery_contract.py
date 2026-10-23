@@ -225,7 +225,9 @@ class DeliveryContractTests(unittest.TestCase):
         self.assertEqual(result['evidence']['size'],len(raw))
         self.assertFalse(result['playback_verified'])
         self.assertEqual(result['external_calls'],0)
-        self.assertFalse(any(self.speech.data_dir.iterdir()))
+        # MOSS warmup creates empty generated/voices directories. SAPI must leave
+        # no synthesis payload; directory existence alone is not an audio leak.
+        self.assertFalse(any(path.is_file() for path in self.speech.data_dir.rglob('*')))
 
     def test_blender_capability_schema_and_idle_cancellation(self):
         status,result=self.request('/axx-api/actions/execute',{'tool_name':'blender_render_fixture','inputs':{'filename':'../escape.png'}})

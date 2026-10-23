@@ -26,7 +26,7 @@ class WindowsAutomationTests(unittest.TestCase):
             {'window_id': 202, 'pid': 10, 'title': 'Other app', 'foreground': True}]), patch.object(automation.time, 'sleep'):
             result = automation.observe_foreground('Notepad', timeout=0,
                 before=[{'window_id': 101}])
-        self.assertTrue(result['window_observed'])
+        self.assertFalse(result['window_observed'])
         self.assertFalse(result['foreground_verified'])
         self.assertFalse(result['ready_for_action'])
 

@@ -6,6 +6,9 @@ import threading
 import time
 import unittest
 from unittest.mock import ANY, patch
+from contextlib import nullcontext
+from types import SimpleNamespace
+import hashlib
 
 from backend.actions.executor import ActionExecutor
 from backend.commands import CommandService, ApprovalRequired
@@ -85,15 +88,17 @@ class DesktopCommandTests(unittest.TestCase):
             self.assertTrue(inspected['postconditions_passed'])
 
     def test_window_value_readback_is_hashed_and_only_succeeds_after_approval(self):
+        self.executor.input_control = SimpleNamespace(automation=lambda event: nullcontext(event))
+        digest = hashlib.sha256(b'hello').hexdigest()
         with patch('backend.actions.windows_automation.set_control_value', return_value={
                 'success': True, 'window_id': 18, 'pid': 45, 'control_id': 'a' * 64,
-                'value_sha256': 'a' * 64, 'value_length': 5, 'verification': 'uia_value_readback'}) as set_value:
+                'value_sha256': digest, 'value_length': 5, 'verification': 'uia_value_readback'}) as set_value:
             pending = self.service.prepare('axx.desktop.window.set_value', {
                 'window_id': '12', 'pid': 45, 'control_id': 'a' * 64, 'value': 'hello'})
             self.assertEqual(pending['state'], 'awaiting_approval')
             result = self.service.execute(pending['operation_id'], approved=True)
         self.assertEqual(result['state'], 'succeeded', result)
-        self.assertEqual(result['evidence']['value_sha256'], 'a' * 64)
+        self.assertEqual(result['evidence']['value_sha256'], digest)
         set_value.assert_called_once_with(18, 45, 'a' * 64, 'hello', cancelled=ANY)
 
     def test_powershell_requires_approval_and_cannot_be_voice(self):

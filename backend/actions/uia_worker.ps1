@@ -7,8 +7,23 @@ try {
     Add-Type -AssemblyName UIAutomationClient
     Add-Type -AssemblyName UIAutomationTypes
     $request = [Console]::In.ReadToEnd() | ConvertFrom-Json -ErrorAction Stop
-    if ($null -eq $request -or $request.operation -notin @('inspect', 'read_content', 'set_value')) {
+    if ($null -eq $request -or $request.operation -notin @('inspect', 'read_content', 'set_value', 'check_value', 'locate_folder')) {
         throw 'Operación UI Automation desconocida.'
+    }
+    if ($request.operation -eq 'locate_folder') {
+        $shell = New-Object -ComObject Shell.Application
+        $found = @()
+        foreach ($window in $shell.Windows()) {
+            try {
+                if ([IO.Path]::GetFileName($window.FullName) -ine 'explorer.exe') { continue }
+                $actual = [string]$window.Document.Folder.Self.Path
+                if ([IO.Path]::GetFullPath($actual).TrimEnd('\') -ine [IO.Path]::GetFullPath([string]$request.path).TrimEnd('\')) { continue }
+                $element = [System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]::new([long]$window.HWND))
+                $found += @{window_id=[long]$window.HWND;pid=$element.Current.ProcessId;path=$actual}
+            } catch { continue }
+        }
+        [Console]::Out.Write((@{success=$true;windows=@($found);verification='shell_folder_observed'} | ConvertTo-Json -Depth 4 -Compress))
+        exit 0
     }
     if ($request.window_id -le 0 -or $request.pid -le 0) { throw 'Identidad de ventana inválida.' }
 
@@ -119,7 +134,7 @@ try {
         }
     } else {
         Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class AxxUiNative { [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow(); }'
-        if ([AxxUiNative]::GetForegroundWindow().ToInt64() -ne [long]$request.window_id) { throw 'La aplicación perdió el foco antes de escribir.' }
+        if ($request.operation -eq 'set_value' -and [AxxUiNative]::GetForegroundWindow().ToInt64() -ne [long]$request.window_id) { throw 'La aplicación perdió el foco antes de escribir.' }
         if ($request.control_id -notmatch '^[a-f0-9]{64}$') { throw 'control_id observado inválido.' }
         $all = $root.FindAll([System.Windows.Automation.TreeScope]::Descendants,
             [System.Windows.Automation.Condition]::TrueCondition)
@@ -138,7 +153,11 @@ try {
             throw 'El control no ofrece ValuePattern; la acción no se ejecutó.'
         }
         if ($pattern.Current.IsReadOnly) { throw 'El control es de solo lectura.' }
-        $pattern.SetValue([string]$request.value)
+        if ($element.Current.IsPassword) { throw 'No se escriben controles protegidos.' }
+        if ($request.expected_title -and $root.Current.Name -cne $request.expected_title) { throw 'Cambió la pestaña o el título aprobado.' }
+        if (($request.operation -eq 'set_value' -and [AxxUiNative]::GetForegroundWindow().ToInt64() -ne [long]$request.window_id) -or
+            $root.Current.ProcessId -ne [int]$request.pid) { throw 'La ventana perdió el foco o cambió antes del efecto.' }
+        if ($request.operation -eq 'set_value') { $pattern.SetValue([string]$request.value) }
         $actual = [string]$pattern.Current.Value
         $expectedBytes = [System.Text.UTF8Encoding]::new($false).GetBytes([string]$request.value)
         $actualBytes = [System.Text.UTF8Encoding]::new($false).GetBytes($actual)

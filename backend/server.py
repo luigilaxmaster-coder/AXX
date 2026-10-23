@@ -565,9 +565,12 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                           'execute': {'operation_id', 'approved'}, 'cancel': {'operation_id'},
                           'resume': {'operation_id', 'approved'}, 'configure': {'id', 'changes'},
                           'repair': {'operation_id', 'text', 'inputs', 'model', 'provider_name', 'selection_mode'},
-                          'context': {'project_id', 'changes'}, 'compose': {'text', 'parts', 'operation_id', 'project_id'}}
+                          'context': {'project_id', 'changes'}, 'compose': {'text', 'parts', 'operation_id', 'project_id'},
+                          'remember': {'operation_id'}}
                 if action not in fields or set(body) - fields[action]: raise ValueError('Campos de aprendizaje inválidos')
-                if action == 'propose':
+                if action == 'remember':
+                    result = self.learning.remember(body.get('operation_id'))
+                elif action == 'propose':
                     context = body.get('context')
                     if isinstance(context, dict) and 'demonstration' in context:
                         reference = context['demonstration']
@@ -608,6 +611,7 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                     'prepare': {'command_id', 'inputs', 'source', 'operation_id'},
                     'execute': {'operation_id', 'approved'},
                     'cancel': {'operation_id'},
+                    'reconcile': {'operation_id'},
                 }
                 action = path.rsplit('/', 1)[-1]
                 if action not in fields or set(body) - fields[action]:
@@ -619,6 +623,8 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                         body.get('source', 'text'), body.get('operation_id'))
                 elif action == 'execute':
                     result = self.commands.execute(body.get('operation_id'), body.get('approved', False))
+                elif action == 'reconcile':
+                    result = self.commands.reconcile(body.get('operation_id'))
                 else:
                     result = self.commands.cancel(body.get('operation_id'))
                 self._send_json(200, result)
@@ -1020,6 +1026,7 @@ def run_server(host='127.0.0.1', port=4173, config_path='providers.json', state_
         server = ThreadedHTTPServer((host, port), handler)
         from backend.mobile.gateway import MobileGateway
         server.mobile = MobileGateway.for_backend(server, state_path, state_dir)
+        executor.input_control = server.mobile.control
         services.append(server.mobile)
         server.mobile.resume()
         publish_endpoint(state_dir, server)
