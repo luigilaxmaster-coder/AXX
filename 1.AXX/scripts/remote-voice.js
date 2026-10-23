@@ -32,7 +32,7 @@
             const admitted=await api('POST','voice/claim',{session_id:s.session_id,conversation_id:c.data.sharedConversationId});
             if(!admitted.execute)return;
             const previous=new Set(c.data.messages.map(m=>m.id));
-            await c.send(admitted.session.confirmed_text);
+            await c.send(admitted.session.confirmed_text,{source:'voice'});
             const messages=c.data.messages.filter(m=>!previous.has(m.id)).map(m=>({id:m.id,role:m.role,text:m.text.slice(0,20000),status:m.status})).slice(-4);
             const receipt={session_id:s.session_id,result:{messages,operation:Axx.commandLibrary?.lastOperation?.operation_id||null}};
             localStorage.setItem('axx.remoteVoice.receipt',JSON.stringify(receipt));
@@ -50,6 +50,10 @@
             const select=$('remote-voice-device'),selected=select.value||prefs.device_id||'';
             const markup=JSON.stringify(devices.map(d=>[d.device_id,d.name]));
             if(select.dataset.devices!==markup){select.replaceChildren(new Option('Select a phone',''),...devices.map(d=>new Option(d.name,d.device_id)));select.dataset.devices=markup;select.value=selected;if(!select.value && devices.length===1){select.value=devices[0].device_id;save();}showPermission();}
+            const connected=info.clients.filter(d=>d.connected&&d.visible&&devices.some(device=>device.device_id===d.device_id));
+            if(connected.length===1&&!info.clients.some(d=>d.device_id===select.value&&d.connected)){
+                select.value=connected[0].device_id;save();showPermission();
+            }
             session=info.session;
             if(!session){const client=info.clients.find(d=>d.device_id===select.value);status(client?.connected && client.visible && client.permission==='granted'?'Remote microphone ready · press Ctrl + Alt + Shift + V':'Open Axx Mobile and allow microphone access.');return;}
             status(labels[session.state]+(session.error?' · '+session.error:''));

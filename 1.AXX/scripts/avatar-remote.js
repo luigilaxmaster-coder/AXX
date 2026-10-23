@@ -2,8 +2,8 @@
 (function(Axx){
   'use strict';
   if(!Axx?.isNative())return;
-  let sequence=0,busy=false,lockOwned=false,lockUntil=0;
-  const request=()=>Axx.backendRequest('GET','/axx-api/mobile/avatar/events?since='+sequence);
+  let sequence=0,boot='',lockOwned=false,lockUntil=0;
+  const request=()=>Axx.backendRequest('GET','/axx-api/mobile/avatar/events?wait=1&since='+sequence);
   function releaseLock(){
     if(lockOwned&&Axx.companion){Axx.companion.interactionLock=false;lockOwned=false;}
   }
@@ -13,21 +13,23 @@
     if(event.kind==='end'){releaseLock();return;}
     if(event.kind==='rotate')r.rotate(event.dx*.012,event.dy*.012);
     else if(event.kind==='move'){
+      const first=!lockOwned;
       if(!c.interactionLock){c.interactionLock=true;lockOwned=true;}
-      c.follower.go(c.follower.x+event.dx*2.5,c.follower.y+event.dy*2.5,innerWidth,innerHeight,c.size*.3);
+      if(c.pointer)c.pointer.known=false;
+      c.follower.go((first?c.follower.x:c.follower.tx)+event.dx*2.5,(first?c.follower.y:c.follower.ty)+event.dy*2.5,innerWidth,innerHeight,c.size*.3);
       lockUntil=performance.now()+700;
     }
   }
   async function poll(){
-    if(busy||document.hidden)return;
-    busy=true;
-    try{
+    for(;;){try{
       const result=await request();
+      if(boot!==result.boot_id){releaseLock();sequence=0;boot=result.boot_id;}
       for(const event of result.events||[]){if(event.sequence>sequence){apply(event);sequence=event.sequence;}}
       if(result.sequence>sequence)sequence=result.sequence;
-    }catch{ /* Gateway can be off; retry after the next poll. */ }
-    finally{busy=false;if(lockOwned&&performance.now()>lockUntil)releaseLock();}
+    }catch{await new Promise(resolve=>setTimeout(resolve,1000));}
+    finally{if(lockOwned&&performance.now()>lockUntil)releaseLock();}}
   }
-  setInterval(()=>void poll(),65);
+  // Long polling avoids delayed gestures when the desktop WebView loses focus.
+  void poll();
   window.addEventListener('blur',releaseLock);
 })(window.Axx);

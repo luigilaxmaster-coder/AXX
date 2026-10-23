@@ -4,6 +4,16 @@ Android is a client of the existing Windows Axx instance. It shares the desktop 
 
 ## Latest revision
 
+- Windows 0.20.22 executes recognized commands from phone chat through Work,
+  retaining per-operation PC approval for sensitive actions and retry protection.
+- Android 0.1.4/build 20: **Hablar con Axx** starts recording on the phone; choose
+  Spanish or English, finish, edit the transcript and send it to the PC. Grant
+  Android microphone permission first. If permanently denied, enable it in
+  Android Settings → Apps → Axx Mobile → Permissions → Microphone.
+- Moving/rotating the avatar uses independent input transport and desktop long
+  polling; accumulated deltas are preserved. Input control still stops on local
+  PC input, disconnect, leaving the pad or explicit Stop.
+
 - Windows 0.20.21 fixes the missing QR renderer in the packaged backend. Pairing
   errors now stay visible across status refreshes; QR display no longer waits for
   history sync. The build verifies actual SVG generation from the packaged EXE.
@@ -12,7 +22,7 @@ Android is a client of the existing Windows Axx instance. It shares the desktop 
 - Scanning or opening an `axx://pair` link previews the PC address and requires confirmation. External camera links can open Axx Mobile; availability of custom-link actions depends on the camera app.
 - A new QR now keeps the gateway available for its full 120-second validity, even if an earlier device stopped polling. Previously, the old idle timer could close the gateway during the new scan.
 - Desktop pairing shows a countdown and a larger high-contrast QR. Pairing links and device management are collapsible. The desktop context menu opens a new QR directly.
-- The operational mobile UI, native messages and mobile settings cards on the PC are in English. Existing desktop screens and historical specifications retain their original language. The original mobile prototype is preserved but excluded from the operational APK.
+- The operational mobile UI combines English controls with Spanish Work and voice guidance. Existing desktop screens and historical specifications retain their original language. The original mobile prototype is preserved but excluded from the operational APK.
 
 - Windows input monitoring now wakes immediately on messages and only installs global input hooks during a granted lease. A synthetic local hook-delivery probe improved from 48.8 ms median to 0.07 ms; this is not an end-to-end phone latency measurement.
 

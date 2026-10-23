@@ -1,3 +1,4 @@
+import os
 """Isolated UI contracts; not a substitute for physical Android acceptance."""
 import unittest
 from playwright.sync_api import sync_playwright
@@ -18,7 +19,7 @@ Capacitor.Plugins.AxxTransport.request=async({path,body})=>{
 class RemoteControlUI(unittest.TestCase):
  def test_large_text_keeps_pad_and_keys_large(self):
   with sync_playwright() as p:
-   browser=p.chromium.launch();page=browser.new_page(viewport={'width':339,'height':673})
+   browser=p.chromium.launch(executable_path=os.environ.get('AXX_TEST_CHROMIUM'));page=browser.new_page(viewport={'width':339,'height':673})
    def serve(route):
     name=route.request.url.split('https://axx.test/',1)[1] or 'index.html';path=ROOT/name
     if name=='css/live-client.css':route.fulfill(body=path.read_text(encoding='utf-8')+'\nhtml,body{font-size:23.8px}',content_type='text/css')
@@ -38,7 +39,7 @@ class RemoteControlUI(unittest.TestCase):
 
  def test_input_order_stop_and_no_retry_on_lost_ack(self):
   with sync_playwright() as p:
-   browser=p.chromium.launch();page=browser.new_page(viewport={'width':360,'height':740})
+   browser=p.chromium.launch(executable_path=os.environ.get('AXX_TEST_CHROMIUM'));page=browser.new_page(viewport={'width':360,'height':740})
    page.route('https://axx.test/**',lambda route:route.fulfill(path=str(ROOT/(route.request.url.split('https://axx.test/',1)[1] or 'index.html'))))
    page.add_init_script(NATIVE_FIXTURE+CONTROL_FIXTURE);page.goto('https://axx.test/')
    page.locator('[data-pane=pc]').click();page.locator('#control-open-pad').click();page.locator('#control-acquire').click();page.locator('#control-stop').wait_for()

@@ -98,6 +98,19 @@ class RemoteVoice:
             self.session={**body,'session_id':str(uuid.uuid4()),'state':'requested','text':'','confirmed_text':'','audio_hash':None,'result':None}
             self.deadline=self.clock()+body['max_seconds'];self._save();return dict(self.session)
 
+    def phone_start(self, device_id, body):
+        if not isinstance(body, dict) or set(body) != {'language'} or body['language'] not in ('es', 'en'):
+            raise ValueError('Selecciona español o inglés')
+        with self.lock:
+            self._check_deadline()
+            if self.session and self.session['state'] in ACTIVE:
+                raise ValueError('Termina o cancela la sesión de voz actual')
+            session = self.toggle({'device_id': device_id, 'mode': 'confirm', 'max_seconds': 30,
+                                   'conversation_id': self.shared.snapshot()['conversation_id']})
+            self.session['language'] = body['language']
+            self._save()
+            return dict(self.session)
+
     def audio(self, device_id, body):
         if set(body)!={'session_id','audio_base64','mime'} or body['mime']!='audio/mp4' or not isinstance(body['audio_base64'],str) or len(body['audio_base64'])>1900000:
             raise ValueError('Audio is invalid or too large')
@@ -114,7 +127,7 @@ class RemoteVoice:
             s.update(audio_hash=digest,state='transcribing');self._save()
         def transcribe():
             try:
-                result=self.backend_call('POST','/axx-api/speech/transcribe',{'audio_base64':body['audio_base64'],'mime':body['mime'],'language':'es','task':'transcribe'})
+                result=self.backend_call('POST','/axx-api/speech/transcribe',{'audio_base64':body['audio_base64'],'mime':body['mime'],'language':s.get('language','es'),'task':'transcribe'})
                 if result.get('ok',True) is False or not isinstance(result.get('text'),str):raise ValueError(result.get('error',{}).get('message','Whisper did not return text'))
                 with self.lock:
                     if self.session['session_id']!=body['session_id'] or self.session['state']!='transcribing':return
@@ -128,10 +141,14 @@ class RemoteVoice:
         threading.Thread(target=transcribe,name='axx-remote-transcription',daemon=True).start()
         with self.lock:return dict(self.session)
 
-    def confirm(self, session_id, text):
+    def confirm(self, session_id, text, device_id=None):
         if not isinstance(text,str) or not 1<=len(text.strip())<=10000:raise ValueError('Corrige el texto antes de enviarlo')
         with self.lock:
-            s=self._require(session_id)
+            s=self._require(session_id,device_id)
+            if device_id is not None:
+                device=self._device(device_id)
+                if not device or 'tools.control' not in device['scopes']:
+                    raise ValueError('Aprueba el permiso de comandos de este teléfono en la PC')
             if s['state']=='ready' and s['confirmed_text']==text.strip():return dict(s)
             if s['state']!='review':raise ValueError('This session is not awaiting confirmation')
             s.update(confirmed_text=text.strip(),state='ready');self._save();return dict(s)

@@ -22,6 +22,7 @@ class DesktopCommandTests(unittest.TestCase):
 
     def test_spanish_requests_resolve_with_exact_parameters(self):
         cases = [
+            ('Axx, por favor, estado del sistema.', 'axx.system.telemetry', {}),
             ('abre YouTube', 'axx.desktop.open_url', {'url': 'https://www.youtube.com/'}),
             ('¿Puedes abrir YouTube por favor?', 'axx.desktop.open_url', {'url': 'https://www.youtube.com/'}),
             ('Axx, abre la calculadora', 'axx.desktop.open_app', {'app': 'calculator'}),

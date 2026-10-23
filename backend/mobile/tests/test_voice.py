@@ -23,6 +23,19 @@ class RemoteVoiceTests(unittest.TestCase):
         self.poll={'visible':True,'permission':'granted','capture':{'state':'idle'}}
         self.voice.poll(self.device,self.poll)
 
+    def test_phone_start_requires_permission_and_confirmation_is_device_bound(self):
+        self.voice.poll(self.device,{**self.poll,'permission':'denied'})
+        with self.assertRaises(ValueError):self.voice.phone_start(self.device,{'language':'es'})
+        self.voice.poll(self.device,self.poll)
+        session=self.voice.phone_start(self.device,{'language':'en'})
+        self.assertEqual(session['language'],'en');self.assertEqual(session['mode'],'confirm')
+        with self.assertRaises(ValueError):self.voice.phone_start(self.device,{'language':'es'})
+        self.voice.session.update(state='review',text='Open calculator')
+        with self.assertRaises(ValueError):self.voice.confirm(session['session_id'],'Open calculator','another-device')
+        with self.assertRaises(ValueError):self.voice.confirm(session['session_id'],'Open calculator',self.device)
+        self.store.set_tool_permission(self.device,True)
+        self.assertEqual(self.voice.confirm(session['session_id'],'Open calculator',self.device)['state'],'ready')
+
     def capture(self,mode='confirm'):
         s=self.voice.toggle({**self.body,'mode':mode});sid=s['session_id']
         self.voice.poll(self.device,{**self.poll,'capture':{'state':'recording','session_id':sid}})

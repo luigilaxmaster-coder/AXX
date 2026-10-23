@@ -46,8 +46,12 @@
             const speed = Math.max(.75, Math.min(1.3, Number(this.reader.rate) || 1));
             source.playbackRate.value = speed; source.connect(this.context.destination);
             const now = this.context.currentTime;
-            if (this.nextTime && this.nextTime < now) this.evidence.underruns++;
-            const start = Math.max(now + (this.nextTime ? .015 : .28), this.nextTime);
+            const starved = this.nextTime > 0 && this.nextTime < now;
+            if (starved) this.evidence.underruns++;
+            // Refill after a delayed packet instead of restarting on 15 ms of
+            // audio and repeatedly breaking syllables under CPU/LAN pressure.
+            const cushion = !this.nextTime ? .38 : starved ? Math.min(.8, .28 + this.evidence.underruns * .12) : .015;
+            const start = Math.max(now + cushion, this.nextTime);
             this.nextTime = start + buffer.duration / speed;
             this.sources.add(source); this.evidence.chunks++;
             source.onended = () => { this.sources.delete(source); source.disconnect(); };

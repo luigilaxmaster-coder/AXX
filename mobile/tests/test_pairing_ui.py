@@ -1,3 +1,4 @@
+import os
 """Pairing UI contracts in an isolated browser, not optical camera acceptance."""
 import unittest
 from playwright.sync_api import sync_playwright
@@ -8,7 +9,7 @@ LINK='axx://pair?endpoint=https%3A%2F%2F192.168.0.10%3A4443&fingerprint='+'a'*64
 class PairingUI(unittest.TestCase):
     def test_scan_denied_retry_confirm_and_external_link(self):
         with sync_playwright() as p:
-            browser=p.chromium.launch()
+            browser=p.chromium.launch(executable_path=os.environ.get('AXX_TEST_CHROMIUM'))
             page=browser.new_page(viewport={'width':339,'height':673})
             page.route('https://axx.test/**',lambda route:route.fulfill(path=str(ROOT/(route.request.url.split('https://axx.test/',1)[1] or 'index.html'))))
             page.add_init_script(NATIVE_FIXTURE+'''window.pairCalls=0;window.scanCalls=0;

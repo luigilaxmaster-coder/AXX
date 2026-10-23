@@ -196,7 +196,8 @@ public class AxxTransportPlugin extends Plugin {
     }
 
     private void submit(PluginCall call, CheckedAction action) {
-        ThreadPoolExecutor executor=call.getString("path", "").startsWith("/v1/control/")?inputNetwork:network;
+        String path=call.getString("path", "");
+        ThreadPoolExecutor executor=(path.startsWith("/v1/control/")||path.startsWith("/v1/avatar/"))?inputNetwork:network;
         try { executor.execute(() -> { try { action.run(); } catch (Exception e) { call.reject(e instanceof javax.net.ssl.SSLException ? "PC identity could not be verified. Generate a new QR on the PC; never bypass certificate checks." : e instanceof java.io.IOException ? "Cannot reach your PC. Keep Axx open, use the same Wi-Fi, and select Show new QR on the PC. Check that Windows Firewall allows Axx on your private network." : e.getMessage() == null ? "Could not connect to the PC" : e.getMessage()); } }); }
         catch (java.util.concurrent.RejectedExecutionException e) { call.reject("Axx is busy; try again"); }
     }

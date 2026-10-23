@@ -168,6 +168,7 @@ class GatewayTests(unittest.TestCase):
     def test_chat_retry_has_one_backend_call_and_shared_messages(self):
         calls=[]
         def backend(method, path, body):
+            if path.endswith('/resolve'):return {'match':'none'}
             calls.append(body['request_id'])
             return {'request_id':body['request_id'], 'choices':[{'message':{'content':'Respuesta'}}]}
         with tempfile.TemporaryDirectory() as tmp:

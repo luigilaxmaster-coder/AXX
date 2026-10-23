@@ -9,6 +9,11 @@ class SpokenTextTests(unittest.TestCase):
         self.assertEqual(prepare_spoken_text(text, 'es-DO'), (text, 'es'))
         self.assertEqual(prepare_spoken_text('Man\u0303ana', 'es')[0], 'Mañana.')
 
+    def test_spanish_technical_initials_preserve_english(self):
+        self.assertEqual(prepare_spoken_text('Conecta el USB a la PC y escanea el QR por Wi-Fi.', 'es')[0],
+                         'Conecta el u ese be a la computadora y escanea el cu erre por wifi.')
+        self.assertEqual(prepare_spoken_text('PC CPU USB QR.', 'en')[0], 'PC CPU USB QR.')
+
     def test_cardinals_and_abbreviations_are_spoken_in_spanish(self):
         self.assertEqual(prepare_spoken_text('Sr. Pérez, hay 22 tareas y 75% listo', 'es')[0],
                          'señor Pérez, hay veintidós tareas y setenta y cinco por ciento listo.')

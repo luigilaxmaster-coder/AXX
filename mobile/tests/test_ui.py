@@ -1,3 +1,4 @@
+import os
 """Browser contract tests with a fake native transport; not Android acceptance."""
 import base64
 import struct
@@ -20,7 +21,7 @@ NATIVE_FIXTURE = '''window.Capacitor={Plugins:{AxxTransport:{
 class MobileUI(unittest.TestCase):
     def test_pair_state_scroll_interaction_and_transparent_shortcut(self):
         with sync_playwright() as p:
-            browser=p.chromium.launch()
+            browser=p.chromium.launch(executable_path=os.environ.get('AXX_TEST_CHROMIUM'))
             page=browser.new_page(viewport={'width':360,'height':640},reduced_motion='reduce')
             def serve(route):
                 relative=route.request.url.split('https://axx.test/',1)[1] or 'index.html'

@@ -57,6 +57,11 @@ def prepare_spoken_text(text: str, language: str = 'auto') -> tuple[str, str]:
     text = re.sub(r'(?:\.{3,}|…+)', ', ', text)
     text = re.sub(r'([!?.,])\1+', r'\1', text)
     if lang == 'es':
+        # Spoken text only; visible responses and command payloads are intact.
+        initials = {'PC': 'computadora', 'CPU': 'procesador', 'GPU': 'tarjeta gráfica',
+                    'USB': 'u ese be', 'RAM': 'ram', 'QR': 'cu erre', 'CMD': 'ce eme de'}
+        text = re.sub(r'\b(?:PC|CPU|GPU|USB|RAM|QR|CMD)\b', lambda m: initials[m.group()], text)
+        text = re.sub(r'\bwi[ -]?fi\b', 'wifi', text, flags=re.I)
         abbreviations = {'Sr': 'señor', 'Sra': 'señora', 'Dr': 'doctor', 'Dra': 'doctora',
                          'Ud': 'usted', 'Uds': 'ustedes', 'aprox': 'aproximadamente', 'etc': 'etcétera'}
         for short, full in abbreviations.items():

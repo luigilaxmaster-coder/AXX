@@ -131,7 +131,8 @@ class MobileGateway:
         self._pairing_deadline = 0
         self.preferences = None
         self.appearance = None
-        self._avatar_lock = threading.Lock()
+        self._avatar_lock = threading.Condition()
+        self._avatar_boot = str(uuid.uuid4())
         self._avatar_sequence = 0
         self._avatar_events = deque(maxlen=128)
 
@@ -148,16 +149,19 @@ class MobileGateway:
             event = {'sequence': self._avatar_sequence, 'device_id': device_id,
                      'kind': body['kind'], 'dx': dx, 'dy': dy, 'at': time.monotonic()}
             self._avatar_events.append(event)
+            self._avatar_lock.notify_all()
             return {'sequence': self._avatar_sequence}
 
-    def avatar_events(self, since):
+    def avatar_events(self, since, wait=False):
         if type(since) is not int or since < 0:
             raise ValueError('Invalid avatar sequence')
         with self._avatar_lock:
+            if wait and since == self._avatar_sequence:
+                self._avatar_lock.wait(timeout=.5)
             now = time.monotonic()
             events = [{key: value for key, value in event.items() if key != 'at'}
                       for event in self._avatar_events if event['sequence'] > since and now - event['at'] <= 2]
-            return {'sequence': self._avatar_sequence, 'events': events}
+            return {'boot_id': self._avatar_boot, 'sequence': self._avatar_sequence, 'events': events}
 
     def clear_avatar_device(self, device_id):
         with self._avatar_lock:
@@ -272,11 +276,6 @@ class MobileGateway:
         if admission['duplicate']:
             return self.store.command(device_id, command_id)
         task_id = admission['task_id']
-        preferences = dict(self.preferences or {})
-        if preferences.get('provider') != 'bridge' or not preferences.get('model') or not preferences.get('provider_name'):
-            self.store.finish_command(task_id, 'failed', {'error':{'code':'ENGINE_NOT_AVAILABLE',
-                'message':'Select a configured API connection in Axx. Mobile Axx Connect queries still require tool isolation verification.'}})
-            return self.store.command(device_id, command_id)
         if not self._chat_slots.acquire(blocking=False):
             self.store.finish_command(task_id, 'failed', {'error':{'code':'BUSY','message':'Axx is busy. Your text is still saved on the phone.'}})
             return self.store.command(device_id, command_id)
@@ -288,6 +287,32 @@ class MobileGateway:
                 request = {'request_id':task_id, 'conversation_id':conversation_id, 'messages':[
                     {'role':m['role'],'content':m['text']} for m in snapshot['messages'][-100:]
                 ]}
+                # Deterministic commands use the same executor as Work, even
+                # without an inference provider. Never execute model output.
+                resolved = self.backend_call('POST', '/axx-api/commands/resolve',
+                                             {'text': body['text'], 'source': 'text'})
+                if resolved.get('ok') is False:
+                    raise ValueError('Command resolution unavailable')
+                from backend.commands import ADAPTERS
+                if resolved.get('match') == 'exact' and resolved.get('command_id') in ADAPTERS:
+                    device = next((d for d in self.store.devices() if d['device_id'] == device_id and not d['revoked']), None)
+                    if not device or 'tools.control' not in device['scopes']:
+                        answer = 'Aprueba el permiso de comandos de este teléfono en Ajustes de Axx en la PC.'
+                        self._finish_mobile_action(task_id, conversation_id, None, answer, failed=True)
+                        return
+                    result = self.work_execute(device_id, {'command_id': resolved['command_id'],
+                        'inputs': resolved.get('inputs', {}), 'operation_id': task_id, 'approved': False})
+                    self._finish_mobile_action(task_id, conversation_id, result)
+                    return
+                if resolved.get('match') in ('exact', 'unsupported', 'needs_input', 'ambiguous', 'learned'):
+                    answer = resolved.get('message') or 'No puedo ejecutar esa orden desde el teléfono. Revisa los comandos disponibles en Work.'
+                    self._finish_mobile_action(task_id, conversation_id, None, answer, failed=True)
+                    return
+                preferences = dict(self.preferences or {})
+                if preferences.get('provider') != 'bridge' or not preferences.get('model') or not preferences.get('provider_name'):
+                    self._finish_mobile_action(task_id, conversation_id, None,
+                        'Configura una conexión de IA en la PC para conversar. Las órdenes de Work funcionan sin esa conexión.', failed=True)
+                    return
                 for key in ('model', 'provider_name'):
                     request[key] = preferences[key]
                 result = self.backend_call('POST', '/axx-api/chat', request)
@@ -306,6 +331,42 @@ class MobileGateway:
                 self._chat_slots.release()
         threading.Thread(target=run, name='axx-mobile-chat', daemon=True).start()
         return self.store.command(device_id, command_id)
+
+    @staticmethod
+    def _action_message(result):
+        state = result.get('state')
+        if state in ('awaiting_approval', 'awaiting_pc_approval'):
+            return 'Orden preparada. Apruébala en Axx de la PC para ejecutarla.'
+        if state == 'succeeded' and result.get('postconditions_passed') is True:
+            output = result.get('output') or {}
+            evidence = result.get('evidence') or {}
+            if evidence.get('verification') == 'os_handoff':
+                return 'Windows aceptó abrir ' + str(output.get('label') or evidence.get('target') or 'la aplicación') + '.'
+            text = output.get('stdout')
+            return 'Orden completada y verificada.' + ('\n' + text[:3000] if isinstance(text, str) and text else '')
+        error = result.get('error') or {}
+        detail = error.get('message', '') if isinstance(error, dict) else str(error)
+        return 'Estado de la orden: ' + str(state or 'sin confirmar') + ('. ' + detail if detail else '.')
+
+    def _finish_mobile_action(self, task_id, conversation_id, result, answer=None, failed=False):
+        answer = answer or self._action_message(result)
+        waiting = bool(result and result.get('state') in ('awaiting_approval', 'awaiting_pc_approval', 'running'))
+        state = 'running' if waiting else 'failed' if failed or result and result.get('state') != 'succeeded' else 'completed'
+        payload = {'kind': 'work', 'operation': result, 'conversation_id': conversation_id, 'message': answer}
+        if state == 'failed': payload['error'] = {'message': answer}
+        self.shared.merge_messages([{'id': task_id + (':pending' if waiting else ':assistant'),
+            'role': 'assistant', 'text': answer, 'at': time.time()*1000}], 'mobile', conversation_id)
+        self.store.finish_command(task_id, state, payload)
+
+    def command_status(self, device_id, command_id):
+        task = self.store.command(device_id, command_id)
+        payload = task.get('result') if task else None
+        if task and task['state'] in ('running', 'outcome_unknown') and payload and payload.get('kind') == 'work' and payload.get('operation'):
+            result = self.work_operation(payload['operation']['operation_id'], device_id)
+            if result and result.get('state') in ('succeeded', 'failed', 'blocked', 'cancelled', 'expired', 'unknown'):
+                self._finish_mobile_action(task['task_id'], payload['conversation_id'], result)
+                return self.store.command(device_id, command_id)
+        return task
 
     @classmethod
     def for_backend(cls, server, state_path, data_dir):
@@ -422,7 +483,7 @@ class MobileGateway:
                             query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
                             if set(query) != {'command_id'} or len(query['command_id']) != 1:
                                 raise ValueError('command_id required')
-                            command = gateway.store.command(self.device_id, query['command_id'][0])
+                            command = gateway.command_status(self.device_id, query['command_id'][0])
                             self._send(200 if command else 404, {'ok':bool(command), 'data':command})
                             return
                         if path == '/v1/work/operation':
@@ -491,6 +552,13 @@ class MobileGateway:
                             result = gateway.admit_chat(self.device_id, body)
                             self._send(202, {'ok':True, 'data':result})
                             return
+                        if path == '/v1/voice/start':
+                            if not self._authorize('voice'):return
+                            self._send(200, {'ok':True,'data':gateway.voice.phone_start(self.device_id,body)});return
+                        if path == '/v1/voice/confirm':
+                            if not self._authorize('tools.control'):return
+                            if set(body) != {'session_id','text'}:raise ValueError('Session and text required')
+                            self._send(200, {'ok':True,'data':gateway.voice.confirm(body['session_id'],body['text'],self.device_id)});return
                         if path in ('/v1/voice/poll','/v1/voice/audio','/v1/voice/cancel'):
                             if not self._authorize('voice'):return
                             if path.endswith('/poll'):result=gateway.voice.poll(self.device_id,body)

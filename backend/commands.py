@@ -250,7 +250,14 @@ class CommandService:
                     'parameters': self.commands[command_id]['parameters'],
                     'execution_enabled': self.commands[command_id]['execution_enabled'],
                     'has_recipe_details': self.commands[command_id].get('has_recipe_details', False)}
-        phrase = normalized(text)
+        # Conversational prefixes are accepted for registered aliases; script
+        # bodies and parameters are always preserved by the original resolver.
+        alias_text = re.sub(r'^[¡¿\s]+', '', text.strip())
+        alias_text = re.sub(r'^(?:(?:oye|hola)\s+)?axx[,\s]+', '', alias_text, flags=re.I)
+        alias_text = re.sub(r'^por favor[,\s]+', '', alias_text, flags=re.I)
+        alias_text = re.sub(r'^(?:puedes|podrías|podrias|quiero que)\s+', '', alias_text, flags=re.I)
+        alias_text = re.sub(r'\s*,?\s+por favor[?.!]*$', '', alias_text, flags=re.I)
+        phrase = normalized(alias_text.strip(' .!?¿¡'))
         matches = [command_id for command_id, adapter in ADAPTERS.items()
                    if phrase in [normalized(s) for s in adapter['aliases']] or phrase == normalized(command_id)]
         if len(matches) == 1:

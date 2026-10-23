@@ -35,9 +35,9 @@ class MobileHTTP:
             self.h._send_json(200, self.gateway.control.status())
         elif path == '/axx-api/mobile/avatar/events':
             query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.h.path).query)
-            if set(query) != {'since'} or len(query['since']) != 1 or not query['since'][0].isdecimal():
+            if not {'since'} <= set(query) or set(query) - {'since', 'wait'} or len(query['since']) != 1 or not query['since'][0].isdecimal() or query.get('wait', ['0']) not in (['0'], ['1']):
                 raise ValueError('since must be a nonnegative integer')
-            self.h._send_json(200, self.gateway.avatar_events(int(query['since'][0])))
+            self.h._send_json(200, self.gateway.avatar_events(int(query['since'][0]), query.get('wait') == ['1']))
         elif path == '/axx-api/mobile/work/pending':
             self.h._send_json(200, self.gateway.pending_work())
         else:

@@ -11,6 +11,8 @@
   $('draft').value = localStorage.getItem('axx.mobile.draft') || '';
   $('draft').oninput = () => localStorage.setItem('axx.mobile.draft', $('draft').value);
   const errorText = e => e?.message || String(e);
+  const chatResult=document.createElement('pre');chatResult.className='work-result';chatResult.hidden=true;
+  $('command-state').after(chatResult);
   const notice = text => { $('notice').textContent = text; };
   function syncState(state, text) {
     $('sync-status').hidden = false;
@@ -83,6 +85,10 @@
     if (!pending) return;
     const task = await request('/v1/command?command_id='+encodeURIComponent(pending.command_id));
     $('command-state').textContent = 'Task '+task.task_id+' · '+task.state;
+    if(task.result?.kind==='work'){
+      chatResult.hidden=false;
+      chatResult.textContent=task.result.message+(task.result.operation?.output?'\n'+JSON.stringify(task.result.operation.output,null,2).slice(0,6000):'');
+    }
     if (['completed','failed','outcome_unknown'].includes(task.state)) {
       if (task.state !== 'completed') notice(task.result?.error?.message || 'Result not confirmed. Check the task on your PC before sending again.');
       if (task.state === 'completed' && $('draft').value === pending.text) { $('draft').value=''; localStorage.removeItem('axx.mobile.draft'); }
@@ -274,7 +280,7 @@
       while(gestureQueue.length){
         const next=gestureQueue.shift();
         await request('/v1/avatar/gesture',next);
-        gestureStatus(next.kind==='end'?'Gesto reflejado en la PC':'Sincronizando '+(next.kind==='rotate'?'rotación':'movimiento')+' con la PC…');
+        gestureStatus(next.kind==='end'?'Gesto recibido por la PC':'Sincronizando '+(next.kind==='rotate'?'rotación':'movimiento')+' con la PC…');
       }
     }catch(e){gestureQueue=[];gestureStatus('La PC no recibió el gesto: '+errorText(e)+'. Aprueba este teléfono en Axx de la PC.');}
     finally{gestureSending=false;if(gestureQueue.length)queueGestureSend();}

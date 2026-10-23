@@ -9,7 +9,7 @@ Run the installer and open Axx. Python and Node are not required. Configure your
 
 The packaged backend may take longer on its first launch while Windows extracts and scans it. The native host allows up to 90 seconds for backend readiness and reports a startup error if that limit is exceeded.
 
-Source and published Windows installer are both **v0.20.21**. Android APKs remain local test artifacts until separately published. See [mobile setup and validation](docs/mobile/README.md) and the [version and release procedure](docs/RELEASING.md).
+Source is **v0.20.22**; the published Windows installer is **v0.20.21**. Delivery of the newer source is pending publication. Android APKs remain local test artifacts until separately published. See [mobile setup and validation](docs/mobile/README.md) and the [version and release procedure](docs/RELEASING.md).
 <!-- release:download:end -->
 
 ---
@@ -29,7 +29,7 @@ Source and published Windows installer are both **v0.20.21**. Android APKs remai
   <img src="https://img.shields.io/badge/Frontend-WebGL%20%2F%20HTML5-black?logo=webgl" alt="WebGL" />
   <img src="https://img.shields.io/badge/Offline%20Voice-Faster--Whisper%20Tiny-green" alt="Faster-Whisper" />
   <img src="https://img.shields.io/badge/Protocol-Model%20Context%20Protocol%20(MCP)-blueviolet" alt="MCP" />
-  <img src="https://img.shields.io/badge/Source%20Version-v0.20.21-informational" alt="Source version 0.20.21" />
+  <img src="https://img.shields.io/badge/Source%20Version-v0.20.22-informational" alt="Source version 0.20.22" />
   <img src="https://img.shields.io/badge/Development-Active%20Refinement-yellow?logo=git" alt="Active Development" />
 </p>
 
@@ -48,6 +48,16 @@ Source and published Windows installer are both **v0.20.21**. Android APKs remai
 ## Axx on desktop and Android
 
 The desktop remains the coordinator. Axx Mobile connects to the same conversation, tasks and services on your PC.
+
+### Current phone and voice fixes
+
+Windows 0.20.22 connects recognized phone-chat commands to the real Work executor,
+keeps sensitive actions pending for PC approval, and fixes accumulated avatar
+movement and background gesture delivery. Android 0.1.4 adds phone-initiated
+Spanish/English dictation with an editable transcript before sending. Custom
+speech refills its audio buffer after delays and reads technical initials in
+Spanish; pronunciation is still limited by the local speech model.
+See [release verification and limitations](docs/releases/0.20.22.md).
 
 ### The character and its circular menu
 
@@ -95,7 +105,7 @@ These are presentation captures of the current UI in an isolated browser. The mo
 ## 🚧 Project Status: Active Continuous Improvement
 
 > [!NOTE]
-> **Axx is under active development.** Source and published Windows installer are both **v0.20.21**. Validation is recorded per feature; a working UI or build does not by itself certify every hardware-dependent behavior.
+> **Axx is under active development.** Source is **v0.20.22**; the published Windows installer is **v0.20.21**. Delivery of the newer source is pending publication. Validation is recorded per feature; a working UI or build does not by itself certify every hardware-dependent behavior.
 
 ### 🟢 Implemented capabilities
 - **Native Startup:** Resident Windows application with a local backend and a launcher fallback to the executable built from this repository.
