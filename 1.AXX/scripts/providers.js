@@ -28,16 +28,17 @@
         #subpanel-api .model-task-row strong{font-size:13px;font-weight:600;color:var(--ink,var(--text))}
         #subpanel-api .model-task-row small{font-size:11px;color:var(--secondary,var(--quiet))}
         #subpanel-api .model-task-row button{flex:none}
+        #subpanel-api.model-task-open .provider-actions{position:static}
         @media(max-width:640px){#subpanel-api .model-task-controls{grid-template-columns:1fr}#subpanel-api #model-task-check{width:100%}#subpanel-api .model-task-row{align-items:stretch;flex-direction:column}#subpanel-api .model-task-row button{width:100%}}
       </style>
       <label class="setting">Selección de modelos<select id="provider-selection-mode"><option value="automatic_free">Automático gratis · Sin claves</option><option value="manual">Manual · conexión seleccionada</option></select></label>
       <p class="micro-copy">Axx prepara Kilo Gateway, OVHcloud y AI Horde y prueba sus modelos sin claves personales. Solo usa las rutas que superan las pruebas. Si no hay disponibilidad, conserva la tarea pendiente.</p>
       <p class="micro-copy">También desde el chat: «/modelos», «cambia de modelo a nombre o ID» y «/modelo automático».</p>
       <details id="model-task-fit"><summary>Modelo según la tarea</summary><div class="model-task-body">
-        <p class="micro-copy model-task-intro">Elige una tarea para ver rutas compatibles. Voz y visión tienen selección propia; las demás usan el router automático o el modelo principal.</p>
+        <p class="micro-copy model-task-intro">Voz y visión se eligen por separado. Las demás tareas usan el router automático o el modelo principal.</p>
         <div class="model-task-controls"><label class="setting">Tarea<select id="model-task-kind"><option value="chat">Conversar</option><option value="voice">Responder por voz</option><option value="vision">Analizar imágenes</option><option value="plan">Planificar</option><option value="code">Código</option><option value="writing">Redactar</option><option value="translation">Traducir</option><option value="grounding">Control visual de Agent-S</option></select></label>
         <button id="model-task-check" type="button">Ver opciones</button></div><div id="model-task-options" role="status"></div>
-        <p class="micro-copy">«Lista localmente» indica disponibilidad de la conexión, no calidad o velocidad comprobadas.</p></div>
+        <p class="micro-copy">Ruta disponible no significa calidad o velocidad comprobadas.</p></div>
       </details>
       <button id="keyless-refresh" type="button">Comprobar modelos sin claves</button><p id="keyless-status" role="status"></p>
       <p class="micro-copy">Son servicios públicos externos. Kilo indica que registra peticiones y respuestas para entrenamiento. Las conexiones personales de abajo son opcionales.</p>
@@ -188,7 +189,7 @@
       const root = $('model-task-options'), task = $('model-task-kind').value, prefs = Axx.companion.data.prefs;
       root.replaceChildren();
       if (task === 'grounding') {
-        root.textContent = 'Agent-S necesita localizar coordenadas de controles. Axx todavía no tiene un modelo de Ollama que haya superado esa prueba; una etiqueta «visión» no basta para activarlo.';
+        root.textContent = 'Agent-S requiere localizar controles por coordenadas. Ningún modelo de Ollama ha superado esa prueba en este equipo.';
         return;
       }
       if (task === 'voice' && prefs.selection_mode !== 'manual') {
@@ -245,6 +246,7 @@
         root.append(row);
       }
     };
+    $('model-task-fit').ontoggle = () => panel.classList.toggle('model-task-open', $('model-task-fit').open);
     $('model-task-check').onclick = async () => {
       $('model-task-options').textContent = 'Comprobando conexiones…';
       try { await checkTaskModels(); }

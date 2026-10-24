@@ -341,6 +341,8 @@ assert(!html.includes("const apiBase ="), 'Production must not hardcode a develo
       window.__contractSavedProviders = window.__contractProviderRows.map(({name,model})=>({name,model,enabled:true}));
       try {
         Object.assign(c.data.prefs, { selection_mode:'manual', apiConnection:'chat-route', model:'chat-model', visionConnection:'', visionModel:'' });
+        const details = document.getElementById('model-task-fit'); details.open = true; details.dispatchEvent(new Event('toggle'));
+        const openClass = document.getElementById('subpanel-api').classList.contains('model-task-open');
         document.getElementById('model-task-kind').value = 'vision';
         await document.getElementById('model-task-check').onclick();
         const root = document.getElementById('model-task-options');
@@ -356,7 +358,8 @@ assert(!html.includes("const apiBase ="), 'Production must not hardcode a develo
           rejected:await Axx.modelSelection.run({target:'plan-route'}), chatModel:c.data.prefs.model };
         document.getElementById('model-task-kind').value = 'grounding';
         await document.getElementById('model-task-check').onclick();
-        return { before, chosen, invalidVision, plan, grounding:root.textContent };
+        details.open = false; details.dispatchEvent(new Event('toggle'));
+        return { before, chosen, invalidVision, plan, grounding:root.textContent, openClass };
       } finally {
         Object.assign(c.data.prefs, prior); c.save(); window.__contractProviderRows = null; window.__contractSavedProviders = null;
       }
@@ -369,7 +372,8 @@ assert(!html.includes("const apiBase ="), 'Production must not hardcode a develo
     assert.deepEqual(taskFit.plan.buttons, []);
     assert.match(taskFit.plan.rejected, /no declara aptitud para conversar.*chat-route.*chat-model/);
     assert.equal(taskFit.plan.chatModel, 'chat-model');
-    assert.match(taskFit.grounding, /no tiene un modelo.*superado esa prueba/);
+    assert.equal(taskFit.openClass, true);
+    assert.match(taskFit.grounding, /Ningún modelo de Ollama ha superado esa prueba/);
     results.push('Task-aware model panel persists vision separately, rejects a plan-only chat route and does not certify Agent-S grounding');
     const voicePreferences = await page.evaluate(() => {
       const c = Axx.companion, prior = { voiceModel: c.data.prefs.voiceModel, voiceFillers: c.data.prefs.voiceFillers, loadingSound: c.data.prefs.loadingSound };
