@@ -7,7 +7,7 @@ const { execFileSync } = require('node:child_process');
 const { chromium } = require(process.env.USERPROFILE + '/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
 
 (async () => {
-  const out = path.resolve('build/chat-0.21.4/magic-pen'); fs.mkdirSync(out, { recursive: true });
+  const out = path.resolve('build/chat-' + require('../package.json').version + '/magic-pen'); fs.mkdirSync(out, { recursive: true });
   const browser = await chromium.connectOverCDP('http://127.0.0.1:9224');
   const page = browser.contexts()[0].pages().find(p => p.url().includes('Axx.html'));
   assert(page, 'Installed Axx WebView unavailable');
@@ -102,12 +102,21 @@ finally:u.SetThreadDpiAwarenessContext(old)
     const saved = await api('get', { id: docId }); assert(saved.preview?.startsWith('data:image/png;base64,'));
     fs.writeFileSync(path.join(out, 'native-capture.png'), Buffer.from(saved.preview.split(',')[1], 'base64'));
     assert.equal(query.state, 'completed', query.error);
-    assert.equal(query.question, question);
+    assert(query.question.startsWith(question)); assert.match(query.question, /Resumen:.*24 palabras/);
     const v = geometry.viewport, s = geometry.source;
     const expectedBounds = [v.x + target.x0 * v.scale - s.x, v.y + target.y0 * v.scale - s.y, v.x + target.x1 * v.scale - s.x, v.y + target.y1 * v.scale - s.y];
     assert.equal(query.selection.shape, 'rect');
     assert.deepEqual(query.selection.bounds, expectedBounds);
     assert.match(query.response, /4279/); assert.match(query.response, /azul/i);
+    await page.waitForFunction(() => Axx.magicPen.summaryBubbleMode && document.getElementById('mp-summary-bubble').getClientRects().length > 0);
+    receipt.summary = await page.locator('#mp-summary-text').innerText();
+    assert(receipt.summary.length > 0 && receipt.summary.split(/\s+/).length <= 28, 'The avatar bubble must show a concise explanation');
+    await page.screenshot({ path: path.join(out, 'magic-pen-summary-bubble.png') });
+    await page.locator('#mp-summary-expand').click();
+    assert.equal(await page.locator('#mp-summary-bubble').isVisible(), false);
+    assert.equal(await page.locator('#mp-answers').isVisible(), true);
+    assert.match(await page.locator('#mp-answers').innerText(), /4279/);
+    receipt.checks.push('Concise avatar-origin summary appears for the real selection and expands to the complete provider answer');
     const prefs = await page.evaluate(() => ({ name: Axx.companion.data.prefs.apiConnection, model: Axx.companion.data.prefs.model }));
     assert.equal(query.provider.name, prefs.name); assert.equal(query.provider.model, prefs.model);
     receipt.checks.push('Real desktop selection recognized known digits and blue rectangle through selected provider');

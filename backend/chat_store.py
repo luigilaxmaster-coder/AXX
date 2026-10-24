@@ -41,6 +41,8 @@ class ChatStore:
             if 'draft_at' not in {r[1] for r in db.execute('PRAGMA table_info(chat_conversations)')}:
                 db.execute('ALTER TABLE chat_conversations ADD COLUMN draft_at REAL NOT NULL DEFAULT 0')
                 db.execute('UPDATE chat_conversations SET draft_at=updated')
+            db.execute("UPDATE chat_conversations SET mode='ask' WHERE mode NOT IN ('ask','auto_safe')")
+            db.execute("UPDATE chat_settings SET value='ask' WHERE key='default_mode' AND value NOT IN ('ask','auto_safe')")
         self.purge()
         self.worker = threading.Thread(target=self._maintenance, daemon=True)
         self.worker.start()

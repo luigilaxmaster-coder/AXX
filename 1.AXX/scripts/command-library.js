@@ -233,7 +233,7 @@
         isActionRequest(raw) {
             const text=raw.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/^[¡¿\s]+/,'')
                 .replace(/^(?:(?:oye|hola)\s+)?axx[,\s]+/,'').replace(/^por favor[,\s]+/,'').replace(/^(?:puedes|podrias|quiero que|pero)\s+/,'');
-            return /^(?:\/(?:search|buscar|comando|powershell)\b|mis\s+ventanas\b|(?:lista|muestra)\s+(?:mis\s+)?(?:ventanas|aplicaciones)\b|(?:haz|repite|usa|saca|abre|abrir|abras|abreme|abrela|abrelo|inicia|ejecuta|busca|buscar|buscame|ponme|pon|reproduce|reproducir|escuchar|prepara|organiza|crea|crear|convierte|mueve|copia|renombra|comprime|extrae|descarga|instala|borra|elimina|envia|publica)\b)/.test(text);
+            return /^(?:\/(?:search|buscar|comando|powershell)\b|mis\s+ventanas\b|(?:lista|muestra)\s+(?:mis\s+)?(?:ventanas|aplicaciones)\b|(?:haz|repite|usa|saca|abre|abrir|abras|abreme|abrela|abrelo|inicia|ejecuta|busca|buscar|buscame|encuentra|localiza|ponme|pon|reproduce|reproducir|escuchar|prepara|organiza|crea|crear|convierte|mueve|copia|renombra|comprime|extrae|descarga|instala|borra|elimina|envia|publica)\b)/.test(text);
         }
         internalAction(raw) {
             const plain = value => String(value).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
@@ -414,9 +414,14 @@
                         this.status('La conversación cambió antes de preparar la acción. No se ejecutó ningún comando.');
                         return;
                     }
-                    if (resolved.match === 'learned' || resolved.match === 'unsupported' || resolved.match === 'none' && this.isActionRequest(raw)) {
+                    if (resolved.match === 'learned') {
                         Axx.companion.message('user', raw, 'local');
                         await this.planAction(raw); return;
+                    }
+                    if (resolved.match === 'unsupported') {
+                        Axx.companion.message('user', raw, 'local');
+                        Axx.companion.localNotice(resolved.message || 'No encontré una acción ejecutable para esa petición.');
+                        return;
                     }
                     if (resolved.match === 'none') {
                         if(!this.isActionRequest(raw))return previous(raw, metadata);

@@ -7,7 +7,7 @@ const { chromium } = createRequire(path.join(process.env.USERPROFILE, '.cache/co
 (async () => {
   const server = http.createServer((req, res) => {
     const file = req.url.startsWith('/scripts/') ? path.join(__dirname, path.basename(req.url)) : path.join(__dirname, '../Axx.html');
-    res.setHeader('Content-Type', file.endsWith('.js') ? 'application/javascript' : 'text/html'); res.end(fs.readFileSync(file));
+    res.setHeader('Content-Type', file.endsWith('.js') ? 'application/javascript' : file.endsWith('.css') ? 'text/css' : 'text/html'); res.end(fs.readFileSync(file));
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const browser = await chromium.launch({ headless: true, executablePath: process.env.AXX_TEST_CHROMIUM });
@@ -74,7 +74,7 @@ const { chromium } = createRequire(path.join(process.env.USERPROFILE, '.cache/co
       assert.equal(await row.locator('img').count(),0);
       assert.equal(await page.evaluate(()=>window.injected),undefined);
     });
-    await check('Speech omits markup and punctuation while personality settings persist', async () => {
+    await check('Speech omits markup and preserves natural punctuation while personality settings persist', async () => {
       const result=await page.evaluate(() => {
         document.getElementById('chat-personality-style').value='friendly';
         document.getElementById('chat-personality-style').dispatchEvent(new Event('change'));
@@ -82,7 +82,7 @@ const { chromium } = createRequire(path.join(process.env.USERPROFILE, '.cache/co
         return {spoken:Axx.speechReplyText('Hola, **mundo**. [Mira](https://example.com), ¡gracias!'),
                 saved:Axx.decodeCompanion(localStorage.getItem('axx.companion.v4')).prefs};
       });
-      assert.equal(result.spoken,'Hola mundo Mira ¡gracias');
+      assert.equal(result.spoken,'Hola, mundo. Mira, ¡gracias!');
       assert.equal(result.saved.personalityStyle,'friendly');
       assert.equal(result.saved.personalityNotes,'Háblame de tú');
     });

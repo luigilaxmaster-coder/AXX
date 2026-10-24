@@ -148,7 +148,7 @@ body.native.axx-resident[data-ui-theme] #mp-desktop :is(.mp-icon-button,#mp-hide
 body.native.axx-resident[data-ui-theme] #mp-desktop :is(.mp-desktop-title,.mp-widget-head,.mp-desktop-title>span,#mp-status,#mp-capability,.mp-save-section>summary,.mp-answer,label){color:var(--secondary)!important}
 body.native.axx-resident[data-ui-theme] #mp-desktop :is(.mp-desktop-title strong,.mp-widget-head strong){color:var(--ink)!important}
 body.native.axx-resident[data-ui-theme] #mp-desktop .mp-composer{background:var(--field)!important;border-color:var(--line)!important}
-body.native.axx-resident[data-ui-theme] #mp-desktop #mp-ask{color:#fff!important;background:var(--accent-fill)!important}
+body.native.axx-resident[data-ui-theme] #mp-desktop :is(#mp-ask,#mp-summary-expand){color:#fff!important;background:var(--accent-fill)!important;border-color:transparent!important}
 body.native.axx-resident[data-ui-theme] #mp-desktop :is(button,select,input):focus-visible{outline:3px solid var(--accent)!important;outline-offset:2px!important}
 body.native.axx-resident[data-ui-theme] #panel:not([data-view=chat]) :is(.lab-warning,.lab-warning span,.states-grid button span,small){color:var(--secondary)!important;font-size:11px!important;line-height:1.5;letter-spacing:.2px}
 body.native.axx-resident[data-ui-theme] #panel [hidden]{display:none!important}

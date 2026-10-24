@@ -16,9 +16,20 @@ class ChatTests(unittest.TestCase):
     def test_shared_thread_maps_to_persisted_mode(self):
         cid=self.store.mutate('create',{})['id']; row=self.store.get(cid)
         self.assertEqual(self.store.by_shared_id(row['shared_id'])['id'],cid)
+        with self.assertRaises(ValueError): self.store.mutate('update',{'id':cid,'command_mode':'unrestricted'})
         self.store.mutate('update',{'id':cid,'command_mode':'auto_safe'})
         self.assertEqual(self.store.by_shared_id(row['shared_id'])['mode'],'auto_safe')
         with self.assertRaises(ValueError): self.store.by_shared_id('unknown-shared')
+
+    def test_legacy_unrestricted_mode_is_migrated_to_ask(self):
+        cid=self.store.mutate('create',{})['id']
+        with self.store.db() as db:
+            db.execute("UPDATE chat_conversations SET mode='unrestricted' WHERE id=?",(cid,))
+            db.execute("INSERT INTO chat_settings(key,value) VALUES('default_mode','unrestricted')")
+        self.store.close()
+        self.store=ChatStore(self.path,lambda:self.now)
+        self.assertEqual(self.store.get(cid)['mode'],'ask')
+        self.assertEqual(self.store.list()['default_mode'],'ask')
 
     def test_migration_idempotent_and_transactional(self):
         body={'messages':[self.message()],'draft':'unsent','connect_id':'provider-thread','shared_id':'phone-thread'}
@@ -113,6 +124,8 @@ class ChatTests(unittest.TestCase):
             sensitive=commands.prepare('axx.artifact.write',{'path':'test.txt','content':'x'},conversation_id='chat-b',command_mode='auto_safe')
             self.assertEqual(sensitive['state'],'awaiting_approval')
             with self.assertRaises(ApprovalRequired):commands.execute(sensitive['operation_id'])
+            commands.cancel(sensitive['operation_id'])
+            with self.assertRaises(ValueError):commands.prepare('axx.artifact.write',{'path':'test.txt','content':'x'},conversation_id='chat-b',command_mode='unrestricted')
             with self.assertRaises(ValueError):commands.prepare('axx.system.telemetry',{},operation_id=ask['operation_id'],conversation_id='chat-b',command_mode='auto_safe')
             self.assertFalse((Path(self.tmp.name)/'artifacts/test.txt').exists())
         finally:commands.close();executor.close()

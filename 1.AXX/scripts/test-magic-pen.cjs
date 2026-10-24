@@ -9,7 +9,7 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
  const browser=await chromium.launch({headless:true,executablePath:process.env.AXX_TEST_CHROMIUM||path.join(process.env.LOCALAPPDATA,'ms-playwright/chromium_headless_shell-1248/chrome-headless-shell-win64/chrome-headless-shell.exe')});
  const passed=[];
  try{
-  const page=await browser.newPage({viewport:{width:1440,height:1000},reducedMotion:'reduce'}),errors=[];page.setDefaultTimeout(8000);page.on('pageerror',e=>errors.push(e.message));
+  const page=await browser.newPage({viewport:{width:1440,height:1000},reducedMotion:'no-preference'}),errors=[];page.setDefaultTimeout(8000);page.on('pageerror',e=>errors.push(e.message));
   await page.addInitScript(()=>{
    window.calls=[];window.docs={};window.jobs={};window.cancelledIds=new Set();window.nativeEvents={};window.captureCount=0;window.captureFails=false;window.delayAnalysis=false;window.holdCapture=false;window.holdStart=false;window.holdStatus=false;window.releaseStatus=null;window.releaseCapture=null;window.releaseStart=null;window.visionEnabled=true;window.viewportShift=0;
    window.__TAURI__={core:{invoke:async(name,args)=>{
@@ -29,7 +29,7 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
        const d=docs[b.id];if(b.revision!==d.revision||!d.selection)throw Error('unsaved selection');
        if(holdStart)await new Promise(resolve=>releaseStart=resolve);
        const q={id:b.request_id,source_id:b.id,revision:b.revision,selection:structuredClone(d.selection),question:b.question,state:cancelledIds.has(b.request_id)?'cancelled':'running',provider:{name:b.provider,model:b.model}};jobs[q.id]=q;
-       if(!delayAnalysis&&q.state==='running')setTimeout(()=>{if(q.state==='running'){q.state='completed';q.response='Respuesta de prueba '+q.id.slice(0,6);}},40);
+       if(!delayAnalysis&&q.state==='running')setTimeout(()=>{if(q.state==='running'){q.state='completed';q.response='Resumen: La zona contiene un rectángulo azul claramente visible.\n\nDetalle: Respuesta de prueba '+q.id.slice(0,6);}},40);
        return structuredClone(q);
       }
       if(op==='query')return structuredClone(jobs[b.query_id]);
@@ -42,10 +42,12 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
     }return null;
    }},event:{listen:async(name,handler)=>{(nativeEvents[name]||=[]).push(handler);return ()=>{};}}};
   });
-  await page.goto('http://127.0.0.1:'+server.address().port);await page.waitForFunction(()=>Axx.magicPen&&Axx.resident?.firstFrame);
+  await page.goto('http://127.0.0.1:'+server.address().port);try{await page.waitForFunction(()=>Axx.magicPen&&Axx.resident?.firstFrame);}catch(e){throw new Error(e.message+'; page errors: '+errors.join(' | '));}
   await page.evaluate(()=>{Object.assign(Axx.companion.data.prefs,{selection_mode:'manual',provider:'bridge',apiConnection:'fixture',model:'fixture-vision'});Axx.flow.showQuick();});
   assert.equal(await page.locator('#flow-fan [data-quick="magicpen"]').count(),1);await page.locator('#flow-fan [data-quick="magicpen"]').click();await page.waitForFunction(()=>Axx.magicPen.active&&!Axx.magicPen.working);
   assert.equal(await page.locator('#panel').isVisible(),false);await page.evaluate(()=>{Axx.magicPen.open();Axx.magicPen.open();});assert.equal(await page.locator('#mp-desktop').count(),1);
+  const visionRoute=await page.evaluate(()=>{const p=Axx.companion.data.prefs;p.model='text-only';p.visionConnection='fixture';p.visionModel='fixture-vision';Axx.companion.save();return {route:Axx.magicPen.route(),ready:Axx.magicPen.hasVision(),reloaded:Axx.decodeCompanion(localStorage.getItem(Axx.companion.key)).prefs.visionModel};});
+  assert.deepEqual(visionRoute,{route:{selection_mode:'manual',provider:'fixture',model:'fixture-vision'},ready:true,reloaded:'fixture-vision'},'Vision keeps a separate verified route from the chat model');
   const count=()=>page.evaluate(()=>calls.filter(c=>c.args?.path==='/axx-api/pen/start').length);
   const idle=()=>page.waitForFunction(()=>!Axx.magicPen.working&&!Axx.magicPen.analysisPending);
   const showHistory=async()=>{if(!await page.locator('#mp-widget details.mp-save-section').evaluate(el=>el.open))await page.locator('#mp-widget details.mp-save-section > summary').click();};
@@ -54,11 +56,28 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
   assert.equal(Math.round((await page.locator('#mp-widget').boundingBox()).x),466);
   await page.evaluate(()=>{holdCapture=false;releaseCapture();});await page.waitForFunction(()=>!Axx.magicPen.working);assert.equal(await count(),0,'Manual selection does not infer automatically');
   assert.deepEqual(await page.evaluate(()=>Axx.magicPen.doc.selection.bounds.map(Math.round)),[100,190,450,390]);
-  await page.click('#mp-ask');await idle();assert.match(await page.locator('#mp-answers').innerText(),/Respuesta de prueba/);
-  assert(await page.locator('#mp-meta').isVisible());assert.match(await page.locator('#mp-meta').innerText(),/Imagen capturada[\s\S]*fixture · fixture-vision/);
-  const manual=await page.evaluate(()=>calls.find(c=>c.args?.path==='/axx-api/pen/start').args.body);assert.equal(manual.provider,'fixture');assert.equal(manual.model,'fixture-vision');assert.equal(manual.selection_mode,'manual');assert.match(manual.request_id,/^[0-9a-f]{32}$/);
+  await page.evaluate(()=>{window.readBacks=[];window.bubbleAnimationEnds=0;window.hitMapSyncs=0;document.addEventListener('animationend',e=>{if(e.animationName==='mp-bubble-in')bubbleAnimationEnds++;},true);const sync=Axx.magicPen.syncInput;Axx.magicPen.syncInput=function(){hitMapSyncs++;return sync.call(this);};Axx.companion.read=text=>readBacks.push(text);Axx.companion.data.prefs.voiceRead=true;delayAnalysis=true;});await page.click('#mp-ask');
+  await page.waitForFunction(()=>Axx.magicPen.analysisPending&&Axx.magicPen.summaryBubbleMode&&document.getElementById('mp-summary-label').textContent==='Analizando');
+  const syncBeforeAnimation=await page.evaluate(()=>hitMapSyncs);await page.waitForFunction(()=>bubbleAnimationEnds>0);assert(await page.evaluate(()=>hitMapSyncs)>syncBeforeAnimation,'The natural entrance must resync the native hit map after opacity reaches one');
+  assert.equal(await page.locator('#mp-summary-text').innerText(),'Estoy revisando esa zona…');
+  await page.evaluate(()=>{delayAnalysis=false;const q=Object.values(jobs).at(-1);q.state='completed';q.response='Resumen: La zona contiene un rectángulo azul claramente visible.\n\nDetalle: Respuesta de prueba '+q.id.slice(0,6);});await idle();
+  assert.equal(await page.locator('#mp-summary-text').innerText(),'La zona contiene un rectángulo azul claramente visible.');assert.equal(await page.locator('#mp-summary-bubble').isVisible(),true);
+  const bubbleBounds=await page.locator('#mp-widget').boundingBox(),stageBounds=await page.locator('#stage').boundingBox(),bubbleState=await page.evaluate(()=>({summaryMode:Axx.magicPen.summaryBubbleMode,side:document.getElementById('mp-widget').dataset.bubbleSide,left:document.getElementById('mp-widget').style.left,top:document.getElementById('mp-widget').style.top}));assert(bubbleBounds&&stageBounds,'The avatar stage and summary bubble must be measurable');const bodySize=Math.min(stageBounds.width,stageBounds.height)*.58,body={left:stageBounds.x+(stageBounds.width-bodySize)/2,right:stageBounds.x+(stageBounds.width+bodySize)/2,top:stageBounds.y+(stageBounds.height-bodySize)/2,bottom:stageBounds.y+(stageBounds.height+bodySize)/2},bodyGaps=[Math.abs(bubbleBounds.x-(body.right+4)),Math.abs(bubbleBounds.x+bubbleBounds.width-(body.left-4)),Math.abs(bubbleBounds.y-(body.bottom+4)),Math.abs(bubbleBounds.y+bubbleBounds.height-(body.top-4))];assert(Math.min(...bodyGaps)<2,'The bubble tail must stay within 2px of the avatar silhouette anchor: '+JSON.stringify({bubbleBounds,stageBounds,bodyGaps,bubbleState}));
+  assert.equal(await page.locator('.mp-head-copy strong').innerText(),'Magic Pen');
+  const bubbleStyle=await page.evaluate(()=>({buttonColor:getComputedStyle(document.getElementById('mp-summary-expand')).color,blur:getComputedStyle(document.getElementById('mp-widget')).backdropFilter,radius:parseFloat(getComputedStyle(document.getElementById('mp-widget')).borderTopLeftRadius)}));assert.equal(bubbleStyle.buttonColor,'rgb(255, 255, 255)','The primary action label must remain high contrast');assert.match(bubbleStyle.blur,/blur\(/,'The avatar callout must keep its frosted-glass material');assert(bubbleStyle.radius>=26,'The callout needs its soft, rounded silhouette');
+  for(const theme of ['light','dark']){await page.evaluate(t=>document.body.dataset.uiTheme=t,theme);const action=await page.locator('#mp-summary-expand').evaluate(e=>({color:getComputedStyle(e).color,background:getComputedStyle(e).backgroundColor}));assert.deepEqual(action,{color:'rgb(255, 255, 255)',background:theme==='dark'?'rgb(0, 108, 219)':'rgb(0, 100, 207)'},'The primary action needs readable theme-aware contrast');await page.locator('#mp-widget').screenshot({path:path.join(out,'summary-bubble-'+theme+'.png')});await page.screenshot({path:path.join(out,'summary-overlay-'+theme+'.png')});}
+  assert.deepEqual(await page.evaluate(()=>readBacks),['La zona contiene un rectángulo azul claramente visible.'],'Enabled readback preference should speak only the short summary');
+  await page.evaluate(()=>Axx.companion.data.prefs.voiceRead=false);await page.click('#mp-summary-listen');assert.equal(await page.evaluate(()=>readBacks.length),2,'The bubble speaker button should read the summary on demand');
+  await page.evaluate(()=>{const r=Axx.symbiosis?.reader;window.priorReaderState=r?.state;if(r)r.state='speaking';});await page.click('#mp-summary-listen');assert.match(await page.locator('#mp-summary-voice-status').innerText(),/usando la voz o el micrófono/);assert.equal(await page.evaluate(()=>readBacks.length),2,'Readback must not interrupt an active voice session');
+  await page.evaluate(()=>{if(Axx.symbiosis?.reader)Axx.symbiosis.reader.state=priorReaderState;});
+  await page.evaluate(()=>document.body.dataset.uiTheme='light');
+  await page.waitForFunction(()=>document.getElementById('mp-widget').hidden&&document.getElementById('mp-show-answer').getClientRects().length>0,null,{timeout:15000});
+  assert.equal(await page.locator('#mp-summary-bubble').isVisible(),false,'The summary bubble should dismiss after its short display');await page.click('#mp-show-answer');
+  assert.equal(await page.locator('#mp-answers').isVisible(),true);assert.match(await page.locator('#mp-answers').innerText(),/Detalle: Respuesta de prueba/);assert.equal(await page.locator('#mp-meta').isVisible(),true);
+  assert.match(await page.locator('#mp-meta').innerText(),/Imagen capturada[\s\S]*fixture · fixture-vision/);
+  const manual=await page.evaluate(()=>calls.find(c=>c.args?.path==='/axx-api/pen/start').args.body);assert.equal(manual.provider,'fixture');assert.equal(manual.model,'fixture-vision');assert.equal(manual.selection_mode,'manual');assert.match(manual.request_id,/^[0-9a-f]{32}$/);assert.match(manual.question,/Resumen:.*24 palabras/);
   assert.equal(await page.locator('#mp-canvas').evaluate(c=>getComputedStyle(c).pointerEvents),'none');assert.equal(await page.evaluate(()=>Axx.magicPen.ctx.getImageData(1000,800,1,1).data[3]),0);
-  passed.push('single radial entry, manual routing, fresh physical selection, anchored response and no desktop backdrop');
+  passed.push('avatar summary appears during inference, 12-second dismissal/reopen, concise first sentence, configured voice readback, active-voice protection, detailed answer retained');
   await stroke('point',[[600,250]]);assert.equal(await page.evaluate(()=>Axx.magicPen.doc.selection.shape),'point');
   await stroke('lasso',[[100,150],[450,150],[450,350],[100,350]]);assert.equal(await page.evaluate(()=>Axx.magicPen.doc.selection.shape),'lasso');
   await page.locator('[data-mp-tool="marker"]').click();await page.mouse.move(200,200);await page.mouse.down();
@@ -73,11 +92,11 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
   await page.click('#mp-live');assert.equal(await page.locator('#mp-live').getAttribute('aria-pressed'),'true');assert.equal(await page.evaluate(()=>JSON.parse(localStorage.getItem('axx.magicpen.prefs')).live),true);
   await page.evaluate(()=>delayAnalysis=true);const beforeLive=await count();
   await stroke('marker',[[180,180],[210,190]]);await stroke('marker',[[190,220],[220,230]]);await page.waitForFunction(n=>calls.filter(c=>c.args?.path==='/axx-api/pen/start').length===n+1,beforeLive);
-  const old=await page.evaluate(()=>Axx.magicPen.analysisJob.id);assert.equal(await page.evaluate(()=>Axx.magicPen.working),false);assert(await page.locator('#mp-stop-analysis').isVisible());
+  await page.waitForFunction(()=>!!Axx.magicPen.analysisJob?.id);const old=await page.evaluate(()=>Axx.magicPen.analysisJob.id);assert.equal(await page.evaluate(()=>Axx.magicPen.working),false);assert(await page.locator('#mp-stop-analysis').isVisible());
   await stroke('rect',[[100,420],[380,530]]);await page.waitForFunction(id=>Axx.magicPen.analysisJob?.id&&Axx.magicPen.analysisJob.id!==id,old);
   const latest=await page.evaluate(()=>Axx.magicPen.analysisJob.id);assert.equal(await page.evaluate(id=>cancelledIds.has(id),old),true);
   await page.evaluate(({old,latest})=>{jobs[old].state='completed';jobs[old].response='OBSOLETA';jobs[latest].state='completed';jobs[latest].response='Última región confirmada';},{old,latest});await idle();
-  assert.equal(await page.locator('#mp-answers').innerText(),'Última región confirmada');const fixedCount=await count(),fixedCaptures=await page.evaluate(()=>captureCount);await page.waitForTimeout(900);assert.equal(await count(),fixedCount);assert.equal(await page.evaluate(()=>captureCount),fixedCaptures);
+  assert.equal(await page.locator('#mp-summary-text').innerText(),'Última región confirmada');await page.locator('#mp-summary-expand').click();assert.equal(await page.locator('#mp-answers').innerText(),'Última región confirmada');const fixedCount=await count(),fixedCaptures=await page.evaluate(()=>captureCount);await page.waitForTimeout(900);assert.equal(await count(),fixedCount);assert.equal(await page.evaluate(()=>captureCount),fixedCaptures);
   passed.push('explicit live preference, 650ms ink coalescing, drawing during inference, latest selection wins and no periodic capture');
   await stroke('point',[[250,200]]);await page.waitForFunction(()=>Axx.magicPen.analysisJob?.id);const cancelled=await page.evaluate(()=>Axx.magicPen.analysisJob.id);await page.click('#mp-stop-analysis');await page.waitForFunction(id=>cancelledIds.has(id),cancelled);assert.equal(await page.evaluate(()=>Axx.magicPen.livePaused),true);
   const pausedCount=await count();await stroke('marker',[[160,160],[190,170]]);await page.waitForTimeout(800);assert.equal(await count(),pausedCount);
@@ -85,7 +104,7 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
   await page.keyboard.press('Escape');await page.waitForFunction(id=>cancelledIds.has(id),inflight);await page.evaluate(()=>{holdStart=false;releaseStart();});await page.waitForTimeout(100);assert.equal(await page.locator('#mp-desktop').isVisible(),false);assert.equal(await page.evaluate(id=>jobs[id].state,inflight),'cancelled');
   await page.evaluate(()=>{delayAnalysis=false;Axx.magicPen.open();});await page.waitForFunction(()=>Axx.magicPen.active&&!Axx.magicPen.working);assert.equal(await page.locator('#mp-live').getAttribute('aria-pressed'),'true');
   passed.push('stop/pause preserves ink, Escape cancels before start returns, stale results cannot reopen UI');
-  await stroke('rect',[[100,150],[450,350]]);await idle();const historyId=await page.evaluate(()=>Axx.magicPen.doc.id);await page.evaluate(()=>Axx.magicPen.refresh());await showHistory();await page.selectOption('#mp-history',historyId);await page.waitForFunction(()=>Axx.magicPen.historyMode&&!!Axx.magicPen.previewImage);
+  await stroke('rect',[[100,150],[450,350]]);await idle();const historyId=await page.evaluate(()=>Axx.magicPen.doc.id);await page.evaluate(()=>{if(Axx.magicPen.answerAvailable)Axx.magicPen.openAnswer();});await page.evaluate(()=>Axx.magicPen.refresh());await showHistory();await page.selectOption('#mp-history',historyId);await page.waitForFunction(()=>Axx.magicPen.historyMode&&!!Axx.magicPen.previewImage);
   assert(await page.locator('#mp-history-preview').isVisible());assert.equal(await page.locator('#mp-canvas').isVisible(),false);assert.equal(await page.locator('#mp-preview-canvas').evaluate(c=>c.getContext('2d').getImageData(10,10,1,1).data[3]),255);
   await page.click('#mp-back-desktop');await page.waitForFunction(()=>!Axx.magicPen.historyMode&&!Axx.magicPen.working);assert.equal(await page.evaluate(()=>Axx.magicPen.doc.selection),null);
   passed.push('history preview remains inside widget and returns to current desktop without old coordinates');

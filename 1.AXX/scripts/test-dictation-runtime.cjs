@@ -139,6 +139,17 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
     assert.equal(await page.evaluate(()=>Axx.liveConversation.active),false);
     assert.equal(await page.evaluate(()=>Axx.nativeVoice.activeCapture?.stream||null),null);
     assert.equal(await page.locator('#chat-live-toggle').innerText(),'Voz en vivo');
+    const failedReply=await page.evaluate(async()=>{
+      const sym=Axx.symbiosis, companion=Axx.companion;
+      const previousSend=companion.send, previousListen=sym.startListening;
+      let restarted=0;
+      companion.send=async()=>{companion.data.messages.push({id:'controlled-voice-error',role:'assistant',status:'error',source:'model',text:'Modelo no disponible'});};
+      sym.startListening=()=>{restarted++;};
+      sym.liveActive=true;sym.liveText='hola';
+      try {await sym.sendLive();return {active:sym.liveActive,restarted};}
+      finally {sym.liveActive=false;companion.data.messages.pop();companion.send=previousSend;sym.startListening=previousListen;}
+    });
+    assert.deepEqual(failedReply,{active:true,restarted:1},'A model error must keep live voice ready for the next utterance');
     await page.evaluate(()=>{fixtureInput='quiet-voice';window.oldLiveFinal=Axx.symbiosis.dictation.onFinal;window.oldLiveEnded=Axx.symbiosis.dictation.onEnded;Axx.symbiosis.dictation.onFinal=()=>{};Axx.symbiosis.dictation.onEnded=()=>{Axx.symbiosis.liveActive=false;};window.releaseTranscript=null;});
     await page.locator('#chat-live-toggle').click();await page.waitForFunction(()=>typeof releaseTranscript==='function',null,{timeout:7000});
     assert.equal(await page.evaluate(()=>Axx.symbiosis.dictation.state),'stopping','Quiet RMS below the old .024 threshold must finish after a pause');
@@ -152,7 +163,7 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
       noiseTraces.push(await page.evaluate(()=>vadTrace));assert.equal(await page.evaluate(()=>Axx.symbiosis.dictation.state),'listening');assert.equal(await page.evaluate(()=>Axx.nativeVoice.inputLevel.heard_speech),false,'Steady background noise must not count as voice: '+JSON.stringify(noiseTraces.at(-1)));await page.evaluate(()=>traceVad=false);
       assert(await page.locator('#chat-live-level').evaluate(el=>el.value>0),'Meter must reveal that the selected input carries a signal');await page.locator('#chat-live-toggle').click();
     }
-    fs.writeFileSync(path.resolve(__dirname,'../../build/chat-0.21.4/vad-noise-traces.json'),JSON.stringify(noiseTraces,null,2));
+    const tracesPath=path.resolve(__dirname,'../../build/chat-'+require('../../package.json').version+'/vad-noise-traces.json');fs.mkdirSync(path.dirname(tracesPath),{recursive:true});fs.writeFileSync(tracesPath,JSON.stringify(noiseTraces,null,2));
     await page.evaluate(()=>{fixtureInput='silence';});await page.locator('#chat-live-toggle').click();await page.waitForFunction(()=>Axx.nativeVoice.inputLevel?.phase==='calibrating');
     await page.evaluate(()=>{const end=performance.now()+600;while(performance.now()<end){};});await page.waitForTimeout(40);assert.equal(await page.evaluate(()=>Axx.symbiosis.dictation.state),'starting','UI stalls must not finish calibration with fewer than six samples');await page.waitForFunction(()=>Axx.symbiosis.dictation.state==='listening');await page.locator('#chat-live-toggle').click();
     await page.evaluate(()=>{fixtureInput='silence';Axx.nativeVoice.liveDeviceId='missing-microphone';failDevice=true;});await page.locator('#chat-live-toggle').click();await page.waitForFunction(()=>Axx.symbiosis.dictation.state==='error');
@@ -172,9 +183,37 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
     await page.keyboard.press('Alt+Shift+KeyV');
     assert.equal(await page.evaluate(()=>Axx.nativeVoice.wake.active),false);
     assert.equal(await page.evaluate(()=>Axx.symbiosis.dictation.state),'idle');
+    const rearm=await page.evaluate(async()=>{
+      const wake=Axx.nativeVoice.wake, companion=Axx.companion;
+      wake.setMode('always_active');
+      wake.stop(false);
+      companion.pending={};
+      wake.scheduleRearm(20);
+      await new Promise(resolve=>setTimeout(resolve,120));
+      const waitedForAnswer=!wake.active;
+      companion.pending=null;
+      const reader=Axx.symbiosis.reader, previousReaderState=reader.state;
+      reader.state='speaking';
+      await new Promise(resolve=>setTimeout(resolve,650));
+      const waitedForSpeech=!wake.active;
+      reader.state=previousReaderState;
+      await new Promise(resolve=>setTimeout(resolve,650));
+      const resumedAfterAnswer=wake.active;
+      wake.stop();
+      wake.scheduleRearm(20);
+      await new Promise(resolve=>setTimeout(resolve,120));
+      const stayedStopped=!wake.active;
+      wake.setMode('hotkey');
+      return {waitedForAnswer,waitedForSpeech,resumedAfterAnswer,stayedStopped};
+    });
+    assert.deepEqual(rearm,{waitedForAnswer:true,waitedForSpeech:true,resumedAfterAnswer:true,stayedStopped:true},'Always active must wait for the reply and speech and respect Stop');
+    await page.evaluate(()=>localStorage.setItem('axx.activation.mode','always_active'));
+    await page.reload();
+    await page.waitForFunction(()=>Axx.nativeVoice?.wake?.active&&Axx.symbiosis?.dictation?.state==='listening');
+    await page.evaluate(()=>Axx.nativeVoice.wake.setMode('hotkey'));
     assert.deepEqual(errors,[]);
     const output=path.resolve(__dirname,'../../evidence/chat-actions-20261021');fs.mkdirSync(output,{recursive:true});
     await page.screenshot({path:path.join(output,'dictation.png')});
-    console.log('PASS: dictation geometry/owner/draft, live blur retention, quiet and short utterance VAD, steady-noise rejection, visible input meter, unavailable exact device, failed AudioContext release, cancellation barriers, one-click live and single command shortcut');
+    console.log('PASS: dictation geometry/owner/draft, live blur retention, quiet and short utterance VAD, steady-noise rejection, visible input meter, unavailable exact device, cancellation barriers, single command shortcut and always-active rearm');
   }finally{await browser.close();await new Promise(r=>server.close(r));}
 })().catch(e=>{console.error(e);process.exitCode=1;});

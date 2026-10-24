@@ -16,10 +16,16 @@
         if (p[0]<0 || p[1]<0 || p[0]>=source.width || p[1]>=source.height) throw Error('Fuera de la pantalla activa.');
         return p;
     }
+    function conciseSummary(response) {
+        let text=String(response||'').replace(/```[\s\S]*?```/g,' ').replace(/!\[[^\]]*\]\([^)]*\)/g,' ').replace(/^\s*#{1,6}\s*/gm,'').replace(/[>*_`]/g,' ').split(/\n\s*\n/)[0].replace(/\s+/g,' ').trim();
+        text=text.replace(/^(?:resumen|síntesis|en breve)\s*[:—-]\s*/i,'');
+        const sentence=text.match(/^(.+?[.!?])(?:\s|$)/)?.[1]||text,words=sentence.split(/\s+/);
+        return words.length>28?words.slice(0,28).join(' ')+'…':sentence;
+    }
     class MagicPen {
         active = false; state = 'closed'; doc = null; image = null; gesture = null; pendingLasso = null;
         undoStack = []; redoStack = []; saveChain = Promise.resolve(); saveError = null; generation = 0; working = false; queries = new Set(); sessionChain = Promise.resolve();
-        analysisEpoch = 0; analysisJob = null; analysisPending = false; analysisSetup = Promise.resolve(); cancelChain = Promise.resolve(); liveTimer = null;
+        analysisEpoch = 0; analysisJob = null; analysisPending = false; analysisSetup = Promise.resolve(); cancelChain = Promise.resolve(); liveTimer = null; bubbleTimer = null; summaryBubbleMode = false; answerAvailable = false; summaryText = '';
         captureChain = Promise.resolve(); capturePending = 0;
         live = false; livePaused = false; historyMode = false; previewImage = null; answerDirty = false; selectionOrigin = null; inkBaseSelection = null;
         constructor() {
@@ -36,6 +42,7 @@
                 undo:'<path d="m7 4-4 4 4 4M3 8h11a6 6 0 0 1 0 12h-3"/>',
                 redo:'<path d="m17 4 4 4-4 4m4-4H10a6 6 0 0 0 0 12h3"/>',
                 mic:'<rect x="9" y="2" width="6" height="13" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3m-4 0h8"/>',
+                voice:'<path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M17 9a5 5 0 0 1 0 6m2-9a9 9 0 0 1 0 12"/>',
                 send:'<path d="M12 20V4m-7 7 7-7 7 7"/>',
                 save:'<path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5"/>'
             };
@@ -97,16 +104,19 @@
                 this.chooseTool('rect');this.setInput(false);
                 this.cancelAnalysis();void this.run(async()=>{if(!await this.capture())return;this.doc.selection={shape:'rect',bounds:[0,0,this.doc.source.width,this.doc.source.height]};this.selectionChanged();this.scheduleAnalysis(0,false);});
             };this.toolbar.querySelector('#mp-select-tools').append(all);
-            this.widget=document.createElement('aside');this.widget.id='mp-widget';this.widget.setAttribute('aria-label','Explicación de la selección');this.widget.hidden=true;
-            this.widget.innerHTML='<div class="mp-widget-head"><strong>Sobre lo que marcaste</strong><button id="mp-hide-answer" aria-label="Ocultar explicación">×</button></div><figure id="mp-history-preview" hidden><canvas id="mp-preview-canvas" aria-label="Vista previa de la captura guardada"></canvas><figcaption>Captura guardada · no es el escritorio actual</figcaption><button id="mp-back-desktop" type="button">Volver al escritorio</button></figure><div id="mp-vision-missing" hidden><p>El modelo seleccionado no tiene análisis visual disponible.</p><button id="mp-configure" type="button">Ajustes de conexión</button></div>';
+            this.widget=document.createElement('aside');this.widget.id='mp-widget';this.widget.setAttribute('aria-label','Explicación de la selección');this.widget.tabIndex=-1;this.widget.hidden=true;
+            this.widget.innerHTML='<div class="mp-widget-head"><span class="mp-head-mark" aria-hidden="true">'+this.icon('pen')+'</span><span class="mp-head-copy"><strong>Magic Pen</strong><span>Sobre tu selección</span></span><button id="mp-hide-answer" aria-label="Ocultar explicación">×</button></div><section id="mp-summary-bubble" class="mp-summary-bubble" hidden><div class="mp-summary-kicker"><span id="mp-summary-label">Lo esencial</span><span id="mp-summary-spinner" class="mp-summary-spinner" hidden aria-hidden="true"></span></div><p id="mp-summary-text" role="status" aria-live="polite"></p><p id="mp-summary-voice-status" role="status" aria-live="polite" hidden></p><div class="mp-summary-actions"><button id="mp-summary-listen" type="button" aria-label="Escuchar resumen" title="Escuchar resumen">'+this.icon('voice')+'<span>Escuchar</span></button><button id="mp-summary-expand" type="button">Ver explicación</button></div></section><figure id="mp-history-preview" hidden><canvas id="mp-preview-canvas" aria-label="Vista previa de la captura guardada"></canvas><figcaption>Captura guardada · no es el escritorio actual</figcaption><button id="mp-back-desktop" type="button">Volver al escritorio</button></figure><div id="mp-vision-missing" hidden><p>El modelo seleccionado no tiene análisis visual disponible.</p><button id="mp-configure" type="button">Ajustes de conexión</button></div>';
             this.widget.querySelector('.mp-widget-head').after($('mp-meta'));
             for(const selector of ['.mp-composer','#mp-status','#mp-answers','.mp-save-section','#mp-capability'])this.widget.append(this.view.querySelector(selector));
             const source=this.view.querySelector('.mp-source-row');this.widget.querySelector('.mp-save-section').append(source);source.hidden=true;
             this.view.append(this.canvas,this.toolbar,this.widget);
+            this.widget.addEventListener('animationend',e=>{if(e.target===this.widget&&e.animationName==='mp-bubble-in'&&this.active)this.syncInput();});
             for(const selector of ['.mp-modebar','.mp-stage','.mp-selection-row'])this.view.querySelector(selector).hidden=true;
             this.canvas.setAttribute('aria-label','Escritorio: selecciona o marca; Escape para salir');
             const option=new Option('Usar escritorio','interact');$('mp-tool').append(option);
-            $('mp-done').onclick=()=>this.close();$('mp-hide-answer').onclick=()=>{this.widget.hidden=true;this.syncInput();};
+            const reopen=document.createElement('button');reopen.id='mp-show-answer';reopen.type='button';reopen.className='mp-show-answer';reopen.hidden=true;reopen.innerHTML=this.icon('voice')+'<span>Ver explicación</span>';reopen.setAttribute('aria-label','Volver a la explicación');this.toolbar.querySelector('#mp-done').before(reopen);
+            $('mp-done').onclick=()=>this.close();$('mp-hide-answer').onclick=()=>this.hideAnswer();reopen.onclick=()=>this.openAnswer();
+            $('mp-summary-expand').onclick=()=>this.openAnswer();$('mp-summary-listen').onclick=()=>this.readSummary();
             $('mp-live').onclick=()=>{this.live=!this.live;this.livePaused=false;this.cancelAnalysis();this.preferences();this.updateControls();this.status(this.live?'En directo: analiza al terminar una selección o al hacer una pausa en la tinta.':'Modo manual: selecciona y pulsa Preguntar.');};
             $('mp-pause').onclick=()=>{this.livePaused=!this.livePaused;this.cancelAnalysis();this.updateControls();this.status(this.livePaused?'Análisis en directo pausado. Puedes seguir anotando.':'En directo preparado. Haz una nueva selección o marca.');};
             $('mp-stop-analysis').onclick=()=>{this.cancelAnalysis();if(this.live)this.livePaused=true;this.updateControls();this.status('Análisis detenido. Tus marcas se conservan.');};
@@ -133,17 +143,55 @@
             $('mp-interact').setAttribute('aria-pressed',String(!enabled));this.syncInput();
         }
         syncInput(){if(A.app.ready)void A.app.updateHitMap();A.resident?.schedule();}
+        clearBubbleTimer(){clearTimeout(this.bubbleTimer);this.bubbleTimer=null;}
+        clearSummaryBubble(clearAnswer=false){
+            this.clearBubbleTimer();this.summaryBubbleMode=false;this.widget.classList.remove('mp-bubble-mode','mp-bubble-leaving');this.widget.removeAttribute('data-bubble-side');this.widget.style.removeProperty('--mp-bubble-enter');$('mp-summary-bubble').hidden=true;$('mp-summary-spinner').hidden=true;$('mp-summary-voice-status').hidden=true;$('mp-show-answer').hidden=true;
+            if(clearAnswer){this.answerAvailable=false;this.summaryText='';$('mp-summary-text').textContent='';}
+        }
+        showPendingBubble(){
+            this.clearSummaryBubble(true);this.summaryBubbleMode=true;this.widget.classList.add('mp-bubble-mode');$('mp-summary-bubble').hidden=false;$('mp-summary-label').textContent='Analizando';$('mp-summary-text').textContent='Estoy revisando esa zona…';$('mp-summary-spinner').hidden=false;$('mp-summary-listen').hidden=true;$('mp-summary-expand').hidden=true;this.showWidget();
+        }
+        showSummaryBubble(response){
+            this.summaryText=conciseSummary(response);if(!this.summaryText){this.clearSummaryBubble(true);this.status('La respuesta llegó vacía. Puedes volver a preguntar.');return;}
+            this.clearSummaryBubble(false);this.answerAvailable=true;this.summaryBubbleMode=true;this.widget.classList.add('mp-bubble-mode');$('mp-summary-bubble').hidden=false;$('mp-summary-label').textContent='Lo esencial';$('mp-summary-text').textContent=this.summaryText;$('mp-summary-spinner').hidden=true;$('mp-summary-voice-status').hidden=true;$('mp-summary-listen').hidden=false;$('mp-summary-expand').hidden=false;$('mp-show-answer').hidden=true;this.showWidget();
+            this.bubbleTimer=setTimeout(()=>this.dismissSummaryBubble(),12000);
+            const prefs=A.companion.data.prefs;if(prefs.voiceRead===true&&!prefs.mutedAll&&!this.speechBusy())this.readSummary(true);
+        }
+        dismissSummaryBubble(){
+            if(!this.summaryBubbleMode)return;this.clearBubbleTimer();this.widget.classList.add('mp-bubble-leaving');this.bubbleTimer=setTimeout(()=>{this.summaryBubbleMode=false;this.widget.hidden=true;this.widget.classList.remove('mp-bubble-mode','mp-bubble-leaving');this.widget.removeAttribute('data-bubble-side');this.widget.style.removeProperty('--mp-bubble-enter');$('mp-summary-bubble').hidden=true;$('mp-show-answer').hidden=!this.answerAvailable;this.bubbleTimer=null;this.syncInput();},260);
+        }
+        hideAnswer(){this.clearSummaryBubble(false);this.widget.hidden=true;$('mp-show-answer').hidden=!this.answerAvailable;this.syncInput();}
+        openAnswer(){
+            if(!this.answerAvailable)return;this.clearSummaryBubble(false);this.widget.classList.remove('mp-bubble-mode','mp-bubble-leaving');$('mp-summary-bubble').hidden=true;$('mp-show-answer').hidden=true;this.showWidget();this.widget.focus({preventScroll:true});$('mp-answers').lastElementChild?.scrollIntoView({block:'nearest'});
+        }
+        speechBusy(){
+            const s=A.symbiosis,readers=[s?.reader,A.voice13?.reader];
+            return Boolean(A.companion?.speaking||A.companion?.pending||A.nativeVoice?.activeCapture||s?.liveActive||['starting','listening','stopping'].includes(s?.dictation?.state)||A.voice13?.status==='listening'||readers.some(r=>['starting','speaking','paused'].includes(r?.state))||window.speechSynthesis?.speaking||window.speechSynthesis?.pending);
+        }
+        readSummary(automatic=false){
+            const prefs=A.companion.data.prefs;
+            if(prefs.mutedAll){if(!automatic)this.summaryFeedback('La voz está silenciada en Sonido.');return false;}
+            if(this.speechBusy()){if(!automatic)this.summaryFeedback('Axx está usando la voz o el micrófono. Espera a que termine y vuelve a pulsar.');return false;}
+            if(!this.summaryText||typeof A.companion.read!=='function'){if(!automatic)this.summaryFeedback('La voz todavía no está disponible.');return false;}
+            try{A.companion.read(this.summaryText);this.summaryFeedback('Leyendo el resumen…');return true;}catch(e){this.summaryFeedback('No se pudo iniciar la voz: '+String(e.message||e));return false;}
+        }
+        summaryFeedback(text){$('mp-summary-voice-status').textContent=text;$('mp-summary-voice-status').hidden=false;}
         positionWidget(){
             if(this.widget.hidden)return;
             const toolbar=this.toolbar.getBoundingClientRect();
             this.widget.style.maxHeight=Math.max(80,Math.min(innerHeight-24,toolbar.top-24))+'px';
+            const stage=$('stage').getBoundingClientRect(),canvas=$('avatar').getBoundingClientRect(),bounds=stage.width&&stage.height?stage:canvas,size=Math.min(bounds.width,bounds.height)*.58,cx=bounds.left+bounds.width/2,cy=bounds.top+bounds.height/2,avatar={left:cx-size/2,right:cx+size/2,top:cy-size/2,bottom:cy+size/2,width:size,height:size},width=this.widget.offsetWidth,height=this.widget.offsetHeight,bottom=Math.min(innerHeight-12,toolbar.top-12);
+            if(this.summaryBubbleMode){
+                const center=avatar.left+avatar.width/2-width/2,mid=avatar.top+avatar.height/2-height/2;
+                const candidates=[{x:avatar.right+4,y:mid,side:'left'},{x:avatar.left-width-4,y:mid,side:'right'},{x:center,y:avatar.top-height-4,side:'bottom'},{x:center,y:avatar.bottom+4,side:'top'}];
+                const position=candidates.find(p=>p.x>=12&&p.y>=12&&p.x+width<=innerWidth-12&&p.y+height<=bottom);
+                if(position){this.widget.dataset.bubbleSide=position.side;this.widget.style.setProperty('--mp-bubble-enter',{left:'translateX(-10px)',right:'translateX(10px)',bottom:'translateY(8px)',top:'translateY(-8px)'}[position.side]);this.widget.style.left=position.x+'px';this.widget.style.top=position.y+'px';this.syncInput();return;}
+            }
             const s=this.pendingSelection||this.doc?.selection,v=this.viewport,source=this.doc?.source;
             const b=s&&v?[(source.x+s.bounds[0]-v.x)/v.scale,(source.y+s.bounds[1]-v.y)/v.scale,(source.x+s.bounds[2]-v.x)/v.scale,(source.y+s.bounds[3]-v.y)/v.scale]:[24,140,24,140];
-            const width=this.widget.offsetWidth,height=this.widget.offsetHeight;
             const right=b[2]+16,left=b[0]-width-16;
             const x=right+width<=innerWidth-12?right:left>=12?left:Math.max(12,innerWidth-width-12);
-            const bottom=Math.min(innerHeight-12,toolbar.top-12),y=Math.max(12,Math.min(b[1],bottom-height));
-            const avatar=$('avatar').getBoundingClientRect();
+            const y=Math.max(12,Math.min(b[1],bottom-height));
             const candidates=[[x,y],[left,y],[right,y],[x,avatar.top-height-16],[x,avatar.bottom+16]];
             const position=candidates.find(([cx,cy])=>cx>=12&&cy>=12&&cx+width<=innerWidth-12&&cy+height<=bottom&&(cx+width<=avatar.left||cx>=avatar.right||cy+height<=avatar.top||cy>=avatar.bottom))||[x,y];
             this.widget.style.left=position[0]+'px';this.widget.style.top=position[1]+'px';this.syncInput();
@@ -160,14 +208,14 @@
         open(){
             if(this.active)return;
             A.flow.cancelReview();A.companion.closeSurface();A.flow.fold();A.companion.enableFollow(false,false);
-            this.active=true;this.pendingSelection=null;this.root.hidden=false;this.session(true);this.state='opening';this.doc=null;this.image=null;this.viewport=null;this.historyMode=false;this.livePaused=false;this.ctx.clearRect(0,0,this.canvas.width,this.canvas.height);this.renderAnswers();this.updateControls();
+            this.clearSummaryBubble(true);this.active=true;this.pendingSelection=null;this.root.hidden=false;this.session(true);this.state='opening';this.doc=null;this.image=null;this.viewport=null;this.historyMode=false;this.livePaused=false;this.ctx.clearRect(0,0,this.canvas.width,this.canvas.height);this.renderAnswers();this.updateControls();
             this.chooseTool('rect');
             const session=this.generation,current=()=>this.active&&session===this.generation;
             this.run(async()=>{await this.refresh();if(!current()||!await this.capture({isCurrent:current}))return;this.widget.hidden=true;this.state='selecting';this.setInput(true);});
         }
         isOpen(){return this.active;}
         session(active){if(A.isNative())this.sessionChain=this.sessionChain.catch(()=>{}).then(()=>A.nativeInvoke('magic_pen_session',{active})).catch(e=>this.status(String(e)));}
-        suspend(){this.cancelAnalysis();this.session(false);this.active=false;this.root.hidden=true;this.state='closed';this.cancelGesture();this.setInput(false);this.voiceOwner.stop?.();++this.generation;this.working=false;this.updateControls();}
+        suspend(){this.clearSummaryBubble(true);this.cancelAnalysis();this.session(false);this.active=false;this.root.hidden=true;this.state='closed';this.cancelGesture();this.setInput(false);this.voiceOwner.stop?.();++this.generation;this.working=false;this.updateControls();}
         close(){this.state='closing';this.suspend();this.syncInput();}
         invalidateGeometry(){
             // Native move/scale events also invalidate physical coordinates even
@@ -194,8 +242,8 @@
             }
             return true;
         }
-        async restore(id){if(!id)return;this.cancelAnalysis();const token=this.generation,current=()=>this.active&&token===this.generation;await this.flush();if(!current())return;const d=await api('get',{id});if(!current())return;await this.load(d,true);if(!current())return;this.setInput(false);this.status('Historial: la imagen guardada se muestra solo en esta vista previa.');}
-        async returnDesktop(){this.cancelAnalysis();const token=this.generation,current=()=>this.active&&token===this.generation;await this.flush();if(!current())return;this.doc=null;this.historyMode=false;this.previewImage=null;this.viewport=null;this.updateControls();if(await this.capture({isCurrent:current})){this.setInput($('mp-tool').value!=='interact');this.status('Escritorio actual preparado. Haz una nueva selección.');}}
+        async restore(id){if(!id)return;this.clearSummaryBubble(true);this.cancelAnalysis();const token=this.generation,current=()=>this.active&&token===this.generation;await this.flush();if(!current())return;const d=await api('get',{id});if(!current())return;await this.load(d,true);if(!current())return;this.setInput(false);this.status('Historial: la imagen guardada se muestra solo en esta vista previa.');}
+        async returnDesktop(){this.clearSummaryBubble(true);this.cancelAnalysis();const token=this.generation,current=()=>this.active&&token===this.generation;await this.flush();if(!current())return;this.doc=null;this.historyMode=false;this.previewImage=null;this.viewport=null;this.updateControls();if(await this.capture({isCurrent:current})){this.setInput($('mp-tool').value!=='interact');this.status('Escritorio actual preparado. Haz una nueva selección.');}}
         async load(d,history=false){
             const token=this.generation;
             if(token!==this.generation||!this.active)return;
@@ -213,7 +261,7 @@
         queueSave(){if(!this.doc)return;const d=this.doc,snapshot={selection:clone(d.selection),strokes:clone(d.strokes)};this.saveChain=this.saveChain.then(async()=>{if(this.saveError)return;try{const saved=await api('save',{id:d.id,expected_revision:d.revision,...snapshot});d.revision=saved.revision;}catch(e){this.saveError=e;this.status('Borrador sin guardar: '+String(e.message||e));}});}
         async flush(){await this.saveChain;if(this.saveError)throw this.saveError;}
         selectionFields(){if(!this.doc?.selection)return;['x0','y0','x1','y1'].forEach((k,i)=>$('mp-'+k).value=Math.round(this.doc.selection.bounds[i]));}
-        selectionChanged(){this.pendingSelection=null;this.pendingLasso=null;this.selectionOrigin='explicit';this.inkBaseSelection=null;this.answerDirty=true;this.selectionFields();this.render();this.renderAnswers();this.queueSave();this.setInput(this.live&&!this.livePaused&&!this.historyMode);this.showWidget();}
+        selectionChanged(){this.clearSummaryBubble(true);this.pendingSelection=null;this.pendingLasso=null;this.selectionOrigin='explicit';this.inkBaseSelection=null;this.answerDirty=true;this.selectionFields();this.render();this.renderAnswers();this.queueSave();this.setInput(this.live&&!this.livePaused&&!this.historyMode);this.showWidget();}
         fit(){if(!this.doc||!this.viewport)return;const s=this.doc.source,v=this.viewport;Object.assign(this.canvas.style,{left:(s.x-v.x)/v.scale+'px',top:(s.y-v.y)/v.scale+'px',width:s.width/v.scale+'px',height:s.height/v.scale+'px'});}
         point(e){if(!this.viewport)throw Error('Espera a que el escritorio esté listo.');return desktopPoint(e.clientX,e.clientY,this.viewport,this.doc.source);}
         down(e){if(!this.doc||!this.inputEnabled||this.working||e.button!==0)return;e.preventDefault();e.stopPropagation();try{const p=this.point(e),tool=$('mp-tool').value;if(tool!=='pointer')this.cancelAnalysis();this.pendingLasso=null;this.gesture={id:e.pointerId,tool,points:[p],color:$('mp-color').value,width:Math.min(80,Number($('mp-width').value)*(tool==='marker'?4:1)*this.viewport.scale)};this.canvas.setPointerCapture(e.pointerId);this.render();}catch(e){this.status(e.message);}}
@@ -263,7 +311,9 @@
         stroke(s){const c=this.ctx;c.save();c.globalAlpha=s.tool==='marker'?.33:1;c.strokeStyle=s.color;c.fillStyle=s.color;c.lineWidth=s.width;c.lineCap='round';c.lineJoin='round';this.path(s.points);c.stroke();if(s.points.length===1){c.beginPath();c.arc(...s.points[0],s.width/2,0,Math.PI*2);c.fill();}c.restore();}
         render(){const c=this.ctx;c.clearRect(0,0,this.canvas.width,this.canvas.height);if(!this.doc)return;this.doc.strokes.forEach(s=>this.stroke(s));const g=this.gesture;if(g&&['pen','marker'].includes(g.tool))this.stroke(g);c.save();c.strokeStyle='#9274ff';c.fillStyle='#b8aaff22';c.lineWidth=Math.max(2,this.canvas.width/450);c.setLineDash([c.lineWidth*3,c.lineWidth*2]);const s=this.pendingLasso||this.doc.selection;if(s){if(s.shape==='lasso'){this.path(s.points,true);c.fill('evenodd');c.stroke();}else{const [x,y,r,b]=s.bounds;c.strokeRect(x,y,r-x,b-y);}if(s.anchor){c.beginPath();c.arc(...s.anchor,6,0,Math.PI*2);c.stroke();}}if(g){if(g.tool==='rect'){const a=g.points[0],b=g.points.at(-1);c.strokeRect(...a,b[0]-a[0],b[1]-a[1]);}else if(g.tool==='lasso'){this.path(g.points);c.stroke();}else if(g.tool==='pointer'){c.setLineDash([]);c.beginPath();c.arc(...g.points.at(-1),12,0,Math.PI*2);c.stroke();}}c.restore();$('mp-close-lasso').hidden=!this.pendingLasso;this.updateMetadata();$('mp-undo').disabled=!this.undoStack.length;$('mp-redo').disabled=!this.redoStack.length;}
         renderAnswers(){const root=$('mp-answers');root.replaceChildren();if(this.answerDirty)return;for(const q of (this.doc?.queries||[]).filter(q=>q.revision===this.doc.revision&&this.doc.selection&&q.selection?.shape===this.doc.selection.shape&&['bounds','points','anchor'].every(k=>JSON.stringify(q.selection[k])===JSON.stringify(this.doc.selection[k]))).slice(-5)){const card=document.createElement('p');card.className='mp-answer';card.textContent=q.response||q.error||(q.state==='running'?'Analizando…':'Interrumpido; vuelve a preguntar.');card.title='Captura '+q.source_id.slice(0,6)+' · revisión '+q.revision;root.append(card);}}
-        route(){const p=A.companion.data.prefs;return {selection_mode:p.selection_mode||'manual',provider:p.apiConnection||(p.provider==='bridge'?'':p.provider)||'',model:p.model||''};}
+        route(){const p=A.companion.data.prefs;return p.visionConnection&&p.visionModel?
+            {selection_mode:'manual',provider:p.visionConnection,model:p.visionModel}:
+            {selection_mode:p.selection_mode||'manual',provider:p.apiConnection||(p.provider==='bridge'?'':p.provider)||'',model:p.model||''};}
         hasVision(){
             const routes=this.capabilities?.vision||[],r=this.route();
             if(r.selection_mode!=='manual')return routes.length>0;
@@ -297,7 +347,7 @@
         }
         cancelAnalysis(){
             clearTimeout(this.liveTimer);this.liveTimer=null;++this.analysisEpoch;
-            const job=this.analysisJob;this.analysisJob=null;this.analysisPending=false;this.queries.clear();
+            const job=this.analysisJob,wasPending=this.analysisPending;this.analysisJob=null;this.analysisPending=false;this.queries.clear();if(wasPending&&this.summaryBubbleMode)this.clearSummaryBubble(true);
             if(job)void this.cancelQuery(job);this.updateControls();return this.analysisEpoch;
         }
         scheduleAnalysis(delay=650,fresh=true){
@@ -316,8 +366,8 @@
         async ask({fresh=true}={}){
             if(!this.active||!this.doc?.selection)return this.status('Selecciona o marca una región antes de preguntar.');
             if(!this.hasVision()){this.livePaused=this.live;this.updateControls();return this.status('El modelo seleccionado no tiene visión disponible. Revisa Ajustes de conexión.');}
-            const epoch=this.cancelAnalysis(),session=this.generation,question=$('mp-question').value.trim()||'Explica el contenido de toda la región seleccionada. Ignora el cursor del ratón y cualquier indicador de puntero. Responde de forma clara y breve.',route=this.route();
-            this.analysisPending=true;this.updateControls();
+            const epoch=this.cancelAnalysis(),session=this.generation,userQuestion=$('mp-question').value.trim()||'Explica el contenido de toda la región seleccionada. Ignora el cursor del ratón y cualquier indicador de puntero. Responde de forma clara y breve.',question=userQuestion+'\n\nEmpieza con «Resumen:» y una síntesis en una frase de máximo 24 palabras; después da los detalles necesarios bajo «Detalle:».',route=this.route();
+            this.analysisPending=true;this.updateControls();this.showPendingBubble();
             const current=()=>this.active&&this.generation===session&&this.analysisEpoch===epoch;
             const setup=this.analysisSetup.catch(()=>{}).then(async()=>{
                 await this.cancelChain;if(!current())return null;
@@ -338,7 +388,7 @@
             });
             this.analysisSetup=setup.then(()=>{},()=>{});
             try{
-                const job=await setup;if(!job)return;
+                const job=await setup;if(!job){if(current()&&this.summaryBubbleMode)this.clearSummaryBubble(true);return;}
                 let q=job.q;const deadline=Date.now()+80000;
                 while(q.state==='running'&&current()){
                     if(Date.now()>deadline)throw Error('El análisis superó el tiempo de espera. Puedes volver a intentarlo.');
@@ -350,9 +400,9 @@
                 if(!['completed','failed','cancelled','interrupted'].includes(q.state))throw Error('Estado de análisis desconocido.');
                 if(!job.d.queries.some(item=>item.id===q.id))job.d.queries.push(q);
                 this.answerDirty=false;this.renderAnswers();
-                if(q.state==='completed')this.status('Respuesta lista. Puedes preguntar más o marcar otra zona.');
-                else {if(this.live)this.livePaused=true;this.status(q.error||'Análisis detenido. Puedes volver a intentarlo.');}
-            }catch(e){if(current()){if(this.analysisJob)void this.cancelQuery(this.analysisJob);if(this.live)this.livePaused=true;this.status(String(e.message||e));}}
+                if(q.state==='completed'){this.status('Respuesta lista. Puedes preguntar más o marcar otra zona.');this.showSummaryBubble(q.response);}
+                else {if(this.live)this.livePaused=true;this.clearSummaryBubble(true);this.status(q.error||'Análisis detenido. Puedes volver a intentarlo.');}
+            }catch(e){if(current()){if(this.analysisJob)void this.cancelQuery(this.analysisJob);if(this.live)this.livePaused=true;this.clearSummaryBubble(true);this.status(String(e.message||e));}}
             finally{if(current()){this.analysisPending=false;this.analysisJob=null;this.queries.clear();this.updateControls();}}
         }
         async export(kind){if(!this.doc)throw Error('Captura una pantalla primero.');await this.flush();this.status('Verificando exportación…');const r=await api('export',{id:this.doc.id,revision:this.doc.revision,kind,directory:$('mp-directory').value,name:$('mp-name').value+(kind==='original'?'-original':'-anotado')});$('mp-export').textContent=`Guardado y verificado: ${r.path}\nSHA256 ${r.sha256}`;this.status('PNG guardado y verificado.');}

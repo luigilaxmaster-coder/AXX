@@ -98,7 +98,7 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
     await page.waitForFunction(()=>window.candidateCalls.some(c=>c.apply));
     assert.equal(await page.evaluate(()=>window.candidateCalls.at(-1).apply.task),'parameters');
     await page.evaluate(()=>{
-      window.testProviders=[{name:'Modelo A',model:'fixture-a',enabled:true,tasks:['chat']},{name:'Modelo B',model:'fixture-b',enabled:true,tasks:['chat']},
+      window.testProviders=[{name:'Modelo A',model:'fixture-a',enabled:true,capabilities:['text'],tasks:['chat']},{name:'Modelo B',model:'fixture-b',enabled:true,capabilities:['text'],tasks:['chat']},
         {name:'Pendiente',model:'unverified',enabled:true,candidate_only:true},{name:'Apagado',model:'disabled',enabled:false}];
       window.modelNotices=[];
       window.recordModelCommands=true;
@@ -106,30 +106,29 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
       Axx.commandLibrary.operation={operation_id:'keep-task',steps:[{state:'succeeded'}]};
       Axx.commandLibrary.learningQuestion={operation_id:'keep-task',question:'keep'};
     });
-    await page.evaluate(()=>{document.getElementById('chat-input').value='cambia de modelo a fixture-b';return Axx.companion.submit();});
-    assert.equal(await page.evaluate(()=>Axx.companion.data.prefs.model),'fixture-b');
+    const switchResult=await page.evaluate(()=>Axx.modelSelection.run({target:'fixture-b'}));
+    assert.equal(await page.evaluate(()=>Axx.companion.data.prefs.model),'fixture-b',switchResult);
     assert.equal(await page.evaluate(()=>Axx.companion.data.prefs.selection_mode),'manual');
-    assert.match(await page.evaluate(()=>modelNotices.at(-1)),/Modelo seleccionado/);
+    assert.match(switchResult,/Modelo seleccionado/);
     assert.equal(await page.evaluate(()=>Axx.commandLibrary.operation.steps[0].state),'succeeded');
     assert.equal(await page.evaluate(()=>Axx.commandLibrary.learningQuestion.question),'keep');
-    await page.evaluate(()=>Axx.companion.send('/modelos'));
-    assert.match(await page.evaluate(()=>modelNotices.at(-1)),/Modelo A/);
-    assert.doesNotMatch(await page.evaluate(()=>modelNotices.at(-1)),/unverified|disabled/);
-    await page.evaluate(()=>Axx.companion.send('/modelo inexistente'));
+    const listed=await page.evaluate(()=>Axx.modelSelection.run({list:true}));
+    assert.match(listed,/Modelo A/);
+    assert.doesNotMatch(listed,/unverified|disabled/);
+    await page.evaluate(()=>Axx.modelSelection.run({target:'inexistente'}));
     assert.equal(await page.evaluate(()=>Axx.companion.data.prefs.model),'fixture-b');
     await page.evaluate(()=>testProviders.push({name:'Duplicado',model:'fixture-a',enabled:true}));
-    await page.evaluate(()=>Axx.companion.send('usa el modelo fixture-a'));
-    assert.match(await page.evaluate(()=>modelNotices.at(-1)),/varias conexiones/);
+    assert.match(await page.evaluate(()=>Axx.modelSelection.run({target:'fixture-a'})),/varias conexiones/);
     await page.evaluate(()=>{Axx.companion.pending=new AbortController();});
-    await page.evaluate(()=>Axx.companion.send('/modelo Modelo A'));
+    await page.evaluate(()=>Axx.modelSelection.run({target:'Modelo A'}));
     assert.equal(await page.evaluate(()=>Axx.companion.data.prefs.model),'fixture-b');
     await page.evaluate(()=>{Axx.companion.pending=null;});
-    await page.evaluate(()=>Axx.companion.send('/modelo Modelo A'));
+    await page.evaluate(()=>Axx.modelSelection.run({target:'Modelo A'}));
     assert.equal(await page.evaluate(()=>Axx.companion.data.prefs.apiConnection),'Modelo A');
     await page.evaluate(()=>{window.modelCatalog={candidates:[{model_id:'native/model',matched_routes:[{name:'Modelo B'}]}]};});
-    await page.evaluate(()=>Axx.companion.send('/modelo native/model'));
+    await page.evaluate(()=>Axx.modelSelection.run({target:'native/model'}));
     assert.equal(await page.evaluate(()=>Axx.companion.data.prefs.apiConnection),'Modelo B');
-    await page.evaluate(()=>Axx.companion.send('vuelve a automático'));
+    await page.evaluate(()=>Axx.modelSelection.run({target:'automatico'}));
     assert.equal(await page.evaluate(()=>Axx.companion.data.prefs.selection_mode),'automatic_free');
     assert.equal(await page.evaluate(()=>Axx.modelSelection.parse('explica cómo cambiar el modelo')),null);
     assert.equal(await page.evaluate(()=>modelCommandRequests.some(p=>/\/chat$|\/learning\/propose$|\/commands\/resolve$/.test(p))),false);

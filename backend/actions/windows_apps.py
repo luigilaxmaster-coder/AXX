@@ -5,6 +5,7 @@ from pathlib import Path
 import subprocess
 import threading
 import time
+from difflib import SequenceMatcher
 
 _cache = []
 _updated = 0
@@ -49,4 +50,15 @@ def find_app(name, normalize):
     exact = [row for row in rows if normalize(row['name']) == name]
     if exact:
         return exact
-    return [row for row in rows if len(name) >= 3 and name in normalize(row['name'])]
+    partial = [row for row in rows if len(name) >= 3 and name in normalize(row['name'])]
+    if partial:
+        return partial
+    # Speech recognition can alter one syllable. Only resolve a unique, strong
+    # match to an application ID observed in the current Windows inventory.
+    if len(name) < 5:
+        return []
+    ranked = sorted(((SequenceMatcher(None, name, normalize(row['name'])).ratio(), row) for row in rows),
+                    key=lambda item: item[0], reverse=True)
+    if not ranked or ranked[0][0] < 0.8 or (len(ranked) > 1 and ranked[0][0] - ranked[1][0] < 0.15):
+        return []
+    return [ranked[0][1]]

@@ -254,8 +254,8 @@
                         voiceFrames=0;
                         if(!calibrating)noiseFloor = rms<noiseFloor ? noiseFloor*.85+rms*.15 : noiseFloor*.997+Math.min(rms,.08)*.003;
                         const live = !isChatDraft && Axx.symbiosis?.use === 'live';
-                        const pause = live ? (Axx.liveConversation?.pauseMs || 750) : 800;
-                        if (heardSpeech && now - lastVoiceAt > pause && now - startedAt > 850) this.finish();
+                        const pause = live ? (Axx.liveConversation?.pauseMs || 550) : 550;
+                        if (heardSpeech && now - lastVoiceAt > pause && now - startedAt > 600) this.finish();
                         else if (!heardSpeech && now - startedAt > (live ? 30000 : 9000)) this.fail(id,new Error('No se detectó una frase. Revisa el nivel y el micrófono elegido; también puedes pulsar Responder ahora.'));
                     }
                     if(id===this.generation)state.inputLevel={owner:this.owner,rms,noise_floor:noiseFloor,threshold,heard_speech:heardSpeech,last_voice_at:heardSpeech?lastVoiceAt:null,at:now,phase:calibrating?'calibrating':voiced?'voice':noiseFloor>=.04?'noise':'quiet',device:stream.getAudioTracks()[0]?.label||'Micrófono'};
@@ -431,7 +431,152 @@
 
     class WakeController {
         active = false;
-        statusText = 'Micrófono apagado · Pulsa 🎙️ Orden voz o Alt+Shift+V para dictar un comando puntual (sin escucha permanente).';
+        mode = 'hotkey';
+        hotkey = 'Alt+Shift+V';
+        recording = false;
+        rearmTimer = null;
+        paused = false;
+        statusText = 'Micrófono apagado · Pulsa el atajo o el botón de voz para dictar.';
+
+        constructor() {
+            try {
+                this.mode = localStorage.getItem('axx.activation.mode') || 'hotkey';
+                this.hotkey = localStorage.getItem('axx.activation.hotkey') || 'Alt+Shift+V';
+            } catch {
+                this.mode = 'hotkey';
+                this.hotkey = 'Alt+Shift+V';
+            }
+            this.statusText = this.mode === 'always_active'
+                ? 'Siempre activo · Escuchando continuamente mientras Axx esté abierto.'
+                : 'Micrófono apagado · Pulsa 🎙️ Orden voz o ' + this.hotkey + ' para hablar.';
+            this.initListeners();
+        }
+
+        initListeners() {
+            window.addEventListener('keydown', e => {
+                if (this.recording) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    this.captureRecordedKey(e);
+                    return;
+                }
+                if (e.isComposing || e.repeat) return;
+                if (this.matches(e)) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    this.toggle();
+                }
+            }, true);
+
+            document.addEventListener('visibilitychange', () => {
+                if (document.hidden) {
+                    if (this.rearmTimer) { clearTimeout(this.rearmTimer); this.rearmTimer = null; }
+                    if (this.active && this.mode === 'always_active') this.stop(false);
+                } else if (this.mode === 'always_active') {
+                    this.scheduleRearm(400);
+                }
+            });
+        }
+
+        matches(e) {
+            if (!this.hotkey) return false;
+            const parts = this.hotkey.toLowerCase().split('+').map(s => s.trim());
+            const wantCtrl = parts.includes('ctrl') || parts.includes('control');
+            const wantAlt = parts.includes('alt');
+            const wantShift = parts.includes('shift');
+            const wantMeta = parts.includes('meta') || parts.includes('win') || parts.includes('cmd');
+            if (Boolean(e.ctrlKey) !== wantCtrl) return false;
+            if (Boolean(e.altKey) !== wantAlt) return false;
+            if (Boolean(e.shiftKey) !== wantShift) return false;
+            if (Boolean(e.metaKey) !== wantMeta) return false;
+            const keyPart = parts.find(p => !['ctrl','control','alt','shift','meta','win','cmd'].includes(p));
+            if (!keyPart) return false;
+            if (keyPart === 'space') return e.code === 'Space' || e.key === ' ';
+            if (keyPart === 'enter') return e.code === 'Enter';
+            if (e.key && e.key.toLowerCase() === keyPart) return true;
+            if (e.code && e.code.toLowerCase() === ('key' + keyPart)) return true;
+            if (e.code && e.code.toLowerCase() === keyPart) return true;
+            return false;
+        }
+
+        startRecording() {
+            this.recording = true;
+            this.syncUI();
+        }
+
+        stopRecording() {
+            this.recording = false;
+            this.syncUI();
+        }
+
+        captureRecordedKey(e) {
+            const isModifier = ['Control', 'Shift', 'Alt', 'Meta'].includes(e.key);
+            if (isModifier) return;
+            const parts = [];
+            if (e.ctrlKey) parts.push('Ctrl');
+            if (e.altKey) parts.push('Alt');
+            if (e.shiftKey) parts.push('Shift');
+            if (e.metaKey) parts.push('Win');
+            let keyName = e.key;
+            if (e.code === 'Space' || e.key === ' ') keyName = 'Space';
+            else if (e.code.startsWith('Key')) keyName = e.code.slice(3).toUpperCase();
+            else if (e.code.startsWith('Digit')) keyName = e.code.slice(5);
+            else if (keyName.length === 1) keyName = keyName.toUpperCase();
+            parts.push(keyName);
+            const combo = parts.join('+');
+            this.setHotkey(combo);
+            this.stopRecording();
+        }
+
+        setMode(mode) {
+            this.mode = mode === 'always_active' ? 'always_active' : 'hotkey';
+            try { localStorage.setItem('axx.activation.mode', this.mode); } catch {}
+            if (this.rearmTimer) { clearTimeout(this.rearmTimer); this.rearmTimer = null; }
+            if (this.mode === 'always_active') {
+                this.paused = false;
+                this.statusText = 'Siempre activo · Escuchando continuamente mientras Axx esté abierto.';
+                this.listenOnce();
+            } else {
+                this.stop();
+                this.statusText = 'Modo atajo (' + this.hotkey + ') activado.';
+            }
+            this.syncUI();
+        }
+
+        setHotkey(combo) {
+            if (!combo || typeof combo !== 'string') combo = 'Alt+Shift+V';
+            this.hotkey = combo.trim();
+            try { localStorage.setItem('axx.activation.hotkey', this.hotkey); } catch {}
+            this.statusText = this.mode === 'always_active'
+                ? 'Siempre activo · Escuchando continuamente mientras Axx esté abierto.'
+                : 'Atajo actualizado a ' + this.hotkey + ' · Pulsa para hablar.';
+            this.syncUI();
+        }
+
+        resetHotkey() {
+            this.setHotkey('Alt+Shift+V');
+        }
+
+        onSpeechFinished() {
+            this.scheduleRearm(450);
+        }
+
+        scheduleRearm(delay = 500) {
+            if (this.rearmTimer) clearTimeout(this.rearmTimer);
+            this.rearmTimer = null;
+            if (this.mode !== 'always_active' || this.paused || document.hidden || Axx.companion?.data?.prefs?.mutedAll) return;
+            this.rearmTimer = setTimeout(() => {
+                this.rearmTimer = null;
+                if (this.mode !== 'always_active' || this.paused || document.hidden || this.active || Axx.companion?.data?.prefs?.mutedAll) return;
+                const readerState = Axx.symbiosis?.reader?.state;
+                if (Axx.companion?.pending || Axx.companion?.speaking || ['starting', 'speaking', 'paused'].includes(readerState)) {
+                    this.scheduleRearm(500);
+                    return;
+                }
+                this.listenOnce();
+            }, delay);
+        }
+
         toggle() {
             if (this.active) {
                 this.stop();
@@ -440,24 +585,36 @@
             }
             return this.active;
         }
+
         start() {
             this.listenOnce();
         }
-        stop() {
+
+        stop(pause = true) {
+            this.paused = pause;
             this.active = false;
+            if (this.rearmTimer) { clearTimeout(this.rearmTimer); this.rearmTimer = null; }
             if (Axx.symbiosis?.use === 'command') Axx.symbiosis.dictation.stop();
-            this.statusText = 'Escucha detenida · Ningún resultado tardío se enviará ni ejecutará.';
+            this.statusText = this.mode === 'always_active'
+                ? 'Escucha pausada · Pulsa Hablar para reanudar el modo continuo.'
+                : 'Escucha detenida · Pulsa ' + this.hotkey + ' para hablar.';
             this.syncUI();
         }
+
         listenOnce() {
             if (!Axx.symbiosis) return;
+            this.paused = false;
+            if (this.rearmTimer) { clearTimeout(this.rearmTimer); this.rearmTimer = null; }
             Axx.liveConversation?.stop();
             state.chatDraft.stop();
             this.active = true;
-            this.statusText = 'Escuchando una orden por voz… Habla y deja una pausa.';
+            this.statusText = this.mode === 'always_active'
+                ? 'Siempre activo · Escuchando tu voz… Habla y deja una pausa.'
+                : 'Escuchando una orden por voz… Habla y deja una pausa.';
             this.syncUI();
             Axx.symbiosis.startListening('command');
         }
+
         syncUI() {
             const listening = Axx.symbiosis?.use === 'command' && ['listening', 'starting', 'stopping'].includes(Axx.symbiosis?.dictation?.state);
             this.active = listening;
@@ -467,12 +624,39 @@
                 btn.setAttribute('aria-pressed', String(listening));
                 btn.classList.toggle('is-listening', listening);
                 if (id === 'wake20-toggle-btn') btn.textContent = listening ? '⏹️ Detener escucha' : '🎙️ Hablar comando por voz';
-                if (id === 'chat20-wake-toggle') btn.title = listening ? 'Detener escucha de voz' : 'Dictar comando por voz (Alt+Shift+V)';
+                if (id === 'chat20-wake-toggle') {
+                    btn.title = listening
+                        ? 'Detener escucha de voz'
+                        : (this.mode === 'always_active' ? 'Modo siempre activo (Hands-free)' : 'Dictar comando por voz (' + this.hotkey + ')');
+                }
             }
             const status = document.getElementById('wake20-status-text');
             if (status) status.textContent = this.statusText;
             const card = document.getElementById('wake20-roadmap');
             if (card) card.dataset.state = listening ? 'active' : 'idle';
+
+            // Sync dedicated activation section controls
+            const modeSelects = [document.getElementById('chat-activation-mode'), document.getElementById('roadmap-activation-mode')];
+            for (const sel of modeSelects) {
+                if (sel && sel.value !== this.mode) sel.value = this.mode;
+            }
+            const hotkeyInputs = [document.getElementById('chat-activation-hotkey'), document.getElementById('roadmap-activation-hotkey')];
+            for (const inp of hotkeyInputs) {
+                if (inp) inp.value = this.recording ? 'Pulsa tus teclas…' : this.hotkey;
+                if (inp) inp.style.borderColor = this.recording ? '#00e5ff' : '';
+            }
+            const hotkeyWraps = [document.getElementById('chat-hotkey-wrap'), document.getElementById('roadmap-hotkey-wrap')];
+            for (const wrap of hotkeyWraps) {
+                if (wrap) wrap.hidden = this.mode === 'always_active';
+            }
+            const alwaysTips = [document.getElementById('chat-always-tip'), document.getElementById('roadmap-always-tip')];
+            for (const tip of alwaysTips) {
+                if (tip) tip.hidden = this.mode !== 'always_active';
+            }
+            const recordBtns = [document.getElementById('chat-hotkey-record'), document.getElementById('roadmap-hotkey-record')];
+            for (const btn of recordBtns) {
+                if (btn) btn.textContent = this.recording ? 'Cancelar' : 'Grabar';
+            }
 
             let banner = document.getElementById('chat-voice-banner');
             if (!banner) {
@@ -503,10 +687,18 @@
             const st = Axx.symbiosis?.use === 'command' ? Axx.symbiosis.dictation.state : 'idle';
             if (st === 'idle' && state.wake.active) {
                 state.wake.active = false;
-                state.wake.statusText = 'Listo · Pulsa 🎙️ Orden voz o Alt+Shift+V para hablar otro comando puntual.';
+                state.wake.statusText = state.wake.mode === 'always_active'
+                    ? 'Siempre activo · Procesando…'
+                    : 'Listo · Pulsa 🎙️ Orden voz o ' + state.wake.hotkey + ' para hablar.';
+                if (state.wake.mode === 'always_active') {
+                    // Fallback rearm if no speech is spoken after 2.5s
+                    state.wake.scheduleRearm(2500);
+                }
             } else if (st === 'listening') {
                 state.wake.active = true;
-                state.wake.statusText = 'Escuchando una orden por voz…';
+                state.wake.statusText = state.wake.mode === 'always_active'
+                    ? 'Siempre activo · Escuchando tu voz…'
+                    : 'Escuchando una orden por voz…';
             } else if (st === 'starting') {
                 state.wake.active = true;
                 state.wake.statusText = 'Iniciando micrófono y Whisper local…';
@@ -514,7 +706,11 @@
             state.wake.syncUI();
         };
     }
-    if (!window.__contractCalls) setTimeout(() => { void state.refreshVoices().catch(() => {}); state.wake.syncUI(); }, 300);
+    if (!window.__contractCalls) setTimeout(() => {
+        void state.refreshVoices().catch(() => {});
+        state.wake.syncUI();
+        if (state.wake.mode === 'always_active') state.wake.scheduleRearm(400);
+    }, 300);
 
     const privacy = document.getElementById('v13-permit-copy'); if (privacy) privacy.textContent = 'Se grabará un clip local de hasta 55 segundos para transcribirlo con Whisper tiny en este equipo. El texto se coloca en tu destino; no se envía al chat.';
     const memoryResult = document.getElementById('desktop-memory-result');

@@ -10,9 +10,35 @@
     }
     const panel = $('subpanel-api');
     panel.innerHTML = `
+      <style>
+        #subpanel-api #model-task-fit{border:1px solid var(--line);border-radius:16px;background:var(--surface-subtle,#a9c9ef0b);overflow:hidden}
+        #subpanel-api #model-task-fit>summary{display:flex;align-items:center;gap:10px;cursor:pointer;list-style:none;padding:16px 18px;font-size:14px;font-weight:650;color:var(--ink,var(--text))}
+        #subpanel-api #model-task-fit>summary::-webkit-details-marker{display:none}
+        #subpanel-api #model-task-fit>summary::after{content:'⌄';margin-left:auto;color:var(--secondary,var(--quiet));font-size:20px;line-height:1;transition:transform .16s}
+        #subpanel-api #model-task-fit[open]>summary::after{transform:rotate(180deg)}
+        #subpanel-api .model-task-body{display:grid;gap:14px;padding:0 18px 18px}
+        #subpanel-api .model-task-intro{margin:0;max-width:68ch}
+        #subpanel-api .model-task-controls{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end;gap:12px}
+        #subpanel-api .model-task-controls .setting{padding:0;border:0;gap:6px}
+        #subpanel-api #model-task-check{white-space:nowrap}
+        #subpanel-api #model-task-options:not(:empty){display:grid;gap:10px;border-top:1px solid var(--line);padding-top:14px}
+        #subpanel-api #model-task-options>p{margin:0;line-height:1.5}
+        #subpanel-api .model-task-row{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:var(--surface,var(--bg))}
+        #subpanel-api .model-task-row>div{min-width:0;display:grid;gap:2px;overflow-wrap:anywhere}
+        #subpanel-api .model-task-row strong{font-size:13px;font-weight:600;color:var(--ink,var(--text))}
+        #subpanel-api .model-task-row small{font-size:11px;color:var(--secondary,var(--quiet))}
+        #subpanel-api .model-task-row button{flex:none}
+        @media(max-width:640px){#subpanel-api .model-task-controls{grid-template-columns:1fr}#subpanel-api #model-task-check{width:100%}#subpanel-api .model-task-row{align-items:stretch;flex-direction:column}#subpanel-api .model-task-row button{width:100%}}
+      </style>
       <label class="setting">Selección de modelos<select id="provider-selection-mode"><option value="automatic_free">Automático gratis · Sin claves</option><option value="manual">Manual · conexión seleccionada</option></select></label>
       <p class="micro-copy">Axx prepara Kilo Gateway, OVHcloud y AI Horde y prueba sus modelos sin claves personales. Solo usa las rutas que superan las pruebas. Si no hay disponibilidad, conserva la tarea pendiente.</p>
       <p class="micro-copy">También desde el chat: «/modelos», «cambia de modelo a nombre o ID» y «/modelo automático».</p>
+      <details id="model-task-fit"><summary>Modelo según la tarea</summary><div class="model-task-body">
+        <p class="micro-copy model-task-intro">Elige una tarea para ver rutas compatibles. Voz y visión tienen selección propia; las demás usan el router automático o el modelo principal.</p>
+        <div class="model-task-controls"><label class="setting">Tarea<select id="model-task-kind"><option value="chat">Conversar</option><option value="voice">Responder por voz</option><option value="vision">Analizar imágenes</option><option value="plan">Planificar</option><option value="code">Código</option><option value="writing">Redactar</option><option value="translation">Traducir</option><option value="grounding">Control visual de Agent-S</option></select></label>
+        <button id="model-task-check" type="button">Ver opciones</button></div><div id="model-task-options" role="status"></div>
+        <p class="micro-copy">«Lista localmente» indica disponibilidad de la conexión, no calidad o velocidad comprobadas.</p></div>
+      </details>
       <button id="keyless-refresh" type="button">Comprobar modelos sin claves</button><p id="keyless-status" role="status"></p>
       <p class="micro-copy">Son servicios públicos externos. Kilo indica que registra peticiones y respuestas para entrenamiento. Las conexiones personales de abajo son opcionales.</p>
       <details id="model-candidates-panel"><summary>Candidatos iniciales y evaluación</summary>
@@ -73,6 +99,8 @@
     Axx.modelSelection = {
       parse(text) {
         const raw = String(text || '').trim();
+        const voice = raw.match(/^\/modelo-voz(?:\s+(.*))?$/i);
+        if (voice) return {voice:true,target:(voice[1] || '').trim()};
         if (/^(?:\/modelos|(?:lista|muestra|ver) (?:los )?modelos)$/i.test(raw)) return {list:true};
         const match = raw.match(/^(?:\/modelo(?:\s+|$)|(?:cambia(?:r)?(?: de)?(?: el)? modelo a|usa(?:r)? (?:el )?modelo)\s+)(.*)$/i);
         if (match) return {target:match[1].trim()};
@@ -83,6 +111,21 @@
         const c = Axx.companion;
         if (!Axx.isNative()) return 'El cambio de modelo requiere Axx para Windows.';
         if (busy || c.pending || c.externalBusy || c.connecting) return 'Espera a que termine la respuesta o la conexión actual y vuelve a escribir la orden. La tarea se conserva.';
+        if (command.voice) {
+          const target = normalize(command.target);
+          if (['mismo','chat','mismo del chat'].includes(target)) {
+            c.data.prefs.voiceModel=''; c.save(); Axx.refreshVoiceModelOptions?.();
+            return 'La voz usará el modelo seleccionado para el chat.';
+          }
+          if (!c.brain.connected || c.data.prefs.selection_mode === 'automatic_free')
+            return 'Para elegir un modelo de voz individual, conecta una opción manual en Conectar IA. En modo automático, usa /modelo-voz mismo.';
+          const available = c.brain.models;
+          if (!target) return 'Modelo de voz: ' + (c.data.prefs.voiceModel || 'mismo del chat') + '. Disponibles en esta conexión: ' + (available.join(', ') || 'ninguno') + '. Usa /modelo-voz ID o /modelo-voz mismo.';
+          const matches = available.filter(model => normalize(model) === target);
+          if (matches.length !== 1) return 'Ese modelo no está disponible en la conexión actual. Opciones: ' + (available.join(', ') || 'ninguna') + '. No cambié la selección.';
+          c.data.prefs.voiceModel=matches[0]; c.save(); Axx.refreshVoiceModelOptions?.();
+          return 'Modelo de voz seleccionado: ' + matches[0] + '. Se usará en el siguiente turno hablado.';
+        }
         busy = true;
         try {
           const target = normalize(command.target);
@@ -103,6 +146,12 @@
             }
             if (matches.length !== 1) return (matches.length ? 'Hay varias conexiones para ese modelo. Escribe su nombre exacto.' : 'Ese modelo no tiene una conexión disponible. No cambié la selección.') + '\n' + choices();
             selected = matches[0];
+            if (selected.capabilities && !selected.capabilities.includes('text') ||
+                selected.tasks?.length && !selected.tasks.some(task => task === 'chat' || task === '*'))
+              return 'La conexión seleccionada no declara aptitud para conversar. Conservé el modelo principal. Alternativas: ' +
+                (available.filter(p => (!p.capabilities || p.capabilities.includes('text')) &&
+                  (!p.tasks?.length || p.tasks.some(task => task === 'chat' || task === '*')))
+                  .map(p => p.name + ' → ' + p.model).join(', ') || 'ninguna');
           }
           const before = {...c.data.prefs};
           Object.assign(c.data.prefs, {provider:'bridge', selection_mode:automatic ? 'automatic_free' : 'manual'}, selected ? {apiConnection:selected.name,model:selected.model} : {});
@@ -112,7 +161,7 @@
             Object.assign(c.data.prefs,before); c.brain.reset(); c.save(); c.syncPreferences();
             return 'No se pudo conectar al modelo. Conservé la selección anterior y las tareas.';
           }
-          c.save(); c.syncPreferences();
+          c.save(); c.syncPreferences(); Axx.refreshVoiceModelOptions?.();
           return (automatic ? 'Automático gratis · Sin claves activado.' : `Modelo seleccionado: ${selected.model} · ${selected.name}.${selected.tasks?.length ? ' Tareas: ' + selected.tasks.join(', ') + '.' : ''}`) + ' Se usará en las siguientes inferencias. La memoria y las operaciones completadas se conservan.';
         } finally { busy = false; }
       }
@@ -134,6 +183,72 @@
       $('gateway-import-source').replaceChildren(...entries.filter(p=>p.kind!=='freellmapi'&&p.free_confirmed&&!p.billing_allowed).map(p=>new Option(p.name,p.name)));
       $('provider-saved').replaceChildren(new Option('Nueva conexión', ''), ...entries.map(p => new Option(p.name + ' · ' + p.model, p.name)));
       if (entries.some(p => p.name === selected)) { $('provider-saved').value = selected; $('provider-saved').onchange(); }
+    };
+    const checkTaskModels = async () => {
+      const root = $('model-task-options'), task = $('model-task-kind').value, prefs = Axx.companion.data.prefs;
+      root.replaceChildren();
+      if (task === 'grounding') {
+        root.textContent = 'Agent-S necesita localizar coordenadas de controles. Axx todavía no tiene un modelo de Ollama que haya superado esa prueba; una etiqueta «visión» no basta para activarlo.';
+        return;
+      }
+      if (task === 'voice' && prefs.selection_mode !== 'manual') {
+        root.textContent = 'En modo automático la voz usa el modelo que el router elija para el chat. Para fijar un modelo de voz, conecta una opción manual y selecciónalo en Voz, ritmo y privacidad.';
+        return;
+      }
+      const [statusResult, savedResult] = await Promise.all([
+        Axx.backendRequest('GET', '/axx-api/status'), Axx.backendRequest('GET', '/axx-api/providers')]);
+      const saved = new Set((savedResult.providers || []).filter(p => p.enabled && !p.candidate_only).map(p => p.name));
+      const requiredTask = task === 'voice' ? 'chat' : task, capability = task === 'vision' ? 'vision' : 'text';
+      const ready = (statusResult.details?.providers || []).filter(p => p.state === 'ready_locally' && saved.has(p.name));
+      const fits = ready.filter(p => (p.capabilities || []).includes(capability) &&
+        (p.tasks || []).some(value => value === requiredTask || value === '*') &&
+        (task !== 'voice' || p.name === prefs.apiConnection && Axx.companion.brain.models.includes(p.model)));
+      const activeName = task === 'vision' && prefs.visionConnection ? prefs.visionConnection : prefs.apiConnection;
+      const activeModel = task === 'vision' && prefs.visionModel ? prefs.visionModel : prefs.model;
+      const active = ready.find(p => p.name === activeName && p.model === activeModel);
+      const explanation = document.createElement('p');
+      explanation.className = 'model-task-message';
+      explanation.textContent = !active && prefs.selection_mode === 'manual' ? 'El modelo seleccionado no figura como listo localmente. ' :
+        active && !fits.some(p => p.name === active.name && p.model === active.model) ?
+          'El modelo seleccionado no declara aptitud para esta tarea. ' : '';
+      explanation.textContent += fits.length ? 'Opciones declaradas disponibles; comprueba calidad y latencia con la tarea real:' :
+        'No hay una conexión guardada y lista que declare esta capacidad. Consulta los modelos instalados, configura su conexión y evalúala antes de seleccionarla.';
+      if (!['voice', 'vision', 'chat'].includes(task))
+        explanation.textContent += ' En modo automático Axx elige una ruta para esta tarea; en manual, elegir una opción también cambia el chat.';
+      root.append(explanation);
+      if (task === 'vision' && prefs.visionConnection) {
+        const reset = document.createElement('button'); reset.type = 'button'; reset.textContent = 'Usar ruta general para visión';
+        reset.onclick = () => { prefs.visionConnection = ''; prefs.visionModel = ''; Axx.companion.save(); Axx.magicPen?.updateControls(); void checkTaskModels(); };
+        root.append(reset);
+      }
+      for (const provider of fits) {
+        const row = document.createElement('div'); row.className = 'model-task-row';
+        const info = document.createElement('div'), name = document.createElement('strong'), state = document.createElement('small');
+        name.textContent = provider.model; state.textContent = provider.name + ' · listo localmente';
+        info.append(name, state); row.append(info);
+        if (task === 'vision') {
+          const choose = document.createElement('button'); choose.type = 'button'; choose.textContent = 'Usar en visión';
+          choose.onclick = () => { prefs.visionConnection = provider.name; prefs.visionModel = provider.model;
+            Axx.companion.save(); Axx.magicPen?.updateControls(); root.textContent = 'Modelo visual seleccionado: ' + provider.model + ' · ' + provider.name + '. Comprueba el resultado con una imagen real.'; };
+          row.append(choose);
+        } else if (task === 'voice') {
+          const choose = document.createElement('button'); choose.type = 'button'; choose.textContent = 'Usar en voz';
+          choose.onclick = async () => { root.textContent = await Axx.modelSelection.run({voice:true,target:provider.model}); };
+          row.append(choose);
+        } else if ((provider.capabilities || []).includes('text') &&
+                   (provider.tasks || []).some(value => value === 'chat' || value === '*')) {
+          const choose = document.createElement('button'); choose.type = 'button';
+          choose.textContent = task === 'chat' ? 'Usar en chat' : 'Usar también como modelo principal';
+          choose.onclick = async () => { root.textContent = await Axx.modelSelection.run({target:provider.name}); };
+          row.append(choose);
+        }
+        root.append(row);
+      }
+    };
+    $('model-task-check').onclick = async () => {
+      $('model-task-options').textContent = 'Comprobando conexiones…';
+      try { await checkTaskModels(); }
+      catch (error) { $('model-task-options').textContent = 'No pude consultar los modelos: ' + (error.message || String(error)); }
     };
     const action = async (fn, clearKey = false) => {
       if (busy) return;

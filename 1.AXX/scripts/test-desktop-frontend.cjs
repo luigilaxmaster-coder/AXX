@@ -30,6 +30,8 @@ assert(!html.includes("const apiBase ="), 'Production must not hardcode a develo
       localStorage.setItem('axx.live.pause', '700');
       window.__contractCalls = [];
       window.__contractModels = [];
+      window.__contractProviderRows = null;
+      window.__contractSavedProviders = null;
       window.__contractHoldChat = false;
       window.__contractIdentity = null;
       window.__contractRecipes = [];
@@ -57,15 +59,16 @@ assert(!html.includes("const apiBase ="), 'Production must not hardcode a develo
           Object.assign(row,{draft:body.draft,attachment:body.attachment,messages:[...messages.values()]});return {saved:true};
         }
         if (path === '/axx-api/chat/operations') return { operations: [] };
-        if (path === '/axx-api/status') return { ready: true, provider: 'Contract fixture', details: { providers: (window.__contractModels.length ? window.__contractModels : ['configured-fixture-model']).map(model => ({ name: 'contract-fixture', state: window.__contractProviderState || (window.__contractModels.length ? 'ready_locally' : 'missing_key'), model })) } };
+        if (path === '/axx-api/status') return { ready: true, provider: 'Contract fixture', details: { providers: window.__contractProviderRows || (window.__contractModels.length ? window.__contractModels : ['configured-fixture-model']).map(model => ({ name: 'contract-fixture', state: window.__contractProviderState || (window.__contractModels.length ? 'ready_locally' : 'missing_key'), model, capabilities:['text'], tasks:['chat'] })) } };
         if (path === '/axx-api/models') return { models: window.__contractModels };
+        if (path === '/axx-api/providers') return { providers:window.__contractSavedProviders || [] };
         if (path === '/axx-api/identity') {
           if (method === 'GET') return { identity: window.__contractIdentity };
           window.__contractIdentity = body; return { saved: true };
         }
         if (path === '/axx-api/recipes' && method === 'GET') return { recipes: window.__contractRecipes };
         if (path === '/axx-api/actions/execute') return { operation_id: body.operation_id, tool_name: body.tool_name, state: 'succeeded', postconditions_passed: true, output: { os: 'CONTRACT_ONLY' }, evidence: { fixture: true } };
-        if (path === '/axx-api/commands/resolve') { if (window.__contractDenyResolver) throw new Error('Backend HTTP 403: test denial'); return { match: 'none' }; }
+        if (path === '/axx-api/commands/resolve') { if (window.__contractDenyResolver) throw new Error('Backend HTTP 403: test denial'); return window.__contractResolve || { match: 'none' }; }
         if (path.startsWith('/axx-api/commands?')) return { commands: [{ id: 'axx.system.telemetry', title: 'Estado del sistema', description: 'CONTRACT_ONLY', execution_enabled: true, parameters: {} }], counts: { imported: 0, enabled: 1, blocked: 0, verified_operations: 0 } };
         if (path === '/axx-api/commands/prepare') {
           const operation_id = body.operation_id;
@@ -76,7 +79,7 @@ assert(!html.includes("const apiBase ="), 'Production must not hardcode a develo
           if (!recipe || Object.keys(body.inputs).some(key => !(key in recipe.schema))) throw new Error('Parámetros de receta desconocidos');
           return window.__contractCommands[body.operation_id] = { operation_id: body.operation_id, command_id: 'axx.system.telemetry', inputs: {}, state: 'prepared' };
         }
-        if (path === '/axx-api/commands/execute') return { ...window.__contractCommands[body.operation_id], state: 'succeeded', postconditions_passed: true, action_operation_id: 'fixture-action-' + body.operation_id, evidence: { fixture: true } };
+        if (path === '/axx-api/commands/execute') return { ...window.__contractCommands[body.operation_id], state: 'succeeded', postconditions_passed: true, output: { ready_for_action: true }, action_operation_id: 'fixture-action-' + body.operation_id, evidence: { fixture: true } };
         if (path === '/axx-api/commands/cancel') return { cancelled: true };
         if (path === '/axx-api/recipes/register') { window.__contractRecipes.push({ id: body.id, intent_key: body.intent_key, status: 'verified', schema: {} }); return { saved: true }; }
         if (path === '/axx-api/recipes/execute') return { success: true, fixture: true, steps_executed: 1 };
@@ -261,6 +264,7 @@ assert(!html.includes("const apiBase ="), 'Production must not hardcode a develo
       assert.equal(turn.connection, conversationTurns.baseConnection);
     }
     assert.equal(conversationTurns.speechDelta, 0, 'The model send contract must not play physical audio');
+    assert.match(conversationTurns.text.requests[0].messages[0].content, /aplicaciones registradas por Windows/);
     results.push('Actual companion.send supports text without options and explicit voice through all wrappers, returns model responses, and preserves the text model after a verified voice model turn');
     for (const name of ['unknownVoiceModel']) {
       const turn = conversationTurns[name];
@@ -278,12 +282,101 @@ assert(!html.includes("const apiBase ="), 'Production must not hardcode a develo
     assert.equal(conversationTurns.changedConnection.signature, conversationTurns.baseSignature);
     assert.equal(conversationTurns.changedConnection.connection, conversationTurns.baseConnection);
     results.push('Voice rejects uncatalogued models, ignores legacy route overrides, and BrainClient rejects another connection before model dispatch');
+    const voiceAction = await page.evaluate(async () => {
+      const c = Axx.companion, savedVoiceModel = c.data.prefs.voiceModel, savedMode = c.data.prefs.selection_mode;
+      const savedModels = c.brain.models, savedConnected = c.brain.connected;
+      const before = window.__contractCalls.length;
+      try {
+        c.brain.connected = true; c.brain.models = ['contract-fixture-model', 'contract-voice-model'];
+        await c.send('/modelo-voz contract-voice-model');
+        const selected = c.data.prefs.voiceModel;
+        await c.send('/modelo-voz unavailable-model');
+        const kept = c.data.prefs.voiceModel;
+        window.__contractResolve = { match: 'exact', command_id: 'axx.desktop.installed_app', inputs: { app_id: 'md.obsidian' } };
+        await c.send('abre Obsidian', { source: 'voice' });
+        const shown = document.getElementById('chat-voice-model')?.value;
+        c.data.prefs.selection_mode = 'automatic_free'; Axx.refreshVoiceModelOptions();
+        const selector = document.getElementById('chat-voice-model');
+        const clearAvailable = !selector.disabled && [...selector.options].some(option => option.value === '');
+        selector.value = ''; selector.dispatchEvent(new Event('change'));
+        return { selected, kept, shown, clearAvailable, cleared:c.data.prefs.voiceModel,
+          calls: window.__contractCalls.slice(before).filter(call => call.name === 'backend_request').map(call => call.args) };
+      } finally {
+        window.__contractResolve = null; c.data.prefs.voiceModel = savedVoiceModel; c.data.prefs.selection_mode = savedMode;
+        c.brain.models = savedModels; c.brain.connected = savedConnected;
+        Axx.refreshVoiceModelOptions?.(); c.save();
+      }
+    });
+    assert.equal(voiceAction.selected, 'contract-voice-model');
+    assert.equal(voiceAction.kept, 'contract-voice-model');
+    assert.equal(voiceAction.shown, 'contract-voice-model');
+    assert.equal(voiceAction.clearAvailable, true);
+    assert.equal(voiceAction.cleared, '');
+    assert.equal(voiceAction.calls.find(call => call.path === '/axx-api/commands/resolve')?.body.source, 'voice');
+    assert.equal(voiceAction.calls.find(call => call.path === '/axx-api/commands/prepare')?.body.command_id, 'axx.desktop.installed_app');
+    assert.equal(voiceAction.calls.find(call => call.path === '/axx-api/commands/prepare')?.body.inputs.app_id, 'md.obsidian');
+    assert(voiceAction.calls.some(call => call.path === '/axx-api/commands/execute'));
+    assert.equal(voiceAction.calls.some(call => call.path === '/axx-api/chat'), false);
+    results.push('Voice model selection retains only a catalogued model; an installed-app voice request reaches typed resolve, prepare and execute without model chat');
+    const unavailableMain = await page.evaluate(async () => {
+      const before = window.__contractCalls.length, previous = window.__contractModels;
+      window.__contractModels = ['contract-fixture-model'];
+      const client = new Axx.BrainClient();
+      let error = '';
+      try { await client.connect({ provider:'bridge', selection_mode:'manual', apiConnection:'contract-fixture', model:'missing-model' }); }
+      catch (cause) { error = cause.message; }
+      finally { window.__contractModels = previous; }
+      return { error, connected:client.connected, calls:window.__contractCalls.slice(before).map(call=>call.args?.path) };
+    });
+    assert.match(unavailableMain.error, /missing-model.*contract-fixture-model/);
+    assert.equal(unavailableMain.connected, false);
+    assert.equal(unavailableMain.calls.includes('/axx-api/chat'), false);
+    results.push('An unavailable selected chat model shows the detected alternative and blocks inference');
+    const taskFit = await page.evaluate(async () => {
+      const c = Axx.companion, prior = { ...c.data.prefs };
+      window.__contractProviderRows = [
+        { name:'chat-route', model:'chat-model', state:'ready_locally', capabilities:['text'], tasks:['chat'] },
+        { name:'vision-route', model:'vision-model', state:'ready_locally', capabilities:['vision'], tasks:['vision'] },
+        { name:'plan-route', model:'plan-model', state:'ready_locally', capabilities:['text'], tasks:['plan'] }];
+      window.__contractSavedProviders = window.__contractProviderRows.map(({name,model})=>({name,model,enabled:true}));
+      try {
+        Object.assign(c.data.prefs, { selection_mode:'manual', apiConnection:'chat-route', model:'chat-model', visionConnection:'', visionModel:'' });
+        document.getElementById('model-task-kind').value = 'vision';
+        await document.getElementById('model-task-check').onclick();
+        const root = document.getElementById('model-task-options');
+        const before = root.textContent;
+        root.querySelector('button').click();
+        const chosen = { visionConnection:c.data.prefs.visionConnection, visionModel:c.data.prefs.visionModel, chatModel:c.data.prefs.model,
+          reloaded:Axx.decodeCompanion(localStorage.getItem(c.key)).prefs.visionModel };
+        const invalidVision = [null, 7, {}, 'x'.repeat(201)].map(visionModel =>
+          Axx.decodeCompanion(JSON.stringify({version:4,prefs:{visionConnection:'vision-route',visionModel}})).prefs.visionModel);
+        document.getElementById('model-task-kind').value = 'plan';
+        await document.getElementById('model-task-check').onclick();
+        const plan = { text:root.textContent, buttons:[...root.querySelectorAll('button')].map(button=>button.textContent),
+          rejected:await Axx.modelSelection.run({target:'plan-route'}), chatModel:c.data.prefs.model };
+        document.getElementById('model-task-kind').value = 'grounding';
+        await document.getElementById('model-task-check').onclick();
+        return { before, chosen, invalidVision, plan, grounding:root.textContent };
+      } finally {
+        Object.assign(c.data.prefs, prior); c.save(); window.__contractProviderRows = null; window.__contractSavedProviders = null;
+      }
+    });
+    assert.match(taskFit.before, /vision-model.*vision-route/);
+    assert.doesNotMatch(taskFit.before, /chat-route.*chat-model.*listo localmente/);
+    assert.deepEqual(taskFit.chosen, {visionConnection:'vision-route',visionModel:'vision-model',chatModel:'chat-model',reloaded:'vision-model'});
+    assert.deepEqual(taskFit.invalidVision, ['', '', '', '']);
+    assert.match(taskFit.plan.text, /plan-model.*plan-route/);
+    assert.deepEqual(taskFit.plan.buttons, []);
+    assert.match(taskFit.plan.rejected, /no declara aptitud para conversar.*chat-route.*chat-model/);
+    assert.equal(taskFit.plan.chatModel, 'chat-model');
+    assert.match(taskFit.grounding, /no tiene un modelo.*superado esa prueba/);
+    results.push('Task-aware model panel persists vision separately, rejects a plan-only chat route and does not certify Agent-S grounding');
     const voicePreferences = await page.evaluate(() => {
-      const c = Axx.companion, prior = c.data.prefs.voiceModel;
+      const c = Axx.companion, prior = { voiceModel: c.data.prefs.voiceModel, voiceFillers: c.data.prefs.voiceFillers, loadingSound: c.data.prefs.loadingSound };
       const exact = 'catalog/voice:Q4_K_M', boundary = 'v'.repeat(200);
       const decode = prefs => Axx.decodeCompanion(JSON.stringify({ version: 4, prefs }));
       try {
-        c.data.prefs.voiceModel = exact; c.save();
+        Object.assign(c.data.prefs, { voiceModel: exact, voiceFillers: true, loadingSound: true }); c.save();
         const saved = localStorage.getItem(c.key), parsed = JSON.parse(saved);
         return {
           empty: Axx.emptyCompanion().prefs.voiceModel,
@@ -294,9 +387,13 @@ assert(!html.includes("const apiBase ="), 'Production must not hardcode a develo
           legacy: decode({ provider: 'bridge', selection_mode: 'manual', model: 'contract-fixture-model' }).prefs,
           persisted: parsed.prefs.voiceModel,
           reloaded: Axx.decodeCompanion(saved).prefs.voiceModel,
+          defaults: [Axx.emptyCompanion().prefs.voiceFillers, Axx.emptyCompanion().prefs.loadingSound],
+          savedCues: [parsed.prefs.voiceFillers, parsed.prefs.loadingSound],
+          reloadedCues: [Axx.decodeCompanion(saved).prefs.voiceFillers, Axx.decodeCompanion(saved).prefs.loadingSound],
+          invalidCues: [decode({ voiceFillers: 'true' }).prefs.voiceFillers, decode({ loadingSound: 1 }).prefs.loadingSound],
           persistError: c.persistError
         };
-      } finally { c.data.prefs.voiceModel = prior; c.save(); }
+      } finally { Object.assign(c.data.prefs, prior); c.save(); }
     });
     assert.equal(voicePreferences.empty, '');
     assert.equal(voicePreferences.exact, 'catalog/voice:Q4_K_M');
@@ -307,6 +404,10 @@ assert(!html.includes("const apiBase ="), 'Production must not hardcode a develo
     assert.equal(voicePreferences.legacy.model, 'contract-fixture-model');
     assert.equal(voicePreferences.persisted, 'catalog/voice:Q4_K_M');
     assert.equal(voicePreferences.reloaded, voicePreferences.persisted);
+    assert.deepEqual(voicePreferences.defaults, [false, false]);
+    assert.deepEqual(voicePreferences.savedCues, [true, true]);
+    assert.deepEqual(voicePreferences.reloadedCues, [true, true]);
+    assert.deepEqual(voicePreferences.invalidCues, [false, false]);
     assert.equal(voicePreferences.persistError, false);
     results.push('Version 4 voice model preferences survive the actual save/decode path exactly, retain legacy defaults, and reject invalid types or names longer than 200 characters');
     const identity = await page.evaluate(() => {

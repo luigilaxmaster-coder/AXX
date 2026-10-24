@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 from backend.actions.desktop import resolve_desktop
 
 class ActionLanguageTests(unittest.TestCase):
@@ -32,5 +33,17 @@ class ActionLanguageTests(unittest.TestCase):
         for text in ('/search youtube','busca','ponme'):
             r=resolve_desktop(text,'text')
             self.assertEqual(r['match'],'needs_input')
+
+    def test_voice_music_and_observed_app_names(self):
+        for phrase in ('búscame una música de Juan Luis Guerra', 'busca canción de Juan Luis Guerra'):
+            self.assertEqual(resolve_desktop(phrase,'voice')['inputs'],
+                             {'engine':'youtube','query':'Juan Luis Guerra'})
+        apps=[{'name':'Obsidian','app_id':'md.obsidian'}, {'name':'Spotify','app_id':'spotify.observed'}]
+        with patch('backend.actions.windows_apps.installed_apps',return_value=apps):
+            self.assertEqual(resolve_desktop('abre mi obsedia','voice')['inputs'],{'app_id':'md.obsidian'})
+            self.assertEqual(resolve_desktop('abre Spotify','voice')['inputs'],{'app_id':'spotify.observed'})
+            self.assertEqual(resolve_desktop('busca Obsidian en mi escritorio y ábrelo','voice')['inputs'],{'app_id':'md.obsidian'})
+            self.assertFalse(resolve_desktop('abre app desconocida','voice').get('match')=='exact')
+            self.assertEqual(resolve_desktop('busca informe.pdf en mi escritorio y ábrelo','voice')['match'],'unsupported')
 
 if __name__=='__main__':unittest.main()

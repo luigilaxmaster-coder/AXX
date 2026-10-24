@@ -130,6 +130,11 @@ def resolve_desktop(text, source, context=None):
     raw = re.sub(r'^(?:puedes|podrias|podrías|quiero que)\s+', '', raw, flags=re.I)
     raw = re.sub(r'\s+por favor[?.!]*$', '', raw, flags=re.I)
     raw = re.sub(r'^pero\s+', '', raw, flags=re.I)
+    desktop_app = re.fullmatch(r'(?:busca|encuentra|localiza)\s+(.+?)\s+en (?:mi|el) escritorio y (?:abrelo|ábrelo|abrela|ábrela)[.!?]*', raw, re.I)
+    if desktop_app:
+        if not re.fullmatch(r'[\w\s-]{2,100}', desktop_app[1], re.UNICODE):
+            return {'match': 'unsupported', 'message': 'Para abrir un archivo del escritorio, indica su nombre exacto en la biblioteca de archivos.'}
+        raw = 'abre ' + desktop_app[1]
     if plain(raw).strip(' .!?') in ('mis aplicaciones', 'aplicaciones instaladas', 'lista de aplicaciones', 'muestra mis aplicaciones'):
         return {'match': 'exact', 'command_id': 'axx.desktop.list_apps', 'inputs': {}}
     engine_pattern = r'(youtube|google|bing|duckduckgo|internet)'
@@ -148,11 +153,21 @@ def resolve_desktop(text, source, context=None):
         return {'match':'needs_input','message':'No hay una acción pendiente de esa confirmación. Indica qué quieres abrir o buscar.'}
     music = re.fullmatch(r'(?:ponme|pon|reproduce|reproducir|escuchar)(?:\s+(.+))?',raw,re.I)
     if music:return search_result('youtube',music[1]) if music[1] else missing
+    music_search = re.fullmatch(r'(?:busca|buscar|buscame|búscame)\s+(?:(?:una|un|la|el)\s+)?(?:musica|música|cancion|canción|tema)\s+(?:de\s+)?(.+)', raw, re.I)
+    if music_search:return search_result('youtube', music_search[1])
     # Preserve URL case and query punctuation. Only trim sentence marks for named targets.
     opening = re.fullmatch(r'(?:abre|abrir|abras|abreme|ábreme|inicia|ejecuta)\s+(?:(?:la|el)\s+)?(.+)', raw, re.I)
     if opening:
         target = opening[1].strip()
-        name = plain(target).rstrip('.!?')
+        name = re.sub(r'^(?:la aplicacion|el programa|mi|la|el)\s+', '', plain(target).rstrip('.!?'))
+        if name == 'spotify':
+            from .windows_apps import find_app
+            try:
+                spotify = find_app(name, plain)
+            except (OSError, ValueError, subprocess.TimeoutExpired):
+                spotify = []
+            if len(spotify) == 1:
+                return {'match': 'exact', 'command_id': 'axx.desktop.installed_app', 'inputs': {'app_id': spotify[0]['app_id']}}
         if name in SITES:
             return {'match': 'exact', 'command_id': 'axx.desktop.open_url', 'inputs': {'url': SITES[name]}}
         for key, (_, _, aliases) in APPS.items():
