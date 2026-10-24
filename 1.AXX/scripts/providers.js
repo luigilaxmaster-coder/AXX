@@ -28,7 +28,7 @@
         #subpanel-api .model-task-row strong{font-size:13px;font-weight:600;color:var(--ink,var(--text))}
         #subpanel-api .model-task-row small{font-size:11px;color:var(--secondary,var(--quiet))}
         #subpanel-api .model-task-row button{flex:none}
-        #subpanel-api.model-task-open .provider-actions{position:static}
+        #subpanel-api .provider-actions{position:static}
         #subpanel-api .model-quick-start{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));margin-bottom:18px}
         #subpanel-api .model-quick-start .setup-card{display:grid;align-content:start;gap:9px}
         #subpanel-api .model-quick-start p{margin:0}

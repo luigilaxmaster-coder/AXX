@@ -47,6 +47,7 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
     await page.evaluate(()=>Axx.flow.select('ai'));
     await page.locator('#tab-mode-api').click();
     await page.locator('#ollama-quick-find').scrollIntoViewIfNeeded();
+    assert.equal(await page.locator('.provider-actions').evaluate(el=>getComputedStyle(el).position),'static');
     fs.mkdirSync('build/model-quick-start',{recursive:true});
     await page.screenshot({path:'build/model-quick-start/settings.png'});
     await page.locator('#ollama-quick-find').click();
