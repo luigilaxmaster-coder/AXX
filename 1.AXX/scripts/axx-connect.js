@@ -7,10 +7,16 @@
     const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     const terminal = new Set(['completed', 'failed', 'cancelled', 'interrupted', 'unknown', 'limit_reached']);
     const c = Axx.companion;
-    const state = { active: null, engine: null, polling: false, last: null, disposed: false, loginPending: false, refreshSeq: 0, refreshPromise: null };
+    const state = { active: null, engine: null, draftModel: null, polling: false, last: null, disposed: false, loginPending: false, refreshSeq: 0, refreshPromise: null };
     const card = document.createElement('section');
-    card.className = 'setup-card'; card.id = 'axx-connect';
-    card.innerHTML = '<strong>Axx Connect</strong><p id="axx-connect-status" role="status">Desconectado · comprobando runtime.</p><label class="setting">Modelo del catálogo<select id="axx-connect-model"><option value="">Selecciona un modelo</option></select></label><div class="quick-row"><button id="axx-connect-refresh">Diagnóstico</button><button id="axx-connect-reconnect">Reconectar Axx</button><button id="axx-connect-verify">Verificar conexión</button><button id="axx-connect-stop">Detener</button></div><p class="micro-copy">Codex gestiona la sesión ChatGPT. Seleccionar un modelo no inicia inferencia; pulsa Verificar conexión para probarlo. No hay sustitución automática de modelo o proveedor.</p><details><summary>Tareas y resultados</summary><pre id="axx-connect-history" style="white-space:pre-wrap;max-height:220px;overflow:auto"></pre></details><div id="axx-connect-interventions"></div>';
+    card.className = 'setup-card ai-connect-card'; card.id = 'axx-connect';
+    card.innerHTML = `<div class="ai-section-head"><span>02</span><div><h3>Elegir y probar un modelo</h3><p>Primero inicia sesión arriba. Elegir aquí no cambia tu modelo actual.</p></div></div>
+      <p id="axx-connect-status" role="status">Comprobando sesión y motor…</p>
+      <label class="setting">Modelo de ChatGPT<select id="axx-connect-model"><option value="">Selecciona un modelo</option></select></label>
+      <button class="primary" id="axx-connect-verify" type="button">Probar respuesta y usar modelo</button>
+      <p class="micro-copy">Axx hará una pregunta breve de prueba. Solo activará el modelo si responde correctamente; no usará una API de pago ni cambiará al modelo local automáticamente.</p>
+      <div id="axx-connect-interventions"></div>
+      <details class="ai-advanced"><summary>Diagnóstico y controles</summary><div class="ai-advanced-body"><div class="quick-row"><button id="axx-connect-refresh" type="button">Actualizar estado</button><button id="axx-connect-reconnect" type="button">Reconectar Axx</button><button id="axx-connect-stop" type="button">Detener tarea</button></div><pre id="axx-connect-history" style="white-space:pre-wrap;max-height:220px;overflow:auto"></pre></div></details>`;
     ($('subpanel-chatgpt') || $('view-settings')).append(card);
     const status = text => { $('axx-connect-status').textContent = text; };
     const error = e => e?.message || String(e);
@@ -19,7 +25,7 @@
     const connectionError = (code, message) => Object.assign(new Error(code + ': ' + message), {code});
     const catalog = engine => [...new Set((engine.models || []).map(item => typeof item === 'string' ? item : item.model || item.id).filter(item => typeof item === 'string' && item.length <= 200))].slice(0,100);
     function renderModels(engine) {
-        const select = $('axx-connect-model'), selected = c.data.prefs.model || '';
+        const select = $('axx-connect-model'), selected = state.draftModel || (c.data.prefs.provider === 'chatgpt' ? c.data.prefs.model || '' : '');
         const models = catalog(engine), placeholder = document.createElement('option');
         placeholder.value = ''; placeholder.textContent = 'Selecciona un modelo';
         select.replaceChildren(placeholder);
@@ -212,18 +218,39 @@
         $('chatgpt-logout-btn').title = 'Desconecta solo Axx. Conserva la sesión y las credenciales gestionadas por Codex.';
         $('chatgpt-logout-btn').onclick = async () => { try { await api('POST', 'disconnect', {}); c.brain.reset(); c.data.prefs.provider = 'none'; c.data.prefs.selection_mode = 'manual'; c.save(); c.syncProvider(); await refresh(); } catch(e) { status(error(e)); } };
     }
-    if ($('chatgpt-refresh-btn')) $('chatgpt-refresh-btn').onclick = () => void c.connect();
+    if ($('chatgpt-refresh-btn')) $('chatgpt-refresh-btn').onclick = () => void refresh().catch(e => status(error(e)));
     $('axx-connect-refresh').onclick = () => void refresh().catch(e => status(error(e)));
     $('axx-connect-model').onchange = () => {
         const selected = $('axx-connect-model').value;
         if (state.active || !catalog(state.engine || {}).includes(selected)) { renderModels(state.engine || {}); return; }
-        c.data.prefs.model = selected; c.brain.reset(); c.save(); c.syncProvider();
-        $('chatgpt-badge')?.classList.remove('connected');
-        if ($('chatgpt-badge-text')) $('chatgpt-badge-text').textContent = 'Modelo seleccionado · inferencia por verificar';
-        status('Modelo seleccionado: ' + selected + ' · sin inferencia. Pulsa Verificar conexión.');
+        state.draftModel = selected;
+        status('Listo para probar: ' + selected + '. El modelo en uso sigue igual hasta que pase la prueba.');
     };
     $('axx-connect-reconnect').onclick = async () => { try { await api('POST','reconnect',{}); await refresh(); } catch(e) { status(error(e)); } };
-    $('axx-connect-verify').onclick = () => { c.data.prefs.selection_mode = 'manual'; c.data.prefs.provider = 'chatgpt'; c.data.prefs.ai_mode = 'chatgpt'; if ($('ai-provider')) $('ai-provider').value = 'chatgpt'; void c.connect(); };
+    $('axx-connect-verify').onclick = async () => {
+        const selected = $('axx-connect-model').value;
+        if (!catalog(state.engine || {}).includes(selected)) { status('Elige un modelo disponible del catálogo.'); return; }
+        if (state.active || c.pending || c.connecting || c.externalBusy) { status('Espera a que termine la tarea actual antes de cambiar el modelo.'); return; }
+        const button = $('axx-connect-verify'); button.disabled = true;
+        status('Probando una respuesta real de ' + selected + '…');
+        try {
+            const previousRoute = JSON.stringify([c.data.prefs.provider, c.data.prefs.model, c.data.prefs.selection_mode]);
+            const draft = {...c.data.prefs, provider:'chatgpt', selection_mode:'manual', ai_mode:'chatgpt', model:selected};
+            const trial = new Axx.BrainClient();
+            await trial.connect(draft);
+            if (c.pending || c.externalBusy || c.connecting || JSON.stringify([c.data.prefs.provider, c.data.prefs.model, c.data.prefs.selection_mode]) !== previousRoute)
+                throw new Error('La ruta activa cambió durante la prueba. Vuelve a seleccionar el modelo.');
+            Object.assign(c.data.prefs, {provider:'chatgpt', selection_mode:'manual', ai_mode:'chatgpt', model:selected});
+            c.brain = trial;
+            $('ai-provider').value = 'chatgpt';
+            $('ai-model').replaceChildren(...trial.models.map(id => new Option(id, id)));
+            $('ai-model').value = selected;
+            c.save(); c.syncProvider(); Axx.refreshVoiceModelOptions?.();
+            await refresh();
+            status('Respuesta comprobada. Ahora Axx usa ' + selected + '.');
+        } catch (e) { await refresh().catch(()=>{}); status('No se cambió el modelo: ' + error(e)); }
+        finally { button.disabled = false; }
+    };
     const stop = () => { if (state.active) void api('POST', 'cancel', {request_id: state.active}).catch(e => status(error(e))); if (state.loginPending) { state.loginPending = false; void api('POST','login-cancel',{}).catch(e => status(error(e))); } c.cancelRequest(); };
     $('axx-connect-stop').onclick = stop;
 

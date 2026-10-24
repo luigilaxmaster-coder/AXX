@@ -134,12 +134,20 @@ const root = path.resolve(__dirname, '..');
     await page.waitForTimeout(200); // Catch accidental asynchronous auto-connect on change.
     const selected=await page.evaluate(()=>({model:Axx.companion.data.prefs.model,saved:JSON.parse(localStorage.getItem('axx.companion.v4')).prefs.model,
       starts:window.__calls.filter(call=>call.args?.path==='/axx-api/connect/start').length}));
-    assert.equal(selected.model,'offered-alternative');assert.equal(selected.saved,selected.model);assert.equal(selected.starts,beforeSelection);
+    assert.equal(selected.model,'');assert.equal(selected.saved,'');assert.equal(selected.starts,beforeSelection);
     await page.locator('#axx-connect-verify').click();
     await page.waitForFunction(()=>Axx.companion.brain.inferenceVerified === true && !Axx.connect.state.active);
+    assert.equal(await page.evaluate(()=>Axx.companion.data.prefs.model),'offered-alternative');
     const verifiedSelection=await page.evaluate(()=>window.__calls.filter(call=>call.args?.path==='/axx-api/connect/start').at(-1).args.body);
     assert.equal(verifiedSelection.model,'offered-alternative');assert.match(verifiedSelection.message,/AXX_CONNECT_OK/);
-    checks.push('Selecting a catalog model saves only; explicit Verify sends exactly the chosen model ID');
+    checks.push('Selecting a catalog model leaves the active route unchanged; explicit Verify saves exactly the proven model ID');
+    await page.evaluate(()=>{window.__runMode='error'});
+    await page.selectOption('#axx-connect-model','controlled-model');
+    await page.locator('#axx-connect-verify').click();
+    await page.waitForFunction(()=>document.getElementById('axx-connect-status').textContent.includes('No se cambió el modelo'));
+    assert.deepEqual(await page.evaluate(()=>({model:Axx.companion.data.prefs.model,verified:Axx.companion.brain.inferenceVerified})),{model:'offered-alternative',verified:true});
+    await page.evaluate(()=>{window.__runMode='stream'});
+    checks.push('A failed verification leaves the previously proven model active');
     const modelProof=await page.evaluate(async()=>{
       const companion=Axx.companion,badge=document.getElementById('chatgpt-badge');
       const before=window.__calls.filter(call=>call.args?.path==='/axx-api/connect/start').length;
@@ -154,8 +162,8 @@ const root = path.resolve(__dirname, '..');
       return {mismatch,matching,changed,starts:window.__calls.filter(call=>call.args?.path==='/axx-api/connect/start').length-before};
     });
     assert.equal(modelProof.mismatch.connected,false);assert.notEqual(modelProof.mismatch.label,'Inferencia verificada');
-    assert.equal(modelProof.matching,true);assert.equal(modelProof.changed,false);assert.equal(modelProof.starts,0);
-    checks.push('Inference badge requires proof for exactly the selected model and clears immediately on an explicit model change without inference');
+    assert.equal(modelProof.matching,true);assert.equal(modelProof.changed,true);assert.equal(modelProof.starts,0);
+    checks.push('Inference badge tracks the active proven model while a different catalog choice remains a draft');
     assert.equal(await page.locator('#chatgpt-logout-btn').textContent(),'Desconectar Axx');
     const beforeDisconnect=await page.evaluate(()=>window.__calls.filter(call=>call.args?.path==='/axx-api/connect/start').length);
     await page.locator('#chatgpt-logout-btn').click();
@@ -167,13 +175,14 @@ const root = path.resolve(__dirname, '..');
     assert.equal(disconnected.requests.filter(route=>route==='/axx-api/connect/disconnect').length,1);assert.equal(disconnected.starts,beforeDisconnect);
     assert.equal(disconnected.requests.some(route=>route==='/axx-api/connect/logout' || route==='/axx-api/auth/chatgpt/disconnect'),false);
     checks.push('Desconectar Axx calls only the local disconnect endpoint and saves provider none without global logout or inference');
+    await page.locator('#axx-connect > details > summary').click();
     await page.locator('#axx-connect-reconnect').click();
     await page.waitForFunction(()=>Axx.connect.state.engine?.local_connection_enabled===true);
     await page.waitForTimeout(200);
     const reconnected=await page.evaluate(()=>({provider:Axx.companion.data.prefs.provider,model:Axx.companion.data.prefs.model,
       starts:window.__calls.filter(call=>call.args?.path==='/axx-api/connect/start').length,
       reconnects:window.__calls.filter(call=>call.args?.path==='/axx-api/connect/reconnect').length}));
-    assert.equal(reconnected.reconnects,1);assert.equal(reconnected.starts,beforeDisconnect);assert.equal(reconnected.provider,'none');assert.equal(reconnected.model,'offered-alternative');
+    assert.equal(reconnected.reconnects,1);assert.equal(reconnected.starts,beforeDisconnect);assert.equal(reconnected.provider,'none');assert.equal(reconnected.model,'controlled-model');
     checks.push('Reconectar Axx enables the local connection and refreshes state without starting inference or changing the saved model');
     await page.evaluate(()=>{Axx.companion.data.prefs=window.__originalModelPrefs;Axx.companion.brain.reset();Axx.companion.save();Axx.companion.syncPreferences();});
 

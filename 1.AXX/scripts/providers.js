@@ -29,31 +29,27 @@
         #subpanel-api .model-task-row small{font-size:11px;color:var(--secondary,var(--quiet))}
         #subpanel-api .model-task-row button{flex:none}
         #subpanel-api .provider-actions{position:static}
-        #subpanel-api .model-quick-start{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));margin-bottom:18px}
-        #subpanel-api .model-quick-start .setup-card{display:grid;align-content:start;gap:9px}
-        #subpanel-api .model-quick-start p{margin:0}
         @media(max-width:640px){#subpanel-api .model-task-controls{grid-template-columns:1fr}#subpanel-api #model-task-check{width:100%}#subpanel-api .model-task-row{align-items:stretch;flex-direction:column}#subpanel-api .model-task-row button{width:100%}}
       </style>
-      <div class="model-quick-start">
-        <section class="setup-card"><strong>Ollama en este equipo</strong><p class="micro-copy">Usa los modelos ya instalados, sin clave de API.</p><button id="ollama-quick-find" type="button">Ver modelos instalados</button><label class="setting">Modelo local<select id="ollama-quick-model"><option value="">Comprueba Ollama</option></select></label><button id="ollama-quick-use" type="button">Usar este modelo</button><p id="ollama-quick-status" class="micro-copy" role="status"></p></section>
-        <section class="setup-card"><strong>ChatGPT con tu suscripción</strong><p class="micro-copy">Inicio de sesión oficial gestionado por Codex. La suscripción y una clave de API son rutas distintas.</p><button id="chatgpt-quick-open" type="button">Abrir inicio de sesión</button><p class="micro-copy">Después selecciona un modelo y pulsa «Verificar conexión». Solo entonces se confirma que responde.</p></section>
-      </div>
+      <div class="ai-section-head"><span>03</span><div><h3>Otros modelos</h3><p>Usa una ruta automática o configura una conexión personal.</p></div></div>
+      <section class="setup-card ai-local-card">
       <label class="setting">Selección de modelos<select id="provider-selection-mode"><option value="automatic_free">Automático gratis · Sin claves</option><option value="manual">Manual · conexión seleccionada</option></select></label>
-      <p class="micro-copy">Axx prepara Kilo Gateway, OVHcloud y AI Horde y prueba sus modelos sin claves personales. Solo usa las rutas que superan las pruebas. Si no hay disponibilidad, conserva la tarea pendiente.</p>
-      <p class="micro-copy">También desde el chat: «/modelos», «cambia de modelo a nombre o ID» y «/modelo automático».</p>
+      <p class="micro-copy">Axx prueba rutas gratuitas. Si ninguna responde, te lo indica y conserva la tarea.</p>
+      <button id="keyless-refresh" type="button">Comprobar rutas disponibles</button><p id="keyless-status" role="status"></p>
+      <p class="micro-copy">Las rutas sin clave usan servicios públicos externos. Kilo indica que registra peticiones y respuestas para entrenamiento.</p>
+      </section>
       <details id="model-task-fit"><summary>Modelo según la tarea</summary><div class="model-task-body">
         <p class="micro-copy model-task-intro">Voz y visión se eligen por separado. Las demás tareas usan el router automático o el modelo principal.</p>
         <div class="model-task-controls"><label class="setting">Tarea<select id="model-task-kind"><option value="chat">Conversar</option><option value="voice">Responder por voz</option><option value="vision">Analizar imágenes</option><option value="plan">Planificar</option><option value="code">Código</option><option value="writing">Redactar</option><option value="translation">Traducir</option><option value="grounding">Control visual de Agent-S</option></select></label>
         <button id="model-task-check" type="button">Ver opciones</button></div><div id="model-task-options" role="status"></div>
         <p class="micro-copy">Ruta disponible no significa calidad o velocidad comprobadas.</p></div>
       </details>
-      <button id="keyless-refresh" type="button">Comprobar modelos sin claves</button><p id="keyless-status" role="status"></p>
-      <p class="micro-copy">Son servicios públicos externos. Kilo indica que registra peticiones y respuestas para entrenamiento. Las conexiones personales de abajo son opcionales.</p>
       <details id="model-candidates-panel"><summary>Candidatos iniciales y evaluación</summary>
         <p class="micro-copy">Los nombres propuestos se resuelven contra el catálogo efectivo. Una prueba usa una petición gratuita con datos de ejemplo; no ejecuta los comandos o código generados. Si pasa, se actualiza su preferencia para esa tarea.</p>
         <button id="model-candidates-refresh" type="button">Actualizar catálogo de candidatos</button><div id="model-candidates-list"></div>
         <p id="model-candidates-status" role="status"></p>
       </details>
+      <details class="ai-advanced" id="provider-advanced"><summary>Conexiones personales y ajustes avanzados</summary><div class="ai-advanced-body">
       <label class="setting">Conexiones guardadas<select id="provider-saved"><option value="">Nueva conexión</option></select></label>
       <label class="setting">Plataforma<select id="provider-kind">
         <option value="freellmapi">FreeLLMAPI · gateway de modelos</option>
@@ -94,7 +90,7 @@
       </details>
       <p class="micro-copy">Las APIs pueden cobrar por uso. Guardar o consultar el catálogo no envía mensajes. Las claves se protegen en este usuario de Windows.</p>
       <div class="quick-row provider-actions"><button class="primary" id="provider-save" type="button">Guardar y seleccionar</button><button id="provider-refresh" type="button">Actualizar conexiones</button></div>
-      <p id="provider-status" class="tool-feedback" role="status"></p>`;
+      <p id="provider-status" class="tool-feedback" role="status"></p></div></details>`;
     const presets = {
       ollama: 'http://127.0.0.1:11434/v1', compat: 'http://127.0.0.1:1234/v1',
       ollama_cloud: 'https://ollama.com/v1',
@@ -262,9 +258,9 @@
     const action = async (fn, clearKey = false) => {
       if (busy) return;
       busy = true;
-      const controls = [...panel.querySelectorAll('button,input,select')].map(control => [control, control.disabled]);
+      const controls = [...$('view-ai').querySelectorAll('button,input,select')].map(control => [control, control.disabled]);
       controls.forEach(([control]) => control.disabled = true);
-      try { await fn(); } catch(e) { status(e.message || String(e)); }
+      try { await fn(); } catch(e) { const message=e.message || String(e); status(message); if (!$('subpanel-local').hidden) $('ollama-quick-status').textContent=message; }
       finally { busy = false; if (clearKey) { $('provider-key').value = ''; $('gateway-dashboard').value = ''; } controls.forEach(([control, disabled]) => control.disabled = disabled); }
     };
     const platform = () => {
@@ -325,7 +321,6 @@
       await saveProvider();
       $('ollama-quick-status').textContent = statusText();
     }, true);
-    $('chatgpt-quick-open').onclick = () => $('tab-mode-chatgpt')?.click();
     const statusText = () => $('provider-status').textContent;
     const saveProvider = async () => {
       const data = payload();
@@ -336,12 +331,13 @@
       await refresh(); $('provider-saved').value = data.name;
       const c = Axx.companion; c.data.prefs.provider = 'bridge'; c.data.prefs.model = data.model;
       c.data.prefs.selection_mode = 'manual'; $('provider-selection-mode').value = 'manual';
+      c.data.prefs.ai_mode = $('subpanel-local').hidden ? 'api' : 'local';
       c.data.prefs.apiConnection = data.name;
       $('ai-provider').value = 'bridge'; c.save();
       await c.connect();
       const selected = c.brain.connected && c.data.prefs.model === data.model;
       if (!selected) { c.brain.reset(); c.data.prefs.model = data.model; c.save(); c.syncProvider(); }
-      status(selected ? 'Conexión guardada y modelo seleccionado. Ya puedes abrir el chat.' : 'Conexión guardada. Revisa la clave, la habilitación y la autorización de cuota antes de usarla.');
+      status(selected ? 'Modelo seleccionado. Envía una pregunta para comprobar una respuesta real.' : 'Conexión guardada. Revisa la clave, la habilitación y la autorización de cuota antes de usarla.');
     };
     $('provider-save').onclick = () => action(saveProvider, true);
     $('provider-refresh').onclick = () => action(refresh);
@@ -412,6 +408,7 @@
     $('provider-selection-mode').onchange = () => action(async () => {
       const c = Axx.companion;
       c.data.prefs.selection_mode = $('provider-selection-mode').value;
+      c.data.prefs.ai_mode = 'api';
       if (c.data.prefs.selection_mode === 'automatic_free') { c.data.prefs.provider = 'bridge'; $('ai-provider').value = 'bridge'; }
       c.brain.reset(); c.save(); await c.connect();
       status(c.data.prefs.selection_mode === 'automatic_free' ? 'Modo sin claves guardado. Axx está comprobando las rutas disponibles.' : 'Selección manual guardada.');
@@ -422,6 +419,7 @@
     $('ai-test').onclick = async () => {
       $('tab-mode-api').click();
       while (busy) await new Promise(resolve => setTimeout(resolve, 25));
+      $('provider-advanced').open = true;
       $('provider-kind').value = $('local-server-type').value; platform();
       $('provider-url').value = $('ai-endpoint').value;
       $('provider-name').value = 'Servidor local';

@@ -545,39 +545,45 @@ body.orbit17-ui #flow-fan button.orbit-dragging {z-index:95;cursor:grabbing}
 .orbit12-ui.orbit-short-action #a11-mini-controls{left:150px;top:55px;transform:none}
 .orbit12-ui.orbit-short-action #a11-action-detail{max-width:235px}
 
-/* Axx Tri-Modal Selector (Local, API, ChatGPT Auth) */
+/* Provider choices are views; selecting a card never changes the active route. */
 .ai-mode-selector {
-  display: flex;
-  gap: 6px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  padding: 4px;
-  border-radius: 14px;
-  margin-bottom: 14px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 9px;
+  margin: 18px 0;
 }
 .ai-mode-btn {
-  flex: 1;
-  padding: 8px 10px;
-  font-size: 12px;
-  font-weight: 600;
-  border: 0;
-  border-radius: 10px;
-  background: transparent;
-  color: #94a3b8;
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  min-height: 92px;
+  padding: 13px;
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  background: var(--surface-subtle, var(--surface));
+  color: var(--ink, var(--text));
   cursor: pointer;
-  transition: all 0.2s ease;
-  white-space: nowrap;
+  transition: border-color .15s ease, background-color .15s ease;
 }
+.ai-mode-btn strong{font-size:14px;line-height:1.25}.ai-mode-btn small{font-size:11px;line-height:1.35;color:var(--secondary,var(--muted))}
 .ai-mode-btn:hover {
-  color: #f1f5f9;
-  background: rgba(255, 255, 255, 0.06);
+  border-color:var(--accent);
 }
 .ai-mode-btn.active {
-  background: rgba(56, 189, 248, 0.18);
-  color: #ffffff;
-  border: 1px solid rgba(56, 189, 248, 0.35);
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+  background:var(--accent-soft,#76aaff24);
+  border-color:var(--accent);
+  box-shadow:inset 0 0 0 1px var(--accent);
 }
+.ai-current{display:grid;gap:4px;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:var(--surface-subtle,var(--surface));line-height:1.4}
+.ai-current strong{font-size:13px}.ai-current span{font-size:12px;color:var(--secondary,var(--muted))}
+.ai-section-head{display:flex;align-items:flex-start;gap:12px;margin:0 0 12px}.ai-section-head>span{display:grid;place-items:center;flex:none;width:32px;height:32px;border-radius:9px;background:var(--accent-soft,#76aaff24);color:var(--accent);font-weight:700}.ai-section-head h3{margin:0;font-size:17px}.ai-section-head p{margin:3px 0 0;font-size:12px;color:var(--secondary,var(--muted))}
+.ai-local-card{display:grid;gap:12px}.ai-local-card p{margin:0}.ai-local-card .setting{margin:0}.ai-local-card button{width:100%}
+.ai-connect-card{display:grid;gap:12px}.ai-connect-card .setting{margin:0}.ai-connect-card>#axx-connect-verify{width:100%}.ai-connect-card p{margin:0}
+#view-ai details.ai-advanced{border:1px solid var(--line);border-radius:12px;padding:0 14px;background:var(--surface-subtle,var(--surface))}
+#view-ai details.ai-advanced>summary{cursor:pointer;padding:14px 2px;font-weight:600;color:var(--ink,var(--text))}
+#view-ai .ai-advanced-body{display:grid;gap:12px;padding:0 0 16px}
+@media(max-width:620px){.ai-mode-selector{grid-template-columns:1fr}.ai-mode-btn{min-height:64px}.ai-mode-btn small{display:block}}
 .ai-subpanel {
   display: flex;
   flex-direction: column;
@@ -1634,17 +1640,21 @@ body.axx-resident :is(.panel-head,.flow-library-head,.organic-satellite-head,.v1
 <div hidden="" id="image-loaded"><div class="image-preview"><img alt="Vista previa de la imagen seleccionada" id="image-preview"/></div><p class="tool-feedback" id="image-info"></p><div class="image-config"><label>Ancho de salida<input class="field" id="image-width" max="4096" min="16" step="1" type="number" value="1200"/></label><label>Formato<select id="image-format"><option value="image/png">PNG · transparencia</option><option value="image/jpeg">JPG · fondo blanco</option><option value="image/webp">WebP</option></select></label></div><label class="range-label">Calidad (JPG / WebP)<output id="image-quality-label">90%</output><input id="image-quality" max="100" min="20" type="range" value="90"/></label><p class="tool-feedback" id="image-target"></p><button class="primary wide-button" id="image-export">Preparar descarga <span>↓</span></button><p class="micro-copy">Se conserva la proporción y no se amplía por encima del original. GIF se exporta como una imagen estática. La descarga puede omitir metadatos.</p></div><p class="tool-feedback" id="image-error" role="status"></p>
 </section>
 <section class="panel-view" hidden="" id="view-ai">
-<p class="panel-description">Preguntas, redacción y conversación con un modelo real. Elige entre ejecución local, por clave de API o tu suscripción oficial de ChatGPT.</p>
+<p class="panel-description">Elige dónde quieres que Axx procese tus preguntas. Los comandos del equipo funcionan aunque no conectes un modelo.</p>
+<div class="ai-current" role="status" aria-live="polite"><strong>Modelo en uso</strong><span id="ai-active-route">Comprobando conexión…</span></div>
 
 <div class="ai-mode-selector" role="tablist" aria-label="Modalidad de modelo">
-  <button class="ai-mode-btn active" id="tab-mode-local" role="tab" type="button" data-ai-mode="local">💻 Local</button>
-  <button class="ai-mode-btn" id="tab-mode-api" role="tab" type="button" data-ai-mode="api">🔑 Por API</button>
-  <button class="ai-mode-btn" id="tab-mode-chatgpt" role="tab" type="button" data-ai-mode="chatgpt">🔐 ChatGPT · suscripción</button>
+  <button class="ai-mode-btn active" id="tab-mode-local" role="tab" aria-selected="true" aria-controls="subpanel-local" type="button" data-ai-mode="local"><strong>💻 En mi equipo</strong><small>Ollama · sin clave de API</small></button>
+  <button class="ai-mode-btn" id="tab-mode-chatgpt" role="tab" aria-selected="false" aria-controls="subpanel-chatgpt" type="button" data-ai-mode="chatgpt"><strong>✦ ChatGPT</strong><small>Mi suscripción · iniciar sesión</small></button>
+  <button class="ai-mode-btn" id="tab-mode-api" role="tab" aria-selected="false" aria-controls="subpanel-api" type="button" data-ai-mode="api"><strong>⚙ Otros modelos</strong><small>API · ajustes avanzados</small></button>
 </div>
 
 <select id="ai-provider" hidden=""><option value="ollama">Ollama</option><option value="compat">Compat</option><option value="bridge">Bridge</option><option value="chatgpt">ChatGPT</option><option value="none">None</option></select>
 
 <div class="ai-subpanel" id="subpanel-local">
+  <div class="ai-section-head"><span>01</span><div><h3>Usar Ollama</h3><p>Elige uno de los modelos instalados en este equipo.</p></div></div>
+  <section class="setup-card ai-local-card"><button id="ollama-quick-find" type="button">Ver modelos instalados</button><label class="setting">Modelo de Ollama<select id="ollama-quick-model"><option value="">Comprueba Ollama</option></select></label><button class="primary" id="ollama-quick-use" type="button">Usar este modelo</button><p id="ollama-quick-status" class="micro-copy" role="status"></p></section>
+  <details class="ai-advanced" id="local-advanced"><summary>Otro servidor local o de mi red</summary><div class="ai-advanced-body">
   <label class="setting">Tipo de servidor local
     <select id="local-server-type">
       <option value="ollama">Ollama (http://127.0.0.1:11434)</option>
@@ -1659,6 +1669,7 @@ body.axx-resident :is(.panel-head,.flow-library-head,.organic-satellite-head,.v1
     <button id="ai-disconnect">Desconectar</button>
   </div>
   <p class="micro-copy">Los mensajes se procesan en el servidor que elijas. Puedes usar este equipo o una IP de tu red local.</p>
+  </div></details>
 </div>
 
 <div class="ai-subpanel" id="subpanel-api" hidden="">
@@ -8112,26 +8123,13 @@ var Axx;
             });
 
             const setAiMode = (mode) => {
-                document.querySelectorAll('.ai-mode-btn').forEach(b => b.classList.toggle('active', b.dataset.aiMode === mode));
+                document.querySelectorAll('.ai-mode-btn').forEach(b => { const active=b.dataset.aiMode === mode; b.classList.toggle('active', active); b.setAttribute('aria-selected', String(active)); });
                 node('subpanel-local').hidden = mode !== 'local';
                 node('subpanel-api').hidden = mode !== 'api';
                 node('subpanel-chatgpt').hidden = mode !== 'chatgpt';
                 this.data.prefs.ai_mode = mode;
-                if (mode === 'local') {
-                    this.data.prefs.selection_mode = 'manual';
-                    this.data.prefs.provider = node('local-server-type').value;
-                    node('ai-provider').value = this.data.prefs.provider;
-                } else if (mode === 'api') {
-                    this.data.prefs.provider = 'bridge';
-                    node('ai-provider').value = 'bridge';
-                } else if (mode === 'chatgpt') {
-                    this.data.prefs.selection_mode = 'manual';
-                    this.data.prefs.provider = 'chatgpt';
-                    node('ai-provider').value = 'chatgpt';
-                    void this.refreshChatGPTUI();
-                }
+                if (mode === 'chatgpt') void this.refreshChatGPTUI();
                 this.save();
-                this.syncProvider();
             };
 
             document.querySelectorAll('.ai-mode-btn').forEach(btn => {
@@ -8140,13 +8138,7 @@ var Axx;
 
             node('local-server-type').onchange = () => {
                 const val = node('local-server-type').value;
-                this.data.prefs.selection_mode = 'manual'; this.data.prefs.provider = val;
-                node('ai-provider').value = val;
-                if (val === 'compat') this.data.prefs.endpoint = 'http://127.0.0.1:1234';
-                if (val === 'ollama') this.data.prefs.endpoint = 'http://127.0.0.1:11434';
-                node('ai-endpoint').value = this.data.prefs.endpoint;
-                this.syncPreferences();
-                this.save();
+                node('ai-endpoint').value = val === 'compat' ? 'http://127.0.0.1:1234' : 'http://127.0.0.1:11434';
             };
 
             click('chatgpt-login-btn', async () => {
@@ -9344,7 +9336,19 @@ var Axx;
                 }
             }, 1500);
         }
-        syncProvider() { const connected = this.brain.connected, label = connected ? this.brain.providerName + ' · ' + this.data.prefs.model : 'Herramientas locales · sin IA'; node('chat-provider').textContent = label; node('chat-provider').title = label; document.querySelector('.chat-connection').classList.toggle('connected', connected); node('chat-privacy').textContent = connected ? 'Al enviar: contexto de este hilo y adjunto → proveedor seleccionado. La IA no ejecuta herramientas.' : 'Sin IA conectada. Los comandos se procesan en este equipo.'; node('chat-thread-label').textContent = connected ? (this.brain.inferenceVerified ? 'IA · RESPUESTA VERIFICADA EN SESIÓN' : 'SERVIDOR DETECTADO · INFERENCIA SIN VERIFICAR') : 'CONVERSACIÓN LOCAL'; node('runtime-label').textContent = this.app.bridge.available ? 'LOCAL · WINDOWS' : 'LOCAL · NAVEGADOR'; node('endpoint-setting').hidden = this.data.prefs.provider === 'bridge' || this.data.prefs.provider === 'none' || this.data.prefs.provider === 'chatgpt'; node('ai-model').disabled = !connected; }
+        syncProvider() {
+            const p = this.data.prefs, connected = this.brain.connected;
+            const label = connected ? this.brain.providerName + ' · ' + p.model : 'Herramientas locales · sin IA';
+            node('chat-provider').textContent = label; node('chat-provider').title = label;
+            document.querySelector('.chat-connection').classList.toggle('connected', connected);
+            node('chat-privacy').textContent = connected ? 'Al enviar: contexto de este hilo y adjunto → proveedor seleccionado. La IA no ejecuta herramientas.' : 'Sin IA conectada. Los comandos se procesan en este equipo.';
+            node('chat-thread-label').textContent = connected ? (this.brain.inferenceVerified ? 'IA · RESPUESTA VERIFICADA EN SESIÓN' : 'SERVIDOR DETECTADO · INFERENCIA SIN VERIFICAR') : 'CONVERSACIÓN LOCAL';
+            node('runtime-label').textContent = this.app.bridge.available ? 'LOCAL · WINDOWS' : 'LOCAL · NAVEGADOR';
+            node('endpoint-setting').hidden = false;
+            node('ai-model').disabled = !connected;
+            const route = node('ai-active-route');
+            if (route) route.textContent = connected ? `${p.provider === 'chatgpt' ? 'ChatGPT' : p.apiConnection || this.brain.providerName} · ${p.model || 'modelo automático'} · ${this.brain.inferenceVerified ? 'respuesta comprobada' : 'respuesta por comprobar'}` : p.model ? `${p.model} guardado · conexión por comprobar` : 'Sin modelo seleccionado. Los comandos locales están disponibles.';
+        }
         syncPreferences() {
             const p = this.data.prefs;
             this.audio.configure(p);
@@ -9370,8 +9374,8 @@ var Axx;
             
             const selectionMode = document.getElementById('provider-selection-mode');
             if (selectionMode) selectionMode.value = p.selection_mode || 'manual';
-            const mode = p.provider === 'chatgpt' ? 'chatgpt' : (p.provider === 'bridge' ? 'api' : 'local');
-            document.querySelectorAll('.ai-mode-btn').forEach(b => b.classList.toggle('active', b.dataset.aiMode === mode));
+            const mode = ['local','api','chatgpt'].includes(p.ai_mode) ? p.ai_mode : p.provider === 'chatgpt' ? 'chatgpt' : (p.provider === 'bridge' ? 'api' : 'local');
+            document.querySelectorAll('.ai-mode-btn').forEach(b => { const active=b.dataset.aiMode === mode; b.classList.toggle('active', active); b.setAttribute('aria-selected', String(active)); });
             if (node('subpanel-local')) node('subpanel-local').hidden = mode !== 'local';
             if (node('subpanel-api')) node('subpanel-api').hidden = mode !== 'api';
             if (node('subpanel-chatgpt')) node('subpanel-chatgpt').hidden = mode !== 'chatgpt';
