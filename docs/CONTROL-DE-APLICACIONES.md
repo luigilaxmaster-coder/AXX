@@ -25,12 +25,14 @@ La apertura diferencia `launch_requested`, `window_observed`, `foreground_verifi
 | `axx.desktop.window.inspect` | `window_id` hexadecimal observado y `pid` | Árbol UIA limitado, sin valores de campos de texto. | Lectura |
 | `axx.desktop.window.focus` | `window_id` y `pid` | Comprueba que la identidad sigue vigente y verifica el HWND foreground después de pedir foco. | Local reversible |
 | `axx.desktop.window.set_value` | `window_id`, `pid`, `control_id` efímero emitido por inspección UIA, texto literal | Re-resuelve el RuntimeId dentro de la ventana observada; requiere un único control visible/habilitado con `ValuePattern`; verifica lectura posterior por longitud y SHA-256. | Aprobación por operación |
+| `axx.desktop.explorer.folder` | `path` absoluto local | Abre la carpeta y comprueba ubicación Shell, identidad y foreground. | Local reversible |
+| `axx.desktop.notepad.text` | `window_title` exacto observado, `value` literal | Vuelve a resolver Notepad y su editor; comprueba longitud UTF-16 y SHA-256. | Aprobación por operación |
 
 Las referencias HWND/PID y el `control_id` son efímeros: deben venir de la observación actual y se vuelven a resolver antes de actuar. El texto no se transforma en código ni se envía a través de PowerShell como fuente. La acción `set_value` no envía formularios ni pulsa botones; una aprobación de escritura no autoriza un envío.
 
 ## Ejecución UI Automation
 
-`backend/actions/uia_worker.ps1` es un worker estático empaquetado con el backend. `windows_automation.py` lo ejecuta en un proceso PowerShell separado con `-MTA`, límites de tiempo/salida y JSON por stdin. La fuente del worker se envía como payload codificado fijo; los parámetros del usuario permanecen datos JSON. No cambia la política de ejecución de PowerShell.
+`backend/actions/uia_worker.ps1` es un worker estático empaquetado con el backend. `windows_automation.py` lo ejecuta en un proceso PowerShell separado con `-MTA`, límites de tiempo/salida y JSON por stdin. Un cargador constante y corto lee ese archivo empaquetado; así la línea de comandos no crece con el worker ni supera el límite de Windows. Los parámetros del usuario permanecen datos JSON. No cambia la política de ejecución de PowerShell.
 
 Una respuesta de timeout se considera incierta. Se inspecciona la ventana antes de repetir; la interfaz no reenvía el mismo efecto automáticamente. UIA sin `ValuePattern`, controles ambiguos, proceso cambiado, pérdida de foco o control fuera de pantalla hacen fallar cerrado. No se usa un fallback a coordenadas antiguas ni al shell.
 

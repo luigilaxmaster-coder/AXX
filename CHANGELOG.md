@@ -1,5 +1,14 @@
 # Change log
 
+## 0.21.3 — 2026-10-23 · Verified Windows application procedures
+
+- Coordinate local application automation and phone control through the existing Windows input owner, with observable origin, cancellation and lease invalidation.
+- Restore and verify Explorer foreground; add typed local-folder and approved Notepad-text workflows with observed targets and postconditions.
+- Save successful flows as parameterized procedures and resolve windows and UIA controls again on every replay.
+- Preserve uncertain writes and reconcile by readback without repeating effects. Keep the fixed UIA launcher below the Windows command-line limit.
+- Write resident native logs to a file so closed launcher stdout/stderr pipes cannot crash the GUI.
+- Preserve the 3D interface, settings and independent Android version. See [release notes](docs/releases/0.21.3.md) and [installed delivery evidence](CURRENT-DELIVERY.md).
+
 ## 0.20.11 — 2026-10-22 · Free avatar dragging
 
 - Remove the transparent-canvas margin that prevented placing the small avatar near a screen corner.

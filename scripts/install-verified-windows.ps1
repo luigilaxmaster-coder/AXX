@@ -38,11 +38,17 @@ $launchInfo = New-Object System.Diagnostics.ProcessStartInfo
 $launchInfo.FileName = $appExecutable
 $launchInfo.WorkingDirectory = $appDirectory
 $launchInfo.UseShellExecute = $false
+# A resident GUI must not keep the verification terminal's pipes alive.
+# Native diagnostics go to LogDir; closed launcher streams are acceptance-tested.
+$launchInfo.RedirectStandardOutput = $true
+$launchInfo.RedirectStandardError = $true
 $launchInfo.EnvironmentVariables['PATH'] = 'C:\Windows\System32;C:\Windows'
 foreach ($name in @('PYTHONPATH','PYTHONHOME','VIRTUAL_ENV')) {
     $launchInfo.EnvironmentVariables.Remove($name)
 }
 $launchedProcess = [System.Diagnostics.Process]::Start($launchInfo)
+$launchedProcess.StandardOutput.Close()
+$launchedProcess.StandardError.Close()
 $nativeProcess = $null
 $hostEvidence = $null
 $evidenceFile = Join-Path $env:LOCALAPPDATA 'Axx\logs\native-runtime.json'
@@ -89,7 +95,7 @@ $runtime = [ordered]@{
     result='INSTALLED_RUNTIME_STARTED';version=$build.artifacts[0].version;
     started=$started.ToString('o');completed=[DateTimeOffset]::Now.ToString('o');
     installer=$installer.FullName;installer_sha256=$build.artifacts[0].sha256;installer_exit=$installProcess.ExitCode;
-    executable=$appExecutable;pid=$nativeProcess.ProcessId;launch='Installed EXE; UseShellExecute=false; PATH limited to Windows; Python environment overrides removed';
+    executable=$appExecutable;pid=$nativeProcess.ProcessId;launch='Installed EXE; UseShellExecute=false; closed launcher streams; PATH limited to Windows; Python environment overrides removed';
     launched_at=$launchTime.ToString('o');working_directory=$appDirectory;
     backend=@{pid=$backendProcess.ProcessId;port=$hostEvidence.backendPort;instance_id=$hostEvidence.backendInstance;executable=$backendProcess.ExecutablePath;authenticated_by_native_host=$hostEvidence.backendReady;unauthenticated_http_status=$httpStatus};
     native_surface=$hostEvidence.desktop;native_window_visible=$hostEvidence.windowVisible;
