@@ -20,19 +20,35 @@
       <pre id="window-content-text" style="white-space:pre-wrap;overflow-wrap:anywhere;max-height:240px;overflow:auto" tabindex="0" aria-label="Contenido observado"></pre>
       <div id="window-content-links"></div><button id="window-content-attach" type="button" hidden>Usar en mi próxima pregunta al modelo</button>`;
     $('command-library').after(section);
-    let windows = [], snapshot = null, target = null;
+    let windows = [], snapshot = null, target = null, readAloud = false;
     const status = text => { $('window-content-status').textContent = text; Axx.resident?.schedule(); };
     const run = action => Promise.resolve().then(action).catch(error => { status(error.message); Axx.companion.localNotice(error.message); });
     async function refresh() {
         if (commands.busy || commands.operation) throw new Error('Revisa o cancela la tarea pendiente antes de leer otra ventana.');
+        windows = []; $('window-content-select').replaceChildren(); $('window-content-read').disabled = true;
         await commands.prepare('axx.desktop.list_windows', {}, 'text');
-        windows = commands.lastOperation?.output?.windows || [];
+        if (commands.lastOperation?.state === 'succeeded') { acceptWindows(commands.lastOperation); return true; }
+        status('Aprueba la consulta de ventanas en la tarjeta del chat y vuelve a Comandos.'); return false;
+    }
+    function acceptWindows(operation) {
+        windows = operation.output?.windows || [];
         const select = $('window-content-select'); select.replaceChildren();
         for (const window of windows) {
-            const option = document.createElement('option'); option.value = String(window.window_id); option.textContent = window.title; select.append(option);
+            const option = document.createElement('option'); option.value = String(window.window_id);
+            option.textContent = window.title + ' · PID ' + window.pid; select.append(option);
         }
         $('window-content-read').disabled = !windows.length;
-        status(windows.length ? 'Elige la ventana que quieres leer.' : 'No hay ventanas disponibles.');
+        status(windows.length ? 'Selecciona el destino observado antes de preparar la acción.' : 'No hay ventanas disponibles.');
+    }
+    function open(options = {}) {
+        readAloud = options.readAloud === true;
+        commands.open(); section.scrollIntoView({block:'start'});
+        if (typeof options.text === 'string') {
+            $('window-control-value').value = options.text;
+            $('window-control-value').closest('details').open = true;
+        }
+        $('window-content-refresh').focus();
+        status('Busca las ventanas abiertas y selecciona el destino. La tarjeta pedirá aprobación antes de leer o escribir.');
     }
     async function read(window) {
         if (!window) throw new Error('Selecciona una ventana disponible.');
@@ -50,6 +66,12 @@
     }
     function accept(operation) {
         snapshot = operation.output;
+        if (readAloud && target?.window_id === snapshot.window_id && target?.pid === snapshot.pid && snapshot.text) {
+            readAloud = false;
+            $('reader-source').value = snapshot.text;
+            Axx.symbiosis.reader.setText(snapshot.text, target.title);
+            Axx.companion.openFeature('reader'); Axx.symbiosis.startReader();
+        }
         $('window-content-text').textContent = snapshot.text || 'La aplicación no expuso texto legible.';
         status('Lectura local · ' + (target?.window_id === snapshot.window_id && target?.pid === snapshot.pid ? target.title : 'ventana ' + snapshot.window_id) + (snapshot.truncated ? ' · contenido parcial' : '') + '. ' + snapshot.limitation);
         const list = $('window-content-links'); list.replaceChildren();
@@ -93,7 +115,7 @@
     Axx.companion.send = async (text, metadata) => {
         const raw = String(text || '').trim(), match = raw.match(/^(?:\/leer|lee(?: el contenido de)?(?: la (?:ventana|p[aá]gina))?)\s+(.+)$/i);
         if (match) return run(async () => {
-            Axx.companion.message('user', raw, 'local'); await refresh();
+            Axx.companion.message('user', raw, 'local'); if (!await refresh()) return;
             const query = match[1].toLocaleLowerCase(), found = windows.filter(w => w.title.toLocaleLowerCase().includes(query));
             if (found.length !== 1) { Axx.companion.openFeature('files'); section.scrollIntoView(); throw new Error(found.length ? 'Hay varias ventanas coincidentes. Selecciona la que quieres leer.' : 'No encontré esa ventana abierta. Selecciónala en «Leer páginas y aplicaciones».'); }
             $('window-content-select').value = String(found[0].window_id); await read(found[0]);
@@ -106,5 +128,5 @@
         });
         return previous(text, metadata);
     };
-    Axx.windowContent = {accept};
+    Axx.windowContent = {accept, acceptWindows, open};
 })();

@@ -1,5 +1,20 @@
 # Change log
 
+## 0.21.4 — 2026-10-24 · Chat workspace, continuous voice and visual consistency
+
+- Persist conversations and drafts locally with 90-day retention, curated groups and explicitly linked thread extracts.
+- Add agent instructions/context, per-chat Ask/Auto safe modes, recoverable pending cards and a command browser with extension documentation.
+- Unify light/dark surfaces, fonts and custom colors; preserve independent panel sizes and prevent tool overlap.
+- Buffer speech by phrase, preserve punctuation and add continuous voice turns with interruption and microphone release.
+- Add the one-click **Voz en vivo** capsule beside the composer; keep direct Whisper dictation in the draft, with stale-result cancellation and a single command-voice shortcut handler.
+- Repair Magic Pen with responsive drawing, gesture-triggered live analysis, cancellable jobs, exact provider selection and a separate historical preview; preserve immutable capture evidence and PNG export.
+- Preserve the user's chosen focus when opening chat; eliminate competing delayed autofocus that could redirect search keystrokes into the message draft.
+- Add a versioned capability workshop: selected-model proposals, revision-bound review, real executor validation, activation, revocation and rollback. Generated source remains an exportable review artifact.
+- Apply ECC review workflows; fix interrupted UIA-read recovery, command approval metadata, conversational mobile routing and cross-chat command-result leakage.
+- Attach tapered tentacles to the rendered body contour; replace faceted tube shading with continuous analytic normals, subpixel coverage and filtered material reflections. Orient the raster along each connection to retain near/far detail, and remove transparent-window contour trails.
+- Review Antigravity's UIA discovery through existing typed commands, exact observed targets and backend approval policy.
+- Preserve the 3D identity, local voices/data and independent Android version. [Release notes](docs/releases/0.21.4.md).
+
 ## 0.21.3 — 2026-10-23 · Verified Windows application procedures
 
 - Coordinate local application automation and phone control through the existing Windows input owner, with observable origin, cancellation and lease invalidation.

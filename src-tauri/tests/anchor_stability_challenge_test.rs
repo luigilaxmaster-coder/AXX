@@ -9,6 +9,17 @@ use std::time::{Duration, Instant};
 static ACTIVE_PANEL_DRAG: AtomicBool = AtomicBool::new(false);
 static LAST_LAYOUT_INSTANT: Mutex<Option<Instant>> = Mutex::new(None);
 static LAYOUT_CHANGING: AtomicBool = AtomicBool::new(false);
+// Each test models one resident process. Rust runs tests in parallel by default;
+// their process-global fixtures must not toggle another test's drag state. The
+// race challenge still runs its own threads concurrently under this case lease.
+static TEST_CASE: Mutex<()> = Mutex::new(());
+fn isolate_resident_fixture() -> std::sync::MutexGuard<'static, ()> {
+    let guard = TEST_CASE.lock().unwrap();
+    ACTIVE_PANEL_DRAG.store(false, Ordering::Relaxed);
+    LAYOUT_CHANGING.store(false, Ordering::Relaxed);
+    *LAST_LAYOUT_INSTANT.lock().unwrap() = None;
+    guard
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Geometry {
@@ -76,6 +87,7 @@ impl ResidentState {
 
 #[test]
 fn test_record_move_suppression_during_active_panel_drag() {
+    let _case = isolate_resident_fixture();
     let state = ResidentState::new(1000.0, 600.0, 150.0, 150.0);
     ACTIVE_PANEL_DRAG.store(true, Ordering::Relaxed);
 
@@ -95,6 +107,7 @@ fn test_record_move_suppression_during_active_panel_drag() {
 
 #[test]
 fn test_record_move_suppression_during_300ms_layout_stabilization() {
+    let _case = isolate_resident_fixture();
     let state = ResidentState::new(1200.0, 700.0, 200.0, 200.0);
     ACTIVE_PANEL_DRAG.store(false, Ordering::Relaxed);
 
@@ -116,6 +129,7 @@ fn test_record_move_suppression_during_300ms_layout_stabilization() {
 
 #[test]
 fn test_legitimate_avatar_move_accepted_after_stabilization() {
+    let _case = isolate_resident_fixture();
     let state = ResidentState::new(800.0, 500.0, 100.0, 100.0);
     ACTIVE_PANEL_DRAG.store(false, Ordering::Relaxed);
 
@@ -138,6 +152,7 @@ fn test_legitimate_avatar_move_accepted_after_stabilization() {
 
 #[test]
 fn test_multithreaded_rapid_event_race_condition_resilience() {
+    let _case = isolate_resident_fixture();
     use std::sync::Arc;
     use std::thread;
 

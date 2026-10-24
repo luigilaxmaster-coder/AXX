@@ -51,6 +51,27 @@ class CommandLibraryTests(unittest.TestCase):
                 self.service.resolve(phrase, 'text')
         self.assertEqual(self.executor.list_operations(), [])
 
+    def test_pre_dispatch_rejection_is_failed_and_read_reconciliation_has_no_effect(self):
+        from backend.actions.executor import ActionExecutionError
+        pending = self.prepare(command_mode='auto_safe', conversation_id='test-read')
+        with patch.object(self.executor, 'execute_action', side_effect=ActionExecutionError('Unexpected action inputs')):
+            result = self.service.execute(pending['operation_id'])
+        self.assertEqual(result['state'], 'failed')
+        self.assertEqual(result['error']['code'], 'DISPATCH_REJECTED')
+        pending = self.prepare(command_mode='auto_safe', conversation_id='test-read')
+        with patch.object(self.executor, 'execute_action', side_effect=RuntimeError('transport failure')):
+            result = self.service.execute(pending['operation_id'])
+        self.assertEqual(result['state'], 'unknown')
+        self.assertTrue(result['evidence']['reconciliation_required'])
+        self.assertTrue(self.service.operations()[0]['evidence']['reconciliation_required'])
+        with patch.object(self.executor, 'execute_action') as execute:
+            reconciled = self.service.reconcile(pending['operation_id'])
+            execute.assert_not_called()
+        self.assertEqual(reconciled['state'], 'failed')
+        self.assertFalse(reconciled['postconditions_passed'])
+        self.assertEqual(reconciled['evidence']['verification'], 'read_only_failure_without_effect')
+        self.assertEqual(self.prepare(command_mode='auto_safe', conversation_id='test-read')['state'], 'prepared')
+
     def test_telemetry_uses_real_executor_and_persisted_evidence(self):
         pending = self.prepare()
         result = self.service.execute(pending['operation_id'])
@@ -61,6 +82,31 @@ class CommandLibraryTests(unittest.TestCase):
         self.assertEqual(self.service.get(result['operation_id'])['evidence'], result['evidence'])
         self.assertTrue(self.service.execute(result['operation_id'])['replayed'])
         self.assertEqual(len(self.executor.list_operations()), 1)
+
+    def test_interrupted_serial_uia_reads_reconcile_without_dispatch(self):
+        from backend.commands import CommandService, PARALLEL_READ_COMMANDS
+        for command in ('axx.desktop.window.read', 'axx.desktop.window.inspect'):
+            with self.subTest(command=command):
+                inputs = {'window_id':'0x1234','pid':10}
+                if command.endswith('.read'): inputs['expected_title'] = 'Observed window'
+                pending = self.prepare(command, inputs, conversation_id='review-thread', command_mode='ask')
+                with self.service.lock:
+                    self.service._save(pending | {'state':'running'})
+                self.service.close()
+                self.service = CommandService(self.executor)
+                recovered = self.service.get(pending['operation_id'])
+                self.assertEqual(recovered['state'],'unknown')
+                self.assertTrue(recovered['evidence']['reconciliation_required'])
+                self.assertNotIn(command,PARALLEL_READ_COMMANDS)
+                with patch.object(self.executor,'execute_action') as dispatch:
+                    result = self.service.reconcile(pending['operation_id'])
+                    dispatch.assert_not_called()
+                self.assertEqual(result['state'],'failed')
+                self.assertFalse(result['postconditions_passed'])
+                self.assertEqual(result['evidence']['verification'],'read_only_failure_without_effect')
+                next_operation = self.prepare(command_mode='ask',conversation_id='review-thread')
+                self.assertEqual(next_operation['state'],'awaiting_approval')
+                self.service.cancel(next_operation['operation_id'])
 
     def test_window_read_reaches_executor_only_after_approval_and_replays_receipt(self):
         inputs = {'window_id': '0x1234', 'pid': 10, 'expected_title': 'Example Domains'}

@@ -1,0 +1,203 @@
+/* Axx Surface: shared tokens and control hierarchy, independent of the 3D materials. */
+body.native.axx-resident[data-ui-theme]{--surface:#fff;--surface-subtle:#f6f6f7;--surface-raised:#f1f1f3;--field:#f8f8fa;--line:#00000015;--ink:#29292f;--secondary:#686872;--quiet:#6c6c76;--accent:#005fc7;--accent-fill:#0064cf;--accent-soft:#007aff0d;--button:#fff;--button-hover:#ededf1;--danger:#b53a3a;--success:#287355;--shadow:0 16px 42px #0002;--scheme:light}
+body.native.axx-resident[data-ui-theme=dark]{--surface:#202023;--surface-subtle:#28282c;--surface-raised:#303034;--field:#252529;--line:#ffffff16;--ink:#ededf1;--secondary:#b1b1ba;--quiet:#96969f;--accent:#64afff;--accent-fill:#006cdb;--accent-soft:#0a84ff1c;--button:#353539;--button-hover:#414147;--danger:#f39b9b;--success:#86c8a7;--shadow:0 16px 42px #0005;--scheme:dark}
+body.native.axx-resident[data-ui-theme] :is(#panel,#flow-library,#v13-dock,#v13-settings,#v13-pad,.organic-satellite,#reach-tray,#ink-review,#reader-mini,#context-menu){--ui-surface:var(--surface);--ui-raised:var(--surface-raised);--ui-border:var(--line);--ui-text:var(--ink);--ui-muted:var(--secondary);--ui-accent:var(--accent);--text:var(--ink);--muted:var(--secondary);--border:var(--line);color:var(--ink)!important;color-scheme:var(--scheme);background:var(--surface)!important;background-image:none!important;border:1px solid var(--line)!important;border-radius:15px!important;box-shadow:var(--shadow)!important;font-family:"Segoe UI Variable","Segoe UI",sans-serif;backdrop-filter:none!important}
+body.native.axx-resident[data-ui-theme][data-flow-step="2"] #flow-sheet{background:transparent!important;border:0!important;box-shadow:none!important}
+body.native.axx-resident[data-ui-theme] #panel:not([data-view=chat]){padding:22px!important}
+body.native.axx-resident[data-ui-theme] :is(#panel:not([data-view=chat]),#v13-dock,#v13-settings,#v13-pad,.organic-satellite,#reach-tray,#ink-review,#reader-mini) :is(h2,h3,h4,strong,b){color:var(--ink)!important;text-shadow:none!important;letter-spacing:-.25px}
+body.native.axx-resident[data-ui-theme] :is(#panel:not([data-view=chat]),#v13-dock,#v13-settings,#v13-pad,.organic-satellite,#reach-tray,#ink-review,#reader-mini) :is(p,small,label,summary,li,output){color:var(--secondary)!important;text-shadow:none!important}
+body.native.axx-resident[data-ui-theme] :is(#panel:not([data-view=chat]),#v13-settings,#v13-pad,.organic-satellite) p{font-size:13px!important;line-height:1.7!important}
+body.native.axx-resident[data-ui-theme] #panel:not([data-view=chat]) :is(.panel-head,.flow-library-head){gap:10px;border-bottom:1px solid var(--line)!important;padding-bottom:16px!important;margin-bottom:0}
+body.native.axx-resident[data-ui-theme] #panel:not([data-view=chat]) #panel-title{font-size:22px!important;line-height:1.25;font-weight:600!important;letter-spacing:-.6px!important}
+body.native.axx-resident[data-ui-theme] #panel:not([data-view=chat]) .panel-view{padding:20px 2px 12px!important;scrollbar-color:var(--line) transparent;scrollbar-width:thin;line-height:1.65}
+body.native.axx-resident[data-ui-theme] :is(#panel:not([data-view=chat]),#v13-settings,#v13-pad,.organic-satellite) :is(.section-title,.micro-label,.field-label,.m15-eyebrow,.id20-kicker,.a11-tool-kicker,.t19-kicker,.m16-kicker){color:var(--secondary)!important;font-size:11px!important;font-weight:600;letter-spacing:.45px}
+body.native.axx-resident[data-ui-theme] :is(#panel:not([data-view=chat]),#flow-library,#v13-dock,#v13-settings,#v13-pad,.organic-satellite,#reach-tray,#ink-review,#reader-mini,#context-menu) button:not([data-palette]){color:var(--ink)!important;background:var(--button)!important;background-image:none!important;border:1px solid var(--line)!important;box-shadow:none!important;text-shadow:none!important;border-radius:9px!important;min-height:40px;font:13px/1.4 "Segoe UI",sans-serif;letter-spacing:0!important;padding:9px 13px;transition:background-color 100ms!important}
+body.native.axx-resident[data-ui-theme] :is(#panel:not([data-view=chat]),#flow-library,#v13-settings,.organic-satellite,#reach-tray) button:hover:not(:disabled){background:var(--button-hover)!important;border-color:var(--line)!important}
+body.native.axx-resident[data-ui-theme] :is(#panel:not([data-view=chat]),#v13-settings,#v13-pad,.organic-satellite,#ink-review,#reach-tray) :is(input,textarea,select):not([type=range]):not([type=checkbox]):not([type=radio]):not([type=color]):not([type=file]){color:var(--ink)!important;background:var(--field)!important;border:1px solid var(--line)!important;border-radius:9px!important;box-shadow:none!important;padding:11px 12px;font-size:13px!important;line-height:1.5;min-height:40px}
+body.native.axx-resident[data-ui-theme] :is(#panel,#v13-settings,#v13-pad,.organic-satellite) :is(input,textarea)::placeholder{color:var(--quiet)!important}
+body.native.axx-resident[data-ui-theme] :is(#panel,#v13-settings,.organic-satellite) input:is([type=checkbox],[type=radio],[type=range]){accent-color:var(--accent)}
+body.native.axx-resident[data-ui-theme] :is(#panel,#flow-library,#v13-settings,.organic-satellite) :is(button,input,textarea,select,summary):focus-visible{outline:3px solid color-mix(in srgb,var(--accent) 45%,transparent)!important;outline-offset:2px!important}
+body.native.axx-resident[data-ui-theme] #panel:not([data-view=chat]) :is(.setup-card,.id20-card,.compat-info,.motion-profile,.settings-section,.profile-card,#wake20-roadmap,.s19-card,.reader-card,.voice-target,.state-banner,.capability-record,.experience-task,.event-receipt,.m16-connect,.m16-now,.m16-meter-card,.m16-volume,.cv-card,.cv-drop,.cv-result,.mp-answer,.mp-composer,.id20-apply,.stopwatch-face,.text-metrics,.note-item,.todo-row,.activity-item,.organic-feature-grid>button,.mode-cards>button,.finish-cards>button){background:var(--surface-subtle)!important;background-image:none!important;color:var(--ink)!important;border:1px solid var(--line)!important;border-radius:12px!important;box-shadow:none!important;text-shadow:none!important}
+body.native.axx-resident[data-ui-theme] #panel:not([data-view=chat]) :is(.setup-card,.settings-section,.profile-card,.compat-info){padding:18px!important;margin-bottom:18px}
+body.native.axx-resident[data-ui-theme] #panel:not([data-view=chat]) :is(.setting,.toggle,.range-label){padding:12px 0;margin:0;gap:12px;border-bottom:1px solid var(--line);font-size:13px;line-height:1.6}
+body.native.axx-resident[data-ui-theme] #panel:not([data-view=chat]) :is(.quick-row,.utility-actions,.text-actions){gap:8px;margin:12px 0;flex-wrap:wrap}
+body.native.axx-resident[data-ui-theme] #panel:not([data-view=chat]) details{background:transparent!important;border:1px solid var(--line)!important;border-radius:10px!important;padding:10px 13px!important;margin:12px 0}
+body.native.axx-resident[data-ui-theme] #panel:not([data-view=chat]) summary{min-height:40px;display:flex;align-items:center;font-size:12px;cursor:pointer;color:var(--secondary)!important}
+body.native.axx-resident[data-ui-theme] #panel:not([data-view=chat]) details[open]>summary{margin-bottom:12px;color:var(--ink)!important}
+body.native.axx-resident[data-ui-theme] #panel:not([data-view=chat]) :is(pre,.response,.calc-result){color:var(--ink)!important;background:var(--surface-subtle)!important;border:1px solid var(--line)!important;border-radius:10px;padding:14px;white-space:pre-wrap;overflow-wrap:anywhere}
+body.native.axx-resident[data-ui-theme] #panel:not([data-view=chat]) :is(.primary,#command-library-approve,#mp-ask,#cv-run,#t19-start,#stopwatch-start,#m16-play,#a11-music-toggle,.m15-add,#appearance-apply){background:var(--accent-fill)!important;color:#fff!important;border-color:transparent!important;font-weight:600!important}
+body.native.axx-resident[data-ui-theme] #panel:not([data-view=chat]) :is([aria-selected=true],button.active,button[aria-pressed=true],.form-option[aria-checked=true]){color:var(--ink)!important;background:var(--accent-soft)!important;border-color:color-mix(in srgb,var(--accent) 35%,transparent)!important}
+body.native.axx-resident[data-ui-theme] :is(#panel:not([data-view=chat]),#flow-library,#v13-settings) :is([role=tablist],.v13-tabs,.s19-tabs,.mp-modebar,#m16-sources,.cv-tabs,#flow-tabs){padding:4px;background:var(--surface-raised)!important;border:1px solid var(--line)!important;border-radius:10px;gap:4px}
+body.native.axx-resident[data-ui-theme] #panel:not([data-view=chat]) :is(.s19-tabs,.cv-tabs,#m16-sources,.mp-modebar) button{border:0!important;background:transparent!important}
+body.native.axx-resident[data-ui-theme] #panel:not([data-view=chat]) :is(.s19-tabs,.cv-tabs,#m16-sources,.mp-modebar) button.active{background:var(--surface)!important;color:var(--ink)!important;box-shadow:0 1px 3px #0001!important}
+body.native.axx-resident[data-ui-theme] #panel:not([data-view=chat]) :is(.s19-error,.m16-error,.error,#axx-mobile-error){color:var(--danger)!important;background:color-mix(in srgb,var(--danger) 5%,var(--surface))!important;border-color:color-mix(in srgb,var(--danger) 20%,transparent)!important}
+body.native.axx-resident[data-ui-theme] #panel:not([data-view=chat]) :is(.connection-message,#axx-mobile-status,#axx-connect-status){padding:12px 14px;background:var(--accent-soft)!important;color:var(--secondary)!important;border:1px solid var(--line)!important;border-radius:9px}
+/* Tool-specific hierarchy; do not recolor palette samples or image/video previews. */
+body.native.axx-resident[data-ui-theme] #panel #view-calculator #calc-result{display:block;margin:20px 0;padding:28px 20px;font-size:34px;font-weight:500;letter-spacing:-1px;text-align:right;font-variant-numeric:tabular-nums}
+body.native.axx-resident[data-ui-theme] #panel :is(#view-timer,#view-stopwatch) :is(.t19-display,#stopwatch-display,#stopwatch-time,#t19-clock,.t19-clock){font-variant-numeric:tabular-nums;letter-spacing:-2px;color:var(--ink)!important;text-shadow:none}
+body.native.axx-resident[data-ui-theme] #panel #view-notes #note-text{min-height:180px;font-size:15px!important;line-height:1.8;background:var(--surface)!important}
+body.native.axx-resident[data-ui-theme] #panel #view-notes .notes-list{display:grid;gap:10px;margin-top:20px}
+body.native.axx-resident[data-ui-theme] #panel :is(#view-todos,#view-inbox) :is(.todo-row,.activity-item){padding:14px;margin-bottom:8px}
+body.native.axx-resident[data-ui-theme] #panel :is(#view-textstudio,#view-translation,#view-reader,#view-dictation) textarea{min-height:150px;line-height:1.8!important;font-size:14px!important}
+body.native.axx-resident[data-ui-theme] #panel #view-textstudio .text-actions{display:flex;flex-wrap:wrap;gap:6px}
+body.native.axx-resident[data-ui-theme] #panel #view-music :is(.m16-now,.m16-connect){padding:20px!important;margin:16px 0}
+body.native.axx-resident[data-ui-theme] #panel #view-music :is(.m16-title,#m16-title){color:var(--ink)!important;font-size:20px;font-weight:600}
+body.native.axx-resident[data-ui-theme] #panel #view-music :is(#m16-subtitle,.m16-small){color:var(--secondary)!important}
+body.native.axx-resident[data-ui-theme] #panel #view-music .m16-cover{border-radius:12px;background:var(--surface-raised)!important;box-shadow:none!important}
+body.native.axx-resident[data-ui-theme] #panel #view-music .m16-transport button{border-radius:50%!important;padding:9px}
+body.native.axx-resident[data-ui-theme] #panel #view-screen .r19-status-card{padding:22px!important;margin:12px 0 18px}
+body.native.axx-resident[data-ui-theme] #panel #view-appearance .form-option{padding:12px 6px!important;min-height:110px;background:var(--surface-subtle)!important;color:var(--ink)!important;gap:8px}
+body.native.axx-resident[data-ui-theme] #panel #view-appearance :is(.id20-lead,.id20-section){border-color:var(--line)!important}
+body.native.axx-resident[data-ui-theme] #panel #view-ai .ai-mode-selector{background:var(--surface-raised)!important;border-color:var(--line)!important;padding:5px;border-radius:12px}
+body.native.axx-resident[data-ui-theme] #panel #view-ai .ai-subpanel{padding:18px!important;background:var(--surface-subtle)!important;border:1px solid var(--line)!important;border-radius:12px}
+body.native.axx-resident[data-ui-theme] #panel #view-help .help-copy p{padding:14px 0;border-bottom:1px solid var(--line)}
+body.native.axx-resident[data-ui-theme] #flow-grid .flow-tool{padding:0!important;background:var(--surface-subtle)!important;color:var(--ink)!important;border:1px solid var(--line)!important;border-radius:12px!important;box-shadow:none!important}
+body.native.axx-resident[data-ui-theme] #flow-grid .flow-tool :is(strong,span){color:var(--ink)!important}body.native.axx-resident[data-ui-theme] #flow-grid .flow-tool small{color:var(--secondary)!important}
+/* Theme selection and quick switch. */
+body.native.axx-resident[data-ui-theme] #panel .axx-theme-toggle{width:40px!important;min-width:40px;min-height:40px!important;height:40px;padding:10px!important;background:transparent!important;color:var(--secondary)!important;border:0!important;display:inline-grid;place-items:center;border-radius:8px!important}
+.axx-theme-toggle svg{width:20px;height:20px}#panel[data-view=chat] .axx-theme-global{display:none!important}
+#axx-interface-theme{display:flex;align-items:center;justify-content:space-between;gap:20px;flex-wrap:wrap}#axx-interface-theme strong{font-size:16px;font-weight:600}#axx-interface-theme p{margin:7px 0 0}
+.axx-theme-choices{display:flex;gap:10px}.axx-theme-choices button{display:flex;align-items:center;gap:9px}
+.axx-theme-sample{width:26px;height:21px;border-radius:5px;border:1px solid #0002;display:block}.axx-theme-sample.light{background:linear-gradient(90deg,#e5e5e9 30%,#fff 30%)}.axx-theme-sample.dark{background:linear-gradient(90deg,#34343a 30%,#202023 30%)}
+@media(prefers-reduced-motion:reduce){body.native.axx-resident[data-ui-theme] :is(#panel,#flow-library,.organic-satellite) *{transition:none!important;scroll-behavior:auto}}
+/* Dark chat uses the approved geometry and changes only color. */
+body.native.axx-resident[data-ui-theme=dark] #panel[data-view=chat]{background:var(--surface)!important;color:var(--ink)!important;color-scheme:dark}
+body.native.axx-resident[data-ui-theme=dark] #panel[data-view=chat]>.panel-head{background:var(--surface-subtle)!important;border-color:var(--line)!important}
+body.native.axx-resident[data-ui-theme=dark] #panel[data-view=chat] :is(.chat20-brand,#cw-title){color:var(--ink)!important}
+body.native.axx-resident[data-ui-theme=dark] #panel[data-view=chat] :is(#chat20-link-state,.chat20-pill-btn,#chat20-close,#chat20-menu>summary){color:var(--secondary)!important}
+body.native.axx-resident[data-ui-theme=dark] #panel[data-view=chat] :is(#cw-main,#chat-form){background:var(--surface)!important;color:var(--ink)!important;border-color:var(--line)!important}
+body.native.axx-resident[data-ui-theme=dark] #panel[data-view=chat] #cw-browser{background:var(--surface-subtle)!important;color:var(--ink);border-color:var(--line)}
+body.native.axx-resident[data-ui-theme=dark] #panel[data-view=chat] :is(#cw-browser label,#cw-context-open,#cw-browser summary,.cw-help,.cw-retention,.cw-check,#cw-context label,#cw-context-list small){color:var(--secondary)!important;border-color:var(--line)}
+body.native.axx-resident[data-ui-theme=dark] #panel[data-view=chat] :is(#cw-browser .cw-heading strong,#cw-context strong,#cw-context-list p,.cw-thread){color:var(--ink)!important}
+body.native.axx-resident[data-ui-theme=dark] #panel[data-view=chat] :is(.cw-navigation,#cw-browser details){border-color:var(--line)}
+body.native.axx-resident[data-ui-theme=dark] #panel[data-view=chat] #cw-browser :is(input,select){background:var(--surface-raised)!important;color:var(--ink)!important}
+body.native.axx-resident[data-ui-theme=dark] #panel[data-view=chat] #cw-browser #cw-filter{background:transparent!important;color:var(--secondary)!important}
+body.native.axx-resident[data-ui-theme=dark] #panel[data-view=chat] .cw-thread small{color:var(--secondary)}
+body.native.axx-resident[data-ui-theme=dark] #panel[data-view=chat] .cw-thread[aria-current=true]{background:var(--accent-fill)!important;color:#fff!important}
+body.native.axx-resident[data-ui-theme=dark] #panel[data-view=chat] .cw-thread[aria-current=true] small{color:#fff}
+body.native.axx-resident[data-ui-theme=dark] #panel[data-view=chat] .cw-thread:hover:not([aria-current=true]){background:var(--surface-raised)!important}
+body.native.axx-resident[data-ui-theme=dark] #panel[data-view=chat] :is(#cw-mode,#cw-context input,#cw-context textarea,#cw-context-list article){background:var(--field)!important;color:var(--ink)!important;border-color:var(--line)!important}
+body.native.axx-resident[data-ui-theme=dark] #panel[data-view=chat] :is(#cw-context button,#cw-browser .cw-organize button,#cw-retry){color:var(--ink);background:var(--button);border-color:var(--line)}
+body.native.axx-resident[data-ui-theme=dark] #panel[data-view=chat] #cw-operation{background:#24303e;border-color:#38516c}body.native.axx-resident[data-ui-theme=dark] #panel[data-view=chat] #cw-operation :is(strong,p){color:#d2dfef}
+body.native.axx-resident[data-ui-theme=dark] #panel[data-view=chat] #cw-operation pre{color:#c4cddd;background:#1d2733}
+body.native.axx-resident[data-ui-theme=dark] #panel[data-view=chat] #cw-operation button{color:var(--ink);background:var(--button);border-color:var(--line)}
+body.native.axx-resident[data-ui-theme=dark] #panel[data-view=chat] #cw-welcome :is(h2,p){color:var(--secondary)}body.native.axx-resident[data-ui-theme=dark] #panel[data-view=chat] .cw-welcome-mark{background:var(--surface-raised);color:var(--quiet)}
+body.native.axx-resident[data-ui-theme=dark] #panel[data-view=chat] .chat-message:not(.user) .message-body{color:var(--ink)!important}
+body.native.axx-resident[data-ui-theme=dark] #panel[data-view=chat] #chat-form #chat-input{color:var(--ink)!important}
+body.native.axx-resident[data-ui-theme=dark] #panel[data-view=chat] .chat20-menu-body{background:var(--surface)!important;color:var(--ink)!important;border-color:var(--line)}
+body.native.axx-resident[data-ui-theme=dark] #panel[data-view=chat] .chat20-menu-body :is(p,label,button,span){color:var(--secondary)!important}
+body.native.axx-resident[data-ui-theme=dark] #panel[data-view=chat] .chat20-voice-card{background:var(--surface-subtle);border-color:var(--line)}
+/* Visibility belongs to navigation, never to a visual skin. */
+/* The panel owns this surface; its close button returns to the tool launcher. */
+body.native.axx-resident.resident-invoked[data-flow-step="4"] #flow-pill{display:none!important}
+body.native.axx-resident[data-ui-theme] #panel .panel-view[hidden]{display:none!important}
+body.native.axx-resident[data-ui-theme] #panel .panel-view[hidden] *{pointer-events:none!important}
+/* Orbit controls contain their own 3D artwork; they have no surface background. */
+body.native.axx-resident[data-ui-theme][data-flow-step="2"] #flow-sheet #flow-fan button{background:transparent!important;background-image:none!important;border:0!important;box-shadow:none!important;padding:0!important;border-radius:50%!important}
+body.native.axx-resident[data-ui-theme][data-flow-step="2"] #flow-sheet :is(#flow-pill,#flow-all){background:#1b293be8!important;color:#c8d9ed!important;border:1px solid #758da540!important;border-radius:50%!important;padding:0!important;box-shadow:none!important}
+body.native.axx-resident[data-ui-theme] #panel[data-view=chat] #chat-form{background:var(--surface)!important;border-color:var(--line)!important}
+body.native.axx-resident[data-ui-theme] #panel[data-view=chat] #chat-form #chat-input{background:transparent!important;border:0!important;color:var(--ink)!important}
+/* A catalog is a labeled collection, not the transparent orbit that opens it. */
+body.native.axx-resident[data-ui-theme][data-flow-step="3"] #flow-sheet{background:transparent!important;border:0!important;box-shadow:none!important}
+body.native.axx-resident[data-ui-theme] #flow-library{display:flex;flex-direction:column;padding:20px!important;box-sizing:border-box;overflow:hidden!important}
+body.native.axx-resident[data-ui-theme] #flow-library[hidden]{display:none!important}
+body.native.axx-resident[data-ui-theme] #flow-library .flow-library-head{gap:12px;margin:0 0 18px;flex:none}
+body.native.axx-resident[data-ui-theme] #flow-library h2{color:var(--ink)!important;font-size:20px!important;letter-spacing:-.5px;font-weight:600}
+body.native.axx-resident[data-ui-theme] #flow-library :is(#flow-back,#flow-collapse){width:40px;height:40px;min-width:40px;padding:10px!important;background:transparent!important}
+body.native.axx-resident[data-ui-theme] #flow-tabs{grid-template-columns:repeat(3,minmax(0,1fr));flex:none;margin-bottom:16px}
+body.native.axx-resident[data-ui-theme] #flow-tabs button{padding:8px 4px!important;gap:7px;background:transparent!important;border-color:transparent!important;color:var(--secondary)!important}
+body.native.axx-resident[data-ui-theme] #flow-tabs button[aria-selected=true]{background:var(--surface)!important;color:var(--ink)!important;box-shadow:0 1px 3px #0001!important}
+body.native.axx-resident[data-ui-theme] #flow-tabs button span{display:inline!important;font-size:12px}
+body.native.axx-resident[data-ui-theme] #flow-tabs button svg{width:18px!important;height:18px!important;color:currentColor!important}
+body.native.axx-resident[data-ui-theme] #flow-library .flow-search{background:var(--field);border:1px solid var(--line);border-radius:9px;padding:0 12px;min-height:44px;flex:none;color:var(--secondary)!important;margin-bottom:16px}
+body.native.axx-resident[data-ui-theme] #flow-search{background:transparent!important;color:var(--ink)!important;border:0!important;min-width:0;padding:10px 0!important;font-size:13px}
+body.native.axx-resident[data-ui-theme] #flow-search::placeholder{color:var(--quiet)!important;opacity:1}
+body.native.axx-resident[data-ui-theme] #flow-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:10px!important;padding:3px!important;flex:1;overflow-x:hidden;scrollbar-color:var(--line) transparent}
+body.native.axx-resident[data-ui-theme] #flow-grid .flow-tool{overflow:hidden!important;min-height:118px!important;border-radius:12px!important}
+body.native.axx-resident[data-ui-theme] #flow-grid .flow-tool>[data-tool]{align-items:flex-start!important;justify-content:flex-start!important;min-height:118px!important;height:100%;gap:10px;padding:18px 42px 14px 16px!important;border:0!important;border-radius:11px!important;background:transparent!important;color:var(--ink)!important;text-align:left}
+body.native.axx-resident[data-ui-theme] #flow-grid .flow-tool>[data-tool]:hover{background:var(--button-hover)!important}
+body.native.axx-resident[data-ui-theme] #flow-grid .flow-tool>[data-tool]>svg{width:25px!important;height:25px!important;color:var(--accent)!important}
+body.native.axx-resident[data-ui-theme] #flow-grid .flow-tool strong{display:block!important;font-size:13px!important;line-height:1.4;font-weight:500;padding:0}
+body.native.axx-resident[data-ui-theme] #flow-grid .flow-tool small{display:none!important}
+body.native.axx-resident[data-ui-theme] #flow-grid .flow-favorite{right:2px!important;top:2px!important;width:40px!important;height:40px!important;min-width:40px!important;min-height:40px!important;padding:12px!important;border:0!important;border-radius:8px!important;background:transparent!important;color:var(--secondary)!important}
+body.native.axx-resident[data-ui-theme] #flow-grid .flow-favorite svg{color:currentColor!important;width:16px!important;height:16px!important}
+body.native.axx-resident[data-ui-theme] #flow-grid .flow-favorite[aria-pressed=true]{color:var(--accent)!important;background:var(--accent-soft)!important}
+body.native.axx-resident[data-ui-theme] #flow-library :is(.flow-library-foot,.flow-empty){color:var(--secondary)!important;font-size:11px;line-height:1.6;flex:none;margin:14px 0 0;text-align:center}
+/* Inline code must stay in the text line. Only blocks receive card padding. */
+body.native.axx-resident[data-ui-theme] #panel:not([data-view=chat]) :not(pre)>code{display:inline;padding:2px 5px;border:1px solid var(--line);border-radius:4px;background:var(--surface-raised);color:var(--ink);font-size:.9em;line-height:inherit;white-space:normal}
+body.native.axx-resident[data-ui-theme] #panel:not([data-view=chat]) :is(.provider-actions,.reader-controls,.appearance-preview-status){background:var(--surface)!important;border-color:var(--line)!important;box-shadow:none!important}
+body.native.axx-resident[data-ui-theme] #panel:not([data-view=chat]) :is(.id20-kicker,.a11-tool-kicker,.t19-kicker,.m16-kicker,.m16-times,.m16-status){color:var(--secondary)!important}
+body.native.axx-resident[data-ui-theme] #panel:not([data-view=chat]) :is(.m16-status,.connection-badge){background:var(--surface-raised)!important;border-color:var(--line)!important}
+body.native.axx-resident[data-ui-theme] #panel .panel-view{min-width:0;min-height:0;box-sizing:border-box;overflow-x:hidden;overflow-wrap:anywhere}
+body.native.axx-resident[data-ui-theme] #panel :is(.panel-view>*,.setup-card>*,.quick-row>*):not(svg){min-width:0;max-width:100%;box-sizing:border-box}
+body.native.axx-resident[data-ui-theme] #panel:not([data-view=chat]) [role=tablist] button{min-width:0;white-space:normal}
+body.native.axx-resident[data-ui-theme] #panel:not([data-view=chat]) button:disabled{opacity:.55;cursor:default}
+/* Legacy tool metadata used pastel text intended for the old dark surface. */
+body.native.axx-resident[data-ui-theme] #panel:not([data-view=chat]) :is(.a11-eyebrow,.s19-eyebrow,.experience-overline,.micro-copy,.voice-target>span,.mode-cards span,.finish-cards span,.cv-lead>span,.experience-path span,.experience-task-head>span,.image-select>span,.s19-history-row>span,.id20-catalog-head>span,.id20-section>span,.form-option>span,.profile-metrics>span,.r19-status-top>span,.r19-measures>span,#r19-source,#reader-title,#reader-progress,#stopwatch-status,#t19-phase,#t19-history-count,#appearance-status,#guide-task-state){color:var(--secondary)!important;opacity:1}
+body.native.axx-resident[data-ui-theme] #panel:not([data-view=chat]) :is(.experience-path span.done,.experience-steps i){color:var(--success)!important;background:var(--surface-raised)!important}
+body.native.axx-resident[data-ui-theme] #panel:not([data-view=chat]) .lab-warning{color:var(--danger)!important;opacity:1;background:var(--surface-subtle)!important}
+body.native.axx-resident[data-ui-theme] #panel:not([data-view=chat]) .lab-warning span{color:inherit!important}
+body.native.axx-resident[data-ui-theme] #panel:not([data-view=chat]) kbd{color:var(--ink)!important;background:var(--surface-raised)!important;border:1px solid var(--line)!important;border-radius:4px;padding:2px 5px}
+body.native.axx-resident[data-ui-theme] #panel #m16-source-status{color:var(--secondary)!important;background:var(--surface-raised)!important;border-color:var(--line)!important}
+body.native.axx-resident[data-ui-theme] #panel .ai-mode-btn.active{color:var(--ink)!important;background:var(--surface)!important;box-shadow:0 1px 3px #0001!important}
+/* Magic Pen owns the canvas; the theme applies only to its controls. */
+body.native.axx-resident[data-ui-theme] #view-magicpen{--mp-ink:var(--ink);--mp-muted:var(--secondary);--mp-line:var(--line);--mp-accent:var(--accent)}
+body.native.axx-resident[data-ui-theme] #mp-desktop :is(#mp-toolbar,#mp-widget){background:var(--surface)!important;color:var(--ink)!important;border-color:var(--line)!important;box-shadow:var(--shadow)!important;color-scheme:var(--scheme)}
+body.native.axx-resident[data-ui-theme] #mp-desktop :is(button,input,select,option){color:var(--ink)!important;background-color:var(--field)!important;border-color:var(--line)!important;min-height:40px}
+body.native.axx-resident[data-ui-theme] #mp-desktop :is(.mp-icon-button,#mp-hide-answer){width:40px!important;height:40px!important;min-height:40px!important}
+body.native.axx-resident[data-ui-theme] #mp-desktop :is(.mp-desktop-title,.mp-widget-head,.mp-desktop-title>span,#mp-status,#mp-capability,.mp-save-section>summary,.mp-answer,label){color:var(--secondary)!important}
+body.native.axx-resident[data-ui-theme] #mp-desktop :is(.mp-desktop-title strong,.mp-widget-head strong){color:var(--ink)!important}
+body.native.axx-resident[data-ui-theme] #mp-desktop .mp-composer{background:var(--field)!important;border-color:var(--line)!important}
+body.native.axx-resident[data-ui-theme] #mp-desktop #mp-ask{color:#fff!important;background:var(--accent-fill)!important}
+body.native.axx-resident[data-ui-theme] #mp-desktop :is(button,select,input):focus-visible{outline:3px solid var(--accent)!important;outline-offset:2px!important}
+body.native.axx-resident[data-ui-theme] #panel:not([data-view=chat]) :is(.lab-warning,.lab-warning span,.states-grid button span,small){color:var(--secondary)!important;font-size:11px!important;line-height:1.5;letter-spacing:.2px}
+body.native.axx-resident[data-ui-theme] #panel [hidden]{display:none!important}
+body.native.axx-resident[data-ui-theme] #panel[data-view=chat] #cw-links article{padding:14px;margin:12px 0;border:1px solid var(--line);border-radius:10px;background:var(--surface-subtle);color:var(--ink)}
+body.native.axx-resident[data-ui-theme] #panel[data-view=chat] #cw-links p{white-space:pre-wrap;overflow-wrap:anywhere;max-height:180px;overflow:auto;font-size:12px;color:var(--secondary);line-height:1.65}
+body.native.axx-resident[data-ui-theme] #panel[data-view=chat] #cw-links button{margin:4px 6px 0 0;background:var(--button);color:var(--ink)}
+body.native.axx-resident[data-ui-theme] #panel[data-view=chat] #cw-link-source{background:var(--field);color:var(--ink);width:100%}
+body.native.axx-resident[data-ui-theme] :is(#panel,#flow-library,#mp-toolbar,#mp-widget) :is(button,input,textarea,select,label,p,small,summary,h2,h3,strong,span){font-family:var(--interface-font,"Segoe UI",sans-serif)!important}
+body.native.axx-resident[data-ui-theme] #panel:not([data-view=chat]) :is(p,label,button,input,textarea,select){font-size:calc(13px * var(--interface-scale,1))!important}
+body.native.axx-resident[data-ui-theme] #panel:not([data-view=chat]) #panel-title{font-size:calc(22px * var(--interface-scale,1))!important}
+body.native.axx-resident[data-ui-theme] #panel[data-view=chat] :is(.message-body,#chat-input){font-size:calc(14px * var(--interface-scale,1))!important}
+body.native.axx-resident[data-ui-theme] #panel :is(.composer-icon svg,.axx-theme-toggle svg){color:var(--accent)!important}
+body.native.axx-resident[data-ui-theme] #panel #axx-interface-theme{align-items:flex-start}
+.axx-theme-editor{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;width:100%;margin-top:16px;padding-top:16px;border-top:1px solid var(--line)}
+.axx-theme-editor label{display:flex;flex-direction:column;gap:8px;margin:0;line-height:1.5;min-width:0}
+.axx-theme-editor input[type=color]{width:100%;height:44px;border:1px solid var(--line);border-radius:8px;padding:4px;background:var(--field);cursor:pointer}
+.axx-theme-editor :is(select,button){min-width:0;max-width:100%}
+.axx-color-presets{grid-column:1/-1;display:flex;gap:7px;flex-wrap:wrap}
+body.native.axx-resident[data-ui-theme] #panel .axx-color-presets button{width:40px;height:40px;padding:8px!important;display:grid;place-items:center}
+.axx-color-presets button:before{content:'';display:block;width:22px;height:22px;border-radius:50%;background:var(--swatch)}
+#axx-theme-contrast{grid-column:1/-1;font-size:12px;margin:0}
+body.native.axx-resident[data-ui-theme] #panel #view-agent .chat20-voice-card{background:var(--surface-subtle)!important;border-color:var(--line)!important;padding:16px;margin:20px 0}
+body.native.axx-resident[data-ui-theme] #panel #view-agent textarea{width:100%;min-height:100px;resize:vertical}
+body.native.axx-resident[data-ui-theme] #panel #view-commands #command-library-page{align-self:center;color:var(--secondary);font-size:12px}
+body.native.axx-resident[data-ui-theme] #panel[data-view=chat] #chat-live{margin:10px 0;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:var(--surface-subtle);color:var(--ink);font-size:12px}
+#chat-live .chat-live-heading{display:flex;align-items:center;justify-content:space-between;gap:12px}
+#chat-live .chat-live-settings{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;margin:10px 0}
+body.native.axx-resident[data-ui-theme] #panel #chat-live label{display:flex;flex-direction:column;gap:6px;min-width:0;color:var(--secondary)!important}
+body.native.axx-resident[data-ui-theme] #panel #chat-live :is(button,select){min-height:40px;border:1px solid var(--line);background:var(--button);color:var(--ink);border-radius:8px;padding:8px 10px;font-size:12px;max-width:100%}
+body.native.axx-resident[data-ui-theme] #panel #chat-live #chat-live-start{background:var(--accent-fill);color:white}
+#chat-live .chat-live-controls{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px}
+#chat-live details{border-top:1px solid var(--line);margin-top:10px;padding-top:6px}#chat-live summary{cursor:pointer;min-height:40px;display:flex;align-items:center;color:var(--secondary)}
+body.native.axx-resident[data-ui-theme] #panel[data-view=chat] :is(#chat-attach,.enter-hint,#chat-attachment,#chat-request-status){color:var(--secondary)!important}
+body.native.axx-resident[data-ui-theme] #panel[data-view=chat] #chat-form #chat-input{color:var(--ink)!important}
+#chat-live :is(small,.chat-live-privacy){font-size:11px;line-height:1.5;color:var(--secondary);margin:6px 0 0}
+body.native.axx-resident[data-ui-theme] #panel[data-view=chat] .composer-bottom>div{display:flex;align-items:center;gap:4px;flex-wrap:wrap}
+
+/* Keep transparent native orbit edges crisp while hovered/moving. */
+body.axx-resident #flow-fan button.orbit-tool .flow-orb,
+body.axx-resident #flow-fan button.orbit-tool:hover .flow-orb,
+body.axx-resident #flow-fan button.orbit-tool:focus-visible .flow-orb {
+  box-shadow:inset 0 1px 2px #e4f4ff70,inset 0 -2px 5px #99bded30!important;
+  transition:transform 210ms ease,border-color 200ms!important;
+}
+body.axx-resident #flow-fan button.orbit-tool .flow-orb svg {filter:none!important}
+body.native.axx-resident[data-ui-theme] #panel[data-view=chat] #chat-live-toggle{display:inline-flex!important;align-items:center;justify-content:center;gap:7px;flex-shrink:0;width:auto!important;min-width:0;min-height:40px;padding:0 13px 0 11px!important;border-radius:999px!important;border:1px solid var(--line)!important;background:var(--button)!important;color:var(--ink)!important;box-shadow:0 1px 2px #0000000a,inset 0 1px 0 #ffffff08;font-family:inherit;font-size:12px;font-weight:550;line-height:1;letter-spacing:.01em;white-space:nowrap;transition:background .14s ease,box-shadow .14s ease}
+body.native.axx-resident[data-ui-theme] #panel[data-view=chat] #chat-live-toggle svg{display:block;width:20px;height:20px;flex:none;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;opacity:.85}
+body.native.axx-resident[data-ui-theme] #panel[data-view=chat] #chat-live-toggle:hover{background:var(--surface-subtle)!important;box-shadow:0 1px 3px #00000012,inset 0 0 0 1px var(--line)}
+body.native.axx-resident[data-ui-theme] #panel[data-view=chat] #chat-live-toggle:focus-visible{outline:2px solid var(--accent-fill);outline-offset:3px}
+body.native.axx-resident[data-ui-theme] #panel[data-view=chat] #chat-live-toggle[aria-pressed=true]{background:var(--accent-fill)!important;color:#fff!important;border-color:transparent!important;box-shadow:none}
+@media(prefers-reduced-motion:reduce){#chat-live-toggle{transition:none!important}}
+body.native.axx-resident[data-ui-theme] #view-chat.cw-narrow .composer-bottom .enter-hint{display:none}

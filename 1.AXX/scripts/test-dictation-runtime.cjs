@@ -5,7 +5,7 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
 (async()=>{
   const server=http.createServer((req,res)=>{
     const file=req.url.startsWith('/scripts/')?path.join(__dirname,path.basename(req.url)):path.join(__dirname,'../Axx.html');
-    res.setHeader('Content-Type',file.endsWith('.js')?'application/javascript':'text/html');res.end(fs.readFileSync(file));
+    res.setHeader('Content-Type',file.endsWith('.js')?'application/javascript':file.endsWith('.css')?'text/css':'text/html');res.end(fs.readFileSync(file));
   });
   await new Promise(r=>server.listen(0,'127.0.0.1',r));
   const browser=await chromium.launch({headless:true,executablePath:process.env.AXX_TEST_CHROMIUM});
@@ -13,11 +13,18 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
     const page=await browser.newPage({viewport:{width:1300,height:1000},reducedMotion:'reduce'}),errors=[];
     page.setDefaultTimeout(15000);page.on('pageerror',e=>errors.push(e.message));
     await page.addInitScript(()=>{
-      window.requests=[];window.micRequests=0;window.transcribed=false;
-      navigator.mediaDevices.getUserMedia=async()=>{
+      window.requests=[];window.micRequests=0;window.transcribed=false;window.fixtureInput='silence';window.failVadResume=false;window.failDevice=false;window.holdCancel=false;
+      const AudioBase=window.AudioContext;window.AudioContext=class extends AudioBase{resume(){return failVadResume?Promise.reject(Error('fixture resume rejected')):super.resume();}};
+      window.traceVad=false;window.vadTrace=[];const getFloats=AnalyserNode.prototype.getFloatTimeDomainData;AnalyserNode.prototype.getFloatTimeDomainData=function(buffer){getFloats.call(this,buffer);if(traceVad&&fixtureInput==='startup-noise')buffer.fill(vadTrace.length?.014:.0043);if(traceVad)vadTrace.push({at:performance.now(),rms:Math.sqrt(buffer.reduce((sum,n)=>sum+n*n,0)/buffer.length),noise:Axx.nativeVoice.inputLevel?.noise_floor,phase:Axx.nativeVoice.inputLevel?.phase,context:this.context.state,sourceContext:fixtureContext.state});};
+      navigator.mediaDevices.getUserMedia=async constraints=>{
         window.micRequests++;
+        window.lastMicConstraints=constraints;
+        if(failDevice)throw new DOMException('Fixture unavailable','NotFoundError');
         const ctx=new AudioContext();window.fixtureContext=ctx;
-        return ctx.createMediaStreamDestination().stream;
+        const dest=ctx.createMediaStreamDestination();window.fixtureTracks=dest.stream.getAudioTracks();
+        for(const track of fixtureTracks){const stop=track.stop.bind(track);track.stop=()=>{stop();if(ctx.state!=='closed')void ctx.close().catch(()=>{});};}
+        if(fixtureInput!=='silence'){const oscillator=ctx.createOscillator(),gain=ctx.createGain();window.fixtureGain=gain;oscillator.frequency.value=180;oscillator.connect(gain);gain.connect(dest);gain.gain.value=fixtureInput==='noise'?.02:0;if(fixtureInput==='quiet-voice'){gain.gain.setValueAtTime(.012,ctx.currentTime+.7);gain.gain.setValueAtTime(0,ctx.currentTime+1.7);}oscillator.start();await ctx.resume();}
+        return dest.stream;
       };
       window.MediaRecorder=class{
         static isTypeSupported(){return true;}
@@ -33,6 +40,7 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
         if(name==='backend_request'){
           requests.push(args.path);
           if(args.path==='/axx-api/speech/transcribe') {await new Promise(r=>window.releaseTranscript=r);return {text:'Hola desde el dictado'};}
+          if(args.path==='/axx-api/speech/cancel'&&holdCancel){await new Promise(resolve=>window.releaseCancel=resolve);return {};}
           if(args.path==='/axx-api/speech/voices')return {available:true,voices:[]};
           if(args.path==='/axx-api/connect/ui/claim')return {tasks:[]};
           if(args.path.includes('/commands/resolve'))return {match:'none'};
@@ -73,9 +81,100 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
     assert.equal(await page.evaluate(()=>Axx.voice13.meter.active),false);
     assert.equal(await page.evaluate(()=>Axx.companion.data.messages.length),0,'Dictation must not send text');
     assert.equal(await page.evaluate(()=>requests.includes('/axx-api/actions/cancel')),false);
+    const states=await page.evaluate(async()=>{
+      const values=[],owner={state:'idle',onState(){values.push(this.state);}};
+      Axx.nativeVoice.attach(owner);const session=Axx.nativeVoice.sessions.at(-1);
+      await session.start('es');await new Promise(resolve=>setTimeout(resolve,20));
+      const started=[...values];session.stop();return {started,stopped:values.at(-1)};
+    });
+    assert.deepEqual(states.started,['starting','listening'],'Start must not emit an idle callback that cancels the initiating mode');
+    assert.equal(states.stopped,'idle');
+    await page.evaluate(()=>{
+      Axx.companion.openChat();Axx.companion.data.prefs.voiceAutoSend=true;
+      const input=document.getElementById('chat-input');input.value='Mi borrador';input.setSelectionRange(input.value.length,input.value.length);
+      window.releaseTranscript=null;
+    });
+    await page.locator('#chat-mic').click();
+    await page.waitForFunction(()=>Axx.nativeVoice.chatDraft.state==='listening');
+    assert.equal(await page.evaluate(()=>document.getElementById('panel').dataset.view),'chat','Dictation stays in chat');
+    assert.equal(await page.locator('#chat-mic').getAttribute('aria-pressed'),'true');
+    assert.equal(await page.locator('#chat20-wake-toggle').getAttribute('aria-pressed'),'false','Draft dictation is not a command');
+    await page.locator('#chat-mic').click();
+    await page.waitForFunction(()=>typeof releaseTranscript==='function');
+    assert.equal(await page.evaluate(()=>Axx.nativeVoice.chatDraft.state),'stopping');
+    await page.evaluate(()=>releaseTranscript());
+    await page.waitForFunction(()=>Axx.nativeVoice.chatDraft.state==='idle');
+    assert.equal(await page.locator('#chat-input').inputValue(),'Mi borrador Hola desde el dictado ');
+    assert.equal(await page.evaluate(()=>Axx.companion.data.messages.length),0,'Chat dictation never auto-sends, even with the legacy preference enabled');
+    assert.equal(await page.locator('#chat-mic').getAttribute('aria-pressed'),'false');
+    // An edit while recognition is pending cancels that capture; a late result
+    // cannot replace the new draft or create a message.
+    await page.evaluate(()=>{window.releaseTranscript=null;Axx.companion.startDictation();});
+    await page.waitForFunction(()=>Axx.nativeVoice.chatDraft.state==='listening');
+    await page.locator('#chat-mic').click();
+    await page.waitForFunction(()=>typeof releaseTranscript==='function');
+    await page.locator('#chat-input').fill('Edición manual');
+    await page.evaluate(()=>releaseTranscript());
+    await page.waitForTimeout(50);
+    assert.equal(await page.locator('#chat-input').inputValue(),'Edición manual');
+    assert.equal(await page.evaluate(()=>Axx.nativeVoice.chatDraft.state),'idle');
+    assert.equal(await page.evaluate(()=>Axx.companion.data.messages.length),0);
+    await page.evaluate(()=>{
+      Axx.chatWorkspace={ready:true,active:{id:'controlled-live'}};
+      Axx.companion.brain.connected=true;Axx.companion.data.prefs.mutedAll=false;
+    });
+    const liveButton=await page.locator('#chat-live-toggle').boundingBox(),composer=await page.locator('#chat-form').boundingBox();
+    assert(liveButton.height>=40&&liveButton.y>=composer.y&&liveButton.y+liveButton.height<=composer.y+composer.height+1);
+    assert.equal(await page.locator('#chat-live-toggle').evaluate(el=>getComputedStyle(el).borderRadius),'999px');
+    await page.locator('#chat-live-toggle').click();
+    await page.waitForFunction(()=>Axx.liveConversation.active&&Axx.symbiosis.dictation.state==='listening');
+    assert.equal(await page.locator('#chat-live-toggle').innerText(),'Voz activa');
+    assert.equal(await page.locator('#chat-live-toggle svg').count(),1);
+    assert.equal(await page.locator('#chat-mic').getAttribute('aria-pressed'),'false','Live input must not mark draft dictation as recording');
+    assert.equal(await page.locator('#chat20-wake-toggle').getAttribute('aria-pressed'),'false','Live input must not mark command voice as recording');
+    await page.evaluate(()=>window.dispatchEvent(new Event('blur')));
+    assert.equal(await page.evaluate(()=>Axx.liveConversation.active),true,'Explicit live conversation survives focus loss while still visible');
+    assert.equal(await page.evaluate(()=>Axx.symbiosis.dictation.state),'listening');
+    await page.locator('#chat-live-toggle').click();
+    assert.equal(await page.evaluate(()=>Axx.liveConversation.active),false);
+    assert.equal(await page.evaluate(()=>Axx.nativeVoice.activeCapture?.stream||null),null);
+    assert.equal(await page.locator('#chat-live-toggle').innerText(),'Voz en vivo');
+    await page.evaluate(()=>{fixtureInput='quiet-voice';window.oldLiveFinal=Axx.symbiosis.dictation.onFinal;window.oldLiveEnded=Axx.symbiosis.dictation.onEnded;Axx.symbiosis.dictation.onFinal=()=>{};Axx.symbiosis.dictation.onEnded=()=>{Axx.symbiosis.liveActive=false;};window.releaseTranscript=null;});
+    await page.locator('#chat-live-toggle').click();await page.waitForFunction(()=>typeof releaseTranscript==='function',null,{timeout:7000});
+    assert.equal(await page.evaluate(()=>Axx.symbiosis.dictation.state),'stopping','Quiet RMS below the old .024 threshold must finish after a pause');
+    await page.evaluate(()=>releaseTranscript());await page.waitForFunction(()=>Axx.symbiosis.dictation.state==='idle');
+    await page.evaluate(()=>{fixtureInput='short';releaseTranscript=null;});await page.locator('#chat-live-toggle').click();await page.waitForFunction(()=>Axx.symbiosis.dictation.state==='listening');
+    await page.evaluate(()=>{fixtureGain.gain.setValueAtTime(.012,fixtureContext.currentTime+.05);fixtureGain.gain.setValueAtTime(0,fixtureContext.currentTime+.27);});
+    await page.waitForFunction(()=>typeof releaseTranscript==='function',null,{timeout:5000});await page.evaluate(()=>releaseTranscript());await page.waitForFunction(()=>Axx.symbiosis.dictation.state==='idle');
+    const noiseTraces=[];
+    for(let trial=0;trial<5;trial++){
+      await page.evaluate(n=>{fixtureInput=n===0?'startup-noise':'noise';traceVad=true;vadTrace=[];},trial);await page.locator('#chat-live-toggle').click();await page.waitForTimeout(2000);
+      noiseTraces.push(await page.evaluate(()=>vadTrace));assert.equal(await page.evaluate(()=>Axx.symbiosis.dictation.state),'listening');assert.equal(await page.evaluate(()=>Axx.nativeVoice.inputLevel.heard_speech),false,'Steady background noise must not count as voice: '+JSON.stringify(noiseTraces.at(-1)));await page.evaluate(()=>traceVad=false);
+      assert(await page.locator('#chat-live-level').evaluate(el=>el.value>0),'Meter must reveal that the selected input carries a signal');await page.locator('#chat-live-toggle').click();
+    }
+    fs.writeFileSync(path.resolve(__dirname,'../../build/chat-0.21.4/vad-noise-traces.json'),JSON.stringify(noiseTraces,null,2));
+    await page.evaluate(()=>{fixtureInput='silence';});await page.locator('#chat-live-toggle').click();await page.waitForFunction(()=>Axx.nativeVoice.inputLevel?.phase==='calibrating');
+    await page.evaluate(()=>{const end=performance.now()+600;while(performance.now()<end){};});await page.waitForTimeout(40);assert.equal(await page.evaluate(()=>Axx.symbiosis.dictation.state),'starting','UI stalls must not finish calibration with fewer than six samples');await page.waitForFunction(()=>Axx.symbiosis.dictation.state==='listening');await page.locator('#chat-live-toggle').click();
+    await page.evaluate(()=>{fixtureInput='silence';Axx.nativeVoice.liveDeviceId='missing-microphone';failDevice=true;});await page.locator('#chat-live-toggle').click();await page.waitForFunction(()=>Axx.symbiosis.dictation.state==='error');
+    assert.equal(await page.evaluate(()=>lastMicConstraints.audio.deviceId.exact),'missing-microphone');assert.match(await page.locator('#chat-live-status').innerText(),/micrófono seleccionado no está disponible/);assert.equal(await page.evaluate(()=>Axx.nativeVoice.activeCapture),null);
+    await page.evaluate(()=>{failDevice=false;Axx.nativeVoice.liveDeviceId='';failVadResume=true;});await page.locator('#chat-live-toggle').click();await page.waitForFunction(()=>Axx.symbiosis.dictation.state==='error');assert.equal(await page.evaluate(()=>fixtureTracks.every(t=>t.readyState==='ended')),true);assert.match(await page.locator('#chat-live-status').innerText(),/resume rejected/);
+    await page.evaluate(()=>{failVadResume=false;Axx.symbiosis.dictation.onFinal=oldLiveFinal;Axx.symbiosis.dictation.onEnded=oldLiveEnded;});
+    const barrier=await page.evaluate(async()=>{
+      const owner={state:'idle'},canceller={state:'idle'};Axx.nativeVoice.attach(owner);const local=Axx.nativeVoice.sessions.at(-1);Axx.nativeVoice.attach(canceller);const old=Axx.nativeVoice.sessions.at(-1);
+      holdCancel=true;releaseCancel=null;old.pending=true;old.stop();await new Promise(resolve=>setTimeout(resolve,0));const beforeMic=micRequests,starting=local.start('es');await new Promise(resolve=>setTimeout(resolve,80));const micWaited=micRequests===beforeMic;releaseCancel();await starting;await new Promise(resolve=>setTimeout(resolve,0));
+      releaseCancel=null;old.pending=true;old.stop();await new Promise(resolve=>setTimeout(resolve,0));const beforeSubmit=requests.filter(p=>p==='/axx-api/speech/transcribe').length;releaseTranscript=null;const submitted=local.submit(new Blob(['fixture'],{type:'audio/webm'}));await new Promise(resolve=>setTimeout(resolve,80));const submitWaited=requests.filter(p=>p==='/axx-api/speech/transcribe').length===beforeSubmit;releaseCancel();
+      for(let i=0;i<100&&typeof releaseTranscript!=='function';i++)await new Promise(resolve=>setTimeout(resolve,10));releaseTranscript();await submitted;local.stop();old.stop();holdCancel=false;return{micWaited,submitWaited};
+    });assert.deepEqual(barrier,{micWaited:true,submitWaited:true});
+    await page.keyboard.press('Alt+Shift+KeyV');
+    await page.waitForFunction(()=>Axx.nativeVoice.wake.active&&Axx.symbiosis.dictation.state==='listening');
+    assert.equal(await page.locator('#chat20-wake-toggle').getAttribute('aria-pressed'),'true','Shortcut must toggle once, not start and immediately stop');
+    assert.equal(await page.locator('#chat-mic').getAttribute('aria-pressed'),'false');
+    await page.keyboard.press('Alt+Shift+KeyV');
+    assert.equal(await page.evaluate(()=>Axx.nativeVoice.wake.active),false);
+    assert.equal(await page.evaluate(()=>Axx.symbiosis.dictation.state),'idle');
     assert.deepEqual(errors,[]);
     const output=path.resolve(__dirname,'../../evidence/chat-actions-20261021');fs.mkdirSync(output,{recursive:true});
     await page.screenshot({path:path.join(output,'dictation.png')});
-    console.log('PASS: stable native dictation geometry, avatar action, one microphone stream, graceful final transcript, no automatic send or unrelated cancellation');
+    console.log('PASS: dictation geometry/owner/draft, live blur retention, quiet and short utterance VAD, steady-noise rejection, visible input meter, unavailable exact device, failed AudioContext release, cancellation barriers, one-click live and single command shortcut');
   }finally{await browser.close();await new Promise(r=>server.close(r));}
 })().catch(e=>{console.error(e);process.exitCode=1;});

@@ -1179,9 +1179,21 @@ pub fn run() {
                 tauri::WindowEvent::Moved(position) => {
                     resident::record_move(window.app_handle(), position);
                     state.preferences_dirty.store(true, Ordering::Relaxed);
+                    if magic_pen::ACTIVE.load(Ordering::Acquire) {
+                        let _ = window.emit("axx-pen-geometry", json!({"reason":"move"}));
+                    }
                 }
                 tauri::WindowEvent::Resized(_) => {
                     state.preferences_dirty.store(true, Ordering::Relaxed);
+                    if magic_pen::ACTIVE.load(Ordering::Acquire) {
+                        let _ = window.emit("axx-pen-geometry", json!({"reason":"resize"}));
+                    }
+                }
+                tauri::WindowEvent::ScaleFactorChanged { .. } => {
+                    state.preferences_dirty.store(true, Ordering::Relaxed);
+                    if magic_pen::ACTIVE.load(Ordering::Acquire) {
+                        let _ = window.emit("axx-pen-geometry", json!({"reason":"scale"}));
+                    }
                 }
                 tauri::WindowEvent::CloseRequested { api, .. } => {
                     persist_window(window.app_handle());

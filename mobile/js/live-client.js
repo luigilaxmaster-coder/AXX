@@ -149,7 +149,7 @@
   $('chat-form').onsubmit=async event=>{
     event.preventDefault(); const text=$('draft').value.trim(); if(!text || pending || busy || !online)return;
     pending={command_id:crypto.randomUUID(), operation:'chat', text, conversation_id:conversationId}; localStorage.setItem('axx.mobile.pending',JSON.stringify(pending));
-    busy=true; connection(online,'Sending to your PC…'); avatar?.setState('thinking'); $('avatar-state').textContent='Waiting for Axx';
+    busy=true; connection(online,'Enviando a la PC principal…'); avatar?.setState('thinking'); $('avatar-state').textContent='Axx procesando en PC';
     try { const task=await request('/v1/commands',pending); $('command-state').textContent='Task '+task.task_id+' · '+task.state; }
     catch(e){notice('Delivery was not confirmed. '+errorText(e)+' Your draft is still saved.');}
     finally {busy=false; await refresh();}

@@ -81,6 +81,10 @@ def validate_inputs(kind, inputs):
         if not isinstance(inputs['value'], str) or len(inputs['value']) > 8192 or '\x00' in inputs['value']:
             raise ValueError('El texto debe tener hasta 8.192 caracteres y no contener NUL.')
         inputs['value'].encode('utf-16-le')
+    elif kind == 'cli_anything_scan':
+        if set(inputs) != {'window_id', 'pid'}:
+            raise ValueError('Indica ventana y proceso observados.')
+        _validate_window_ref(inputs['window_id'], inputs['pid'])
     elif kind == 'search':
         if inputs.get('engine') not in ENGINES or not isinstance(inputs.get('query'), str) or not 1 <= len(inputs['query'].strip()) <= 500:
             raise ValueError('Indica una búsqueda y un buscador compatible.')
@@ -209,6 +213,12 @@ def open_target(kind, inputs, cancelled=None, control=None):
         rows = list_windows()
         return {'success': True, 'output': {'windows': rows},
                 'evidence': {'verification': 'visible_windows_inventory', 'accepted': True, 'count': len(rows)}}
+    elif kind == 'cli_anything_scan':
+        from .cli_anything_engine import ENGINE
+        app = ENGINE.scan_window(int(inputs['window_id'], 16), inputs['pid'], cancelled=cancelled)
+        return {'success': True, 'output': app.to_dict(),
+                'evidence': {'verification': 'uia_capabilities_observed', 'accepted': True,
+                            'window_id': app.window_id, 'pid': app.pid, 'count': len(app.controls)}}
     elif kind in ('inspect_window', 'read_window', 'focus_window', 'set_window_value'):
         from .windows_automation import focus_window, inspect_controls, read_window_content, set_control_value
         window_id = int(inputs['window_id'], 16)

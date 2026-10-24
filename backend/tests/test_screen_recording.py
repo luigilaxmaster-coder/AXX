@@ -1,10 +1,51 @@
 import tempfile
 import unittest
-from unittest.mock import patch
+from contextlib import contextmanager
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 from pathlib import Path
-from backend.screen_recording import ScreenRecordingService, validate_region
+from backend.screen_recording import ScreenRecordingService, desktop_bounds, validate_region
 
 class ScreenRecordingTests(unittest.TestCase):
+    def test_desktop_bounds_uses_physical_scope(self):
+        entered = []
+        def metric(index):
+            self.assertEqual(entered, ['physical'])
+            return {76: 0, 77: 0, 78: 3840, 79: 1080}[index]
+        user = SimpleNamespace(GetSystemMetrics=Mock(side_effect=metric))
+        @contextmanager
+        def scope():
+            entered.append('physical')
+            try:
+                yield user
+            finally:
+                entered.pop()
+        with patch('backend.screen_recording.physical_dpi_context', scope):
+            self.assertEqual(desktop_bounds(), (0, 0, 3840, 1080))
+        self.assertEqual(entered, [])
+
+    def test_record_scope_covers_capture_and_restores_on_error(self):
+        entered = []
+        @contextmanager
+        def scope():
+            entered.append('physical')
+            try:
+                yield
+            finally:
+                entered.pop()
+        with tempfile.TemporaryDirectory() as root:
+            service = ScreenRecordingService(Path(root))
+            def record(*args):
+                self.assertEqual(entered, ['physical'])
+                raise RuntimeError('capture unavailable')
+            with patch('backend.screen_recording.physical_dpi_context', scope), patch.object(service, '_record_physical', side_effect=record) as worker:
+                service._record({'x': 1920, 'y': 0, 'width': 1920, 'height': 1080}, 30, 'balanced', 0, 1)
+            worker.assert_called_once()
+            self.assertEqual(entered, [])
+            self.assertEqual(service.status()['state'], 'error')
+            self.assertIn('capture unavailable', service.status()['error'])
+            service.close()
+
     def test_cancel_countdown_and_reject_duplicate_start(self):
         with tempfile.TemporaryDirectory() as root, patch('backend.screen_recording.desktop_bounds', return_value=(0,0,1920,1080)):
             service=ScreenRecordingService(Path(root))

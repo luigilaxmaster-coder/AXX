@@ -412,6 +412,10 @@ class DesktopTool(BaseTool):
                      and result.evidence.get('value_length') == len(inputs['value'].encode('utf-16-le')) // 2)
         elif self.kind == 'explorer_folder':
             valid = result.success and result.evidence.get('verification') == 'shell_folder_and_foreground_readback' and result.output.get('foreground_verified') is True
+        elif self.kind == 'cli_anything_scan':
+            valid = (result.success and result.evidence.get('verification') == 'uia_capabilities_observed'
+                     and result.output.get('window_id') == int(inputs['window_id'], 16)
+                     and result.output.get('pid') == inputs['pid'] and isinstance(result.output.get('commands'), dict))
         elif self.kind == 'list_apps':
             valid = result.success and isinstance(result.output.get('applications'), list) and result.evidence.get('count') == len(result.output['applications'])
         else:
@@ -460,7 +464,7 @@ TOOL_REGISTRY: dict[str, BaseTool] = {
     BlenderRenderFixtureTool.name: BlenderRenderFixtureTool(),
     **{('desktop_' + kind): DesktopTool(kind) for kind in (
         'open_url', 'open_app', 'installed_app', 'list_apps', 'search', 'powershell', 'cmd',
-        'list_windows', 'inspect_window', 'read_window', 'focus_window', 'set_window_value', 'notepad_text', 'explorer_folder')},
+        'list_windows', 'inspect_window', 'read_window', 'focus_window', 'set_window_value', 'notepad_text', 'explorer_folder', 'cli_anything_scan')},
 }
 
 def get_tool(name: str) -> BaseTool | None:

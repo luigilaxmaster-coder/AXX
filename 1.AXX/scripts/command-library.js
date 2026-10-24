@@ -21,6 +21,12 @@
             const rtStatus = node('desktop-runtime-status');
             if (rtStatus && Axx.desktop) rtStatus.textContent = text;
         }
+        notice(text, conversationId) {
+            // Results remain in their persisted operation card if the user moved
+            // to another chat. Never copy or speak one chat's output in another.
+            if (conversationId && Axx.chatWorkspace?.active?.id !== conversationId) return;
+            Axx.companion.localNotice(text);
+        }
         report(error) { this.status((this.operation ? 'Resultado incierto: ' : '') + errorText(error) + (this.operation ? ' Consulta el resultado antes de reintentar.' : '')); }
         async request(method, path, body) {
             const result = await Axx.backendRequest(method, path, body);
@@ -64,6 +70,7 @@
               <button id="command-library-learned" type="button">Mis acciones aprendidas</button><div id="command-library-learned-list"></div>
               <form id="command-library-search-form"><label class="setting">Buscar por nombre o ID<input class="field" id="command-library-query" type="search" maxlength="200" placeholder="Ej. estado del sistema"></label><button id="command-library-search" type="submit">Buscar comandos</button></form>
               <label class="setting">Comandos<select class="field" id="command-library-select"><option value="">Busca para consultar el catálogo</option></select></label>
+              <div class="quick-row"><button id="command-library-prev" type="button" disabled>Anterior</button><span id="command-library-page" role="status"></span><button id="command-library-next" type="button" disabled>Siguiente</button></div>
               <p id="command-library-description"></p><p id="command-library-availability"></p>
               <details id="command-library-procedure" hidden><summary>Ver instrucciones, requisitos y comprobaciones</summary><div id="command-library-steps" style="max-height:340px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere"></div></details>
               <form id="command-library-parameters"><div id="command-library-fields"></div><button id="command-library-prepare" type="submit" disabled>Preparar comando</button></form>
@@ -72,6 +79,8 @@
             node('view-files').prepend(section);
             node('command-library-search-form').onsubmit = event => { event.preventDefault(); void this.search().catch(e => this.status(errorText(e))); };
             node('command-library-select').onchange = () => this.renderSelection();
+            node('command-library-prev').onclick=()=>void this.search(undefined,Math.max(0,(this.offset||0)-30)).catch(e=>this.report(e));
+            node('command-library-next').onclick=()=>void this.search(undefined,(this.offset||0)+30).catch(e=>this.report(e));
             node('command-library-parameters').onsubmit = event => { event.preventDefault(); void this.fromSelection().catch(e => this.report(e)); };
             node('command-library-approve').onclick = () => { void this.approve().catch(e => this.report(e)); };
             node('command-library-remember').onclick = () => {
@@ -106,7 +115,7 @@
             link.onclick = () => { this.open(); void this.search().catch(e => this.status(errorText(e))); };
             node('desktop-runtime')?.prepend(link);
         }
-        open() { Axx.companion.openFeature('files'); node(this.operation?.state === 'awaiting_approval' ? 'command-library-approval' : 'command-library').scrollIntoView({ block: 'start' }); Axx.resident?.schedule(); }
+        open() { Axx.companion.openFeature(document.getElementById('view-commands') ? 'commands' : 'files'); node(this.operation?.state === 'awaiting_approval' ? 'command-library-approval' : 'command-library').scrollIntoView({ block: 'start' }); Axx.resident?.schedule(); }
         connectExistingActions() {
             if (!Axx.desktop) return;
             const ids = { system_telemetry: 'axx.system.telemetry', process_state_inspector: 'axx.process.inspect', file_artifact_writer: 'axx.artifact.write' };
@@ -132,14 +141,16 @@
             const blender = node('desktop-blender');
             if (blender) { blender.disabled = true; blender.textContent = 'Blender · pendiente de validación'; blender.title = 'El adaptador no está habilitado en la biblioteca hasta completar su validación física.'; }
         }
-        async search(query = node('command-library-query').value.trim()) {
+        async search(query = node('command-library-query').value.trim(), offset = 0) {
             const serial = ++this.searchGeneration;
             node('command-library-query').value = query;
             this.status('Consultando disponibilidad de los comandos.');
-            const result = await this.request('GET', '/axx-api/commands?q=' + encodeURIComponent(query) + '&limit=30');
+            const result = await this.request('GET', '/axx-api/commands?q=' + encodeURIComponent(query) + '&limit=30&offset='+offset);
             if (serial !== this.searchGeneration) return;
             if (!Array.isArray(result.commands)) throw new Error('El backend no devolvió un catálogo válido.');
             this.commands = result.commands;
+            this.offset=offset;node('command-library-prev').disabled=offset===0;node('command-library-next').disabled=offset+this.commands.length>=result.matched;
+            node('command-library-page').textContent=result.matched?`${offset+1}–${offset+this.commands.length} de ${result.matched}`:'Sin resultados';
             const select = node('command-library-select'); select.replaceChildren();
             for (const command of this.commands) {
                 const option = document.createElement('option'); option.value = command.id;
@@ -149,7 +160,7 @@
             const counts = result.counts || {};
             node('command-library-counts').textContent = `Importadas: ${counts.imported ?? 'sin dato'} · Habilitadas: ${counts.enabled ?? 'sin dato'} · Bloqueadas: ${counts.blocked ?? 'sin dato'} · Operaciones verificadas: ${counts.verified_operations ?? 0}.`;
             if (result.procedure_count) node('command-library-counts').textContent += ` Instrucciones completas: ${result.procedure_count}.`;
-            this.renderSelection(); this.status(this.commands.length ? 'Mostrando hasta 30 resultados. Selecciona para revisar sus condiciones.' : 'No se encontraron comandos. Prueba otro nombre o ID.');
+            this.renderSelection(); this.status(this.commands.length ? 'Selecciona un comando para revisar sus condiciones. Usa Siguiente para recorrer el catálogo.' : 'No se encontraron comandos. Prueba otro nombre o ID.');
         }
         renderSelection() {
             const command = this.commands.find(item => item.id === node('command-library-select').value);
@@ -347,28 +358,29 @@
                 Axx.companion.submit = async () => {
                     const draft = node('chat-input').value.trim();
                     if ((this.busy || this.operation) && !Axx.modelSelection?.parse(draft) && !this.hasLocalIntent(draft) && !/^(?:\/cancelar-comando|cancelar comando|cancela el comando|\/comandos(?:\s+.*)?)$/i.test(draft)) {
-                        Axx.app.toast('Hay un comando pendiente. Tu borrador se conserva; revisa el resultado o cancela el comando.');
-                        return;
+                        Axx.chatWorkspace?.operationCard(this.operation || this.lastOperation);
+                        if (this.isActionRequest(draft)) { Axx.companion.openChat(); return; }
                     }
                     return submit();
                 };
             }
             Axx.companion.send = async (text, metadata = {}) => {
                 const raw = String(text || '').trim();
+                const origin = Axx.chatWorkspace?.active?.id;
                 const modelCommand = Axx.modelSelection?.parse(raw);
                 if (modelCommand) {
                     Axx.companion._forceVoiceReplyOnce = false;
                     Axx.companion.message('user', raw, 'local');
-                    try { Axx.companion.localNotice(await Axx.modelSelection.run(modelCommand)); }
-                    catch (error) { Axx.companion.localNotice('No se pudo consultar o cambiar el modelo: ' + errorText(error)); }
+                    try { this.notice(await Axx.modelSelection.run(modelCommand), origin); }
+                    catch (error) { this.notice('No se pudo consultar o cambiar el modelo: ' + errorText(error), origin); }
                     Axx.resident?.schedule(); return;
                 }
                 const internal = this.internalAction(raw);
                 if (internal) {
                     Axx.companion._forceVoiceReplyOnce = false;
                     Axx.companion.message('user', raw, 'local');
-                    try { Axx.companion.localNotice(await this.runInternal(internal)); }
-                    catch (error) { Axx.companion.localNotice('No se pudo completar la orden: ' + errorText(error)); }
+                    try { this.notice(await this.runInternal(internal), origin); }
+                    catch (error) { this.notice('No se pudo completar la orden: ' + errorText(error), origin); }
                     Axx.resident?.schedule(); return;
                 }
                 if (this.learningQuestion && /^(cancelar|cancela|cancelar accion)$/i.test(raw)) { this.learningQuestion = null; Axx.companion.localNotice('Preparación cancelada.'); return; }
@@ -384,13 +396,13 @@
                 const catalogQuery = raw.match(/^\/comandos(?:\s+(.*))?$/i);
                 if (catalogQuery) { this.open(); try { await this.search(catalogQuery[1] || ''); } catch (error) { this.status(errorText(error)); } return; }
                 if (/^(?:\/cancelar-comando|cancelar comando|cancela el comando)$/i.test(raw)) { await this.cancel(); return; }
-                if (!Axx.isNative() || !raw || Axx.companion.attachment || Axx.companion.pending || Axx.companion.externalBusy) return previous(raw);
+                if (!Axx.isNative() || !raw || Axx.companion.attachment || Axx.companion.pending || Axx.companion.externalBusy) return previous(raw, metadata);
                 if (raw.length > 10000) {
                     if (this.isActionRequest(raw)) { Axx.companion.localNotice('La petición de acción es demasiado larga. Resúmela o usa un comando concreto.'); return; }
-                    return previous(raw);
+                    return previous(raw, metadata);
                 }
-                if (this.hasLocalIntent(raw)) return previous(raw);
-                if (this.busy || this.operation) { Axx.companion.localNotice('Hay un comando pendiente. Revisa su aprobación o cancélalo antes de enviar otro.'); return; }
+                if (this.hasLocalIntent(raw)) return previous(raw, metadata);
+                if (this.busy || this.operation) { Axx.chatWorkspace?.operationCard(this.operation || this.lastOperation); if (!this.isActionRequest(raw)) return previous(raw, metadata); Axx.companion.openChat(); return; }
                 const source = metadata.source === 'voice' || this.voiceDraft?.value === raw ? 'voice' : 'text';
                 this.voiceDraft = null;
                 const serial = ++this.generation; let prepared = false; this.busy = true;
@@ -398,12 +410,16 @@
                     const resolved = await this.request('POST', '/axx-api/commands/resolve', { text: raw, source, context: this.actionContext, project_id:Axx.skillLibrary?.project() || '' });
                     if (serial !== this.generation) return;
                     this.busy = false;
+                    if (origin && Axx.chatWorkspace?.active?.id !== origin) {
+                        this.status('La conversación cambió antes de preparar la acción. No se ejecutó ningún comando.');
+                        return;
+                    }
                     if (resolved.match === 'learned' || resolved.match === 'unsupported' || resolved.match === 'none' && this.isActionRequest(raw)) {
                         Axx.companion.message('user', raw, 'local');
                         await this.planAction(raw); return;
                     }
                     if (resolved.match === 'none') {
-                        if(!this.isActionRequest(raw))return previous(raw);
+                        if(!this.isActionRequest(raw))return previous(raw, metadata);
                         Axx.companion.message('user',raw,'local');
                         Axx.companion.localNotice('No hay una acción ejecutable identificada para esta petición. No se ha ejecutado ni enviado al modelo. Consulta /comandos para buscar el procedimiento y sus requisitos.');
                         return;
@@ -418,16 +434,16 @@
                     }
                     if (Object.entries(resolved.parameters || {}).some(([key, spec]) => spec.required && !Object.hasOwn(resolved.inputs || {}, key))) {
                         await this.search(resolved.command_id); this.open();
-                        Axx.companion.localNotice('He seleccionado el comando. Completa sus datos en la biblioteca para prepararlo.');
+                        this.notice('He seleccionado el comando. Completa sus datos en la biblioteca para prepararlo.', origin);
                         return;
                     }
                     prepared = true;
                     const result = await this.prepare(resolved.command_id, resolved.inputs || {}, source);
-                    if (result) Axx.companion.localNotice(result);
+                    if (result) this.notice(result, origin);
                 } catch (error) {
                     if (serial + (prepared ? 1 : 0) === this.generation) {
                         this.report(error);
-                        Axx.companion.localNotice((this.operation ? 'No se confirmó el resultado del comando. ' : 'No se pudo consultar o preparar el comando. ') + errorText(error) + (this.operation ? ' Consulta el resultado en Biblioteca antes de reintentar.' : ' Puedes reintentar la consulta; no se enviará al modelo automáticamente.'));
+                        this.notice((this.operation ? 'No se confirmó el resultado del comando. ' : 'No se pudo consultar o preparar el comando. ') + errorText(error) + (this.operation ? ' Consulta el resultado en Biblioteca antes de reintentar.' : ' Puedes reintentar la consulta; no se enviará al modelo automáticamente.'), origin);
                     }
                 } finally { if (serial === this.generation && !this.operation) this.busy = false; }
             };
@@ -527,14 +543,15 @@
             this.busy = false; this.renderOperation(operation);
             if (operation.state === 'blocked') { this.status('Comando bloqueado: ' + errorText(operation.error)); return 'Comando bloqueado: ' + errorText(operation.error); }
             if (operation.state === 'cancelled') { this.status('Comando cancelado antes de ejecutar.'); return 'Comando cancelado antes de ejecutar.'; }
-            if (operation.state === 'awaiting_approval') { this.open(); this.status('Esperando tu aprobación. Revisa los pasos antes de ejecutar.'); return 'Comando preparado. Revisa los pasos en Biblioteca y pulsa «Aprobar y ejecutar».'; }
+            if (operation.state === 'awaiting_approval') { if(Axx.chatWorkspace) Axx.companion.openChat(); else this.open(); this.status('Esperando tu aprobación. Revisa los pasos antes de ejecutar.'); return 'Comando preparado. Revisa la tarjeta de acción y pulsa «Aprobar y ejecutar».'; }
             return await this.execute(false);
         }
         async approve() {
             if (!this.operation || this.operation.state !== 'awaiting_approval' || this.busy) return;
             if (this.operation.kind === 'learned_plan') return this.executePlan();
+            const origin = this.operation.conversation_id || Axx.chatWorkspace?.active?.id;
             const message = await this.execute(true);
-            if (message) Axx.companion.localNotice(message);
+            if (message) this.notice(message, origin);
         }
         async execute(approved) {
             const operation = this.operation;
@@ -550,6 +567,7 @@
                 const verified = result.state === 'succeeded' && result.postconditions_passed === true
                     && (!launchNeedsWindow || result.output?.ready_for_action === true);
                 if (verified && result.command_id === 'axx.desktop.window.read') Axx.windowContent?.accept(result);
+                if (verified && result.command_id === 'axx.desktop.list_windows') Axx.windowContent?.acceptWindows(result);
                 let detail = '';
                 if (verified && result.evidence && typeof result.evidence === 'object') {
                     const ev = result.evidence;
@@ -622,6 +640,7 @@
         async planAction(text, options = {}) {
             if (this.busy || this.operation) { Axx.companion.localNotice('Hay una acción pendiente. Revisa el resultado o cancélala antes de preparar otra.'); return; }
             const serial = ++this.generation, id = Axx.newId();
+            const origin = Axx.chatWorkspace?.active?.id;
             this.busy = true; ++this.observationRevision;
             this.operation = this.lastOperation = { kind:'learned_plan', operation_id:id, command_id:'axx.learned', state:'planning' };
             this.status('Buscando una habilidad y preparando la acción…'); this.renderOperation(this.operation);
@@ -635,13 +654,13 @@
                 this.lastOperation = plan; this.operation = plan.state === 'awaiting_approval' ? plan : null;
                 this.learningQuestion = plan.state === 'needs_input' ? {request:text,question:plan.message,operation_id:plan.operation_id} : null;
                 this.busy = false; this.renderOperation(plan); this.status(plan.message || plan.state);
-                if (this.operation) this.open();
-                Axx.companion.localNotice(plan.message || 'No se pudo preparar la acción.');
+                if (this.operation) { if(Axx.chatWorkspace) Axx.companion.openChat(); else this.open(); }
+                this.notice(plan.message || 'No se pudo preparar la acción.', origin);
                 Axx.companion.action(this.operation ? 'approval' : 'idle');
             } catch (error) {
                 if (serial !== this.generation) return;
                 this.operation = null; this.report(error);
-                Axx.companion.localNotice('No se pudo preparar la acción: ' + errorText(error));
+                this.notice('No se pudo preparar la acción: ' + errorText(error), origin);
             } finally {
                 if (serial === this.generation) { this.busy = false; node('command-library-cancel').disabled = !this.operation; }
             }
@@ -649,6 +668,7 @@
         async executePlan() {
             const operation = this.operation, serial = this.generation;
             if (!operation || this.busy) return;
+            const origin = operation.conversation_id || Axx.chatWorkspace?.active?.id;
             this.busy = true; operation.state = 'running'; ++this.observationRevision;
             this.renderOperation(operation); this.status('Ejecutando los pasos y comprobando sus resultados…');
             const progress = setInterval(() => {
@@ -669,7 +689,7 @@
                     if (result.evidence?.verification === 'os_handoff') message += '\nWindows aceptó abrir: ' + (result.output?.label || result.evidence.target);
                     if (result.evidence?.sha256) message += '\nArchivo verificado: ' + result.evidence.path;
                 }
-                Axx.companion.localNotice(message); Axx.companion.action(verified ? 'success' : 'error');
+                this.notice(message, origin); Axx.companion.action(verified ? 'success' : 'error');
                 if (verified) void this.listLearned().catch(() => {});
             } catch (error) {
                 if (serial !== this.generation) return;
@@ -692,7 +712,7 @@
             if (serial !== this.generation || revision !== this.observationRevision || this.busy) return;
             if (!result.operation || result.operation.operation_id !== operation.operation_id) throw new Error('El backend no confirmó el estado de este comando.');
             this.lastOperation = result.operation;
-            this.operation = ['prepared', 'awaiting_approval', 'running'].includes(result.operation.state) ? result.operation : null;
+            this.operation = ['prepared', 'awaiting_approval', 'running','unknown'].includes(result.operation.state) ? result.operation : null;
             this.renderOperation(result.operation);
             this.status('Estado observado: ' + result.operation.state + (result.operation.postconditions_passed === true ? ' · condiciones verificadas.' : '.'));
         }

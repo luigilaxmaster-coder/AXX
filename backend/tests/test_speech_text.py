@@ -30,6 +30,16 @@ class SpokenTextTests(unittest.TestCase):
         self.assertEqual(prepare_spoken_text('Dr. Smith has 22 tasks.', 'en')[0], 'Dr. Smith has 22 tasks.')
         self.assertEqual(prepare_spoken_text('Bonjour', 'fr'), ('Bonjour', 'fr'))
 
+    def test_conversational_pauses_ordinals_and_technical_terms(self):
+        text = 'Hola principal podemos revisar el PDF de la 1ª prueba'
+        self.assertEqual(prepare_spoken_text(text, 'es')[0],
+                         'Hola principal, podemos revisar el pe-de-efe de la primera prueba.')
+        text2 = 'Por supuesto revisa la pág. 10 y el Wi-Fi'
+        self.assertEqual(prepare_spoken_text(text2, 'es')[0],
+                         'Por supuesto, revisa la página diez y el uay-fay.')
+        self.assertEqual(prepare_spoken_text('1er intento, 2do intento y 3er intento.', 'es')[0],
+                         'primer intento, segundo intento y tercer intento.')
+
 
 if __name__ == '__main__':
     unittest.main()

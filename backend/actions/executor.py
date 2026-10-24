@@ -22,7 +22,7 @@ from .tools import artifact_path_error, get_tool, ToolResult
 
 LOG = logging.getLogger('axx.executor')
 PARALLEL_READ_TOOLS = frozenset({'file_inspection', 'system_telemetry', 'process_state_inspector',
-                                'desktop_list_apps', 'desktop_list_windows'})
+                                'desktop_list_apps', 'desktop_list_windows', 'desktop_cli_anything_scan'})
 
 class ActionExecutionError(Exception):
     pass
@@ -136,6 +136,7 @@ class ActionExecutor:
                      'desktop_installed_app': {'app_id'}, 'desktop_list_apps': set(),
                      'desktop_list_windows': set(),
                      'desktop_inspect_window': {'window_id', 'pid'},
+                     'desktop_cli_anything_scan': {'window_id', 'pid'},
                      'desktop_read_window': {'window_id', 'pid', 'expected_title'},
                      'desktop_focus_window': {'window_id', 'pid'},
                      'desktop_set_window_value': {'window_id', 'pid', 'control_id', 'value'},

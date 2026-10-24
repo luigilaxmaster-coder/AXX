@@ -5,10 +5,11 @@ $ProgressPreference = 'SilentlyContinue'
 $effectStarted = $false
 
 try {
+    Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class AxxUiNative { [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow(); }'
     Add-Type -AssemblyName UIAutomationClient
     Add-Type -AssemblyName UIAutomationTypes
     $request = [Console]::In.ReadToEnd() | ConvertFrom-Json -ErrorAction Stop
-    if ($null -eq $request -or $request.operation -notin @('inspect', 'read_content', 'set_value', 'check_value', 'locate_folder')) {
+    if ($null -eq $request -or $request.operation -notin @('inspect', 'read_content', 'set_value', 'check_value', 'locate_folder', 'scrape_app')) {
         throw 'Operación UI Automation desconocida.'
     }
     if ($request.operation -eq 'locate_folder') {
@@ -43,8 +44,27 @@ try {
         finally { $sha.Dispose() }
     }
 
-    if ($request.operation -in @('inspect', 'read_content')) {
+    function Convert-BoundedCoordinate([double]$value) {
+        if ([double]::IsNaN($value) -or [double]::IsInfinity($value)) { return 0 }
+        return [int][Math]::Round([Math]::Max(-1000000, [Math]::Min(1000000, $value)))
+    }
+
+    function Get-SupportedPatterns($element) {
+        $patterns = [System.Collections.Generic.List[string]]::new()
+        $dummy = $null
+        if ($element.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$dummy)) { $patterns.Add('Invoke') }
+        if ($element.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$dummy)) { $patterns.Add('Value') }
+        if ($element.TryGetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern, [ref]$dummy)) { $patterns.Add('Toggle') }
+        if ($element.TryGetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern, [ref]$dummy)) { $patterns.Add('SelectionItem') }
+        if ($element.TryGetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern, [ref]$dummy)) { $patterns.Add('ExpandCollapse') }
+        if ($element.TryGetCurrentPattern([System.Windows.Automation.ScrollPattern]::Pattern, [ref]$dummy)) { $patterns.Add('Scroll') }
+        if ($element.TryGetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern, [ref]$dummy)) { $patterns.Add('Text') }
+        return @($patterns)
+    }
+
+    if ($request.operation -in @('inspect', 'read_content', 'scrape_app')) {
         $reading = $request.operation -eq 'read_content'
+        $scraping = $request.operation -eq 'scrape_app'
         $remaining = 24000
         $contentLimited = $false
         $windowTitle = $root.Current.Name
@@ -52,7 +72,6 @@ try {
         $scope = $root
         $browserProcess = [Diagnostics.Process]::GetProcessById([int]$request.pid).ProcessName -in @('chrome','msedge','brave','firefox','opera','vivaldi')
         if ($reading -and $browserProcess) {
-            # Chromium can retain background documents with IsOffscreen=false.
             $documents = $root.FindAll([System.Windows.Automation.TreeScope]::Descendants,
                 [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Document))
             $matching = @($documents | Where-Object { -not $_.Current.IsOffscreen -and $_.Current.Name -and
@@ -61,23 +80,20 @@ try {
             if ($matching.Count -ne 1) { throw 'No se pudo identificar una única página activa. Activa la pestaña que quieres leer y vuelve a intentarlo.' }
             $scope = $matching[0]
         }
-        function Convert-BoundedCoordinate([double]$value) {
-            if ([double]::IsNaN($value) -or [double]::IsInfinity($value)) { return 0 }
-            return [int][Math]::Round([Math]::Max(-1000000, [Math]::Min(1000000, $value)))
-        }
         $items = [System.Collections.Generic.List[object]]::new()
         $all = $scope.FindAll([System.Windows.Automation.TreeScope]::Subtree,
             [System.Windows.Automation.Condition]::TrueCondition)
         $protected = $scope.FindFirst([System.Windows.Automation.TreeScope]::Subtree,
             [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::IsPasswordProperty, $true))
-        $count = [Math]::Min($all.Count, $(if ($reading) { 1000 } else { 250 }))
+        $maxAllowed = if ($scraping) { 1000 } elseif ($reading) { 1000 } else { 250 }
+        $count = [Math]::Min($all.Count, $maxAllowed)
         for ($i = 0; $i -lt $count; $i++) {
             $item = $all.Item($i)
             if ($item.Current.IsPassword) { continue }
             $controlType = $item.Current.ControlType.ProgrammaticName
             $name = ''
             if (($reading -and -not $item.Current.IsOffscreen) -or $controlType -in @('ControlType.Button', 'ControlType.CheckBox', 'ControlType.RadioButton',
-                'ControlType.MenuItem', 'ControlType.ComboBox')) {
+                'ControlType.MenuItem', 'ControlType.ComboBox', 'ControlType.TabItem', 'ControlType.ToolBar')) {
                 $name = [string]$item.Current.Name
                 if ($name.Length -gt 200) { $name = $name.Substring(0, 200) }
             }
@@ -92,7 +108,6 @@ try {
                     $value = $value.Substring(0, [Math]::Min($value.Length, [Math]::Min(8192, $remaining)))
                     $remaining -= $value.Length
                 }
-                # Read leaf text only: parent document text may include protected descendants.
                 if ($controlType -in @('ControlType.Text', 'ControlType.Hyperlink') -and $remaining -gt 0) {
                     $text = [string]$item.Current.Name
                     if ($text.Length -gt [Math]::Min(2000, $remaining)) { $contentLimited = $true }
@@ -109,22 +124,38 @@ try {
                 }
             }
             $rect = $item.Current.BoundingRectangle
-            $items.Add([ordered]@{
+            $controlEntry = [ordered]@{
                 control_id = (Get-ControlToken $item ([long]$request.window_id) ([int]$request.pid))
                 automation_id = [string]$item.Current.AutomationId
                 control_type = $controlType
                 name = $name
+                class_name = [string]$item.Current.ClassName
                 enabled = [bool]$item.Current.IsEnabled
                 offscreen = [bool]$item.Current.IsOffscreen
                 supports_value_pattern = [bool]$hasValuePattern
+                read_only = $(if ($hasValuePattern) { [bool]$valuePattern.Current.IsReadOnly } else { $true })
                 text = $text
                 value = $value
                 bounds = [ordered]@{ x = (Convert-BoundedCoordinate $rect.X); y = (Convert-BoundedCoordinate $rect.Y);
                     width = (Convert-BoundedCoordinate $rect.Width); height = (Convert-BoundedCoordinate $rect.Height) }
-            })
+            }
+            if ($scraping) {
+                $controlEntry['accelerator_key'] = [string]$item.Current.AcceleratorKey
+                $controlEntry['access_key'] = [string]$item.Current.AccessKey
+                # HelpText can contain document content; discovery exports metadata only.
+                if ($controlType -in @('ControlType.Button', 'ControlType.MenuItem', 'ControlType.SplitButton',
+                    'ControlType.CheckBox', 'ControlType.RadioButton', 'ControlType.ComboBox', 'ControlType.TabItem',
+                    'ControlType.Edit', 'ControlType.Document')) {
+                    $controlEntry['patterns'] = (Get-SupportedPatterns $item)
+                } else {
+                    $controlEntry['patterns'] = @()
+                }
+            }
+            $items.Add($controlEntry)
         }
         $answer = [ordered]@{ success = $true; window_id = [long]$request.window_id; pid = [int]$request.pid;
-            controls = @($items); truncated = ($all.Count -gt $count); count = $count; verification = 'uia_control_tree_observed' }
+            window_title = $windowTitle; controls = @($items); truncated = ($all.Count -gt $count); count = $count;
+            verification = $(if ($scraping) { 'uia_app_tree_scraped' } else { 'uia_control_tree_observed' }) }
         if ($reading) {
             if ($root.Current.Name -ne $windowTitle) { throw 'La ventana cambió durante la lectura. Vuelve a leerla.' }
             $answer.verification = 'uia_window_content_observed'
@@ -134,8 +165,9 @@ try {
             $answer['limitation'] = 'Solo contenido expuesto por la aplicación; puede faltar texto, enlaces o elementos fuera de pantalla. No es acceso al DOM.'
         }
     } else {
-        Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class AxxUiNative { [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow(); }'
-        if ($request.operation -eq 'set_value' -and [AxxUiNative]::GetForegroundWindow().ToInt64() -ne [long]$request.window_id) { throw 'La aplicación perdió el foco antes de escribir.' }
+        if ($request.operation -eq 'set_value' -and [AxxUiNative]::GetForegroundWindow().ToInt64() -ne [long]$request.window_id) {
+            throw 'La aplicación perdió el foco antes de escribir.'
+        }
         if ($request.control_id -notmatch '^[a-f0-9]{64}$') { throw 'control_id observado inválido.' }
         $all = $root.FindAll([System.Windows.Automation.TreeScope]::Descendants,
             [System.Windows.Automation.Condition]::TrueCondition)

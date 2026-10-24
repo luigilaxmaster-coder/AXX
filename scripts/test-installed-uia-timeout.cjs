@@ -30,6 +30,8 @@ const delay=ms=>new Promise(r=>setTimeout(r,ms));
   const uncertain=await run('axx.desktop.window.set_value',{...identity,control_id:editor.control_id,value},true);
   receipt.operations.push(uncertain);receipt.timeout_ms=Date.now()-started;
   assert.equal(uncertain.state,'unknown');assert(uncertain.evidence.reconciliation_required);
+  assert.match(uncertain.error?.message||'',/excedió el límite/,'External input cancellation is not a timeout acceptance');
+  assert(receipt.timeout_ms>=8000,'The real provider deadline must expire');
   const replay=await api('POST','/axx-api/commands/execute',{operation_id:uncertain.operation_id,approved:true});
   assert.equal(replay.state,'unknown');assert(replay.replayed);
   let blocked=false;try{await api('POST','/axx-api/commands/prepare',{command_id:'axx.desktop.window.set_value',inputs:{...identity,control_id:editor.control_id,value:'DO NOT DUPLICATE'},source:'text'});}catch{blocked=true;}assert(blocked);

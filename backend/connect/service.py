@@ -128,7 +128,7 @@ class ConnectService:
         except Exception as exc:
             result['memory_warning'] = type(exc).__name__
 
-    def execute(self, body, *, admission=None):
+    def execute(self, body, *, admission=None, chat_policy=None):
         """Validate, then durably admit under an optional caller-owned guard.
 
         Lock order is service -> admission. The guard must not call this service
@@ -195,7 +195,7 @@ class ConnectService:
                             # validation/approval path; recipes grant no permission.
                             inputs = {name: inputs[value[8:]] for name, value in expected.items()}
                             reused = {'id': recipe.id, 'version': recipe.version, 'environment': recipe.env_fingerprint}
-                prepared = self.commands.prepare(key, inputs, 'text', operation_id)
+                prepared = self.commands.prepare(key, inputs, 'text', operation_id, **(chat_policy or {}))
                 result = prepared | {'inputs': inputs, 'procedure_reused': reused is not None}
                 if reused:
                     result['procedure_id'] = reused['id']
@@ -417,7 +417,15 @@ class ConnectService:
         # A model cannot assert a trusted origin/parent/depth or approve a write.
         arguments = concrete_action_arguments(name, arguments)
         arguments.update(origin='axx-provider', parent_execution_id=request_id, delegation_depth=1)
-        result = self.execute(arguments, admission=admission)
+        chat_policy = None
+        with self.lock:
+            tables = {r[0] for r in self.db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            if {'chat_conversations','connect_runs'} <= tables:
+                chat_policy = {'command_mode': 'ask'}
+                row = self.db.execute('SELECT c.id,c.mode FROM chat_conversations c JOIN connect_runs r ON r.conversation_id=c.connect_id WHERE r.request_id=?', (request_id,)).fetchone()
+                if row:
+                    chat_policy = {'conversation_id': row[0], 'command_mode': row[1]}
+        result = self.execute(arguments, admission=admission, chat_policy=chat_policy)
         # Short, bounded waiting gives the model actual read-only executor output
         # in ordinary cases. Long operations return a queryable identifier.
         deadline = time.monotonic() + 2

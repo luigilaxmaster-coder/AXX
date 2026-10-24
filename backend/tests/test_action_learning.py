@@ -30,6 +30,13 @@ class ActionLearningTests(unittest.TestCase):
     def tearDown(self):
         self.learning.close(); self.commands.close(); self.executor.close(); self.temp.cleanup()
 
+    def test_chat_origin_is_durable_and_cannot_be_rebound(self):
+        plan=self.learning.propose('prepara un diagnóstico', operation_id='chat-plan', conversation_id='chat-a')
+        self.assertEqual(self.learning.get(plan['operation_id'])['conversation_id'],'chat-a')
+        self.assertEqual(plan['state'],'awaiting_approval')
+        with self.assertRaises(ValueError):
+            self.learning.propose('prepara un diagnóstico', operation_id='chat-plan', conversation_id='chat-b')
+
     def test_model_plan_writes_real_file_hashes_it_and_learns_only_after_execution(self):
         self.model.answer = {'title': 'Crear y comprobar saludo', 'steps': [
             {'command_id': 'axx.artifact.write', 'inputs': {'path': 'saludo.txt', 'content': 'hola real'}},

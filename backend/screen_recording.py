@@ -7,16 +7,17 @@ from pathlib import Path
 import threading
 import time
 import uuid
+from .magic_pen import physical_dpi_context
 
 ACTIVE = {'requesting', 'countdown', 'running', 'paused', 'stopping'}
 
 def desktop_bounds():
     if os.name != 'nt':
         raise ValueError('La grabación de área requiere Windows.')
-    user = ctypes.windll.user32
-    # The host uses physical desktop coordinates, including negative monitor origins.
-    user.SetProcessDPIAware()
-    return tuple(user.GetSystemMetrics(i) for i in (76, 77, 78, 79))
+    with physical_dpi_context() as user:
+        user.GetSystemMetrics.argtypes = [ctypes.c_int]
+        user.GetSystemMetrics.restype = ctypes.c_int
+        return tuple(user.GetSystemMetrics(i) for i in (76, 77, 78, 79))
 
 def validate_region(raw, bounds=None):
     if not isinstance(raw, dict) or set(raw) != {'x','y','width','height'}:
@@ -85,6 +86,14 @@ class ScreenRecordingService:
         return {'opened':True}
 
     def _record(self, region, fps, quality, countdown, minutes):
+        try:
+            with physical_dpi_context():
+                self._record_physical(region, fps, quality, countdown, minutes)
+        except Exception as exc:
+            with self.lock:
+                self.data.update(state='error', error='No se pudo preparar la captura: ' + str(exc)[:400])
+
+    def _record_physical(self, region, fps, quality, countdown, minutes):
         source=output=None
         partial=None
         frames=0

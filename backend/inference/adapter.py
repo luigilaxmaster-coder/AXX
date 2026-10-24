@@ -18,11 +18,15 @@ MAX_WORKER_OUTPUT = 8 * 1024 * 1024
 MAX_WORKER_ERROR = 64 * 1024
 
 class ActiveRequest:
-    def __init__(self, request_id, deadline_mono):
+    def __init__(self, request_id, deadline_mono, cancel_event=None):
         self.request_id, self.deadline_mono = request_id, deadline_mono
         self.cancelled, self.completed = False, False
         self.terminal_state = self.process = self.job = None
         self.lock = threading.Lock()
+        self.cancel_event = cancel_event
+
+    def is_cancelled(self):
+        return self.cancelled or (self.cancel_event is not None and self.cancel_event.is_set())
 
 def worker_main(state_path: str) -> int:
     """Same executable entry point; exactly one bounded stdin/stdout JSON object."""
@@ -64,6 +68,8 @@ def worker_main(state_path: str) -> int:
     return code
 
 class InferenceAdapter:
+    supports_cancel_event = True
+
     def __init__(self, config: dict, state_path: str | Path = 'state.db', *, router_instance: Router | None = None):
         if config.get('allow_paid', False) is not False:
             raise ValueError('Paid inference is disabled')
@@ -131,6 +137,9 @@ class InferenceAdapter:
         return result
 
     def _worker_result(self, active, request, config_override=None):
+        if active.is_cancelled():
+            return {'ok': False, 'error': {'code': 'CANCELLED', 'message': 'Request cancelled before dispatch',
+                                          'retryable': False, 'upstream_attempted': False}}
         command = ([sys.executable, '--router-worker'] if getattr(sys, 'frozen', False)
                    else [sys.executable, '-m', 'backend.server', '--router-worker'])
         command += ['--state', str(self.state_path)]
@@ -141,6 +150,9 @@ class InferenceAdapter:
             raise RequestError('Worker input exceeds size limit')
         child_env = os.environ.copy()
         child_env.pop('AXX_HOST_TOKEN', None)
+        if active.is_cancelled():
+            return {'ok': False, 'error': {'code': 'CANCELLED', 'message': 'Request cancelled before dispatch',
+                                          'retryable': False, 'upstream_attempted': False}}
         proc, job = spawn_managed_process(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                          stderr=subprocess.PIPE, env=child_env,
                                          cwd=str(Path(__file__).resolve().parents[2]))
@@ -164,6 +176,11 @@ class InferenceAdapter:
         write_errors = []
         def write_input():
             try:
+                # A cancellation during process creation must not deliver a request
+                # to the child. Before stdin is written, it cannot contact upstream.
+                if active.is_cancelled():
+                    proc.stdin.close()
+                    return
                 proc.stdin.write(data)
                 proc.stdin.close()
             except (OSError, ValueError) as exc:
@@ -178,7 +195,7 @@ class InferenceAdapter:
         writer.start()
         try:
             while proc.poll() is None:
-                if active.cancelled:
+                if active.is_cancelled():
                     return {'ok': False, 'error': {'code': 'CANCELLED', 'message': 'Request cancelled', 'retryable': False}}
                 if overflow.is_set():
                     raise RouterError('Worker output exceeds size limit', code='INVALID_RESPONSE')
@@ -216,11 +233,13 @@ class InferenceAdapter:
         return self.route(dict(envelope, selection_mode='automatic_free'), _candidate_provider=provider_name,
                           _candidate_override=provider_override)
 
-    def route(self, envelope: dict, *, _candidate_provider=None, _candidate_override=None) -> dict:
+    def route(self, envelope: dict, *, _candidate_provider=None, _candidate_override=None, cancel_event=None) -> dict:
         request_id = str(uuid.uuid4())
         if not isinstance(envelope, dict):
             return self._error(request_id, 'INVALID_REQUEST', 'Envelope must be an object')
         request_id = envelope.get('request_id') or request_id
+        if cancel_event is not None and not isinstance(cancel_event, threading.Event):
+            return self._error(str(request_id)[:128], 'INVALID_REQUEST', 'Invalid internal cancellation event')
         conversation_id, deadline_ms = envelope.get('conversation_id', 'default'), envelope.get('deadline_ms', 70000)
         if (not isinstance(request_id, str) or not 1 <= len(request_id) <= 128
                 or not isinstance(conversation_id, str) or not 1 <= len(conversation_id) <= 128
@@ -228,8 +247,10 @@ class InferenceAdapter:
             return self._error(str(request_id)[:128], 'INVALID_REQUEST', 'Invalid request identity or deadline')
         if envelope.get('sensitivity', 'public') not in ('public', 'approved_sensitive'):
             return self._error(request_id, 'INVALID_REQUEST', 'Local-only content cannot use remote inference')
-        active = ActiveRequest(request_id, time.monotonic() + deadline_ms / 1000)
+        active = ActiveRequest(request_id, time.monotonic() + deadline_ms / 1000, cancel_event)
         with self.lock:
+            if active.is_cancelled():
+                return self._error(request_id, 'CANCELLED', 'Request cancelled before registration', upstream_attempted=False)
             if self.router is None:
                 return self._error(request_id, 'PROCESS_FAILURE', 'Adapter closed')
             candidate_config = None
@@ -269,6 +290,8 @@ class InferenceAdapter:
                 if key in generation:
                     request[key] = generation[key]
             self.router.validate_request(request)
+            if active.is_cancelled():
+                return self._error(request_id, 'CANCELLED', 'Request cancelled before dispatch', upstream_attempted=False)
             # Injection is reserved for deterministic offline tests.
             if self.router.transport is not http_transport:
                 if candidate_config is None:
@@ -287,7 +310,7 @@ class InferenceAdapter:
                                        error.get('message', 'Inference failed'), bool(error.get('retryable')), error.get('upstream_attempted'))
                 raw_result = worker['result']
             with active.lock:
-                if active.cancelled:
+                if active.is_cancelled():
                     return self._error(request_id, 'CANCELLED', 'Request cancelled; late response discarded')
                 if time.monotonic() >= active.deadline_mono:
                     return self._error(request_id, 'DEADLINE_EXCEEDED', 'Inference wall deadline exceeded')
@@ -299,9 +322,9 @@ class InferenceAdapter:
             code = getattr(exc, 'code', 'PROCESS_FAILURE')
             if isinstance(exc, UpstreamError) and exc.status == 504:
                 code = 'DEADLINE_EXCEEDED'
-            if active.cancelled:
+            if active.is_cancelled():
                 code = 'CANCELLED'
-            return self._error(request_id, code, 'Request cancelled' if active.cancelled else str(exc),
+            return self._error(request_id, code, 'Request cancelled' if active.is_cancelled() else str(exc),
                                code in ('NO_PROVIDER_AVAILABLE', 'STATE_UNAVAILABLE', 'UPSTREAM_TEMPORARY'),
                                getattr(exc, 'upstream_attempted', None))
         finally:

@@ -1,4 +1,4 @@
-/* PCM playback starts before the custom voice finishes generating a phrase. */
+/* Buffer each phrase before playback so a slow CPU cannot split spoken words. */
 (function (Axx) {
     if (!Axx) return;
     const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -17,7 +17,7 @@
             this.stopped = false; this.pending = false; this.nextTime = 0;
             this.nextIndex = reader.index; this.started = performance.now(); this.played = false;
             this.evidence = { engine: 'moss-onnx', voice: voice.name, streaming: true,
-                playing_event: false, ended_event: false, chunks: 0, underruns: 0 };
+                playing_event: false, ended_event: false, chunks: 0, underruns: 0, buffering: 'phrase', phrase_gaps: 0 };
         }
         valid() { return !this.stopped && this.reader.generation === this.generation; }
         async stop() {
@@ -83,7 +83,8 @@
                     await wait(150);
                 }
             }
-            let cursor = 0;
+            let cursor = 0, bytes = 0;
+            const events = [];
             while (this.valid()) {
                 const packet = await Axx.backendRequest('POST', '/axx-api/speech/stream/poll',
                     { stream_id: response.stream_id, after: cursor });
@@ -91,18 +92,23 @@
                 if (packet.error) throw new Error(packet.error.message || 'No se pudo generar la voz.');
                 for (const event of packet.events) {
                     if (event.seq !== cursor + 1) throw new Error('Se interrumpió el flujo de voz.');
-                    this.enqueue(event, index); cursor = event.seq;
+                    bytes += event.pcm_base64.length;
+                    if(bytes>16*1024*1024||events.length>=512)throw new Error('La frase supera el límite de audio.');
+                    events.push(event); cursor = event.seq;
                 }
                 if (packet.done) break;
                 // The backend waits for the next PCM event. Browser background
                 // timer throttling must not delay delivery to the audio clock.
             }
+            if(!this.valid())return;
+            if(this.nextTime&&this.nextTime<this.context.currentTime){this.evidence.phrase_gaps++;this.nextTime=0;}
+            for(const event of events)this.enqueue(event,index);
             this.pending = false; this.reader.nativePending = false;
         }
         async play() {
             await this.context.resume();
             while (this.valid()) {
-                if (this.nextIndex < this.reader.chunks.length && this.nextTime - this.context.currentTime < 5) {
+                if (this.nextIndex < this.reader.chunks.length && this.nextTime - this.context.currentTime < 8) {
                     const index = this.nextIndex++;
                     const text = this.reader.chunks[index]?.slice(index === this.reader.index ? this.reader.offset : 0);
                     if (text) await this.phrase(text, index);

@@ -19,6 +19,7 @@ import unicodedata
 import uuid
 
 from .actions.desktop import APPS, ENGINES, resolve_desktop, validate_inputs as validate_desktop_inputs
+from .actions.executor import ActionExecutionError
 from .procedure_library import ProcedureLibrary
 
 TERMINAL = {'succeeded', 'failed', 'blocked', 'cancelled', 'expired', 'unknown'}
@@ -113,6 +114,12 @@ ADAPTERS = {
         'title': 'Estado de un proceso', 'tool': 'process_state_inspector', 'risk': 'read',
         'description': 'Comprueba un PID local. Sin parámetros consulta el proceso de Axx.',
         'aliases': ['estado de axx'], 'parameters': {'pid': {'type': 'integer', 'required': False, 'minimum': 1, 'maximum': 4294967295}}},
+    'axx.desktop.cli_anything.scan': {
+        'title': 'Descubrir capacidades UIA', 'tool': 'desktop_cli_anything_scan', 'risk': 'read',
+        'description': 'Observa metadatos y patrones de controles expuestos por UI Automation. Solo ofrece acciones del registro; descubrir un patrón no valida su ejecución.',
+        'aliases': [], 'parameters': {
+            'window_id': {'type': 'string', 'required': True, 'maxLength': 18},
+            'pid': {'type': 'integer', 'required': True, 'minimum': 1, 'maximum': 4294967295}}},
     'axx.artifact.write': {
         'title': 'Crear archivo de texto', 'tool': 'file_artifact_writer', 'risk': 'workspace_write',
         'description': 'Crea un archivo nuevo en artifacts tras confirmar ruta y contenido; verifica SHA256.',
@@ -124,7 +131,10 @@ ADAPTERS = {
 # Explicit implementation bindings; imported prose cannot add to this map.
 PROCEDURE_BINDINGS = {'AXX-02-0147': 'axx.file.sha256', 'AXX-02-0148': 'axx.file.compare'}
 PARALLEL_READ_COMMANDS = frozenset({'axx.file.sha256', 'axx.file.compare', 'axx.system.telemetry',
-                                   'axx.process.inspect', 'axx.desktop.list_apps', 'axx.desktop.list_windows'})
+                                   'axx.process.inspect', 'axx.desktop.list_apps', 'axx.desktop.list_windows', 'axx.desktop.cli_anything.scan'})
+# Recovery is independent of concurrency: serial UIA observations also have no
+# write effect to reconcile after interruption. This does not authorize overlap.
+READ_ONLY_COMMANDS = PARALLEL_READ_COMMANDS | frozenset({'axx.desktop.window.inspect', 'axx.desktop.window.read'})
 
 
 def normalized(value):
@@ -366,7 +376,14 @@ class CommandService:
             inputs['path'] = '/'.join(parts)
         return inputs
 
+    @staticmethod
+    def _recovery_view(result):
+        if result and result.get('state') == 'unknown' and result.get('command_id') in READ_ONLY_COMMANDS:
+            result = result | {'evidence': dict(result.get('evidence') or {}, reconciliation_required=True)}
+        return result
+
     def _save(self, result):
+        result = self._recovery_view(result)
         self.db.execute('UPDATE command_runs SET state=?,result_json=? WHERE operation_id=?',
                         (result['state'], json.dumps(result, ensure_ascii=False), result['operation_id']))
         self.db.commit()
@@ -377,13 +394,18 @@ class CommandService:
             raise ValueError('operation_id requerido')
         with self.lock:
             row = self.db.execute('SELECT result_json FROM command_runs WHERE operation_id=?', (operation_id,)).fetchone()
-            return json.loads(row[0]) if row else None
+            return self._recovery_view(json.loads(row[0])) if row else None
 
     def operations(self):
         with self.lock:
-            return [json.loads(row[0]) for row in self.db.execute('SELECT result_json FROM command_runs ORDER BY created_at DESC LIMIT 50')]
+            return [self._recovery_view(json.loads(row[0])) for row in self.db.execute('SELECT result_json FROM command_runs ORDER BY created_at DESC LIMIT 50')]
 
-    def prepare(self, command_id, inputs, source='text', operation_id=None):
+    def prepare(self, command_id, inputs, source='text', operation_id=None, *, conversation_id=None, command_mode=None):
+        if command_mode not in (None, 'ask', 'auto_safe'):
+            raise ValueError('Modo de comandos inválido')
+        if conversation_id is not None:
+            from .chat_store import ident
+            ident(conversation_id)
         if isinstance(command_id, str):
             command_id = PROCEDURE_BINDINGS.get(command_id, command_id)
         if not isinstance(command_id, str) or command_id not in self.commands or source not in ('text', 'voice'):
@@ -403,9 +425,13 @@ class CommandService:
                     return existing | {'replayed': True}
                 existing_inputs = existing['inputs']
                 candidate = self._validate_inputs(command_id, inputs, require_new=False) if command_id in ADAPTERS else inputs
-                if existing['command_id'] != command_id or existing_inputs != candidate or existing['source'] != source:
+                if existing['command_id'] != command_id or existing_inputs != candidate or existing['source'] != source or existing.get('conversation_id') != conversation_id or existing.get('command_mode') != command_mode:
                     raise ValueError('operation_id ya está vinculado a otros parámetros')
                 return existing | {'replayed': True}
+            if command_mode is not None:
+                pending = self.db.execute("SELECT operation_id FROM command_runs WHERE (state IN ('prepared','awaiting_approval','running') AND expires_at>?) OR state='unknown' LIMIT 1", (time.time(),)).fetchone()
+                if pending:
+                    raise ValueError('Hay un comando pendiente. Revisa o cancela la operación antes de preparar otra.')
             command = self.commands[command_id]
             enabled = command['execution_enabled']
             if enabled:
@@ -418,9 +444,10 @@ class CommandService:
                             raise ValueError('Hay una escritura incierta en ese destino. Usa Revisar efecto antes de preparar otra.')
             elif inputs != {}:
                 raise ValueError('El comando documental no admite parámetros ejecutables')
-            approval = enabled and command.get('requires_approval', False)
+            approval = enabled and (command.get('requires_approval', False) or command_mode == 'ask')
             state = ('awaiting_approval' if approval else 'prepared') if enabled else 'blocked'
             result = {'operation_id': op_id, 'command_id': command_id, 'inputs': inputs, 'source': source,
+                      'conversation_id': conversation_id, 'command_mode': command_mode,
                       'state': state, 'requires_approval': approval, 'postconditions_passed': False,
                       'evidence': {}, 'output': None, 'cancel_requested': False,
                       'error': None if enabled else {'code': 'NOT_IMPLEMENTED', 'message': command['blocked_reason']}}
@@ -504,8 +531,10 @@ class CommandService:
                 if final['state'] not in TERMINAL:
                     final.update(state='unknown', postconditions_passed=False)
             except Exception as exc:
-                final = result | {'state': 'unknown', 'postconditions_passed': False,
-                                  'error': {'code': 'EXECUTION_UNCERTAIN', 'message': f'Inspecciona la operación antes de reintentar ({type(exc).__name__}).'}}
+                before_dispatch = isinstance(exc, ActionExecutionError) and self.executor.get_operation(action_id) is None
+                final = result | {'state': 'failed' if before_dispatch else 'unknown', 'postconditions_passed': False,
+                                  'error': {'code': 'DISPATCH_REJECTED' if before_dispatch else 'EXECUTION_UNCERTAIN',
+                                            'message': str(exc) if before_dispatch else f'Inspecciona la operación antes de reintentar ({type(exc).__name__}).'}}
             with self.lock:
                 final['cancel_requested'] = self.get(operation_id)['cancel_requested']
                 return self._save(final)
@@ -524,6 +553,20 @@ class CommandService:
             with self.executor.lock, self.lock:
                 result = self.get(operation_id)
                 if not result or result['state'] != 'unknown': raise ValueError('La operación no está pendiente de reconciliación.')
+                if result['command_id'] in READ_ONLY_COMMANDS:
+                    # These immutable registered tools have no write effects. A failed
+                    # observation is not success and must not lock every future action.
+                    evidence = dict(result.get('evidence') or {}, reconciled=True,
+                                    verification='read_only_failure_without_effect', reconciliation_required=False)
+                    action_id = result.get('action_operation_id')
+                    action = self.executor.get_operation(action_id) if action_id else None
+                    if action and action['state'] == 'unknown':
+                        action.update(state='failed', postconditions_passed=False, evidence=evidence)
+                        with self.executor.db:
+                            self.executor.db.execute("UPDATE operations SET state='failed', result_json=?, evidence_json=? WHERE operation_id=?",
+                                                     (json.dumps(action), json.dumps(evidence), action_id))
+                    return self._save(result | {'state':'failed', 'postconditions_passed':False, 'evidence':evidence,
+                                                'error':{'code':'READ_FAILED','message':'La observación falló. No se ejecutó ningún efecto ni se repitió la lectura.'}})
                 if result['command_id'] not in ('axx.desktop.notepad.text', 'axx.desktop.window.set_value'):
                     raise ValueError('Esta operación necesita revisión manual de su efecto.')
                 target = result.get('evidence', {}).get('reconciliation_target')

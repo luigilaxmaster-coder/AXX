@@ -26,7 +26,7 @@ const {chromium} = createRequire(path.join(process.env.USERPROFILE,'.cache/codex
         await page.evaluate(()=>{window.stream=reader.nativeStream=new Axx.CustomSpeechStream(reader,{name:'moss:axx-alba'},1);window.task=stream.play();});
         await page.waitForFunction(()=>Axx.nativeVoice.playback?.playing_event);
         const timing = await page.evaluate(()=>({first:Axx.nativeVoice.playback.first_audio_ms,total:window.completedAt ? window.completedAt-stream.started : Infinity}));
-        assert(timing.first < timing.total, JSON.stringify(timing));
+        assert(timing.first >= 1200,'Playback must wait for a complete phrase rather than starving between PCM packets');
         await page.evaluate(async()=>{reader.state='paused';await stream.pause();window.pausedTime=stream.context.currentTime;});
         await page.waitForTimeout(150);
         assert(await page.evaluate(()=>Math.abs(stream.context.currentTime-pausedTime)<.01),'Pause must stop the actual audio clock');
@@ -35,10 +35,11 @@ const {chromium} = createRequire(path.join(process.env.USERPROFILE,'.cache/codex
         assert.deepEqual(await page.evaluate(()=>starts),['Hola, Axx.','Hello, Axx.']);
         assert.deepEqual(await page.evaluate(()=>languages),['es-DO','es-DO']);
         assert(await page.evaluate(()=>Axx.nativeVoice.playback.ended_event));
+        assert.equal(await page.evaluate(()=>Axx.nativeVoice.playback.underruns),0,'No underruns inside a buffered phrase');
         await page.evaluate(()=>{reader.generation=2;reader.index=0;reader.chunks=['Cancel me'];window.ended=false;window.cancelledStream=new Axx.CustomSpeechStream(reader,{name:'moss:axx-alba'},2);window.cancelTask=cancelledStream.play();});
         await page.waitForTimeout(80);
         await page.evaluate(async()=>{reader.generation++;await cancelledStream.stop();await cancelTask;});
         assert(await page.evaluate(()=>cancelledStream.sources.size===0&&!window.ended));
-        console.log('PASS: progressive playback, ES/EN phrase order, pause/resume, completion and cancellation');
+        console.log('PASS: complete phrase buffering without PCM underruns, ES/EN order, pause/resume and cancellation');
     } finally {await browser.close();}
 })().catch(error=>{console.error(error);process.exitCode=1;});

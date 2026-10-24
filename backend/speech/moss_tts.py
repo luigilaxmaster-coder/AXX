@@ -22,8 +22,16 @@ MAX_AUDIO = 12 * 1024 * 1024
 
 
 class MossSpeechService:
-    PERSONAL_VOICES = (('axx-alba', 'Axx Alba'), ('axx-nova', 'Axx Nova'),
-                       ('axx-aura', 'Axx Aura'), ('axx-titan', 'Axx Titán'))
+    PERSONAL_VOICES = (
+        ('axx-valeria', 'Axx Valeria · Cálida y Elocuente'),
+        ('axx-elena', 'Axx Elena · Cercana y Melódica'),
+        ('axx-mateo', 'Axx Mateo · Ágil y Expresivo'),
+        ('axx-dante', 'Axx Dante · Profundo y Sereno'),
+        ('axx-alba', 'Axx Alba (Legado)'),
+        ('axx-nova', 'Axx Nova (Legado)'),
+        ('axx-aura', 'Axx Aura (Legado)'),
+        ('axx-titan', 'Axx Titán (Legado)'),
+    )
     FALLBACK_VOICES = (('voz_referencia', 'Axx Base'), ('voz_referencia_completo', 'Axx Base Plus'))
 
     def __init__(self, data_dir: Path):
@@ -55,8 +63,13 @@ class MossSpeechService:
     def _voice_paths(self):
         if not self.available:
             return {}
-        personal = {'moss:' + name: (self.personal_samples / (name + '.wav'), label)
-                    for name, label in self.PERSONAL_VOICES if (self.personal_samples / (name + '.wav')).is_file()}
+        personal = {}
+        for name, label in self.PERSONAL_VOICES:
+            p = self.personal_samples / (name + '.wav')
+            if not p.is_file():
+                p = self.samples / (name + '.wav')
+            if p.is_file():
+                personal['moss:' + name] = (p, label)
         return personal or {'moss:' + name: (self.samples / (name + '.wav'), label)
                             for name, label in self.FALLBACK_VOICES if (self.samples / (name + '.wav')).is_file()}
 
@@ -96,6 +109,14 @@ class MossSpeechService:
         if worker:
             process, job, _ = worker
             terminate_process_tree(process, job)
+            # Terminate first to release any blocked writer, then close its pipe.
+            # The receiver thread owns stdout and closes it when it reaches EOF.
+            with self._stdin_lock:
+                if process.stdin:
+                    try:
+                        process.stdin.close()
+                    except OSError:
+                        pass
             if job:
                 job.close()
 
@@ -159,6 +180,8 @@ class MossSpeechService:
 
     def _send(self, process, request):
         with self._stdin_lock:
+            if not process.stdin or process.stdin.closed:
+                raise BrokenPipeError('MOSS voice worker input is closed')
             process.stdin.write((json.dumps(request, ensure_ascii=True) + '\n').encode('ascii'))
             process.stdin.flush()
 

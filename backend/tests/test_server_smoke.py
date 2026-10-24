@@ -186,5 +186,32 @@ class ServerSmokeTests(unittest.TestCase):
         self.assertEqual(os.environ.get(provider['api_key_env']), 'sk-or-v1-mocked-test-key-12345')
         self.assertNotIn('api_key', provider)
 
+    def test_cli_anything_rejects_parallel_executor_and_untyped_macros(self):
+        for route, body, status in (
+            ('/axx-api/cli-anything/execute', {'target':'0x123','command':'type','approved':True}, 409),
+            ('/axx-api/cli-anything/commands/develop', {'name':'unsafe','steps':[{'action':'click'}],'risk':'read'}, 400),
+        ):
+            req = urllib.request.Request(f'http://127.0.0.1:{self.port}'+route,
+                data=json.dumps(body).encode(), headers={'Content-Type':'application/json', **self.auth})
+            with self.assertRaises(urllib.error.HTTPError) as caught:
+                urllib.request.urlopen(req, timeout=3)
+            self.assertEqual(caught.exception.code, status)
+
+    def test_cli_catalog_is_observation_and_history_is_existing_ledger(self):
+        from unittest.mock import patch, Mock
+        from backend.actions.cli_anything_engine import CLIAppInterface
+        app = CLIAppInterface(0x123,99,'Fixture','Editor',True,[],False,1)
+        with patch('backend.actions.cli_anything_engine.ENGINE.resolve', return_value=app):
+            req=urllib.request.Request(f'http://127.0.0.1:{self.port}/axx-api/cli-anything/commands?target=0x123',headers=self.auth)
+            with urllib.request.urlopen(req,timeout=3) as response: catalog=json.load(response)
+            self.assertEqual({c['name'] for c in catalog['commands']},{'inspect','read','focus'})
+            self.assertFalse(any(c['execution_verified'] for c in catalog['commands']))
+        ledger=Mock();ledger.operations.return_value=[{'operation_id':'recorded','state':'failed'}]
+        with patch.object(AxxBridgeHandler,'commands',ledger):
+            req=urllib.request.Request(f'http://127.0.0.1:{self.port}/axx-api/cli-anything/history?limit=1',headers=self.auth)
+            with urllib.request.urlopen(req,timeout=3) as response: history=json.load(response)
+            self.assertEqual(history['history'],ledger.operations.return_value)
+            ledger.operations.assert_called_once_with()
+
 if __name__ == '__main__':
     unittest.main()

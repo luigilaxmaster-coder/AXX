@@ -186,3 +186,101 @@ class GatewayTests(unittest.TestCase):
             self.assertEqual(task['state'],'completed')
             self.assertEqual(calls,[first['task_id']])
             self.assertEqual(len(gateway.shared.snapshot('test')['messages']),2)
+
+    def test_mobile_commands_respect_scope_mode_and_actual_receipt(self):
+        for permission, state, verified in ((False,'prepared',True),(True,'awaiting_approval',True),
+                                             (True,'prepared',True),(True,'prepared',False)):
+            with self.subTest(permission=permission,state=state,verified=verified), tempfile.TemporaryDirectory() as tmp:
+                calls=[]
+                def backend(method,path,body):
+                    calls.append((method,path,body))
+                    if path.endswith('/resolve'): return {'match':'exact','command_id':'axx.system.telemetry','inputs':{}}
+                    if '?shared_id=' in path: return {'id':'desktop-thread','mode':'ask' if state=='awaiting_approval' else 'auto_safe'}
+                    if path.endswith('/prepare'):
+                        self.assertEqual(body['conversation_id'],'desktop-thread')
+                        return {**body,'state':state}
+                    if path.endswith('/execute'):
+                        self.assertIs(body['approved'],False)
+                        return {'state':'succeeded' if verified else 'unknown','postconditions_passed':verified,'output':{'cpu_percent':12.5}}
+                    raise AssertionError(path)
+                gateway=MobileGateway(Path(tmp)/'state.db',tmp,backend)
+                device=gateway.store.consume_pairing(gateway.store.create_pairing(),'Phone')
+                if permission: gateway.store.set_tool_permission(device['device_id'],True)
+                body={'operation':'chat','command_id':'pc-command','text':'estado del sistema','conversation_id':'mobile-thread'}
+                gateway.admit_chat(device['device_id'],body)
+                deadline=time.monotonic()+3
+                while time.monotonic()<deadline:
+                    task=gateway.store.command(device['device_id'],'pc-command')
+                    if task['state']=='completed':break
+                    time.sleep(.01)
+                self.assertEqual(task['state'],'completed',task)
+                self.assertEqual(sum(path.endswith('/execute') for _,path,_ in calls),int(permission and state=='prepared'))
+                if not permission: self.assertEqual([path for _,path,_ in calls],['/axx-api/commands/resolve'])
+                answer=gateway.shared.snapshot('mobile-thread')['messages'][-1]['text']
+                self.assertEqual('Ejecutado y verificado' in answer,permission and state=='prepared' and verified)
+                count=len(calls);gateway.admit_chat(device['device_id'],body)
+                self.assertEqual(len(calls),count)
+
+    def test_mobile_cli_does_not_guess_or_autoapprove(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            calls=[];gateway=MobileGateway(Path(tmp)/'state.db',tmp,lambda *args:calls.append(args))
+            device=gateway.store.consume_pairing(gateway.store.create_pairing(),'Phone')
+            gateway.store.set_tool_permission(device['device_id'],True)
+            answer=gateway._execute_pc_command(device['device_id'],'/cli notepad type','shared','task')
+            self.assertIn('no ejecuta',answer);self.assertEqual(calls,[])
+
+    def test_conversational_imperatives_use_chat_without_work_permission(self):
+        for message in ('escribe un poema', 'haz un resumen', 'crea un cuento'):
+            with self.subTest(message=message), tempfile.TemporaryDirectory() as tmp:
+                calls=[]
+                def backend(method,path,body):
+                    calls.append(path)
+                    if path.endswith('/resolve'): return {'match':'none'}
+                    if path == '/axx-api/chat': return {'choices':[{'message':{'content':'Respuesta conversacional'}}]}
+                    raise AssertionError(path)
+                gateway=MobileGateway(Path(tmp)/'state.db',tmp,backend)
+                gateway.preferences={'provider':'bridge','provider_name':'unit-test','model':'test-model'}
+                device=gateway.store.consume_pairing(gateway.store.create_pairing(),'Phone')
+                gateway.admit_chat(device['device_id'],{'operation':'chat','command_id':'chat-imperative',
+                    'text':message,'conversation_id':'mobile-thread'})
+                deadline=time.monotonic()+3
+                while time.monotonic()<deadline:
+                    task=gateway.store.command(device['device_id'],'chat-imperative')
+                    if task['state'] not in ('admitted','running'): break
+                    time.sleep(.01)
+                self.assertEqual(task['state'],'completed',task)
+                self.assertEqual(calls,['/axx-api/commands/resolve','/axx-api/chat'])
+                self.assertEqual(gateway.shared.snapshot('mobile-thread')['messages'][-1]['text'],'Respuesta conversacional')
+
+    def test_unknown_explicit_command_does_not_fall_back_to_chat(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            calls=[]
+            def backend(method,path,body):
+                calls.append(path)
+                return {'match':'none'}
+            gateway=MobileGateway(Path(tmp)/'state.db',tmp,backend)
+            device=gateway.store.consume_pairing(gateway.store.create_pairing(),'Phone')
+            result=gateway._execute_pc_command(device['device_id'],'/comando desconocido {}','shared','task')
+            self.assertIn('No hay un comando exacto',result)
+            self.assertEqual(calls,['/axx-api/commands/resolve'])
+
+    def test_conversational_fallback_still_requires_configured_provider(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            calls=[]
+            def backend(method,path,body):
+                calls.append(path)
+                return {'match':'none'}
+            gateway=MobileGateway(Path(tmp)/'state.db',tmp,backend)
+            device=gateway.store.consume_pairing(gateway.store.create_pairing(),'Phone')
+            gateway.admit_chat(device['device_id'],{'operation':'chat','command_id':'no-engine',
+                'text':'escribe un poema','conversation_id':'mobile-thread'})
+            deadline=time.monotonic()+3
+            while time.monotonic()<deadline:
+                task=gateway.store.command(device['device_id'],'no-engine')
+                if task['state'] not in ('admitted','running'): break
+                time.sleep(.01)
+            self.assertEqual(task['state'],'failed',task)
+            self.assertEqual(task['result']['error']['code'],'ENGINE_NOT_AVAILABLE')
+            self.assertEqual(calls,['/axx-api/commands/resolve'])
+
+if __name__ == '__main__': unittest.main()

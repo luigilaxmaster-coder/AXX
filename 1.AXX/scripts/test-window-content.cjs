@@ -10,7 +10,7 @@ const {chromium} = createRequire(path.join(process.env.USERPROFILE, '.cache/code
     await page.evaluate(() => {
       window.calls=[]; window.notices=[]; window.testWindows=[{window_id:123,pid:10,title:'YouTube'}];
       window.Axx={resident:{schedule(){}}, companion:{send:async()=>{}, message(){}, localNotice:t=>notices.push(t), renderAttachment(){}, openFeature(){}},
-        commandLibrary:{async prepare(id,inputs) { calls.push({id,inputs}); this.lastOperation={output:{windows:testWindows}}; return 'Preparado'; }}};
+        commandLibrary:{async prepare(id,inputs) { calls.push({id,inputs}); this.lastOperation={state:'succeeded',output:{windows:testWindows}}; return 'Preparado'; }}};
     });
     await page.addScriptTag({path:path.join(__dirname,'window-content.js')});
     await page.evaluate(()=>Axx.companion.send('lee YouTube'));
@@ -42,6 +42,11 @@ const {chromium} = createRequire(path.join(process.env.USERPROFILE, '.cache/code
     await page.locator('#window-content-attach').click();
     await page.waitForFunction(()=>notices.at(-1).includes('Ya hay un adjunto'));
     assert.equal(await page.evaluate(()=>Axx.companion.attachment.text),'preservado');
+    await page.evaluate(()=>{Axx.commandLibrary.prepare=async(id,inputs)=>{calls.push({id,inputs});Axx.commandLibrary.lastOperation={state:'awaiting_approval'};};return Axx.companion.send('lee IANA');});
+    assert.equal(await page.locator('#window-content-select option').count(),0);
+    assert.equal(await page.evaluate(()=>calls.at(-1).id),'axx.desktop.list_windows');
+    await page.evaluate(()=>Axx.windowContent.acceptWindows({output:{windows:[{window_id:987,pid:99,title:'Fresh'}]}}));
+    assert.match(await page.locator('#window-content-select').innerText(),/Fresh/);
     assert.deepEqual(errors,[]);
     console.log('PASS: generic page read, ambiguous window refusal, observed URL, safe text, stale refusal, opt-in model attachment, existing attachment preserved');
   } finally {await browser.close();}

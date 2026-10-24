@@ -70,3 +70,6 @@ ehthumbs.db
 Desktop.ini
 $RECYCLE.BIN/
 .DS_Store
+
+# Local voice references are private runtime data, never release assets.
+/resources/voices/

@@ -29,6 +29,8 @@ const root = path.resolve(__dirname, '..');
     await page.addInitScript(() => {
       window.__calls = []; window.__events = {}; window.__runs = {}; window.__runMode = 'stream';
       window.__catalogModels = ['controlled-model', 'offered-alternative'];
+      const chats={};let activeChat='controlled-chat';
+      const makeChat=id=>({id,title:'Controlled chat',messages:[],draft:'',context:[],links:[],mode:'ask',connect_id:'connect-'+id,shared_id:'phone-'+id});chats[activeChat]=makeChat(activeChat);
       const desktop = {workWidth:1920,workHeight:1040,spaceLeft:1660,spaceRight:260,spaceAbove:800,spaceBelow:240};
       window.__TAURI__ = {core:{invoke:async(name,args) => {
         window.__calls.push({name,args});
@@ -36,6 +38,13 @@ const root = path.resolve(__dirname, '..');
         if (name === 'desktop_layout') return {...desktop,...args};
         if (name !== 'backend_request') return null;
         const {method,path:route,body} = args;
+        if(route==='/axx-api/chat/migrate')return {id:'controlled-chat'};
+        if(route==='/axx-api/chat/conversations')return {conversations:Object.values(chats),groups:[],default_mode:'ask'};
+        if(route.startsWith('/axx-api/chat/conversations?'))return {...chats[new URLSearchParams(route.split('?')[1]).get('id')]};
+        if(route==='/axx-api/chat/create'){const id=crypto.randomUUID();chats[id]=makeChat(id);return {id};}
+        if(route==='/axx-api/chat/save'){Object.assign(chats[body.id],body);return {id:body.id};}
+        if(route==='/axx-api/chat/operations')return {operations:[]};
+        if(route==='/axx-api/chat/profile')return {};
         const intercepted = window.__connectIntercept?.({method,path:route,body});
         if (intercepted) return await intercepted.response;
         if (route === '/axx-api/connect/status' || route === '/axx-api/connect/status?engine=1') {
@@ -89,6 +98,7 @@ const root = path.resolve(__dirname, '..');
     });
     await page.goto(`http://127.0.0.1:${server.address().port}/`);
     await page.waitForFunction(() => window.Axx?.connect?.executeUI && Axx.desktop?.ready);
+    await page.waitForFunction(()=>Axx.chatWorkspace?.ready&&!Axx.chatWorkspace.busy);
     assert.deepEqual(errors, []);
     checks.push('Full production Axx HTML and all external scripts load with controlled IPC and no uncaught exceptions');
     assert.equal(await page.evaluate(() => Axx.FORMS.length), 24);
@@ -257,13 +267,35 @@ const root = path.resolve(__dirname, '..');
     assert.equal(decoder.decoded.prefs.provider,'chatgpt');assert.equal(decoder.decoded.prefs.ai_mode,'chatgpt');
     assert.equal(decoder.decoded.prefs.model,'controlled-model');assert.equal(decoder.decoded.connectConversationId,'controlled-persisted-conversation');
     assert.equal(decoder.invalid.connectConversationId,undefined);
-    const newChat = await page.evaluate(() => {
+    const newChat = await page.evaluate(async () => {
       const companion=Axx.companion;companion.data.messages=[];
-      document.getElementById('chat-new').click();
+      await Axx.chatWorkspace.create();await Axx.chatWorkspace.flush();
       return {inMemory:companion.data.connectConversationId,persisted:Axx.decodeCompanion(localStorage.getItem('axx.companion.v4')).connectConversationId};
     });
-    assert.equal(newChat.inMemory,undefined);assert.equal(newChat.persisted,undefined);
-    checks.push('Companion decoder restores ChatGPT mode and persisted conversation ID; New conversation clears only its thread identity');
+    assert.match(newChat.inMemory,/^connect-/);assert.notEqual(newChat.inMemory,'controlled-persisted-conversation');assert.equal(newChat.persisted,newChat.inMemory);
+    checks.push('Companion decoder restores ChatGPT mode; New conversation receives an isolated persisted thread identity');
+
+    const configuredRequest=await page.evaluate(async()=>{
+      window.__runMode='stream';const brain=new Axx.BrainClient();
+      await brain.chat({provider:'chatgpt',model:'controlled-model'},[{role:'system',content:'Perfil: asistente de diseño. Usa respuestas breves.'},{role:'user',content:'Contexto enlazado: proyecto jade.'}]);
+      return window.__calls.filter(call=>call.args?.path==='/axx-api/connect/start').at(-1).args.body;
+    });
+    assert.match(configuredRequest.message,/Perfil: asistente de diseño/);assert.match(configuredRequest.message,/Contexto enlazado: proyecto jade/);
+    checks.push('Connect retains configured assistant instructions and explicit linked context in its bounded request');
+    const live=await page.evaluate(async()=>{
+      const s=Axx.symbiosis,c=Axx.companion,r=s.reader,prior={start:s.dictation.start,play:r.play,send:c.send,prefs:{...c.data.prefs},connected:c.brain.connected};let listens=0,plays=0;
+      try{
+        c.send=window.__originalSend;s.dictation.start=()=>{listens++;s.dictation.state='listening';s.dictation.onState?.();};
+        r.play=()=>{plays++;r.state='speaking';r.onChange?.();};
+        c.data.prefs.selection_mode='manual';c.data.prefs.provider='chatgpt';c.data.prefs.model='controlled-model';c.data.prefs.mutedAll=false;c.brain.connected=true;window.__runMode='stream';
+        await Axx.liveConversation.start();s.liveText='Explain a simple word.';await s.sendLive();
+        const beforeEnd={active:s.liveActive,listens,plays};r.state='ended';r.onEnded();
+        const afterEnd={active:s.liveActive,listens,plays};Axx.liveConversation.stop();
+        return {beforeEnd,afterEnd,stopped:!s.liveActive};
+      }finally{Axx.liveConversation.stop();s.dictation.start=prior.start;r.play=prior.play;c.send=prior.send;c.data.prefs=prior.prefs;c.brain.connected=prior.connected;document.getElementById('chat-live-close').click();}
+    });
+    assert.deepEqual(live.beforeEnd,{active:true,listens:1,plays:1});assert.deepEqual(live.afterEnd,{active:true,listens:2,plays:1});assert(live.stopped);
+    checks.push('Controlled continuous voice keeps one speech reply, waits for output completion, then returns to listening; Stop releases the session');
 
     await page.evaluate(() => {window.__savedPlay=Axx.actions.music.play;Axx.actions.music.play=undefined;});
     await page.waitForFunction(() => {
@@ -624,14 +656,15 @@ const root = path.resolve(__dirname, '..');
       Axx.companion.syncPreferences();Axx.companion.openFeature('ai');await Axx.connect.refresh();
     });
     await page.locator('#axx-connect').scrollIntoViewIfNeeded();
-    const screenshotPath=path.resolve(root,'../evidence/axx-connect/ui-connect-settings-controlled-revision21.png');
+    const evidenceRoot=path.resolve(root,'../build/chat-0.21.4');fs.mkdirSync(evidenceRoot,{recursive:true});
+    const screenshotPath=path.join(evidenceRoot,'connect-settings-controlled.png');
     await page.screenshot({path:screenshotPath,fullPage:true});
     const sourceHashes=Object.fromEntries(['Axx.html','scripts/axx-connect.js','scripts/test-axx-connect.cjs'].map(name=>[name,createHash('sha256').update(fs.readFileSync(path.resolve(root,name))).digest('hex')]));
     const screenshotMetadata={classification:'CONTROLLED_BROWSER_IPC_ONLY',revision:'2.1',physical_native_execution:false,
       app_source_version:await page.evaluate(()=>Axx.VERSION),fixture_engine_state:'disconnected',inference_verified:false,
       source:'Full production Axx.html and external scripts; only native IPC is controlled',
       visible_status:await page.locator('#axx-connect-status').textContent(),image:screenshotPath,source_sha256:sourceHashes};
-    fs.writeFileSync(path.resolve(root,'../evidence/axx-connect/ui-connect-settings-controlled-revision21.json'),JSON.stringify(screenshotMetadata,null,2));
+    fs.writeFileSync(path.join(evidenceRoot,'connect-settings-controlled.json'),JSON.stringify(screenshotMetadata,null,2));
     assert.match(screenshotMetadata.visible_status,/desconectado|disconnected/i);
     checks.push('Controlled screenshot shows the actual existing Axx Connect settings with engine disconnected and inference unverified');
     assert.deepEqual(errors,[]);

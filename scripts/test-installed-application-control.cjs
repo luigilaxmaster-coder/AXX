@@ -10,19 +10,30 @@ const wait=ms=>new Promise(r=>setTimeout(r,ms));
  const out=path.resolve(process.argv[2] || 'build/installed-application-control');fs.mkdirSync(out,{recursive:true});
  const runtime=JSON.parse(fs.readFileSync(path.join(process.env.LOCALAPPDATA,'Axx/logs/native-runtime.json')));
  assert.equal(runtime.version,require('../package.json').version);assert.equal(runtime.executable,path.join(process.env.LOCALAPPDATA,'Programs/Axx/Axx.exe'));
- const browser=await chromium.connectOverCDP('http://127.0.0.1:9224');let page;
+ const browser=await chromium.connectOverCDP('http://127.0.0.1:9224');let page,originalChat,acceptanceChat;
  const receipt={kind:'INSTALLED_NATIVE_APPLICATION_ACCEPTANCE',version:runtime.version,pid:runtime.pid,checks:[],operations:[]};
  try{
   page=browser.contexts()[0].pages().find(p=>p.url().includes('tauri.localhost/Axx.html'));
   assert(page);page.setDefaultTimeout(30000);const errors=[];page.on('pageerror',e=>errors.push(e.message));
-  await page.waitForFunction(async()=>window.Axx?.windowContent&&Axx.commandLibrary&&!Axx.commandLibrary.busy&&(await Axx.nativeInvoke('native_status')).backendReady);
+  await page.waitForFunction(()=>window.Axx?.windowContent&&Axx.commandLibrary&&!Axx.commandLibrary.busy);
+  const readyDeadline=Date.now()+30000;let readyStatus;
+  do{
+   readyStatus=await page.evaluate(()=>Axx.nativeInvoke('native_status'));
+   if(readyStatus?.backendReady===true)break;
+   await wait(150);
+  }while(Date.now()<readyDeadline);
+  assert.equal(readyStatus?.backendReady,true,'Installed native host did not confirm backend readiness before the deadline');
+  receipt.backendReady={ready:readyStatus.backendReady,instance:readyStatus.backendInstance};
+  await page.waitForFunction(()=>Axx.chatWorkspace?.ready&&!Axx.chatWorkspace.busy);
+  originalChat=await page.evaluate(()=>Axx.chatWorkspace.active.id);
+  acceptanceChat=await page.evaluate(async()=>{const r=await Axx.backendRequest('POST','/axx-api/chat/create',{title:'Aceptación de control Windows',command_mode:'auto_safe'});await Axx.chatWorkspace.select(r.id);return r.id;});
   await page.evaluate(()=>{Axx.resident.summon(false);Axx.companion.openFeature('files');});await wait(1500);
   const run=async(id,inputs,approve=false)=>{
    await page.evaluate(async({id,inputs})=>Axx.commandLibrary.prepare(id,inputs,'text'),{id,inputs});
    let state=await page.evaluate(()=>Axx.commandLibrary.operation||Axx.commandLibrary.lastOperation);
    if(state.state==='awaiting_approval'){
     assert(approve,'Unexpected approval');assert.equal(state.postconditions_passed,false);
-    await page.locator('#command-library-approve').click();
+    await page.locator('#cw-operation').getByRole('button',{name:'Aprobar y ejecutar',exact:true}).click();
     await page.waitForFunction(()=>!Axx.commandLibrary.busy&&!Axx.commandLibrary.operation);
    }
    state=await page.evaluate(()=>Axx.commandLibrary.lastOperation);
@@ -53,7 +64,7 @@ const wait=ms=>new Promise(r=>setTimeout(r,ms));
   const replay=await page.evaluate(async id=>Axx.backendRequest('POST','/axx-api/commands/execute',{operation_id:id,approved:true}),written.operation_id);
   assert.equal(replay.operation_id,written.operation_id);assert(replay.replayed);verify(replay);
   receipt.checks.push('Same operation replay preserved receipt without repeating write');
-  await page.locator('#command-library-remember').click();
+  await page.evaluate(()=>Axx.commandLibrary.open());await page.locator('#command-library-remember').click();
   await page.waitForFunction(()=>document.getElementById('command-library-status').textContent.includes('Procedimiento parametrizado guardado'));
   const actions=await page.evaluate(()=>Axx.backendRequest('GET','/axx-api/learning/actions'));
   const skill=actions.actions.find(s=>s.provenance?.operation_id===written.operation_id);assert(skill);assert.equal(skill.status,'verified');
@@ -71,14 +82,23 @@ const wait=ms=>new Promise(r=>setTimeout(r,ms));
   await page.evaluate(async({id,title,value})=>Axx.commandLibrary.planAction(id,{inputs:{window_title:title,value}}),{id:skill.id,title:target.title,value:'Segundo texto parametrizado'});
   const plan=await page.evaluate(()=>Axx.commandLibrary.operation);
   assert.equal(plan.model_calls_used,0);assert.equal(plan.state,'awaiting_approval');
-  await page.locator('#command-library-approve').click();
+  await page.locator('#cw-operation').getByRole('button',{name:'Aprobar y ejecutar',exact:true}).click();
   await page.waitForFunction(()=>!Axx.commandLibrary.busy&&Axx.commandLibrary.lastOperation?.state==='succeeded');
   const repeat=await page.evaluate(()=>Axx.commandLibrary.lastOperation);verify(repeat);receipt.operations.push(repeat);
   assert.notEqual(repeat.results[0].output.control_id,written.output.control_id,'Procedure must resolve the new document control');
   receipt.checks.push('Verified parameterized procedure replayed via installed approval UI, zero model calls');
+  const observed=await run('axx.desktop.cli_anything.scan',{window_id:'0x'+target.window_id.toString(16),pid:target.pid});verify(observed);
+  assert(observed.output.total_controls>0);assert(observed.output.commands.inspect);assert(!observed.output.commands.click);
+  assert(observed.output.controls.every(c=>!c.value&&!c.text),'Metadata discovery must not read document content');
+  const field=observed.output.controls.find(c=>c.enabled&&!c.offscreen&&c.supports_value_pattern&&!c.read_only);assert(field);
+  const proposal=await page.evaluate(async body=>Axx.backendRequest('POST','/axx-api/cli-anything/prepare',body),{target:'0x'+target.window_id.toString(16),command:'type',args:{control_id:field.control_id,text:'Must require new approval'},conversation_id:acceptanceChat});
+  assert.equal(proposal.command_id,'axx.desktop.window.set_value');assert.equal(proposal.state,'awaiting_approval');
+  await page.evaluate(async id=>Axx.backendRequest('POST','/axx-api/commands/cancel',{operation_id:id}),proposal.operation_id);
+  receipt.checks.push('UIA discovery exposes metadata and exact registered proposals; writing still requires a separate approval');
+
   await page.evaluate(async({title})=>Axx.commandLibrary.prepare('axx.desktop.notepad.text',{window_title:title,value:'CANCELLED WRITE MUST NOT APPLY'},'text'),{title:target.title});
   const cancelledId=await page.evaluate(()=>Axx.commandLibrary.operation.operation_id);
-  await page.locator('#command-library-approve').click();
+  await page.locator('#cw-operation').getByRole('button',{name:'Aprobar y ejecutar',exact:true}).click();
   let ownerSeen=false;
   for(let i=0;i<40;i++){
    const status=await page.evaluate(()=>Axx.backendRequest('GET','/axx-api/mobile/control/status'));
@@ -112,7 +132,7 @@ const wait=ms=>new Promise(r=>setTimeout(r,ms));
   receipt.checks.push('Installed 3D surface and controls rendered');receipt.pageErrors=errors;assert.deepEqual(errors,[]);
   receipt.result='PASS';
  }catch(error){receipt.result='FAIL';receipt.error=String(error);if(page)await page.screenshot({path:path.join(out,'failure.png')}).catch(()=>{});throw error;}
- finally{fs.writeFileSync(path.join(out,'native-acceptance.json'),JSON.stringify(receipt,null,2));setTimeout(()=>process.exit(receipt.result === 'PASS' ? 0 : 1),100);}
+ finally{if(page&&originalChat){try{await page.evaluate(id=>Axx.chatWorkspace.select(id),originalChat);if(acceptanceChat)await page.evaluate(id=>Axx.backendRequest('POST','/axx-api/chat/delete',{id}),acceptanceChat);}catch(e){receipt.cleanupError=String(e);}}fs.writeFileSync(path.join(out,'native-acceptance.json'),JSON.stringify(receipt,null,2));setTimeout(()=>process.exit(receipt.result === 'PASS' ? 0 : 1),100);}
  console.log(JSON.stringify({result:receipt.result,checks:receipt.checks},null,2));
 })().catch(e=>{console.error(e);process.exitCode=1});
 

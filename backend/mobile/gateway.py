@@ -234,8 +234,6 @@ class MobileGateway:
             if record['device_id'] not in approved_devices:
                 continue
             from backend.commands import ADAPTERS
-            if ADAPTERS[record['command_id']]['risk'] in ('read', 'desktop_open'):
-                continue
             operation = self.work_operation(operation_id)
             if operation and operation['state'] == 'awaiting_approval':
                 pending.append(record)
@@ -258,6 +256,44 @@ class MobileGateway:
             return self.backend_call('POST', '/axx-api/commands/cancel', {'operation_id': operation_id})
         return self.backend_call('POST', '/axx-api/commands/execute', {'operation_id': operation_id, 'approved': True})
 
+    def _execute_pc_command(self, device_id, user_text, conversation_id, task_id):
+        """Only exact registered commands; the persisted chat mode stays authoritative."""
+        if user_text.split(maxsplit=1)[0] == '/cli':
+            return 'Selecciona una ventana observada en Comandos de Axx. /cli no ejecuta controles por nombre desde el teléfono.'
+        resolved = self.backend_call('POST', '/axx-api/commands/resolve', {'text': user_text, 'source': 'text'})
+        if resolved.get('match') != 'exact' or not resolved.get('command_id'):
+            # A conversational imperative ("escribe un poema") is not authority
+            # to run a PC action. Explicit slash commands remain fail-closed.
+            if user_text.startswith('/'):
+                return 'No hay un comando exacto registrado para esa orden. Revisa el catálogo de Comandos en la PC.'
+            return None
+        if not any(d['device_id'] == device_id and not d['revoked'] and 'tools.control' in d['scopes']
+                   for d in self.store.devices()):
+            return 'Activa el permiso Work de este teléfono en Axx para preparar comandos de la PC.'
+        thread = self.backend_call('GET', '/axx-api/chat/conversations?shared_id='+urllib.parse.quote(conversation_id), None)
+        if not thread.get('id'): raise ValueError('No se pudo resolver el chat de origen en la PC')
+        operation_id = str(uuid.uuid5(uuid.NAMESPACE_URL, 'axx-mobile:'+task_id))
+        prepared = self.backend_call('POST', '/axx-api/commands/prepare', {
+            'command_id': resolved['command_id'], 'inputs': resolved.get('inputs', {}),
+            'source': 'text', 'conversation_id': thread['id'], 'operation_id': operation_id})
+        if prepared.get('operation_id') != operation_id:
+            raise ValueError('La preparación no corresponde a la solicitud móvil')
+        self.store.record_work(operation_id, device_id, prepared['command_id'], prepared['inputs'])
+        if prepared.get('state') == 'awaiting_approval':
+            return f'Orden preparada en la PC: {prepared["command_id"]}. Revisa y aprueba la tarjeta de este chat. Operación: {operation_id}.'
+        if prepared.get('state') != 'prepared':
+            return f'La orden no se ejecutó. Estado: {prepared.get("state", "desconocido")}. Operación: {operation_id}.'
+        # Never manufacture approval. Auto-safe authorization is evaluated by the backend.
+        if not any(d['device_id'] == device_id and not d['revoked'] and 'tools.control' in d['scopes']
+                   for d in self.store.devices()):
+            self.backend_call('POST', '/axx-api/commands/cancel', {'operation_id': operation_id})
+            return 'El permiso Work fue revocado antes de ejecutar.'
+        result = self.backend_call('POST', '/axx-api/commands/execute', {'operation_id': operation_id, 'approved': False})
+        if result.get('state') == 'succeeded' and result.get('postconditions_passed') is True:
+            output = json.dumps(result.get('output'), ensure_ascii=False)[:12000]
+            return f'Ejecutado y verificado en la PC: {prepared["command_id"]}.\n{output}'
+        return f'No se confirmó el efecto en la PC. Estado: {result.get("state", "desconocido")}. Consulta la operación {operation_id} antes de repetir.'
+
     def admit_chat(self, device_id, body):
         if set(body) - {'command_id', 'operation', 'text', 'conversation_id'} or body.get('operation') != 'chat':
             raise ValueError('Unsupported operation')
@@ -272,11 +308,23 @@ class MobileGateway:
         if admission['duplicate']:
             return self.store.command(device_id, command_id)
         task_id = admission['task_id']
+
+        user_text = body['text'].strip()
+        is_potential_cmd = user_text.startswith('/') or any(user_text.lower().startswith(p) for p in (
+            'abre ', 'abrir ', 'estado ', 'iniciar ', 'ejecutar ', 'haz ', 'crea ', 'crear ', 'cerrar ', 'leer ', 'escribe ', 'escribir '
+        ))
+
         preferences = dict(self.preferences or {})
-        if preferences.get('provider') != 'bridge' or (preferences.get('selection_mode') != 'automatic_free' and (not preferences.get('model') or not preferences.get('provider_name'))):
+        engine_available = preferences.get('provider') == 'bridge' and (
+            preferences.get('selection_mode') == 'automatic_free' or
+            bool(preferences.get('model') and preferences.get('provider_name')))
+        def engine_unavailable():
             self.store.finish_command(task_id, 'failed', {'error':{'code':'ENGINE_NOT_AVAILABLE',
                 'message':'Select a configured API connection in Axx. Mobile Axx Connect queries still require tool isolation verification.'}})
+        if not is_potential_cmd and not engine_available:
+            engine_unavailable()
             return self.store.command(device_id, command_id)
+
         if not self._chat_slots.acquire(blocking=False):
             self.store.finish_command(task_id, 'failed', {'error':{'code':'BUSY','message':'Axx is busy. Your text is still saved on the phone.'}})
             return self.store.command(device_id, command_id)
@@ -285,9 +333,31 @@ class MobileGateway:
             try:
                 self.store.finish_command(task_id, 'running')
                 snapshot = self.shared.merge_messages([{'id':task_id+':user', 'role':'user', 'text':body['text'], 'at':time.time()*1000}], 'mobile', conversation_id)
-                request = {'request_id':task_id, 'conversation_id':conversation_id, 'messages':[
-                    {'role':m['role'],'content':m['text']} for m in snapshot['messages'][-100:]
-                ]}
+
+                # 1. If this is an explicit or recognizable command for the PC, execute/prepare it directly on the PC
+                if is_potential_cmd:
+                    pc_ans = self._execute_pc_command(device_id, user_text, conversation_id, task_id)
+                    if pc_ans is not None:
+                        self.shared.merge_messages([{'id':task_id+':assistant', 'role':'assistant', 'text':pc_ans, 'at':time.time()*1000}], 'pc', conversation_id)
+                        self.store.finish_command(task_id, 'completed', {'choices': [{'message': {'role': 'assistant', 'content': pc_ans}}]})
+                        return
+
+                if not engine_available:
+                    engine_unavailable()
+                    return
+
+                # 2. General conversational query: inject PC host primary device instruction so the LLM knows it controls the PC
+                pc_sys_prompt = (
+                    "Eres Axx, el asistente autónomo ejecutándose en la computadora principal del usuario (Windows PC). "
+                    "El usuario se comunica desde su teléfono mediante Axx Mobile. "
+                    "Cualquier orden o consulta sobre el sistema, programas, ventanas, procesos o archivos se refiere "
+                    "a la PC anfitriona. No afirmes haber ejecutado ninguna acción sin un recibo del ejecutor. "
+                )
+                messages = [{'role': 'system', 'content': pc_sys_prompt}]
+                for m in snapshot['messages'][-100:]:
+                    messages.append({'role': m['role'], 'content': m['text']})
+
+                request = {'request_id':task_id, 'conversation_id':conversation_id, 'messages': messages}
                 for key in ('model', 'provider_name'):
                     request[key] = preferences.get(key, '')
                 request['selection_mode'] = preferences.get('selection_mode', 'manual')
@@ -298,7 +368,7 @@ class MobileGateway:
                 answer = result.get('choices', [{}])[0].get('message', {}).get('content')
                 if not isinstance(answer, str):
                     raise ValueError('The engine did not return a conversation response')
-                self.shared.merge_messages([{'id':task_id+':assistant', 'role':'assistant', 'text':answer, 'at':time.time()*1000}], 'mobile', conversation_id)
+                self.shared.merge_messages([{'id':task_id+':assistant', 'role':'assistant', 'text':answer, 'at':time.time()*1000}], 'pc', conversation_id)
                 self.store.finish_command(task_id, 'completed', result)
             except Exception:
                 LOG.exception('Mobile conversation outcome unavailable')

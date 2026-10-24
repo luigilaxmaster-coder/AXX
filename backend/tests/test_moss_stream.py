@@ -20,6 +20,21 @@ class MossStreamTests(unittest.TestCase):
         self.voices.start(); self.addCleanup(self.voices.stop)
         self.body = {'text': 'Hola. Hello.', 'voice': 'moss:axx-alba'}
 
+    def test_stopped_worker_closes_stdin_once(self):
+        import io
+        from types import SimpleNamespace
+        stream = io.BytesIO()
+        process = SimpleNamespace(stdin=stream)
+        self.service._worker = (process, None, None)
+        with patch('backend.speech.moss_tts.terminate_process_tree') as terminate:
+            self.service._stop_worker()
+            self.service._stop_worker()
+            terminate.assert_called_once_with(process, None)
+        self.assertTrue(stream.closed)
+        self.assertIsNone(self.service._worker)
+        with self.assertRaises(BrokenPipeError):
+            self.service._send(process, {'cancel': True})
+
     @staticmethod
     def event():
         return {'chunk': True, 'pcm_base64': base64.b64encode(b'\x01\x00' * 240).decode(),

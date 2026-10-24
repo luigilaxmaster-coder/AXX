@@ -229,6 +229,11 @@ def summarize_window_content(result):
     return result
 
 
+def scrape_window_tree(window_id, expected_pid, cancelled=None):
+    return _uia({'operation': 'scrape_app', 'window_id': _positive_int(window_id, 'window_id'),
+                 'pid': _positive_int(expected_pid, 'pid')}, cancelled=cancelled)
+
+
 def set_control_value(window_id, expected_pid, control_id, value, cancelled=None):
     window_id = _positive_int(window_id, 'window_id')
     expected_pid = _positive_int(expected_pid, 'pid')
@@ -241,7 +246,7 @@ def set_control_value(window_id, expected_pid, control_id, value, cancelled=None
                  'control_id': control_id, 'value': value}, cancelled=cancelled)
 
 
-def _uia(payload, cancelled=None):
+def _uia(payload, cancelled=None, timeout=None):
     if os.name != 'nt':
         raise ValueError('UI Automation requiere Windows.')
     executable = Path(os.environ.get('SystemRoot', r'C:\Windows')) / 'System32/WindowsPowerShell/v1.0/powershell.exe'
@@ -270,7 +275,8 @@ def _uia(payload, cancelled=None):
                                     '-EncodedCommand', encoded_worker],
                                    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                    creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0), env=env)
-        deadline = time.monotonic() + UIA_TIMEOUT_SECONDS
+        timeout_sec = timeout or (15.0 if payload.get('operation') in ('scrape_app', 'read_content') else UIA_TIMEOUT_SECONDS)
+        deadline = time.monotonic() + timeout_sec
         input_bytes = request.encode('utf-8')
         first_communicate = True
         while True:

@@ -46,6 +46,7 @@ def active_operation(method):
 class ActionLearning:
     def __init__(self, commands, adapter):
         self.commands, self.adapter = commands, adapter
+        self.workshop = None
         self.lock = threading.RLock()
         self.gate = threading.Lock()
         self.closed = False
@@ -179,6 +180,8 @@ class ActionLearning:
             return self.skills.get(key)
 
     def configure(self, action_id, body):
+        if isinstance(action_id, str) and action_id.startswith('workshop.cap.'):
+            raise ValueError('Edita esta capacidad en el taller para conservar revisión, aprobación y revocación')
         body = bounded_object(body, 48000)
         allowed = {'version', 'title', 'objective', 'intent', 'schema', 'examples', 'templates', 'steps', 'checks', 'favorite', 'project_id', 'correction', 'goal_confirmed', 'inference'}
         if not body or set(body) - allowed: raise ValueError('Configuración de acción inválida')
@@ -357,6 +360,9 @@ class ActionLearning:
         return None
 
     def _bind(self, skill, inputs, plan):
+        if self.workshop: self.workshop.assert_skill_available(skill)
+        elif str(skill.get('id', '')).startswith('workshop.cap.'):
+            raise ValueError('El taller de capacidades no está disponible')
         context = plan['operational_context']
         defaults = dict(context['defaults'])
         for name in ('current_file', 'current_folder', 'current_application', 'current_project'):
@@ -454,11 +460,19 @@ class ActionLearning:
                                 for index, record in enumerate(records)}
 
     def _plan_hash(self, plan):
-        return self._hash({'steps': plan['steps'], 'skill_versions': plan.get('skill_versions', []),
+        payload = {'steps': plan['steps'], 'skill_versions': plan.get('skill_versions', []),
                            'project_id': plan.get('project_id', ''),
                            'dependencies': plan.get('dependencies', {}),
                            'identities': [{key: row[key] for key in ('step_id', 'operation_id', 'input_hash')}
-                                          for row in plan['step_records']]})
+                                          for row in plan['step_records']]}
+        if plan.get('workshop_validation'): payload['workshop_validation'] = plan['workshop_validation']
+        return self._hash(payload)
+
+    def _assert_workshop_plan(self, plan):
+        if self.workshop:
+            self.workshop.assert_plan_available(plan)
+        elif plan.get('workshop_validation') or any(str(ref.get('id', '')).startswith('workshop.cap.') for ref in plan.get('skill_versions', [])):
+            raise ValueError('El taller de capacidades no está disponible')
 
     def _finish_planning(self, plan):
         with self.lock:
@@ -558,13 +572,19 @@ class ActionLearning:
         return data
 
     @active_operation
-    def propose(self, text, operation_id=None, context=None, model='', provider_name='', inputs=None, project_id='', selection_mode='manual'):
+    def propose(self, text, operation_id=None, context=None, model='', provider_name='', inputs=None, project_id='', selection_mode='manual', conversation_id=None):
+        if conversation_id is not None:
+            from .chat_store import ident
+            ident(conversation_id)
         context = bounded_object({} if context is None else context, 8000)
         if any(not isinstance(v, str) or len(v) > 200 for v in (model, provider_name)):
             raise ValueError('Modelo inválido')
         if selection_mode not in ('manual', 'automatic_free'): raise ValueError('Selección de modelo inválida')
         plan, fresh = self._new_plan(text, operation_id, inputs, project_id, context)
+        if not fresh and plan.get('conversation_id') != conversation_id:
+            raise ValueError('El plan pertenece a otra conversación')
         if not fresh: return plan
+        plan['conversation_id'] = conversation_id
         plan['planning_settings'] = {'model': model, 'provider_name': provider_name, 'selection_mode': selection_mode}
         try:
             saved = self._select(text, project_id, plan['operational_context'])
@@ -618,6 +638,8 @@ class ActionLearning:
         if not self.gate.acquire(blocking=False): raise ValueError('Ya hay un plan ejecutándose')
         try:
             plan = self.get(key)
+            if plan.get('workshop_validation') or any(str(ref.get('id', '')).startswith('workshop.cap.') for ref in plan.get('skill_versions', [])):
+                raise ValueError('Crea una revisión en el taller para corregir esta capacidad')
             if plan['state'] == 'cancelled': return plan
             if plan['state'] not in ('failed', 'awaiting_approval', 'needs_input'): raise ValueError('Primero resuelve cualquier efecto incierto')
             self._records(plan)
@@ -801,6 +823,12 @@ class ActionLearning:
                 except Exception: pass  # Metrics never change an execution receipt.
 
     def _learn(self, plan):
+        self._assert_workshop_plan(plan)
+        if plan.get('workshop_validation'):
+            plan.update(state='succeeded', postconditions_passed=True,
+                        effect_verified=all(bool(record['result'].get('evidence')) for record in plan['step_records']),
+                        learned_action_id=None, message='Validación terminada. Revisa los resultados y activa la revisión desde el taller.')
+            return self._save(plan)
         now = time.time()
         refs = plan['skill_versions']
         if not refs:
@@ -842,6 +870,7 @@ class ActionLearning:
             with self.lock:
                 plan = self.get(key)
                 if plan['state'] in TERMINAL: return plan
+                self._assert_workshop_plan(plan)
                 if plan['state'] != 'awaiting_approval': raise ValueError('Reanuda y revisa primero el plan interrumpido')
                 if time.time() - plan.get('prepared_at', plan['created_at']) > 600:
                     return self._save(plan | {'state': 'expired', 'message': 'La aprobación caducó. Revisa y reanuda el plan.'})
@@ -888,16 +917,19 @@ class ActionLearning:
         operation_id = record['operation_id']
         try:
             with self.lock:
+                self._assert_workshop_plan(plan)
                 plan['active_operation_id'] = operation_id
                 plan.setdefault('active_operation_ids', []).append(operation_id)
                 record.update(state='preparing', started_at=time.time()); self._save(plan)
-            prepared = self.commands.prepare(step['command_id'], step['inputs'], 'text', operation_id)
+            prepared = self.commands.prepare(step['command_id'], step['inputs'], 'text', operation_id,
+                **({'conversation_id': plan.get('conversation_id')} if plan.get('workshop_validation') else {}))
             with self.lock:
                 record.update(state=prepared['state'], result=prepared); self._save(plan)
             if event.is_set():
                 result = prepared if self.closing else self.commands.cancel(operation_id)
             else:
                 with self.lock:
+                    self._assert_workshop_plan(plan)
                     record['state'] = 'running'; self._save(plan)
                 result = self.commands.execute(operation_id, approved=True, **({'allow_parallel_read': True} if parallel else {}))
         except Exception as exc:
@@ -907,7 +939,7 @@ class ActionLearning:
         with self.lock:
             record.update(state=result['state'], result=result, completed_at=time.time())
             plan['results'] = [item['result'] for item in plan['step_records'] if item.get('result') and item['state'] in TERMINAL]
-            plan['active_operation_ids'].remove(operation_id)
+            if operation_id in plan.get('active_operation_ids', []): plan['active_operation_ids'].remove(operation_id)
             self._save(plan)
         return result
 

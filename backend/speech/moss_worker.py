@@ -16,7 +16,10 @@ if __package__:
 else:
     from speech_text import prepare_spoken_text
 
-PERSONAL_VOICES = ('axx-alba', 'axx-nova', 'axx-aura', 'axx-titan')
+PERSONAL_VOICES = (
+    'axx-valeria', 'axx-elena', 'axx-mateo', 'axx-dante',
+    'axx-alba', 'axx-nova', 'axx-aura', 'axx-titan'
+)
 FALLBACK_VOICES = ('voz_referencia', 'voz_referencia_completo')
 
 
@@ -134,7 +137,13 @@ def create_runtime(model_root, cache_root):
         def estimate_voice_clone_inter_chunk_pause_seconds(self, text_chunk):
             # Upstream adds this pause only to the completed WAV. Streaming must
             # receive the same boundary, or long sentences run together.
-            seconds = .18 if str(text_chunk).rstrip().endswith((',', ';', ':')) else .24
+            stripped = str(text_chunk).rstrip()
+            if stripped.endswith(('?', '¿', '!', '¡')):
+                seconds = .36
+            elif stripped.endswith((',', ';', ':')):
+                seconds = .24
+            else:
+                seconds = .32
             if self.emit_pcm:
                 rate = int(self.codec_meta['codec_config']['sample_rate'])
                 channels = int(self.codec_meta['codec_config']['channels'])
@@ -150,7 +159,14 @@ def main():
     sys.path.insert(0, str(model_root.parent))
     started = time.monotonic()
     runtime = create_runtime(model_root, output_root.parent / 'reference-cache')
-    voices = {f'moss:{name}': personal_samples / f'{name}.wav' for name in PERSONAL_VOICES}
+    voices = {}
+    for name in PERSONAL_VOICES:
+        target = personal_samples / f'{name}.wav'
+        if not target.is_file():
+            fallback = model_root.parent / 'samples' / f'{name}.wav'
+            if fallback.is_file():
+                target = fallback
+        voices[f'moss:{name}'] = target
     voices.update({f'moss:{name}': model_root.parent / 'samples' / f'{name}.wav' for name in FALLBACK_VOICES})
     output_root.mkdir(parents=True, exist_ok=True)
     requests, events, event_lock = queue.Queue(maxsize=2), {}, threading.Lock()
@@ -216,7 +232,8 @@ def main():
             spoken, language = prepare_spoken_text(text, request.get('language', 'auto'))
             runtime.synthesize(text=spoken, prompt_audio_path=voice, output_audio_path=output,
                                streaming=True, sample_mode='fixed', enable_wetext=False,
-                               enable_normalize_tts_text=language not in ('es', 'en'))
+                               enable_normalize_tts_text=language not in ('es', 'en'),
+                               voice_clone_max_text_tokens=36)
             print(json.dumps({'id': request_id, 'ok': True,
                               'elapsed_ms': round((time.monotonic() - started) * 1000)}), flush=True)
         except SynthesisCancelled:

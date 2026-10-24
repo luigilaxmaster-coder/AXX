@@ -69,6 +69,21 @@ class CommandsHttpTests(unittest.TestCase):
         self.assertEqual(self.executor.list_operations(), [])
         self.assertEqual(self.request('commands/details?id=AXX-02-0147', auth=False)[0], 401)
 
+    def test_discovery_preparation_uses_command_policy(self):
+        from unittest.mock import patch
+        proposal = {'command_id': 'axx.desktop.window.set_value',
+                    'inputs': {'window_id': '0x123', 'pid': 99, 'control_id': 'a' * 64, 'value': 'hello'}}
+        with patch('backend.actions.cli_anything_engine.ENGINE.propose', return_value=proposal):
+            status, pending = self.request('cli-anything/prepare', {'target': '0x123', 'command': 'type', 'args': {'control_id': 'a'*64, 'text': 'hello'}})
+            self.assertEqual(status, 200)
+            self.assertEqual(pending['state'], 'awaiting_approval')
+            self.assertEqual(pending['command_id'], proposal['command_id'])
+            self.assertEqual(self.request('cli-anything/prepare', {'command': 'type', 'approved': True})[0], 400)
+            self.assertEqual(self.request('cli-anything/prepare', {'command': 'type'}, auth=False)[0], 401)
+        status, refused = self.request('cli-anything/execute', {'approved': True})
+        self.assertEqual(status, 409)
+        self.assertEqual(refused['error']['code'], 'USE_COMMAND_POLICY')
+
     def test_legacy_routes_cannot_bypass_catalog_policy(self):
         status, _ = self.request('actions/execute', {'tool_name': 'desktop_powershell', 'inputs': {'script': 'Get-Date'}})
         self.assertEqual(status, 403)

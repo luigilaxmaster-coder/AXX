@@ -54,6 +54,8 @@ class SharedState:
                 at = m.get('at', time.time()*1000)
                 if not isinstance(at, (int, float)) or not math.isfinite(at):
                     raise ValueError('Invalid date')
+                if at <= time.time()*1000 - 90*86400000:
+                    continue
                 old = db.execute('SELECT role,text FROM shared_messages WHERE id=?', (m['id'],)).fetchone()
                 if old:
                     if old['role'] != m['role'] or old['text'] != m['text']:
@@ -72,6 +74,8 @@ class SharedState:
     def snapshot(self, conversation_id=None):
         with self.connect() as db:
             db.execute('BEGIN')
+            db.execute('DELETE FROM shared_messages WHERE at<=?', (time.time()*1000-90*86400000,))
+            db.execute('DELETE FROM shared_events WHERE at<=?', (time.time()-90*86400,))
             if conversation_id is None:
                 conversation_id = db.execute('SELECT conversation_id FROM shared_active_conversation WHERE id=1').fetchone()[0]
             cursor = db.execute('SELECT COALESCE(MAX(cursor),0) FROM shared_events').fetchone()[0]

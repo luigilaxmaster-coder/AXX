@@ -171,9 +171,14 @@
                 purpose:'translation', source_language:translation[1], target_language:translation[2],
                 model:p.model, conversation_id:'axx-translation-' + crypto.randomUUID()}, signal, onDelta);
         }
-        const context = c.data.connectConversationId ? messages.filter(item => item.role === 'user').slice(-1) : messages.filter(item => item.role !== 'system');
+        const context = c.data.connectConversationId && !Axx.chatWorkspace ? messages.filter(item => item.role === 'user').slice(-1) : messages.filter(item => item.role !== 'system');
         if (!c.data.connectConversationId) { c.data.connectConversationId = crypto.randomUUID(); c.save(); }
-        const result = await run({message: context.map(item => (item.role === 'assistant' ? 'Axx: ' : 'Usuario: ') + item.content).join('\n\n').slice(-32000), model: p.model, conversation_id: c.data.connectConversationId}, signal, onDelta);
+        // Connect takes a single message. Preserve configured instructions as
+        // well as history; neither changes the executor's backend permissions.
+        const instructions = messages.filter(item => item.role === 'system').map(item => item.content).join('\n\n').slice(0,12000);
+        const prefix = instructions ? 'Instrucciones del asistente configuradas por el usuario:\n' + instructions + '\n\nConversación:\n' : '';
+        const transcript = context.map(item => (item.role === 'assistant' ? 'Axx: ' : 'Usuario: ') + item.content).join('\n\n');
+        const result = await run({message: prefix + transcript.slice(-(32000-prefix.length)), model: p.model, conversation_id: c.data.connectConversationId}, signal, onDelta);
         c.save(); this.inferenceVerified = true; this.connected = true; this.lastRoute = result.route;
         return result;
     };

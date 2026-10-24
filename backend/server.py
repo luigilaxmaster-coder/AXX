@@ -33,8 +33,10 @@ from backend.inference.model_candidates import ModelCandidates
 from backend.inference.keyless import KeylessSetup
 from backend.actions.executor import ActionExecutor, ActionExecutionError
 from backend.actions.tools import list_tools
+from backend.chat_store import ChatStore
 from backend.commands import CommandService, ApprovalRequired, parse_command_json, ADAPTERS
 from backend.action_learning import ActionLearning
+from backend.capability_workshop import CapabilityWorkshop
 from backend.demonstration import DemonstrationService, planning_reference
 from backend.memory.procedural_memory import ProceduralMemory
 from backend.memory.ai_memory_adapter import AiMemoryAdapter
@@ -85,8 +87,10 @@ class ThreadedHTTPServer(socketserver.ThreadingMixIn, HTTPServer):
 
 class AxxBridgeHandler(BaseHTTPRequestHandler):
     adapter = executor = memory = identity = speech = transcription = None
+    chats = None
     commands = None
     learning = None
+    workshop = None
     demonstration = None
     freellmapi = None
     model_candidates = None
@@ -210,6 +214,19 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                 return
             if ConnectHTTP(self).get(path):
                 return
+            if path == '/axx-api/chat/conversations':
+                query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+                if set(query) - {'id', 'shared_id'} or len(query) > 1 or any(len(v) != 1 for v in query.values()):
+                    raise ValueError('Invalid conversation query')
+                result = self.chats.by_shared_id(query['shared_id'][0]) if 'shared_id' in query else self.chats.get(query['id'][0]) if 'id' in query else self.chats.list()
+                self._send_json(200, result)
+                return
+            if path == '/axx-api/chat/profile':
+                self._send_json(200, self.chats.profile())
+                return
+            if path == '/axx-api/chat/operations':
+                self._send_json(200, {'operations': self.chats.operations()})
+                return
             if path == '/axx-api/status':
                 inference_status = self.adapter.get_status()
                 inference_status['realtime_local_models'] = local_realtime_models(self.adapter.config, inference_status)
@@ -257,6 +274,20 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                 self._send_json(200, self.freellmapi.status(config=self.adapter.config))
             elif path == '/axx-api/actions':
                 self._send_json(200, {'tools': list_tools(), 'artifact_root': str(self.executor.workspace_root)})
+            elif path.startswith('/axx-api/capabilities/'):
+                if not self.workshop:
+                    self._unsupported('Taller de capacidades no disponible')
+                    return
+                query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+                action = path.rsplit('/', 1)[-1]
+                allowed = {'list': set(), 'catalog': set(), 'get': {'id'}, 'export': {'id', 'revision'}}
+                if action not in allowed or set(query) - allowed[action] or any(len(v) != 1 for v in query.values()):
+                    raise ValueError('Consulta de capacidades inválida')
+                if action == 'list': result = {'capabilities': self.workshop.list()}
+                elif action == 'catalog': result = self.workshop.catalog()
+                elif action == 'get': result = self.workshop.get(query.get('id', [None])[0])
+                else: result = self.workshop.export(query.get('id', [None])[0], int(query['revision'][0]) if 'revision' in query else None)
+                self._send_json(200, result)
             elif path in ('/axx-api/learning/actions', '/axx-api/learning/plan', '/axx-api/learning/plans', '/axx-api/learning/context'):
                 if not self.learning:
                     self._unsupported('Aprendizaje de acciones no disponible')
@@ -326,6 +357,19 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
             elif path == '/axx-api/identity':
                 with self.server.action_lock:
                     self._send_json(200, {'identity': self.identity.get_studio_identity()})
+            elif path in ('/axx-api/cli-anything/commands', '/axx-api/cli-anything/history'):
+                from backend.actions.cli_anything_engine import ENGINE
+                query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query, keep_blank_values=True)
+                allowed = {'target'} if path.endswith('/commands') else {'limit'}
+                if set(query) - allowed or any(len(v) != 1 for v in query.values()):
+                    raise ValueError('Invalid discovery query')
+                if path.endswith('/commands'):
+                    self._send_json(200, ENGINE.list_commands(query.get('target', [None])[0]))
+                else:
+                    limit = int(query.get('limit', ['50'])[0])
+                    if not 1 <= limit <= 50: raise ValueError('History limit must be 1..50')
+                    self._send_json(200, {'history': self.commands.operations()[:limit],
+                                         'learning_endpoint': '/axx-api/learning/actions'})
             elif path.startswith('/axx-api/spotify/'):
                 self._unsupported('Spotify requires a separately configured account integration')
             else:
@@ -421,7 +465,7 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                     result = {'capabilities': self.magic_pen.capabilities(), 'monitors': pen_monitors(), 'history': self.magic_pen.list()}
                 elif operation == 'get':
                     result = self.magic_pen.get(body.get('id'), image=True)
-                elif operation in {'capture', 'save', 'export', 'analyze'}:
+                elif operation in {'capture', 'save', 'export', 'analyze', 'start', 'query', 'cancel'}:
                     try:
                         result = getattr(self.magic_pen, operation)(body)
                     except OSError as exc:
@@ -556,12 +600,44 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                     'client_id': self.chatgpt_auth.get_client_id(),
                     'message': 'ID de cliente de OpenAI guardado con éxito.'
                 })
+            elif path.startswith('/axx-api/capabilities/'):
+                if not self.workshop:
+                    self._unsupported('Taller de capacidades no disponible')
+                    return
+                action = path.rsplit('/', 1)[-1]
+                identity = {'id', 'revision', 'digest'}
+                fields = {
+                    'create': {'definition', 'project_id'},
+                    'generate': {'goal', 'model', 'provider_name', 'selection_mode', 'kind', 'project_id', 'capability_id', 'revision', 'digest', 'conversation_id'},
+                    'revise': identity | {'definition'}, 'validate': identity,
+                    'approve': identity | {'confirmed'}, 'prepare': identity | {'conversation_id'},
+                    'activate': identity, 'revoke': identity, 'rollback': identity | {'target_revision'},
+                }
+                if action not in fields or set(body) - fields[action]: raise ValueError('Campos de capacidad inválidos')
+                if body.get('conversation_id'):
+                    if not self.chats: raise ValueError('Conversaciones no disponibles')
+                    self.chats.get(body['conversation_id'])
+                if action == 'create': result = self.workshop.create(body.get('definition'), body.get('project_id', ''))
+                elif action == 'generate':
+                    result = self.workshop.generate(body.get('goal'), model=body.get('model', ''), provider_name=body.get('provider_name', ''),
+                        selection_mode=body.get('selection_mode', 'manual'), kind=body.get('kind', 'workflow'), project_id=body.get('project_id', ''),
+                        capability_id=body.get('capability_id'), revision=body.get('revision'), digest=body.get('digest'), conversation_id=body.get('conversation_id'))
+                else:
+                    args = (body.get('id'), body.get('revision'), body.get('digest'))
+                    if action == 'revise': result = self.workshop.revise(*args, body.get('definition'))
+                    elif action == 'validate': result = self.workshop.validate(*args)
+                    elif action == 'approve': result = self.workshop.approve(*args, confirmed=body.get('confirmed', False))
+                    elif action == 'prepare': result = self.workshop.prepare_validation(*args, conversation_id=body.get('conversation_id'))
+                    elif action == 'activate': result = self.workshop.activate(*args)
+                    elif action == 'revoke': result = self.workshop.revoke(*args)
+                    else: result = self.workshop.rollback(*args, body.get('target_revision'))
+                self._send_json(200, result)
             elif path.startswith('/axx-api/learning/'):
                 if not self.learning:
                     self._unsupported('Aprendizaje de acciones no disponible')
                     return
                 action = path.rsplit('/', 1)[-1]
-                fields = {'propose': {'text', 'operation_id', 'context', 'model', 'provider_name', 'inputs', 'project_id', 'selection_mode'},
+                fields = {'propose': {'text', 'operation_id', 'context', 'model', 'provider_name', 'inputs', 'project_id', 'selection_mode', 'conversation_id'},
                           'execute': {'operation_id', 'approved'}, 'cancel': {'operation_id'},
                           'resume': {'operation_id', 'approved'}, 'configure': {'id', 'changes'},
                           'repair': {'operation_id', 'text', 'inputs', 'model', 'provider_name', 'selection_mode'},
@@ -571,6 +647,8 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                 if action == 'remember':
                     result = self.learning.remember(body.get('operation_id'))
                 elif action == 'propose':
+                    if body.get('conversation_id') and self.chats:
+                        self.chats.get(body['conversation_id'])
                     context = body.get('context')
                     if isinstance(context, dict) and 'demonstration' in context:
                         reference = context['demonstration']
@@ -578,7 +656,7 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                         record = self.demonstration.get(reference.get('demonstration_id'))
                         context = context | {'demonstration': planning_reference(record)}
                     result = self.learning.propose(body.get('text'), body.get('operation_id'), context, body.get('model', ''), body.get('provider_name', ''),
-                        inputs=body.get('inputs'), project_id=body.get('project_id', ''), selection_mode=body.get('selection_mode', 'manual'))
+                        inputs=body.get('inputs'), project_id=body.get('project_id', ''), selection_mode=body.get('selection_mode', 'manual'), conversation_id=body.get('conversation_id'))
                 elif action == 'execute':
                     result = self.learning.execute(body.get('operation_id'), body.get('approved', False))
                 elif action == 'resume':
@@ -602,13 +680,21 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                     self._unsupported('Observación no disponible')
                     return
                 self._send_json(200, getattr(self.demonstration, path.rsplit('/', 1)[-1])(body))
+            elif path.startswith('/axx-api/chat/'):
+                if path == '/axx-api/chat/profile':
+                    preferred = body.get('preferred_commands',[])
+                    if not isinstance(preferred,list) or len(preferred)>20:
+                        raise ValueError('Elige hasta 20 comandos preferidos')
+                    for command_id in preferred:
+                        self.commands.details(command_id)
+                self._send_json(200, self.chats.mutate(path.rsplit('/', 1)[-1], body))
             elif path.startswith('/axx-api/commands/'):
                 if not self.commands:
                     self._unsupported('Command library service is unavailable')
                     return
                 fields = {
                     'resolve': {'text', 'source', 'context', 'project_id'},
-                    'prepare': {'command_id', 'inputs', 'source', 'operation_id'},
+                    'prepare': {'command_id', 'inputs', 'source', 'operation_id', 'conversation_id', 'command_mode'},
                     'execute': {'operation_id', 'approved'},
                     'cancel': {'operation_id'},
                     'reconcile': {'operation_id'},
@@ -619,8 +705,10 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                 if action == 'resolve':
                     result = self.commands.resolve(body.get('text'), body.get('source', 'text'), body.get('context'), body.get('project_id', ''))
                 elif action == 'prepare':
+                    if body.get('conversation_id') and self.chats:
+                        body['command_mode'] = self.chats.get(body['conversation_id'])['mode']
                     result = self.commands.prepare(body.get('command_id'), body.get('inputs', {}),
-                        body.get('source', 'text'), body.get('operation_id'))
+                        body.get('source', 'text'), body.get('operation_id'), conversation_id=body.get('conversation_id'), command_mode=body.get('command_mode'))
                 elif action == 'execute':
                     result = self.commands.execute(body.get('operation_id'), body.get('approved', False))
                 elif action == 'reconcile':
@@ -853,6 +941,27 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
             elif path == '/axx-api/identity':
                 with self.server.action_lock:
                     self._send_json(200, {'saved': self.identity.save_studio_identity(body)})
+            elif path == '/axx-api/cli-anything/prepare':
+                from backend.actions.cli_anything_engine import ENGINE
+                if set(body) - {'target', 'command', 'args', 'conversation_id'}:
+                    raise ValueError('Unsupported discovery request fields')
+                if not self.commands:
+                    raise ValueError('Command service unavailable')
+                proposal = ENGINE.propose(body.get('target'), body.get('command'), body.get('args'))
+                conversation_id = body.get('conversation_id')
+                mode = self.chats.get(conversation_id)['mode'] if conversation_id and self.chats else 'ask'
+                result = self.commands.prepare(proposal['command_id'], proposal['inputs'], 'text',
+                                               conversation_id=conversation_id, command_mode=mode)
+                self._send_json(200, result)
+            elif path == '/axx-api/cli-anything/commands/develop':
+                if set(body) - {'name', 'parts', 'operation_id', 'project_id'} or not {'name', 'parts'} <= set(body):
+                    raise ValueError('Use name and parts referencing saved action IDs; arbitrary code and steps are not accepted')
+                if not self.learning: raise ValueError('Action learning unavailable')
+                self._send_json(200, self.learning.compose(body['name'], body['parts'],
+                    body.get('operation_id'), body.get('project_id', '')))
+            elif path == '/axx-api/cli-anything/execute':
+                self._send_json(409, {'error': {'code': 'USE_COMMAND_POLICY',
+                    'message': 'Prepare a typed operation, then approve its exact operation_id through /axx-api/commands/execute.'}})
             elif path == '/axx-api/desktop/discover':
                 self._send_json(200, {'apps': [{'id': key, 'name': name, 'approved': key in self.server.desktop_approvals} for key, name in
                      [('notepad', 'Bloc de notas'), ('calc', 'Calculadora'), ('explorer', 'Explorador de archivos')]]})
@@ -991,12 +1100,17 @@ def run_server(host='127.0.0.1', port=4173, config_path='providers.json', state_
         recording = ScreenRecordingService(executor.workspace_root)
         services.append(recording)
         magic_pen = MagicPenService(executor.workspace_root, adapter)
+        services.append(magic_pen)
         converter = ConverterService(executor.workspace_root)
+        chats = ChatStore(state_path)
+        services.append(chats)
         commands = CommandService(executor)
         services.append(commands)
         learning = ActionLearning(commands, adapter)
         commands.learning = learning
         services.append(learning)
+        workshop = CapabilityWorkshop(learning)
+        services.append(workshop)
         demonstration = DemonstrationService(state_path)
         services.append(demonstration)
         speech = WindowsSpeechService(state_dir)
@@ -1016,7 +1130,7 @@ def run_server(host='127.0.0.1', port=4173, config_path='providers.json', state_
         provider = CodexProvider(commands, state_path, state_dir, dispatcher=connect.dispatch)
         services.append(provider)
         handler = type('ConfiguredAxxHandler', (AxxBridgeHandler,), {
-            'adapter': adapter, 'executor': executor, 'commands': commands, 'learning': learning, 'demonstration': demonstration, 'freellmapi': freellmapi, 'model_candidates': model_candidates, 'keyless': keyless,
+            'chats': chats, 'adapter': adapter, 'executor': executor, 'commands': commands, 'learning': learning, 'workshop': workshop, 'demonstration': demonstration, 'freellmapi': freellmapi, 'model_candidates': model_candidates, 'keyless': keyless,
             'memory': memory, 'identity': identity, 'speech': speech,
             'transcription': transcription, 'chatgpt_auth': chatgpt_auth,
             'chatgpt_adapter': chatgpt_adapter, 'config_path': Path(config_path),

@@ -14,7 +14,7 @@ assert(!html.includes('X-Axx-Token'), 'Host credentials must not appear in the f
 assert(!html.includes("const apiBase ="), 'Production must not hardcode a development port');
 
 (async () => {
-  const server = http.createServer((req, res) => { if (req.url?.startsWith('/scripts/') && req.url.endsWith('.js')) { const file=path.join(__dirname,path.basename(req.url)); if (fs.existsSync(file)) { res.writeHead(200, { 'Content-Type': 'application/javascript' }); res.end(fs.readFileSync(file)); return; } } res.writeHead(200, { 'Content-Type': 'text/html' }); res.end(html); });
+  const server = http.createServer((req, res) => { if (req.url?.startsWith('/scripts/') && /\.(js|css)$/.test(req.url)) { const file=path.join(__dirname,path.basename(req.url)); if (fs.existsSync(file)) { res.writeHead(200, { 'Content-Type': req.url.endsWith('.css')?'text/css':'application/javascript' }); res.end(fs.readFileSync(file)); return; } } res.writeHead(200, { 'Content-Type': 'text/html' }); res.end(html); });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const browser = await chromium.launch({ headless: true, executablePath: process.env.AXX_TEST_CHROMIUM || path.join(process.env.LOCALAPPDATA, 'ms-playwright/chromium_headless_shell-1248/chrome-headless-shell-win64/chrome-headless-shell.exe') });
   const results = [];
@@ -24,6 +24,10 @@ assert(!html.includes("const apiBase ="), 'Production must not hardcode a develo
     const errors = [];
     page.on('pageerror', e => errors.push(e.message));
     await page.addInitScript(() => {
+      // This suite verifies explicit provider/model eligibility. Do not inherit
+      // the separate automatic discovery flow from fresh-install preferences.
+      localStorage.setItem('axx.companion.v4', JSON.stringify({ version: 4, prefs: { provider: 'bridge', selection_mode: 'manual' } }));
+      localStorage.setItem('axx.live.pause', '700');
       window.__contractCalls = [];
       window.__contractModels = [];
       window.__contractHoldChat = false;
@@ -31,6 +35,7 @@ assert(!html.includes("const apiBase ="), 'Production must not hardcode a develo
       window.__contractRecipes = [];
       window.__contractCommands = {};
       window.__contractEvents = {};
+      window.__contractConversation = { id: 'contract-chat', title: 'Contract conversation', messages: [], draft: '', draft_at: Date.now(), updated: Date.now(), mode: 'ask', context: [], links: [], connect_id: 'contract-connect', shared_id: 'contract-shared' };
       const pcm = new Uint8Array(44 + 3200), view = new DataView(pcm.buffer);
       const str = (at, text) => [...text].forEach((c, i) => pcm[at + i] = c.charCodeAt(0));
       str(0, 'RIFF'); view.setUint32(4, pcm.length - 8, true); str(8, 'WAVE'); str(12, 'fmt '); view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true); view.setUint32(24, 16000, true); view.setUint32(28, 32000, true); view.setUint16(32, 2, true); view.setUint16(34, 16, true); str(36, 'data'); view.setUint32(40, 3200, true);
@@ -40,9 +45,19 @@ assert(!html.includes("const apiBase ="), 'Production must not hardcode a develo
         const desktop = { workWidth: 1920, workHeight: 1040, spaceLeft: 1660, spaceRight: 260, spaceAbove: 800, spaceBelow: 240 };
         if (name === 'native_status') return { native: true, backendReady: !window.__contractSuppressBackend, backendError: null, shortcut: 'Alt+Shift+A', alwaysOnTop: true, timer: null, dataDirectory: 'CONTRACT_TEST_ONLY', desktop };
         if (name === 'desktop_layout') { await new Promise(resolve => setTimeout(resolve, 45)); window.__contractLayout = args; return { ...desktop, ...args }; }
+        if (name === 'capture_halo' && window.__contractFailHalo) { window.__contractFailHalo = false; throw Error('Capture affinity busy'); }
         if (name !== 'backend_request') return null;
         const { method, path, body } = args;
-        if (path === '/axx-api/status') return { ready: true, provider: 'Contract fixture', details: { providers: [{ name: 'contract-fixture', state: window.__contractProviderState || (window.__contractModels.length ? 'ready_locally' : 'missing_key'), model: window.__contractModels[0] || 'configured-fixture-model' }] } };
+        if (path === '/axx-api/chat/migrate') return { id: window.__contractConversation.id };
+        if (path === '/axx-api/chat/conversations') return { conversations: [window.__contractConversation], groups: [], default_mode: 'ask' };
+        if (path.startsWith('/axx-api/chat/conversations?id=')) return structuredClone(window.__contractConversation);
+        if (path === '/axx-api/chat/save') {
+          const row=window.__contractConversation, messages=new Map(row.messages.map(message=>[message.id,message]));
+          for(const message of body.messages||[])messages.set(message.id,message);
+          Object.assign(row,{draft:body.draft,attachment:body.attachment,messages:[...messages.values()]});return {saved:true};
+        }
+        if (path === '/axx-api/chat/operations') return { operations: [] };
+        if (path === '/axx-api/status') return { ready: true, provider: 'Contract fixture', details: { providers: (window.__contractModels.length ? window.__contractModels : ['configured-fixture-model']).map(model => ({ name: 'contract-fixture', state: window.__contractProviderState || (window.__contractModels.length ? 'ready_locally' : 'missing_key'), model })) } };
         if (path === '/axx-api/models') return { models: window.__contractModels };
         if (path === '/axx-api/identity') {
           if (method === 'GET') return { identity: window.__contractIdentity };
@@ -80,13 +95,29 @@ assert(!html.includes("const apiBase ="), 'Production must not hardcode a develo
       } }, event: { listen: async (name, fn) => { window.__contractEvents[name] = fn; return () => {}; } } };
     });
     await page.goto(`http://127.0.0.1:${server.address().port}`);
-    await page.waitForFunction(() => window.Axx?.desktop?.ready && !window.Axx.companion.connecting);
+    await page.waitForFunction(() => window.Axx?.desktop?.ready && Axx.chatWorkspace?.ready && !window.Axx.companion.connecting);
     assert.deepEqual(errors, []);
     assert.equal(await page.locator('#fatal').textContent(), '');
     results.push('Full original HTML starts without uncaught exceptions');
+    assert.equal(await page.evaluate(() => Axx.liveConversation.pauseMs), 700);
+    assert.equal(await page.locator('#chat-live-pause').inputValue(), '700');
+    results.push('The saved 700 ms voice pause is restored on startup and matches the visible setting');
     const nativeBackground = await page.evaluate(() => [document.documentElement, document.body].map(e => getComputedStyle(e).backgroundColor));
     assert.deepEqual(nativeBackground, ['rgba(0, 0, 0, 0)', 'rgba(0, 0, 0, 0)']);
     results.push('Native overlay backgrounds are transparent while the original UI surfaces remain');
+    const launcherNavigation = await page.evaluate(() => {
+      const body = document.body, launcher = document.getElementById('flow-pill');
+      const previous = { step: body.dataset.flowStep, invoked: body.classList.contains('resident-invoked'), hidden: launcher.hidden };
+      body.classList.add('resident-invoked'); launcher.hidden = false;
+      body.dataset.flowStep = '4'; const panel = getComputedStyle(launcher).display;
+      body.dataset.flowStep = '1'; const home = getComputedStyle(launcher).display;
+      if (previous.step === undefined) delete body.dataset.flowStep; else body.dataset.flowStep = previous.step;
+      body.classList.toggle('resident-invoked', previous.invoked); launcher.hidden = previous.hidden;
+      return { panel, home };
+    });
+    assert.equal(launcherNavigation.panel, 'none');
+    assert.notEqual(launcherNavigation.home, 'none');
+    results.push('The tool launcher yields to an open panel and returns on the home surface');
     await page.waitForFunction(() => window.__contractLayout?.ready === true);
     const residentStartup = await page.evaluate(() => ({ layout: window.__contractLayout, size: Axx.resident.size, visibleButtons: [...document.querySelectorAll('button')].filter(n => n.getClientRects().length && getComputedStyle(n).visibility !== 'hidden').map(n => n.id) }));
     assert.equal(residentStartup.layout.width, 1920);
@@ -172,6 +203,112 @@ assert(!html.includes("const apiBase ="), 'Production must not hardcode a develo
     });
     assert.equal(cancelled.error, 'AbortError'); assert.equal(cancelled.calls.length, 1);
     results.push('Cancellation emits one correlated cancellation request and rejects late response');
+    // Exercise the actual send wrappers and BrainClient, not just BrainClient.chat:
+    // voice metadata previously disappeared in the command resolver, and send
+    // referenced an undeclared options variable before reaching the model.
+    const conversationTurns = await page.evaluate(async () => {
+      const c = Axx.companion, savedPrefs = { ...c.data.prefs }, savedModels = [...window.__contractModels];
+      const savedLive = Axx.symbiosis.liveActive, savedForce = c._forceVoiceReplyOnce;
+      const requests = () => window.__contractCalls.filter(call => call.args?.path === '/axx-api/chat');
+      const speechBefore = window.__contractCalls.filter(call => call.args?.path === '/axx-api/speech/synthesize').length;
+      window.__contractHoldChat = false;
+      try {
+        window.__contractModels = ['contract-fixture-model', 'contract-voice-model'];
+        Object.assign(c.data.prefs, { model: 'contract-fixture-model', apiConnection: 'contract-fixture', voiceModel: 'contract-voice-model', voiceApiConnection: 'contract-fixture', voiceRead: false, mutedAll: true });
+        Axx.symbiosis.liveActive = false; c._forceVoiceReplyOnce = false;
+        await c.connect();
+        const baseSignature = c.brain.signature, baseConnection = c.brain.connectionSignature;
+        const turn = async (text, metadata) => {
+          const before = requests().length, firstMessage = c.data.messages.length;
+          // Omitting the second argument is intentional: keyboard sends must
+          // remain valid independently of live voice state or metadata.
+          if (metadata === undefined) await c.send(text); else await c.send(text, metadata);
+          return { text, requests: requests().slice(before).map(call => call.args.body), messages: c.data.messages.slice(firstMessage).map(({ role, text, status, model, source }) => ({ role, text, status, model, source })), pending: Boolean(c.pending), signature: c.brain.signature, connection: c.brain.connectionSignature };
+        };
+        const text = await turn('¿Qué significa resiliencia?');
+        const voice = await turn('¿Qué significa empatía?', { source: 'voice' });
+        const textAfterVoice = await turn('¿Qué significa paciencia?');
+        c.data.prefs.voiceModel = 'not-in-the-verified-catalog';
+        const unknownVoiceModel = await turn('¿Qué significa curiosidad?', { source: 'voice' });
+        c.data.prefs.voiceModel = 'contract-voice-model'; c.data.prefs.voiceApiConnection = 'different-unverified-connection';
+        const legacyVoiceConnection = await turn('¿Qué significa gratitud?', { source: 'voice' });
+        const beforeChangedConnection = requests().length;
+        let changedConnectionError = '';
+        try { await c.brain.chat({ ...c.data.prefs, model: 'contract-voice-model', apiConnection: 'different-unverified-connection' }, [{ role: 'user', content: 'Contract connection boundary' }], new AbortController().signal, () => {}); }
+        catch (error) { changedConnectionError = String(error.message); }
+        const changedConnection = { error: changedConnectionError, requests: requests().slice(beforeChangedConnection), signature: c.brain.signature, connection: c.brain.connectionSignature };
+        return { text, voice, textAfterVoice, unknownVoiceModel, legacyVoiceConnection, changedConnection, baseSignature, baseConnection, models: [...c.brain.models], speechDelta: window.__contractCalls.filter(call => call.args?.path === '/axx-api/speech/synthesize').length - speechBefore };
+      } finally {
+        for (const key of Object.keys(c.data.prefs)) if (!Object.hasOwn(savedPrefs, key)) delete c.data.prefs[key];
+        Object.assign(c.data.prefs, savedPrefs); window.__contractModels = savedModels;
+        Axx.symbiosis.liveActive = savedLive; c._forceVoiceReplyOnce = savedForce;
+        await c.connect(); c.save();
+      }
+    });
+    assert.deepEqual(conversationTurns.models, ['contract-fixture-model', 'contract-voice-model']);
+    for (const [name, model, voice] of [['text', 'contract-fixture-model', false], ['voice', 'contract-voice-model', true], ['textAfterVoice', 'contract-fixture-model', false], ['legacyVoiceConnection', 'contract-voice-model', true]]) {
+      const turn = conversationTurns[name];
+      assert.equal(turn.requests.length, 1, name + ' must send exactly one real IPC chat request');
+      assert.equal(turn.requests[0].model, model);
+      assert.equal(turn.requests[0].provider_name, 'contract-fixture');
+      assert.equal(turn.requests[0].stream, false);
+      assert.equal(turn.requests[0].max_tokens === 80, voice, name + ' must apply voice brevity only to an explicit voice turn');
+      assert.equal(turn.requests[0].messages.some(message => message.role === 'system' && message.content.includes('MODO VOZ:')), voice);
+      assert(turn.messages.some(message => message.role === 'user' && message.text === turn.text));
+      assert(turn.messages.some(message => message.role === 'assistant' && message.text === 'Contract fixture response' && message.model === model && message.status === 'complete'), name + ' must finish with the actual model response');
+      assert.equal(turn.pending, false);
+      assert.equal(turn.signature, conversationTurns.baseSignature, name + ' must not replace the selected text model signature');
+      assert.equal(turn.connection, conversationTurns.baseConnection);
+    }
+    assert.equal(conversationTurns.speechDelta, 0, 'The model send contract must not play physical audio');
+    results.push('Actual companion.send supports text without options and explicit voice through all wrappers, returns model responses, and preserves the text model after a verified voice model turn');
+    for (const name of ['unknownVoiceModel']) {
+      const turn = conversationTurns[name];
+      assert.deepEqual(turn.requests, [], name + ' must not reach an unverified model or connection');
+      const response = turn.messages.find(message => message.role === 'assistant' && message.status === 'error');
+      assert(response, name + ' must report a visible error');
+      assert.match(response.text, /Conecta|verifica|conexión|modelo/);
+      assert.doesNotMatch(response.text, /ReferenceError|options is not defined/);
+      assert.equal(turn.pending, false);
+      assert.equal(turn.signature, conversationTurns.baseSignature);
+      assert.equal(turn.connection, conversationTurns.baseConnection);
+    }
+    assert.deepEqual(conversationTurns.changedConnection.requests, [], 'Another connection must be rejected before IPC dispatch');
+    assert.match(conversationTurns.changedConnection.error, /Conecta|verifica|conexión|modelo/);
+    assert.equal(conversationTurns.changedConnection.signature, conversationTurns.baseSignature);
+    assert.equal(conversationTurns.changedConnection.connection, conversationTurns.baseConnection);
+    results.push('Voice rejects uncatalogued models, ignores legacy route overrides, and BrainClient rejects another connection before model dispatch');
+    const voicePreferences = await page.evaluate(() => {
+      const c = Axx.companion, prior = c.data.prefs.voiceModel;
+      const exact = 'catalog/voice:Q4_K_M', boundary = 'v'.repeat(200);
+      const decode = prefs => Axx.decodeCompanion(JSON.stringify({ version: 4, prefs }));
+      try {
+        c.data.prefs.voiceModel = exact; c.save();
+        const saved = localStorage.getItem(c.key), parsed = JSON.parse(saved);
+        return {
+          empty: Axx.emptyCompanion().prefs.voiceModel,
+          exact: decode({ voiceModel: exact }).prefs.voiceModel,
+          boundary: decode({ voiceModel: boundary }).prefs.voiceModel,
+          invalid: [null, 7, true, {}, []].map(voiceModel => decode({ voiceModel }).prefs.voiceModel),
+          oversized: decode({ voiceModel: 'v'.repeat(201) }).prefs.voiceModel,
+          legacy: decode({ provider: 'bridge', selection_mode: 'manual', model: 'contract-fixture-model' }).prefs,
+          persisted: parsed.prefs.voiceModel,
+          reloaded: Axx.decodeCompanion(saved).prefs.voiceModel,
+          persistError: c.persistError
+        };
+      } finally { c.data.prefs.voiceModel = prior; c.save(); }
+    });
+    assert.equal(voicePreferences.empty, '');
+    assert.equal(voicePreferences.exact, 'catalog/voice:Q4_K_M');
+    assert.equal(voicePreferences.boundary, 'v'.repeat(200));
+    assert.deepEqual(voicePreferences.invalid, ['', '', '', '', '']);
+    assert.equal(voicePreferences.oversized, '');
+    assert.equal(voicePreferences.legacy.voiceModel, '');
+    assert.equal(voicePreferences.legacy.model, 'contract-fixture-model');
+    assert.equal(voicePreferences.persisted, 'catalog/voice:Q4_K_M');
+    assert.equal(voicePreferences.reloaded, voicePreferences.persisted);
+    assert.equal(voicePreferences.persistError, false);
+    results.push('Version 4 voice model preferences survive the actual save/decode path exactly, retain legacy defaults, and reject invalid types or names longer than 200 characters');
     const identity = await page.evaluate(() => {
       const app = Axx.app; app.store.data.settings.form = 17; app.store.data.settings.palette = 5; app.store.data.settings.keepForm = true;
       app.refreshIdentity(); app.machine.setConversation('thinking'); app.tick();
@@ -198,6 +335,52 @@ assert(!html.includes("const apiBase ="), 'Production must not hardcode a develo
     assert.match(await page.locator('#command-library-counts').textContent(), /Habilitadas: 1/);
     assert.equal(await page.evaluate(() => Axx.FORMS.length), 24);
     results.push('The command library opens inside the original files tool and exposes live availability without replacing the avatar');
+    await page.evaluate(() => { Axx.companion.openFeature('settings'); Axx.companion.openChat(false); });
+    await page.waitForFunction(() => Axx.app.panelFocusTimer === null && document.activeElement === document.getElementById('chat-input'));
+    const untouchedDraft = await page.locator('#chat-input').inputValue();
+    await page.evaluate(() => {
+      Axx.companion.openFeature('settings'); Axx.companion.openChat(false);
+      const search=document.getElementById('cw-search');search.value='';search.focus();
+    });
+    // Span both former 50/70 ms timers: a delayed default focus must never
+    // redirect the remaining keyboard input into the message draft.
+    await page.keyboard.type('Aceptación',{delay:12});
+    await page.waitForFunction(() => Axx.app.panelFocusTimer === null);
+    assert.equal(await page.locator('#cw-search').inputValue(),'Aceptación');
+    assert.equal(await page.evaluate(() => document.activeElement.id),'cw-search');
+    assert.equal(await page.locator('#chat-input').inputValue(),untouchedDraft);
+    await page.evaluate(() => Axx.companion.openChat(false));
+    await page.waitForTimeout(100);
+    assert.equal(await page.evaluate(() => document.activeElement.id),'cw-search','Reopening the visible chat preserves the chosen control');
+    await page.evaluate(() => { Axx.companion.openFeature('settings'); Axx.companion.openChat(false); Axx.app.closePanel(); });
+    await page.waitForTimeout(100);
+    assert.equal(await page.evaluate(() => Axx.app.panelFocusTimer),null);
+    assert.equal(await page.evaluate(() => document.getElementById('panel').hidden),true);
+    assert.notEqual(await page.evaluate(() => document.activeElement.id),'chat-input','Closing cancels the pending focus');
+    await page.locator('#cw-search').evaluate(el=>{el.value='';el.dispatchEvent(new Event('input',{bubbles:true}));});
+    results.push('One opening owns initial focus; immediate history typing, repeated opens and close/navigation cancel stale autofocus without changing the draft');
+    await page.evaluate(()=>Axx.companion.openChat(false));
+    if(await page.locator('#cw-browse').isVisible())await page.locator('#cw-browse').click();
+    await page.locator('#cw-browser').waitFor({state:'visible'});
+    const historyLayout=await page.evaluate(()=>{
+      const list=document.getElementById('cw-list'),saved=[...list.childNodes],browser=document.getElementById('cw-browser'),savedStyle=browser.getAttribute('style');
+      try {
+        // The IPC fixture does not resize a real host; constrain this sidebar
+        // to the compact native height while retaining the production styles.
+        browser.style.height='520px';browser.style.maxHeight='520px';
+        list.replaceChildren(...Array.from({length:24},(_,index)=>{
+          const button=document.createElement('button');button.className='cw-thread';
+          button.textContent='Conversación de prueba '+index;
+          const detail=document.createElement('small');detail.textContent='24/10/2026 · Preguntar';button.append(detail);return button;
+        }));
+        const last=list.lastElementChild.getBoundingClientRect();
+        const organize=document.querySelector('#cw-browser .cw-organize').getBoundingClientRect();
+        return {lastBottom:last.bottom,organizeTop:organize.top,scrollHeight:browser.scrollHeight,height:browser.clientHeight};
+      } finally { list.replaceChildren(...saved);if(savedStyle===null)browser.removeAttribute('style');else browser.setAttribute('style',savedStyle); }
+    });
+    assert(historyLayout.organizeTop>=historyLayout.lastBottom,'A long history must not overlap group organization controls');
+    assert(historyLayout.scrollHeight>historyLayout.height,'Long histories stay reachable through sidebar scrolling: '+JSON.stringify(historyLayout));
+    results.push('Long conversation history reserves its full height and scrolls before group controls without overlapping them');
     const localWithoutBackend = await page.evaluate(async () => {
       window.__contractDenyResolver = true;
       const before = window.__contractCalls.filter(call => call.args?.path === '/axx-api/commands/resolve').length;
@@ -246,6 +429,20 @@ assert(!html.includes("const apiBase ="), 'Production must not hardcode a develo
       assert.deepEqual(asr.finals, ['Texto del contrato de ASR']); assert.equal(asr.calls.length, 1); assert.equal(asr.calls[0].args.body.language, 'es'); assert.equal(asr.before, asr.after);
       results.push('ASR transport contract normalizes locale, emits confirmed text and never sends the chat automatically');
     }
+    const halo = await page.evaluate(async () => {
+      const capture = Axx.nativeCapture, prior = { state: capture.state, region: capture.region, error: capture.error };
+      capture.state = 'running'; capture.region = { x: 30, y: 30, width: 400, height: 300 }; capture.haloKey = '';
+      window.__contractFailHalo = true;
+      const before = window.__contractCalls.filter(c => c.name === 'capture_halo').length;
+      capture.halo(); await capture.haloChain; const afterFailure = capture.haloKey;
+      capture.halo(); await capture.haloChain;
+      const retries = window.__contractCalls.filter(c => c.name === 'capture_halo').length - before;
+      const afterSuccess = capture.haloKey;
+      Object.assign(capture, prior); capture.halo(); await capture.haloChain;
+      return { afterFailure, retries, afterSuccess };
+    });
+    assert.equal(halo.afterFailure, ''); assert.equal(halo.retries, 2); assert(halo.afterSuccess);
+    results.push('Recording halo retries its existing state after capture-affinity contention instead of caching a failed update');
     await page.addInitScript(() => { window.requestAnimationFrame = () => 1; window.__contractSuppressBackend = true; });
     await page.reload();
     // RAF is deliberately suspended above, so the observer must use an independent clock.

@@ -2,6 +2,9 @@
 (function installNativeVoice(Axx) {
     if (!Axx?.isNative?.() || Axx.nativeVoice) return;
     const state = Axx.nativeVoice = { activeCapture: null, voices: [], voicePromise: null, playback: null };
+    try { state.liveDeviceId = localStorage.getItem('axx.live.microphone') || ''; } catch { state.liveDeviceId = ''; }
+    // RMS envelope only: this state contains no audio or recognized text.
+    state.inputLevel = null;
     const privacyHint = document.querySelector('#v13-permit small');
     if (privacyHint) privacyHint.textContent = 'Whisper convierte el audio en texto localmente en este equipo. Toca Axx para terminar y obtener la transcripción.';
     const privacyDetail = document.getElementById('v13-permission-state')?.nextElementSibling;
@@ -40,17 +43,19 @@
                 for (const reader of [Axx.symbiosis?.reader, Axx.voice13?.reader]) if (reader) reader.rate=savedRate;
             const webVoices = (!window.__contractCalls && 'speechSynthesis' in window) ? (window.speechSynthesis.getVoices() || []) : [];
             const savedURI = (!window.__contractCalls && localStorage.getItem('axx.voice.uri')) || '';
-            if (savedURI) {
-                if (Axx.symbiosis?.reader && !Axx.symbiosis.reader.voiceURI) Axx.symbiosis.reader.voiceURI = savedURI;
-                if (Axx.voice13?.reader && !Axx.voice13.reader.voiceURI) Axx.voice13.reader.voiceURI = savedURI;
-                state.prepareVoice(savedURI);
+            const defaultURI = (!window.__contractCalls && state.voices.find(v => v.name === 'moss:axx-valeria')?.name) || '';
+            const effectiveURI = savedURI || defaultURI;
+            if (effectiveURI) {
+                if (Axx.symbiosis?.reader && !Axx.symbiosis.reader.voiceURI) Axx.symbiosis.reader.voiceURI = effectiveURI;
+                if (Axx.voice13?.reader && !Axx.voice13.reader.voiceURI) Axx.voice13.reader.voiceURI = effectiveURI;
+                state.prepareVoice(effectiveURI);
             }
             for (const [id, reader] of [['reader-voice', Axx.symbiosis?.reader], ['v13-voice', Axx.voice13?.reader], ['chat-voice-select', Axx.symbiosis?.reader]]) {
                 const select = document.getElementById(id); if (!select) continue;
                 select.replaceChildren(new Option('Voz rápida de Windows · automática', ''));
                 for (const voice of state.voices) select.add(new Option(voice.engine === 'moss-onnx' ? (voice.label || voice.name) : (voice.label || voice.name) + ' · ' + voice.language, voice.engine === 'moss-onnx' ? voice.name : 'sapi:' + voice.name));
                 for (const wv of webVoices) select.add(new Option(wv.name + ' · ' + wv.lang + ' (Sistema)', 'web:' + wv.voiceURI));
-                const targetVal = reader?.voiceURI || savedURI || '';
+                const targetVal = reader?.voiceURI || effectiveURI || '';
                 if ([...select.options].some(o => o.value === targetVal)) select.value = targetVal;
                 else select.value = '';
                 if (!select.dataset.customVoicePrepare) {
@@ -185,57 +190,92 @@
         constructor(owner) { this.owner = owner; }
         change(value) { this.owner.state = value; this.owner.onState?.(); Axx.resident?.activity(); }
         async start(lang) {
-            this.stop(); const id = this.generation; this.lang = lang;
+            this.stop(false); const id = this.generation; this.lang = lang;
             if (state.activeCapture && state.activeCapture !== this) state.activeCapture.stop(); state.activeCapture = this;
             this.change('starting');
             try {
+                await state.cancelPromise;
+                if(id!==this.generation)return;
                 const meter = this.owner === Axx.voice13?.capture ? Axx.voice13.meter : null;
-                this.borrowedMeter = !!meter?.active;
-                const stream = this.borrowedMeter ? meter.stream : await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true }, video: false });
-                if (id !== this.generation) { if (!this.borrowedMeter) stream.getTracks().forEach(track => track.stop()); return; }
+                const borrowedMeter = !!meter?.active; this.borrowedMeter = borrowedMeter;
+                const device = this.owner === Axx.symbiosis?.dictation && Axx.symbiosis.use === 'live' ? state.liveDeviceId : '';
+                const stream = borrowedMeter ? meter.stream : await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, ...(device ? {deviceId:{exact:device}} : {}) }, video: false });
+                if (id !== this.generation) { if (!borrowedMeter) stream.getTracks().forEach(track => track.stop()); return; }
                 this.stream = stream;
+                for(const track of stream.getAudioTracks())track.addEventListener('ended',()=>{if(id===this.generation&&this.recorder?.state==='recording')this.fail(id,new Error('El micrófono se desconectó. Elige otra entrada y vuelve a iniciar.'));},{once:true});
                 const mime = ['audio/webm;codecs=opus', 'audio/ogg;codecs=opus', 'audio/mp4'].find(type => MediaRecorder.isTypeSupported(type));
                 if (!mime) throw new Error('WebView2 no ofrece un formato de grabación compatible.');
                 const recorder = new MediaRecorder(stream, { mimeType: mime, audioBitsPerSecond: 64000 }); this.recorder = recorder; this.chunks = []; this.bytes = 0;
                 recorder.ondataavailable = event => { if (id !== this.generation || !event.data.size) return; this.chunks.push(event.data); this.bytes += event.data.size; if (this.bytes >= 1000000) this.finish(); };
-                recorder.onstart = () => { if (id === this.generation) { this.change('listening'); this.startVad(stream, id); } };
+                recorder.onstart = () => { if (id === this.generation) void this.startVad(stream, id).then(() => { if (id === this.generation) this.change('listening'); }).catch(error => this.fail(id, error)); };
                 recorder.onerror = () => this.fail(id, new Error('La captura de audio local se interrumpió.'));
                 recorder.onstop = () => { this.release(); if (id === this.generation) void this.submit(new Blob(this.chunks, { type: mime }), id); };
                 recorder.start(500); this.timer = setTimeout(() => this.finish(), 55000);
-            } catch (error) { this.fail(id, error); }
+            } catch (error) {
+                const message = error?.name === 'NotFoundError' || error?.name === 'OverconstrainedError' ? 'El micrófono seleccionado no está disponible. Elige otro en Voz, ritmo y privacidad.'
+                    : error?.name === 'NotAllowedError' ? 'Windows no permitió acceder al micrófono. Revisa el permiso de micrófono para Axx.'
+                    : error?.name === 'NotReadableError' ? 'No se puede leer el micrófono. Revisa si está desconectado u ocupado por otra aplicación.' : error;
+                this.fail(id, typeof message === 'string' ? new Error(message) : message);
+            }
         }
-        startVad(stream, id) {
-            if (this.owner !== Axx.symbiosis?.dictation || !['command', 'live'].includes(Axx.symbiosis?.use)) return;
-            try {
+        async startVad(stream, id) {
+            const isChatDraft = this.owner === state.chatDraft;
+            if (!isChatDraft && (this.owner !== Axx.symbiosis?.dictation || !['command', 'live'].includes(Axx.symbiosis?.use))) return;
                 const Ctx = window.AudioContext || window.webkitAudioContext;
-                if (!Ctx) return;
+                if (!Ctx) throw new Error('El analizador de voz no está disponible. Actualiza WebView2 y vuelve a iniciar.');
                 const ctx = new Ctx(), src = ctx.createMediaStreamSource(stream), analyser = ctx.createAnalyser();
-                analyser.fftSize = 512; src.connect(analyser); this.vadCtx = ctx;
-                const buf = new Uint8Array(analyser.fftSize);
-                let heardSpeech = false, lastVoiceAt = performance.now(), startedAt = performance.now();
+                analyser.fftSize = 1024; src.connect(analyser); this.vadCtx = ctx;
+                try { await Promise.race([ctx.resume(), new Promise((_,reject)=>{this.resumeTimer=setTimeout(()=>reject(new Error('El audio está suspendido. Vuelve a pulsar Iniciar para activar el micrófono.')),2500);}),new Promise(resolve=>{this.resumeCancelled=resolve;})]); }
+                finally { clearTimeout(this.resumeTimer); this.resumeTimer=null; this.resumeCancelled=null; }
+                if (id !== this.generation) return;
+                if (ctx.state !== 'running') throw new Error('El audio está suspendido. Vuelve a pulsar Iniciar para activar el micrófono.');
+                const buf = new Float32Array(analyser.fftSize);
+                let heardSpeech = false, voiceFrames = 0, lastVoiceAt = performance.now(), startedAt = performance.now(), noiseFloor = 0;
+                const calibration=[];let ready;const calibrated=new Promise(resolve=>{ready=resolve;this.calibrationCancelled=resolve;});
+                state.inputLevel = { owner:this.owner, rms:0, threshold:.004, noise_floor:0, heard_speech:false, phase:'calibrating', device:stream.getAudioTracks()[0]?.label || 'Micrófono' };
                 this.vadTimer = setInterval(() => {
                     if (id !== this.generation || this.recorder?.state !== 'recording') return;
-                    analyser.getByteTimeDomainData(buf);
+                    if (ctx.state !== 'running') { this.fail(id,new Error('El analizador de voz se suspendió. Vuelve a iniciar la conversación.')); return; }
+                    analyser.getFloatTimeDomainData(buf);
                     let sum = 0;
-                    for (let i = 0; i < buf.length; i++) { const d = (buf[i] - 128) / 128; sum += d * d; }
+                    for (let i = 0; i < buf.length; i++) sum += buf[i]*buf[i];
                     const rms = Math.sqrt(sum / buf.length), now = performance.now();
-                    if (rms > 0.024) { heardSpeech = true; lastVoiceAt = now; }
-                    else if (heardSpeech && now - lastVoiceAt > 1450 && now - startedAt > 1100) this.finish();
-                    else if (!heardSpeech && Axx.symbiosis?.use === 'command' && now - startedAt > 9000) this.finish();
-                }, 120);
-            } catch { }
+                    const calibrating = now-startedAt < 480 || calibration.length < 6;
+                    if(calibrating){
+                        // A partial first analyser frame must not become the
+                        // baseline. Require enough samples even under UI load.
+                        calibration.push(rms);const settled=calibration.slice(-5).sort((a,b)=>a-b);
+                        noiseFloor=settled[Math.floor(settled.length/2)];
+                    }else if(ready){ready();ready=null;this.calibrationCancelled=null;}
+                    const threshold=Math.max(.004,Math.min(.08,noiseFloor*2.5+.002));
+                    const voiced=!calibrating&&noiseFloor<.04&&rms>threshold;
+                    if (voiced) { voiceFrames++; if(voiceFrames>=2)heardSpeech = true; lastVoiceAt = now; }
+                    else {
+                        voiceFrames=0;
+                        if(!calibrating)noiseFloor = rms<noiseFloor ? noiseFloor*.85+rms*.15 : noiseFloor*.997+Math.min(rms,.08)*.003;
+                        const live = !isChatDraft && Axx.symbiosis?.use === 'live';
+                        const pause = live ? (Axx.liveConversation?.pauseMs || 750) : 800;
+                        if (heardSpeech && now - lastVoiceAt > pause && now - startedAt > 850) this.finish();
+                        else if (!heardSpeech && now - startedAt > (live ? 30000 : 9000)) this.fail(id,new Error('No se detectó una frase. Revisa el nivel y el micrófono elegido; también puedes pulsar Responder ahora.'));
+                    }
+                    if(id===this.generation)state.inputLevel={owner:this.owner,rms,noise_floor:noiseFloor,threshold,heard_speech:heardSpeech,last_voice_at:heardSpeech?lastVoiceAt:null,at:now,phase:calibrating?'calibrating':voiced?'voice':noiseFloor>=.04?'noise':'quiet',device:stream.getAudioTracks()[0]?.label||'Micrófono'};
+                }, 80);
+                await calibrated;
         }
-        release() { clearTimeout(this.timer); this.timer = null; clearInterval(this.vadTimer); this.vadTimer = null; if (this.vadCtx) { void this.vadCtx.close().catch(() => {}); this.vadCtx = null; } if (this.stream && this.borrowedMeter) Axx.voice13?.meter.stop(); else this.stream?.getTracks().forEach(track => track.stop()); this.stream = null; this.borrowedMeter = false; }
+        release() { clearTimeout(this.timer); this.timer = null; clearInterval(this.vadTimer); this.vadTimer = null; clearTimeout(this.resumeTimer); this.resumeTimer=null; this.resumeCancelled?.(); this.resumeCancelled=null; this.calibrationCancelled?.(); this.calibrationCancelled=null; if (this.vadCtx) { void this.vadCtx.close().catch(() => {}); this.vadCtx = null; } if (this.stream && this.borrowedMeter) Axx.voice13?.meter.stop(); else this.stream?.getTracks().forEach(track => track.stop()); this.stream = null; this.borrowedMeter = false; if(state.inputLevel?.owner===this.owner)state.inputLevel=null; }
         finish() { if (this.recorder?.state === 'recording') { this.change('stopping'); this.recorder.stop(); this.release(); } }
         async submit(blob, id = this.generation) {
             if (blob.size === 0 || blob.size > 1400000) { this.fail(id, new Error('El clip está vacío o supera 1,4 MB. Graba una frase más corta.')); return; }
             this.pending = true; this.owner.onInterim?.('Procesando el audio localmente…');
             try {
                 const audio = await base64(blob); if (id !== this.generation) return;
+                await state.cancelPromise; if(id!==this.generation)return;
                 const language = this.lang?.toLowerCase().startsWith('es') ? 'es' : this.lang?.toLowerCase().startsWith('en') ? 'en' : 'auto';
+                const began=performance.now();
                 const data = await Axx.backendRequest('POST', '/axx-api/speech/transcribe', { audio_base64: audio, mime: blob.type, language, task: 'transcribe' });
                 if (id !== this.generation) return;
                 this.pending = false;
+                state.lastRecognition={duration_ms:Math.round(performance.now()-began)};
                 if (typeof data.text !== 'string' || !data.text.trim()) throw new Error('No se reconoció una frase. El destino no se ha modificado.');
                 this.owner.onFinal?.(data.text);
                 // A voice command may transfer the microphone to another session.
@@ -243,8 +283,8 @@
                 this.owner.onInterim?.(''); this.change('idle'); this.owner.onEnded?.();
             } catch (error) { this.fail(id, error); }
         }
-        fail(id, error) { if (id !== this.generation) return; this.pending = false; this.release(); this.recorder = null; this.change('error'); this.owner.onInterim?.(''); this.owner.onError?.(error instanceof Error ? error.message : String(error)); }
-        stop() { this.generation++; if (this.pending) cancelWorker(); this.pending = false; const recorder = this.recorder; this.recorder = null; if (recorder) { recorder.ondataavailable = recorder.onstop = recorder.onerror = recorder.onstart = null; if (recorder.state !== 'inactive') recorder.stop(); } this.release(); this.chunks = []; if (state.activeCapture === this) state.activeCapture = null; this.change('idle'); }
+        fail(id, error) { if (id !== this.generation) return; this.stop(); this.change('error'); this.owner.onInterim?.(''); this.owner.onError?.(error instanceof Error ? error.message : String(error)); }
+        stop(notify = true) { this.generation++; if (this.pending) cancelWorker(); this.pending = false; const recorder = this.recorder; this.recorder = null; if (recorder) { recorder.ondataavailable = recorder.onstop = recorder.onerror = recorder.onstart = null; if (recorder.state !== 'inactive') recorder.stop(); } this.release(); this.chunks = []; if (state.activeCapture === this) state.activeCapture = null; if (notify) this.change('idle'); }
     }
     state.sessions = [];
     state.attach = owner => {
@@ -254,6 +294,67 @@
         owner.stop = () => local.stop();
     };
     for (const owner of [Axx.voice13?.capture, Axx.symbiosis?.dictation, Axx.flow?.capture]) if (owner) state.attach(owner);
+
+    // The composer dictates into its own draft. It uses the same exclusive
+    // capture service as other voice tools, without interpreting or sending text.
+    const chatField = document.getElementById('chat-input');
+    let draftTarget = null;
+    const chatDraft = state.chatDraft = {
+        state: 'idle',
+        onState() {
+            const active = ['starting', 'listening', 'stopping'].includes(this.state);
+            const c = Axx.companion, mic = document.getElementById('chat-mic');
+            c.dictating = this.state === 'listening' || this.state === 'stopping';
+            c.dictationStarting = this.state === 'starting';
+            const label = this.state === 'listening' ? 'Terminar dictado y transcribir' : active ? 'Cancelar dictado' : 'Dictar un mensaje';
+            mic.setAttribute('aria-pressed', String(active));
+            mic.setAttribute('aria-label', label); mic.title = label;
+            document.getElementById('speech-indicator').hidden = !active && !c.speaking;
+            if (active) document.getElementById('speech-status').textContent = this.state === 'starting' ? 'Preparando micrófono…' : this.state === 'stopping' ? 'Transcribiendo en este equipo…' : 'Dictando tu mensaje · pulsa el micrófono para terminar';
+            c.refreshVoiceState();
+        },
+        onFinal(text) {
+            const target = draftTarget;
+            if (!target || target.conversationId !== Axx.chatWorkspace?.active?.id || chatField.value !== target.value || !chatField.getClientRects().length) return;
+            const prefix = target.start > 0 && !/\s$/.test(target.value.slice(0, target.start)) ? ' ' : '';
+            const insert = prefix + text.trim() + ' ';
+            if (chatField.maxLength > 0 && target.value.length - (target.end - target.start) + insert.length > chatField.maxLength) {
+                Axx.companion.sayStatus('El dictado supera el límite del mensaje. Acorta el borrador y vuelve a dictar.', true);
+                return;
+            }
+            chatField.setRangeText(insert, target.start, target.end, 'end');
+            draftTarget = null;
+            chatField.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text }));
+            Axx.companion.scheduleDrafts();
+        },
+        onError(message) { draftTarget = null; Axx.companion.sayStatus(message, true); },
+        onInterim(message) { if (message) document.getElementById('speech-status').textContent = message; },
+        onEnded() { draftTarget = null; },
+    };
+    state.attach(chatDraft);
+    const beginDraft = chatDraft.start, stopDraft = chatDraft.stop;
+    chatDraft.start = () => {
+        if (!chatField?.getClientRects().length || chatField.disabled) return;
+        Axx.liveConversation?.stop(); Axx.companion.stopDictation(); Axx.companion.stopSpeech();
+        Axx.app.stopAudio(); Axx.app.stopDemo();
+        draftTarget = { conversationId: Axx.chatWorkspace?.active?.id, value: chatField.value, start: chatField.selectionStart, end: chatField.selectionEnd };
+        beginDraft(Axx.symbiosis?.prefs.language || 'es-DO');
+    };
+    chatDraft.stop = () => { draftTarget = null; stopDraft(); };
+    chatDraft.toggle = () => {
+        if (chatDraft.state === 'listening') chatDraft.finish();
+        else if (['starting', 'stopping'].includes(chatDraft.state)) chatDraft.stop();
+        else chatDraft.start();
+    };
+    chatField?.addEventListener('input', () => {
+        if (draftTarget && chatField.value !== draftTarget.value) chatDraft.stop();
+    });
+    const chatPanel = document.getElementById('panel');
+    const draftVisibility = new MutationObserver(() => {
+        if (draftTarget && (chatPanel.hidden || chatPanel.dataset.view !== 'chat')) chatDraft.stop();
+    });
+    if (chatPanel) draftVisibility.observe(chatPanel, { attributes: true, attributeFilter: ['hidden', 'data-view'] });
+    window.addEventListener('pagehide', () => draftVisibility.disconnect());
 
     if (!window.__contractCalls && !window.__calls) {
         const supportedLangs = new Set(['es', 'en', 'fr', 'pt', 'de', 'it']);
@@ -328,58 +429,11 @@
         }
     }
 
-    const pendingBanner = document.querySelector('#view-transcript .pending-capability');
-    if (pendingBanner) {
-        pendingBanner.classList.remove('pending-capability');
-        pendingBanner.innerHTML = '<strong>Transcribir archivo local con Whisper tiny</strong><span>Selecciona un archivo de audio corto (≤ 1,4 MB / 60 s) arriba y pulsa el botón para transcribirlo localmente en este equipo.</span><div class="quick-row" style="margin-top:8px"><button id="transcript-file-whisper" type="button" class="primary">Transcribir archivo seleccionado</button></div>';
-        const btn = document.getElementById('transcript-file-whisper');
-        if (btn) btn.onclick = async () => {
-            const file = document.getElementById('transcript-media')?.files?.[0];
-            const statusEl = document.getElementById('transcript-state');
-            if (!file) {
-                if (statusEl) statusEl.textContent = 'Selecciona primero un archivo de audio o video en el botón «Audio / video».';
-                return;
-            }
-            if (file.size === 0 || file.size > 1400000) {
-                if (statusEl) statusEl.textContent = 'El archivo supera el límite local de 1,4 MB (máx. 60 s). Usa un clip más corto.';
-                return;
-            }
-            btn.disabled = true;
-            if (statusEl) statusEl.textContent = 'Transcribiendo archivo localmente con Whisper tiny…';
-            try {
-                const audio_base64 = await base64(file);
-                const langPref = Axx.symbiosis?.prefs?.language || 'es-DO';
-                const language = langPref.toLowerCase().startsWith('es') ? 'es' : langPref.toLowerCase().startsWith('en') ? 'en' : 'auto';
-                const data = await Axx.backendRequest('POST', '/axx-api/speech/transcribe', {
-                    audio_base64,
-                    mime: file.type || 'audio/wav',
-                    language,
-                    task: 'transcribe'
-                });
-                const segments = Array.isArray(data.segments) && data.segments.length
-                    ? data.segments.map(s => ({ start: Number(s.start) || 0, end: Number(s.end) || 1, text: String(s.text || '').trim() })).filter(s => s.text)
-                    : (typeof data.text === 'string' && data.text.trim() ? [{ start: 0, end: Number(data.audio_duration_seconds) || 1, text: data.text.trim() }] : []);
-                if (!segments.length) throw new Error('No se detectó voz reconocible en el archivo.');
-                if (Axx.symbiosis) {
-                    Axx.symbiosis.cues = segments;
-                    Axx.symbiosis.transcriptSource = 'file-whisper';
-                    Axx.symbiosis.renderCues();
-                }
-                if (statusEl) statusEl.textContent = `${segments.length} segmento(s) transcritos localmente con Whisper (${data.language || language}).`;
-            } catch (error) {
-                if (statusEl) statusEl.textContent = error instanceof Error ? error.message : String(error);
-            } finally {
-                btn.disabled = false;
-            }
-        };
-    }
-
     class WakeController {
         active = false;
         statusText = 'Micrófono apagado · Pulsa 🎙️ Orden voz o Alt+Shift+V para dictar un comando puntual (sin escucha permanente).';
         toggle() {
-            const dictState = Axx.symbiosis?.dictation?.state;
-            if (this.active || ['listening', 'starting'].includes(dictState)) {
+            if (this.active) {
                 this.stop();
             } else {
                 this.listenOnce();
@@ -391,35 +445,53 @@
         }
         stop() {
             this.active = false;
-            cancelWorker();
-            if (Axx.symbiosis?.dictation) Axx.symbiosis.dictation.stop();
+            if (Axx.symbiosis?.use === 'command') Axx.symbiosis.dictation.stop();
             this.statusText = 'Escucha detenida · Ningún resultado tardío se enviará ni ejecutará.';
             this.syncUI();
         }
         listenOnce() {
             if (!Axx.symbiosis) return;
-            if (['listening', 'starting'].includes(Axx.symbiosis.dictation?.state)) {
-                this.stop();
-                return;
-            }
+            Axx.liveConversation?.stop();
+            state.chatDraft.stop();
             this.active = true;
-            this.statusText = 'Escuchando comando puntual por micrófono (Whisper local)… Habla o pulsa Detener para cancelar.';
+            this.statusText = 'Escuchando una orden por voz… Habla y deja una pausa.';
             this.syncUI();
             Axx.symbiosis.startListening('command');
         }
         syncUI() {
-            const listening = ['listening', 'starting'].includes(Axx.symbiosis?.dictation?.state);
+            const listening = Axx.symbiosis?.use === 'command' && ['listening', 'starting', 'stopping'].includes(Axx.symbiosis?.dictation?.state);
             this.active = listening;
             for (const id of ['chat20-wake-toggle', 'wake20-toggle-btn']) {
                 const btn = document.getElementById(id);
                 if (!btn) continue;
                 btn.setAttribute('aria-pressed', String(listening));
-                if (id === 'wake20-toggle-btn') btn.textContent = listening ? '⏹️ Cancelar escucha' : '🎙️ Hablar comando por voz';
+                btn.classList.toggle('is-listening', listening);
+                if (id === 'wake20-toggle-btn') btn.textContent = listening ? '⏹️ Detener escucha' : '🎙️ Hablar comando por voz';
+                if (id === 'chat20-wake-toggle') btn.title = listening ? 'Detener escucha de voz' : 'Dictar comando por voz (Alt+Shift+V)';
             }
             const status = document.getElementById('wake20-status-text');
             if (status) status.textContent = this.statusText;
             const card = document.getElementById('wake20-roadmap');
             if (card) card.dataset.state = listening ? 'active' : 'idle';
+
+            let banner = document.getElementById('chat-voice-banner');
+            if (!banner) {
+                const form = document.getElementById('chat-form');
+                if (form) {
+                    banner = document.createElement('div');
+                    banner.id = 'chat-voice-banner';
+                    banner.className = 'chat-voice-banner';
+                    banner.setAttribute('role','status'); banner.setAttribute('aria-live','polite');
+                    banner.innerHTML = '<span class="chat-voice-dot"></span><span id="chat-voice-text">Escuchando una orden por voz…</span><button id="chat-voice-cancel" type="button">Detener</button>';
+                    form.before(banner);
+                    banner.querySelector('#chat-voice-cancel')?.addEventListener('click', () => state.wake.stop());
+                }
+            }
+            if (banner) {
+                banner.hidden = !listening || Axx.symbiosis?.use !== 'command';
+                const txt = banner.querySelector('#chat-voice-text');
+                if (txt) txt.textContent = listening ? (this.statusText || 'Escuchando una orden por voz…') : '';
+            }
         }
     }
     state.wake = Axx.heyAxx = new WakeController();
@@ -427,20 +499,21 @@
         const prevOnState = Axx.symbiosis.dictation.onState;
         Axx.symbiosis.dictation.onState = () => {
             prevOnState?.();
-            const st = Axx.symbiosis?.dictation?.state;
+            document.getElementById('chat-mic')?.setAttribute('aria-pressed', String(['starting', 'listening', 'stopping'].includes(chatDraft.state)));
+            const st = Axx.symbiosis?.use === 'command' ? Axx.symbiosis.dictation.state : 'idle';
             if (st === 'idle' && state.wake.active) {
                 state.wake.active = false;
                 state.wake.statusText = 'Listo · Pulsa 🎙️ Orden voz o Alt+Shift+V para hablar otro comando puntual.';
+            } else if (st === 'listening') {
+                state.wake.active = true;
+                state.wake.statusText = 'Escuchando una orden por voz…';
+            } else if (st === 'starting') {
+                state.wake.active = true;
+                state.wake.statusText = 'Iniciando micrófono y Whisper local…';
             }
             state.wake.syncUI();
         };
     }
-    window.addEventListener('keydown', event => {
-        if (event.altKey && event.shiftKey && event.code === 'KeyV') {
-            event.preventDefault();
-            state.wake.listenOnce();
-        }
-    });
     if (!window.__contractCalls) setTimeout(() => { void state.refreshVoices().catch(() => {}); state.wake.syncUI(); }, 300);
 
     const privacy = document.getElementById('v13-permit-copy'); if (privacy) privacy.textContent = 'Se grabará un clip local de hasta 55 segundos para transcribirlo con Whisper tiny en este equipo. El texto se coloca en tu destino; no se envía al chat.';

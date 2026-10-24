@@ -9,7 +9,7 @@ Run the installer and open Axx. Python and Node are not required. Start with **A
 
 The packaged backend may take longer on its first launch while Windows extracts and scans it. The native host allows up to 90 seconds for backend readiness and reports a startup error if that limit is exceeded.
 
-Source and published Windows installer are both **v0.21.3**. Android APKs remain local test artifacts until separately published. See [mobile setup and validation](docs/mobile/README.md) and the [version and release procedure](docs/RELEASING.md).
+Source is **v0.21.4**; the published Windows installer is **v0.21.3**. Delivery of the newer source is pending publication. Android APKs remain local test artifacts until separately published. See [mobile setup and validation](docs/mobile/README.md) and the [version and release procedure](docs/RELEASING.md).
 <!-- release:download:end -->
 
 ---
@@ -26,10 +26,10 @@ Source and published Windows installer are both **v0.21.3**. Android APKs remain
   <img src="https://img.shields.io/badge/Platform-Windows%2011%20%2F%2010-0078D4?logo=windows" alt="Windows 11" />
   <img src="https://img.shields.io/badge/Host-Tauri%20v2%20%7C%20Rust-F74C00?logo=rust" alt="Tauri v2" />
   <img src="https://img.shields.io/badge/Backend-Python-3776AB?logo=python" alt="Python backend" />
-  <img src="https://img.shields.io/badge/Frontend-WebGL%20%2F%20HTML5-black?logo=webgl" alt="WebGL" />
+  <img src="https://img.shields.io/badge/Frontend-CPU%203D%20%2F%20Canvas-black" alt="CPU 3D and Canvas" />
   <img src="https://img.shields.io/badge/Offline%20Voice-Faster--Whisper%20Tiny-green" alt="Faster-Whisper" />
   <img src="https://img.shields.io/badge/Protocol-Model%20Context%20Protocol%20(MCP)-blueviolet" alt="MCP" />
-  <img src="https://img.shields.io/badge/Source%20Version-v0.21.3-informational" alt="Source version 0.21.3" />
+  <img src="https://img.shields.io/badge/Source%20Version-v0.21.4-informational" alt="Source version 0.21.4" />
   <img src="https://img.shields.io/badge/Development-Active%20Refinement-yellow?logo=git" alt="Active Development" />
 </p>
 
@@ -45,7 +45,50 @@ Source and published Windows installer are both **v0.21.3**. Android APKs remain
 
 ---
 
-## Desktop update · October 23, 2026
+## Desktop update · October 24, 2026
+
+### Conversations, agent preferences and continuous voice
+
+Chats now keep separate histories and drafts in local SQLite for up to 90 days.
+Groups share explicitly saved notes; a chat can also include a previewed extract
+from up to three selected threads. **Personalizar agente** stores identity, work
+context, instructions and preferred registered commands. **Comandos** exposes the
+existing catalog and its execution policy. [Chat and voice guide](docs/CHAT-WORKSPACE.md)
+· [Agent preferences and command extensions](docs/COMMAND-EXTENSIONS.md).
+
+Choose light or dark surfaces, custom background/text/icon colors and typography
+in **Sistema y datos**. Tool windows retain independent sizes. **Voz en vivo** next
+to the chat input starts continuous voice turns in one click, with local transcription, interrupt/stop
+controls, an input level meter, microphone selection and the selected model.
+The listening state appears after audio preparation and background calibration.
+Windows voices offer lower startup latency;
+natural MOSS voices require local models and private reference audio. Voice turns
+pause the microphone during playback and do not promise subsecond responses.
+
+### Create and improve capabilities
+
+The **Taller de Axx** in **Comandos** turns a goal into a versioned proposal using
+the selected model. Review the parameters, approve the revision and run its
+validation through the existing command card. Activation requires real executor
+evidence; changes and rollback require their own review. Source-code proposals
+can be inspected and exported for integration. They are never imported or run
+automatically. The chat microphone dictates a draft; **Voz en vivo** starts a
+conversation and speaks the response.
+[Capability workshop](docs/SELF-IMPROVEMENT.md) · [ECC engineering workflow](docs/ECC-WORKFLOW.md).
+
+### Avatar connections and application discovery
+
+Tentacles attach to the rendered body contour and taper with available space.
+Their analytic surface uses continuous normals, subpixel edge coverage and
+filtered reflections from the avatar's own material. A link-aligned raster keeps
+long diagonals detailed without allocating their entire screen rectangle.
+Native transparent surfaces no longer apply filters that left moving contour trails.
+
+UIA discovery exposes observed controls and registered action proposals through
+the existing command service. Exact window/process identity, approvals,
+cancellation and result verification remain required. Discovered button names do
+not become executable commands automatically. [Developer guide](docs/COMMAND-EXTENSIONS.md)
+· [Release notes and measured limits](docs/releases/0.21.4.md).
 
 ### Read pages and applications
 
@@ -67,9 +110,13 @@ appears in a nearby floating widget. Draw with the pen or marker, undo/redo ink,
 ask follow-up questions and export a verified original or annotated PNG.
 
 The desktop stays live. Axx takes a clean snapshot when you finish a selection or
-ask about your marks; it does not continuously send your screen to a model.
+pause your marks in **En directo** mode. Drawing stays responsive during analysis;
+the latest selection replaces an obsolete request. **Detener** cancels analysis,
+and history opens in its own preview without covering the live desktop.
+Manual analysis remains available. There is no periodic screen capture loop.
 **Use desktop** passes clicks through to other applications; **Escape** closes
-Magic Pen. Visual answers require an available vision provider configured on
+Magic Pen and cancels its request. Visual answers use the selected connection and
+require an available vision provider configured on
 that PC. [Usage, limits and verification](docs/MAGIC-PEN-DESKTOP.md).
 
 ## Axx on desktop and Android
@@ -122,7 +169,7 @@ These are presentation captures of the current UI in an isolated browser. The mo
 ## 🚧 Project Status: Active Continuous Improvement
 
 > [!NOTE]
-> **Axx is under active development.** Source and published Windows installer are both **v0.21.3**. Validation is recorded per feature; a working UI or build does not by itself certify every hardware-dependent behavior.
+> **Axx is under active development.** Source is **v0.21.4**; the published Windows installer is **v0.21.3**. Delivery of the newer source is pending publication. Validation is recorded per feature; a working UI or build does not by itself certify every hardware-dependent behavior.
 
 ### 🟢 Implemented capabilities
 - **Native Startup:** Resident Windows application with a local backend and a launcher fallback to the executable built from this repository.
@@ -164,7 +211,7 @@ depends on the reference. See [measurements and limits](docs/releases/0.20.19.md
 | Work | Inspect the PC, open an allowed app, search, write a new artifact, choose an executable command, and review operation results. A lost response can be checked by operation ID; the phone can explicitly discard its local follow-up record. | Work permission is separate from mouse/keyboard permission. Discarding the record does not cancel a PC operation. |
 | Shell commands | Send `/powershell <script>` or `/cmd <command>` from the phone or desktop chat. The PC must approve each request; output and exit code are returned. | These are **arbitrary commands with the current Windows user's privileges**. Review the exact text before approval. Execution is capped at 30 seconds and 64 KiB of output; approval is not a sandbox. Voice dictation and model responses cannot directly run shell text. |
 | Chat | Select the configured local Ollama model for token-by-token text in the native window. The backend verifies that `ollama-local` points to `127.0.0.1:11434` before enabling the direct stream. Connecting preloads the selected model and requests a 30-minute keep-alive. The user can tune response style and language. | The first model load can still take tens of seconds; the preload starts in the background on connection. Other providers use their existing complete-response path. Prompt settings adjust responses; no model weights are trained. |
-| Speech | Automatic Windows voice starts quickly; optional Axx Alba, Nova, Aura, and Titán voices use local MOSS ONNX plus user-supplied reference audio. Text is cleaned before speech so punctuation markers are not read aloud. Speech can start from completed phrases while the local chat continues. | The custom voices require a separate local MOSS installation and samples in `%LOCALAPPDATA%\Axx\speech\voices\`; neither weights nor user audio are stored in Git. Their initial model load is much slower than Windows SAPI. Available Windows voices and language quality depend on the machine. |
+| Speech | Windows voices and optional local MOSS voices, including Valeria, Elena, Mateo and Dante when their private references are installed. Spanish text normalization preserves pauses; complete phrase buffering and prefetch avoid PCM starvation within words. Continuous chat voice supports interrupt, stop and return to listening. | MOSS requires a separate local model installation and reference samples in `%LOCALAPPDATA%\Axx\speech\voices\`; neither weights nor user audio are stored in Git. Installed checks cover playback events and synthetic spoken input, not subjective naturalness or human microphone quality. The microphone pauses during playback; model speed and hardware determine latency. |
 
 ### Windows application control
 

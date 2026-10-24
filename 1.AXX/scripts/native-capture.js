@@ -21,7 +21,7 @@
             const phase=['countdown','running','paused','stopping'].includes(this.state)&&studio.prefs.halo?this.state:'closed';
             const key=JSON.stringify([phase,this.region]);if(key===this.haloKey)return;this.haloKey=key;
             const region=this.region;
-            this.haloChain=this.haloChain.catch(()=>{}).then(()=>A.nativeInvoke('capture_halo',{phase,region})).catch(e=>{this.error=String(e.message||e);this.changed();});
+            this.haloChain=this.haloChain.catch(()=>{}).then(()=>A.nativeInvoke('capture_halo',{phase,region})).catch(e=>{if(this.haloKey===key)this.haloKey='';this.error=String(e.message||e);this.changed();});
         }
         async start(_audio,options={}){
             if(this.active||this.busy)return;

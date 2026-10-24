@@ -114,7 +114,7 @@ class ConnectServiceTests(unittest.TestCase):
 
     def test_generated_read_only_aliases_reuse_exact_executor_and_validation(self):
         aliases = read_only_aliases()
-        self.assertEqual(aliases, {'axx_system_telemetry': 'axx.system.telemetry', 'axx_process_inspect': 'axx.process.inspect'})
+        self.assertEqual(aliases, {'axx_system_telemetry': 'axx.system.telemetry', 'axx_process_inspect': 'axx.process.inspect', 'axx_desktop_list_apps': 'axx.desktop.list_apps', 'axx_desktop_list_windows': 'axx.desktop.list_windows', 'axx_desktop_window_inspect': 'axx.desktop.window.inspect', 'axx_desktop_cli_anything_scan': 'axx.desktop.cli_anything.scan'})
         metadata = {item['name']: item for item in tool_descriptors()}
         for name in aliases:
             self.assertTrue(metadata[name]['annotations']['readOnlyHint'])

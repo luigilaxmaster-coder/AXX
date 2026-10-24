@@ -27,7 +27,7 @@ const { chromium } = bundledRequire('playwright');
         isNative: () => true, resident: { schedule() {} },
         app: { toast: text => notices.push({ role: 'toast', text }), bridge: { listen: async (event, callback) => { window.events[event] = callback; } } },
         voice13: { target: { field: document.getElementById('chat-input') }, applyPending(text) { this.target.field.value = text; } },
-        companion: { send: async raw => { fallback.push(raw); }, submit: async function () { const field = document.getElementById('chat-input'), text = field.value; field.value = ''; return this.send(text); }, message: (role, text) => notices.push({ role, text }), localNotice: text => notices.push({ role: 'assistant', text }), action: state => actions.push(state), openFeature: id => { window.opened = id; } },
+        companion: { send: async raw => { fallback.push(raw); }, submit: async function () { const field = document.getElementById('chat-input'), text = field.value; field.value = ''; return this.send(text); }, message: (role, text) => notices.push({ role, text }), localNotice: text => notices.push({ role: 'assistant', text }), action: state => actions.push(state), openFeature: id => { window.opened = id; }, openChat() {} },
         backendRequest: async (method, route, body) => {
           calls.push({ method, route, body });
           if (window.errorNext) { const error = window.errorNext; window.errorNext = null; throw new Error(error); }
@@ -65,7 +65,7 @@ const { chromium } = bundledRequire('playwright');
     await page.addScriptTag({ path: path.join(__dirname, 'command-library.js') });
     assert.equal(await page.locator('#command-library').count(), 1);
     await page.evaluate(() => Axx.commandLibrary.search('información del sistema'));
-    assert.equal(await page.evaluate(() => calls[0].route), '/axx-api/commands?q=informaci%C3%B3n%20del%20sistema&limit=30');
+    assert.equal(await page.evaluate(() => calls[0].route), '/axx-api/commands?q=informaci%C3%B3n%20del%20sistema&limit=30&offset=0');
     assert.match(await page.locator('#command-library-counts').textContent(), /Importadas: 1 · Habilitadas: 3 · Bloqueadas: 1/);
     assert.equal(await page.evaluate(() => window.injected), undefined);
     results.push('Catalog search encodes Spanish text, displays source/runtime counts, and renders catalog content as text');
@@ -90,10 +90,13 @@ const { chromium } = bundledRequire('playwright');
 
     await page.evaluate(() => Axx.companion.send('crear archivo'));
     assert.equal(await page.locator('#command-library-approval').isVisible(), true);
-    await page.locator('#chat-input').fill('Este borrador debe conservarse');
+    await page.locator('#chat-input').fill('crear archivo');
     await page.evaluate(() => Axx.companion.submit());
-    assert.equal(await page.locator('#chat-input').inputValue(), 'Este borrador debe conservarse');
-    results.push('Submitting while a command awaits approval preserves the existing chat draft');
+    assert.equal(await page.locator('#chat-input').inputValue(), 'crear archivo');
+    await page.locator('#chat-input').fill('Podemos conversar mientras espero');
+    await page.evaluate(() => Axx.companion.submit());
+    assert.equal(await page.evaluate(() => fallback.at(-1)), 'Podemos conversar mientras espero');
+    results.push('Pending approval preserves a second action draft while ordinary conversation remains available');
     const beforeApproval = await page.evaluate(() => calls.filter(call => call.route.endsWith('/execute')).length);
     assert.match(await page.locator('#command-library-preview').innerText(), /Archivo\s+prueba.txt/);
     assert.match(await page.locator('#command-library-preview').innerText(), /Contenido que se guardará/);
@@ -226,6 +229,60 @@ const { chromium } = bundledRequire('playwright');
     assert.equal(await page.locator('#command-library-approval').isVisible(), false);
     assert.match(await page.locator('#command-library-status').textContent(), /cancelled/);
     results.push('Recovery waits for a pending cancellation receipt and cannot restore approval after confirmed cancellation');
+
+    await page.evaluate(async () => {
+      Axx.chatWorkspace={active:{id:'origin-chat'},operationCard(){}};
+      Axx.companion.openChat=()=>{};
+      const backend=Axx.backendRequest;
+      Axx.backendRequest=async(method,route,body)=>{
+        const result=await backend(method,route,body);
+        if(route==='/axx-api/commands/prepare') result.conversation_id='origin-chat';
+        return result;
+      };
+      await Axx.commandLibrary.prepare('axx.artifact.write',{path:'owned.txt',content:'origin output'},'text');
+      window.noticesBeforeChatSwitch=notices.length;
+      window.holdExecution=true;window.releaseExecution=null;
+      window.originApproval=Axx.commandLibrary.approve();
+    });
+    await page.waitForFunction(()=>typeof releaseExecution==='function');
+    await page.evaluate(async()=>{
+      Axx.chatWorkspace.active.id='other-chat';window.holdExecution=false;releaseExecution();await originApproval;
+    });
+    assert.equal(await page.evaluate(()=>notices.length),await page.evaluate(()=>noticesBeforeChatSwitch));
+    assert.equal(await page.evaluate(()=>Axx.commandLibrary.lastOperation.conversation_id),'origin-chat');
+    assert.equal(await page.evaluate(()=>Axx.commandLibrary.lastOperation.state),'succeeded');
+    results.push('An approved command completing after a chat switch stays in its origin operation without a cross-chat notice');
+
+    const preparationsBeforeSwitch=await page.evaluate(()=>calls.filter(call=>call.route.endsWith('/prepare')).length);
+    await page.evaluate(()=>{
+      Axx.chatWorkspace.active.id='origin-chat';window.holdResolve=true;
+      window.originResolve=Axx.companion.send('estado del sistema');
+      Axx.chatWorkspace.active.id='other-chat';
+    });
+    await page.evaluate(async()=>{await originResolve;window.holdResolve=false;});
+    assert.equal(await page.evaluate(()=>calls.filter(call=>call.route.endsWith('/prepare')).length),preparationsBeforeSwitch);
+    assert.equal(await page.evaluate(()=>Axx.commandLibrary.busy),false);
+    results.push('A resolver response arriving after navigation cannot prepare the old request in the new chat');
+
+    await page.evaluate(()=>{
+      Axx.chatWorkspace.active.id='origin-chat';
+      Axx.commandLibrary.operation={kind:'learned_plan',operation_id:'owned-plan',conversation_id:'origin-chat',state:'awaiting_approval',steps:[]};
+      const backend=Axx.backendRequest;
+      Axx.backendRequest=async(method,route,body)=>{
+        if(route==='/axx-api/learning/execute'){
+          await new Promise(resolve=>{window.releasePlan=resolve;});
+          return {kind:'learned_plan',operation_id:body.operation_id,conversation_id:'origin-chat',state:'succeeded',postconditions_passed:true,message:'Private plan output',results:[]};
+        }
+        return backend(method,route,body);
+      };
+      window.noticesBeforePlanSwitch=notices.length;
+      window.originPlan=Axx.commandLibrary.executePlan();
+    });
+    await page.waitForFunction(()=>typeof releasePlan==='function');
+    await page.evaluate(async()=>{Axx.chatWorkspace.active.id='other-chat';releasePlan();await originPlan;});
+    assert.equal(await page.evaluate(()=>notices.length),await page.evaluate(()=>noticesBeforePlanSwitch));
+    assert.equal(await page.evaluate(()=>Axx.commandLibrary.lastOperation.conversation_id),'origin-chat');
+    results.push('A learned plan completing in another chat does not insert or speak its private output there');
     assert.deepEqual(errors, []);
     console.log(JSON.stringify({ kind: 'COMMAND_LIBRARY_UI_IPC_CONTRACT_ONLY', passed: results.length, results, uncaught: errors }, null, 2));
   } finally { await browser.close(); }
