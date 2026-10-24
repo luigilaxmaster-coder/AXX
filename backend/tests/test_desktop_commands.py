@@ -87,6 +87,32 @@ class DesktopCommandTests(unittest.TestCase):
             self.assertEqual(inspected['state'], 'succeeded')
             self.assertTrue(inspected['postconditions_passed'])
 
+    def test_close_request_resolves_one_observed_window_and_checks_disappearance(self):
+        observed = [{'window_id': 18, 'pid': 45, 'title': 'Spotify', 'class_name': 'Chrome_WidgetWin_1', 'foreground': True}]
+        with patch('backend.actions.windows_automation.list_windows', return_value=observed), \
+             patch('backend.actions.windows_automation.process_name', return_value='spotify.exe'):
+            resolved = self.service.resolve('Axx, cierra Spotify', source='voice')
+        self.assertEqual(resolved['command_id'], 'axx.desktop.window.close')
+        self.assertEqual(resolved['inputs'], {'window_id': '12', 'pid': 45})
+        with patch('backend.actions.windows_automation.list_windows', return_value=observed), \
+             patch('backend.actions.windows_automation.process_name', return_value='spotify.exe'):
+            self.assertEqual(self.service.resolve('cierra la aplicación Spotify')['command_id'], 'axx.desktop.window.close')
+        with patch('backend.actions.windows_automation.close_window', return_value={'closed': True, 'window_id': 18, 'pid': 45}):
+            prepared = self.service.prepare(resolved['command_id'], resolved['inputs'], source='voice')
+            result = self.service.execute(prepared['operation_id'])
+        self.assertEqual(result['state'], 'succeeded', result)
+        self.assertEqual(result['evidence']['verification'], 'window_disappeared')
+
+    def test_close_request_does_not_guess_between_windows(self):
+        windows = [{'window_id': n, 'pid': n, 'title': 'Spotify', 'class_name': 'App', 'foreground': False} for n in (18, 19)]
+        with patch('backend.actions.windows_automation.list_windows', return_value=windows), \
+             patch('backend.actions.windows_automation.process_name', return_value='spotify.exe'):
+            self.assertEqual(self.service.resolve('cierra Spotify')['match'], 'ambiguous')
+
+    def test_spoken_open_me_uses_observed_app_inventory(self):
+        with patch('backend.actions.windows_apps.find_app', return_value=[{'name': 'Obsidian', 'app_id': 'md.obsidian'}]):
+            self.assertEqual(self.service.resolve('puedes abrirme mi obsedia', source='voice')['inputs'], {'app_id': 'md.obsidian'})
+
     def test_window_value_readback_is_hashed_and_only_succeeds_after_approval(self):
         self.executor.input_control = SimpleNamespace(automation=lambda event: nullcontext(event))
         digest = hashlib.sha256(b'hello').hexdigest()

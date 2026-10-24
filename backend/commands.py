@@ -54,6 +54,12 @@ ADAPTERS = {
         'title': 'Ventanas visibles', 'tool': 'desktop_list_windows', 'risk': 'read',
         'description': 'Consulta ventanas superiores visibles con título, proceso e indicador de foco; no lee el contenido de sus controles.',
         'aliases': ['mis ventanas', 'ventanas abiertas', 'lista ventanas', 'lista mis ventanas', 'muestra mis ventanas'], 'parameters': {}},
+    'axx.desktop.window.close': {
+        'title': 'Cerrar ventana', 'tool': 'desktop_close_window', 'risk': 'local_state', 'requires_approval': False,
+        'description': 'Solicita cerrar una ventana visible observada por HWND y PID; respeta avisos de cambios sin guardar y verifica que desaparezca.',
+        'aliases': [], 'parameters': {
+            'window_id': {'type': 'string', 'required': True, 'maxLength': 18},
+            'pid': {'type': 'integer', 'required': True, 'minimum': 1, 'maximum': 4294967295}}},
     'axx.desktop.window.inspect': {
         'title': 'Observar controles de ventana', 'tool': 'desktop_inspect_window', 'risk': 'read',
         'description': 'Observa el árbol limitado de controles UI Automation de una ventana identificada por HWND y PID observados.',

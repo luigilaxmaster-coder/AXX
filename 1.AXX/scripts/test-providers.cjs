@@ -46,6 +46,19 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
     assert.equal(await page.evaluate(()=>Axx.decodeCompanion(JSON.stringify({version:4,prefs:{provider:'none',selection_mode:'manual'}})).prefs.provider),'none');
     await page.evaluate(()=>Axx.flow.select('ai'));
     await page.locator('#tab-mode-api').click();
+    await page.locator('#ollama-quick-find').scrollIntoViewIfNeeded();
+    fs.mkdirSync('build/model-quick-start',{recursive:true});
+    await page.screenshot({path:'build/model-quick-start/settings.png'});
+    await page.locator('#ollama-quick-find').click();
+    await page.waitForFunction(()=>document.getElementById('ollama-quick-model').options.length===3);
+    await page.locator('#ollama-quick-model').selectOption('second-model');
+    await page.locator('#ollama-quick-use').click();
+    await page.waitForFunction(()=>document.getElementById('ollama-quick-status').textContent.includes('modelo seleccionado'));
+    assert.equal(await page.evaluate(()=>Axx.companion.data.prefs.model),'second-model');
+    assert.equal(await page.evaluate(()=>savedCalls.at(-1).provider),'ollama');
+    await page.locator('#chatgpt-quick-open').click();
+    assert.equal(await page.locator('#subpanel-chatgpt').isVisible(),true);
+    await page.locator('#tab-mode-api').click();
     await page.locator('#provider-kind').selectOption('groq');
     assert.equal(await page.locator('#provider-url').inputValue(),'https://api.groq.com/openai/v1');
     await page.locator('#provider-name').fill('My Groq');
@@ -138,12 +151,10 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
     await page.evaluate(()=>Axx.flow.select('ai'));
     await page.locator('#tab-mode-api').click();
     assert.deepEqual(errors,[]);
-    fs.mkdirSync('evidence/providers-20261021',{recursive:true});
     await page.locator('#provider-kind').selectOption('ollama');
     await page.locator('#provider-name').fill('Ollama en mi equipo');
     await page.locator('#provider-model').selectOption('__manual__');
     await page.locator('#provider-model-manual').fill('qwen3:4b');
-    await page.screenshot({path:'evidence/providers-20261021/settings.png'});
     console.log('PASS: provider presets, discovery, save, protected credentials, edit/disable, candidate pending states and real-only evaluation activation');
   }finally{await browser.close();server.close();}
 })().catch(e=>{console.error(e);process.exitCode=1});

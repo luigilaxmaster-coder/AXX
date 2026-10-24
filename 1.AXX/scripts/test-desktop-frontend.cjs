@@ -294,6 +294,8 @@ assert(!html.includes("const apiBase ="), 'Production must not hardcode a develo
         const kept = c.data.prefs.voiceModel;
         window.__contractResolve = { match: 'exact', command_id: 'axx.desktop.installed_app', inputs: { app_id: 'md.obsidian' } };
         await c.send('abre Obsidian', { source: 'voice' });
+        window.__contractResolve = { match: 'exact', command_id: 'axx.desktop.window.close', inputs: { window_id: '12', pid: 45 } };
+        await c.send('cierra Obsidian', { source: 'voice' });
         const shown = document.getElementById('chat-voice-model')?.value;
         c.data.prefs.selection_mode = 'automatic_free'; Axx.refreshVoiceModelOptions();
         const selector = document.getElementById('chat-voice-model');
@@ -315,6 +317,7 @@ assert(!html.includes("const apiBase ="), 'Production must not hardcode a develo
     assert.equal(voiceAction.calls.find(call => call.path === '/axx-api/commands/resolve')?.body.source, 'voice');
     assert.equal(voiceAction.calls.find(call => call.path === '/axx-api/commands/prepare')?.body.command_id, 'axx.desktop.installed_app');
     assert.equal(voiceAction.calls.find(call => call.path === '/axx-api/commands/prepare')?.body.inputs.app_id, 'md.obsidian');
+    assert(voiceAction.calls.some(call => call.path === '/axx-api/commands/prepare' && call.body.command_id === 'axx.desktop.window.close'));
     assert(voiceAction.calls.some(call => call.path === '/axx-api/commands/execute'));
     assert.equal(voiceAction.calls.some(call => call.path === '/axx-api/chat'), false);
     results.push('Voice model selection retains only a catalogued model; an installed-app voice request reaches typed resolve, prepare and execute without model chat');

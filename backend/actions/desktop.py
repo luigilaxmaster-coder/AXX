@@ -66,6 +66,10 @@ def validate_inputs(kind, inputs):
     elif kind == 'list_windows':
         if inputs:
             raise ValueError('La lista de ventanas no admite parámetros.')
+    elif kind == 'close_window':
+        if set(inputs) != {'window_id', 'pid'}:
+            raise ValueError('Indica la ventana observada y su proceso.')
+        _validate_window_ref(inputs['window_id'], inputs['pid'])
     elif kind in ('inspect_window', 'read_window', 'focus_window'):
         if set(inputs) != ({'window_id', 'pid', 'expected_title'} if kind == 'read_window' else {'window_id', 'pid'}):
             raise ValueError('Indica la ventana observada y su proceso.')
@@ -137,6 +141,19 @@ def resolve_desktop(text, source, context=None):
         raw = 'abre ' + desktop_app[1]
     if plain(raw).strip(' .!?') in ('mis aplicaciones', 'aplicaciones instaladas', 'lista de aplicaciones', 'muestra mis aplicaciones'):
         return {'match': 'exact', 'command_id': 'axx.desktop.list_apps', 'inputs': {}}
+    closing = re.fullmatch(r'(?:cierra|cerrar|cierrame|ciérrame|sal de|salir de)\s+(?:(?:la|el)\s+)?(.+?)[.!?]*', raw, re.I)
+    if closing:
+        from .windows_automation import list_windows, process_name
+        name = re.sub(r'^(?:aplicacion|programa|mi)\s+', '', plain(closing[1]).strip(' .!?'))
+        if not re.fullmatch(r'[\w .-]{2,100}', name, re.UNICODE):
+            return {'match': 'unsupported', 'message': 'Indica el nombre de una aplicación abierta.'}
+        rows = list_windows()
+        matches = [row for row in rows if name in plain(row['title']) or name in plain(process_name(row['pid'])).removesuffix('.exe')]
+        if len(matches) == 1:
+            row = matches[0]
+            return {'match': 'exact', 'command_id': 'axx.desktop.window.close', 'inputs': {'window_id': format(row['window_id'], 'x'), 'pid': row['pid']}}
+        return {'match': 'ambiguous' if matches else 'unsupported',
+                'message': 'Hay varias ventanas con ese nombre; indica el título completo.' if matches else 'No veo una ventana abierta con ese nombre. Di «mis ventanas» para ver las disponibles.'}
     engine_pattern = r'(youtube|google|bing|duckduckgo|internet)'
     # Compound open+search is a single typed URL action, not two unrelated effects.
     compound = re.fullmatch(r'(?:abre|abrir|abreme|ábreme)\s+'+engine_pattern+r'\s+y\s+(?:busca|buscar|buscame|búscame)(?:\s+(.+))?',raw,re.I)
@@ -156,7 +173,7 @@ def resolve_desktop(text, source, context=None):
     music_search = re.fullmatch(r'(?:busca|buscar|buscame|búscame)\s+(?:(?:una|un|la|el)\s+)?(?:musica|música|cancion|canción|tema)\s+(?:de\s+)?(.+)', raw, re.I)
     if music_search:return search_result('youtube', music_search[1])
     # Preserve URL case and query punctuation. Only trim sentence marks for named targets.
-    opening = re.fullmatch(r'(?:abre|abrir|abras|abreme|ábreme|inicia|ejecuta)\s+(?:(?:la|el)\s+)?(.+)', raw, re.I)
+    opening = re.fullmatch(r'(?:abre|abrir|abrirme|abras|abreme|ábreme|inicia|ejecuta)\s+(?:(?:la|el)\s+)?(.+)', raw, re.I)
     if opening:
         target = opening[1].strip()
         name = re.sub(r'^(?:la aplicacion|el programa|mi|la|el)\s+', '', plain(target).rstrip('.!?'))
@@ -228,6 +245,12 @@ def open_target(kind, inputs, cancelled=None, control=None):
         rows = list_windows()
         return {'success': True, 'output': {'windows': rows},
                 'evidence': {'verification': 'visible_windows_inventory', 'accepted': True, 'count': len(rows)}}
+    elif kind == 'close_window':
+        from .windows_automation import close_window
+        output = close_window(int(inputs['window_id'], 16), inputs['pid'], cancelled=cancelled)
+        return {'success': output['closed'], 'output': output,
+                'evidence': {'verification': 'window_disappeared' if output['closed'] else 'close_requested',
+                             'accepted': output['closed'], 'window_id': output['window_id'], 'pid': output['pid']}}
     elif kind == 'cli_anything_scan':
         from .cli_anything_engine import ENGINE
         app = ENGINE.scan_window(int(inputs['window_id'], 16), inputs['pid'], cancelled=cancelled)

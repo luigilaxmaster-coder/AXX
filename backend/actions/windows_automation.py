@@ -113,6 +113,34 @@ def list_windows():
     return rows[:MAX_WINDOWS]
 
 
+def close_window(window_id, expected_pid, cancelled=None):
+    """Ask one observed window to close; never terminate its process."""
+    window_id = _positive_int(window_id, 'window_id')
+    expected_pid = _positive_int(expected_pid, 'pid')
+    user, _ = _windows_api()
+    user.PostMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
+    user.PostMessageW.restype = wintypes.BOOL
+    current = next((row for row in list_windows() if row['window_id'] == window_id and row['pid'] == expected_pid), None)
+    if not current:
+        raise ValueError('La ventana observada ya no existe o cambió de proceso.')
+    if expected_pid == os.getpid() or process_name(expected_pid) in {'explorer.exe', 'axx.exe', 'axx-backend.exe'}:
+        raise ValueError('Esta ventana no se cierra mediante el comando general.')
+    if cancelled is not None and cancelled.is_set():
+        raise ValueError('Cierre cancelado antes de solicitarlo.')
+    pid = wintypes.DWORD()
+    user.GetWindowThreadProcessId(wintypes.HWND(window_id), ctypes.byref(pid))
+    if not user.IsWindow(wintypes.HWND(window_id)) or pid.value != expected_pid:
+        raise ValueError('La ventana cambió antes de solicitar el cierre.')
+    if not user.PostMessageW(wintypes.HWND(window_id), 0x0010, 0, 0):
+        raise ctypes.WinError(ctypes.get_last_error())
+    deadline = time.monotonic() + 3.0
+    while time.monotonic() < deadline:
+        if not any(row['window_id'] == window_id and row['pid'] == expected_pid for row in list_windows()):
+            return {'closed': True, 'window_id': window_id, 'pid': expected_pid}
+        time.sleep(0.1)
+    return {'closed': False, 'window_id': window_id, 'pid': expected_pid}
+
+
 def observe_foreground(expected_title=None, timeout=5.0, before=None, aliases=(), cancelled=None, control=None, expected_process=None):
     """Observe launch/focus state without inferring app readiness from dispatch."""
     if type(timeout) not in (int, float) or not 0.0 <= timeout <= 10.0:
