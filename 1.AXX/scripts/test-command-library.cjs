@@ -159,6 +159,16 @@ const { chromium } = bundledRequire('playwright');
     assert.match(await page.locator('#command-library-status').textContent(), /succeeded/);
     results.push('A lost execution response can be recovered by operation ID without re-execution');
 
+    await page.evaluate(async () => {
+      const previous=Axx.commandLibrary.lastOperation;
+      operations[previous.operation_id]={...previous,state:'unknown',postconditions_passed:false};
+      await Axx.commandLibrary.recover();
+    });
+    assert.equal(await page.evaluate(() => Axx.commandLibrary.operation),null);
+    assert.equal(await page.evaluate(() => Axx.commandLibrary.lastOperation.state),'unknown');
+    assert.equal(await page.locator('#command-library-prepare').isEnabled(),true);
+    results.push('An uncertain effect stays visible after recovery without blocking independent observations');
+
     await page.evaluate(async () => { window.errorNext = 'Backend HTTP 403: Private session rejected'; await Axx.companion.send('estado del sistema'); });
     assert.match(await page.locator('#command-library-status').textContent(), /403/);
     assert.equal(await page.evaluate(() => fallback.length), fallbackBefore + 1);
@@ -315,8 +325,9 @@ const { chromium } = bundledRequire('playwright');
       try{await Axx.companion.send('haz clic en el primer vídeo',{source:'voice'});return {fallback:fallback.length-before,learning:calls.filter(call=>call.route==='/axx-api/learning/propose').length};}
       finally{Axx.companion.data=old;}
     });
-    assert.equal(connectFallback.fallback,1);assert.equal(connectFallback.learning,0);
-    results.push('Unresolved action reaches the selected ChatGPT Connect tools instead of the bridge-only planner');
+    assert.equal(connectFallback.fallback,0);assert.equal(connectFallback.learning,0);
+    assert.match(await page.evaluate(()=>notices.at(-1).text),/no está conectado al planificador/);
+    results.push('Unresolved actions remain blocked when the selected ChatGPT route has no command planner');
     const actionWords=await page.evaluate(()=>['escribe en ChatGPT hola','pulsa Enviar','haz clic en Nuevo chat en ChatGPT','presiona Enviar en Antigravity','ejecuta en CMD: dir','/cmd dir','escribe un poema'].map(value=>Axx.commandLibrary.isActionRequest(value)));
     assert.deepEqual(actionWords,[true,true,true,true,true,true,false]);
     results.push('Desktop interaction verbs route as actions while ordinary creative writing stays in chat');

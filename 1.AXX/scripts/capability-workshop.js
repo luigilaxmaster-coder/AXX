@@ -93,9 +93,9 @@
         actions.append(button(r.validation_operation_id ? 'Consultar prueba' : 'Preparar prueba', async () => {
           if (commands.busy || commands.operation) throw new Error('Revisa o cancela la acción pendiente antes de preparar otra.');
           const plan = await api('POST', 'prepare', {...reference(r),conversation_id:Axx.chatWorkspace?.active?.id});
-          commands.lastOperation = plan; commands.operation = ['prepared','awaiting_approval','running','unknown'].includes(plan.state) ? plan : null;
+          commands.lastOperation = plan; commands.operation = ['prepared','awaiting_approval','running'].includes(plan.state) ? plan : null;
           commands.renderOperation(plan); commands.status(plan.message || stateText(plan.state));
-          if (commands.operation) commands.open();
+          if (commands.operation || plan.state === 'unknown') commands.open();
           await refresh(r.id); status('Prueba preparada. Revisa sus pasos en la tarjeta de comandos.');
         }, true));
         if (r.validation_operation_id) actions.append(button('Comprobar resultado y activar', async () => { await mutate('activate'); status('Capacidad activada con evidencia. Ya aparece en Mis habilidades.'); }, true));

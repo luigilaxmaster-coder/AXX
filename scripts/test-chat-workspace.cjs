@@ -12,13 +12,16 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
   await page.route('http://chat.test/',route=>route.fulfill({contentType:'text/html',body:'<section id="view-chat"><div id="chat-log"></div><textarea id="chat-input"></textarea><button id="chat-new"></button></section><input id="keep-history" type="checkbox" checked>'}));
   await page.goto('http://chat.test/');
   await page.evaluate(()=>{
-   window.Axx={isNative:()=>true,newId:()=>crypto.randomUUID(),backendRequest:window.backend};
+   window.Axx={isNative:()=>true,newId:()=>crypto.randomUUID(),backendRequest:(method,url,body)=>url==='/axx-api/chat/operations'?Promise.resolve({operations:[{operation_id:'uncertain-restart',command_id:'axx.desktop.window.invoke',state:'unknown',postconditions_passed:false}]}):window.backend(method,url,body)};
    const data={messages:[{id:'legacy-message',role:'user',source:'model',status:'complete',text:'Legacy transcript',at:Date.now()}],draft:'Legacy draft',prefs:{keepHistory:true}};
    Axx.companion={data,save(){localStorage.setItem('legacy',JSON.stringify(this.data));},renderChat(){},cancelRequest(){},stopDictation(){},stopSpeech(){},renderAttachment(){},sayStatus(){},send(){},exportChat(){},brain:{async chat(p,m){return m;}}};
    Axx.commandLibrary={renderOperation(){},request:window.backend};
   });
   await page.addScriptTag({path:'1.AXX/scripts/chat-workspace.js'});
   await page.waitForFunction(()=>Axx.chatWorkspace?.ready&&Axx.chatWorkspace.active).catch(async e=>{console.log(await page.locator('#cw-error').textContent(),errors);throw e;});
+  await page.waitForFunction(()=>Axx.commandLibrary.lastOperation?.operation_id==='uncertain-restart');
+  assert.equal(await page.evaluate(()=>Axx.commandLibrary.operation),null);
+  assert.match(await page.locator('#cw-operation').textContent(),/RESULTADO POR COMPROBAR/);
   assert.equal(await page.locator('#chat-input').inputValue(),'Legacy draft');
   const first=await page.evaluate(()=>Axx.chatWorkspace.active.id);
   await page.locator('#chat-input').fill('Private draft A');await page.click('#cw-new');

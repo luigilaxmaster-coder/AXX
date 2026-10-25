@@ -233,9 +233,10 @@
     }
     async function recoverOperations(){
         const result=await api('operations');operations=result.operations||[];
-        const pending=operations.find(o=>['awaiting_approval','prepared','running','unknown','interrupted','waiting_capacity'].includes(o.state));
-        const op=pending||operations.find(o=>o.conversation_id===active?.id);
-        if(pending){lib.lastOperation=pending;lib.operation=pending;lib.renderOperation(pending);}else operationCard(op);
+        const pending=operations.find(o=>['awaiting_approval','prepared','running','interrupted','waiting_capacity'].includes(o.state));
+        const uncertain=operations.find(o=>o.state==='unknown');
+        const op=pending||uncertain||operations.find(o=>o.conversation_id===active?.id);
+        if(pending||uncertain){lib.lastOperation=op;lib.operation=pending||null;lib.renderOperation(op);}else operationCard(op);
     }
     let initializing=false;
     async function initialize() {

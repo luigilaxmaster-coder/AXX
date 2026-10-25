@@ -756,7 +756,7 @@
             if (serial !== this.generation || revision !== this.observationRevision || this.busy) return;
             if (!result.operation || result.operation.operation_id !== operation.operation_id) throw new Error('El backend no confirmó el estado de este comando.');
             this.lastOperation = result.operation;
-            this.operation = ['prepared', 'awaiting_approval', 'running','unknown'].includes(result.operation.state) ? result.operation : null;
+            this.operation = ['prepared', 'awaiting_approval', 'running'].includes(result.operation.state) ? result.operation : null;
             this.renderOperation(result.operation);
             this.status('Estado observado: ' + result.operation.state + (result.operation.postconditions_passed === true ? ' · condiciones verificadas.' : '.'));
         }

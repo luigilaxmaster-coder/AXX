@@ -17,6 +17,8 @@ los mismos parámetros de una mutación desconocida también se rechaza. Las
 escrituras UIA conservan su reconciliación por lectura. Otras operaciones
 desconocidas requieren revisión: no hay reconciliación automática universal.
 Cancelar no revierte efectos enviados.
+Un resultado incierto permanece visible al reiniciar o consultarlo, pero no se
+trata como una aprobación pendiente que bloquee observaciones independientes.
 
 ## Modos
 

@@ -19,6 +19,8 @@ const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
   await page.waitForFunction(()=>Axx.commandLibrary&&Axx.chatWorkspace?.ready&&!Axx.commandLibrary.busy,{},{timeout:90000});
   receipt.runtime=JSON.parse(fs.readFileSync(path.join(process.env.LOCALAPPDATA,'Axx/logs/native-runtime.json'),'utf8'));
   assert.equal(receipt.runtime.version,require('../package.json').version);
+  receipt.recovered=await page.evaluate(()=>({state:Axx.commandLibrary.lastOperation?.state,pending:Axx.commandLibrary.operation?.state||null}));
+  if(receipt.recovered.state==='unknown')assert.equal(receipt.recovered.pending,null);
   previous=await page.evaluate(()=>({view:Axx.companion.dock.selected,query:document.getElementById('command-library-query').value}));
   await page.evaluate(async()=>{Axx.resident.summon(false);Axx.commandLibrary.open();await Axx.commandLibrary.search('axx.architecture.status');});
   assert.equal(await page.locator('#command-delivery-mode').inputValue(),'background');
