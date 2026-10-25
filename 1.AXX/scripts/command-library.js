@@ -75,7 +75,7 @@
               <details id="command-library-procedure" hidden><summary>Ver instrucciones, requisitos y comprobaciones</summary><div id="command-library-steps" style="max-height:340px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere"></div></details>
               <form id="command-library-parameters"><div id="command-library-fields"></div><button id="command-library-prepare" type="submit" disabled>Preparar comando</button></form>
               <details><summary>Detalles del resultado</summary><pre id="command-library-result" style="white-space:pre-wrap;word-break:break-word;max-height:280px;overflow:auto"></pre></details>
-              <p>Desde el chat: «abre YouTube», «abre calculadora», «busca música en YouTube» o «estado del sistema». Para un script escrito usa «/powershell Get-Date»: revisa el código y pulsa Aprobar. PowerShell puede modificar tu equipo; se detiene a los 30 segundos y Escape cancela la ejecución. «/comandos texto» busca acciones.</p>`;
+              <p>Desde el chat: «abre YouTube», «abre calculadora», «busca música en YouTube» o «estado del sistema». Para CMD usa «/cmd dir» o dicta «ejecuta en CMD: dir»; revisa el texto reconocido y pulsa Aprobar. PowerShell requiere escribir «/powershell Get-Date». Los comandos pueden modificar tu equipo, se detienen a los 30 segundos y Escape cancela la ejecución. «/comandos texto» busca acciones.</p>`;
             node('view-files').prepend(section);
             node('command-library-search-form').onsubmit = event => { event.preventDefault(); void this.search().catch(e => this.status(errorText(e))); };
             node('command-library-select').onchange = () => this.renderSelection();
@@ -233,7 +233,7 @@
         isActionRequest(raw) {
             const text=raw.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/^[¡¿\s]+/,'')
                 .replace(/^(?:(?:oye|hola)\s+)?axx[,\s]+/,'').replace(/^por favor[,\s]+/,'').replace(/^(?:puedes|podrias|quiero que|pero)\s+/,'');
-            return /^(?:\/(?:search|buscar|comando|powershell)\b|mis\s+ventanas\b|(?:lista|muestra)\s+(?:mis\s+)?(?:ventanas|aplicaciones)\b|(?:haz|repite|usa|saca|abre|abrir|abrirme|abras|abreme|abrela|abrelo|cierra|cerrar|cierrame|salir|inicia|ejecuta|busca|buscar|buscame|encuentra|localiza|ponme|pon|reproduce|reproducir|escuchar|prepara|organiza|crea|crear|convierte|mueve|pulsa|teclea|pega|selecciona|desplaza|navega|copia|renombra|comprime|extrae|descarga|instala|borra|elimina|envia|publica)\b|escribe\s+(?:en|dentro\s+de)\b)/.test(text);
+            return /^(?:\/(?:search|buscar|comando|powershell|cmd)\b|mis\s+ventanas\b|(?:lista|muestra)\s+(?:mis\s+)?(?:ventanas|aplicaciones)\b|(?:haz|repite|usa|saca|abre|abrir|abrirme|abras|abreme|abrela|abrelo|cierra|cerrar|cierrame|salir|inicia|ejecuta|busca|buscar|buscame|encuentra|localiza|ponme|pon|reproduce|reproducir|escuchar|prepara|organiza|crea|crear|convierte|mueve|pulsa|presiona|clic|teclea|pega|selecciona|desplaza|navega|copia|renombra|comprime|extrae|descarga|instala|borra|elimina|envia|publica)\b|escribe\s+(?:en|dentro\s+de)\b)/.test(text);
         }
         internalAction(raw) {
             const plain = value => String(value).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
@@ -506,6 +506,7 @@
                 'axx.file.compare':'Comparar dos archivos', 'axx.shell.powershell':'Ejecutar script de PowerShell', 'axx.shell.cmd':'Ejecutar comando de CMD',
                 'axx.desktop.open_url':'Abrir página web', 'axx.desktop.search':'Buscar en el navegador', 'axx.desktop.window.set_value':'Escribir en la ventana seleccionada',
                 'axx.desktop.window.read':'Leer texto y enlaces de la ventana seleccionada',
+                'axx.desktop.window.invoke':'Pulsar botón observado',
                 'axx.desktop.notepad.text':'Reemplazar texto en el documento de Notepad (sin guardar)',
                 'axx.desktop.explorer.folder':'Abrir y enfocar la carpeta en Explorador'};
             const labels = {path:'Archivo', other_path:'Segundo archivo', content:'Contenido que se guardará', script:'Código que se ejecutará',
@@ -638,6 +639,10 @@
                     message = result.output.files.map(file => `${file.path}\nSHA256: ${file.sha256}\n${file.bytes} bytes`).join('\n\n');
                     if (typeof result.output.equal === 'boolean') message += result.output.equal ? '\n\nEl contenido de los dos archivos coincide.' : '\n\nLos archivos tienen contenido diferente.';
                 }
+                if (verified && result.command_id === 'axx.desktop.window.invoke')
+                    message = `Pulsé «${result.output.button}» en «${result.output.window}». La aplicación recibió la pulsación; su efecto posterior no está verificado.`;
+                if (verified && result.command_id === 'axx.desktop.window.set_value' && operation.inputs.expected_title)
+                    message = `Escribí el texto en «${operation.inputs.expected_title}» y comprobé el campo. No envié el mensaje.`;
                 this.status(message); Axx.companion.action(verified ? 'success' : result.state === 'cancelled' ? 'cancel' : 'error');
                 return message;
             } catch (error) {

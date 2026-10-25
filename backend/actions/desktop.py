@@ -89,7 +89,7 @@ def validate_inputs(kind, inputs):
         if kind == 'read_window' and (not isinstance(inputs['expected_title'], str) or not 1 <= len(inputs['expected_title']) <= 2048):
             raise ValueError('Indica el título observado de la ventana.')
     elif kind == 'set_window_value':
-        if set(inputs) != {'window_id', 'pid', 'control_id', 'value'}:
+        if set(inputs) not in ({'window_id', 'pid', 'control_id', 'value'}, {'window_id', 'pid', 'control_id', 'value', 'expected_title'}):
             raise ValueError('Indica ventana, proceso, control y texto.')
         _validate_window_ref(inputs['window_id'], inputs['pid'])
         if not isinstance(inputs['control_id'], str) or len(inputs['control_id']) != 64 or any(c not in '0123456789abcdef' for c in inputs['control_id']):
@@ -97,6 +97,16 @@ def validate_inputs(kind, inputs):
         if not isinstance(inputs['value'], str) or len(inputs['value']) > 8192 or '\x00' in inputs['value']:
             raise ValueError('El texto debe tener hasta 8.192 caracteres y no contener NUL.')
         inputs['value'].encode('utf-16-le')
+        if 'expected_title' in inputs and (not isinstance(inputs['expected_title'],str) or not 1 <= len(inputs['expected_title']) <= 2048):
+            raise ValueError('Indica el título observado de la ventana.')
+    elif kind == 'invoke_window_button':
+        if set(inputs) != {'window_id','pid','control_id','expected_title','expected_name'}:
+            raise ValueError('Indica la ventana y el botón observados.')
+        _validate_window_ref(inputs['window_id'], inputs['pid'])
+        if not isinstance(inputs['control_id'],str) or not re.fullmatch(r'[a-f0-9]{64}',inputs['control_id']):
+            raise ValueError('control_id debe proceder de una observación UIA reciente.')
+        if any(not isinstance(inputs[key],str) or not 1 <= len(inputs[key]) <= 2048 for key in ('expected_title','expected_name')):
+            raise ValueError('Indica el título y el nombre exactos observados.')
     elif kind == 'cli_anything_scan':
         if set(inputs) != {'window_id', 'pid'}:
             raise ValueError('Indica ventana y proceso observados.')
@@ -137,8 +147,6 @@ def resolve_desktop(text, source, context=None):
         return {'match': 'exact', 'command_id': 'axx.shell.powershell', 'inputs': {'script': shell[1]}}
     cmd = re.fullmatch(r'(?:/cmd\s+|ejecuta\s+en\s+cmd:\s*)(.+)', text.strip(), re.I | re.S)
     if cmd:
-        if source != 'text':
-            return {'match': 'unsupported', 'message': 'Escribe el comando CMD y apruébalo en la PC.'}
         return {'match': 'exact', 'command_id': 'axx.shell.cmd', 'inputs': {'script': cmd[1]}}
     raw = re.sub(r'^[¡¿\s]+', '', text.strip())
     raw = re.sub(r'^(?:(?:oye|hola)\s+)?axx[,\s]+', '', raw, flags=re.I)
@@ -153,6 +161,37 @@ def resolve_desktop(text, source, context=None):
         raw = 'abre ' + desktop_app[1]
     if plain(raw).strip(' .!?') in ('mis aplicaciones', 'aplicaciones instaladas', 'lista de aplicaciones', 'muestra mis aplicaciones'):
         return {'match': 'exact', 'command_id': 'axx.desktop.list_apps', 'inputs': {}}
+    button_request = re.fullmatch(r'(?:pulsa|presiona|haz clic en|clic en)\s+(?:(?:el|la)\s+)?(?:bot[oó]n\s+)?(.+?)\s+en\s+(chatgpt|antigravity|spotify|chrome)[.!?]*',raw,re.I)
+    if button_request:
+        from .windows_automation import inspect_controls, list_windows, process_name
+        label=plain(button_request[1].strip(' "“”\''))
+        app=plain(button_request[2])
+        windows=[row for row in list_windows() if app in plain(row['title']) or app in plain(process_name(row['pid']))]
+        if len(windows)!=1:
+            return {'match':'ambiguous' if windows else 'unsupported','message':'Indica una única ventana abierta de '+button_request[2]+'.'}
+        window=windows[0]
+        observed=inspect_controls(window['window_id'],window['pid'])
+        buttons=[row for row in observed['controls'] if row['control_type']=='ControlType.Button' and row['enabled'] and not row['offscreen'] and plain(row['name'])==label]
+        if len(buttons)!=1:
+            return {'match':'ambiguous' if buttons else 'unsupported','message':'No encuentro un botón visible y único llamado «'+button_request[1]+'».'}
+        return {'match':'exact','command_id':'axx.desktop.window.invoke','inputs':{
+            'window_id':format(window['window_id'],'x'),'pid':window['pid'],'control_id':buttons[0]['control_id'],
+            'expected_title':window['title'],'expected_name':buttons[0]['name']}}
+    writing = (re.fullmatch(r'(?:escribe|pega)\s+en\s+(chatgpt|antigravity)\s+(.+)',raw,re.I | re.S)
+               or re.fullmatch(r'(?:escribe|pega)\s+(.+?)\s+en\s+(chatgpt|antigravity)[.!?]*',raw,re.I | re.S))
+    if writing:
+        first,second=writing[1],writing[2]
+        app,text=(first,second) if plain(first) in ('chatgpt','antigravity') else (second,first)
+        from .windows_automation import list_windows, locate_edit_controls, process_name
+        windows=[row for row in list_windows() if plain(app) in plain(row['title']) or plain(app) in plain(process_name(row['pid']))]
+        if len(windows)!=1:
+            return {'match':'ambiguous' if windows else 'unsupported','message':'Indica una única ventana abierta de '+app+'.'}
+        window=windows[0]; observed=locate_edit_controls(window['window_id'],window['pid'])
+        if observed.get('truncated') or observed.get('window_title')!=window['title'] or len(observed['controls'])!=1:
+            return {'match':'ambiguous','message':'No encuentro un único editor visible en '+app+'. Inspecciona la ventana y elige el control.'}
+        return {'match':'exact','command_id':'axx.desktop.window.set_value','inputs':{
+            'window_id':format(window['window_id'],'x'),'pid':window['pid'],'control_id':observed['controls'][0]['control_id'],
+            'expected_title':window['title'],'value':text}}
     closing = re.fullmatch(r'(?:cierra|cerrar|cierrame|ciérrame|sal de|salir de)\s+(?:(?:la|el)\s+)?(.+?)[.!?]*', raw, re.I)
     if closing:
         from .windows_automation import list_windows, process_name
@@ -211,14 +250,16 @@ def resolve_desktop(text, source, context=None):
     if opening:
         target = opening[1].strip()
         name = re.sub(r'^(?:la aplicacion|el programa|mi|la|el)\s+', '', plain(target).rstrip('.!?'))
-        if name == 'spotify':
+        if name in ('spotify','chatgpt'):
             from .windows_apps import find_app
             try:
-                spotify = find_app(name, plain)
+                installed = find_app(name, plain)
             except (OSError, ValueError, subprocess.TimeoutExpired):
-                spotify = []
-            if len(spotify) == 1:
-                return {'match': 'exact', 'command_id': 'axx.desktop.installed_app', 'inputs': {'app_id': spotify[0]['app_id']}}
+                installed = []
+            if len(installed) == 1:
+                return {'match': 'exact', 'command_id': 'axx.desktop.installed_app', 'inputs': {'app_id': installed[0]['app_id']}}
+            if installed:
+                return {'match':'ambiguous','message':'Hay varias aplicaciones con ese nombre. Elige una en Mis aplicaciones.'}
         if name in SITES:
             return {'match': 'exact', 'command_id': 'axx.desktop.open_url', 'inputs': {'url': SITES[name]}}
         for key, (_, _, aliases) in APPS.items():
@@ -327,6 +368,16 @@ def open_target(kind, inputs, cancelled=None, control=None):
             if plain(playback_button()['name']) in ('pausar','pausa','pause'):
                 return {'success':True,'output':{'playing':True,'already_playing':False},'evidence':{'verification':'spotify_uia_playback_state','accepted':True}}
         raise UncertainEffect('Spotify recibió la pulsación, pero no confirmó que esté reproduciendo.')
+    elif kind == 'invoke_window_button':
+        if control is None: raise ValueError('El dueño de entrada de Windows no está conectado.')
+        from .windows_automation import focus_window, invoke_control
+        hwnd=int(inputs['window_id'],16); pid=inputs['pid']
+        focus_window(hwnd,pid,control=control)
+        output=invoke_control(hwnd,pid,inputs['control_id'],inputs['expected_title'],inputs['expected_name'],cancelled=control)
+        return {'success':True,'output':{'button_sent':True,'effect_verified':False,'button':inputs['expected_name'],
+                                         'window':inputs['expected_title']},
+                'evidence':{'verification':output['verification'],'accepted':True,'window_id':hwnd,'pid':pid,
+                            'control_id':inputs['control_id']}}
     elif kind == 'first_video_pointer':
         if control is None: raise ValueError('El dueño de entrada de Windows no está conectado.')
         from .windows_automation import focus_window, read_window_content
@@ -361,7 +412,9 @@ def open_target(kind, inputs, cancelled=None, control=None):
             evidence = {'verification': output['verification'], 'accepted': True,
                         'window_id': window_id, 'pid': inputs['pid']}
         else:
-            output = set_control_value(window_id, inputs['pid'], inputs['control_id'], inputs['value'], cancelled=cancelled)
+            options={'cancelled':cancelled}
+            if 'expected_title' in inputs: options['expected_title']=inputs['expected_title']
+            output = set_control_value(window_id, inputs['pid'], inputs['control_id'], inputs['value'], **options)
             evidence = {'verification': output['verification'], 'accepted': True,
                         'window_id': window_id, 'pid': inputs['pid'],
                         'control_id': inputs['control_id'],

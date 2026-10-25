@@ -9,7 +9,7 @@ try {
     Add-Type -AssemblyName UIAutomationClient
     Add-Type -AssemblyName UIAutomationTypes
     $request = [Console]::In.ReadToEnd() | ConvertFrom-Json -ErrorAction Stop
-    if ($null -eq $request -or $request.operation -notin @('inspect', 'read_content', 'set_value', 'invoke', 'check_value', 'locate_folder', 'scrape_app')) {
+    if ($null -eq $request -or $request.operation -notin @('inspect', 'read_content', 'locate_edit', 'set_value', 'invoke', 'check_value', 'locate_folder', 'scrape_app')) {
         throw 'Operación UI Automation desconocida.'
     }
     if ($request.operation -eq 'locate_folder') {
@@ -60,6 +60,25 @@ try {
         if ($element.TryGetCurrentPattern([System.Windows.Automation.ScrollPattern]::Pattern, [ref]$dummy)) { $patterns.Add('Scroll') }
         if ($element.TryGetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern, [ref]$dummy)) { $patterns.Add('Text') }
         return @($patterns)
+    }
+
+    if ($request.operation -eq 'locate_edit') {
+        $edits = $root.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+            [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Edit))
+        $found = [System.Collections.Generic.List[object]]::new()
+        for ($i = 0; $i -lt [Math]::Min($edits.Count, 64); $i++) {
+            $item = $edits.Item($i)
+            if (-not $item.Current.IsEnabled -or $item.Current.IsOffscreen -or $item.Current.IsPassword) { continue }
+            $pattern = $null
+            if (-not $item.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$pattern) -or $pattern.Current.IsReadOnly) { continue }
+            $bounds = $item.Current.BoundingRectangle
+            if ($bounds.Width -lt 1 -or $bounds.Height -lt 1) { continue }
+            $found.Add(@{ control_id = Get-ControlToken $item ([long]$request.window_id) ([int]$request.pid);
+                name = [string]$item.Current.Name })
+        }
+        [Console]::Out.Write((@{success=$true;window_title=[string]$root.Current.Name;controls=@($found);
+            truncated=($edits.Count -gt 64);verification='visible_edit_controls_observed'} | ConvertTo-Json -Depth 4 -Compress))
+        exit 0
     }
 
     if ($request.operation -in @('inspect', 'read_content', 'scrape_app')) {

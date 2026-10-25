@@ -29,6 +29,11 @@ class CLIAppInterface:
         if writable:
             commands['type'] = {'command_id': 'axx.desktop.window.set_value', 'available': True,
                                 'control_ids': [c['control_id'] for c in writable]}
+        buttons = [c for c in self.controls if c.get('control_type') == 'ControlType.Button'
+                   and c.get('enabled') and not c.get('offscreen') and c.get('name')]
+        if buttons:
+            commands['press'] = {'command_id': 'axx.desktop.window.invoke', 'available': True,
+                                 'control_ids': [c['control_id'] for c in buttons]}
         return {'window_id': self.window_id, 'pid': self.pid, 'title': self.title,
                 'class_name': self.class_name, 'foreground': self.foreground,
                 'observed_at': self.observed_at, 'total_controls': len(self.controls),
@@ -109,15 +114,15 @@ class CLIAnythingEngine:
                 'learning_endpoint': '/axx-api/learning/actions'}
 
     def propose(self, target, command, args=None):
-        if not isinstance(command, str) or command not in ('inspect', 'read', 'focus', 'type'):
-            raise ValueError('Acción sin contrato y postcondición registrados; usa inspect, read, focus o type.')
+        if not isinstance(command, str) or command not in ('inspect', 'read', 'focus', 'type', 'press'):
+            raise ValueError('Acción sin contrato y postcondición registrados; usa inspect, read, focus, type o press.')
         args = {} if args is None else args
-        allowed = {'control_id', 'text'} if command == 'type' else set()
+        allowed = {'control_id', 'text'} if command == 'type' else {'control_id'} if command == 'press' else set()
         if not isinstance(args, dict) or set(args) != allowed:
             raise ValueError('Parámetros inesperados o incompletos para la acción.')
         app = self.resolve(target)
         inputs = {'window_id': hex(app.window_id), 'pid': app.pid}
-        suffix = {'inspect': 'inspect', 'read': 'read', 'focus': 'focus', 'type': 'set_value'}[command]
+        suffix = {'inspect': 'inspect', 'read': 'read', 'focus': 'focus', 'type': 'set_value', 'press': 'invoke'}[command]
         if command == 'read':
             inputs['expected_title'] = app.title
         if command == 'type':
@@ -125,8 +130,15 @@ class CLIAnythingEngine:
             if len(candidates) != 1 or not candidates[0].get('enabled') or candidates[0].get('offscreen') or not candidates[0].get('supports_value_pattern') or candidates[0].get('read_only', True):
                 raise ValueError('Selecciona un control único, visible y editable de la observación actual.')
             inputs.update(control_id=args['control_id'], value=args['text'])
+        if command == 'press':
+            candidates = [c for c in app.controls if c.get('control_id') == args['control_id']
+                          and c.get('control_type') == 'ControlType.Button' and c.get('enabled')
+                          and not c.get('offscreen') and c.get('name')]
+            if len(candidates) != 1:
+                raise ValueError('Selecciona un botón único, visible y habilitado de la observación actual.')
+            inputs.update(control_id=args['control_id'], expected_title=app.title, expected_name=candidates[0]['name'])
         from .desktop import validate_inputs
-        validate_inputs({'inspect': 'inspect_window', 'read': 'read_window', 'focus': 'focus_window', 'type': 'set_window_value'}[command], inputs)
+        validate_inputs({'inspect': 'inspect_window', 'read': 'read_window', 'focus': 'focus_window', 'type': 'set_window_value', 'press': 'invoke_window_button'}[command], inputs)
         return {'command_id': 'axx.desktop.window.' + suffix, 'inputs': inputs}
 
 

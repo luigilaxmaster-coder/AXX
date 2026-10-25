@@ -143,7 +143,8 @@ class ActionExecutor:
                      'desktop_move_pointer': {'x', 'y'},
                      'desktop_first_video_pointer': {'window_id', 'pid', 'expected_title'},
                      'desktop_spotify_play': set(),
-                     'desktop_set_window_value': {'window_id', 'pid', 'control_id', 'value'},
+                     'desktop_set_window_value': {'window_id', 'pid', 'control_id', 'value', 'expected_title'},
+                     'desktop_invoke_window_button': {'window_id', 'pid', 'control_id', 'expected_title', 'expected_name'},
                      'desktop_notepad_text': {'window_title', 'value'}, 'desktop_explorer_folder': {'path'},
                      'file_inspection': {'path', 'other_path'}}
         if set(inputs) - permitted.get(tool_name, set()):

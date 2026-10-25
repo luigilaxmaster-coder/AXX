@@ -40,7 +40,7 @@ def capability_status(app):
     """Keep installed-app discovery separate from per-action UIA readiness."""
     if not isinstance(app, dict) or not isinstance(app.get('name'), str) or not isinstance(app.get('app_id'), str):
         raise ValueError('Aplicación observada inválida.')
-    return {**app, 'status': {'detected': True, 'registered_routes': ['axx.desktop.window.inspect', 'axx.desktop.window.set_value'],
+    return {**app, 'status': {'detected': True, 'registered_routes': ['axx.desktop.window.inspect', 'axx.desktop.window.set_value', 'axx.desktop.window.invoke'],
                              'generic_route_registered': True, 'app_specific_actions_validated': [],
                              'available': 'installed', 'control_availability': 'unknown'}}
 

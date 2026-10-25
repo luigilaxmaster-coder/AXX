@@ -101,7 +101,17 @@ ADAPTERS = {
             'window_id': {'type': 'string', 'required': True, 'maxLength': 18},
             'pid': {'type': 'integer', 'required': True, 'minimum': 1, 'maximum': 4294967295},
             'control_id': {'type': 'string', 'required': True, 'maxLength': 64},
-            'value': {'type': 'string', 'required': True, 'maxLength': 8192, 'maxBytes': 32768}}},
+            'value': {'type': 'string', 'required': True, 'maxLength': 8192, 'maxBytes': 32768},
+            'expected_title': {'type': 'string', 'required': False, 'maxLength': 2048}}},
+    'axx.desktop.window.invoke': {
+        'title': 'Pulsar botón observado', 'tool': 'desktop_invoke_window_button', 'risk': 'local_state', 'requires_approval': True,
+        'description': 'Pulsa un botón UI Automation observado en una ventana identificada. Comprueba la entrega de la pulsación, no el resultado dentro de la aplicación.',
+        'aliases': [], 'parameters': {
+            'window_id': {'type': 'string', 'required': True, 'maxLength': 18},
+            'pid': {'type': 'integer', 'required': True, 'minimum': 1, 'maximum': 4294967295},
+            'control_id': {'type': 'string', 'required': True, 'maxLength': 64},
+            'expected_title': {'type': 'string', 'required': True, 'maxLength': 2048},
+            'expected_name': {'type': 'string', 'required': True, 'maxLength': 2048}}},
     'axx.desktop.installed_app': {
         'title': 'Abrir aplicación instalada', 'tool': 'desktop_installed_app', 'risk': 'desktop_open', 'requires_approval': False,
         'description': 'Abre un acceso observado en el inventario de Windows. En el chat puedes decir «abre» y su nombre.',
@@ -431,8 +441,8 @@ class CommandService:
             command_id = PROCEDURE_BINDINGS.get(command_id, command_id)
         if not isinstance(command_id, str) or command_id not in self.commands or source not in ('text', 'voice'):
             raise ValueError('Comando u origen desconocido')
-        if command_id in ('axx.shell.powershell', 'axx.shell.cmd') and source != 'text':
-            raise ValueError('Escribe el comando y revisa su aprobación; no se ejecutan scripts dictados.')
+        if command_id == 'axx.shell.powershell' and source != 'text':
+            raise ValueError('Escribe el script PowerShell y revisa su aprobación.')
         op_id = str(uuid.uuid4()) if operation_id is None else operation_id
         if not isinstance(op_id, str) or not re.fullmatch(r'[A-Za-z0-9_.-]{1,128}', op_id):
             raise ValueError('operation_id inválido')

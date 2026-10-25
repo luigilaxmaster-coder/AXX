@@ -262,7 +262,12 @@ def scrape_window_tree(window_id, expected_pid, cancelled=None):
                  'pid': _positive_int(expected_pid, 'pid')}, cancelled=cancelled)
 
 
-def set_control_value(window_id, expected_pid, control_id, value, cancelled=None):
+def locate_edit_controls(window_id, expected_pid, cancelled=None):
+    return _uia({'operation': 'locate_edit', 'window_id': _positive_int(window_id, 'window_id'),
+                 'pid': _positive_int(expected_pid, 'pid')}, cancelled=cancelled)
+
+
+def set_control_value(window_id, expected_pid, control_id, value, cancelled=None, expected_title=None):
     window_id = _positive_int(window_id, 'window_id')
     expected_pid = _positive_int(expected_pid, 'pid')
     if not isinstance(control_id, str) or len(control_id) != 64 or any(c not in '0123456789abcdef' for c in control_id):
@@ -271,7 +276,7 @@ def set_control_value(window_id, expected_pid, control_id, value, cancelled=None
         raise ValueError('El texto debe ser válido y no exceder 8.192 caracteres.')
     value.encode('utf-16-le')
     return _uia({'operation': 'set_value', 'window_id': window_id, 'pid': expected_pid,
-                 'control_id': control_id, 'value': value}, cancelled=cancelled)
+                 'control_id': control_id, 'value': value, 'expected_title': expected_title}, cancelled=cancelled)
 
 
 def invoke_control(window_id, expected_pid, control_id, expected_title, expected_name, cancelled=None):

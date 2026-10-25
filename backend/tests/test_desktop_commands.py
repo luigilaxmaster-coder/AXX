@@ -54,6 +54,12 @@ class DesktopCommandTests(unittest.TestCase):
         self.assertEqual(search['command_id'], 'axx.desktop.open_url')
         self.assertEqual(search['inputs']['url'], 'https://open.spotify.com/search/Bachata%20Rosa')
 
+    def test_open_chatgpt_prefers_the_unique_installed_app(self):
+        with patch('backend.actions.windows_apps.find_app',return_value=[{'name':'ChatGPT','app_id':'OpenAI.Codex!App'}]):
+            result=self.service.resolve('abre ChatGPT',source='voice')
+        self.assertEqual(result,{'match':'exact','command_id':'axx.desktop.installed_app',
+                                 'inputs':{'app_id':'OpenAI.Codex!App'}})
+
     def test_spotify_play_invokes_observed_button_and_checks_pause_readback(self):
         def controls(name):
             return {'truncated': True, 'controls': [
@@ -70,7 +76,7 @@ class DesktopCommandTests(unittest.TestCase):
              patch('backend.actions.desktop.time.sleep'):
             pending=self.service.prepare('axx.desktop.spotify.play',{},source='voice')
             receipt=self.service.execute(pending['operation_id'])
-        self.assertEqual(receipt['state'],'succeeded')
+        self.assertEqual(receipt['state'],'succeeded',receipt)
         self.assertTrue(receipt['postconditions_passed'])
         invoke.assert_called_once()
 
@@ -91,6 +97,44 @@ class DesktopCommandTests(unittest.TestCase):
             receipt=self.service.execute(pending['operation_id'])
         self.assertEqual(receipt['state'],'succeeded')
         self.assertEqual(inspect.call_count,2)
+
+    def test_spoken_chatgpt_button_requires_review_and_only_claims_delivery(self):
+        window={'window_id':18,'pid':45,'title':'ChatGPT'}
+        button={'control_type':'ControlType.Button','enabled':True,'offscreen':False,
+                'name':'Nuevo chat','control_id':'a'*64}
+        control=SimpleNamespace(is_set=lambda:False)
+        self.executor.input_control=SimpleNamespace(automation=lambda cancelled:nullcontext(control))
+        with patch('backend.actions.windows_automation.list_windows',return_value=[window]), \
+             patch('backend.actions.windows_automation.process_name',return_value='ChatGPT.exe'), \
+             patch('backend.actions.windows_automation.inspect_controls',return_value={'controls':[button],'truncated':False}), \
+             patch('backend.actions.windows_automation.focus_window'), \
+             patch('backend.actions.windows_automation.invoke_control',return_value={'verification':'uia_invoke_acknowledged'}) as invoke:
+            resolved=self.service.resolve('haz clic en Nuevo chat en ChatGPT',source='voice')
+            self.assertEqual(resolved['command_id'],'axx.desktop.window.invoke')
+            pending=self.service.prepare(resolved['command_id'],resolved['inputs'],source='voice')
+            self.assertEqual(pending['state'],'awaiting_approval')
+            with self.assertRaises(ApprovalRequired):
+                self.service.execute(pending['operation_id'])
+            invoke.assert_not_called()
+            receipt=self.service.execute(pending['operation_id'],approved=True)
+        self.assertEqual(receipt['state'],'succeeded',receipt)
+        self.assertTrue(receipt['postconditions_passed'])
+        self.assertFalse(receipt['output']['effect_verified'])
+        invoke.assert_called_once()
+
+    def test_spoken_chatgpt_text_targets_one_observed_editor_and_waits_for_approval(self):
+        window={'window_id':18,'pid':45,'title':'ChatGPT'}
+        observed={'window_title':'ChatGPT','truncated':False,'controls':[{'control_id':'a'*64,'name':'Trabaja con Codex'}]}
+        with patch('backend.actions.windows_automation.list_windows',return_value=[window]), \
+             patch('backend.actions.windows_automation.process_name',return_value='ChatGPT.exe'), \
+             patch('backend.actions.windows_automation.locate_edit_controls',return_value=observed):
+            resolved=self.service.resolve('escribe en ChatGPT hola',source='voice')
+        self.assertEqual(resolved['command_id'],'axx.desktop.window.set_value')
+        self.assertEqual(resolved['inputs']['value'],'hola')
+        self.assertEqual(resolved['inputs']['expected_title'],'ChatGPT')
+        pending=self.service.prepare(resolved['command_id'],resolved['inputs'],source='voice')
+        self.assertEqual(pending['state'],'awaiting_approval')
+        with self.assertRaises(ApprovalRequired): self.service.execute(pending['operation_id'])
 
     def test_explicit_pointer_position_is_typed_and_read_back(self):
         result = self.service.resolve('mueve el mouse a x 500 y 400', source='voice')
@@ -223,8 +267,13 @@ class DesktopCommandTests(unittest.TestCase):
 
     @unittest.skipUnless(os.name == 'nt', 'Windows CMD integration')
     def test_cmd_requires_approval_and_returns_real_exit_code(self):
-        with self.assertRaises(ValueError):
-            self.service.prepare('axx.shell.cmd', {'script': 'echo hola'}, 'voice')
+        voice = self.service.resolve('ejecuta en cmd: echo hola', source='voice')
+        self.assertEqual(voice['command_id'], 'axx.shell.cmd')
+        spoken = self.service.prepare(voice['command_id'], voice['inputs'], 'voice')
+        self.assertEqual(spoken['state'], 'awaiting_approval')
+        with self.assertRaises(ApprovalRequired):
+            self.service.execute(spoken['operation_id'])
+        self.service.cancel(spoken['operation_id'])
         pending = self.service.prepare('axx.shell.cmd', {'script': 'echo AXX_CMD_OK'})
         with self.assertRaises(ApprovalRequired):
             self.service.execute(pending['operation_id'])

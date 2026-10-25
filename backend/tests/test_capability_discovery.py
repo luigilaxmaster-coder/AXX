@@ -58,6 +58,18 @@ class CapabilityDiscoveryTests(unittest.TestCase):
             self.assertNotIn('type',self.app.to_dict()['commands'])
             with self.assertRaises(ValueError): self.engine.propose('0x4d2','type',{'control_id':'a'*64,'text':'hi'})
 
+    def test_observed_button_proposes_only_reviewed_invoke(self):
+        button=dict(control_id='b'*64, control_type='ControlType.Button', name='Nuevo chat', enabled=True, offscreen=False)
+        self.app.controls.append(button)
+        with patch.object(self.engine,'resolve',return_value=self.app):
+            self.assertIn('press',self.app.to_dict()['commands'])
+            proposal=self.engine.propose('0x4d2','press',{'control_id':'b'*64})
+            self.assertEqual(proposal['command_id'],'axx.desktop.window.invoke')
+            self.assertEqual(proposal['inputs']['expected_name'],'Nuevo chat')
+            with self.assertRaises(ValueError): self.engine.propose('0x4d2','press',{'control_id':'a'*64})
+            button['offscreen']=True
+            with self.assertRaises(ValueError): self.engine.propose('0x4d2','press',{'control_id':'b'*64})
+
     def test_no_executor_or_approval_bypass(self):
         self.assertFalse(hasattr(self.engine,'execute_command'))
         self.assertNotIn('axx.desktop.cli_anything.execute',ADAPTERS)
