@@ -44,10 +44,18 @@ const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
   const listed=await run('axx.desktop.list_windows',{});const target=listed.output.windows.find(w=>w.pid===fixture.pid);assert(target);
   const identity={window_id:'0x'+target.window_id.toString(16),pid:target.pid};
   const processInfo=await run('axx.process.inspect',{pid:target.pid});
+  let selected;
   for(const [name,status] of [['Confirmar','selected'],['Duplicado','ambiguous'],['Ausente','not_found']]){
    const result=await run('axx.desktop.window.find',{...identity,name});assert.equal(result.state,'succeeded');
    assert.equal(result.output.selection_status,status);assert.equal(result.output.observation.process_started,processInfo.output.process_started);
+   if(status==='selected')selected=result.output;
   }
+  const invoked=await run('axx.desktop.window.invoke',{...identity,control_id:selected.candidate.control_id,
+   expected_title:selected.window_title,expected_name:'Confirmar'},'foreground');
+  assert.equal(invoked.state,'unknown');assert.equal(invoked.dispatch_status,'delivered');assert.equal(invoked.postconditions_passed,false);
+  const observed=await run('axx.desktop.window.inspect',identity);
+  assert.equal(observed.state,'succeeded');assert(observed.output.controls.some(c=>[c.name,c.text,c.value].includes('Confirmado')));
+  receipt.checks.push('Real button effect observed independently; generic dispatch receipt remains uncertain');
   const file=await run('axx.artifact.write',{path:'unified-acceptance-'+Date.now()+'.txt',content:'Installed unified execution verified'});
   assert.equal(file.state,'succeeded');assert.equal(file.effect_status,'confirmed');assert(file.postconditions_passed);
   receipt.checks.push('Packaged UIA selected/abstained on real WPF controls and matched process instance');
