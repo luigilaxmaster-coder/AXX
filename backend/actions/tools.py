@@ -408,7 +408,8 @@ class DesktopTool(BaseTool):
         from .desktop import open_target
         from .windows_automation import UncertainEffect
         try:
-            if self.kind in ('focus_window', 'set_window_value', 'invoke_window_button', 'notepad_text', 'explorer_folder', 'open_app', 'move_pointer', 'first_video_pointer', 'spotify_play'):
+            requires_control = self.kind in ('focus_window', 'set_window_value', 'invoke_window_button', 'notepad_text', 'explorer_folder', 'open_app', 'move_pointer', 'first_video_pointer', 'spotify_play')
+            if requires_control or self.kind == 'installed_app' and input_control is not None:
                 if input_control is None:
                     raise ValueError('El dueño de entrada de Windows no está conectado a este ejecutor.')
                 with input_control.automation(cancelled) as control:

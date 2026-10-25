@@ -21,7 +21,7 @@ SNAPSHOT = 'd90ca5fe260221311c53c58e660288d3deb8d356'
 MAX_AUDIO = 1400 * 1024
 MAX_SECONDS = 60
 MAX_WORKER_OUTPUT = 256 * 1024
-VOICE_CONTEXT = 'Spotify. Google Chrome. ChatGPT. Antigravity. Obsidian. CMD. Mueve el mouse. Reproduce. Pausa.'
+VOICE_CONTEXT = 'Spotify. Google Chrome. YouTube. ChatGPT. Obsidian.'
 
 
 def excessive_repetition(text):
@@ -30,15 +30,16 @@ def excessive_repetition(text):
                                     for n in range(2, 6) for i in range(len(words) - 3 * n + 1))
 
 def model_path():
+    local_base = Path(os.environ.get('LOCALAPPDATA', str(Path.home())))/'Axx'/'models'/'faster-whisper-base'
     if getattr(sys,'frozen',False):
-        candidates = [Path(sys.executable).parent/'models'/'faster-whisper-tiny',
+        candidates = [local_base, Path(sys.executable).parent/'models'/'faster-whisper-tiny',
                       Path(sys.executable).parent/'resources'/'models'/'faster-whisper-tiny',
                       Path(getattr(sys,'_MEIPASS',Path(sys.executable).parent))/'models'/'faster-whisper-tiny',
                       Path(getattr(sys,'_MEIPASS',Path(sys.executable).parent))/'resources'/'models'/'faster-whisper-tiny']
     else:
         repo_root = Path(__file__).resolve().parents[2]
         hf_snapshots = Path.home()/'.cache'/'huggingface'/'hub'/'models--Systran--faster-whisper-tiny'/'snapshots'
-        candidates = [repo_root/'resources'/'models'/'faster-whisper-tiny',
+        candidates = [local_base, repo_root/'resources'/'models'/'faster-whisper-tiny',
                       repo_root/'src-tauri'/'resources'/'models'/'faster-whisper-tiny',
                       Path(os.environ.get('LOCALAPPDATA', str(Path.home())))/'Axx'/'models'/'faster-whisper-tiny',
                       hf_snapshots/SNAPSHOT]
@@ -106,7 +107,7 @@ def worker_main():
                     'audio_duration_seconds':round(samples/16000,3),'silence_detected':False}
             if excessive_repetition(result['text']):
                 raise SpeechError('INVALID_RESPONSE','El dictado repitió palabras varias veces. Repite la orden antes de ejecutar una acción.')
-        result.update({'engine':'faster-whisper','model':'tiny','device':'cpu','compute_type':'int8',
+        result.update({'engine':'faster-whisper','model':Path(request['model_path']).name.removeprefix('faster-whisper-'),'device':'cpu','compute_type':'int8',
                        'task':request['task'],'translation_target':'en' if request['task']=='translate' else None,
                        'external_calls':0,'automatic_actions':False})
         result['timings_ms']={'imports':round((imported-started)*1000), 'decode':round((decoded-imported)*1000),
@@ -129,7 +130,7 @@ class OfflineTranscriptionService:
         self._busy=threading.Lock();self._lock=threading.Lock();self._active=None
 
     def status(self):
-        return {'engine':'faster-whisper','model':'tiny','available':bool(self.model_path and importlib.util.find_spec('faster_whisper')),
+        return {'engine':'faster-whisper','model':self.model_path.name.removeprefix('faster-whisper-') if self.model_path else 'tiny','available':bool(self.model_path and importlib.util.find_spec('faster_whisper')),
                 'device':'cpu','compute_type':'int8','local_only':True,'external_calls':0,'max_duration_seconds':MAX_SECONDS}
 
     def close(self): self.cancel_active()
@@ -159,7 +160,7 @@ class OfflineTranscriptionService:
                  or (mime.startswith('audio/ogg') and raw.startswith(b'OggS'))
                  or (mime.startswith('audio/mp4') and raw[4:8]==b'ftyp'))
         if not valid:raise SpeechError('INVALID_REQUEST','Audio signature does not match its MIME type')
-        if not self.status()['available']:raise SpeechError('NOT_SUPPORTED','Bundled local tiny transcription model or runtime is unavailable')
+        if not self.status()['available']:raise SpeechError('NOT_SUPPORTED','El modelo local de transcripción o su motor no está disponible.')
         if not self._busy.acquire(False):raise SpeechError('BUSY','Local transcription is busy')
         try:
             self.data_dir.mkdir(parents=True,exist_ok=True)

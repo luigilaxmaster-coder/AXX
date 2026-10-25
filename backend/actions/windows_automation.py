@@ -168,11 +168,19 @@ def observe_foreground(expected_title=None, timeout=5.0, before=None, aliases=()
                 ready = bool(current and current['foreground'])
                 return {'launch_requested': True, 'window_observed': True, 'foreground_verified': ready,
                         'ready_for_action': ready, 'window': current, 'verification': 'process_window_readback' if ready else 'launch_handoff_only'}
-        foreground = next((row for row in windows if row['foreground']), None)
-        title = _normalize(foreground['title']) if foreground else ''
-        matches_name = not expected_process and any(expected in title for expected in expected_values)
-        latest = foreground if matches_name else None
-        if foreground and matches_name:
+        matching = [] if expected_process else [row for row in windows if any(expected in _normalize(row['title']) for expected in expected_values)]
+        fresh = [row for row in matching if row['window_id'] not in before_ids]
+        selected = fresh if fresh else matching
+        active = [row for row in selected if row['foreground']]
+        latest = active[0] if len(active) == 1 else selected[0] if len(selected) == 1 else None
+        if latest:
+            if not latest['foreground'] and control is not None:
+                try:
+                    focus_window(latest['window_id'], latest['pid'], control)
+                except ValueError:
+                    if cancelled is not None and cancelled.is_set():
+                        raise
+                latest = next((row for row in list_windows() if row['window_id'] == latest['window_id'] and row['pid'] == latest['pid']), None)
             break
         if time.monotonic() >= deadline:
             break
@@ -188,7 +196,7 @@ def observe_foreground(expected_title=None, timeout=5.0, before=None, aliases=()
     ready = foreground_verified
     return {'launch_requested': True, 'window_observed': window_observed,
             'foreground_verified': foreground_verified, 'ready_for_action': ready,
-            'window': latest, 'verification': 'foreground_window_observation' if ready else 'launch_handoff_only'}
+            'window': latest, 'verification': 'foreground_window_observation' if ready else 'visible_window_observation' if window_observed else 'launch_handoff_only'}
 
 
 def focus_window(window_id, expected_pid, control=None):

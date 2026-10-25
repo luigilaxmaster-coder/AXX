@@ -60,6 +60,22 @@ class DesktopCommandTests(unittest.TestCase):
         self.assertEqual(result,{'match':'exact','command_id':'axx.desktop.installed_app',
                                  'inputs':{'app_id':'OpenAI.Codex!App'}})
 
+    def test_installed_app_uses_input_owner_to_confirm_foreground(self):
+        control=SimpleNamespace(is_set=lambda:False)
+        self.executor.input_control=SimpleNamespace(automation=lambda cancelled:nullcontext(control))
+        observed={'launch_requested':True,'window_observed':True,'foreground_verified':True,
+                  'ready_for_action':True,'verification':'foreground_window_observation',
+                  'window':{'window_id':18,'pid':45,'title':'Obsidian','foreground':True}}
+        with patch('backend.actions.windows_apps.installed_apps',return_value=[{'name':'Obsidian','app_id':'md.obsidian'}]), \
+             patch('backend.actions.windows_automation.list_windows',return_value=[]), \
+             patch('backend.actions.windows_automation.observe_foreground',return_value=observed) as observe, \
+             patch('backend.actions.desktop.os.startfile',create=True):
+            pending=self.service.prepare('axx.desktop.installed_app',{'app_id':'md.obsidian'})
+            result=self.service.execute(pending['operation_id'])
+        self.assertEqual(result['state'],'succeeded',result)
+        self.assertTrue(result['evidence']['ready_for_action'])
+        self.assertIs(observe.call_args.kwargs['control'],control)
+
     def test_spotify_play_invokes_observed_button_and_checks_pause_readback(self):
         def controls(name):
             return {'truncated': True, 'controls': [

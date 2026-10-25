@@ -11312,13 +11312,19 @@ var Axx;
         }
         setupVoice() {
             this.companion.voiceDelegate = { toggle: () => this.toggleDictation(), read: text => this.loadAndRead(text, 'Respuesta de Axx'), stopInput: () => this.dictation.stop(), stopOutput: () => this.reader.stop(), preserveFor: text => /^(para|pausa|pausar|sigue|seguir|continua|continuar|reanuda|reanudar)( la lectura)?$/.test(Axx.plain(text).replace(/^axx\W*/, '').replace(/[.!?]$/, '')), state: () => this.dictation.state === 'listening' ? 'listening' : this.reader.state === 'speaking' ? 'speaking' : null };
-            this.dictation.onState = () => { const active = this.dictation.state === 'listening', starting = this.dictation.state === 'starting'; sx('voice-pill').hidden = !active && !starting; sx('voice-pill-label').textContent = starting ? 'Solicitando micrófono…' : this.use === 'transcript' ? 'Transcribiendo micrófono' : this.use === 'live' ? 'Conversación · escuchando' : this.use === 'command' ? 'Esperando una orden' : 'Dictando · ' + this.targetName(); sx('dictation-state').textContent = active ? 'Escuchando · el audio puede procesarse mediante el servicio del navegador.' : starting ? 'Esperando permiso y servicio de reconocimiento…' : 'Micrófono apagado.'; sx('chat-mic').setAttribute('aria-pressed', String(active)); sx('speech-indicator').hidden = !active && this.reader.state !== 'speaking'; if (active)
-                sx('speech-status').textContent = 'Dictado activo · navegador'; if (active) {
+            this.dictation.onState = () => { const active = this.dictation.state === 'listening', starting = this.dictation.state === 'starting', local = !!Axx.nativeVoice; sx('voice-pill').hidden = !active && !starting; sx('voice-pill-label').textContent = starting ? 'Solicitando micrófono…' : this.use === 'transcript' ? 'Transcribiendo micrófono' : this.use === 'live' ? 'Conversación · escuchando' : this.use === 'command' ? 'Esperando una orden' : 'Dictando · ' + this.targetName(); sx('dictation-state').textContent = active ? local ? 'Escuchando · transcripción local.' : 'Escuchando · el audio puede procesarse mediante el servicio del navegador.' : starting ? 'Esperando permiso y servicio de reconocimiento…' : 'Micrófono apagado.'; sx('chat-mic').setAttribute('aria-pressed', String(active)); sx('speech-indicator').hidden = !active && this.reader.state !== 'speaking'; if (active)
+                sx('speech-status').textContent = local ? 'Dictado activo · local' : 'Dictado activo · navegador'; if (active) {
                 this.app.stopDemo();
                 this.companion.emit('listening');
             } this.companion.refreshVoiceState(); };
             this.dictation.onInterim = text => { sx('dictation-interim').textContent = text ? text + ' …' : ''; };
-            this.dictation.onError = message => { this.liveActive = false; this.notice(message); sx('dictation-state').textContent = message; sx('transcript-state').textContent = message; sx('live-status').textContent = message; };
+            this.dictation.onError = message => {
+                const retry = this.liveActive && /^(?:El dictado repitió|No se reconoció una frase)/.test(message);
+                if (!retry) this.liveActive = false;
+                this.notice(message); sx('dictation-state').textContent = message; sx('transcript-state').textContent = message;
+                sx('live-status').textContent = retry ? message + ' Escuchando de nuevo…' : message;
+                if (retry) window.setTimeout(() => { if (this.liveActive && !document.hidden) this.startListening('live', true); }, 250);
+            };
             this.dictation.onFinal = text => this.onFinal(text);
             this.dictation.onEnded = () => { if (this.liveActive && this.liveText.trim())
                 void this.sendLive();
@@ -11422,7 +11428,7 @@ var Axx;
                 this.liveText += (this.liveText ? ' ' : '') + text;
                 if (this.liveSilence !== null)
                     clearTimeout(this.liveSilence);
-                this.liveSilence = window.setTimeout(() => { void this.sendLive(); }, 1300);
+                this.liveSilence = window.setTimeout(() => { void this.sendLive(); }, 150);
                 return;
             }
             if (this.use === 'transcript') {

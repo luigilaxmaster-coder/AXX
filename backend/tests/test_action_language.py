@@ -1,6 +1,8 @@
 import unittest
+import subprocess
 from unittest.mock import patch
 from backend.actions.desktop import resolve_desktop
+from backend.actions import windows_apps
 
 class ActionLanguageTests(unittest.TestCase):
     def test_compound_and_conversational_search(self):
@@ -45,5 +47,22 @@ class ActionLanguageTests(unittest.TestCase):
             self.assertEqual(resolve_desktop('busca Obsidian en mi escritorio y ábrelo','voice')['inputs'],{'app_id':'md.obsidian'})
             self.assertFalse(resolve_desktop('abre app desconocida','voice').get('match')=='exact')
             self.assertEqual(resolve_desktop('busca informe.pdf en mi escritorio y ábrelo','voice')['match'],'unsupported')
+
+    def test_recent_spoken_commands_keep_the_requested_destination(self):
+        self.assertEqual(resolve_desktop('abre yotube','voice')['inputs'],{'url':'https://www.youtube.com/'})
+        self.assertEqual(resolve_desktop('en chrome busca youtube','voice')['inputs'],{'engine':'google','query':'youtube'})
+        self.assertEqual(resolve_desktop('busca en Chrome Obsidian','voice')['inputs'],{'engine':'google','query':'Obsidian'})
+        result=resolve_desktop('ponme en spotify faint de linkinpark','voice')
+        self.assertEqual(result['command_id'],'axx.desktop.open_url')
+        self.assertEqual(result['inputs']['url'],'https://open.spotify.com/search/faint%20de%20linkinpark')
+        self.assertNotEqual(resolve_desktop('ponme Spotify algo más en YouTube','voice').get('command_id'),'axx.desktop.search')
+
+    def test_windows_inventory_uses_last_observed_apps_after_timeout(self):
+        observed=[{'name':'Obsidian','app_id':'md.obsidian'}]
+        with patch.object(windows_apps,'_cache',observed), patch.object(windows_apps,'_updated',0), \
+             patch.object(windows_apps.subprocess,'run',side_effect=subprocess.TimeoutExpired('Get-StartApps',12)) as launch:
+            self.assertEqual(windows_apps.installed_apps(refresh=True),observed)
+            self.assertEqual(windows_apps.find_app('obsidian',lambda value:value.casefold()),observed)
+            self.assertEqual(launch.call_count,1)
 
 if __name__=='__main__':unittest.main()

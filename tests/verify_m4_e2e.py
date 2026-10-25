@@ -89,7 +89,7 @@ class Milestone4VoiceTranslationE2ETests(unittest.TestCase):
 
     def test_1_whisper_model_path_and_tts_to_asr_roundtrip(self):
         resolved = model_path()
-        self.assertIsNotNone(resolved, 'faster-whisper-tiny model_path() must resolve')
+        self.assertIsNotNone(resolved, 'a complete local faster-whisper model must resolve')
         self.assertTrue((resolved / 'model.bin').is_file())
 
         code, status = self.request('GET', '/axx-api/speech/status')
@@ -119,7 +119,7 @@ class Milestone4VoiceTranslationE2ETests(unittest.TestCase):
         })
         self.assertEqual(code, 200)
         self.assertEqual(asr['engine'], 'faster-whisper')
-        self.assertEqual(asr['model'], 'tiny')
+        self.assertEqual(asr['model'], resolved.name.removeprefix('faster-whisper-'))
         self.assertFalse(asr['silence_detected'])
         self.assertTrue(len(asr['text'].strip()) > 0, f'Expected transcribed text, got: {asr}')
 
