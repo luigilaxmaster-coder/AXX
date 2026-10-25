@@ -480,7 +480,9 @@ class CommandService:
                     raise ValueError('operation_id ya está vinculado a otros parámetros')
                 return existing | {'replayed': True}
             if command_mode is not None:
-                pending = self.db.execute("SELECT operation_id FROM command_runs WHERE (state IN ('prepared','awaiting_approval','running') AND expires_at>?) OR state='unknown' LIMIT 1", (time.time(),)).fetchone()
+                # Unknown effects are guarded by target below; they must not prevent
+                # the independent observations needed to reconcile them.
+                pending = self.db.execute("SELECT operation_id FROM command_runs WHERE state IN ('prepared','awaiting_approval','running') AND expires_at>? LIMIT 1", (time.time(),)).fetchone()
                 if pending:
                     raise ValueError('Hay un comando pendiente. Revisa o cancela la operación antes de preparar otra.')
             command = self.commands[command_id]
@@ -492,7 +494,7 @@ class CommandService:
                         previous = json.loads(row[0])
                         if previous['inputs'] == inputs:
                             raise ValueError('Hay un efecto desconocido de esta operación. Revisa su resultado antes de repetirla.')
-                if command_id in ('axx.desktop.notepad.text', 'axx.desktop.window.set_value'):
+                if command_id in ('axx.desktop.notepad.text', 'axx.desktop.window.set_value', 'axx.desktop.window.invoke'):
                     for row in self.db.execute("SELECT result_json FROM command_runs WHERE state='unknown' AND command_id=?", (command_id,)):
                         previous = json.loads(row[0])
                         identity = ('window_title',) if command_id == 'axx.desktop.notepad.text' else ('window_id', 'pid', 'control_id')

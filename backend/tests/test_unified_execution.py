@@ -96,6 +96,8 @@ class UnifiedExecutionTests(unittest.TestCase):
         self.assertEqual(result['state'], 'unknown')
         with self.assertRaisesRegex(ValueError, 'efecto desconocido'):
             self.commands.prepare('axx.desktop.open_app', inputs)
+        inspection = self.commands.prepare('axx.architecture.status', {}, command_mode='ask')
+        self.assertEqual(self.commands.execute(inspection['operation_id'], approved=True)['state'], 'succeeded')
 
     def test_reconciliation_updates_effect_state_in_both_receipts(self):
         inputs = {'window_id':'0x123', 'pid':42, 'control_id':'a'*64, 'value':'confirmed'}
