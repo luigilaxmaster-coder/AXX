@@ -60,7 +60,8 @@ class WindowsAutomationTests(unittest.TestCase):
         self.assertIn('-MTA', command)
         self.assertIn('-EncodedCommand', command)
         self.assertNotIn('test', command)
-        self.assertEqual(worker.input, ('{"operation":"set_value","window_id":12,"pid":45,"control_id":"' + control_id + '","value":"test"}').encode())
+        self.assertEqual(json.loads(worker.input), {'operation':'set_value', 'window_id':12, 'pid':45,
+                         'control_id':control_id, 'value':'test', 'expected_title':None})
         self.assertEqual(result['verification'], 'uia_value_readback')
 
     def test_set_value_rejects_invalid_text_before_worker(self):

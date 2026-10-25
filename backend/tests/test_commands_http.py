@@ -57,6 +57,19 @@ class CommandsHttpTests(unittest.TestCase):
         self.assertEqual(result['cancelled_operations'], 0)
         self.assertEqual(self.commands.get(pending['operation_id'])['state'], 'awaiting_approval')
 
+    def test_delivery_mode_is_enforced_across_http(self):
+        status, rejected = self.request('commands/prepare', {'command_id':'axx.desktop.open_app',
+            'inputs':{'app':'calculator'}, 'delivery_mode':'background'})
+        self.assertEqual(status, 400)
+        self.assertIn('background_unavailable', str(rejected))
+        status, pending = self.request('commands/prepare', {'command_id':'axx.architecture.status',
+            'inputs':{}, 'delivery_mode':'background'})
+        self.assertEqual(status, 200)
+        status, result = self.request('commands/execute', {'operation_id':pending['operation_id']})
+        self.assertEqual(status, 200)
+        self.assertEqual(result['state'], 'succeeded')
+        self.assertEqual(result['delivery_mode'], 'background')
+
     def test_conversational_context_crosses_transport_and_details_are_read_only(self):
         status, result = self.request('commands/resolve', {'text': 'busca afraid', 'source': 'text', 'context': {'engine': 'youtube'}})
         self.assertEqual(status, 200)

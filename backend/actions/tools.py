@@ -17,6 +17,7 @@ import re
 import shutil
 import sys
 import threading
+import time
 from typing import Any
 
 
@@ -271,6 +272,7 @@ class ProcessStateTool(BaseTool):
         target_pid = inputs.get('pid', os.getpid())
         try:
             is_active = False
+            details = {'observed_at': time.time(), 'identity_status': 'unavailable'}
             if os.name == 'nt':
                 # Query only the requested PID. No locale-sensitive command
                 # output or substring matching can count another PID as active.
@@ -283,7 +285,7 @@ class ProcessStateTool(BaseTool):
                 kernel.WaitForSingleObject.restype = wintypes.DWORD
                 kernel.CloseHandle.argtypes = [wintypes.HANDLE]
                 kernel.CloseHandle.restype = wintypes.BOOL
-                handle = kernel.OpenProcess(0x100000, False, target_pid)  # SYNCHRONIZE only
+                handle = kernel.OpenProcess(0x101000, False, target_pid)  # SYNCHRONIZE + QUERY_LIMITED_INFORMATION
                 if handle:
                     try:
                         status = kernel.WaitForSingleObject(handle, 0)
@@ -292,8 +294,24 @@ class ProcessStateTool(BaseTool):
                         if status not in (0, 258):
                             raise OSError(f'Unexpected process wait status: {status}')
                         is_active = status == 258
+                        kernel.QueryFullProcessImageNameW.argtypes = [wintypes.HANDLE, wintypes.DWORD, wintypes.LPWSTR, ctypes.POINTER(wintypes.DWORD)]
+                        kernel.QueryFullProcessImageNameW.restype = wintypes.BOOL
+                        name = ctypes.create_unicode_buffer(32768)
+                        length = wintypes.DWORD(len(name))
+                        if kernel.QueryFullProcessImageNameW(handle, 0, name, ctypes.byref(length)):
+                            details['executable'] = name.value
+                        kernel.GetProcessTimes.argtypes = [wintypes.HANDLE, *[ctypes.POINTER(wintypes.FILETIME)] * 4]
+                        kernel.GetProcessTimes.restype = wintypes.BOOL
+                        created, ended, cpu_kernel, cpu_user = (wintypes.FILETIME() for _ in range(4))
+                        if kernel.GetProcessTimes(handle, ctypes.byref(created), ctypes.byref(ended), ctypes.byref(cpu_kernel), ctypes.byref(cpu_user)):
+                            details.update(process_started=str((created.dwHighDateTime << 32) | created.dwLowDateTime),
+                                           process_time_format='windows_filetime_100ns', identity_status='observed')
                     finally:
                         kernel.CloseHandle(handle)
+                elif ctypes.get_last_error() == 5:
+                    return ToolResult(False, error='Acceso denegado al proceso.',
+                                      output={'pid': target_pid, 'active': None, 'status': 'access_denied', **details},
+                                      evidence={'pid': target_pid, 'status': 'access_denied'})
                 elif ctypes.get_last_error() != 87:
                     raise ctypes.WinError(ctypes.get_last_error())
             else:
@@ -305,8 +323,8 @@ class ProcessStateTool(BaseTool):
 
             return ToolResult(
                 success=True,
-                output={'pid': target_pid, 'active': is_active},
-                evidence={'pid': target_pid, 'checked_active': is_active}
+                output={'pid': target_pid, 'active': is_active, 'status': 'active' if is_active else 'not_running', **details},
+                evidence={'pid': target_pid, 'checked_active': is_active, **details}
             )
         except Exception as e:
             return ToolResult(success=False, error=str(e))
@@ -461,8 +479,52 @@ class FileInspectionTool(BaseTool):
         return bool(valid), 'Stable SHA256 verified' if valid else result.error or 'Hash unavailable'
 
 
+class ArchitectureStatusTool(BaseTool):
+    name = 'architecture_status'
+    description = 'Reports registered architecture components without inferring integrations from skills'
+
+    def verify_preconditions(self, inputs):
+        return not inputs, 'No parameters accepted'
+
+    def execute(self, inputs):
+        from .execution_contract import architecture_status
+        output = architecture_status()
+        return ToolResult(True, output=output, evidence={'verification': 'local_component_inventory',
+                                                       'observed_at': output['observed_at']})
+
+    def verify_postconditions(self, inputs, result):
+        return bool(result.success and result.output.get('components')), 'Local component inventory observed'
+
+
+class FindControlTool(BaseTool):
+    name = 'desktop_find_control'
+    description = 'Find a unique enabled UIA button by exact label without executing it'
+
+    def verify_preconditions(self, inputs):
+        from .desktop import _validate_window_ref
+        try:
+            _validate_window_ref(inputs.get('window_id'), inputs.get('pid'))
+            name = inputs.get('name')
+            if not isinstance(name, str) or not name.strip() or len(name) > 200:
+                raise ValueError('Nombre de botón inválido')
+            return True, 'Window and semantic target validated'
+        except ValueError as exc:
+            return False, str(exc)
+
+    def execute_cancellable(self, inputs, workspace_root, cancelled):
+        from .windows_automation import find_control
+        output = find_control(int(inputs['window_id'], 16), inputs['pid'], inputs['name'], cancelled)
+        return ToolResult(True, output=output, evidence={'verification': 'semantic_control_selection',
+                          'selection_status': output['selection_status'], 'observation': output['observation']})
+
+    def verify_postconditions(self, inputs, result):
+        return bool(result.success and result.output.get('selection_status') in ('selected', 'ambiguous', 'not_found')), 'Selection or abstention observed; no effect executed'
+
+
 # Registry of available tools
 TOOL_REGISTRY: dict[str, BaseTool] = {
+    FindControlTool.name: FindControlTool(),
+    ArchitectureStatusTool.name: ArchitectureStatusTool(),
     FileInspectionTool.name: FileInspectionTool(),
     FileArtifactTool.name: FileArtifactTool(),
     SystemTelemetryTool.name: SystemTelemetryTool(),

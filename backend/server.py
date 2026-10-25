@@ -694,7 +694,7 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                     return
                 fields = {
                     'resolve': {'text', 'source', 'context', 'project_id'},
-                    'prepare': {'command_id', 'inputs', 'source', 'operation_id', 'conversation_id', 'command_mode'},
+                    'prepare': {'command_id', 'inputs', 'source', 'operation_id', 'conversation_id', 'command_mode', 'delivery_mode'},
                     'execute': {'operation_id', 'approved'},
                     'cancel': {'operation_id'},
                     'reconcile': {'operation_id'},
@@ -708,7 +708,7 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                     if body.get('conversation_id') and self.chats:
                         body['command_mode'] = self.chats.get(body['conversation_id'])['mode']
                     result = self.commands.prepare(body.get('command_id'), body.get('inputs', {}),
-                        body.get('source', 'text'), body.get('operation_id'), conversation_id=body.get('conversation_id'), command_mode=body.get('command_mode'))
+                        body.get('source', 'text'), body.get('operation_id'), conversation_id=body.get('conversation_id'), command_mode=body.get('command_mode'), delivery_mode=body.get('delivery_mode'))
                 elif action == 'execute':
                     result = self.commands.execute(body.get('operation_id'), body.get('approved', False))
                 elif action == 'reconcile':

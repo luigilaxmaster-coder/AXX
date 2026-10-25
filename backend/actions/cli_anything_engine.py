@@ -20,6 +20,7 @@ class CLIAppInterface:
     controls: list[dict]
     truncated: bool
     observed_at: float
+    observation: dict | None = None
 
     def to_dict(self):
         commands = {name: {'command_id': 'axx.desktop.window.' + name, 'available': True}
@@ -36,7 +37,7 @@ class CLIAppInterface:
                                  'control_ids': [c['control_id'] for c in buttons]}
         return {'window_id': self.window_id, 'pid': self.pid, 'title': self.title,
                 'class_name': self.class_name, 'foreground': self.foreground,
-                'observed_at': self.observed_at, 'total_controls': len(self.controls),
+                'observed_at': self.observed_at, 'observation': self.observation, 'total_controls': len(self.controls),
                 'truncated': self.truncated, 'commands': commands, 'controls': self.controls,
                 'limitation': 'Solo controles expuestos por UIA. Los patrones observados no son acciones validadas; toda ejecución pasa por el registro y su política.'}
 
@@ -82,7 +83,7 @@ class CLIAnythingEngine:
         if result.get('window_title') != window['title']:
             raise ValueError('La ventana cambió durante la observación.')
         return CLIAppInterface(window_id, pid, window['title'], window['class_name'], window['foreground'],
-                               result.get('controls', [])[:1000], bool(result.get('truncated')), time.time())
+                               result.get('controls', [])[:1000], bool(result.get('truncated')), time.time(), result.get('observation'))
 
     def resolve(self, target, cancelled=None):
         if target is None:
@@ -108,7 +109,7 @@ class CLIAnythingEngine:
                              'requires_approval': bool(adapter.get('requires_approval', adapter['risk'] != 'read')),
                              'execution_verified': False})
         return {'window_id': app.window_id, 'pid': app.pid, 'title': app.title,
-                'observed_at': app.observed_at, 'commands': commands,
+                'observed_at': app.observed_at, 'observation': app.observation, 'commands': commands,
                 'observed_controls': app.controls, 'truncated': app.truncated,
                 'limitation': observation['limitation'],
                 'learning_endpoint': '/axx-api/learning/actions'}

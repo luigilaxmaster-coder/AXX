@@ -13,12 +13,14 @@ import os
 from pathlib import Path
 import subprocess
 import time
+import uuid
 from urllib.parse import urlsplit, parse_qs
 
 MAX_WINDOWS = 512
 MAX_CONTROLS = 250
 MAX_UITEXT = 8192
 UIA_TIMEOUT_SECONDS = 8
+OBSERVATION_SESSION_ID = str(uuid.uuid4())
 
 
 class UncertainEffect(ValueError):
@@ -220,6 +222,25 @@ def inspect_controls(window_id, expected_pid, cancelled=None):
                  'pid': _positive_int(expected_pid, 'pid')}, cancelled=cancelled)
 
 
+def find_control(window_id, expected_pid, name, cancelled=None):
+    """Resolve an exact semantic button label; abstain on incomplete/ambiguous trees."""
+    if not isinstance(name, str) or not name.strip() or len(name) > 200:
+        raise ValueError('Indica el nombre exacto del botón (máximo 200 caracteres).')
+    observed = inspect_controls(window_id, expected_pid, cancelled)
+    candidates = [row for row in observed.get('controls', [])
+                  if row.get('control_type') == 'ControlType.Button'
+                  and row.get('enabled') and not row.get('offscreen')
+                  and row.get('supports_invoke_pattern') is True
+                  and _normalize(row.get('name', '')).strip() == _normalize(name).strip()]
+    status = ('ambiguous' if observed.get('truncated') or len(candidates) > 1
+              else 'selected' if len(candidates) == 1 else 'not_found')
+    return {'selection_status': status, 'candidate': candidates[0] if status == 'selected' else None,
+            'candidate_count': len(candidates), 'observation': observed.get('observation'),
+            'window_title': observed.get('window_title'), 'truncated': bool(observed.get('truncated')),
+            'reason': 'incomplete_observation' if observed.get('truncated') else status,
+            'verification': 'semantic_control_selection', 'effect_executed': False}
+
+
 def read_window_content(window_id, expected_pid, expected_title, cancelled=None):
     if not isinstance(expected_title, str) or not 1 <= len(expected_title) <= 2048:
         raise ValueError('Indica el título observado de la ventana.')
@@ -314,6 +335,8 @@ def _uia(payload, cancelled=None, timeout=None):
     runtime_names = {'SYSTEMROOT', 'WINDIR', 'TEMP', 'TMP', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'PROGRAMDATA', 'PSMODULEPATH'}
     env = {key: value for key, value in os.environ.items() if key.upper() in runtime_names}
     env['AXX_UIA_WORKER'] = str(script.resolve())
+    started_at = time.time()
+    started_monotonic = time.monotonic()
     try:
         process = subprocess.Popen([str(executable), '-NoLogo', '-NoProfile', '-NonInteractive', '-MTA',
                                     '-EncodedCommand', encoded_worker],
@@ -370,6 +393,17 @@ def _uia(payload, cancelled=None, timeout=None):
         raise error_type('UI Automation devolvió una respuesta inválida.') from exc
     if not isinstance(response, dict) or response.get('success') is not True:
         raise error_type(str(response.get('error', 'UI Automation no confirmó el resultado.'))[:1000])
+    if payload['operation'] in ('inspect', 'read_content', 'scrape_app', 'locate_edit'):
+        response['observation'] = {'schema_version': 1, 'observation_id': str(uuid.uuid4()),
+                                   'context_id': 'host', 'session_id': OBSERVATION_SESSION_ID,
+                                   'window_id': payload['window_id'], 'pid': payload['pid'],
+                                   'process_started': response.get('process_started'),
+                                   'process_time_format': 'windows_filetime_100ns',
+                                   'started_at': started_at, 'completed_at': time.time(),
+                                   'duration_ms': round((time.monotonic() - started_monotonic) * 1000, 2),
+                                   'coordinate_system': 'physical_virtual_desktop_pixels',
+                                   'source': 'windows_uia', 'screenshot': None,
+                                   'screenshot_unavailable_reason': 'Esta ruta observa accesibilidad, no captura imagen.'}
     return response
 
 

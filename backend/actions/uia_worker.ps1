@@ -34,10 +34,11 @@ try {
     if ($null -eq $root -or $root.Current.ProcessId -ne [int]$request.pid) {
         throw 'La ventana observada ya no existe o pertenece a otro proceso.'
     }
+    $processStarted = [Diagnostics.Process]::GetProcessById([int]$request.pid).StartTime.ToFileTimeUtc().ToString()
 
     function Get-ControlToken($element, [long]$windowId, [int]$processId) {
         $runtimeId = $element.GetRuntimeId()
-        $identity = "$windowId`:$processId`:$($runtimeId -join ',')"
+        $identity = "$windowId`:$processId`:$processStarted`:$($runtimeId -join ',')"
         $bytes = [System.Text.UTF8Encoding]::new($false).GetBytes($identity)
         $sha = [System.Security.Cryptography.SHA256]::Create()
         try { return [BitConverter]::ToString($sha.ComputeHash($bytes)).Replace('-', '').ToLowerInvariant() }
@@ -77,7 +78,7 @@ try {
                 name = [string]$item.Current.Name })
         }
         [Console]::Out.Write((@{success=$true;window_title=[string]$root.Current.Name;controls=@($found);
-            truncated=($edits.Count -gt 64);verification='visible_edit_controls_observed'} | ConvertTo-Json -Depth 4 -Compress))
+            process_started=$processStarted;truncated=($edits.Count -gt 64);verification='visible_edit_controls_observed'} | ConvertTo-Json -Depth 4 -Compress))
         exit 0
     }
 
@@ -117,6 +118,8 @@ try {
                 if ($name.Length -gt 200) { $name = $name.Substring(0, 200) }
             }
             $valuePattern = $null
+            $invokePattern = $null
+            $hasInvokePattern = $item.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$invokePattern)
             $hasValuePattern = $item.TryGetCurrentPattern(
                 [System.Windows.Automation.ValuePattern]::Pattern, [ref]$valuePattern)
             $text = ''; $value = ''
@@ -152,6 +155,7 @@ try {
                 enabled = [bool]$item.Current.IsEnabled
                 offscreen = [bool]$item.Current.IsOffscreen
                 supports_value_pattern = [bool]$hasValuePattern
+                supports_invoke_pattern = [bool]$hasInvokePattern
                 read_only = $(if ($hasValuePattern) { [bool]$valuePattern.Current.IsReadOnly } else { $true })
                 text = $text
                 value = $value
@@ -236,6 +240,7 @@ try {
             value_sha256 = $actualHash; value_length = $actual.Length; verification = 'uia_value_readback' }
         if (-not $answer.success) { throw 'La lectura posterior no coincide con el texto solicitado.' }
     }
+    $answer['process_started'] = $processStarted
     [Console]::Out.Write(($answer | ConvertTo-Json -Depth 8 -Compress))
 } catch {
     [Console]::Out.Write((@{success=$false;error=$_.Exception.Message;effect_started=$effectStarted} | ConvertTo-Json -Compress))

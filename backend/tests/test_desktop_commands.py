@@ -117,8 +117,10 @@ class DesktopCommandTests(unittest.TestCase):
                 self.service.execute(pending['operation_id'])
             invoke.assert_not_called()
             receipt=self.service.execute(pending['operation_id'],approved=True)
-        self.assertEqual(receipt['state'],'succeeded',receipt)
-        self.assertTrue(receipt['postconditions_passed'])
+        self.assertEqual(receipt['state'],'unknown',receipt)
+        self.assertFalse(receipt['postconditions_passed'])
+        self.assertEqual(receipt['dispatch_status'], 'delivered')
+        self.assertEqual(receipt['effect_status'], 'unknown')
         self.assertFalse(receipt['output']['effect_verified'])
         invoke.assert_called_once()
 

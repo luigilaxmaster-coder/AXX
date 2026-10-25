@@ -509,14 +509,18 @@ def run_shell(kind, inputs, workspace, cancelled):
     for reader in readers:
         reader.start()
     reason = None
+    status = 'exited'
     try:
         deadline = time.monotonic() + SHELL_TIMEOUT
         while process.poll() is None:
             if cancelled.is_set():
+                status = 'cancelled'
                 reason = 'Comando cancelado. Los cambios que ya haya realizado no se deshacen.'
             elif overflow.is_set():
+                status = 'output_limit'
                 reason = 'Comando detenido: la salida superó el límite de 64 KiB.'
             elif time.monotonic() >= deadline:
+                status = 'timeout'
                 reason = 'Comando detenido: superó el límite de 30 segundos.'
             if reason:
                 break
@@ -527,18 +531,22 @@ def run_shell(kind, inputs, workspace, cancelled):
         for reader in readers:
             reader.join(2)
     if cancelled.is_set():
+        status = 'cancelled'
         reason = 'Comando cancelado. Los cambios que ya haya realizado no se deshacen.'
     elif overflow.is_set():
+        status = 'output_limit'
         reason = 'Comando detenido: la salida superó el límite de 64 KiB.'
     # cmd.exe writes in the Windows OEM code page when launched without a console.
     # PowerShell explicitly uses UTF-8 above.
     encoding = f'cp{ctypes.windll.kernel32.GetOEMCP()}' if kind == 'cmd' else 'utf-8'
     output = {'stdout': bytes(buffers[0]).decode(encoding, errors='replace'),
               'stderr': bytes(buffers[1]).decode(encoding, errors='replace'),
-              'exit_code': process.returncode}
+              'exit_code': process.returncode, 'status': status,
+              'output_truncated': overflow.is_set()}
     return {'success': reason is None and process.returncode == 0, 'output': output,
             'error': reason or (f'{"CMD" if kind == "cmd" else "PowerShell"} terminó con código {process.returncode}.' if process.returncode else None),
-            'evidence': {'exit_code': process.returncode, 'cancelled': cancelled.is_set(), 'verification': 'process_exit', 'cwd': str(workspace)}}
+            'evidence': {'exit_code': process.returncode, 'cancelled': cancelled.is_set(), 'verification': 'process_exit', 'cwd': str(workspace),
+                         'process_status': status, 'output_truncated': overflow.is_set(), 'application_effect_verified': False}}
 
 
 def run_powershell(inputs, workspace, cancelled):

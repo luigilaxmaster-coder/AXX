@@ -172,6 +172,16 @@
             node('command-library-availability').textContent = command ? `${command.execution_enabled ? 'Habilitado' : 'Bloqueado: ' + (command.blocked_reason || 'Sin adaptador ejecutable validado')}. ${command.validation_level || command.source_status || ''}` : '';
             node('command-library-prepare').disabled = !Axx.isNative() || !command?.execution_enabled || this.busy || !!this.operation;
             if (!command) return;
+            if (command.delivery) {
+                const label = document.createElement('label'); label.className = 'setting'; label.textContent = 'Entorno de ejecución';
+                const field = document.createElement('select'); field.className = 'field'; field.id = 'command-delivery-mode';
+                for (const [mode, title] of Object.entries({background:'Segundo plano · sin entrada global',foreground:'Escritorio activo · puede usar foco',isolated:'Escritorio aislado'})) {
+                    const option = document.createElement('option'); option.value = mode;
+                    option.disabled = !command.delivery.supported_modes.includes(mode);
+                    option.textContent = title + (option.disabled ? ' · no disponible' : ''); field.append(option);
+                }
+                field.value = command.delivery.default_mode; label.append(field); fields.append(label);
+            }
             for (const [name, schema] of Object.entries(command.parameters || {})) {
                 const label = document.createElement('label'); label.className = 'setting'; label.textContent = name + (schema.required ? ' · obligatorio' : ' · opcional');
                 const field = document.createElement(Array.isArray(schema.enum) ? 'select' : ['content', 'script'].includes(name) ? 'textarea' : 'input');
@@ -228,7 +238,7 @@
         async fromSelection() {
             const command = this.commands.find(item => item.id === node('command-library-select').value);
             if (!command?.execution_enabled) throw new Error('Este comando no tiene un adaptador habilitado.');
-            return this.prepare(command.id, this.typedInputs(), 'text');
+            return this.prepare(command.id, this.typedInputs(), 'text', node('command-delivery-mode')?.value);
         }
         isActionRequest(raw) {
             const text=raw.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/^[¡¿\s]+/,'')
@@ -523,6 +533,7 @@
                 const item = document.createElement('li'), title = document.createElement('strong');
                 title.textContent = (done ? 'Completado · ' : '') + (titles[step.command_id] || this.commands.find(c => c.id === step.command_id)?.title || step.command_id);
                 item.append(title);
+                if (step.delivery_mode) { const mode = document.createElement('p'); mode.textContent = 'Entorno: ' + ({background:'segundo plano',foreground:'escritorio activo',isolated:'aislado'}[step.delivery_mode] || step.delivery_mode); item.append(mode); }
                 if (done) { const note = document.createElement('p'); note.textContent = 'Se conserva el resultado. Este paso no se repetirá.'; item.append(note); }
                 for (const [key, value] of Object.entries(step.inputs || {})) {
                     const label = document.createElement('div'), text = document.createElement('pre');
@@ -540,8 +551,8 @@
             node('command-library-approve').textContent = this.busy ? 'Ejecutando…' : `Aprobar y ejecutar ${pending === 1 ? '1 paso' : pending + ' pasos'}`;
             node('command-library-raw').textContent = JSON.stringify({operation_id:operation.operation_id, steps}, null, 2);
         }
-        async prepare(commandId, inputs, source) {
-            return this.prepareRequest('/axx-api/commands/prepare', { command_id: commandId, inputs, source });
+        async prepare(commandId, inputs, source, deliveryMode) {
+            return this.prepareRequest('/axx-api/commands/prepare', { command_id: commandId, inputs, source, ...(deliveryMode ? {delivery_mode:deliveryMode} : {}) });
         }
         async prepareRequest(path, body) {
             if (this.busy || this.operation) throw new Error('Ya hay un comando pendiente.');

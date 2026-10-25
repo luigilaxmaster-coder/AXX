@@ -9,7 +9,7 @@ Run the installer and open Axx. Python and Node are not required. Start with **A
 
 The packaged backend may take longer on its first launch while Windows extracts and scans it. The native host allows up to 90 seconds for backend readiness and reports a startup error if that limit is exceeded.
 
-Source and published Windows installer are both **v0.21.11**. Android APKs remain local test artifacts until separately published. See [mobile setup and validation](docs/mobile/README.md) and the [version and release procedure](docs/RELEASING.md).
+Source is **v0.21.12**; the published Windows installer is **v0.21.11**. Delivery of the newer source is pending publication. Android APKs remain local test artifacts until separately published. See [mobile setup and validation](docs/mobile/README.md) and the [version and release procedure](docs/RELEASING.md).
 <!-- release:download:end -->
 
 ---
@@ -29,7 +29,7 @@ Source and published Windows installer are both **v0.21.11**. Android APKs remai
   <img src="https://img.shields.io/badge/Frontend-CPU%203D%20%2F%20Canvas-black" alt="CPU 3D and Canvas" />
   <img src="https://img.shields.io/badge/Offline%20Voice-Faster--Whisper%20Tiny-green" alt="Faster-Whisper" />
   <img src="https://img.shields.io/badge/Protocol-Model%20Context%20Protocol%20(MCP)-blueviolet" alt="MCP" />
-  <img src="https://img.shields.io/badge/Source%20Version-v0.21.11-informational" alt="Source version 0.21.11" />
+  <img src="https://img.shields.io/badge/Source%20Version-v0.21.12-informational" alt="Source version 0.21.12" />
   <img src="https://img.shields.io/badge/Development-Active%20Refinement-yellow?logo=git" alt="Active Development" />
 </p>
 
@@ -46,6 +46,21 @@ Source and published Windows installer are both **v0.21.11**. Android APKs remai
 ---
 
 ## Desktop update · October 24, 2026
+
+### Unified execution · October 25, 2026
+
+Commands now declare their supported execution modes and bind the chosen mode to
+the operation ID. Unsupported background or isolated requests are rejected without
+fallback. UIA observations identify the process instance and backend session;
+**Localizar botón por nombre** selects a unique semantic target or abstains.
+Generic button delivery remains unverified until its application effect is known.
+Cancellation is checked at dispatch, and final state and receipt commit together.
+
+Use **estado de integraciones** to inspect the actual component inventory. This is
+the first integration of the revised architecture: external Cua, visual grounding,
+REA, VM and Telegram adapters remain unavailable. Existing native UIA, model
+routing, procedural memory and mobile functionality are retained.
+[Implementation, tests and remaining phases](docs/UNIFIED-EXECUTION.md).
 
 ### Conversations, agent preferences and continuous voice
 
@@ -169,7 +184,7 @@ These are presentation captures of the current UI in an isolated browser. The mo
 ## 🚧 Project Status: Active Continuous Improvement
 
 > [!NOTE]
-> **Axx is under active development.** Source and published Windows installer are both **v0.21.11**. Validation is recorded per feature; a working UI or build does not by itself certify every hardware-dependent behavior.
+> **Axx is under active development.** Source is **v0.21.12**; the published Windows installer is **v0.21.11**. Delivery of the newer source is pending publication. Validation is recorded per feature; a working UI or build does not by itself certify every hardware-dependent behavior.
 
 ### 🟢 Implemented capabilities
 - **Native Startup:** Resident Windows application with a local backend and a launcher fallback to the executable built from this repository.

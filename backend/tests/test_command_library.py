@@ -234,12 +234,14 @@ class CommandLibraryTests(unittest.TestCase):
     def test_cancellation_during_atomic_action_does_not_claim_effect_was_undone(self):
         pending = self.prepare()
         entered, release = threading.Event(), threading.Event()
-        original = self.executor.execute_action
+        from backend.actions.tools import get_tool
+        tool = get_tool('system_telemetry')
+        original = tool.execute_cancellable
         def delayed(*args, **kw):
             entered.set()
             release.wait(3)
             return original(*args, **kw)
-        with patch.object(self.executor, 'execute_action', side_effect=delayed):
+        with patch.object(tool, 'execute_cancellable', side_effect=delayed):
             results = []
             thread = threading.Thread(target=lambda: results.append(self.service.execute(pending['operation_id'])))
             thread.start()

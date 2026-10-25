@@ -20,6 +20,7 @@ import uuid
 
 from .actions.desktop import APPS, ENGINES, resolve_desktop, validate_inputs as validate_desktop_inputs
 from .actions.executor import ActionExecutionError
+from .actions.execution_contract import delivery_policy, resolve_mode
 from .procedure_library import ProcedureLibrary
 
 TERMINAL = {'succeeded', 'failed', 'blocked', 'cancelled', 'expired', 'unknown'}
@@ -28,6 +29,17 @@ TERMINAL = {'succeeded', 'failed', 'blocked', 'cancelled', 'expired', 'unknown'}
 class ApprovalRequired(ValueError):
     pass
 ADAPTERS = {
+    'axx.desktop.window.find': {
+        'title': 'Localizar botón por nombre', 'tool': 'desktop_find_control', 'risk': 'read',
+        'description': 'Observa UIA y selecciona un botón único por nombre exacto. Se abstiene si falta, hay duplicados o el árbol está incompleto. No pulsa ni toma el foco.',
+        'aliases': [], 'parameters': {
+            'window_id': {'type':'string', 'required':True, 'maxLength':18},
+            'pid': {'type':'integer', 'required':True, 'minimum':1, 'maximum':4294967295},
+            'name': {'type':'string', 'required':True, 'maxLength':200}}},
+    'axx.architecture.status': {
+        'title': 'Estado de la arquitectura unificada', 'tool': 'architecture_status', 'risk': 'read',
+        'description': 'Comprueba los componentes locales y muestra qué integraciones todavía no tienen un adaptador registrado. No ejecuta modelos ni instala dependencias.',
+        'aliases': ['estado de la arquitectura', 'estado de integraciones', 'diagnóstico de arquitectura'], 'parameters': {}},
     'axx.desktop.notepad.text': {
         'title': 'Escribir texto en un documento de Notepad', 'tool': 'desktop_notepad_text', 'risk': 'workspace_write',
         'description': 'Resuelve una ventana de Notepad por su título exacto observado y su editor actual, reemplaza el texto con aprobación y verifica SHA256. No guarda el archivo ni cierra pestañas.',
@@ -162,10 +174,10 @@ ADAPTERS = {
 # Explicit implementation bindings; imported prose cannot add to this map.
 PROCEDURE_BINDINGS = {'AXX-02-0147': 'axx.file.sha256', 'AXX-02-0148': 'axx.file.compare'}
 PARALLEL_READ_COMMANDS = frozenset({'axx.file.sha256', 'axx.file.compare', 'axx.system.telemetry',
-                                   'axx.process.inspect', 'axx.desktop.list_apps', 'axx.desktop.list_windows', 'axx.desktop.cli_anything.scan'})
+                                   'axx.process.inspect', 'axx.desktop.list_apps', 'axx.desktop.list_windows', 'axx.desktop.cli_anything.scan', 'axx.architecture.status'})
 # Recovery is independent of concurrency: serial UIA observations also have no
 # write effect to reconcile after interruption. This does not authorize overlap.
-READ_ONLY_COMMANDS = PARALLEL_READ_COMMANDS | frozenset({'axx.desktop.window.inspect', 'axx.desktop.window.read'})
+READ_ONLY_COMMANDS = PARALLEL_READ_COMMANDS | frozenset({'axx.desktop.window.inspect', 'axx.desktop.window.read', 'axx.desktop.window.find'})
 
 
 def normalized(value):
@@ -221,7 +233,7 @@ class CommandService:
                 'id': command_id, 'category': 'Axx local', 'execution_enabled': True,
                 'requires_approval': adapter.get('requires_approval', adapter['risk'] != 'read'), 'blocked_reason': None,
                 'source_status': 'IMPLEMENTADO_LOCAL', 'validation_level': 'IMPLEMENTADO_LOCAL',
-                'source': {'kind': 'local_adapter'}}
+                'source': {'kind': 'local_adapter'}, 'delivery': delivery_policy(adapter['tool'])}
         self.commands['axx.blender.fixture'] = {
             'id': 'axx.blender.fixture', 'title': 'Render de prueba en Blender', 'category': 'Axx local',
             'description': 'Adaptador existente pendiente de validación física para el catálogo.',
@@ -380,7 +392,12 @@ class CommandService:
                 if not isinstance(value, str) or len(value) > rule.get('maxLength', 65536) or len(value.encode('utf-8')) > rule.get('maxBytes', 262144):
                     raise ValueError(f'{name} debe ser texto dentro de los límites')
         inputs = dict(inputs)
-        if command_id.startswith('axx.desktop.') or command_id in ('axx.shell.powershell', 'axx.shell.cmd'):
+        if command_id == 'axx.desktop.window.find':
+            from .actions.tools import get_tool
+            valid, reason = get_tool('desktop_find_control').verify_preconditions(inputs)
+            if not valid:
+                raise ValueError(reason)
+        elif command_id.startswith('axx.desktop.') or command_id in ('axx.shell.powershell', 'axx.shell.cmd'):
             validate_desktop_inputs(ADAPTERS[command_id]['tool'].removeprefix('desktop_'), inputs)
         if command_id == 'axx.process.inspect':
             inputs.setdefault('pid', os.getpid())
@@ -431,7 +448,7 @@ class CommandService:
         with self.lock:
             return [self._recovery_view(json.loads(row[0])) for row in self.db.execute('SELECT result_json FROM command_runs ORDER BY created_at DESC LIMIT 50')]
 
-    def prepare(self, command_id, inputs, source='text', operation_id=None, *, conversation_id=None, command_mode=None):
+    def prepare(self, command_id, inputs, source='text', operation_id=None, *, conversation_id=None, command_mode=None, delivery_mode=None):
         if command_mode not in (None, 'ask', 'auto_safe'):
             raise ValueError('Modo de comandos inválido')
         if conversation_id is not None:
@@ -441,6 +458,9 @@ class CommandService:
             command_id = PROCEDURE_BINDINGS.get(command_id, command_id)
         if not isinstance(command_id, str) or command_id not in self.commands or source not in ('text', 'voice'):
             raise ValueError('Comando u origen desconocido')
+        mode = resolve_mode(ADAPTERS[command_id]['tool'], delivery_mode) if command_id in ADAPTERS else None
+        if command_id not in ADAPTERS and delivery_mode is not None:
+            raise ValueError('El comando documental no tiene modo ejecutable.')
         if command_id == 'axx.shell.powershell' and source != 'text':
             raise ValueError('Escribe el script PowerShell y revisa su aprobación.')
         op_id = str(uuid.uuid4()) if operation_id is None else operation_id
@@ -456,7 +476,7 @@ class CommandService:
                     return existing | {'replayed': True}
                 existing_inputs = existing['inputs']
                 candidate = self._validate_inputs(command_id, inputs, require_new=False) if command_id in ADAPTERS else inputs
-                if existing['command_id'] != command_id or existing_inputs != candidate or existing['source'] != source or existing.get('conversation_id') != conversation_id or existing.get('command_mode') != command_mode:
+                if existing['command_id'] != command_id or existing_inputs != candidate or existing['source'] != source or existing.get('conversation_id') != conversation_id or existing.get('command_mode') != command_mode or existing.get('delivery_mode', mode) != mode:
                     raise ValueError('operation_id ya está vinculado a otros parámetros')
                 return existing | {'replayed': True}
             if command_mode is not None:
@@ -467,6 +487,11 @@ class CommandService:
             enabled = command['execution_enabled']
             if enabled:
                 inputs = self._validate_inputs(command_id, inputs)
+                if command_id not in READ_ONLY_COMMANDS:
+                    for row in self.db.execute("SELECT result_json FROM command_runs WHERE state='unknown' AND command_id=?", (command_id,)):
+                        previous = json.loads(row[0])
+                        if previous['inputs'] == inputs:
+                            raise ValueError('Hay un efecto desconocido de esta operación. Revisa su resultado antes de repetirla.')
                 if command_id in ('axx.desktop.notepad.text', 'axx.desktop.window.set_value'):
                     for row in self.db.execute("SELECT result_json FROM command_runs WHERE state='unknown' AND command_id=?", (command_id,)):
                         previous = json.loads(row[0])
@@ -479,6 +504,7 @@ class CommandService:
             state = ('awaiting_approval' if approval else 'prepared') if enabled else 'blocked'
             result = {'operation_id': op_id, 'command_id': command_id, 'inputs': inputs, 'source': source,
                       'conversation_id': conversation_id, 'command_mode': command_mode,
+                      'delivery_mode': mode, 'context_id': 'host',
                       'state': state, 'requires_approval': approval, 'postconditions_passed': False,
                       'evidence': {}, 'output': None, 'cancel_requested': False,
                       'error': None if enabled else {'code': 'NOT_IMPLEMENTED', 'message': command['blocked_reason']}}
@@ -551,11 +577,12 @@ class CommandService:
                         if current['cancel_requested']:
                             return self._save(current | {'state': 'cancelled', 'error': {'code': 'CANCELLED', 'message': 'Cancelado antes de ejecutar.'}})
                     args = (ADAPTERS[result['command_id']]['tool'], result['inputs'], action_id)
+                    mode_args = {'delivery_mode': result['delivery_mode']} if result.get('delivery_mode') else {}
                     if allow_parallel_read:
-                        action = self.executor.execute_action(*args, cancel_event=self.cancel_events[operation_id], allow_parallel_read=True)
+                        action = self.executor.execute_action(*args, cancel_event=self.cancel_events[operation_id], allow_parallel_read=True, **mode_args)
                     else:
-                        action = self.executor.execute_action(*args, cancel_event=self.cancel_events[operation_id]) if operation_id in self.cancel_events else self.executor.execute_action(*args)
-                final = result | {key: action.get(key) for key in ('state', 'postconditions_passed', 'output', 'evidence', 'duration_ms')}
+                        action = self.executor.execute_action(*args, cancel_event=self.cancel_events[operation_id], **mode_args) if operation_id in self.cancel_events else self.executor.execute_action(*args, **mode_args)
+                final = result | {key: action.get(key) for key in ('state', 'postconditions_passed', 'output', 'evidence', 'duration_ms', 'dispatch_status', 'effect_status')}
                 final.update(action_operation_id=action_id, tool_name=ADAPTERS[result['command_id']]['tool'])
                 final.update(model_calls_used=0, model_calls_source='deterministic_no_model_path')
                 final['error'] = {'code': 'ACTION_FAILED', 'message': action['error']} if action.get('error') else None
