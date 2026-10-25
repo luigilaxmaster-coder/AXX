@@ -22,7 +22,8 @@ const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
   previous=await page.evaluate(()=>({view:Axx.companion.dock.selected,query:document.getElementById('command-library-query').value}));
   await page.evaluate(async()=>{Axx.resident.summon(false);Axx.commandLibrary.open();await Axx.commandLibrary.search('axx.architecture.status');});
   assert.equal(await page.locator('#command-delivery-mode').inputValue(),'background');
-  assert(await page.locator('#command-delivery-mode option[value=isolated]').isDisabled());
+  receipt.modes=await page.locator('#command-delivery-mode option').evaluateAll(options=>options.map(o=>({value:o.value,disabled:o.disabled,label:o.textContent})));
+  assert(receipt.modes.find(o=>o.value==='isolated')?.disabled,JSON.stringify(receipt.modes));
   await page.locator('#command-library-prepare').click();
   await page.waitForFunction(()=>!Axx.commandLibrary.busy&&['awaiting_approval','succeeded'].includes(Axx.commandLibrary.lastOperation?.state));
   if(await page.evaluate(()=>Axx.commandLibrary.operation?.state==='awaiting_approval')){
@@ -53,8 +54,8 @@ const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
   const invoked=await run('axx.desktop.window.invoke',{...identity,control_id:selected.candidate.control_id,
    expected_title:selected.window_title,expected_name:'Confirmar'},'foreground');
   assert.equal(invoked.state,'unknown');assert.equal(invoked.dispatch_status,'delivered');assert.equal(invoked.postconditions_passed,false);
-  const observed=await run('axx.desktop.window.inspect',identity);
-  assert.equal(observed.state,'succeeded');assert(observed.output.controls.some(c=>[c.name,c.text,c.value].includes('Confirmado')));
+  const observed=await run('axx.desktop.window.read',{...identity,expected_title:selected.window_title});
+  assert.equal(observed.state,'succeeded');assert(observed.output.text.includes('Confirmado'));
   receipt.checks.push('Real button effect observed independently; generic dispatch receipt remains uncertain');
   const file=await run('axx.artifact.write',{path:'unified-acceptance-'+Date.now()+'.txt',content:'Installed unified execution verified'});
   assert.equal(file.state,'succeeded');assert.equal(file.effect_status,'confirmed');assert(file.postconditions_passed);
