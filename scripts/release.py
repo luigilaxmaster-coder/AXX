@@ -176,8 +176,14 @@ def validate_receipts(root: Path, build_path: Path, installed_path: Path) -> Pat
     for artifact in artifacts:
         if artifact["version"] != current or digest(Path(artifact["path"])) != artifact["sha256"].lower():
             raise ValueError("Build artifact hash or version mismatch")
+    text_sources = {'.py', '.js', '.html', '.css', '.rs', '.ps1', '.json', '.toml', '.txt'}
     for name, sha in sources.items():
-        if digest(root / name) != sha.lower():
+        if digest(root / name) == sha.lower():
+            continue
+        built = built_root / name
+        # Check the exact build bytes first; another checkout may differ only in line endings.
+        if (name.suffix.lower() not in text_sources or not built.is_file() or digest(built) != sha.lower()
+                or (root / name).read_bytes().replace(b'\r\n', b'\n') != built.read_bytes().replace(b'\r\n', b'\n')):
             raise ValueError(f"Source changed since build: {name}")
     item = installers[0]
     if (installed.get("result") != "INSTALLED_RUNTIME_STARTED" or installed.get("version") != current

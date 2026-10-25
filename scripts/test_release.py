@@ -106,6 +106,22 @@ class ReleaseTests(unittest.TestCase):
         shutil.copytree(self.root, checkout, dirs_exist_ok=True)
         self.assertEqual(release.validate_receipts(checkout, b, i), installer)
 
+    def test_cross_checkout_line_endings_are_accepted_but_content_changes_are_not(self):
+        source = self.root / 'backend/example.py'
+        source.parent.mkdir(parents=True)
+        source.write_bytes(b'value = 1\r\n')
+        installer, b, i = self.receipt()
+        other = tempfile.TemporaryDirectory()
+        self.addCleanup(other.cleanup)
+        checkout = Path(other.name)
+        shutil.copytree(self.root, checkout, dirs_exist_ok=True)
+        copy = checkout / 'backend/example.py'
+        copy.write_bytes(b'value = 1\n')
+        self.assertEqual(release.validate_receipts(checkout, b, i), installer)
+        copy.write_bytes(b'value = 2\n')
+        with self.assertRaisesRegex(ValueError, 'Source changed'):
+            release.validate_receipts(checkout, b, i)
+
     def test_unready_install_is_rejected(self):
         _, b, i = self.receipt()
         data = release.read_json(i)
