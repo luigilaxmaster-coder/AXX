@@ -79,7 +79,8 @@
   $('chat-live-input-label').textContent=level?.device||'Entrada de micrófono';
   $('chat-live-input-state').textContent=!listen?(preparing?'Comprobando…':'Apagado'):level?.phase==='calibrating'?'Ajustando nivel…':level?.phase==='voice'?'Voz detectada':level?.phase==='noise'?'Mucho ruido de fondo':level?.heard_speech?'Esperando tu pausa…':'Habla y revisa que suba el nivel';
   inputMonitor.title=level?`RMS ${level.rms.toFixed(4)} · umbral ${level.threshold.toFixed(4)} · ruido ${level.noise_floor.toFixed(4)}`:'';
-  $('chat-live-metrics').textContent=firstAudio?'Último turno: '+(firstAudio/1000).toFixed(1)+' s desde el texto reconocido hasta la voz'+(Axx.nativeVoice.lastRecognition?' · transcripción '+(Axx.nativeVoice.lastRecognition.duration_ms/1000).toFixed(1)+' s':''):'Modelo: '+(c.data.prefs.model||'sin seleccionar');
+  const recognized=Axx.nativeVoice.lastRecognition,fromVoice=recognized?.speech_end_at_ms ? firstAudio+turnStarted-recognized.speech_end_at_ms : 0;
+  $('chat-live-metrics').textContent=firstAudio?(fromVoice>0?'Fin de voz → audio: '+(fromVoice/1000).toFixed(1)+' s aprox.':'Texto reconocido → audio: '+(firstAudio/1000).toFixed(1)+' s')+(recognized?' · transcripción '+(recognized.duration_ms/1000).toFixed(1)+' s':''):'Modelo: '+(c.data.prefs.voiceModel||c.data.prefs.model||'sin seleccionar');
  }
  const send=s.sendLive.bind(s);s.sendLive=function(){
   if(!s.liveActive||s.liveBusy||!s.liveText.trim())return Promise.resolve();

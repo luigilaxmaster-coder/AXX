@@ -221,6 +221,9 @@ def resolve_desktop(text, source, context=None):
         return {'match': 'ambiguous' if matches else 'unsupported',
                 'message': 'Hay varias ventanas con ese nombre; indica el título completo.' if matches else 'No veo una ventana abierta con ese nombre. Di «mis ventanas» para ver las disponibles.'}
     engine_pattern = r'(youtube|google|bing|duckduckgo|internet)'
+    chrome_search = re.fullmatch(r'(?:en\s+(?:google\s+)?chrome\s+busca|busca\s+en\s+(?:google\s+)?chrome)\s+(.+?)[.!?]*', raw, re.I)
+    if chrome_search:
+        return search_result('google', chrome_search[1])
     # Compound open+search is a single typed URL action, not two unrelated effects.
     compound = re.fullmatch(r'(?:abre|abrir|abreme|ábreme)\s+'+engine_pattern+r'\s+y\s+(?:busca|buscar|buscame|búscame)(?:\s+(.+))?',raw,re.I)
     if compound:return search_result(compound[1].lower(),compound[2]) if compound[2] else missing
@@ -250,12 +253,15 @@ def resolve_desktop(text, source, context=None):
         if plain(spotify_control[1]) in ('ponme','pon','reproduce','reproducir','reanuda'):
             return {'match':'exact','command_id':'axx.desktop.spotify.play','inputs':{}}
         return {'match':'unsupported','message':'Controla pausa y pistas desde la sesión multimedia de Spotify en Axx.'}
-    spotify_query = re.fullmatch(r'(?:busca|buscar|buscame|búscame|encuentra|ponme|pon|reproduce|reproducir)\s+(.+?)\s+en\s+spotify[.!?]*',raw,re.I)
+    spotify_query = (re.fullmatch(r'(?:busca|buscar|buscame|búscame|encuentra|ponme|pon|reproduce|reproducir)\s+(.+?)\s+en\s+spotify[.!?]*',raw,re.I)
+                     or re.fullmatch(r'(?:busca|buscar|buscame|búscame|encuentra|ponme|pon|reproduce|reproducir)\s+en\s+spotify\s+(.+?)[.!?]*',raw,re.I))
     if spotify_query:
         query=spotify_query[1].strip()
         if not 1<=len(query)<=500: return missing
         return {'match':'exact','command_id':'axx.desktop.open_url',
                 'inputs':{'url':validate_url('https://open.spotify.com/search/'+quote(query,safe=''))}}
+    if re.match(r'^(?:ponme|pon|reproduce|reproducir|escuchar|busca|buscar|buscame|búscame)\b', raw, re.I) and 'spotify' in plain(raw):
+        return {'match':'needs_input','message':'¿Qué canción o artista quieres en Spotify? Indica el título para abrir su búsqueda.'}
     music = re.fullmatch(r'(?:ponme|pon|reproduce|reproducir|escuchar)(?:\s+(.+))?',raw,re.I)
     if music:return search_result('youtube',music[1]) if music[1] else missing
     music_search = re.fullmatch(r'(?:busca|buscar|buscame|búscame)\s+(?:(?:una|un|la|el)\s+)?(?:musica|música|cancion|canción|tema)\s+(?:de\s+)?(.+)', raw, re.I)
@@ -265,6 +271,7 @@ def resolve_desktop(text, source, context=None):
     if opening:
         target = opening[1].strip()
         name = re.sub(r'^(?:la aplicacion|el programa|mi|la|el)\s+', '', plain(target).rstrip('.!?'))
+        if name == 'yotube': name = 'youtube'
         if name in ('spotify','chatgpt'):
             from .windows_apps import find_app
             try:
@@ -460,7 +467,7 @@ def open_target(kind, inputs, cancelled=None, control=None):
                 'foreground_verified': False, 'ready_for_action': False}
     if kind in ('installed_app', 'open_app'):
         from .windows_automation import observe_foreground
-        observed = observe_foreground(label, timeout=4.0, before=before,
+        observed = observe_foreground(label, timeout=10.0 if kind == 'installed_app' else 4.0, before=before,
                                        aliases=app_aliases if kind == 'open_app' else (),
                                        cancelled=cancelled, control=control,
                                        expected_process=Path(target).name.lower() if kind == 'open_app' and inputs['app'] in ('notepad', 'explorer') else None)

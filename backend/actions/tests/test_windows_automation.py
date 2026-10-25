@@ -39,6 +39,33 @@ class WindowsAutomationTests(unittest.TestCase):
         self.assertFalse(result['foreground_verified'])
         self.assertFalse(result['ready_for_action'])
 
+    def test_unique_background_app_is_observed_and_focused(self):
+        background={'window_id':202,'pid':10,'title':'cerebrum - Obsidian','foreground':False}
+        foreground={**background,'foreground':True}
+        with patch.object(automation,'list_windows',side_effect=[[background],[foreground]]), \
+             patch.object(automation,'focus_window') as focus:
+            result=automation.observe_foreground('Obsidian',timeout=0,before=[{'window_id':101}],control=object())
+        focus.assert_called_once()
+        self.assertTrue(result['window_observed'])
+        self.assertTrue(result['foreground_verified'])
+        self.assertTrue(result['ready_for_action'])
+
+    def test_ambiguous_background_windows_are_not_focused(self):
+        windows=[{'window_id':n,'pid':n,'title':'Obsidian','foreground':False} for n in (201,202)]
+        with patch.object(automation,'list_windows',return_value=windows), patch.object(automation,'focus_window') as focus:
+            result=automation.observe_foreground('Obsidian',timeout=0,control=object())
+        focus.assert_not_called()
+        self.assertFalse(result['ready_for_action'])
+
+    def test_focus_denial_keeps_visible_window_receipt_without_readiness(self):
+        window={'window_id':202,'pid':10,'title':'Obsidian','foreground':False}
+        with patch.object(automation,'list_windows',return_value=[window]), \
+             patch.object(automation,'focus_window',side_effect=ValueError('Windows negó el foco')):
+            result=automation.observe_foreground('Obsidian',timeout=0,control=object())
+        self.assertTrue(result['window_observed'])
+        self.assertFalse(result['ready_for_action'])
+        self.assertEqual(result['verification'],'visible_window_observation')
+
     def test_set_value_uses_fixed_mta_worker_and_json_not_script_input(self):
         control_id = 'a' * 64
         response = {'success': True, 'window_id': 12, 'pid': 45, 'control_id': control_id,
@@ -60,7 +87,8 @@ class WindowsAutomationTests(unittest.TestCase):
         self.assertIn('-MTA', command)
         self.assertIn('-EncodedCommand', command)
         self.assertNotIn('test', command)
-        self.assertEqual(worker.input, ('{"operation":"set_value","window_id":12,"pid":45,"control_id":"' + control_id + '","value":"test"}').encode())
+        self.assertEqual(json.loads(worker.input), {'operation':'set_value','window_id':12,'pid':45,
+                         'control_id':control_id,'value':'test','expected_title':None})
         self.assertEqual(result['verification'], 'uia_value_readback')
 
     def test_set_value_rejects_invalid_text_before_worker(self):

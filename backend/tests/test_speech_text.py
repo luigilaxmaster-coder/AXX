@@ -1,13 +1,26 @@
 import unittest
+import tempfile
+from pathlib import Path
+from unittest.mock import patch
 
 from backend.speech.speech_text import prepare_spoken_text, spanish_integer
-from backend.speech.offline_asr import excessive_repetition
+from backend.speech.offline_asr import excessive_repetition, model_path
 
 
 class SpokenTextTests(unittest.TestCase):
     def test_repeated_asr_output_is_rejected_before_actions(self):
         self.assertTrue(excessive_repetition('no es el que no es el que no es el que no es el que no es el que'))
         self.assertFalse(excessive_repetition('reproduce la canción en Spotify'))
+
+    def test_local_base_model_takes_precedence_when_complete(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base=Path(directory)/'Axx'/'models'/'faster-whisper-base'
+            base.mkdir(parents=True)
+            with patch.dict('os.environ',{'LOCALAPPDATA':directory}):
+                self.assertNotEqual(model_path(),base)
+                for name in ('model.bin','tokenizer.json','config.json','vocabulary.txt'):
+                    (base/name).touch()
+                self.assertEqual(model_path(),base.resolve())
 
     def test_spanish_accents_questions_and_voice_name_survive(self):
         text = '¡Hola! Soy Axx Titán. ¿Cómo estás? Mañana te ayudaré.'

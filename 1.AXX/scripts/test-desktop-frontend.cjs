@@ -296,6 +296,8 @@ assert(!html.includes("const apiBase ="), 'Production must not hardcode a develo
         await c.send('abre Obsidian', { source: 'voice' });
         window.__contractResolve = { match: 'exact', command_id: 'axx.desktop.window.close', inputs: { window_id: '12', pid: 45 } };
         await c.send('cierra Obsidian', { source: 'voice' });
+        window.__contractResolve = { match: 'exact', command_id: 'axx.desktop.search', inputs: { engine: 'google', query: 'youtube' } };
+        await c.send('en chrome busca youtube', { source: 'voice' });
         const shown = document.getElementById('chat-voice-model')?.value;
         c.data.prefs.selection_mode = 'automatic_free'; Axx.refreshVoiceModelOptions();
         const selector = document.getElementById('chat-voice-model');
@@ -318,9 +320,26 @@ assert(!html.includes("const apiBase ="), 'Production must not hardcode a develo
     assert.equal(voiceAction.calls.find(call => call.path === '/axx-api/commands/prepare')?.body.command_id, 'axx.desktop.installed_app');
     assert.equal(voiceAction.calls.find(call => call.path === '/axx-api/commands/prepare')?.body.inputs.app_id, 'md.obsidian');
     assert(voiceAction.calls.some(call => call.path === '/axx-api/commands/prepare' && call.body.command_id === 'axx.desktop.window.close'));
+    assert(voiceAction.calls.some(call => call.path === '/axx-api/commands/prepare' && call.body.command_id === 'axx.desktop.search'));
     assert(voiceAction.calls.some(call => call.path === '/axx-api/commands/execute'));
     assert.equal(voiceAction.calls.some(call => call.path === '/axx-api/chat'), false);
     results.push('Voice model selection retains only a catalogued model; an installed-app voice request reaches typed resolve, prepare and execute without model chat');
+    const liveRecovery = await page.evaluate(async () => {
+      const voice = Axx.symbiosis, original = voice.startListening;
+      let restarted = 0;
+      try {
+        Axx.liveConversation.show();
+        voice.startListening = () => { restarted++; };
+        voice.liveActive = true;
+        voice.dictation.onError('El dictado repitió palabras varias veces. Repite la orden antes de ejecutar una acción.');
+        await new Promise(resolve => setTimeout(resolve, 350));
+        return { active: voice.liveActive, restarted, status: document.getElementById('live-status').textContent };
+      } finally { voice.liveActive = false; voice.startListening = original; }
+    });
+    assert.equal(liveRecovery.active, true);
+    assert.equal(liveRecovery.restarted, 1);
+    assert.match(liveRecovery.status, /Escuchando de nuevo/);
+    results.push('Live voice recovers from a repeated ASR transcript without silently switching off');
     const unavailableMain = await page.evaluate(async () => {
       const before = window.__contractCalls.length, previous = window.__contractModels;
       window.__contractModels = ['contract-fixture-model'];
@@ -529,12 +548,14 @@ assert(!html.includes("const apiBase ="), 'Production must not hardcode a develo
       const asr = await page.evaluate(async () => {
         const session = Axx.nativeVoice.sessions[0], saved = session.owner.onFinal, finals = [];
         session.owner.onFinal = text => finals.push(text); session.lang = 'es-DO';
+        session.lastVoiceAt = performance.now() - 1000;
         const before = window.__contractCalls.filter(c => c.args?.path === '/axx-api/chat').length;
         await session.submit(new Blob([new Uint8Array([1, 2, 3])], { type: 'audio/webm;codecs=opus' }));
         session.owner.onFinal = saved;
-        return { finals, before, after: window.__contractCalls.filter(c => c.args?.path === '/axx-api/chat').length, calls: window.__contractCalls.filter(c => c.args?.path === '/axx-api/speech/transcribe') };
+        return { finals, before, after: window.__contractCalls.filter(c => c.args?.path === '/axx-api/chat').length, calls: window.__contractCalls.filter(c => c.args?.path === '/axx-api/speech/transcribe'), recognition: Axx.nativeVoice.lastRecognition };
       });
       assert.deepEqual(asr.finals, ['Texto del contrato de ASR']); assert.equal(asr.calls.length, 1); assert.equal(asr.calls[0].args.body.language, 'es'); assert.equal(asr.before, asr.after);
+      assert(asr.recognition.duration_ms >= 0 && asr.recognition.speech_end_at_ms > 0);
       results.push('ASR transport contract normalizes locale, emits confirmed text and never sends the chat automatically');
     }
     const halo = await page.evaluate(async () => {

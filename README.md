@@ -9,7 +9,7 @@ Run the installer and open Axx. Python and Node are not required. Start with **A
 
 The packaged backend may take longer on its first launch while Windows extracts and scans it. The native host allows up to 90 seconds for backend readiness and reports a startup error if that limit is exceeded.
 
-Source and published Windows installer are both **v0.21.11**. Android APKs remain local test artifacts until separately published. See [mobile setup and validation](docs/mobile/README.md) and the [version and release procedure](docs/RELEASING.md).
+Source is **v0.21.12**; the published Windows installer is **v0.21.11**. Delivery of the newer source is pending publication. Android APKs remain local test artifacts until separately published. See [mobile setup and validation](docs/mobile/README.md) and the [version and release procedure](docs/RELEASING.md).
 <!-- release:download:end -->
 
 ---
@@ -29,7 +29,7 @@ Source and published Windows installer are both **v0.21.11**. Android APKs remai
   <img src="https://img.shields.io/badge/Frontend-CPU%203D%20%2F%20Canvas-black" alt="CPU 3D and Canvas" />
   <img src="https://img.shields.io/badge/Offline%20Voice-Faster--Whisper%20Tiny-green" alt="Faster-Whisper" />
   <img src="https://img.shields.io/badge/Protocol-Model%20Context%20Protocol%20(MCP)-blueviolet" alt="MCP" />
-  <img src="https://img.shields.io/badge/Source%20Version-v0.21.11-informational" alt="Source version 0.21.11" />
+  <img src="https://img.shields.io/badge/Source%20Version-v0.21.12-informational" alt="Source version 0.21.12" />
   <img src="https://img.shields.io/badge/Development-Active%20Refinement-yellow?logo=git" alt="Active Development" />
 </p>
 
@@ -169,7 +169,7 @@ These are presentation captures of the current UI in an isolated browser. The mo
 ## 🚧 Project Status: Active Continuous Improvement
 
 > [!NOTE]
-> **Axx is under active development.** Source and published Windows installer are both **v0.21.11**. Validation is recorded per feature; a working UI or build does not by itself certify every hardware-dependent behavior.
+> **Axx is under active development.** Source is **v0.21.12**; the published Windows installer is **v0.21.11**. Delivery of the newer source is pending publication. Validation is recorded per feature; a working UI or build does not by itself certify every hardware-dependent behavior.
 
 ### 🟢 Implemented capabilities
 - **Native Startup:** Resident Windows application with a local backend and a launcher fallback to the executable built from this repository.
@@ -255,7 +255,7 @@ For the four optional voices, copy the reference clips as 24 kHz mono PCM WAV fi
 ### Core Architectural Pillars:
 1. **Non-Invasive Desktop Presence:** Floats in a borderless, transparent window that forwards clicks in empty spaces to the underlying active applications via native Win32 window region mapping.
 2. **Resilient Hybrid Inference:** Autonomous model routing with automated hot-failover between offline local models (Ollama) and cloud APIs (OpenAI, Anthropic, OpenRouter).
-3. **Local Voice & Privacy by Design:** On-device hardware-accelerated speech-to-text using `faster-whisper-tiny`. Audio never leaves the local machine.
+3. **Local Voice & Privacy by Design:** On-device CPU speech-to-text using bundled `faster-whisper-tiny`, or a complete local `faster-whisper-base` model under `%LOCALAPPDATA%\Axx\models` when available. Audio stays on the local machine.
 4. **Persistent Memory & MCP Tools:** Long-term episodic context powered by `ai-memory` paired with industry-standard *Model Context Protocol* (MCP) for safe, structured desktop tool invocation.
 
 ---
@@ -402,8 +402,8 @@ flowchart TD
   - Clean asynchronous child-process cancellation whenever the user hits `Esc`.
 
 ### 🎙️ 3. Private Local Voice Processing
-- Bundled **Faster-Whisper Tiny** model verified with SHA256 integrity checks.
-- Rapid local audio transcription with zero latency overhead and absolute privacy.
+- Bundled **Faster-Whisper Tiny** model verified with SHA256 integrity checks. A complete local **Base** model in `%LOCALAPPDATA%\Axx\models\faster-whisper-base` takes precedence on that PC.
+- Transcription runs locally on CPU. Accuracy and response time depend on the microphone, model and hardware; Axx shows the approximate time from the end of speech to audio playback.
 
 ### 🧠 4. Episodic Memory & MCP Protocol
 - Embedded `ai-memory` adapter storing cross-session contextual recall.

@@ -190,7 +190,7 @@
         constructor(owner) { this.owner = owner; }
         change(value) { this.owner.state = value; this.owner.onState?.(); Axx.resident?.activity(); }
         async start(lang) {
-            this.stop(false); const id = this.generation; this.lang = lang;
+            this.stop(false); const id = this.generation; this.lang = lang; this.lastVoiceAt = 0;
             if (state.activeCapture && state.activeCapture !== this) state.activeCapture.stop(); state.activeCapture = this;
             this.change('starting');
             try {
@@ -249,7 +249,7 @@
                     }else if(ready){ready();ready=null;this.calibrationCancelled=null;}
                     const threshold=Math.max(.004,Math.min(.08,noiseFloor*2.5+.002));
                     const voiced=!calibrating&&noiseFloor<.04&&rms>threshold;
-                    if (voiced) { voiceFrames++; if(voiceFrames>=2)heardSpeech = true; lastVoiceAt = now; }
+                    if (voiced) { voiceFrames++; if(voiceFrames>=2)heardSpeech = true; lastVoiceAt = now; if (heardSpeech) this.lastVoiceAt = now; }
                     else {
                         voiceFrames=0;
                         if(!calibrating)noiseFloor = rms<noiseFloor ? noiseFloor*.85+rms*.15 : noiseFloor*.997+Math.min(rms,.08)*.003;
@@ -275,7 +275,7 @@
                 const data = await Axx.backendRequest('POST', '/axx-api/speech/transcribe', { audio_base64: audio, mime: blob.type, language, task: 'transcribe' });
                 if (id !== this.generation) return;
                 this.pending = false;
-                state.lastRecognition={duration_ms:Math.round(performance.now()-began)};
+                state.lastRecognition={duration_ms:Math.round(performance.now()-began),speech_end_at_ms:this.lastVoiceAt || null};
                 if (typeof data.text !== 'string' || !data.text.trim()) throw new Error('No se reconoció una frase. El destino no se ha modificado.');
                 this.owner.onFinal?.(data.text);
                 // A voice command may transfer the microphone to another session.

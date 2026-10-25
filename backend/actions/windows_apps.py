@@ -22,16 +22,25 @@ def installed_apps(refresh=False):
         executable = Path(os.environ.get('SystemRoot', r'C:\Windows')) / 'System32/WindowsPowerShell/v1.0/powershell.exe'
         # Fixed inventory query only. User text never becomes PowerShell source.
         script = "[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false); $ErrorActionPreference='Stop'; @(Get-StartApps | Select-Object Name,AppID) | ConvertTo-Json -Compress"
-        result = subprocess.run([str(executable), '-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script],
-                                capture_output=True, timeout=8, creationflags=subprocess.CREATE_NO_WINDOW)
-        if result.returncode:
-            raise ValueError('Windows no pudo consultar las aplicaciones instaladas.')
-        rows = json.loads(result.stdout.decode('utf-8-sig'))
-        if not isinstance(rows, list) or len(rows) > 10000:
-            raise ValueError('Inventario de aplicaciones inválido.')
-        _cache = [{'name': r['Name'], 'app_id': r['AppID']} for r in rows
-                  if isinstance(r.get('Name'), str) and isinstance(r.get('AppID'), str)
-                  and 0 < len(r['AppID']) <= 1024 and not any(ord(c) < 32 for c in r['AppID'])]
+        try:
+            result = subprocess.run([str(executable), '-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script],
+                                    capture_output=True, timeout=12, creationflags=subprocess.CREATE_NO_WINDOW)
+            if result.returncode:
+                raise ValueError('Windows no pudo consultar las aplicaciones instaladas.')
+            rows = json.loads(result.stdout.decode('utf-8-sig'))
+            if not isinstance(rows, list) or len(rows) > 10000:
+                raise ValueError('Inventario de aplicaciones inválido.')
+            fresh = [{'name': r['Name'], 'app_id': r['AppID']} for r in rows
+                     if isinstance(r, dict) and isinstance(r.get('Name'), str) and isinstance(r.get('AppID'), str)
+                     and 0 < len(r['AppID']) <= 1024 and not any(ord(c) < 32 for c in r['AppID'])]
+            if not fresh:
+                raise ValueError('Inventario de aplicaciones vacío.')
+        except (OSError, ValueError, json.JSONDecodeError, subprocess.TimeoutExpired):
+            if _cache:
+                _updated = time.monotonic()
+                return list(_cache)
+            raise
+        _cache = fresh
         _updated = time.monotonic()
         return list(_cache)
 
