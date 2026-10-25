@@ -136,6 +136,36 @@ class DesktopCommandTests(unittest.TestCase):
         self.assertEqual(pending['state'],'awaiting_approval')
         with self.assertRaises(ApprovalRequired): self.service.execute(pending['operation_id'])
 
+    def test_other_observed_apps_support_buttons_and_text_without_hardcoded_names(self):
+        window={'window_id':18,'pid':45,'title':'Obsidian - Mis notas'}
+        button={'control_type':'ControlType.Button','enabled':True,'offscreen':False,
+                'name':'Nueva nota','control_id':'a'*64}
+        editor={'window_title':window['title'],'truncated':False,
+                'controls':[{'control_id':'b'*64,'name':'Editor'}]}
+        with patch('backend.actions.windows_automation.list_windows',return_value=[window]), \
+             patch('backend.actions.windows_automation.process_name',return_value='Obsidian.exe'), \
+             patch('backend.actions.windows_automation.inspect_controls',return_value={'controls':[button]}), \
+             patch('backend.actions.windows_automation.locate_edit_controls',return_value=editor):
+            pressed=self.service.resolve('pulsa Nueva nota en Obsidian', source='voice')
+            written=self.service.resolve('escribe en Obsidian: hola desde Axx', source='text')
+        self.assertEqual(pressed['command_id'],'axx.desktop.window.invoke')
+        self.assertEqual(pressed['inputs']['expected_name'],'Nueva nota')
+        self.assertEqual(written['command_id'],'axx.desktop.window.set_value')
+        self.assertEqual(written['inputs']['value'],'hola desde Axx')
+        self.assertEqual(self.service.prepare(pressed['command_id'],pressed['inputs'])['state'],'awaiting_approval')
+        self.assertEqual(self.service.prepare(written['command_id'],written['inputs'])['state'],'awaiting_approval')
+
+    def test_observe_read_and_focus_any_unique_visible_app(self):
+        window={'window_id':18,'pid':45,'title':'Obsidian - Mis notas'}
+        with patch('backend.actions.windows_automation.list_windows',return_value=[window]), \
+             patch('backend.actions.windows_automation.process_name',return_value='Obsidian.exe'):
+            inspect=self.service.resolve('inspecciona controles de Obsidian')
+            read=self.service.resolve('lee la ventana de Obsidian')
+            focus=self.service.resolve('enfoca Obsidian')
+        self.assertEqual(inspect['command_id'],'axx.desktop.window.inspect')
+        self.assertEqual(read['inputs']['expected_title'],window['title'])
+        self.assertEqual(focus['command_id'],'axx.desktop.window.focus')
+
     def test_explicit_pointer_position_is_typed_and_read_back(self):
         result = self.service.resolve('mueve el mouse a x 500 y 400', source='voice')
         self.assertEqual(result, {'match': 'exact', 'command_id': 'axx.desktop.pointer.move', 'inputs': {'x': 500, 'y': 400}})

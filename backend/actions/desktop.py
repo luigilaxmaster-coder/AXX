@@ -161,11 +161,24 @@ def resolve_desktop(text, source, context=None):
         raw = 'abre ' + desktop_app[1]
     if plain(raw).strip(' .!?') in ('mis aplicaciones', 'aplicaciones instaladas', 'lista de aplicaciones', 'muestra mis aplicaciones'):
         return {'match': 'exact', 'command_id': 'axx.desktop.list_apps', 'inputs': {}}
-    button_request = re.fullmatch(r'(?:pulsa|presiona|haz clic en|clic en)\s+(?:(?:el|la)\s+)?(?:bot[oó]n\s+)?(.+?)\s+en\s+(chatgpt|antigravity|spotify|chrome)[.!?]*',raw,re.I)
+    window_request = re.fullmatch(r'(observa|inspecciona|lee|leer|enfoca|enfocar)\s+(?:(?:(?:los\s+)?controles|la\s+ventana)\s+de\s+)?([\w .-]{2,100})[.!?]*', raw, re.I)
+    if window_request:
+        from .windows_automation import list_windows, process_name
+        verb, app = plain(window_request[1]), plain(window_request[2]).strip(' .!?')
+        windows = [row for row in list_windows() if app in plain(row['title']) or app in plain(process_name(row['pid']))]
+        if len(windows) != 1:
+            return {'match': 'ambiguous' if windows else 'unsupported',
+                    'message': 'Indica el título de una única ventana abierta. Di «mis ventanas» para verlas.'}
+        window = windows[0]
+        command = 'read' if verb in ('lee', 'leer') else 'focus' if verb in ('enfoca', 'enfocar') else 'inspect'
+        inputs = {'window_id': format(window['window_id'], 'x'), 'pid': window['pid']}
+        if command == 'read': inputs['expected_title'] = window['title']
+        return {'match': 'exact', 'command_id': 'axx.desktop.window.' + command, 'inputs': inputs}
+    button_request = re.fullmatch(r'(?:pulsa|presiona|haz clic en|clic en)\s+(?:(?:el|la)\s+)?(?:bot[oó]n\s+)?(.+?)\s+en\s+([\w .-]{2,100})[.!?]*',raw,re.I)
     if button_request:
         from .windows_automation import inspect_controls, list_windows, process_name
         label=plain(button_request[1].strip(' "“”\''))
-        app=plain(button_request[2])
+        app=plain(button_request[2]).strip(' .!?')
         windows=[row for row in list_windows() if app in plain(row['title']) or app in plain(process_name(row['pid']))]
         if len(windows)!=1:
             return {'match':'ambiguous' if windows else 'unsupported','message':'Indica una única ventana abierta de '+button_request[2]+'.'}
@@ -178,11 +191,13 @@ def resolve_desktop(text, source, context=None):
             'window_id':format(window['window_id'],'x'),'pid':window['pid'],'control_id':buttons[0]['control_id'],
             'expected_title':window['title'],'expected_name':buttons[0]['name']}}
     writing = (re.fullmatch(r'(?:escribe|pega)\s+en\s+(chatgpt|antigravity)\s+(.+)',raw,re.I | re.S)
-               or re.fullmatch(r'(?:escribe|pega)\s+(.+?)\s+en\s+(chatgpt|antigravity)[.!?]*',raw,re.I | re.S))
+               or re.fullmatch(r'(?:escribe|pega)\s+en\s+([\w .-]{2,100}):\s*(.+)',raw,re.I | re.S)
+               or re.fullmatch(r'(?:escribe|pega)\s+(.+?)\s+en\s+([\w .-]{2,100})[.!?]*',raw,re.I | re.S))
     if writing:
         first,second=writing[1],writing[2]
-        app,text=(first,second) if plain(first) in ('chatgpt','antigravity') else (second,first)
+        app,text=(first,second) if plain(first) in ('chatgpt','antigravity') or raw.lower().startswith(('escribe en ', 'pega en ')) else (second,first)
         from .windows_automation import list_windows, locate_edit_controls, process_name
+        app=app.strip(' .!?')
         windows=[row for row in list_windows() if plain(app) in plain(row['title']) or plain(app) in plain(process_name(row['pid']))]
         if len(windows)!=1:
             return {'match':'ambiguous' if windows else 'unsupported','message':'Indica una única ventana abierta de '+app+'.'}

@@ -521,13 +521,13 @@ class SkillLearningTests(unittest.TestCase):
         self.assertEqual(execute.call_count, 2)
         self.assertEqual((self.executor.workspace_root / 'done.txt').read_text(), 'done')
 
-    def test_shell_is_unavailable_in_both_generated_and_configured_skills(self):
+    def test_shell_is_unavailable_in_configured_skills_and_powershell_plans(self):
         skill = self.seed()
         for command in ('axx.shell.cmd', 'axx.shell.powershell'):
             with self.assertRaises(ValueError):
                 self.learning.configure(skill['id'], {'templates': [{'command_id': command, 'inputs': {'script': 'echo no'}}]})
-            self.model.answer = {'title': 'shell', 'steps': [{'command_id': command, 'inputs': {'script': 'echo no'}}]}
-            self.assertEqual(self.learning.propose('run ' + command)['state'], 'failed')
+        self.model.answer = {'title': 'shell', 'steps': [{'command_id': 'axx.shell.powershell', 'inputs': {'script': 'echo no'}}]}
+        self.assertEqual(self.learning.propose('run axx.shell.powershell')['state'], 'failed')
 
 
 if __name__ == '__main__':

@@ -75,7 +75,7 @@
               <details id="command-library-procedure" hidden><summary>Ver instrucciones, requisitos y comprobaciones</summary><div id="command-library-steps" style="max-height:340px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere"></div></details>
               <form id="command-library-parameters"><div id="command-library-fields"></div><button id="command-library-prepare" type="submit" disabled>Preparar comando</button></form>
               <details><summary>Detalles del resultado</summary><pre id="command-library-result" style="white-space:pre-wrap;word-break:break-word;max-height:280px;overflow:auto"></pre></details>
-              <p>Desde el chat: «abre YouTube», «abre calculadora», «busca música en YouTube» o «estado del sistema». Para CMD usa «/cmd dir» o dicta «ejecuta en CMD: dir»; revisa el texto reconocido y pulsa Aprobar. PowerShell requiere escribir «/powershell Get-Date». Los comandos pueden modificar tu equipo, se detienen a los 30 segundos y Escape cancela la ejecución. «/comandos texto» busca acciones.</p>`;
+              <p>Desde el chat: «abre Spotify», «pausa Spotify», «abre Obsidian», «pulsa Nueva nota en Obsidian» o «escribe en Obsidian: hola». Para que el modelo prepare CMD, pide «usa CMD para mostrar mi IP» y revisa el código antes de aprobar. También puedes usar «/cmd dir» o dictar «ejecuta en CMD: dir». PowerShell requiere escribir «/powershell Get-Date». Los comandos pueden modificar tu equipo, se detienen a los 30 segundos y Escape cancela la ejecución. «/comandos texto» busca acciones.</p>`;
             node('view-files').prepend(section);
             node('command-library-search-form').onsubmit = event => { event.preventDefault(); void this.search().catch(e => this.status(errorText(e))); };
             node('command-library-select').onchange = () => this.renderSelection();
@@ -233,7 +233,7 @@
         isActionRequest(raw) {
             const text=raw.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/^[¡¿\s]+/,'')
                 .replace(/^(?:(?:oye|hola)\s+)?axx[,\s]+/,'').replace(/^por favor[,\s]+/,'').replace(/^(?:puedes|podrias|quiero que|pero)\s+/,'');
-            return /^(?:\/(?:search|buscar|comando|powershell|cmd)\b|mis\s+ventanas\b|(?:lista|muestra)\s+(?:mis\s+)?(?:ventanas|aplicaciones)\b|(?:haz|repite|usa|saca|abre|abrir|abrirme|abras|abreme|abrela|abrelo|cierra|cerrar|cierrame|salir|inicia|ejecuta|busca|buscar|buscame|encuentra|localiza|ponme|pon|reproduce|reproducir|escuchar|prepara|organiza|crea|crear|convierte|mueve|pulsa|presiona|clic|teclea|pega|selecciona|desplaza|navega|copia|renombra|comprime|extrae|descarga|instala|borra|elimina|envia|publica)\b|escribe\s+(?:en|dentro\s+de)\b)/.test(text);
+            return /^(?:\/(?:search|buscar|comando|powershell|cmd)\b|mis\s+ventanas\b|(?:lista|muestra)\s+(?:mis\s+)?(?:ventanas|aplicaciones)\b|(?:haz|repite|usa|saca|abre|abrir|abrirme|abras|abreme|abrela|abrelo|cierra|cerrar|cierrame|salir|inicia|ejecuta|busca|buscar|buscame|encuentra|localiza|observa|inspecciona|lee|leer|enfoca|enfocar|ponme|pon|reproduce|reproducir|escuchar|prepara|organiza|crea|crear|convierte|mueve|pulsa|presiona|clic|teclea|pega|selecciona|desplaza|navega|copia|renombra|comprime|extrae|descarga|instala|borra|elimina|envia|publica)\b|escribe\s+(?:en|dentro\s+de)\b)/.test(text);
         }
         internalAction(raw) {
             const plain = value => String(value).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
@@ -441,7 +441,11 @@
                     }
                     if (resolved.match === 'none') {
                         if(!this.isActionRequest(raw))return previous(raw, metadata);
-                        if (Axx.companion.data?.prefs?.provider === 'chatgpt') return previous(raw, metadata);
+                        if (Axx.companion.data?.prefs?.provider === 'chatgpt') {
+                            Axx.companion.message('user', raw, 'local');
+                            Axx.companion.localNotice('El modo ChatGPT de Axx no está conectado al planificador de comandos. Selecciona un modelo de acciones de Ollama o de una API configurada en Ajustes y vuelve a intentarlo.');
+                            return;
+                        }
                         Axx.companion.message('user',raw,'local');
                         await this.planAction(raw);
                         return;

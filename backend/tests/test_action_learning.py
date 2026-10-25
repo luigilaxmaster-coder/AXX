@@ -97,6 +97,31 @@ class ActionLearningTests(unittest.TestCase):
         self.assertEqual(self.executor.list_operations(), [])
         self.assertEqual(self.learning.list_actions(), [])
 
+    def test_model_generated_cmd_requires_explicit_terminal_request_and_fresh_approval(self):
+        self.model.answer = {'title': 'Ver estado', 'steps': [{'command_id': 'axx.shell.cmd',
+                             'inputs': {'script': 'echo AXX_MODEL_CMD_OK'}}]}
+        self.assertEqual(self.learning.propose('ver estado del sistema')['state'], 'failed')
+        plan = self.learning.propose('usa CMD para ver el estado del sistema')
+        self.assertEqual(plan['state'], 'awaiting_approval', plan)
+        self.assertEqual(plan['steps'][0]['inputs']['script'], 'echo AXX_MODEL_CMD_OK')
+        self.assertEqual(self.executor.list_operations(), [])
+        with self.assertRaises(ApprovalRequired): self.learning.execute(plan['operation_id'])
+        self.assertEqual(self.executor.list_operations(), [])
+        result = self.learning.execute(plan['operation_id'], approved=True)
+        self.assertEqual(result['state'], 'succeeded', result)
+        self.assertIn('AXX_MODEL_CMD_OK', str(result['results'][0]['output']))
+        self.assertEqual(self.learning.list_actions(), [])
+        self.assertIsNone(result.get('learned_action_id'))
+        self.assertEqual(len(self.executor.list_operations()), 1)
+
+    def test_terminal_request_never_permits_powershell_or_saved_shell_recipe(self):
+        self.model.answer = {'title': 'No permitido', 'steps': [{'command_id': 'axx.shell.powershell',
+                             'inputs': {'script': 'Write-Output NO'}}]}
+        self.assertEqual(self.learning.propose('usa CMD para ver el estado')['state'], 'failed')
+        self.model.answer['steps'][0]['command_id'] = 'axx.shell.cmd'
+        self.assertEqual(self.learning.propose('no uses CMD; dame el estado')['state'], 'failed')
+        self.assertEqual(self.executor.list_operations(), [])
+
     def test_failure_stops_later_steps_and_does_not_learn(self):
         self.model.answer = {'title': 'No completar', 'steps': [
             {'command_id': 'axx.file.sha256', 'inputs': {'path': str(self.root / 'missing.txt')}},
