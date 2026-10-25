@@ -111,6 +111,7 @@ class WindowsInput:
         with self.snapshot_lock:return dict(self.snapshot)
     def grant(self,lease,ttl,source='remote'):return self._call('grant',lease,ttl,source)
     def focus(self,lease,window_id,pid):return self._call('focus',lease,window_id,pid)
+    def move_absolute(self,lease,x,y):return self._call('move_absolute',lease,x,y)
     def renew(self,lease,ttl):return self._call('renew',lease,ttl)
     def events(self,lease,events):return self._call('events',lease,events)
     def cancel(self,reason):self.abort_reason=reason;self.abort.set();return self._call('cancel',reason)
@@ -198,6 +199,15 @@ class WindowsInput:
                 self.held_keys.discard('Alt')
                 user.SetForegroundWindow(hwnd)
             return
+        if operation=='move_absolute':
+            x,y=args[1],args[2]
+            if type(x) is not int or type(y) is not int or not any(m['x']<=x<m['x']+m['width'] and m['y']<=y<m['y']+m['height'] for m in self.monitors):
+                raise ValueError('El punto solicitado no pertenece a una pantalla activa')
+            _,_,ax,ay=desktop_motion(0,0,x,y,self.monitors)
+            self._send([self._mouse(1|0x8000|0x4000,ax,ay)])
+            point=W.POINT()
+            if not self.user.GetCursorPos(C.byref(point)):raise ValueError('No se pudo verificar la posición del mouse')
+            return {'x':point.x,'y':point.y,'confirmed':abs(point.x-x)<=1 and abs(point.y-y)<=1}
         if operation=='renew':self.deadline=now+args[1];return
         if operation=='events':
             cursor=W.POINT()

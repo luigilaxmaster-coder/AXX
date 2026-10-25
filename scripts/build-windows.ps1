@@ -64,8 +64,10 @@ try {
         Get-FileHash -LiteralPath 'dist\axx-backend.exe' -Algorithm SHA256
         return
     }
+    $tauri = Join-Path $projectRoot 'node_modules\.bin\tauri.cmd'
+    if (-not (Test-Path -LiteralPath $tauri)) { throw 'Tauri CLI missing; run npm ci before building Windows' }
     $ErrorActionPreference = 'Continue'
-    & (Join-Path $projectRoot 'node_modules\.bin\tauri.cmd') build --bundles nsis *> (Join-Path $evidencePath 'tauri-nsis-build.log')
+    & $tauri build --bundles nsis *> (Join-Path $evidencePath 'tauri-nsis-build.log')
     $ErrorActionPreference = 'Stop'
     $steps += @{command='node_modules\.bin\tauri.cmd build --bundles nsis'; exit_code=$LASTEXITCODE}
     if ($LASTEXITCODE -ne 0) { throw 'Tauri NSIS build failed; see tauri-nsis-build.log' }

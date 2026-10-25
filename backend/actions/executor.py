@@ -140,6 +140,9 @@ class ActionExecutor:
                      'desktop_cli_anything_scan': {'window_id', 'pid'},
                      'desktop_read_window': {'window_id', 'pid', 'expected_title'},
                      'desktop_focus_window': {'window_id', 'pid'},
+                     'desktop_move_pointer': {'x', 'y'},
+                     'desktop_first_video_pointer': {'window_id', 'pid', 'expected_title'},
+                     'desktop_spotify_play': set(),
                      'desktop_set_window_value': {'window_id', 'pid', 'control_id', 'value'},
                      'desktop_notepad_text': {'window_title', 'value'}, 'desktop_explorer_folder': {'path'},
                      'file_inspection': {'path', 'other_path'}}

@@ -20,7 +20,8 @@ from .memory.skill_memory import SkillMemory, NeedsInput, PARAMETER, bind, bound
 TERMINAL = {'succeeded', 'failed', 'cancelled', 'blocked', 'needs_input', 'expired', 'unknown'}
 ALLOWED = {key: value for key, value in ADAPTERS.items()
            if not key.startswith('axx.shell.')
-           and not key.startswith('axx.desktop.window.')}
+           and not key.startswith('axx.desktop.window.')
+           and not key.startswith('axx.desktop.pointer.')}
 CONTEXT_REPEATS = {'hazlo otra vez', 'repite lo anterior', 'otra vez', 'repeat that', 'haz lo mismo', 'repite eso', 'usa la estructura de la ultima vez'}
 
 

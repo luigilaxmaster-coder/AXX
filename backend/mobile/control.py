@@ -25,6 +25,12 @@ class AutomationLease:
         if self.is_set(): raise ValueError('Control cancelado antes de enfocar')
         self.native.focus(self.lease_id, window_id, pid)
 
+    def move_absolute(self, x, y):
+        if self.is_set(): raise ValueError('Control cancelado antes de mover el mouse')
+        result = self.native.move_absolute(self.lease_id, x, y)
+        if self.is_set(): raise ValueError('Control cancelado durante el movimiento')
+        return result
+
 
 def checked_events(events):
     if not isinstance(events,list) or not 1<=len(events)<=16:raise ValueError('Paquete de entrada inválido')

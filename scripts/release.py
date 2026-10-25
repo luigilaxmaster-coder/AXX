@@ -104,6 +104,11 @@ def sync(root: Path, target: str | None = None):
         updated = replace_once(pattern, lambda m: m[1] + target + m[2], text)
         if updated != text:
             path.write_text(updated, encoding="utf-8")
+    ui = root / "1.AXX/Axx.html"
+    text = ui.read_text(encoding="utf-8")
+    updated = replace_once(r"^(\s*Axx\.VERSION = ')[^']+(';)$", lambda m: m[1] + target + m[2], text)
+    if updated != text:
+        ui.write_text(updated, encoding="utf-8")
     (root / "README.md").write_text(render_readme(root, target), encoding="utf-8")
     check(root)
 
@@ -123,6 +128,9 @@ def check(root: Path) -> str:
     values += [p["version"] for p in cargo_lock["package"] if p["name"] == "axx"]
     if len(values) != 5 or any(v != current for v in values):
         raise ValueError("Desktop manifests disagree; run scripts/release.py sync --version X.Y.Z")
+    ui_version = re.search(r"^\s*Axx\.VERSION = '([^']+)';$", (root / "1.AXX/Axx.html").read_text(encoding="utf-8"), re.MULTILINE)
+    if not ui_version or ui_version[1] != current:
+        raise ValueError("Axx UI version disagrees; run scripts/release.py sync --version X.Y.Z")
     if render_readme(root, current) != (root / "README.md").read_text(encoding="utf-8"):
         raise ValueError("README release information is stale; run scripts/release.py sync")
     return current
@@ -150,12 +158,25 @@ def validate_receipts(root: Path, build_path: Path, installed_path: Path) -> Pat
         raise ValueError("Missing complete build receipt for current version")
     if any(step["exit_code"] != 0 for step in build["steps"]):
         raise ValueError("Build receipt contains failed steps")
-    if {(root / name).resolve() for name in build["source_hashes"]} != source_inventory(root):
+    built_root = build_path.resolve().parent
+    if built_root.name in ("build", "evidence"):
+        built_root = built_root.parent
+    elif built_root.parent.name in ("build", "evidence"):
+        built_root = built_root.parent.parent
+    sources = {}
+    for name, sha in build["source_hashes"].items():
+        path = Path(name)
+        try:
+            relative = path.resolve().relative_to(built_root) if path.is_absolute() else path
+        except ValueError as exc:
+            raise ValueError("Build receipt names a source outside its checkout") from exc
+        sources[relative] = sha
+    if {(root / name).resolve() for name in sources} != source_inventory(root):
         raise ValueError("Source inventory changed since build; rebuild before publication")
     for artifact in artifacts:
         if artifact["version"] != current or digest(Path(artifact["path"])) != artifact["sha256"].lower():
             raise ValueError("Build artifact hash or version mismatch")
-    for name, sha in build["source_hashes"].items():
+    for name, sha in sources.items():
         if digest(root / name) != sha.lower():
             raise ValueError(f"Source changed since build: {name}")
     item = installers[0]

@@ -977,6 +977,9 @@ class CodexProvider:
                       'developerInstructions': 'Eres el proveedor de Axx. Usa solamente las herramientas axx_ para actuar. '
                         'Nunca uses shell, archivos directos, otros agentes ni MCP externos. No presentes una operación '
                         'preparada o pendiente como completada. Solo el ejecutor puede verificar los efectos. '
+                        'Ante una petición de acción consulta axx_list_capabilities si no conoces la capacidad exacta; '
+                        'usa axx_execute_action con parámetros observados y comunica el estado real del recibo. '
+                        'Si una acción falla, explica el error concreto y la alternativa registrada disponible. '
                         'No solicites credenciales, compras, créditos ni cambios de plan.',
                       'config': {'features': dict.fromkeys(REQUESTED_DISABLED_FEATURES, False),
                                  'web_search': 'disabled', 'mcp_servers': self.disabled_mcp,

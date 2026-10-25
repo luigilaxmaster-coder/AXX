@@ -10,7 +10,7 @@ import subprocess
 import threading
 import time
 import unicodedata
-from urllib.parse import urlencode, urlsplit
+from urllib.parse import quote, urlencode, urlsplit
 
 from backend.inference.process_manager import spawn_managed_process, terminate_process_tree
 
@@ -66,10 +66,22 @@ def validate_inputs(kind, inputs):
     elif kind == 'list_windows':
         if inputs:
             raise ValueError('La lista de ventanas no admite parámetros.')
+    elif kind == 'spotify_play':
+        if inputs:
+            raise ValueError('Reproducir Spotify no admite parámetros.')
     elif kind == 'close_window':
         if set(inputs) != {'window_id', 'pid'}:
             raise ValueError('Indica la ventana observada y su proceso.')
         _validate_window_ref(inputs['window_id'], inputs['pid'])
+    elif kind == 'move_pointer':
+        if set(inputs) != {'x','y'} or any(type(inputs[k]) is not int or not -32768 <= inputs[k] <= 32767 for k in ('x','y')):
+            raise ValueError('Indica coordenadas enteras x e y dentro del escritorio.')
+    elif kind == 'first_video_pointer':
+        if set(inputs) != {'window_id','pid','expected_title'}:
+            raise ValueError('Indica la ventana de YouTube observada.')
+        _validate_window_ref(inputs['window_id'], inputs['pid'])
+        if not isinstance(inputs['expected_title'],str) or 'YouTube' not in inputs['expected_title'] or 'Chrome' not in inputs['expected_title'] or len(inputs['expected_title']) > 2048:
+            raise ValueError('La ventana observada debe ser YouTube en Chrome.')
     elif kind in ('inspect_window', 'read_window', 'focus_window'):
         if set(inputs) != ({'window_id', 'pid', 'expected_title'} if kind == 'read_window' else {'window_id', 'pid'}):
             raise ValueError('Indica la ventana observada y su proceso.')
@@ -168,6 +180,28 @@ def resolve_desktop(text, source, context=None):
         return {'match':'needs_input','message':'Indica el enlace o la búsqueda que quieres abrir.'}
     if plain(raw).strip(' .!?') in ('si','confirmar','confirmo'):
         return {'match':'needs_input','message':'No hay una acción pendiente de esa confirmación. Indica qué quieres abrir o buscar.'}
+    if re.fullmatch(r'(?:mueve|mover|pon|poner|coloca|colocar|con)\s+(?:el\s+)?(?:mouse|rat[oó]n|cursor|puntero)\s+(?:sobre|en|al|a)\s+(?:el\s+)?primer\s+v[ií]deo[.!?]*',raw,re.I):
+        from .windows_automation import list_windows
+        matches=[row for row in list_windows() if 'YouTube' in row['title'] and 'Chrome' in row['title']]
+        if len(matches)!=1:
+            return {'match':'ambiguous' if matches else 'unsupported', 'message':'Necesito una sola ventana de YouTube en Chrome para identificar el primer video.'}
+        row=matches[0]
+        return {'match':'exact','command_id':'axx.desktop.pointer.first_video','inputs':{'window_id':format(row['window_id'],'x'),'pid':row['pid'],'expected_title':row['title']}}
+    pointer = re.fullmatch(r'(?:mueve|mover|pon|poner|coloca|colocar)\s+(?:el\s+)?(?:mouse|rat[oó]n|cursor|puntero)\s+(?:a|en|hasta)\s+(?:x\s*)?(-?\d{1,5})\s*(?:,|y|;|\s)\s*(?:y\s*)?(-?\d{1,5})[.!?]*',raw,re.I)
+    if pointer:
+        inputs={'x':int(pointer[1]),'y':int(pointer[2])};validate_inputs('move_pointer',inputs)
+        return {'match':'exact','command_id':'axx.desktop.pointer.move','inputs':inputs}
+    spotify_control = re.fullmatch(r'(ponme|pon|reproduce|reproducir|reanuda|pausa|pausar|siguiente|anterior)(?:\s+(?:la|el)\s+(?:musica|música|cancion|canción|tema))?(?:\s+(?:de|en))?(?:\s+(?:mi|el))?\s+spotify[.!?]*',raw,re.I)
+    if spotify_control:
+        if plain(spotify_control[1]) in ('ponme','pon','reproduce','reproducir','reanuda'):
+            return {'match':'exact','command_id':'axx.desktop.spotify.play','inputs':{}}
+        return {'match':'unsupported','message':'Controla pausa y pistas desde la sesión multimedia de Spotify en Axx.'}
+    spotify_query = re.fullmatch(r'(?:busca|buscar|buscame|búscame|encuentra|ponme|pon|reproduce|reproducir)\s+(.+?)\s+en\s+spotify[.!?]*',raw,re.I)
+    if spotify_query:
+        query=spotify_query[1].strip()
+        if not 1<=len(query)<=500: return missing
+        return {'match':'exact','command_id':'axx.desktop.open_url',
+                'inputs':{'url':validate_url('https://open.spotify.com/search/'+quote(query,safe=''))}}
     music = re.fullmatch(r'(?:ponme|pon|reproduce|reproducir|escuchar)(?:\s+(.+))?',raw,re.I)
     if music:return search_result('youtube',music[1]) if music[1] else missing
     music_search = re.fullmatch(r'(?:busca|buscar|buscame|búscame)\s+(?:(?:una|un|la|el)\s+)?(?:musica|música|cancion|canción|tema)\s+(?:de\s+)?(.+)', raw, re.I)
@@ -251,6 +285,63 @@ def open_target(kind, inputs, cancelled=None, control=None):
         return {'success': output['closed'], 'output': output,
                 'evidence': {'verification': 'window_disappeared' if output['closed'] else 'close_requested',
                              'accepted': output['closed'], 'window_id': output['window_id'], 'pid': output['pid']}}
+    elif kind == 'move_pointer':
+        if control is None: raise ValueError('El dueño de entrada de Windows no está conectado.')
+        output=control.move_absolute(inputs['x'],inputs['y'])
+        return {'success':bool(output['confirmed']),'output':output,
+                'evidence':{'verification':'cursor_readback','accepted':bool(output['confirmed'])}}
+    elif kind == 'spotify_play':
+        if control is None: raise ValueError('El dueño de entrada de Windows no está conectado.')
+        from .windows_automation import UncertainEffect, focus_window, inspect_controls, invoke_control, list_windows, process_name
+        windows=[row for row in list_windows() if process_name(row['pid']).casefold()=='spotify.exe' and row['title']]
+        if len(windows)!=1: raise ValueError('Abre una única ventana de Spotify antes de reproducir.')
+        window=windows[0]; hwnd=window['window_id']; pid=window['pid']
+        focus_window(hwnd,pid,control=control)
+        def playback_button():
+            observed=inspect_controls(hwnd,pid,cancelled=control)
+            buttons=[row for row in observed['controls'] if row['control_type']=='ControlType.Button' and row['enabled'] and not row['offscreen']]
+            previous=next((row for row in buttons if plain(row['name']) in ('anterior','previous')),None)
+            following=next((row for row in buttons if plain(row['name']) in ('siguiente','next')),None)
+            if not previous or not following: raise ValueError('Spotify no expone su barra de reproducción.')
+            left=previous['bounds']; right=following['bounds']
+            candidates=[row for row in buttons if plain(row['name']) in ('reproducir','play','pausar','pausa','pause')
+                        and left['x']+left['width'] <= row['bounds']['x']
+                        and row['bounds']['x']+row['bounds']['width'] <= right['x']
+                        and abs(row['bounds']['y']-left['y']) <= max(20,left['height'])]
+            if len(candidates)!=1: raise ValueError('No hay un botón único de reproducción en Spotify.')
+            return candidates[0]
+        deadline=time.monotonic()+12
+        while True:
+            try:
+                button=playback_button()
+                break
+            except ValueError as exc:
+                if str(exc)!='Spotify no expone su barra de reproducción.' or time.monotonic()>=deadline or control.is_set():
+                    raise
+                time.sleep(.5)
+        if plain(button['name']) in ('pausar','pausa','pause'):
+            return {'success':True,'output':{'playing':True,'already_playing':True},'evidence':{'verification':'spotify_uia_playback_state','accepted':True}}
+        invoke_control(hwnd,pid,button['control_id'],window['title'],button['name'],cancelled=control)
+        for _ in range(8):
+            time.sleep(.25)
+            if plain(playback_button()['name']) in ('pausar','pausa','pause'):
+                return {'success':True,'output':{'playing':True,'already_playing':False},'evidence':{'verification':'spotify_uia_playback_state','accepted':True}}
+        raise UncertainEffect('Spotify recibió la pulsación, pero no confirmó que esté reproduciendo.')
+    elif kind == 'first_video_pointer':
+        if control is None: raise ValueError('El dueño de entrada de Windows no está conectado.')
+        from .windows_automation import focus_window, read_window_content
+        window_id=int(inputs['window_id'],16)
+        observed=read_window_content(window_id,inputs['pid'],inputs['expected_title'],cancelled=control)
+        if observed.get('truncated'): raise ValueError('La lista de controles está incompleta; no puedo identificar el primer video.')
+        video=next((row for row in observed['links'] if row.get('video_id')),None)
+        item=next((row for row in observed['controls'] if video and row['control_id']==video['control_id']),None)
+        if not item or item.get('offscreen') or item['bounds']['width']<1 or item['bounds']['height']<1:
+            raise ValueError('No hay un primer video visible y verificable en YouTube.')
+        focus_window(window_id,inputs['pid'],control=control)
+        bounds=item['bounds']; output=control.move_absolute(bounds['x']+bounds['width']//2,bounds['y']+bounds['height']//2)
+        output.update(video_title=video['title'],video_id=video['video_id'])
+        return {'success':bool(output['confirmed']),'output':output,
+                'evidence':{'verification':'cursor_readback','accepted':bool(output['confirmed']),'window_id':window_id,'pid':inputs['pid']}}
     elif kind == 'cli_anything_scan':
         from .cli_anything_engine import ENGINE
         app = ENGINE.scan_window(int(inputs['window_id'], 16), inputs['pid'], cancelled=cancelled)

@@ -274,6 +274,17 @@ def set_control_value(window_id, expected_pid, control_id, value, cancelled=None
                  'control_id': control_id, 'value': value}, cancelled=cancelled)
 
 
+def invoke_control(window_id, expected_pid, control_id, expected_title, expected_name, cancelled=None):
+    window_id = _positive_int(window_id, 'window_id')
+    expected_pid = _positive_int(expected_pid, 'pid')
+    if not isinstance(control_id, str) or len(control_id) != 64 or any(c not in '0123456789abcdef' for c in control_id):
+        raise ValueError('control_id observado inválido')
+    if not all(isinstance(value, str) and 1 <= len(value) <= 2048 for value in (expected_title, expected_name)):
+        raise ValueError('La ventana y el botón observados son obligatorios')
+    return _uia({'operation': 'invoke', 'window_id': window_id, 'pid': expected_pid,
+                 'control_id': control_id, 'expected_title': expected_title, 'expected_name': expected_name}, cancelled=cancelled)
+
+
 def _uia(payload, cancelled=None, timeout=None):
     if os.name != 'nt':
         raise ValueError('UI Automation requiere Windows.')
@@ -287,7 +298,7 @@ def _uia(payload, cancelled=None, timeout=None):
         error = UncertainEffect(message)
         error.target = {key: payload[key] for key in ('window_id', 'pid', 'control_id', 'expected_title') if key in payload}
         return error
-    error_type = write_error if payload['operation'] == 'set_value' else ValueError
+    error_type = write_error if payload['operation'] in ('set_value', 'invoke') else ValueError
     # Windows PowerShell execution policy applies to script files. Pass the
     # fixed, packaged worker as a command payload instead of changing policy.
     # Keep the Windows command line below 32K regardless of worker size/CRLF.

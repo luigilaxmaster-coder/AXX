@@ -283,6 +283,43 @@ const { chromium } = bundledRequire('playwright');
     assert.equal(await page.evaluate(()=>notices.length),await page.evaluate(()=>noticesBeforePlanSwitch));
     assert.equal(await page.evaluate(()=>Axx.commandLibrary.lastOperation.conversation_id),'origin-chat');
     results.push('A learned plan completing in another chat does not insert or speak its private output there');
+    const spotify = await page.evaluate(async()=>{
+      const library=Axx.commandLibrary, old={features:Axx.FEATURES,actions:Axx.actions,music:Axx.nativeMusic,media:Axx.media16,home:Axx.home18,visible:Axx.app.setVisible};
+      const session={id:'spotify-session',app:'Spotify.exe',playing:false,title:'Bachata Rosa'};
+      try{
+        Axx.FEATURES=[{id:'music',title:'Música'}];Axx.actions={select(){},open(){}};
+        Axx.nativeMusic={snapshot:{sessions:[session]},selectedId:null,refresh:async()=>{},target(){return session;},async command(action){if(action==='play')session.playing=true;}};
+        Axx.media16={source:'local'};Axx.home18={wake(){}};Axx.app.setVisible=()=>{};
+        const intent=library.internalAction('Reproduce la canción en Spotify.');
+        const message=await library.runInternal(intent);
+        return {intent,message,selected:Axx.nativeMusic.selectedId,playing:session.playing};
+      }finally{Axx.FEATURES=old.features;Axx.actions=old.actions;Axx.nativeMusic=old.music;Axx.media16=old.media;Axx.home18=old.home;Axx.app.setVisible=old.visible;}
+    });
+    assert.deepEqual(spotify.intent,{id:'music',verb:'start',app:'spotify'});
+    assert.equal(spotify.selected,'spotify-session');assert.equal(spotify.playing,true);assert.match(spotify.message,/Reproducción en curso/);
+    results.push('Reproduce Spotify targets its observed Windows media session even when Axx music is local');
+    const spotifyCold = await page.evaluate(async()=>{
+      const library=Axx.commandLibrary, old={features:Axx.FEATURES,actions:Axx.actions,music:Axx.nativeMusic,media:Axx.media16,home:Axx.home18,visible:Axx.app.setVisible,prepare:library.prepare};
+      try{
+        Axx.FEATURES=[{id:'music',title:'Música'}];Axx.actions={select(){},open(){}};
+        Axx.nativeMusic={snapshot:{sessions:[]},refresh:async()=>{}};Axx.media16={source:'local'};Axx.home18={wake(){}};Axx.app.setVisible=()=>{};
+        library.prepare=async(commandId,inputs,source)=>({commandId,inputs,source});
+        return await library.runInternal({...library.internalAction('Reproduce Spotify'),source:'voice'});
+      }finally{Axx.FEATURES=old.features;Axx.actions=old.actions;Axx.nativeMusic=old.music;Axx.media16=old.media;Axx.home18=old.home;Axx.app.setVisible=old.visible;library.prepare=old.prepare;}
+    });
+    assert.deepEqual(spotifyCold,{commandId:'axx.desktop.spotify.play',inputs:{},source:'voice'});
+    results.push('Spotify without a Windows media session routes to the observed app play button');
+    const connectFallback = await page.evaluate(async()=>{
+      const old=Axx.companion.data, before=fallback.length;
+      Axx.companion.data={prefs:{provider:'chatgpt'}};
+      try{await Axx.companion.send('haz clic en el primer vídeo',{source:'voice'});return {fallback:fallback.length-before,learning:calls.filter(call=>call.route==='/axx-api/learning/propose').length};}
+      finally{Axx.companion.data=old;}
+    });
+    assert.equal(connectFallback.fallback,1);assert.equal(connectFallback.learning,0);
+    results.push('Unresolved action reaches the selected ChatGPT Connect tools instead of the bridge-only planner');
+    const actionWords=await page.evaluate(()=>['escribe en ChatGPT hola','pulsa Enviar','escribe un poema'].map(value=>Axx.commandLibrary.isActionRequest(value)));
+    assert.deepEqual(actionWords,[true,true,false]);
+    results.push('Desktop interaction verbs route as actions while ordinary creative writing stays in chat');
     assert.deepEqual(errors, []);
     console.log(JSON.stringify({ kind: 'COMMAND_LIBRARY_UI_IPC_CONTRACT_ONLY', passed: results.length, results, uncaught: errors }, null, 2));
   } finally { await browser.close(); }

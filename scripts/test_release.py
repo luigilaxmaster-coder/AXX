@@ -16,7 +16,7 @@ class ReleaseTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         for name in ("package.json", "package-lock.json", "src-tauri/Cargo.toml",
-                     "src-tauri/Cargo.lock", "src-tauri/tauri.conf.json", "README.md", "release.json"):
+                     "src-tauri/Cargo.lock", "src-tauri/tauri.conf.json", "README.md", "release.json", "1.AXX/Axx.html"):
             target = self.root / name
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(release.ROOT / name, target)
@@ -72,6 +72,12 @@ class ReleaseTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "README"):
             release.check(self.root)
 
+    def test_stale_ui_version_is_rejected(self):
+        path = self.root / "1.AXX/Axx.html"
+        path.write_text(path.read_text(encoding="utf-8").replace(f"Axx.VERSION = '{self.current}'", "Axx.VERSION = '0.0.0'"), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "UI version"):
+            release.check(self.root)
+
     def test_corrupt_binary_is_rejected(self):
         installer, b, i = self.receipt()
         self.assertEqual(release.validate_receipts(self.root, b, i), installer)
@@ -91,6 +97,14 @@ class ReleaseTests(unittest.TestCase):
         (self.root / "axx-backend.spec").write_text("changed", encoding="utf-8")
         with self.assertRaisesRegex(ValueError, "Source changed"):
             release.validate_receipts(self.root, b, i)
+
+    def test_verified_receipt_can_publish_from_identical_checkout(self):
+        installer, b, i = self.receipt()
+        other = tempfile.TemporaryDirectory()
+        self.addCleanup(other.cleanup)
+        checkout = Path(other.name)
+        shutil.copytree(self.root, checkout, dirs_exist_ok=True)
+        self.assertEqual(release.validate_receipts(checkout, b, i), installer)
 
     def test_unready_install_is_rejected(self):
         _, b, i = self.receipt()

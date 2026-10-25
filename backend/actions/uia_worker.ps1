@@ -9,7 +9,7 @@ try {
     Add-Type -AssemblyName UIAutomationClient
     Add-Type -AssemblyName UIAutomationTypes
     $request = [Console]::In.ReadToEnd() | ConvertFrom-Json -ErrorAction Stop
-    if ($null -eq $request -or $request.operation -notin @('inspect', 'read_content', 'set_value', 'check_value', 'locate_folder', 'scrape_app')) {
+    if ($null -eq $request -or $request.operation -notin @('inspect', 'read_content', 'set_value', 'invoke', 'check_value', 'locate_folder', 'scrape_app')) {
         throw 'Operación UI Automation desconocida.'
     }
     if ($request.operation -eq 'locate_folder') {
@@ -165,7 +165,7 @@ try {
             $answer['limitation'] = 'Solo contenido expuesto por la aplicación; puede faltar texto, enlaces o elementos fuera de pantalla. No es acceso al DOM.'
         }
     } else {
-        if ($request.operation -eq 'set_value' -and [AxxUiNative]::GetForegroundWindow().ToInt64() -ne [long]$request.window_id) {
+        if ($request.operation -in @('set_value','invoke') -and [AxxUiNative]::GetForegroundWindow().ToInt64() -ne [long]$request.window_id) {
             throw 'La aplicación perdió el foco antes de escribir.'
         }
         if ($request.control_id -notmatch '^[a-f0-9]{64}$') { throw 'control_id observado inválido.' }
@@ -181,6 +181,19 @@ try {
         if ($matches.Count -ne 1) { throw 'El selector observado expiró o dejó de ser único; vuelve a inspeccionar.' }
         $element = $matches[0]
         if (-not $element.Current.IsEnabled -or $element.Current.IsOffscreen) { throw 'El control no está habilitado o visible.' }
+        if ($request.operation -eq 'invoke') {
+            if ($root.Current.Name -cne $request.expected_title -or $element.Current.Name -cne $request.expected_name) { throw 'La ventana o el control cambió antes de la acción.' }
+            if ($element.Current.ControlType -ne [System.Windows.Automation.ControlType]::Button) { throw 'El control observado ya no es un botón.' }
+            if ([AxxUiNative]::GetForegroundWindow().ToInt64() -ne [long]$request.window_id) { throw 'La aplicación perdió el foco antes de pulsar.' }
+            $pattern = $null
+            if (-not $element.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$pattern)) { throw 'El botón no ofrece InvokePattern.' }
+            $effectStarted = $true
+            $pattern.Invoke()
+            $answer = [ordered]@{ success = $true; window_id = [long]$request.window_id; pid = [int]$request.pid;
+                control_id = [string]$request.control_id; verification = 'uia_invoke_acknowledged' }
+            [Console]::Out.Write(($answer | ConvertTo-Json -Depth 4 -Compress))
+            exit 0
+        }
         $pattern = $null
         if (-not $element.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$pattern)) {
             throw 'El control no ofrece ValuePattern; la acción no se ejecutó.'

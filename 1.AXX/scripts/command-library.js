@@ -233,13 +233,15 @@
         isActionRequest(raw) {
             const text=raw.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/^[¡¿\s]+/,'')
                 .replace(/^(?:(?:oye|hola)\s+)?axx[,\s]+/,'').replace(/^por favor[,\s]+/,'').replace(/^(?:puedes|podrias|quiero que|pero)\s+/,'');
-            return /^(?:\/(?:search|buscar|comando|powershell)\b|mis\s+ventanas\b|(?:lista|muestra)\s+(?:mis\s+)?(?:ventanas|aplicaciones)\b|(?:haz|repite|usa|saca|abre|abrir|abrirme|abras|abreme|abrela|abrelo|cierra|cerrar|cierrame|salir|inicia|ejecuta|busca|buscar|buscame|encuentra|localiza|ponme|pon|reproduce|reproducir|escuchar|prepara|organiza|crea|crear|convierte|mueve|copia|renombra|comprime|extrae|descarga|instala|borra|elimina|envia|publica)\b)/.test(text);
+            return /^(?:\/(?:search|buscar|comando|powershell)\b|mis\s+ventanas\b|(?:lista|muestra)\s+(?:mis\s+)?(?:ventanas|aplicaciones)\b|(?:haz|repite|usa|saca|abre|abrir|abrirme|abras|abreme|abrela|abrelo|cierra|cerrar|cierrame|salir|inicia|ejecuta|busca|buscar|buscame|encuentra|localiza|ponme|pon|reproduce|reproducir|escuchar|prepara|organiza|crea|crear|convierte|mueve|pulsa|teclea|pega|selecciona|desplaza|navega|copia|renombra|comprime|extrae|descarga|instala|borra|elimina|envia|publica)\b|escribe\s+(?:en|dentro\s+de)\b)/.test(text);
         }
         internalAction(raw) {
             const plain = value => String(value).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
             const text = plain(raw).replace(/^[¡¿\s]+/, '').replace(/^(?:(?:hey|oye|hola|ok|ey)\s+)?axx\b[\s,.:!-]*/, '')
                 .replace(/^(?:por favor[,\s]+|(?:puedes|podrias|quiero que|quiero)\s+)+/, '')
                 .replace(/[.!?]+$/, '').replace(/\s+por favor$/, '').trim();
+            const spotify = text.match(/^(reproduce|reproducir|pon|ponme|reanuda|continua|sigue|pausa|pausar|deten|detener|para|siguiente|anterior)(?: (?:la |el )?(?:musica|cancion|tema|reproduccion))?(?: (?:de|en))?(?: (?:mi|el))? spotify$/);
+            if (spotify) return {id:'music',verb:/^(pausa|pausar|deten|detener|para)$/.test(spotify[1])?'pause':spotify[1]==='siguiente'?'next':spotify[1]==='anterior'?'previous':'start',app:'spotify'};
             const aliases = {
                 chat:'chat', conversacion:'chat', dictar:'dictation', dictado:'dictation', microfono:'dictation',
                 grabar:'screen', grabadora:'screen', grabacion:'screen', 'grabar pantalla':'screen', pantalla:'screen',
@@ -266,7 +268,7 @@
             const verb = /^(pausa|pausar)$/.test(match[1]) ? 'pause' : /^(deten|detener|para|termina|finaliza|cancela)$/.test(match[1]) ? 'stop' : 'start';
             return {id,verb};
         }
-        async runInternal({id,verb}) {
+        async runInternal({id,verb,app,source='text'}) {
             const actions = Axx.actions, voice = Axx.voice13;
             const feature = Axx.FEATURES?.find(f => f.id === id);
             if (!feature) throw new Error('Esta función no está disponible en esta versión de Axx.');
@@ -301,13 +303,27 @@
                 const states = {running:'Grabando pantalla.',paused:'Grabación pausada.',requesting:'Selecciona el área de pantalla para grabar.',countdown:'Cuenta atrás para comenzar la grabación.',stopping:'Finalizando y guardando la grabación…',finished:'Grabación finalizada.',ready:'No hay una grabación activa.'};
                 return states[screen.state] || 'Consulta el estado de la grabación en sus controles.';
             }
-            if (id === 'music' && Axx.nativeMusic && Axx.media16?.source === 'system') {
+            if (id === 'music' && app === 'spotify' && !Axx.nativeMusic) {
+                if (verb === 'start') return this.prepare('axx.desktop.spotify.play',{},source);
+                throw new Error('El control multimedia de Windows no está disponible.');
+            }
+            if (id === 'music' && Axx.nativeMusic && (app === 'spotify' || Axx.media16?.source === 'system')) {
                 const music = Axx.nativeMusic;
                 await music.refresh();
+                let before;
+                if (app === 'spotify') {
+                    const sessions=(music.snapshot.sessions||[]).filter(item=>/spotify/i.test(item.app||''));
+                    if (!sessions.length && verb === 'start') return this.prepare('axx.desktop.spotify.play',{},source);
+                    if (sessions.length !== 1) throw new Error(sessions.length?'Hay varias sesiones de Spotify. Elige una en Música.':'Spotify no expone una sesión multimedia controlable ahora. Abre una canción en Spotify y vuelve a intentarlo.');
+                    music.selectedId=sessions[0].id;
+                    before=sessions[0];
+                }
                 if (!music.target()) { actions.open(id); return 'No hay un reproductor con controles de Windows disponible.'; }
-                await music.command(verb === 'start' ? 'play' : 'pause');
+                await music.command(verb === 'start' ? 'play' : verb === 'next' ? 'next' : verb === 'previous' ? 'previous' : 'pause');
                 if (music.error || music.readError) throw new Error(music.error || music.readError);
-                return music.target()?.playing === (verb === 'start') ? (verb === 'start' ? 'Reproducción en curso.' : 'Reproducción pausada.') : 'No se confirmó el cambio de reproducción.';
+                const after=music.target();
+                if (verb === 'next' || verb === 'previous') return after?.title && after.title !== before?.title ? 'Pista actual: ' + after.title + '.' : 'Se envió el cambio de pista, pero Spotify no confirmó otra canción.';
+                return after?.playing === (verb === 'start') ? (verb === 'start' ? 'Reproducción en curso.' : 'Reproducción pausada.') : 'Se envió el control, pero Spotify no confirmó el estado.';
             }
             if (id === 'reader') {
                 const reader = Axx.symbiosis.reader;
@@ -379,7 +395,7 @@
                 if (internal) {
                     Axx.companion._forceVoiceReplyOnce = false;
                     Axx.companion.message('user', raw, 'local');
-                    try { this.notice(await this.runInternal(internal), origin); }
+                    try { this.notice(await this.runInternal({...internal,source:metadata.source === 'voice' ? 'voice' : 'text'}), origin); }
                     catch (error) { this.notice('No se pudo completar la orden: ' + errorText(error), origin); }
                     Axx.resident?.schedule(); return;
                 }
@@ -425,8 +441,9 @@
                     }
                     if (resolved.match === 'none') {
                         if(!this.isActionRequest(raw))return previous(raw, metadata);
+                        if (Axx.companion.data?.prefs?.provider === 'chatgpt') return previous(raw, metadata);
                         Axx.companion.message('user',raw,'local');
-                        Axx.companion.localNotice('No hay una acción ejecutable identificada para esta petición. No se ha ejecutado ni enviado al modelo. Consulta /comandos para buscar el procedimiento y sus requisitos.');
+                        await this.planAction(raw);
                         return;
                     }
                     Axx.companion.message('user', raw, 'local');

@@ -280,6 +280,18 @@
             else if (i.action === 'repeat') m.setRepeat(i.mode); else if (i.action === 'seek') m.seek(i.seconds);
             output = {index:m.index, tracks:m.tracks.length, paused:m.audio.paused, phase:m.phase, time:m.audio.currentTime, shuffle:m.order.shuffle, repeat:m.order.repeat};
             verified = i.action === 'play' ? !m.audio.paused : i.action === 'pause' ? m.audio.paused : i.action === 'select' ? m.index === i.index : i.action === 'shuffle' ? m.order.shuffle === i.enabled : i.action === 'repeat' ? m.order.repeat === i.mode : false;
+        } else if (task.command_id === 'axx.ui.system_media') {
+            const media=Axx.nativeMusic;
+            if (!media) throw new Error('El control multimedia de Windows no está disponible.');
+            await media.refresh();
+            const matches=(media.snapshot.sessions||[]).filter(item=>new RegExp(i.app,'i').test(item.app||''));
+            if (matches.length!==1) throw new Error(matches.length?'Hay varias sesiones de '+i.app+'. Selecciona una en Música.':'No hay una sesión controlable de '+i.app+' en Windows.');
+            const before=matches[0]; media.selectedId=before.id;
+            await media.command(i.action);
+            if (media.error||media.readError) throw new Error(media.error||media.readError);
+            const after=(media.snapshot.sessions||[]).find(item=>item.id===before.id);
+            output={app:i.app,session_id:before.id,playing:after?.playing??null,title:after?.title||'',action:i.action};
+            verified=!!after&&(i.action==='play'?after.playing===true:i.action==='pause'?after.playing===false:after.title!==before.title);
         } else if (task.command_id === 'axx.ui.reader') {
             const r = Axx.symbiosis.reader;
             if (i.action === 'set_text') r.setText(i.text, 'Axx Connect'); else if (i.action === 'play') r.play();
@@ -334,6 +346,7 @@
                 'axx.ui.local': typeof c.runLocal === 'function', 'axx.ui.panel': typeof c.openFeature === 'function',
                 'axx.ui.text_transform': typeof Axx.transformText === 'function',
                 'axx.ui.music': typeof Axx.actions?.music?.play === 'function',
+                'axx.ui.system_media': typeof Axx.nativeMusic?.command === 'function',
                 'axx.ui.reader': typeof Axx.symbiosis?.reader?.setText === 'function',
                 'axx.ui.stopwatch': typeof Axx.utilities?.toggleWatch === 'function',
                 'axx.ui.dictation': typeof Axx.voice13?.stop === 'function',

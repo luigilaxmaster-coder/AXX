@@ -79,6 +79,21 @@ ADAPTERS = {
         'aliases': [], 'parameters': {
             'window_id': {'type': 'string', 'required': True, 'maxLength': 18},
             'pid': {'type': 'integer', 'required': True, 'minimum': 1, 'maximum': 4294967295}}},
+    'axx.desktop.pointer.move': {
+        'title': 'Mover mouse a coordenadas de pantalla', 'tool': 'desktop_move_pointer', 'risk': 'local_state', 'requires_approval': False,
+        'description': 'Mueve el cursor a un punto físico explícito de una pantalla activa, sin hacer clic; comprueba la posición final.',
+        'aliases': [], 'parameters': {'x': {'type': 'integer', 'required': True, 'minimum': -32768, 'maximum': 32767},
+                                    'y': {'type': 'integer', 'required': True, 'minimum': -32768, 'maximum': 32767}}},
+    'axx.desktop.pointer.first_video': {
+        'title': 'Poner mouse sobre el primer video de YouTube', 'tool': 'desktop_first_video_pointer', 'risk': 'local_state', 'requires_approval': False,
+        'description': 'Observa el primer video visible en una ventana única de YouTube en Chrome, la enfoca y mueve el cursor sin hacer clic.',
+        'aliases': [], 'parameters': {'window_id': {'type': 'string', 'required': True, 'maxLength': 18},
+                                     'pid': {'type': 'integer', 'required': True, 'minimum': 1, 'maximum': 4294967295},
+                                     'expected_title': {'type': 'string', 'required': True, 'maxLength': 2048}}},
+    'axx.desktop.spotify.play': {
+        'title': 'Reproducir Spotify abierto', 'tool': 'desktop_spotify_play', 'risk': 'local_state', 'requires_approval': False,
+        'description': 'Enfoca la ventana única de Spotify y activa su botón de reproducción observado; comprueba que cambia a Pausar.',
+        'aliases': [], 'parameters': {}},
     'axx.desktop.window.set_value': {
         'title': 'Escribir en un control observado', 'tool': 'desktop_set_window_value', 'risk': 'workspace_write',
         'description': 'Escribe texto exacto en un control único con ValuePattern, ligado a HWND, PID y AutomationId observados. Requiere aprobación por operación.',

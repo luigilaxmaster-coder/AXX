@@ -14,8 +14,8 @@ python scripts/release.py check
 ```
 
 Use the actual next version in place of the example. The command updates the npm
-manifests, Tauri configuration, Cargo manifests and README source badge. It keeps
-the published download on its confirmed version until publication succeeds.
+manifests, Tauri configuration, Cargo manifests, Axx UI version and README source
+badge. It keeps the published download on its confirmed version until publication succeeds.
 Write the release notes in `docs/releases/X.Y.Z.md`; include measured behavior,
 required setup and outstanding hardware checks.
 

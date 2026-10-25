@@ -390,7 +390,7 @@ class DesktopTool(BaseTool):
         from .desktop import open_target
         from .windows_automation import UncertainEffect
         try:
-            if self.kind in ('focus_window', 'set_window_value', 'notepad_text', 'explorer_folder', 'open_app'):
+            if self.kind in ('focus_window', 'set_window_value', 'notepad_text', 'explorer_folder', 'open_app', 'move_pointer', 'first_video_pointer', 'spotify_play'):
                 if input_control is None:
                     raise ValueError('El dueño de entrada de Windows no está conectado a este ejecutor.')
                 with input_control.automation(cancelled) as control:
@@ -412,6 +412,10 @@ class DesktopTool(BaseTool):
                      and result.evidence.get('value_length') == len(inputs['value'].encode('utf-16-le')) // 2)
         elif self.kind == 'explorer_folder':
             valid = result.success and result.evidence.get('verification') == 'shell_folder_and_foreground_readback' and result.output.get('foreground_verified') is True
+        elif self.kind in ('move_pointer','first_video_pointer'):
+            valid = result.success and result.evidence.get('verification') == 'cursor_readback' and result.output.get('confirmed') is True
+        elif self.kind == 'spotify_play':
+            valid = result.success and result.evidence.get('verification') == 'spotify_uia_playback_state' and result.output.get('playing') is True
         elif self.kind == 'cli_anything_scan':
             valid = (result.success and result.evidence.get('verification') == 'uia_capabilities_observed'
                      and result.output.get('window_id') == int(inputs['window_id'], 16)
@@ -464,7 +468,7 @@ TOOL_REGISTRY: dict[str, BaseTool] = {
     BlenderRenderFixtureTool.name: BlenderRenderFixtureTool(),
     **{('desktop_' + kind): DesktopTool(kind) for kind in (
         'open_url', 'open_app', 'installed_app', 'list_apps', 'search', 'powershell', 'cmd',
-        'list_windows', 'close_window', 'inspect_window', 'read_window', 'focus_window', 'set_window_value', 'notepad_text', 'explorer_folder', 'cli_anything_scan')},
+        'list_windows', 'close_window', 'inspect_window', 'read_window', 'focus_window', 'move_pointer', 'first_video_pointer', 'spotify_play', 'set_window_value', 'notepad_text', 'explorer_folder', 'cli_anything_scan')},
 }
 
 def get_tool(name: str) -> BaseTool | None:

@@ -42,6 +42,90 @@ class DesktopCommandTests(unittest.TestCase):
         for text in ('cómo abrir YouTube', 'no abras YouTube', 'resume: abre YouTube', 'abre calculadora && whoami'):
             self.assertNotEqual(self.service.resolve(text).get('match'), 'exact')
 
+    def test_spotify_commands_never_become_youtube_searches(self):
+        for text in ('pausa Spotify', 'siguiente en Spotify'):
+            with self.subTest(text=text):
+                result = self.service.resolve(text, source='voice')
+                self.assertEqual(result['match'], 'unsupported')
+                self.assertNotIn('youtube', str(result).lower())
+        self.assertEqual(self.service.resolve('Reproduce la canción en Spotify.', source='voice'),
+                         {'match':'exact','command_id':'axx.desktop.spotify.play','inputs':{}})
+        search = self.service.resolve('Busca Bachata Rosa en Spotify', source='voice')
+        self.assertEqual(search['command_id'], 'axx.desktop.open_url')
+        self.assertEqual(search['inputs']['url'], 'https://open.spotify.com/search/Bachata%20Rosa')
+
+    def test_spotify_play_invokes_observed_button_and_checks_pause_readback(self):
+        def controls(name):
+            return {'truncated': True, 'controls': [
+                {'control_type':'ControlType.Button','enabled':True,'offscreen':False,'name':'Anterior','bounds':{'x':100,'y':100,'width':40,'height':40}},
+                {'control_type':'ControlType.Button','enabled':True,'offscreen':False,'name':name,'control_id':'a'*64,'bounds':{'x':150,'y':100,'width':40,'height':40}},
+                {'control_type':'ControlType.Button','enabled':True,'offscreen':False,'name':'Siguiente','bounds':{'x':200,'y':100,'width':40,'height':40}}]}
+        control=SimpleNamespace(is_set=lambda:False)
+        self.executor.input_control=SimpleNamespace(automation=lambda cancelled:nullcontext(control))
+        with patch('backend.actions.windows_automation.list_windows',return_value=[{'window_id':18,'pid':45,'title':'Spotify Premium'}]), \
+             patch('backend.actions.windows_automation.process_name',return_value='spotify.exe'), \
+             patch('backend.actions.windows_automation.focus_window'), \
+             patch('backend.actions.windows_automation.inspect_controls',side_effect=[controls('Reproducir'),controls('Pausa')]), \
+             patch('backend.actions.windows_automation.invoke_control') as invoke, \
+             patch('backend.actions.desktop.time.sleep'):
+            pending=self.service.prepare('axx.desktop.spotify.play',{},source='voice')
+            receipt=self.service.execute(pending['operation_id'])
+        self.assertEqual(receipt['state'],'succeeded')
+        self.assertTrue(receipt['postconditions_passed'])
+        invoke.assert_called_once()
+
+    def test_spotify_play_waits_for_a_new_window_to_expose_its_controls(self):
+        empty={'truncated':False,'controls':[]}
+        buttons={'truncated':False,'controls':[
+            {'control_type':'ControlType.Button','enabled':True,'offscreen':False,'name':'Anterior','bounds':{'x':100,'y':100,'width':40,'height':40}},
+            {'control_type':'ControlType.Button','enabled':True,'offscreen':False,'name':'Pausa','control_id':'a'*64,'bounds':{'x':150,'y':100,'width':40,'height':40}},
+            {'control_type':'ControlType.Button','enabled':True,'offscreen':False,'name':'Siguiente','bounds':{'x':200,'y':100,'width':40,'height':40}}]}
+        control=SimpleNamespace(is_set=lambda:False)
+        self.executor.input_control=SimpleNamespace(automation=lambda cancelled:nullcontext(control))
+        with patch('backend.actions.windows_automation.list_windows',return_value=[{'window_id':18,'pid':45,'title':'Spotify'}]), \
+             patch('backend.actions.windows_automation.process_name',return_value='spotify.exe'), \
+             patch('backend.actions.windows_automation.focus_window'), \
+             patch('backend.actions.windows_automation.inspect_controls',side_effect=[empty,buttons]) as inspect, \
+             patch('backend.actions.desktop.time.sleep'):
+            pending=self.service.prepare('axx.desktop.spotify.play',{},source='voice')
+            receipt=self.service.execute(pending['operation_id'])
+        self.assertEqual(receipt['state'],'succeeded')
+        self.assertEqual(inspect.call_count,2)
+
+    def test_explicit_pointer_position_is_typed_and_read_back(self):
+        result = self.service.resolve('mueve el mouse a x 500 y 400', source='voice')
+        self.assertEqual(result, {'match': 'exact', 'command_id': 'axx.desktop.pointer.move', 'inputs': {'x': 500, 'y': 400}})
+        with self.assertRaises(ValueError):
+            self.service.prepare('axx.desktop.pointer.move', {'x': '500', 'y': 400})
+        control = SimpleNamespace(move_absolute=lambda x, y: {'x': x, 'y': y, 'confirmed': True}, is_set=lambda: False)
+        owner = SimpleNamespace(automation=lambda cancelled: nullcontext(control))
+        self.executor.input_control = owner
+        pending = self.service.prepare(result['command_id'], result['inputs'], source='voice')
+        receipt = self.service.execute(pending['operation_id'])
+        self.assertEqual(receipt['state'], 'succeeded')
+        self.assertEqual(receipt['evidence']['verification'], 'cursor_readback')
+
+    def test_first_video_pointer_uses_observed_youtube_control(self):
+        window={'window_id':18,'pid':45,'title':'Resultados - YouTube - Google Chrome'}
+        with patch('backend.actions.windows_automation.list_windows',return_value=[window]):
+            resolved=self.service.resolve('pon el mouse sobre el primer vídeo',source='voice')
+            mistaken=self.service.resolve('con el mouse sobre el primer vídeo',source='voice')
+        self.assertEqual(resolved['command_id'],'axx.desktop.pointer.first_video')
+        self.assertEqual(mistaken,resolved)
+        moves=[]
+        control=SimpleNamespace(is_set=lambda:False,focus=lambda hwnd,pid:moves.append(('focus',hwnd,pid)),
+                                move_absolute=lambda x,y:(moves.append(('move',x,y)) or {'x':x,'y':y,'confirmed':True}))
+        self.executor.input_control=SimpleNamespace(automation=lambda cancelled:nullcontext(control))
+        observed={'truncated':False,'links':[{'control_id':'a'*64,'title':'Primer video','video_id':'12345678901'}],
+                  'controls':[{'control_id':'a'*64,'offscreen':False,'bounds':{'x':100,'y':200,'width':80,'height':40}}]}
+        with patch('backend.actions.windows_automation.read_window_content',return_value=observed), \
+             patch('backend.actions.windows_automation.focus_window',side_effect=lambda hwnd,pid,control:moves.append(('focus',hwnd,pid))):
+            pending=self.service.prepare(resolved['command_id'],resolved['inputs'],source='voice')
+            receipt=self.service.execute(pending['operation_id'])
+        self.assertEqual(receipt['state'],'succeeded')
+        self.assertEqual(moves,[('focus',18,45),('move',140,220)])
+        self.assertEqual(receipt['output']['video_id'],'12345678901')
+
     def test_url_dispatch_is_typed_and_idempotent(self):
         with patch('os.startfile', create=True) as launch:
             pending = self.service.prepare('axx.desktop.open_url', {'url': 'https://www.youtube.com/'})

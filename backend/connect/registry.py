@@ -70,6 +70,13 @@ UI_CAPABILITIES = {
             'index': {'type': 'integer', 'minimum': 0, 'maximum': 9999}, 'enabled': {'type': 'boolean'},
             'mode': string(enum=['off', 'all', 'one']), 'seconds': {'type': 'number', 'minimum': -86400, 'maximum': 86400}}, ['action']),
         'effects': 'Cambia reproducción local y sus preferencias.', 'verification': 'Readback de audio.paused/currentTime, índice, shuffle y repeat.'},
+    'axx.ui.system_media': {
+        'title': 'Controlar Spotify o Chrome en Windows',
+        'description': 'Reproduce, pausa o cambia pista de una sesión multimedia de Spotify o Chrome observada por Windows. No busca ni selecciona canciones.',
+        'handler': 'Axx.nativeMusic.command', 'risk': 'local_state',
+        'input_schema': obj({'app': string(enum=['spotify','chrome']), 'action': string(enum=['play','pause','next','previous'])}, ['app','action']),
+        'effects': 'Envía un control únicamente a la sesión identificada de la aplicación solicitada.',
+        'verification': 'Readback de la misma sesión y estado de reproducción; salto de pista requiere título nuevo o se marca incierto.'},
     'axx.ui.reader': {
         'title': 'Lectura de texto', 'description': 'Utiliza el lector existente. La disponibilidad de voz depende del servicio nativo autorizado.',
         'handler': 'Axx.symbiosis.reader', 'risk': 'local_state',

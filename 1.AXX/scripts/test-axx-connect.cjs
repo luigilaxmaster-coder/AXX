@@ -217,6 +217,15 @@ const root = path.resolve(__dirname, '..');
     assert.equal(await page.evaluate(() => Axx.companion.dock.selected),'notes');
     checks.push('Panel operation opens the existing notes panel');
 
+    const media = await page.evaluate(async()=>{
+      const previous=Axx.nativeMusic, spotify={id:'spotify-test',app:'Spotify.exe',playing:false,title:'Bachata Rosa'},chrome={id:'chrome-test',app:'Chrome.exe',playing:false,title:'Video'};
+      Axx.nativeMusic={snapshot:{sessions:[spotify,chrome]},selectedId:null,refresh:async()=>{},async command(action){this.snapshot.sessions.find(item=>item.id===this.selectedId).playing=action==='play';}};
+      try{return {result:await Axx.connect.executeUI({command_id:'axx.ui.system_media',inputs:{app:'spotify',action:'play'},operation_id:'spotify-test',claim_id:'test'}),spotify:spotify.playing,chrome:chrome.playing};}
+      finally{Axx.nativeMusic=previous;}
+    });
+    succeeded(media.result);assert.equal(media.spotify,true);assert.equal(media.chrome,false);
+    checks.push('Spotify media control selects only the observed Spotify session and verifies playback state');
+
     succeeded(await execute('axx.ui.identity',{action:'settings',form:2,palette:4,motionStyle:'organic'}));
     succeeded(await execute('axx.ui.identity',{action:'finish',finish:'prism'}));
     succeeded(await execute('axx.ui.identity',{action:'size',size:320}));

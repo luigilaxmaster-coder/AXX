@@ -1,9 +1,14 @@
 import unittest
 
 from backend.speech.speech_text import prepare_spoken_text, spanish_integer
+from backend.speech.offline_asr import excessive_repetition
 
 
 class SpokenTextTests(unittest.TestCase):
+    def test_repeated_asr_output_is_rejected_before_actions(self):
+        self.assertTrue(excessive_repetition('no es el que no es el que no es el que no es el que no es el que'))
+        self.assertFalse(excessive_repetition('reproduce la canción en Spotify'))
+
     def test_spanish_accents_questions_and_voice_name_survive(self):
         text = '¡Hola! Soy Axx Titán. ¿Cómo estás? Mañana te ayudaré.'
         self.assertEqual(prepare_spoken_text(text, 'es-DO'), (text, 'es'))

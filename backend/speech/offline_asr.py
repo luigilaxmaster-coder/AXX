@@ -21,6 +21,13 @@ SNAPSHOT = 'd90ca5fe260221311c53c58e660288d3deb8d356'
 MAX_AUDIO = 1400 * 1024
 MAX_SECONDS = 60
 MAX_WORKER_OUTPUT = 256 * 1024
+VOICE_CONTEXT = 'Spotify. Google Chrome. ChatGPT. Antigravity. Obsidian. CMD. Mueve el mouse. Reproduce. Pausa.'
+
+
+def excessive_repetition(text):
+    words = re.findall(r'\w+', text.casefold())
+    return len(words) >= 16 and any(words[i:i + n] == words[i + n:i + 2 * n] == words[i + 2 * n:i + 3 * n]
+                                    for n in range(2, 6) for i in range(len(words) - 3 * n + 1))
 
 def model_path():
     if getattr(sys,'frozen',False):
@@ -88,7 +95,8 @@ def worker_main():
             model=WhisperModel(request['model_path'],device='cpu',compute_type='int8',cpu_threads=2,num_workers=1,local_files_only=True)
             loaded=time.monotonic()
             generated,info=model.transcribe(audio,language=request.get('language'),task=request['task'],
-                beam_size=1,temperature=0,condition_on_previous_text=False,vad_filter=False,max_new_tokens=128)
+                beam_size=5,temperature=0,condition_on_previous_text=False,vad_filter=False,max_new_tokens=128,
+                initial_prompt=VOICE_CONTEXT if request.get('language') == 'es' and request['task'] == 'transcribe' else None)
             segments=[]
             for segment in generated:
                 if len(segments)>=128: raise SpeechError('INVALID_RESPONSE','Too many transcription segments')
@@ -96,6 +104,8 @@ def worker_main():
             result={'text':' '.join(s['text'] for s in segments).strip(),'segments':segments,
                     'language':info.language,'language_probability':round(info.language_probability,6),
                     'audio_duration_seconds':round(samples/16000,3),'silence_detected':False}
+            if excessive_repetition(result['text']):
+                raise SpeechError('INVALID_RESPONSE','El dictado repitió palabras varias veces. Repite la orden antes de ejecutar una acción.')
         result.update({'engine':'faster-whisper','model':'tiny','device':'cpu','compute_type':'int8',
                        'task':request['task'],'translation_target':'en' if request['task']=='translate' else None,
                        'external_calls':0,'automatic_actions':False})
