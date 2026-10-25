@@ -154,6 +154,8 @@ def resolve_desktop(text, source, context=None):
     raw = re.sub(r'^(?:puedes|podrias|podrías|quiero que)\s+', '', raw, flags=re.I)
     raw = re.sub(r'\s+por favor[?.!]*$', '', raw, flags=re.I)
     raw = re.sub(r'^pero\s+', '', raw, flags=re.I)
+    if source == 'voice':
+        raw = re.sub(r'^and\s+(?:google\s+)?chrome[,.]?\s+busca\b', 'en Chrome busca', raw, flags=re.I)
     desktop_app = re.fullmatch(r'(?:busca|encuentra|localiza)\s+(.+?)\s+en (?:mi|el) escritorio y (?:abrelo|ábrelo|abrela|ábrela)[.!?]*', raw, re.I)
     if desktop_app:
         if not re.fullmatch(r'[\w\s-]{2,100}', desktop_app[1], re.UNICODE):

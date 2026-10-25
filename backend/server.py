@@ -42,7 +42,7 @@ from backend.memory.procedural_memory import ProceduralMemory
 from backend.memory.ai_memory_adapter import AiMemoryAdapter
 from backend.sync.identity_sync import IdentityStore
 from backend.speech.windows_tts import WindowsSpeechService, SpeechError
-from backend.speech.offline_asr import OfflineTranscriptionService, worker_main as transcribe_worker_main
+from backend.speech.offline_asr import OfflineTranscriptionService, worker_server_main as transcribe_worker_main
 from backend.auth.chatgpt_auth import ChatGPTAuthManager
 from backend.inference.chatgpt_adapter import ChatGPTSubscriptionAdapter
 from backend.auth.callback_page import get_callback_html
@@ -1117,6 +1117,7 @@ def run_server(host='127.0.0.1', port=4173, config_path='providers.json', state_
         services.append(speech)
         transcription = OfflineTranscriptionService(state_dir)
         services.append(transcription)
+        transcription.warm()
         memory_adapter = AiMemoryAdapter(start_owned=True, data_dir=state_dir / 'ai-memory')
         services.append(memory_adapter)
         memory = ProceduralMemory(db_path=state_path, ai_memory=memory_adapter)

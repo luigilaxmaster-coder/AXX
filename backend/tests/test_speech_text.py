@@ -1,13 +1,49 @@
 import unittest
 import tempfile
+import subprocess
+import sys
+import threading
+import time
 from pathlib import Path
 from unittest.mock import patch
 
 from backend.speech.speech_text import prepare_spoken_text, spanish_integer
-from backend.speech.offline_asr import excessive_repetition, model_path
+from backend.speech.offline_asr import OfflineTranscriptionService, excessive_repetition, model_path
+from backend.speech.windows_tts import SpeechError
 
 
 class SpokenTextTests(unittest.TestCase):
+    def test_transcription_worker_is_reused_and_cancelled_worker_is_discarded(self):
+        script = ("import json,os,sys,time\n"
+                  "n=0\n"
+                  "for line in sys.stdin.buffer:\n"
+                  " request=json.loads(line);n+=1\n"
+                  " if request.get('wait'):time.sleep(10)\n"
+                  " print(json.dumps({'ok':True,'result':{'pid':os.getpid(),'count':n}}),flush=True)\n")
+        def spawn(_command,**kwargs):
+            return subprocess.Popen([sys.executable,'-u','-c',script],**kwargs),None
+        with tempfile.TemporaryDirectory() as directory, patch('backend.speech.offline_asr.spawn_managed_process',side_effect=spawn):
+            service=OfflineTranscriptionService(directory)
+            try:
+                first=service._execute({})
+                second=service._execute({})
+                self.assertEqual((first['pid'],first['count']),(second['pid'],1))
+                self.assertEqual(second['count'],2)
+                errors=[]
+                def wait_for_worker():
+                    try:service._execute({'wait':True})
+                    except SpeechError as exc:errors.append(exc.code)
+                thread=threading.Thread(target=wait_for_worker)
+                thread.start()
+                until=time.monotonic()+2
+                while service._active is None and time.monotonic()<until:time.sleep(.01)
+                self.assertEqual(service.cancel_active(),1)
+                thread.join(3)
+                self.assertFalse(thread.is_alive())
+                self.assertEqual(errors,['CANCELLED'])
+                self.assertNotEqual(service._execute({})['pid'],first['pid'])
+            finally:service.close()
+
     def test_repeated_asr_output_is_rejected_before_actions(self):
         self.assertTrue(excessive_repetition('no es el que no es el que no es el que no es el que no es el que'))
         self.assertFalse(excessive_repetition('reproduce la canción en Spotify'))

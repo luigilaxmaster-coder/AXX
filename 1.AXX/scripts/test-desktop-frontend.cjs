@@ -298,6 +298,7 @@ assert(!html.includes("const apiBase ="), 'Production must not hardcode a develo
         await c.send('cierra Obsidian', { source: 'voice' });
         window.__contractResolve = { match: 'exact', command_id: 'axx.desktop.search', inputs: { engine: 'google', query: 'youtube' } };
         await c.send('en chrome busca youtube', { source: 'voice' });
+        await c.send('And Chrome. Busca YouTube.', { source: 'voice' });
         const shown = document.getElementById('chat-voice-model')?.value;
         c.data.prefs.selection_mode = 'automatic_free'; Axx.refreshVoiceModelOptions();
         const selector = document.getElementById('chat-voice-model');
@@ -320,7 +321,7 @@ assert(!html.includes("const apiBase ="), 'Production must not hardcode a develo
     assert.equal(voiceAction.calls.find(call => call.path === '/axx-api/commands/prepare')?.body.command_id, 'axx.desktop.installed_app');
     assert.equal(voiceAction.calls.find(call => call.path === '/axx-api/commands/prepare')?.body.inputs.app_id, 'md.obsidian');
     assert(voiceAction.calls.some(call => call.path === '/axx-api/commands/prepare' && call.body.command_id === 'axx.desktop.window.close'));
-    assert(voiceAction.calls.some(call => call.path === '/axx-api/commands/prepare' && call.body.command_id === 'axx.desktop.search'));
+    assert.equal(voiceAction.calls.filter(call => call.path === '/axx-api/commands/prepare' && call.body.command_id === 'axx.desktop.search').length, 2);
     assert(voiceAction.calls.some(call => call.path === '/axx-api/commands/execute'));
     assert.equal(voiceAction.calls.some(call => call.path === '/axx-api/chat'), false);
     results.push('Voice model selection retains only a catalogued model; an installed-app voice request reaches typed resolve, prepare and execute without model chat');
