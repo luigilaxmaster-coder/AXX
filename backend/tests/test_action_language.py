@@ -53,6 +53,8 @@ class ActionLanguageTests(unittest.TestCase):
         self.assertEqual(resolve_desktop('en chrome busca youtube','voice')['inputs'],{'engine':'google','query':'youtube'})
         self.assertEqual(resolve_desktop('And Chrome. Busca YouTube.','voice')['inputs'],{'engine':'google','query':'YouTube'})
         self.assertIsNone(resolve_desktop('And Chrome. Busca YouTube.','text'))
+        self.assertEqual(resolve_desktop('En Chrome Bosca YouTube.','voice')['inputs'],{'engine':'google','query':'YouTube'})
+        self.assertIsNone(resolve_desktop('En Chrome Bosca YouTube.','text'))
         self.assertEqual(resolve_desktop('busca en Chrome Obsidian','voice')['inputs'],{'engine':'google','query':'Obsidian'})
         result=resolve_desktop('ponme en spotify faint de linkinpark','voice')
         self.assertEqual(result['command_id'],'axx.desktop.open_url')

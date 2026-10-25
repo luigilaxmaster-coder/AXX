@@ -1,6 +1,6 @@
 [package]
 name = "axx"
-version = "0.21.14"
+version = "0.21.15"
 description = "Axx Desktop Assistant"
 authors = ["Axx Team"]
 license = ""
