@@ -619,11 +619,11 @@ class CommandService:
                     action_id = result.get('action_operation_id')
                     action = self.executor.get_operation(action_id) if action_id else None
                     if action and action['state'] == 'unknown':
-                        action.update(state='failed', postconditions_passed=False, evidence=evidence)
+                        action.update(state='failed', postconditions_passed=False, evidence=evidence, effect_status='not_observed')
                         with self.executor.db:
                             self.executor.db.execute("UPDATE operations SET state='failed', result_json=?, evidence_json=? WHERE operation_id=?",
                                                      (json.dumps(action), json.dumps(evidence), action_id))
-                    return self._save(result | {'state':'failed', 'postconditions_passed':False, 'evidence':evidence,
+                    return self._save(result | {'state':'failed', 'postconditions_passed':False, 'evidence':evidence, 'effect_status':'not_observed',
                                                 'error':{'code':'READ_FAILED','message':'La observación falló. No se ejecutó ningún efecto ni se repitió la lectura.'}})
                 if result['command_id'] not in ('axx.desktop.notepad.text', 'axx.desktop.window.set_value'):
                     raise ValueError('Esta operación necesita revisión manual de su efecto.')
@@ -639,10 +639,12 @@ class CommandService:
                 action_id = result['action_operation_id']
                 action = self.executor.get_operation(action_id)
                 if not action or action['state'] != 'unknown': raise ValueError('El recibo del ejecutor cambió.')
-                action.update(state='succeeded', postconditions_passed=True, error=None, output=output, evidence=evidence)
+                action.update(state='succeeded', postconditions_passed=True, error=None, output=output, evidence=evidence,
+                              effect_status='confirmed', dispatch_status='delivered')
                 with self.executor.db:
                     self.executor.db.execute("UPDATE operations SET state='succeeded', result_json=?, evidence_json=? WHERE operation_id=?", (json.dumps(action),json.dumps(evidence),action_id))
-                return self._save(result | {'state':'succeeded','postconditions_passed':True,'error':None,'output':output,'evidence':evidence})
+                return self._save(result | {'state':'succeeded','postconditions_passed':True,'error':None,'output':output,'evidence':evidence,
+                                           'effect_status':'confirmed','dispatch_status':'delivered'})
         finally:
             self.execution_gate.release()
 

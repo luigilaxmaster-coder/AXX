@@ -3,6 +3,7 @@ from pathlib import Path
 import tempfile
 import threading
 import unittest
+import hashlib
 from unittest.mock import patch
 
 from backend.actions.executor import ActionExecutor, ActionExecutionError
@@ -95,6 +96,21 @@ class UnifiedExecutionTests(unittest.TestCase):
         self.assertEqual(result['state'], 'unknown')
         with self.assertRaisesRegex(ValueError, 'efecto desconocido'):
             self.commands.prepare('axx.desktop.open_app', inputs)
+
+    def test_reconciliation_updates_effect_state_in_both_receipts(self):
+        inputs = {'window_id':'0x123', 'pid':42, 'control_id':'a'*64, 'value':'confirmed'}
+        tool = get_tool('desktop_set_window_value')
+        pending = self.commands.prepare('axx.desktop.window.set_value', inputs)
+        with patch.object(tool, 'execute_with_control', return_value=ToolResult(False, error='worker timeout',
+                evidence={'effect_uncertain':True, 'reconciliation_target':{'window_id':291,'pid':42,'control_id':'a'*64}})):
+            unknown = self.commands.execute(pending['operation_id'], approved=True)
+        self.assertEqual(unknown['effect_status'], 'unknown')
+        readback = {'value_sha256':hashlib.sha256(b'confirmed').hexdigest(), 'value_length':9}
+        with patch('backend.actions.windows_automation._uia', return_value=readback):
+            result = self.commands.reconcile(pending['operation_id'])
+        self.assertEqual(result['effect_status'], 'confirmed')
+        self.assertEqual(result['state'], 'succeeded')
+        self.assertEqual(self.executor.get_operation(result['action_operation_id'])['effect_status'], 'confirmed')
 
     def test_component_inventory_never_claims_external_integrations(self):
         pending = self.commands.prepare('axx.architecture.status', {})
