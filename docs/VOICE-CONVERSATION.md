@@ -28,6 +28,10 @@ herramientas Axx conservan admisión, permisos, aprobación y recibos de ejecuci
   activar el host de código. Las conversaciones antiguas conservan su asociación
   original; la ruta nueva crea una asociación separada y Axx reenvía su contexto
   local. No se borra el historial.
+- Las solicitudes de aprobación de ChatGPT se muestran en el chat de origen con
+  el controlador de comandos existente. Se presentan una sola vez por operación
+  y no sustituyen una tarea ajena; los paquetes repetidos no restauran una tarjeta
+  descartada. La aprobación sigue ligada a los parámetros preparados.
 - Las tarjetas de modelos separan catálogo, modalidades declaradas, inferencia
   comprobada, herramientas de Axx y motores de voz. Una conexión detectada no se
   etiqueta como inferencia comprobada. Los metadatos se insertan como texto.

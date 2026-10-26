@@ -71,6 +71,8 @@ const root = path.resolve(__dirname, '..');
           if (run.mode === 'hold_get' && run.polls > 1) await new Promise(resolve=>{window.__releaseGet=resolve;});
           if (run.state === 'cancelled') return {...run,response:'',events:[]};
           if (run.mode === 'hold') return {...run,state:'processing',response:'',events:[]};
+          if(run.mode.startsWith('approval'))return {...run,state:run.mode==='approvalhold'&&!window.__approvalRelease?'processing':'completed',response:'Revisa la aprobación.',events:[],tool_results:[{tool:'axx_execute_action',result:{operation_id:'model-awaiting',command_id:'axx.artifact.write',conversation_id:window.__toolConversation,state:'awaiting_approval',requires_approval:true,title:'Crear archivo de prueba',inputs:{filename:'controlled.txt',content:'controlled'},approval_hash:'controlled'}}]};
+
           if (run.mode === 'error') return {...run,state:'failed',response:'',events:[],error:{code:'CONTROLLED_FAILURE',message:'Controlled provider failure'}};
           if (run.mode === 'limit') return {...run,state:'limit_reached',response:'',events:[],error:{code:'LIMIT_REACHED',message:'Controlled subscription limit'}};
           return {...run,state:run.polls === 1 ? 'processing' : 'completed',response:run.polls === 1 ? 'AXX_' : 'AXX_CONNECT_OK',events:[{seq:run.polls,data:{delta:run.polls === 1 ? 'AXX_' : 'CONNECT_OK'}}]};
@@ -191,6 +193,19 @@ const root = path.resolve(__dirname, '..');
 
 
     assert.equal(await page.locator('#chatgpt-logout-btn').textContent(),'Desconectar Axx');
+    await page.evaluate(()=>{window.__runMode='approvalhold';window.__approvalRelease=false;window.__toolConversation=Axx.chatWorkspace.active.id;window.__approvalRun=Axx.connect.run({message:'Controlled approval presentation',model:'controlled-model',conversation_id:'approval-test'},new AbortController().signal);});
+    await page.waitForFunction(()=>Axx.commandLibrary.operation?.operation_id==='model-awaiting');
+    assert.equal(await page.locator('#cw-operation button').filter({hasText:'Aprobar y ejecutar'}).count(),1);
+    await page.evaluate(()=>{Axx.commandLibrary.operation=null;Axx.commandLibrary.lastOperation={operation_id:'model-awaiting',state:'cancelled'};Axx.chatWorkspace.operationCard(null);});
+    await page.waitForFunction(()=>Object.values(window.__runs).some(r=>r.mode==='approvalhold'&&r.polls>=3));
+    assert.equal(await page.evaluate(()=>Axx.commandLibrary.operation),null);
+    assert.equal(await page.locator('#cw-operation button').filter({hasText:'Aprobar y ejecutar'}).count(),0);
+    await page.evaluate(async()=>{window.__approvalRelease=true;await window.__approvalRun;window.__runMode='approval';window.__toolConversation='another-private-chat';await Axx.connect.run({message:'Controlled other-chat approval',model:'controlled-model',conversation_id:'approval-other'},new AbortController().signal);});
+    assert.equal(await page.evaluate(()=>Axx.commandLibrary.operation),null);
+    await page.evaluate(async()=>{window.__toolConversation=Axx.chatWorkspace.active.id;Axx.commandLibrary.operation={operation_id:'user-owned',state:'prepared'};await Axx.connect.run({message:'Controlled conflicting approval',model:'controlled-model',conversation_id:'approval-conflict'},new AbortController().signal);});
+    assert.equal(await page.evaluate(()=>Axx.commandLibrary.operation.operation_id),'user-owned');
+    await page.evaluate(()=>{Axx.commandLibrary.operation=null;Axx.commandLibrary.lastOperation=null;window.__runMode='stream';Axx.chatWorkspace.operationCard(null);});
+    checks.push('Model approval appears in its own chat using the existing Approve button; stale polls cannot resurrect it or replace another task or leak another chat');
     const beforeDisconnect=await page.evaluate(()=>window.__calls.filter(call=>call.args?.path==='/axx-api/connect/start').length);
     await page.locator('#chatgpt-logout-btn').click();
     await page.waitForFunction(()=>Axx.companion.data.prefs.provider==='none' && Axx.connect.state.engine?.local_connection_enabled===false);

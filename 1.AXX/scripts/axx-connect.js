@@ -73,7 +73,7 @@
         return pending;
     }
 
-    function interventions(run) {
+    function interventions(run, presented) {
         const root = $('axx-connect-interventions'); root.replaceChildren();
         for (const approvalId of run.pending_approvals || []) {
             const approval = (run.events || []).find(event => event.data?.approval_id === approvalId)?.data || {};
@@ -90,6 +90,14 @@
             const data = event.data || {};
                 const operation = data.result || data;
             if (operation.state === 'awaiting_approval' && operation.operation_id) {
+                const library = Axx.commandLibrary;
+                if (!presented.has(operation.operation_id) && Axx.chatWorkspace?.ready
+                    && operation.conversation_id && operation.conversation_id === Axx.chatWorkspace.active?.id
+                    && library && !library.busy && (!library.operation || library.operation.operation_id === operation.operation_id)) {
+                    presented.add(operation.operation_id);
+                    library.operation = library.lastOperation = operation;
+                    library.renderOperation(operation);
+                }
                 const button = document.createElement('button'); button.textContent = 'Revisar acción en Biblioteca';
                 button.onclick = () => { Axx.commandLibrary.open(); Axx.commandLibrary.lastOperation = operation; void Axx.commandLibrary.recover(); };
                 root.append(button);
@@ -120,6 +128,7 @@
         };
         let started;
         let after = 0, observed = '', last;
+        const presented = new Set();
         try {
             if (signal?.aborted) throw new DOMException('Cancelado', 'AbortError');
             started = api('POST', 'start', {...body, request_id: requestId});
@@ -135,7 +144,7 @@
                 const text = last.response ?? '';
                 if (typeof text === 'string' && text !== observed) { observed = text; onDelta(observed); }
                 status(last.state === 'running' ? 'Procesando · ' + requestId : String(last.state || 'Procesando'));
-                interventions(last);
+                interventions(last, presented);
                 if (terminal.has(last.state)) {
                     if (last.state !== 'completed') throw new Error(last.error?.message || last.error || 'Turno finalizado: ' + last.state);
                     if (!observed.trim()) throw new Error('Codex completó sin texto de respuesta.');
