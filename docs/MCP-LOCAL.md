@@ -42,7 +42,9 @@ Estado comprobado el 26 de octubre: administrador local creado e inicio de
 sesión verificado. La contraseña generada se conserva fuera del repositorio,
 en `%LOCALAPPDATA%\Axx\anythingmcp\administrator-credentials.json`, con ACL
 limitada al usuario Windows y SYSTEM. Ese archivo contiene la contraseña en
-texto: no debe copiarse a Git, adjuntos ni registros. Correo aún sin verificar.
+texto: no debe copiarse a Git, adjuntos ni registros. Correo verificado mediante
+código de un uso y lectura posterior de `emailVerified=true`. Recibo local:
+`build/anythingmcp-setup/email-verification.json`; el código no se guarda en él.
 
 El servidor «Axx verificación de lectura» expone un conector REST con un GET
 fijo a los metadatos públicos de `HelpCode-ai/anythingmcp` en la API de GitHub.
