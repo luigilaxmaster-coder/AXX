@@ -330,7 +330,9 @@ class CodexProvider:
                 try:
                     catalog = self._rpc('model/list', {'limit': 100, 'includeHidden': False})
                     self.model_catalog = [{'id': row.get('id'), 'model': row.get('model'),
-                        'display_name': row.get('displayName')} for row in catalog.get('data', [])]
+                        'display_name': row.get('displayName'), 'description': row.get('description'),
+                        'input_modalities': row.get('inputModalities'),
+                        'reasoning_efforts': row.get('supportedReasoningEfforts')} for row in catalog.get('data', [])]
                 except ProviderError:
                     self.model_catalog = []
                 self.runtime_error = None
@@ -894,7 +896,7 @@ class CodexProvider:
         conversation_id = body.get('conversation_id', 'axx-main')
         model = body.get('model', 'gpt-6.1-sol')
         purpose = body.get('purpose', 'chat')
-        if purpose not in {'chat', 'translation'}:
+        if purpose not in {'chat', 'voice', 'translation'}:
             raise ProviderError('INVALID_INPUT', 'Propósito de inferencia no permitido.')
         source_language, target_language = body.get('source_language'), body.get('target_language')
         if purpose == 'translation':
@@ -984,6 +986,12 @@ class CodexProvider:
                       'config': {'features': dict.fromkeys(REQUESTED_DISABLED_FEATURES, False),
                                  'web_search': 'disabled', 'mcp_servers': self.disabled_mcp,
                                  'plugins': self.disabled_plugins}}
+            if run['purpose'] == 'voice':
+                common['developerInstructions'] += (
+                    ' Conversación hablada: responde de forma natural y directa en el idioma del usuario. '
+                    'Empieza por información útil, amplía cuando haga falta y evita saludos repetidos, '
+                    'coletillas y códigos leídos en voz alta. Ante una orden, usa las herramientas Axx '
+                    'disponibles antes de responder; si falta una capacidad, identifica la limitación concreta. ')
             if run['purpose'] == 'translation':
                 common['developerInstructions'] = (
                     'Translate the complete user-supplied source text from ' + run['source_language'] + ' to ' +

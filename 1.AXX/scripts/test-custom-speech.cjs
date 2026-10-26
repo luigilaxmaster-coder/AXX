@@ -40,6 +40,15 @@ const {chromium} = createRequire(path.join(process.env.USERPROFILE,'.cache/codex
         await page.waitForTimeout(80);
         await page.evaluate(async()=>{reader.generation++;await cancelledStream.stop();await cancelTask;});
         assert(await page.evaluate(()=>cancelledStream.sources.size===0&&!window.ended));
+        await page.evaluate(()=>{reader.generation=3;reader.index=0;reader.chunks=['Primera frase.'];reader.awaitingText=true;window.ended=false;window.starts=[];window.liveStream=reader.nativeStream=new Axx.CustomSpeechStream(reader,{name:'moss:axx-alba'},3);window.liveTask=liveStream.play();});
+        await page.waitForFunction(()=>liveStream.played && !liveStream.sources.size && !liveStream.pending);
+        await page.waitForTimeout(150);
+        assert(await page.evaluate(()=>!window.ended && liveStream.valid()),'A temporary text gap must not finish the voice turn');
+        await page.evaluate(()=>reader.chunks.push('Segunda frase.'));
+        await page.waitForFunction(()=>starts.length===2);
+        await page.evaluate(()=>{reader.awaitingText=false;});
+        await page.waitForFunction(()=>window.ended);
+        assert.deepEqual(await page.evaluate(()=>starts),['Primera frase.','Segunda frase.']);
         console.log('PASS: complete phrase buffering without PCM underruns, ES/EN order, pause/resume and cancellation');
     } finally {await browser.close();}
 })().catch(error=>{console.error(error);process.exitCode=1;});

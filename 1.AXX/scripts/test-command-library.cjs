@@ -325,9 +325,8 @@ const { chromium } = bundledRequire('playwright');
       try{await Axx.companion.send('haz clic en el primer vídeo',{source:'voice'});return {fallback:fallback.length-before,learning:calls.filter(call=>call.route==='/axx-api/learning/propose').length};}
       finally{Axx.companion.data=old;}
     });
-    assert.equal(connectFallback.fallback,0);assert.equal(connectFallback.learning,0);
-    assert.match(await page.evaluate(()=>notices.at(-1).text),/no está conectado al planificador/);
-    results.push('Unresolved actions remain blocked when the selected ChatGPT route has no command planner');
+    assert.equal(connectFallback.fallback,1);assert.equal(connectFallback.learning,0);
+    results.push('Unresolved ChatGPT actions use Connect tool discovery instead of the unrelated local planner');
     const actionWords=await page.evaluate(()=>['escribe en ChatGPT hola','pulsa Enviar','haz clic en Nuevo chat en ChatGPT','presiona Enviar en Antigravity','ejecuta en CMD: dir','/cmd dir','escribe un poema'].map(value=>Axx.commandLibrary.isActionRequest(value)));
     assert.deepEqual(actionWords,[true,true,true,true,true,true,false]);
     results.push('Desktop interaction verbs route as actions while ordinary creative writing stays in chat');

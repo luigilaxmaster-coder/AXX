@@ -434,6 +434,18 @@ class ProviderTests(unittest.TestCase):
         self.assertEqual(run['state'], 'unknown')
         self.assertFalse(run['effects_reverted'])
 
+    def test_voice_keeps_typed_tools_and_natural_instructions(self):
+        self.provider._tool_specs = lambda: [{'name': 'axx_status'}]
+        self.start(purpose='voice'); self.wait_started()
+        start = next(params for method, params in self.provider.rpc_calls if method == 'thread/start')
+        self.assertIn('Conversación hablada', start['developerInstructions'])
+        self.assertIn('usa las herramientas Axx', start['developerInstructions'])
+        self.assertEqual(start['dynamicTools'], [{'name': 'axx_status'}])
+        self.assertEqual(start['sandbox'], 'read-only')
+        self.assertEqual(start['approvalPolicy'], 'on-request')
+        self.assertFalse(start['allowProviderModelFallback'])
+        with self.assertRaises(ProviderError): self.start(purpose='chat')
+
     def test_translation_uses_isolated_thread_and_no_tools(self):
         self.start(purpose='translation', source_language='es-DO', target_language='en', conversation_id='axx-main')
         run=self.wait_started()

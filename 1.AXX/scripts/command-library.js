@@ -473,9 +473,8 @@
                     if (resolved.match === 'none') {
                         if(!this.isActionRequest(raw))return previous(raw, metadata);
                         if (Axx.companion.data?.prefs?.provider === 'chatgpt') {
-                            Axx.companion.message('user', raw, 'local');
-                            Axx.companion.localNotice('El modo ChatGPT de Axx no está conectado al planificador de comandos. Selecciona un modelo de acciones de Ollama o de una API configurada en Ajustes y vuelve a intentarlo.');
-                            return;
+                            // Connect can discover and call the same typed Axx tools, with their existing approvals.
+                            return previous(raw, metadata);
                         }
                         Axx.companion.message('user',raw,'local');
                         await this.planAction(raw);

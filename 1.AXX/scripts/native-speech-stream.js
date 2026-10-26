@@ -112,7 +112,7 @@
                     const index = this.nextIndex++;
                     const text = this.reader.chunks[index]?.slice(index === this.reader.index ? this.reader.offset : 0);
                     if (text) await this.phrase(text, index);
-                } else if (!this.sources.size && this.nextIndex >= this.reader.chunks.length) {
+                } else if (!this.sources.size && this.nextIndex >= this.reader.chunks.length && !this.reader.awaitingText) {
                     if (!this.played) throw new Error('El motor no generó audio reproducible.');
                     this.evidence.ended_event = true;
                     this.reader.current = null; this.reader.offset = this.reader.wordOffset = this.reader.wordLength = 0;
