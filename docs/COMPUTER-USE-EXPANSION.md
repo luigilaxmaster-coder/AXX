@@ -40,8 +40,9 @@ Se conserva CommandService → ActionExecutor, WindowsInput, voz, ajustes y UI 3
   y restaurado con lectura posterior real, también desde el host instalado
   0.22.3. No acredita todas las aplicaciones.
 - AnythingMCP local: Docker en WSL, PostgreSQL privado, imágenes por digest,
-  HTTP de salud 200 y MCP anónimo 401. Primer administrador y llamada autenticada
-  por gateway pendientes de contraseña aceptada. La fachada Windows actualmente
+  HTTP de salud 200 y MCP anónimo 401. Administrador creado, inicio de sesión y
+  catálogo autenticado verificados; primera lectura pública por gateway pendiente
+  de aprobación de la operación `anythingmcp-public-read-20261026`. La fachada Windows actualmente
   conecta directamente por MCP, no a través del gateway.
 - Instrucciones y límites: [MCP-LOCAL.md](MCP-LOCAL.md).
 

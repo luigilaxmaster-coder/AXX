@@ -37,9 +37,19 @@ de reiniciar Windows se debe ejecutar `start`.
 4. Ejecuta una lectura y comprueba su resultado. Una respuesta HTTP de salud no
    acredita autenticación ni ejecución de herramientas.
 
-Estado de esta entrega en desarrollo: gateway saludable y acceso anónimo
-rechazado; administrador y llamada autenticada a través del gateway pendientes.
-No se guardó una contraseña rechazada por la política del formulario.
+Estado comprobado el 26 de octubre: administrador local creado e inicio de
+sesión verificado. La contraseña generada se conserva fuera del repositorio,
+en `%LOCALAPPDATA%\Axx\anythingmcp\administrator-credentials.json`, con ACL
+limitada al usuario Windows y SYSTEM. Ese archivo contiene la contraseña en
+texto: no debe copiarse a Git, adjuntos ni registros. Correo aún sin verificar.
+
+El servidor «Axx verificación de lectura» expone un conector REST con un GET
+fijo a los metadatos públicos de `HelpCode-ai/anythingmcp` en la API de GitHub.
+Su clave MCP está acotada a ese servidor y guardada con DPAPI. Axx comprobó el
+catálogo autenticado y activó exclusivamente `axx_gateway_public_repo`; la
+herramienta auxiliar de conocimiento sigue desactivada. La primera lectura
+(`anythingmcp-public-read-20261026`) espera aprobación en Axx: conexión y catálogo
+no acreditan todavía ejecución. La instancia mantiene rechazado el MCP anónimo.
 
 ## Ejecución y verificación
 
