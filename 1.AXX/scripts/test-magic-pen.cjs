@@ -45,7 +45,10 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
   await page.goto('http://127.0.0.1:'+server.address().port);try{await page.waitForFunction(()=>Axx.magicPen&&Axx.resident?.firstFrame);}catch(e){throw new Error(e.message+'; page errors: '+errors.join(' | '));}
   await page.evaluate(()=>{Object.assign(Axx.companion.data.prefs,{selection_mode:'manual',provider:'bridge',apiConnection:'fixture',model:'fixture-vision'});Axx.flow.showQuick();});
   assert.equal(await page.locator('#flow-fan [data-quick="magicpen"]').count(),1);await page.locator('#flow-fan [data-quick="magicpen"]').click();await page.waitForFunction(()=>Axx.magicPen.active&&!Axx.magicPen.working);
-  assert.equal(await page.locator('#panel').isVisible(),false);await page.evaluate(()=>{Axx.magicPen.open();Axx.magicPen.open();});assert.equal(await page.locator('#mp-desktop').count(),1);
+  assert.equal(await page.locator('#panel').isVisible(),false);await page.evaluate(()=>Axx.magicPen.close());
+  await page.hover('#avatar');await page.locator('#quick-pen').click();await page.waitForFunction(()=>Axx.magicPen.active&&!Axx.magicPen.working);
+  assert.equal(await page.locator('#quick-compose').isVisible(),false);assert.equal(await page.locator('#quick-actions').isVisible(),false);assert.equal(await page.locator('#panel').isVisible(),false);
+  await page.evaluate(()=>{Axx.magicPen.open();Axx.magicPen.open();});assert.equal(await page.locator('#mp-desktop').count(),1);passed.push('third avatar button opens the existing Magic Pen without full chat or duplicate surfaces');
   const visionRoute=await page.evaluate(()=>{const p=Axx.companion.data.prefs;p.model='text-only';p.visionConnection='fixture';p.visionModel='fixture-vision';Axx.companion.save();return {route:Axx.magicPen.route(),ready:Axx.magicPen.hasVision(),reloaded:Axx.decodeCompanion(localStorage.getItem(Axx.companion.key)).prefs.visionModel};});
   assert.deepEqual(visionRoute,{route:{selection_mode:'manual',provider:'fixture',model:'fixture-vision'},ready:true,reloaded:'fixture-vision'},'Vision keeps a separate verified route from the chat model');
   const count=()=>page.evaluate(()=>calls.filter(c=>c.args?.path==='/axx-api/pen/start').length);

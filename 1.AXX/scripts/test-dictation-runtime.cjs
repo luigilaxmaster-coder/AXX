@@ -226,10 +226,10 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
     assert.equal(await page.evaluate(()=>document.getElementById('panel').hidden),true);
     assert.equal(await page.evaluate(()=>Axx.quickReply.capture.state),'idle');
     assert.equal(await page.evaluate(()=>fixtureTracks.every(t=>t.readyState==='ended')),true);
-    const quick=await page.locator('#quick-compose').boundingBox();assert.ok(quick.width<=340&&quick.height<150);
+    const quick=await page.locator('#quick-compose').boundingBox();assert.ok(quick.width<=320&&quick.height<=76);
     await page.evaluate(()=>Axx.quickReply.close());
     assert.deepEqual(errors,[]);
-    const output=path.resolve(__dirname,'../../build/quick-reply-0.22.6');fs.mkdirSync(output,{recursive:true});
+    const output=path.resolve(__dirname,'../../build/quick-reply-0.22.7');fs.mkdirSync(output,{recursive:true});
     await page.screenshot({path:path.join(output,'dictation.png')});
     console.log('PASS: dictation geometry/owner/draft, live blur retention, quiet and short utterance VAD, steady-noise rejection, visible input meter, unavailable exact device, cancellation barriers, single command shortcut and always-active rearm');
   }finally{await browser.close();await new Promise(r=>server.close(r));}

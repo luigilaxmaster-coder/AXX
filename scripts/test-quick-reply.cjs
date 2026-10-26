@@ -10,10 +10,10 @@ const {chromium}=require(process.env.USERPROFILE+'/.cache/codex-runtimes/codex-p
   const tapStart=source.indexOf('        tap() { Axx.quickReply?.close();'),tapEnd=source.indexOf('        summon(',tapStart);
   assert.ok(start>0&&end>start&&tapStart>0&&tapEnd>tapStart);
   await p.evaluate(({open,tap})=>{
-   window.fullChat=0;window.captures=0;window.sent=[];window.stopped=0;window.hits=0;
+   window.fullChat=0;window.captures=0;window.sent=[];window.stopped=0;window.hits=0;window.focusActions=[];window.penOpen=false;
    window.Axx={isNative:()=>true,chatWorkspace:{ready:true,active:{id:'chat-one'}},liveConversation:{stop(){}},flow:{nav:{step:0},fold(){this.nav.step=0;},tap(){this.nav.step=2;}},
     nativeVoice:{inputLevel:null,attach(owner){owner.start=()=>{captures++;owner.state='starting';owner.onState();};owner.finish=()=>{owner.state='stopping';owner.onState();};owner.stop=()=>{owner.state='idle';owner.onState();};}},
-    app:{toast(){},stopDemo(){},updateHitMap:async()=>{hits++;},setVisible(){}},symbiosis:{prefs:{language:'es-DO'},reader:{state:'idle'}},
+    app:{bridge:{async action(name){focusActions.push(name);}},toast(){},stopDemo(){},updateHitMap:async()=>{hits++;},setVisible(){}},magicPen:{open(){penOpen=true;},isOpen(){return penOpen;}},symbiosis:{prefs:{language:'es-DO'},reader:{state:'idle'}},
     commandLibrary:{busy:false,operation:null,cancel(){stopped++;},open(){window.libraryOpened=true;}}};
    const c=Axx.companion={data:{messages:[],prefs:{mode:'companion'}},pending:null,dictating:false,renderChat(){},sayStatus(){},refreshVoiceState(){window.bodyPhase=this.dictating?'listening':'idle';},
     stopSpeech(){Axx.symbiosis.reader.state='idle';},stopDictation(){},cancelRequest(){stopped++;this.pending=null;window.releaseResponse?.();},read(text){window.spoken=text;Axx.symbiosis.reader.state='speaking';},
@@ -30,10 +30,10 @@ const {chromium}=require(process.env.USERPROFILE+'/.cache/codex-runtimes/codex-p
   },{open:source.slice(start,end),tap:source.slice(tapStart,tapEnd)});
   await p.addScriptTag({path:'1.AXX/scripts/quick-reply.js'});
   assert.equal(await p.evaluate(()=>captures),0);
-  await p.focus('#avatar');await p.keyboard.press('Tab');assert.equal(await p.evaluate(()=>document.activeElement.id),'quick-write');await p.keyboard.press('ArrowRight');assert.equal(await p.evaluate(()=>document.activeElement.id),'quick-talk');
-  await p.hover('#avatar');await p.waitForFunction(()=>!document.getElementById('quick-actions').hidden);assert.equal(await p.locator('#quick-actions button').count(),2);
+  await p.focus('#avatar');await p.keyboard.press('Tab');assert.equal(await p.evaluate(()=>document.activeElement.id),'quick-write');await p.keyboard.press('ArrowRight');assert.equal(await p.evaluate(()=>document.activeElement.id),'quick-pen');await p.keyboard.press('ArrowRight');assert.equal(await p.evaluate(()=>document.activeElement.id),'quick-talk');await p.keyboard.press('ArrowRight');assert.equal(await p.evaluate(()=>document.activeElement.id),'quick-write');await p.keyboard.press('End');assert.equal(await p.evaluate(()=>document.activeElement.id),'quick-talk');
+  await p.hover('#avatar');await p.waitForFunction(()=>!document.getElementById('quick-actions').hidden);assert.equal(await p.locator('#quick-actions button').count(),3);
   await p.click('#quick-write');assert.equal(await p.evaluate(()=>fullChat),0);
-  assert.ok((await p.locator('#quick-compose').boundingBox()).y>400);assert.ok((await p.locator('#quick-compose').boundingBox()).height<=100);
+  assert.ok((await p.locator('#quick-compose').boundingBox()).y>400);assert.ok((await p.locator('#quick-compose').boundingBox()).height<=76);assert.ok(await p.evaluate(()=>focusActions.includes('open_panel')));
   await p.fill('#quick-input','Una pregunta');await p.press('#quick-input','Enter');await p.waitForFunction(()=>sent.length===1);
   assert.equal(await p.evaluate(()=>fullChat),0);assert.equal(await p.locator('#quick-reply').isVisible(),true);
   await p.evaluate(()=>releaseResponse());await p.waitForFunction(()=>document.getElementById('quick-reply-text').textContent==='Respuesta comprobada');
@@ -41,6 +41,8 @@ const {chromium}=require(process.env.USERPROFILE+'/.cache/codex-runtimes/codex-p
   await p.click('#quick-talk');assert.equal(await p.evaluate(()=>captures),1);assert.equal(await p.evaluate(()=>bodyPhase),'idle');
   await p.evaluate(()=>{const q=Axx.quickReply.capture;q.state='listening';Axx.nativeVoice.inputLevel={owner:q,rms:.04};q.onState();});
   await p.waitForFunction(()=>bodyPhase==='listening'&&!document.getElementById('quick-level').hidden);assert.ok(await p.evaluate(()=>Axx.quickReply.microphoneLevel>.4));
+  assert.equal(await p.locator('#quick-input').isVisible(),false);assert.equal(await p.locator('#quick-send').getAttribute('aria-label'),'Terminar grabación');assert.ok((await p.locator('#quick-compose').boundingBox()).height<=76);
+  await p.click('#quick-pen');assert.equal(await p.evaluate(()=>penOpen),true);assert.equal(await p.evaluate(()=>Axx.quickReply.active),false);assert.equal(await p.evaluate(()=>Axx.quickReply.capture.state),'idle');assert.equal(await p.evaluate(()=>fullChat),0);await p.waitForFunction(()=>document.getElementById('quick-actions').hidden);await p.evaluate(()=>penOpen=false);
   await p.evaluate(()=>Axx.quickReply.write());assert.equal(await p.evaluate(()=>Axx.quickReply.capture.state),'idle');await p.click('#quick-talk');assert.equal(await p.evaluate(()=>captures),2);
   await p.evaluate(()=>Axx.quickReply.capture.onFinal('Consulta por voz'));await p.waitForFunction(()=>sent.length===2);assert.equal(await p.evaluate(()=>sent[1].metadata.source),'voice');assert.equal(await p.evaluate(()=>fullChat),0);
   await p.evaluate(()=>releaseResponse());await p.waitForFunction(()=>!Axx.companion.pending);
@@ -50,6 +52,8 @@ const {chromium}=require(process.env.USERPROFILE+'/.cache/codex-runtimes/codex-p
   await p.evaluate(()=>Axx.chatWorkspace.active={id:'chat-two'});await p.waitForFunction(()=>!Axx.quickReply.active);
   await p.evaluate(()=>{Axx.quickReply.write();Axx.resident.tap();});assert.equal(await p.evaluate(()=>Axx.flow.nav.step),2);assert.equal(await p.evaluate(()=>Axx.quickReply.active),false);
   await p.evaluate(()=>{Axx.resident.fold();Axx.quickReply.write();});await p.keyboard.press('Escape');assert.equal(await p.evaluate(()=>Axx.quickReply.active),false);
+  assert.equal(await p.evaluate(()=>focusActions.at(-1)),'close_panel');
+  await p.emulateMedia({reducedMotion:'reduce'});await p.evaluate(()=>Axx.quickReply.write());assert.equal(await p.locator('#quick-compose').evaluate(el=>getComputedStyle(el).animationName),'none');
   assert.deepEqual(errors,[]);console.log('QUICK_REPLY_HOVER_COMPOSER_VOICE_STATE_RESPONSE_CANCEL_SCOPE_PASS');
  }finally{await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});
