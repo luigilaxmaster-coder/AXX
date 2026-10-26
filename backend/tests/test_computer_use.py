@@ -23,6 +23,7 @@ class ComputerUseTests(unittest.TestCase):
         self.temp=tempfile.TemporaryDirectory();root=Path(self.temp.name)
         self.executor=ActionExecutor(root/'state.db',root/'artifacts');self.commands=CommandService(self.executor)
         self.service=cu.ComputerUse(self.commands);self.executor.computer_use=self.service
+        self.cancelled=threading.Event();self.commands.cancel_events.update(gesture=self.cancelled,observe=self.cancelled)
         self.executor.input_control=SimpleNamespace(automation=lambda event:nullcontext(event))
         self.connect=ConnectService(self.commands,None)
         self.run={'request_id':'run-one','conversation_id':'chat-one','_cancel':threading.Event(),
@@ -52,7 +53,7 @@ class ComputerUseTests(unittest.TestCase):
         control=SimpleNamespace(is_set=lambda:False,wait=lambda seconds:False)
         self.executor.input_control=SimpleNamespace(automation=lambda event:nullcontext(control))
         with patch.object(cu.uia,'focus_window'),patch.object(cu.uia,'read_window_content',side_effect=[self.observed,self.observed,{'controls':[{'name':'Done'}]}]),patch.object(cu,'execute_action',return_value={'success':True}) as action:
-            result=cu.TOOLS['computer_use_act'].execute_with_runtime(prepared['inputs'],self.executor.workspace_root,threading.Event(),self.executor)
+            result=cu.TOOLS['computer_use_act'].execute_with_runtime(prepared['inputs'],self.executor.workspace_root,self.cancelled,self.executor)
         return result,action
     def test_status_stop_do_not_require_an_existing_grant(self):
         self.service.end('chat-one');self.assertFalse(self.service.admit('axx_computer_status',{},self.run)['active'])
@@ -71,16 +72,23 @@ class ComputerUseTests(unittest.TestCase):
         with self.assertRaises(ValueError):self.admit()
     def test_single_use_and_stable_idempotency(self):
         prepared=self.admit();self.assertEqual(prepared,self.admit())
-        self.service.claim(prepared['inputs']['ticket'],'act',threading.Event())
-        with self.assertRaises(ValueError):self.service.claim(prepared['inputs']['ticket'],'act',threading.Event())
+        self.service.claim(prepared['inputs']['ticket'],'act',self.cancelled)
+        with self.assertRaises(ValueError):self.service.claim(prepared['inputs']['ticket'],'act',self.cancelled)
         with self.assertRaises(ValueError):self.admit(action='double_click')
         with self.assertRaises(ValueError):self.service.admit('axx_computer_observe',{'operation_id':'gesture'},self.run)
     def test_revocation_cancels_claim_and_releases_image_and_tickets(self):
-        prepared=self.admit();_,_,event=self.service.claim(prepared['inputs']['ticket'],'act',threading.Event())
+        prepared=self.admit();_,_,event=self.service.claim(prepared['inputs']['ticket'],'act',self.cancelled)
         self.service.end('chat-one');self.assertTrue(event.is_set());self.assertIsNone(self.grant['shot']);self.assertFalse(self.service.admissions)
+    def test_foreign_worker_cannot_consume_an_admitted_ticket(self):
+        prepared=self.admit()
+        with self.assertRaisesRegex(ValueError,'esta operación'):
+            self.service.claim(prepared['inputs']['ticket'],'act',threading.Event())
+        self.assertFalse(self.service.admissions[prepared['inputs']['ticket']]['claimed'])
+        self.service.claim(prepared['inputs']['ticket'],'act',self.cancelled)
+
     def test_parent_cancellation_and_deadline(self):
         prepared=self.admit();self.run['_cancel'].set()
-        with self.assertRaises(ValueError):self.service.claim(prepared['inputs']['ticket'],'act',threading.Event())
+        with self.assertRaises(ValueError):self.service.claim(prepared['inputs']['ticket'],'act',self.cancelled)
         self.run['_cancel'].clear();self.grant['deadline']=time.monotonic()-1
         with self.assertRaises(ValueError):self.admit(operation_id='later')
     def test_images_only_return_to_own_run_and_fresh_snapshot(self):
@@ -111,7 +119,7 @@ class ComputerUseTests(unittest.TestCase):
         prepared=self.admit();control=SimpleNamespace(is_set=lambda:False,wait=lambda seconds:False)
         self.executor.input_control=SimpleNamespace(automation=lambda event:nullcontext(control))
         with patch.object(cu.uia,'focus_window'),patch.object(cu.uia,'read_window_content',return_value=self.observed),patch.object(cu,'execute_action',side_effect=cu.uia.UncertainEffect('partial')):
-            result=cu.TOOLS['computer_use_act'].execute_with_runtime(prepared['inputs'],self.executor.workspace_root,threading.Event(),self.executor)
+            result=cu.TOOLS['computer_use_act'].execute_with_runtime(prepared['inputs'],self.executor.workspace_root,self.cancelled,self.executor)
         self.assertTrue(result.evidence['effect_uncertain']);self.assertEqual(self.grant['blocked'],'gesture')
         with self.assertRaises(ValueError):self.admit(operation_id='retry')
         self.admit('observe')

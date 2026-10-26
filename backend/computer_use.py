@@ -117,6 +117,8 @@ class ComputerUse:
         with self.lock:
             entry=self.admissions.get(ticket)
             if not entry or entry['kind']!=kind or entry['claimed']:raise ValueError('Admisión inexistente o consumida; no se repite el gesto.')
+            if self.commands.cancel_events.get(entry['operation_id']) is not cancelled:
+                raise ValueError('El ticket no pertenece a esta operación del ejecutor.')
             grant=self._grant(entry['grant']['conversation_id'])
             if grant is not entry['grant']:raise ValueError('La autorización fue sustituida.')
             event=_Cancellation(cancelled,entry['cancelled'],grant['cancelled'],deadline=min(entry['deadline'],grant['deadline']))
