@@ -13,6 +13,7 @@ import unicodedata
 from urllib.parse import quote, urlencode, urlsplit
 
 from backend.inference.process_manager import spawn_managed_process, terminate_process_tree
+from .command_language import command_text, target_name
 
 APPS = {
     'calculator': ('Calculadora', 'System32/calc.exe', ['calculadora', 'calculator', 'calc']),
@@ -148,14 +149,7 @@ def resolve_desktop(text, source, context=None):
     cmd = re.fullmatch(r'(?:/cmd\s+|ejecuta\s+en\s+cmd:\s*)(.+)', text.strip(), re.I | re.S)
     if cmd:
         return {'match': 'exact', 'command_id': 'axx.shell.cmd', 'inputs': {'script': cmd[1]}}
-    raw = re.sub(r'^[¡¿\s]+', '', text.strip())
-    raw = re.sub(r'^(?:(?:oye|hola)\s+)?axx[,\s]+', '', raw, flags=re.I)
-    raw = re.sub(r'^por favor[,\s]+', '', raw, flags=re.I)
-    raw = re.sub(r'^(?:puedes|podrias|podrías|quiero que)\s+', '', raw, flags=re.I)
-    raw = re.sub(r'\s+por favor[?.!]*$', '', raw, flags=re.I)
-    raw = re.sub(r'^pero\s+', '', raw, flags=re.I)
-    if source == 'voice':
-        raw = re.sub(r'^(?:en|and)\s+(?:google\s+)?chrome[,.]?\s+(?:busca|bosca)\b', 'en Chrome busca', raw, flags=re.I)
+    raw = command_text(text, source)
     desktop_app = re.fullmatch(r'(?:busca|encuentra|localiza)\s+(.+?)\s+en (?:mi|el) escritorio y (?:abrelo|ábrelo|abrela|ábrela)[.!?]*', raw, re.I)
     if desktop_app:
         if not re.fullmatch(r'[\w\s-]{2,100}', desktop_app[1], re.UNICODE):
@@ -166,7 +160,7 @@ def resolve_desktop(text, source, context=None):
     window_request = re.fullmatch(r'(observa|inspecciona|lee|leer|enfoca|enfocar)\s+(?:(?:(?:los\s+)?controles|la\s+ventana)\s+de\s+)?([\w .-]{2,100})[.!?]*', raw, re.I)
     if window_request:
         from .windows_automation import list_windows, process_name
-        verb, app = plain(window_request[1]), plain(window_request[2]).strip(' .!?')
+        verb, app = plain(window_request[1]), plain(target_name(window_request[2], source)).strip(' .!?')
         windows = [row for row in list_windows() if app in plain(row['title']) or app in plain(process_name(row['pid']))]
         if len(windows) != 1:
             return {'match': 'ambiguous' if windows else 'unsupported',
@@ -213,6 +207,7 @@ def resolve_desktop(text, source, context=None):
     if closing:
         from .windows_automation import list_windows, process_name
         name = re.sub(r'^(?:aplicacion|programa|mi)\s+', '', plain(closing[1]).strip(' .!?'))
+        name = plain(target_name(name, source))
         if not re.fullmatch(r'[\w .-]{2,100}', name, re.UNICODE):
             return {'match': 'unsupported', 'message': 'Indica el nombre de una aplicación abierta.'}
         rows = list_windows()
@@ -226,6 +221,7 @@ def resolve_desktop(text, source, context=None):
     chrome_search = re.fullmatch(r'(?:en\s+(?:google\s+)?chrome\s+busca|busca\s+en\s+(?:google\s+)?chrome)\s+(.+?)[.!?]*', raw, re.I)
     if chrome_search:
         return search_result('google', chrome_search[1])
+    if re.fullmatch(r'en\s+chrome\s+busca\s*', raw, re.I):return missing
     # Compound open+search is a single typed URL action, not two unrelated effects.
     compound = re.fullmatch(r'(?:abre|abrir|abreme|ábreme)\s+'+engine_pattern+r'\s+y\s+(?:busca|buscar|buscame|búscame)(?:\s+(.+))?',raw,re.I)
     if compound:return search_result(compound[1].lower(),compound[2]) if compound[2] else missing
@@ -272,7 +268,8 @@ def resolve_desktop(text, source, context=None):
     opening = re.fullmatch(r'(?:abre|abrir|abrirme|abras|abreme|ábreme|inicia|ejecuta)\s+(?:(?:la|el)\s+)?(.+)', raw, re.I)
     if opening:
         target = opening[1].strip()
-        name = re.sub(r'^(?:la aplicacion|el programa|mi|la|el)\s+', '', plain(target).rstrip('.!?'))
+        name = re.sub(r'^(?:(?:la|el|mi)\s+)?(?:aplicacion|app|programa)(?:\s+de)?\s+|^(?:mi|la|el)\s+', '', plain(target).rstrip('.!?'))
+        name = plain(target_name(name, source))
         if name == 'yotube': name = 'youtube'
         if name in ('spotify','chatgpt'):
             from .windows_apps import find_app

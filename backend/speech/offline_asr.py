@@ -29,6 +29,18 @@ _WORKER_MODEL = None
 _WORKER_MODEL_PATH = None
 
 
+class InferenceOnlyImports(importlib.abc.MetaPathFinder):
+    def find_spec(self,fullname,path=None,target=None):
+        if fullname.split('.')[0] in {'torch','transformers','tensorflow','fairseq','onnxruntime'}:
+            raise ModuleNotFoundError('Optional conversion framework is disabled in the Axx inference worker',name=fullname)
+        return None
+
+
+def guard_worker_imports():
+    if not any(isinstance(finder,InferenceOnlyImports) for finder in sys.meta_path):
+        sys.meta_path.insert(0,InferenceOnlyImports())
+
+
 def excessive_repetition(text):
     words = re.findall(r'\w+', text.casefold())
     return len(words) >= 16 and any(words[i:i + n] == words[i + n:i + 2 * n] == words[i + 2 * n:i + 3 * n]
@@ -64,12 +76,7 @@ def worker_main(raw=None):
         # CTranslate2 also ships training-format converters. Those optional
         # frameworks are explicitly disabled in this inference-only worker.
         # They are unnecessary for an already converted local CTranslate2 model.
-        class InferenceOnlyImports(importlib.abc.MetaPathFinder):
-            def find_spec(self,fullname,path=None,target=None):
-                if fullname.split('.')[0] in {'torch','transformers','tensorflow','fairseq','onnxruntime'}:
-                    raise ModuleNotFoundError('Optional conversion framework is disabled in the Axx inference worker',name=fullname)
-                return None
-        sys.meta_path.insert(0,InferenceOnlyImports())
+        guard_worker_imports()
         import av
         import numpy as np
         from faster_whisper import WhisperModel

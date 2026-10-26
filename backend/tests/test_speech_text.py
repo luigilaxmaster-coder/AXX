@@ -8,11 +8,19 @@ from pathlib import Path
 from unittest.mock import patch
 
 from backend.speech.speech_text import prepare_spoken_text, spanish_integer
-from backend.speech.offline_asr import OfflineTranscriptionService, excessive_repetition, model_path
+from backend.speech.offline_asr import OfflineTranscriptionService, excessive_repetition, model_path, guard_worker_imports, InferenceOnlyImports
 from backend.speech.windows_tts import SpeechError
 
 
 class SpokenTextTests(unittest.TestCase):
+    def test_persistent_worker_installs_only_one_import_guard(self):
+        with patch.object(sys,'meta_path',list(sys.meta_path)):
+            guard_worker_imports()
+            guard_worker_imports()
+            guards=[finder for finder in sys.meta_path if isinstance(finder,InferenceOnlyImports)]
+            self.assertEqual(len(guards),1)
+            with self.assertRaises(ModuleNotFoundError):guards[0].find_spec('torch')
+
     def test_transcription_worker_is_reused_and_cancelled_worker_is_discarded(self):
         script = ("import json,os,sys,time\n"
                   "n=0\n"

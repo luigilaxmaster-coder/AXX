@@ -82,6 +82,23 @@ class CommandsHttpTests(unittest.TestCase):
         self.assertEqual(self.executor.list_operations(), [])
         self.assertEqual(self.request('commands/details?id=AXX-02-0147', auth=False)[0], 401)
 
+    def test_paraphrase_reports_interpretation_without_executing(self):
+        status,result=self.request('commands/resolve',{'text':'Oye Axx, por favor podrías buscarme gatos usando YouTube','source':'voice'})
+        self.assertEqual(status,200)
+        self.assertEqual(result['inputs'],{'engine':'youtube','query':'gatos'})
+        self.assertEqual(result['understanding']['canonical'],'busca gatos en youtube')
+        self.assertEqual(result['understanding']['method'],'bounded_grammar')
+        self.assertEqual(self.executor.list_operations(),[])
+
+    def test_unknown_voice_verb_only_suggests_and_does_not_prepare(self):
+        status,result=self.request('commands/resolve',{'text':'puedes sabrirme Spotify','source':'voice'})
+        self.assertEqual(status,200)
+        self.assertEqual(result['match'],'needs_input')
+        self.assertEqual(result['understanding']['candidate'],'abre Spotify')
+        self.assertIs(result['understanding']['execution_allowed'],False)
+        self.assertEqual(self.request('commands/resolve',{'text':'sabrirme Spotify','source':'text'})[1]['match'],'none')
+        self.assertEqual(self.executor.list_operations(),[])
+
     def test_discovery_preparation_uses_command_policy(self):
         from unittest.mock import patch
         proposal = {'command_id': 'axx.desktop.window.set_value',

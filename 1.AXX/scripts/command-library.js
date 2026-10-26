@@ -4,6 +4,15 @@
     if (!Axx?.companion || Axx.commandLibrary) return;
     const node = id => document.getElementById(id);
     const errorText = error => typeof error === 'string' ? error : error?.message || error?.code || 'No se pudo completar el comando.';
+    const requestWords = raw => {
+        let text = String(raw).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/^[¡¿\s]+/,'');
+        for (let i=0;i<6;i++) {
+            const next = text.replace(/^(?:(?:(?:oye|hola|hey|ok|ey|escucha)[,\s]+)?axx\b[\s,.:!-]*|(?:oye|hola|hey)[,\s]+|por favor[,\s]+|(?:(?:me|nos)\s+)?(?:puedes|podrias|podias)[,:\s]+|(?:quiero|necesito|quisiera|me gustaria)\s+que\s+(?:me\s+)?|pero\s+)/,'').replace(/^[¿¡ ,]+/,'');
+            if (next === text) break;
+            text = next;
+        }
+        return text.replace(/^(?:quiero|necesito|quisiera|me gustaria)\s+(?=abrir|iniciar|cerrar|buscar|escuchar|reproducir|mover|leer|pulsar)/,'').replace(/[.!?]+$/,'').replace(/\s+por favor$/,'').trim();
+    };
     class CommandLibrary {
         generation = 0; searchGeneration = 0; observationRevision = 0; cancellingGeneration = null; busy = false; operation = null; pendingOperationId = null; commands = []; voiceDraft = null; actionContext = {};
         constructor() {
@@ -245,18 +254,16 @@
             return this.prepare(command.id, this.typedInputs(), 'text', node('command-delivery-mode')?.value);
         }
         isActionRequest(raw) {
-            const text=raw.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/^[¡¿\s]+/,'')
-                .replace(/^(?:(?:oye|hola)\s+)?axx[,\s]+/,'').replace(/^por favor[,\s]+/,'').replace(/^(?:puedes|podrias|quiero que|pero)\s+/,'')
-                .replace(/^(?:en|and)\s+(?:google\s+)?chrome[,.]?\s+(?:busca|bosca)\b/,'en chrome busca');
+            const text=requestWords(raw)
+                .replace(/^(?:en|and)\s+(?:(?:google\s+)?chrome|crom|youtube|you tube|yutube|google|gugle|bing|duckduckgo|spotify)[,.:]?\s+(?:busca|buscar|buscame|bosca|vusca|encuentra|encontrar|localiza)\b/,'busca');
+            if (/^(?:habre|avre|lanza|lanzar|arranca|iniciar|cerrarme|cierres|buscarme|busques|bosca|vusca|escucha|reproduzcas|reprogoce|reprodose|mover|moverme|mueveme|muevas|colocar|colocame|pulsar|pulses|enfoques|leeme|leas)\b/.test(text)) return true;
             return /^(?:\/(?:search|buscar|comando|powershell|cmd)\b|en\s+(?:google\s+)?chrome\s+busca\b|mis\s+ventanas\b|(?:lista|muestra)\s+(?:mis\s+)?(?:ventanas|aplicaciones)\b|(?:haz|repite|usa|saca|abre|abrir|abrirme|abras|abreme|abrela|abrelo|cierra|cerrar|cierrame|salir|inicia|ejecuta|busca|buscar|buscame|encuentra|localiza|observa|inspecciona|lee|leer|enfoca|enfocar|ponme|pon|reproduce|reproducir|escuchar|prepara|organiza|crea|crear|convierte|mueve|pulsa|presiona|clic|teclea|pega|selecciona|desplaza|navega|copia|renombra|comprime|extrae|descarga|instala|borra|elimina|envia|publica)\b|escribe\s+(?:en|dentro\s+de)\b)/.test(text);
         }
         internalAction(raw) {
             const plain = value => String(value).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
-            const text = plain(raw).replace(/^[¡¿\s]+/, '').replace(/^(?:(?:hey|oye|hola|ok|ey)\s+)?axx\b[\s,.:!-]*/, '')
-                .replace(/^(?:por favor[,\s]+|(?:puedes|podrias|quiero que|quiero)\s+)+/, '')
-                .replace(/[.!?]+$/, '').replace(/\s+por favor$/, '').trim();
-            const spotify = text.match(/^(reproduce|reproducir|pon|ponme|reanuda|continua|sigue|pausa|pausar|deten|detener|para|siguiente|anterior)(?: (?:la |el )?(?:musica|cancion|tema|reproduccion))?(?: (?:de|en))?(?: (?:mi|el))? spotify$/);
-            if (spotify) return {id:'music',verb:/^(pausa|pausar|deten|detener|para)$/.test(spotify[1])?'pause':spotify[1]==='siguiente'?'next':spotify[1]==='anterior'?'previous':'start',app:'spotify'};
+            const text = requestWords(raw).replace(/^(?:pon|ponme|deja) spotify en pausa$/,'pausa spotify');
+            const spotify = text.match(/^(reproduce|reproducir|escucha|escuchar|pon|ponme|reanuda|reanudes|continua|sigue|pausa|pausar|pauses|deten|detener|para|siguiente|anterior)(?: (?:la |el )?(?:musica|cancion|tema|reproduccion))?(?: (?:de|en))?(?: (?:mi|el))? spotify$/);
+            if (spotify) return {id:'music',verb:/^(pausa|pausar|pauses|deten|detener|para)$/.test(spotify[1])?'pause':spotify[1]==='siguiente'?'next':spotify[1]==='anterior'?'previous':'start',app:'spotify'};
             const aliases = {
                 chat:'chat', conversacion:'chat', dictar:'dictation', dictado:'dictation', microfono:'dictation',
                 grabar:'screen', grabadora:'screen', grabacion:'screen', 'grabar pantalla':'screen', pantalla:'screen',
@@ -272,7 +279,7 @@
                 const name = value.replace(/^(?:el|la|los|las|un|una)\s+/, '').replace(/^(?:apartado|panel|funcion) (?:de )?/, '').replace(/ de axx$/, '');
                 return aliases[name] || Axx.FEATURES?.find(f => plain(f.title).replace(/^(?:el|la|los|las|un|una)\s+/, '') === name || plain(f.id) === name)?.id;
             };
-            let match = text.match(/^(?:abre|abrir|abreme|abras|muestra|muestrame|mostrar|ver|ve a|entra en) (.+)$/);
+            let match = text.match(/^(?:abre|abrir|abrirme|abreme|abras|muestra|muestrame|mostrar|ver|ve a|entra en) (.+)$/);
             if (match) { const id = featureId(match[1]); return id ? { id, verb:'open' } : null; }
             if (/^(?:dicta|dictar|empieza a dictar|comienza a dictar)$/.test(text)) return {id:'dictation',verb:'start'};
             if (/^(?:graba|grabar|grabr|empieza a grabar|comienza a grabar)(?: (?:la )?pantalla)?$/.test(text)) return {id:'screen',verb:'start'};

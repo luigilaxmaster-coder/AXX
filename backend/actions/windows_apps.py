@@ -68,6 +68,8 @@ def find_app(name, normalize):
         return []
     ranked = sorted(((SequenceMatcher(None, name, normalize(row['name'])).ratio(), row) for row in rows),
                     key=lambda item: item[0], reverse=True)
-    if not ranked or ranked[0][0] < 0.8 or (len(ranked) > 1 and ranked[0][0] - ranked[1][0] < 0.15):
+    if not ranked or ranked[0][0] < 0.8:
         return []
+    if len(ranked)>1 and ranked[0][0]-ranked[1][0]<0.15:
+        return [row for score,row in ranked[:6] if score>=0.8 and ranked[0][0]-score<0.15]
     return [ranked[0][1]]

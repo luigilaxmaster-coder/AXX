@@ -20,6 +20,7 @@ import unicodedata
 import uuid
 
 from .actions.desktop import APPS, ENGINES, resolve_desktop, validate_inputs as validate_desktop_inputs
+from .actions.command_language import command_text, voice_suggestion
 from .actions.executor import ActionExecutionError
 from .actions.execution_contract import delivery_policy, resolve_mode
 from .actions.computer_tools import ADAPTERS as COMPUTER_ADAPTERS
@@ -354,14 +355,20 @@ class CommandService:
                     'parameters': self.commands[command_id]['parameters'],
                     'execution_enabled': self.commands[command_id]['execution_enabled'],
                     'has_recipe_details': self.commands[command_id].get('has_recipe_details', False)}
-        phrase = normalized(text)
+        canonical = command_text(text, source)
+        def understood(result):
+            if normalized(canonical) != normalized(text):
+                result['understanding'] = {'method':'bounded_grammar', 'canonical':canonical,
+                                           'asr_correction_allowed':source == 'voice'}
+            return result
+        phrase = normalized(canonical)
         matches = [command_id for command_id, adapter in ADAPTERS.items()
                    if phrase in [normalized(s) for s in adapter['aliases']] or phrase == normalized(command_id)]
         if len(matches) == 1:
-            return {'match': 'exact', 'command_id': matches[0], 'inputs': {}, 'parameters': self.commands[matches[0]]['parameters']}
+            return understood({'match': 'exact', 'command_id': matches[0], 'inputs': {}, 'parameters': self.commands[matches[0]]['parameters']})
         desktop = resolve_desktop(text, source, context)
         if desktop and desktop.get('match') == 'exact':
-            return desktop
+            return understood(desktop)
         if self.learning:
             learned = self.learning.find(text, project_id)
             if learned:
@@ -376,7 +383,10 @@ class CommandService:
                         'parameters': self.commands[matches[0]]['parameters'],
                         'has_recipe_details': self.commands[matches[0]].get('has_recipe_details', False)}
         if desktop:
-            return desktop
+            return understood(desktop)
+        if source == 'voice' and (suggestion := voice_suggestion(canonical)):
+            return {'match':'needs_input', 'message':'¿Quisiste decir «'+suggestion+'»? Repite la orden; todavía no se ejecutó.',
+                    'understanding':{'method':'verb_suggestion','candidate':suggestion,'execution_allowed':False}}
         return {'match': 'ambiguous' if matches else 'none', 'candidates': matches}
 
     def _validate_inputs(self, command_id, inputs, require_new=True, check_files=True, deferred_fields=()):

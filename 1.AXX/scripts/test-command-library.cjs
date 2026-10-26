@@ -331,6 +331,16 @@ const { chromium } = bundledRequire('playwright');
     const actionWords=await page.evaluate(()=>['escribe en ChatGPT hola','pulsa Enviar','haz clic en Nuevo chat en ChatGPT','presiona Enviar en Antigravity','ejecuta en CMD: dir','/cmd dir','escribe un poema'].map(value=>Axx.commandLibrary.isActionRequest(value)));
     assert.deepEqual(actionWords,[true,true,true,true,true,true,false]);
     results.push('Desktop interaction verbs route as actions while ordinary creative writing stays in chat');
+    const language = await page.evaluate(() => ({
+        actions: ['¿Me puedes abrirme Obsidian?', 'Oye Axx, por favor podrías buscarme gatos en YouTube',
+            'Quiero escuchar Spotify', 'En YouTube búscame gatos', 'Habre Obsidian'].map(value=>Axx.commandLibrary.isActionRequest(value)),
+        protected: ['No abras Spotify','Quiero que no cierres Spotify','Cómo puedo abrir Spotify','Me gustaría saber cómo abrir Spotify'].map(value=>Axx.commandLibrary.isActionRequest(value)),
+        media: ['Quiero escuchar Spotify','Pon Spotify en pausa','Necesito que pauses Spotify'].map(value=>Axx.commandLibrary.internalAction(value))
+    }));
+    assert(language.actions.every(Boolean));
+    assert(language.protected.every(value=>value===false));
+    assert.deepEqual(language.media,[{id:'music',verb:'start',app:'spotify'},{id:'music',verb:'pause',app:'spotify'},{id:'music',verb:'pause',app:'spotify'}]);
+    results.push('Spanish carriers and Spotify paraphrases select actions while negation and informational requests stay protected');
     assert.deepEqual(errors, []);
     console.log(JSON.stringify({ kind: 'COMMAND_LIBRARY_UI_IPC_CONTRACT_ONLY', passed: results.length, results, uncaught: errors }, null, 2));
   } finally { await browser.close(); }
