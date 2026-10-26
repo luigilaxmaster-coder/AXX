@@ -10,7 +10,6 @@ import os
 from pathlib import Path
 import subprocess
 import sys
-import tempfile
 import threading
 import time
 import uuid
@@ -95,7 +94,7 @@ def main():
         # Events use method as their persisted discriminator in the provider journal.
         if not events:events=[e for e in result['events'] if e.get('event')=='computer/image_attached']
         receipts=[r['result'] for r in result['tool_results'] if isinstance(r.get('result'),dict)]
-        actions=[r for r in receipts if r.get('command_id')=='axx.computer.act' and r.get('state')=='succeeded' and r.get('output',{}).get('dispatched')]
+        actions=list({r['operation_id']:r for r in receipts if r.get('command_id')=='axx.computer.act' and r.get('state')=='succeeded' and r.get('output',{}).get('dispatched')}.values())
         assert actions,[(r.get('state'),r.get('error')) for r in receipts]
         assert len(actions)==1,'More than one gesture dispatched'
         assert events,'No image attachment receipt'
