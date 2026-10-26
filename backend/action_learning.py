@@ -21,7 +21,7 @@ from .goal_contract import contract as goal_contract, verify as verify_goal
 
 TERMINAL = {'succeeded', 'failed', 'cancelled', 'blocked', 'needs_input', 'expired', 'unknown'}
 ALLOWED = {key: value for key, value in ADAPTERS.items()
-           if not key.startswith('axx.shell.') and key != 'axx.process.run'
+           if not key.startswith(('axx.shell.','axx.computer.')) and key != 'axx.process.run'
            and not key.startswith('axx.desktop.pointer.')
            and key not in ('axx.desktop.window.close', 'axx.desktop.window.invoke', 'axx.desktop.window.set_value')}
 CONTEXT_REPEATS = {'hazlo otra vez', 'repite lo anterior', 'otra vez', 'repeat that', 'haz lo mismo', 'repite eso', 'usa la estructura de la ultima vez'}

@@ -90,6 +90,7 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
     adapter = executor = memory = identity = speech = transcription = None
     chats = None
     commands = None
+    computer_use = None
     learning = None
     workshop = None
     demonstration = None
@@ -280,6 +281,11 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
             elif path == '/axx-api/apps/catalog':
                 from backend.application_catalog import installed_catalog
                 self._send_json(200, installed_catalog())
+            elif path == '/axx-api/computer/status':
+                query=urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+                if set(query)!={'conversation_id'} or len(query['conversation_id'])!=1:raise ValueError('Indica este chat.')
+                chat=self.chats.get(query['conversation_id'][0])
+                self._send_json(200,self.computer_use.status(chat['connect_id']))
             elif path.startswith('/axx-api/capabilities/'):
                 if not self.workshop:
                     self._unsupported('Taller de capacidades no disponible')
@@ -707,6 +713,14 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                     for command_id in preferred:
                         self.commands.details(command_id)
                 self._send_json(200, self.chats.mutate(path.rsplit('/', 1)[-1], body))
+            elif path in ('/axx-api/computer/begin','/axx-api/computer/stop'):
+                allowed={'conversation_id','window_id','pid','image_authorized','allow_input'} if path.endswith('/begin') else {'conversation_id'}
+                if set(body)!=allowed:raise ValueError('Autorización de computer use inválida.')
+                chat=self.chats.get(body['conversation_id'])
+                if path.endswith('/begin'):
+                    result=self.computer_use.begin(chat['connect_id'],body['window_id'],body['pid'],image_authorized=body['image_authorized'],allow_input=body['allow_input'])
+                else:result=self.computer_use.end(chat['connect_id'])
+                self._send_json(200,result)
             elif path.startswith('/axx-api/commands/'):
                 if not self.commands:
                     self._unsupported('Command library service is unavailable')
@@ -750,6 +764,7 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                     self._send_json(200, self.executor.execute_action(body.get('tool_name'), body.get('inputs', {}), body.get('operation_id')))
             elif path == '/axx-api/actions/cancel':
                 # This must not wait on action_lock, which the active render owns.
+                if self.computer_use:self.computer_use.close()
                 if self.commands:
                     self.commands.cancel()
                 if self.learning:
@@ -1131,6 +1146,10 @@ def run_server(host='127.0.0.1', port=4173, config_path='providers.json', state_
         services.append(chats)
         commands = CommandService(executor)
         services.append(commands)
+        from backend.computer_use import ComputerUse
+        computer_use=ComputerUse(commands)
+        executor.computer_use=computer_use
+        services.append(computer_use)
         from backend.mcp_host.client_manager import McpHost
         mcp_host = McpHost(state_dir, commands)
         services.append(mcp_host)
@@ -1163,7 +1182,7 @@ def run_server(host='127.0.0.1', port=4173, config_path='providers.json', state_
         services.append(provider)
         workshop.provider = provider
         handler = type('ConfiguredAxxHandler', (AxxBridgeHandler,), {
-            'chats': chats, 'adapter': adapter, 'executor': executor, 'commands': commands, 'learning': learning, 'workshop': workshop, 'demonstration': demonstration, 'freellmapi': freellmapi, 'model_candidates': model_candidates, 'keyless': keyless,
+            'chats': chats, 'adapter': adapter, 'executor': executor, 'commands': commands, 'computer_use':computer_use, 'learning': learning, 'workshop': workshop, 'demonstration': demonstration, 'freellmapi': freellmapi, 'model_candidates': model_candidates, 'keyless': keyless,
             'memory': memory, 'identity': identity, 'speech': speech,
             'transcription': transcription, 'chatgpt_auth': chatgpt_auth,
             'chatgpt_adapter': chatgpt_adapter, 'config_path': Path(config_path),

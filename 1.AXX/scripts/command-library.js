@@ -407,6 +407,7 @@
             Axx.companion.send = async (text, metadata = {}) => {
                 const raw = String(text || '').trim();
                 const origin = Axx.chatWorkspace?.active?.id;
+                if (Axx.computerUse?.activeFor(origin) && !raw.startsWith('/')) return previous(raw, metadata);
                 const activeTask = this.operation || this.lastOperation;
                 if (activeTask?.kind === 'learned_plan' && !['succeeded','cancelled','failed','blocked','expired'].includes(activeTask.state)) {
                     if (/^(?:pausa|pausa la tarea|pausa el trabajo)$/i.test(raw)) { await this.pausePlan(); return; }

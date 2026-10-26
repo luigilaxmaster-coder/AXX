@@ -23,6 +23,7 @@ NATIVE_TOOLS = frozenset({
     'desktop_installed_app', 'desktop_open_url', 'desktop_open_app', 'desktop_search', 'desktop_cli_anything_scan',
     'application_open', 'application_windows', 'application_focus', 'application_inspect', 'application_close', 'application_navigate',
     'application_browse', 'application_hover', 'application_youtube',
+    'computer_use_observe', 'computer_use_act',
 })
 
 

@@ -570,6 +570,8 @@ TOOL_REGISTRY[PowerPointTool.name] = PowerPointTool()
 TOOL_REGISTRY[BlenderSceneTool.name] = BlenderSceneTool()
 from .application_tools import TOOLS as APPLICATION_TOOLS
 TOOL_REGISTRY.update(APPLICATION_TOOLS)
+from ..computer_use import TOOLS as COMPUTER_USE_TOOLS
+TOOL_REGISTRY.update(COMPUTER_USE_TOOLS)
 
 
 def get_tool(name: str) -> BaseTool | None:

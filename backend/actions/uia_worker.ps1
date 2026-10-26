@@ -10,7 +10,7 @@ try {
     Add-Type -AssemblyName UIAutomationClient
     Add-Type -AssemblyName UIAutomationTypes
     $request = [Console]::In.ReadToEnd() | ConvertFrom-Json -ErrorAction Stop
-    if ($null -eq $request -or $request.operation -notin @('inspect', 'inspect_browser', 'read_content', 'locate_edit', 'set_value', 'invoke', 'check_value', 'locate_folder', 'scrape_app', 'set_state', 'read_grid', 'read_value')) {
+    if ($null -eq $request -or $request.operation -notin @('capture', 'inspect', 'inspect_browser', 'read_content', 'locate_edit', 'set_value', 'invoke', 'check_value', 'locate_folder', 'scrape_app', 'set_state', 'read_grid', 'read_value')) {
         throw 'Operación UI Automation desconocida.'
     }
     if ($request.operation -eq 'locate_folder') {
@@ -37,6 +37,31 @@ try {
     }
     $processStarted = [Diagnostics.Process]::GetProcessById([int]$request.pid).StartTime.ToFileTimeUtc().ToString()
     if ($request.expected_process_started -and $request.expected_process_started -cne $processStarted) { throw 'Cambió la instancia del proceso observado.' }
+
+    if ($request.operation -eq 'capture') {
+        Add-Type -AssemblyName System.Drawing
+        Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class AxxWindowCapture { [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr hwnd, IntPtr dc, uint flags); [DllImport("user32.dll")] public static extern IntPtr GetWindowDpiAwarenessContext(IntPtr hwnd); }'
+        $rect=[AxxUiNative+Rect]::new()
+        if (-not [AxxUiNative]::GetWindowRect($hwnd,[ref]$rect)) { throw 'Geometría de captura no disponible.' }
+        $physical=@{x=$rect.Left;y=$rect.Top;width=$rect.Right-$rect.Left;height=$rect.Bottom-$rect.Top}
+        if ([AxxUiNative]::SetThreadDpiAwarenessContext([AxxWindowCapture]::GetWindowDpiAwarenessContext($hwnd)) -eq [IntPtr]::Zero) { throw 'Contexto DPI de captura no disponible.' }
+        if (-not [AxxUiNative]::GetWindowRect($hwnd,[ref]$rect)) { throw 'Geometría de aplicación no disponible.' }
+        $width=$rect.Right-$rect.Left; $height=$rect.Bottom-$rect.Top
+        if ($width -le 0 -or $height -le 0 -or [long]$width*$height -gt 34000000) { throw 'Tamaño de captura no permitido.' }
+        $bitmap=[Drawing.Bitmap]::new($width,$height);$graphics=[Drawing.Graphics]::FromImage($bitmap)
+        $small=$null;$memory=[IO.MemoryStream]::new()
+        try {
+            $dc=$graphics.GetHdc()
+            try { if (-not [AxxWindowCapture]::PrintWindow($hwnd,$dc,2)) { throw 'La aplicación no admite captura de ventana.' } }
+            finally { $graphics.ReleaseHdc($dc) }
+            $scale=[Math]::Min(1,[Math]::Min(1280.0/$width,1280.0/$height))
+            $small=[Drawing.Bitmap]::new($bitmap,[int][Math]::Round($width*$scale),[int][Math]::Round($height*$scale))
+            $small.Save($memory,[Drawing.Imaging.ImageFormat]::Jpeg)
+            if ($memory.Length -gt 350000) { throw 'La imagen excede el límite de envío.' }
+            [Console]::Out.Write((@{success=$true;process_started=$processStarted;window_bounds=$physical;jpeg=[Convert]::ToBase64String($memory.ToArray())} | ConvertTo-Json -Compress))
+        } finally { if ($small) {$small.Dispose()};$memory.Dispose();$graphics.Dispose();$bitmap.Dispose() }
+        exit 0
+    }
 
     function Get-ControlToken($element, [long]$windowId, [int]$processId) {
         $runtimeId = $element.GetRuntimeId()
@@ -119,7 +144,7 @@ try {
         if ($reading -and $windowTitle -cne $request.expected_title) { throw 'Cambió la ventana o página desde la preparación. Vuelve a seleccionarla y aprobar la lectura.' }
         $scope = $root
         $browserProcess = [Diagnostics.Process]::GetProcessById([int]$request.pid).ProcessName -in @('chrome','msedge','brave','firefox','opera','vivaldi')
-        if ($reading -and $browserProcess) {
+        if ($reading -and $browserProcess -and -not $request.include_browser_chrome) {
             $documents = $root.FindAll([System.Windows.Automation.TreeScope]::Descendants,
                 [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Document))
             $matching = @($documents | Where-Object { -not $_.Current.IsOffscreen -and $_.Current.Name -and

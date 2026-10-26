@@ -238,19 +238,29 @@ def concrete_action_arguments(name, arguments):
             'operation_id': arguments['operation_id']}
 
 
-def tool_descriptors(commands=None):
+def tool_descriptors(commands=None, *, computer=False):
     # Five protocol tools plus generated precise aliases. All action IDs resolve
     # against the SAME registered adapter and existing execution/approval policy.
     action = obj({'command_id': string(128), 'inputs': {'type': 'object'}, 'operation_id': string(128),
         'origin': string(enum=['mcp', 'codex-host', 'axx-provider']), 'parent_execution_id': string(128),
         'delegation_depth': {'type': 'integer', 'minimum': 0, 'maximum': 1}}, ['command_id', 'inputs', 'operation_id'])
     definitions = [
+        ('axx_computer_status','Consulta la ventana autorizada para computer use en ESTE chat. No captura imágenes.',obj(),True),
+        ('axx_computer_observe','Observa la ventana autorizada por el usuario y recibe una imagen real junto a controles e identidad. Las coordenadas visuales se expresan en píxeles de ESTA imagen. Una observación parcial no garantiza ausencia de controles.',obj({'operation_id':string(128)},['operation_id']),True),
+        ('axx_computer_act','Opera sólo la ventana autorizada mediante el broker de Axx. Usa control_id observado o coordenadas de la imagen vigente; type_text/hotkey actúan sobre el foco verificado. Salvo move, indica expected con name y opcional value/present/focused: debe verificarse después. Si el efecto queda unknown, detente y pide revisión; no repitas. Observa otra vez después de actuar.',obj({
+            'operation_id':string(128),'observation_id':string(80),'action':string(enum=['move','click','double_click','right_click','drag','scroll','hotkey','type_text']),
+            'control_id':string(64),**{k:{'type':'integer','minimum':0,'maximum':100000} for k in ('x','y','to_x','to_y')},
+            **{k:{'type':'integer','minimum':-2000,'maximum':2000} for k in ('delta_x','delta_y')},
+            'keys':{'type':'array','minItems':1,'maxItems':4,'items':string(30)},'text':string(512),
+            'expected':obj({'name':string(200),'value':string(8192),'present':{'type':'boolean'},'focused':{'type':'boolean'}},['name'])},['operation_id','observation_id','action']),False),
+        ('axx_computer_stop','Revoca el computer use de este chat y detiene su entrada. No revierte los efectos realizados.',obj(),False),
         ('axx_status', 'Estado real del ejecutor local y disponibilidad de Axx. Autenticación e inferencia se verifican por separado.', obj(), True),
         ('axx_list_capabilities', 'Busca el registro único; conserva comandos documentados no ejecutables con su motivo. Consulta antes de ejecutar.', obj({'query': string(500), 'limit': {'type': 'integer', 'minimum': 1, 'maximum': 100}, 'offset': {'type': 'integer', 'minimum': 0, 'maximum': 20000}}), True),
         ('axx_execute_action', 'Ejecuta una capacidad concreta con operation_id idempotente. Las escrituras esperan aprobación en Axx. No llama al chat ni al planificador. Consulta la tarea hasta verificar el resultado.', action, False),
         ('axx_get_task', 'Lee progreso, evidencia y estado de una tarea por operation_id. Un timeout o unknown no autoriza repetir efectos.', obj({'operation_id': string(128)}, ['operation_id']), True),
         ('axx_cancel_task', 'Detiene acciones pendientes y solicita cancelación. No revierte efectos consumados; revisa el resultado.', obj({'operation_id': string(128)}, ['operation_id']), False),
     ]
+    if not computer:definitions=[row for row in definitions if not row[0].startswith('axx_computer_')]
     for name, command_id in read_only_aliases().items():
         adapter = ADAPTERS[command_id]
         schema = legacy_schema(adapter['parameters'])
@@ -265,9 +275,9 @@ def tool_descriptors(commands=None):
             for name, description, schema, read in definitions]
 
 
-def dynamic_tools(commands=None):
+def dynamic_tools(commands=None, *, computer=False):
     return [{'type': 'namespace', 'name': 'axx',
              'description': 'Herramientas de Axx con permisos y verificación del ejecutor local.',
              'tools': [{'type': 'function', 'name': entry['name'], 'description': entry['description'],
                         'inputSchema': entry['inputSchema'], 'deferLoading': False}
-                       for entry in tool_descriptors(commands)]}]
+                       for entry in tool_descriptors(commands, computer=computer)]}]

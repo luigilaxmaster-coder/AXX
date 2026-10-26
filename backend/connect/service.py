@@ -425,6 +425,9 @@ class ConnectService:
                 row = self.db.execute('SELECT c.id,c.mode FROM chat_conversations c JOIN connect_runs r ON r.conversation_id=c.connect_id WHERE r.request_id=?', (request_id,)).fetchone()
                 if row:
                     chat_policy = {'conversation_id': row[0], 'command_mode': row[1]}
+        # The opaque computer ticket already requires this chat's explicit window grant.
+        if arguments['command_id'] in ('axx.computer.observe','axx.computer.act'):
+            chat_policy=dict(chat_policy or {},command_mode='auto_safe')
         result = self.execute(arguments, admission=admission, chat_policy=chat_policy)
         # Short, bounded waiting gives the model actual read-only executor output
         # in ordinary cases. Long operations return a queryable identifier.

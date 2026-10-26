@@ -174,6 +174,8 @@ class ActionExecutor:
         permitted.update({adapter['tool']: set(adapter['parameters']) for adapter in COMPUTER_ADAPTERS.values()})
         from .application_tools import ADAPTERS as APPLICATION_ADAPTERS
         permitted.update({adapter['tool']: set(adapter['parameters']) for adapter in APPLICATION_ADAPTERS.values()})
+        from ..computer_use import ADAPTERS as COMPUTER_USE_ADAPTERS
+        permitted.update({adapter['tool']: set(adapter['parameters']) for adapter in COMPUTER_USE_ADAPTERS.values()})
         if tool_name in self.dynamic_tools:
             permitted[tool_name] = tool.parameter_names
         if tool_name not in self.dynamic_tools and set(inputs) - permitted.get(tool_name, set()):

@@ -244,6 +244,7 @@ fn backend_timeout_seconds(path: &str) -> u64 {
         || path == "/axx-api/chat/cancel"
         || path == "/axx-api/actions/cancel"
         || path == "/axx-api/commands/cancel"
+        || path == "/axx-api/computer/stop"
     {
         3
     } else if matches!(path, "/axx-api/actions/execute" | "/axx-api/commands/execute" | "/axx-api/learning/propose") {

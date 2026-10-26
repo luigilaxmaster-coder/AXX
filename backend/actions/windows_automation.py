@@ -372,6 +372,11 @@ def inspect_controls(window_id, expected_pid, cancelled=None):
                  'pid': _positive_int(expected_pid, 'pid')}, cancelled=cancelled)
 
 
+def capture_window(window_id, expected_pid, process_started, cancelled=None):
+    return _uia({'operation':'capture','window_id':_positive_int(window_id,'window_id'),
+        'pid':_positive_int(expected_pid,'pid'),'expected_process_started':process_started},cancelled=cancelled)
+
+
 def inspect_browser_controls(window_id, expected_pid, cancelled=None):
     return _uia({'operation': 'inspect_browser', 'window_id': _positive_int(window_id, 'window_id'),
                  'pid': _positive_int(expected_pid, 'pid')}, cancelled=cancelled)
@@ -396,11 +401,14 @@ def find_control(window_id, expected_pid, name, cancelled=None):
             'verification': 'semantic_control_selection', 'effect_executed': False}
 
 
-def read_window_content(window_id, expected_pid, expected_title, cancelled=None):
+def read_window_content(window_id, expected_pid, expected_title, cancelled=None, *, full_window=False):
     if not isinstance(expected_title, str) or not 1 <= len(expected_title) <= 2048:
         raise ValueError('Indica el título observado de la ventana.')
-    result = _uia({'operation': 'read_content', 'window_id': _positive_int(window_id, 'window_id'),
-                 'pid': _positive_int(expected_pid, 'pid'), 'expected_title': expected_title}, cancelled=cancelled)
+    if type(full_window) is not bool:raise ValueError('Alcance de ventana inválido.')
+    payload={'operation': 'read_content', 'window_id': _positive_int(window_id, 'window_id'),
+             'pid': _positive_int(expected_pid, 'pid'), 'expected_title': expected_title}
+    if full_window:payload['include_browser_chrome']=True
+    result = _uia(payload, cancelled=cancelled)
     return summarize_window_content(result)
 
 

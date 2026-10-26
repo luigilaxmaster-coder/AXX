@@ -25,6 +25,7 @@ from .actions.executor import ActionExecutionError
 from .actions.execution_contract import delivery_policy, resolve_mode
 from .actions.computer_tools import ADAPTERS as COMPUTER_ADAPTERS
 from .actions.application_tools import ADAPTERS as APPLICATION_ADAPTERS, resolve_application_command
+from .computer_use import ADAPTERS as COMPUTER_USE_ADAPTERS
 from .procedure_library import ProcedureLibrary
 
 TERMINAL = {'succeeded', 'failed', 'blocked', 'cancelled', 'expired', 'unknown'}
@@ -178,6 +179,7 @@ ADAPTERS = {
 # Explicit implementation bindings; imported prose cannot add to this map.
 ADAPTERS.update(COMPUTER_ADAPTERS)
 ADAPTERS.update(APPLICATION_ADAPTERS)
+ADAPTERS.update(COMPUTER_USE_ADAPTERS)
 PROCEDURE_BINDINGS = {'AXX-02-0147': 'axx.file.sha256', 'AXX-02-0148': 'axx.file.compare'}
 PARALLEL_READ_COMMANDS = frozenset({'axx.file.sha256', 'axx.file.compare', 'axx.system.telemetry',
                                    'axx.process.inspect', 'axx.desktop.list_apps', 'axx.desktop.list_windows', 'axx.desktop.cli_anything.scan', 'axx.architecture.status'})
