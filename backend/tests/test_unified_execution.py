@@ -119,8 +119,10 @@ class UnifiedExecutionTests(unittest.TestCase):
         result = self.commands.execute(pending['operation_id'])
         self.assertEqual(result['state'], 'succeeded')
         components = {item['id']:item for item in result['output']['components']}
-        for name in ('cua_driver', 'rea', 'isolated_desktop', 'visual_grounding', 'telegram'):
+        for name in ('cua_driver', 'rea', 'isolated_desktop', 'telegram'):
             self.assertEqual(components[name]['state'], 'unavailable')
+        self.assertEqual(components['visual_grounding']['state'], 'unknown')
+        self.assertIn('autorización', components['visual_grounding']['reason'])
         self.assertEqual(self.commands.resolve('estado de integraciones')['command_id'], 'axx.architecture.status')
 
     def test_semantic_selection_abstains_without_unique_complete_evidence(self):

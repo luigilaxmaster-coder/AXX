@@ -577,7 +577,7 @@ body.orbit17-ui #flow-fan button.orbit-dragging {z-index:95;cursor:grabbing}
 }
 .ai-current{display:grid;gap:4px;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:var(--surface-subtle,var(--surface));line-height:1.4}
 .ai-current strong{font-size:13px}.ai-current span{font-size:12px;color:var(--secondary,var(--muted))}
-.ai-section-head{display:flex;align-items:flex-start;gap:12px;margin:0 0 12px}.ai-section-head>span{display:grid;place-items:center;flex:none;width:32px;height:32px;border-radius:9px;background:var(--accent-soft,#76aaff24);color:var(--accent);font-weight:700}.ai-section-head h3{margin:0;font-size:17px}.ai-section-head p{margin:3px 0 0;font-size:12px;color:var(--secondary,var(--muted))}
+.ai-section-head{display:flex;align-items:flex-start;gap:12px;margin:0 0 12px}.ai-section-head>span{display:grid;place-items:center;flex:none;width:32px;height:32px;border-radius:9px;background:var(--accent-soft,#76aaff24);color:var(--text);font-weight:700}.ai-section-head h3{margin:0;font-size:17px}.ai-section-head p{margin:3px 0 0;font-size:12px;color:var(--secondary,var(--muted))}
 .ai-local-card{display:grid;gap:12px}.ai-local-card p{margin:0}.ai-local-card .setting{margin:0}.ai-local-card button{width:100%}
 .ai-connect-card{display:grid;gap:12px}.ai-connect-card .setting{margin:0}.ai-connect-card>#axx-connect-verify{width:100%}.ai-connect-card p{margin:0}
 #view-ai details.ai-advanced{border:1px solid var(--line);border-radius:12px;padding:0 14px;background:var(--surface-subtle,var(--surface))}
@@ -613,7 +613,7 @@ body.orbit17-ui #flow-fan button.orbit-dragging {z-index:95;cursor:grabbing}
   font-weight: 700;
   letter-spacing: 0.5px;
   text-transform: uppercase;
-  color: #94a3b8;
+  color: var(--secondary,var(--muted));
 }
 .chatgpt-badge-dot {
   width: 7px;
@@ -1793,7 +1793,7 @@ body.axx-resident :is(.panel-head,.flow-library-head,.organic-satellite-head,.v1
 <script>"use strict";
 var Axx;
 (function (Axx) {
-    Axx.VERSION = '0.21.15';
+    Axx.VERSION = '0.22.0';
     function newId() {
         if (typeof crypto.randomUUID === 'function')
             return crypto.randomUUID();

@@ -8,11 +8,15 @@ from __future__ import annotations
 import ctypes
 from ctypes import wintypes
 import base64
+import copy
+import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import subprocess
 import time
+import threading
 import uuid
 from urllib.parse import urlsplit, parse_qs
 
@@ -21,6 +25,143 @@ MAX_CONTROLS = 250
 MAX_UITEXT = 8192
 UIA_TIMEOUT_SECONDS = 8
 OBSERVATION_SESSION_ID = str(uuid.uuid4())
+OBSERVATION_MAX_AGE = 15.0
+_observations = {}
+_observation_lock = threading.Lock()
+
+
+def _remember_observation(result):
+    with _observation_lock:
+        now = time.monotonic()
+        for key in list(_observations):
+            if now - _observations[key]['observation']['completed_monotonic'] > OBSERVATION_MAX_AGE:
+                del _observations[key]
+        while len(_observations) >= 64:
+            del _observations[next(iter(_observations))]
+        _observations[result['observation']['observation_id']] = copy.deepcopy(result)
+
+
+def observe_geometry(window_id):
+    from backend.magic_pen import monitors, physical_dpi_context
+    class GuiThreadInfo(ctypes.Structure):
+        _fields_ = [('cbSize', wintypes.DWORD), ('flags', wintypes.DWORD),
+                    *[(name, wintypes.HWND) for name in ('active', 'focus', 'capture', 'menu', 'move', 'caret')],
+                    ('caret_rect', wintypes.RECT)]
+    with physical_dpi_context() as user:
+        user.GetWindowRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
+        user.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+        user.GetWindowThreadProcessId.restype = wintypes.DWORD
+        user.GetGUIThreadInfo.argtypes = [wintypes.DWORD, ctypes.POINTER(GuiThreadInfo)]
+        user.GetForegroundWindow.restype = wintypes.HWND
+        user.IsIconic.argtypes = [wintypes.HWND]
+        rect = wintypes.RECT()
+        if not user.GetWindowRect(wintypes.HWND(window_id), ctypes.byref(rect)):
+            raise ValueError('La geometría de ventana no está disponible.')
+        pid = wintypes.DWORD()
+        thread = user.GetWindowThreadProcessId(wintypes.HWND(window_id), ctypes.byref(pid))
+        info = GuiThreadInfo(); info.cbSize = ctypes.sizeof(info)
+        focused = int(info.focus or 0) if user.GetGUIThreadInfo(thread, ctypes.byref(info)) else None
+        return {'window_bounds': {'x': rect.left, 'y': rect.top, 'width': rect.right-rect.left, 'height': rect.bottom-rect.top},
+                'monitors': monitors(), 'focus_hwnd': focused, 'foreground_window_id': int(user.GetForegroundWindow() or 0),
+                'minimized': bool(user.IsIconic(wintypes.HWND(window_id)))}
+
+
+def process_started(pid):
+    _, kernel = _windows_api()
+    kernel.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    kernel.OpenProcess.restype = wintypes.HANDLE
+    kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel.GetProcessTimes.argtypes = [wintypes.HANDLE, *[ctypes.POINTER(wintypes.FILETIME)]*4]
+    handle = kernel.OpenProcess(0x1000, False, _positive_int(pid, 'pid'))
+    if not handle:
+        raise ValueError('No se pudo verificar la instancia del proceso.')
+    try:
+        created, ended, cpu_kernel, cpu_user = (wintypes.FILETIME() for _ in range(4))
+        if not kernel.GetProcessTimes(handle, ctypes.byref(created), ctypes.byref(ended), ctypes.byref(cpu_kernel), ctypes.byref(cpu_user)):
+            raise ValueError('No se pudo verificar el inicio del proceso.')
+        return str((created.dwHighDateTime << 32) | created.dwLowDateTime)
+    finally:
+        kernel.CloseHandle(handle)
+
+
+def get_observation(observation_id, window_id, expected_pid, *, max_age=OBSERVATION_MAX_AGE):
+    """Resolve a backend-issued reference, never a client-asserted timestamp."""
+    if not isinstance(observation_id, str) or not 0 < max_age <= OBSERVATION_MAX_AGE:
+        raise ValueError('Referencia de observación inválida.')
+    with _observation_lock:
+        result = copy.deepcopy(_observations.get(observation_id))
+    if not result:
+        raise ValueError('STALE_OBSERVATION: vuelve a observar la ventana.')
+    observed = result['observation']
+    age = time.monotonic() - observed['completed_monotonic']
+    if (observed['session_id'] != OBSERVATION_SESSION_ID or not 0 <= age <= max_age
+            or observed['window_id'] != window_id or observed['pid'] != expected_pid):
+        raise ValueError('STALE_OBSERVATION: cambió la sesión, el objetivo o la observación venció.')
+    return result
+
+
+def validate_control_state(window_id, expected_pid, control_id, observation_id, pattern, value):
+    """Validate before taking focus, then revalidate again immediately before dispatch."""
+    window_id = _positive_int(window_id, 'window_id')
+    expected_pid = _positive_int(expected_pid, 'pid')
+    if pattern == 'Value':
+        valid = isinstance(value, str) and len(value) <= MAX_UITEXT and '\x00' not in value
+        if valid:
+            value.encode('utf-16-le')
+    elif pattern in ('Toggle', 'SelectionItem'):
+        valid = type(value) is bool
+    elif pattern == 'ExpandCollapse':
+        valid = value in ('expanded', 'collapsed')
+    elif pattern == 'RangeValue':
+        valid = type(value) in (int, float) and math.isfinite(value)
+    elif pattern == 'Scroll':
+        valid = (isinstance(value, dict) and set(value) == {'horizontal', 'vertical'}
+                 and all(type(v) in (int, float) and math.isfinite(v) and (v == -1 or 0 <= v <= 100) for v in value.values()))
+    else:
+        valid = False
+    if not valid:
+        raise ValueError('Patrón o estado UIA no compatible.')
+    observed = get_observation(observation_id, window_id, expected_pid)
+    matches = [c for c in observed.get('controls', []) if c.get('control_id') == control_id]
+    if observed.get('truncated') or len(matches) != 1:
+        raise ValueError('La observación está incompleta o el control no es único.')
+    control = matches[0]
+    if pattern not in control.get('patterns', []) or not control.get('enabled') or control.get('offscreen'):
+        raise ValueError('El control observado no admite esta acción.')
+    observation = observed['observation']
+    if observation.get('minimized') or not observation.get('process_started') or not observation.get('window_bounds'):
+        raise ValueError('La observación no acredita identidad y geometría del proceso.')
+    return {'operation': 'set_state', 'window_id': window_id, 'pid': expected_pid,
+                 'control_id': control_id, 'pattern': pattern, 'state': value,
+                 'expected_title': observed['window_title'], 'expected_name': control.get('name', ''),
+                 'expected_process_started': observation['process_started'],
+                 '_observation_deadline': observation['completed_monotonic'] + OBSERVATION_MAX_AGE,
+            'expected_bounds': observation['window_bounds']}
+
+
+def set_control_state(window_id, expected_pid, control_id, observation_id, pattern, value, cancelled=None):
+    """Set an observed UIA state and require native readback of that state."""
+    return _uia(validate_control_state(window_id, expected_pid, control_id, observation_id, pattern, value), cancelled=cancelled)
+
+
+def read_control_grid(window_id, expected_pid, control_id, observation_id, row=0, column=0, rows=10, columns=10, cancelled=None):
+    window_id = _positive_int(window_id, 'window_id')
+    expected_pid = _positive_int(expected_pid, 'pid')
+    if (any(type(v) is not int or v < 0 for v in (row, column))
+            or any(type(v) is not int or not 1 <= v <= 20 for v in (rows, columns)) or rows*columns > 200):
+        raise ValueError('Lectura de tabla fuera de límites: máximo 20 por eje y 200 celdas.')
+    observed = get_observation(observation_id, window_id, expected_pid)
+    matches = [c for c in observed.get('controls', []) if c.get('control_id') == control_id]
+    if observed.get('truncated') or len(matches) != 1 or 'Grid' not in matches[0].get('patterns', []):
+        raise ValueError('No se observó una tabla única con GridPattern.')
+    identity = observed['observation']
+    if not identity.get('process_started') or not identity.get('window_bounds'):
+        raise ValueError('La observación no acredita identidad y geometría del proceso.')
+    return _uia({'operation': 'read_grid', 'window_id': window_id, 'pid': expected_pid, 'control_id': control_id,
+                 'row': row, 'column': column, 'rows': rows, 'columns': columns,
+                 'expected_title': observed['window_title'], 'expected_name': matches[0].get('name', ''),
+                 '_observation_deadline': identity['completed_monotonic'] + OBSERVATION_MAX_AGE,
+                 'expected_process_started': identity['process_started'], 'expected_bounds': identity['window_bounds']}, cancelled=cancelled)
 
 
 class UncertainEffect(ValueError):
@@ -326,13 +467,21 @@ def _uia(payload, cancelled=None, timeout=None):
     script = Path(__file__).with_name('uia_worker.ps1')
     if not executable.is_file() or not script.is_file():
         raise ValueError('El worker UI Automation no está disponible en este runtime.')
+    payload = dict(payload)
+    if payload['operation'] in ('set_state', 'read_grid'):
+        remaining_ms = int((payload.pop('_observation_deadline', 0) - time.monotonic()) * 1000)
+        if not 0 < remaining_ms <= OBSERVATION_MAX_AGE * 1000:
+            raise ValueError('STALE_OBSERVATION: la observación caducó antes del worker.')
+        kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+        kernel.GetTickCount64.restype = ctypes.c_ulonglong
+        payload['expected_tick_deadline'] = kernel.GetTickCount64() + remaining_ms
     request = json.dumps(payload, ensure_ascii=False, separators=(',', ':'))
     if cancelled is not None and cancelled.is_set(): raise ValueError('UI Automation cancelada antes del despacho.')
     def write_error(message):
         error = UncertainEffect(message)
         error.target = {key: payload[key] for key in ('window_id', 'pid', 'control_id', 'expected_title') if key in payload}
         return error
-    error_type = write_error if payload['operation'] in ('set_value', 'invoke') else ValueError
+    error_type = write_error if payload['operation'] in ('set_value', 'invoke', 'set_state') else ValueError
     # Windows PowerShell execution policy applies to script files. Pass the
     # fixed, packaged worker as a command payload instead of changing policy.
     # Keep the Windows command line below 32K regardless of worker size/CRLF.
@@ -345,12 +494,14 @@ def _uia(payload, cancelled=None, timeout=None):
     env['AXX_UIA_WORKER'] = str(script.resolve())
     started_at = time.time()
     started_monotonic = time.monotonic()
+    observing = payload['operation'] in ('inspect', 'read_content', 'scrape_app', 'locate_edit')
+    geometry = observe_geometry(payload['window_id']) if observing else None
     try:
         process = subprocess.Popen([str(executable), '-NoLogo', '-NoProfile', '-NonInteractive', '-MTA',
                                     '-EncodedCommand', encoded_worker],
                                    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                    creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0), env=env)
-        timeout_sec = timeout or (15.0 if payload.get('operation') in ('scrape_app', 'read_content') else UIA_TIMEOUT_SECONDS)
+        timeout_sec = timeout or (15.0 if payload.get('operation') in ('inspect', 'scrape_app', 'read_content') else UIA_TIMEOUT_SECONDS)
         deadline = time.monotonic() + timeout_sec
         input_bytes = request.encode('utf-8')
         first_communicate = True
@@ -401,17 +552,24 @@ def _uia(payload, cancelled=None, timeout=None):
         raise error_type('UI Automation devolvió una respuesta inválida.') from exc
     if not isinstance(response, dict) or response.get('success') is not True:
         raise error_type(str(response.get('error', 'UI Automation no confirmó el resultado.'))[:1000])
-    if payload['operation'] in ('inspect', 'read_content', 'scrape_app', 'locate_edit'):
+    if observing:
+        after = observe_geometry(payload['window_id'])
+        if any(after[k] != geometry[k] for k in ('window_bounds', 'monitors', 'minimized')):
+            raise ValueError('STALE_OBSERVATION: la ventana o los monitores cambiaron durante la observación.')
         response['observation'] = {'schema_version': 1, 'observation_id': str(uuid.uuid4()),
                                    'context_id': 'host', 'session_id': OBSERVATION_SESSION_ID,
                                    'window_id': payload['window_id'], 'pid': payload['pid'],
                                    'process_started': response.get('process_started'),
                                    'process_time_format': 'windows_filetime_100ns',
                                    'started_at': started_at, 'completed_at': time.time(),
+                                   'completed_monotonic': time.monotonic(),
+                                   **after,
+                                   'coordinate_epoch': hashlib.sha256(json.dumps([after['window_bounds'], after['monitors']], sort_keys=True).encode()).hexdigest(),
                                    'duration_ms': round((time.monotonic() - started_monotonic) * 1000, 2),
                                    'coordinate_system': 'physical_virtual_desktop_pixels',
                                    'source': 'windows_uia', 'screenshot': None,
                                    'screenshot_unavailable_reason': 'Esta ruta observa accesibilidad, no captura imagen.'}
+        _remember_observation(response)
     return response
 
 

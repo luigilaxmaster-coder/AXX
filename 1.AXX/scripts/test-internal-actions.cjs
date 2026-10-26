@@ -14,6 +14,7 @@ const {chromium} = createRequire(path.join(process.env.USERPROFILE, '.cache/code
         const page = await browser.newPage({viewport:{width:1300,height:1000}}), errors = [];
         page.on('pageerror', error => errors.push(error.message));
         await page.addInitScript(() => {
+            window.testConversation = {id:'internal-test',title:'Internal test',messages:[],draft:'',mode:'ask',context:[],links:[]};
             window.calls = []; window.rec = {state:'ready',id:''}; window.mediaPlaying = true;
             window.__TAURI__ = {core:{invoke:async (name,args) => {
                 calls.push({name,args});
@@ -24,6 +25,11 @@ const {chromium} = createRequire(path.join(process.env.USERPROFILE, '.cache/code
                 if (name === 'system_media_status') return {audioAvailable:true,updatedAt:Date.now(),sessions:[{id:'player',playing:mediaPlaying,canPlay:true,canPause:true,title:'Prueba',app:'Player'}]};
                 if (name === 'system_media_control') { mediaPlaying = args.command === 'play'; return true; }
                 if (name === 'backend_request') {
+                    if (args.path === '/axx-api/chat/migrate') return {id:testConversation.id};
+                    if (args.path === '/axx-api/chat/conversations') return {conversations:[testConversation],groups:[],default_mode:'ask'};
+                    if (args.path.startsWith('/axx-api/chat/conversations?id=')) return structuredClone(testConversation);
+                    if (args.path === '/axx-api/chat/save') { Object.assign(testConversation,args.body); return {saved:true}; }
+                    if (args.path === '/axx-api/chat/operations') return {operations:[]};
                     if (args.path === '/axx-api/screen/status') return {...rec};
                     if (args.path === '/axx-api/screen/start') return rec = {state:'running',id:'test',region:args.body.region,fps:30};
                     if (args.path === '/axx-api/screen/control') return rec = {...rec,state:({pause:'paused',resume:'running',stop:'finished'})[args.body.command]};
@@ -35,7 +41,7 @@ const {chromium} = createRequire(path.join(process.env.USERPROFILE, '.cache/code
             }},event:{listen:async () => () => {}}};
         });
         await page.goto('http://127.0.0.1:' + server.address().port);
-        await page.waitForFunction(() => window.Axx?.nativeCapture?.backendReady && Axx.resident?.firstFrame);
+        await page.waitForFunction(() => window.Axx?.nativeCapture?.backendReady && Axx.resident?.firstFrame && Axx.chatWorkspace?.ready);
         await page.evaluate(() => { Axx.companion.data.prefs.mutedAll = true; Axx.companion.data.prefs.voiceRead = false; });
         const send = text => page.evaluate(text => Axx.companion.send(text), text);
         const voice = text => page.evaluate(text => { Axx.symbiosis.use = 'command'; Axx.symbiosis.onFinal(text); }, text);
@@ -125,7 +131,9 @@ const {chromium} = createRequire(path.join(process.env.USERPROFILE, '.cache/code
         assert.equal(await page.evaluate(() => calls.some(c => /\/(commands\/resolve|learning\/propose|chat)$/.test(c.args?.path || ''))), false);
         assert.deepEqual(errors, []);
         const report = {kind:'FULL_UI_CONTROLLED_IPC_AND_MICROPHONE',passed:results.length,results,uncaught:errors};
-        fs.writeFileSync(path.resolve(__dirname, '../../evidence/action-instructions-20261022/internal-actions.json'), JSON.stringify(report,null,2));
+        const reportDir = path.resolve(__dirname, '../../build/desktop-validation');
+        fs.mkdirSync(reportDir, {recursive:true});
+        fs.writeFileSync(path.join(reportDir, 'internal-actions.json'), JSON.stringify(report,null,2));
         console.log(JSON.stringify(report,null,2));
     } finally { await browser.close(); await new Promise(resolve => server.close(resolve)); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

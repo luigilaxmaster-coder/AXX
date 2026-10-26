@@ -184,7 +184,7 @@
             }
             for (const [name, schema] of Object.entries(command.parameters || {})) {
                 const label = document.createElement('label'); label.className = 'setting'; label.textContent = name + (schema.required ? ' · obligatorio' : ' · opcional');
-                const field = document.createElement(Array.isArray(schema.enum) ? 'select' : ['content', 'script'].includes(name) ? 'textarea' : 'input');
+                const field = document.createElement(Array.isArray(schema.enum) ? 'select' : ['array','object'].includes(schema.type) || ['content', 'script'].includes(name) ? 'textarea' : 'input');
                 field.className = 'field'; field.name = name; field.dataset.parameterType = schema.type || 'string';
                 if (schema.type === 'boolean') { field.type = 'checkbox'; field.required = false; }
                 else if (schema.type === 'integer' || schema.type === 'number') { field.type = 'number'; field.step = schema.type === 'integer' ? '1' : 'any'; }
@@ -231,6 +231,10 @@
                     const value = Number(field.value);
                     if (!field.value || !Number.isFinite(value) || field.dataset.parameterType === 'integer' && !Number.isInteger(value)) throw new Error('Revisa el número de ' + field.name + '.');
                     values[field.name] = value;
+                } else if (['array','object'].includes(field.dataset.parameterType)) {
+                    try { values[field.name] = JSON.parse(field.value); }
+                    catch { throw new Error('Revisa el JSON de ' + field.name + '.'); }
+                    if (field.dataset.parameterType === 'array' ? !Array.isArray(values[field.name]) : !values[field.name] || typeof values[field.name] !== 'object' || Array.isArray(values[field.name])) throw new Error('Tipo JSON incorrecto en ' + field.name + '.');
                 } else values[field.name] = field.value;
             }
             return values;
@@ -258,7 +262,7 @@
                 grabar:'screen', grabadora:'screen', grabacion:'screen', 'grabar pantalla':'screen', pantalla:'screen',
                 musica:'music', reproductor:'music', lector:'reader', lectura:'reader', cronometro:'stopwatch',
                 temporizador:'timer', notas:'notes', tareas:'todos', calculadora:'calculator', unidades:'calculator',
-                biblioteca:'files', archivos:'files', comandos:'files', ajustes:'settings', configuracion:'settings',
+                biblioteca:'files', archivos:'files', comandos:'commands', ajustes:'settings', configuracion:'settings',
                 apariencia:'appearance', formas:'appearance', colores:'appearance', estudio:'studio', sonido:'sound', audio:'audio',
                 ayuda:'help', actividad:'inbox', ia:'ai', modelos:'ai', 'conectar ia':'ai', subtitulos:'transcript',
                 traduccion:'translation', traducir:'translation', imagenes:'images', 'editor de imagenes':'images',
@@ -395,6 +399,14 @@
             Axx.companion.send = async (text, metadata = {}) => {
                 const raw = String(text || '').trim();
                 const origin = Axx.chatWorkspace?.active?.id;
+                const activeTask = this.operation || this.lastOperation;
+                if (activeTask?.kind === 'learned_plan' && !['succeeded','cancelled','failed','blocked','expired'].includes(activeTask.state)) {
+                    if (/^(?:pausa|pausa la tarea|pausa el trabajo)$/i.test(raw)) { await this.pausePlan(); return; }
+                    if (/^(?:para|detente|detener tarea|cancela la tarea)$/i.test(raw)) { await this.cancel(); return; }
+                    if (/^(?:retoma|reanuda|continua desde donde quedaste|continúa desde donde quedaste)$/i.test(raw)) { await this.resumePlan(); return; }
+                }
+                const goal = raw.match(/^\/(?:tarea|objetivo)\s+([\s\S]+)/i);
+                if (goal) { Axx.companion.message('user', raw, 'local'); await this.planAction(goal[1]); return; }
                 const modelCommand = Axx.modelSelection?.parse(raw);
                 if (modelCommand) {
                     Axx.companion._forceVoiceReplyOnce = false;
@@ -740,6 +752,26 @@
                 this.status('Resultado incierto. Consulta el estado antes de repetir: ' + errorText(error));
             } finally { clearInterval(progress); if (serial === this.generation) { this.busy = false; this.renderOperation(this.lastOperation); } }
         }
+        async pausePlan() {
+            const task = this.operation || this.lastOperation;
+            if (task?.kind !== 'learned_plan') return;
+            try {
+                const result = await this.request('POST','/axx-api/learning/pause',{operation_id:task.operation_id});
+                this.lastOperation = result;
+                this.renderOperation(result); this.status(result.message);
+            } catch (error) { this.report(error); }
+        }
+        async resumePlan() {
+            const task = this.operation || this.lastOperation;
+            if (this.busy || task?.kind !== 'learned_plan') return;
+            this.busy = true;
+            try {
+                const result = await this.request('POST','/axx-api/learning/resume',{operation_id:task.operation_id,approved:false});
+                this.lastOperation = result; this.operation = result.state === 'awaiting_approval' ? result : null;
+                this.busy = false; this.renderOperation(result); this.status(result.message);
+            } catch (error) { this.report(error); }
+            finally { this.busy = false; }
+        }
         async recover() {
             if (this.busy || this.cancellingGeneration === this.generation) return;
             const operation = this.operation || this.lastOperation;
@@ -759,6 +791,17 @@
             this.operation = ['prepared', 'awaiting_approval', 'running'].includes(result.operation.state) ? result.operation : null;
             this.renderOperation(result.operation);
             this.status('Estado observado: ' + result.operation.state + (result.operation.postconditions_passed === true ? ' · condiciones verificadas.' : '.'));
+        }
+        async reviewUnknown(operation) {
+            if (this.busy || operation?.state !== 'unknown') return;
+            this.busy = true;
+            try {
+                const result = await this.request('POST','/axx-api/commands/review',{operation_id:operation.operation_id,reviewed:true});
+                this.operation = null; this.lastOperation = result;
+                this.renderOperation(result);
+                this.status('Revisión manual registrada. El efecto sigue sin verificar; cualquier nueva acción requiere su propia preparación.');
+            } catch (error) { this.report(error); }
+            finally { this.busy = false; this.renderOperation(this.lastOperation); }
         }
         async cancel(send = true) {
             this.learningQuestion = null;

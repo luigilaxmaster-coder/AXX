@@ -2,7 +2,7 @@
 const fs=require('fs'),path=require('path'),assert=require('node:assert/strict'),{createRequire}=require('module');
 const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/package.json'))('playwright');
 (async()=>{
- const out=path.resolve('build/chat-0.21.4');fs.mkdirSync(out,{recursive:true});
+ const out=path.resolve(process.argv[2]||'build/chat-0.21.4');fs.mkdirSync(out,{recursive:true});
  const browser=await chromium.connectOverCDP('http://127.0.0.1:9224');
  const receipt={kind:'INSTALLED_CHAT_ACCEPTANCE',checks:[],screenshots:[],limitations:['Screen reader audio output was not physically verified.']};
  let original,first,second,group,page,profile;

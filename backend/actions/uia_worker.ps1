@@ -5,11 +5,12 @@ $ProgressPreference = 'SilentlyContinue'
 $effectStarted = $false
 
 try {
-    Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class AxxUiNative { [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow(); }'
+    Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class AxxUiNative { [DllImport("kernel32.dll")] public static extern ulong GetTickCount64(); [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow(); [DllImport("user32.dll")] public static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context); [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hwnd, out Rect rect); [StructLayout(LayoutKind.Sequential)] public struct Rect { public int Left, Top, Right, Bottom; } }'
+    if ([AxxUiNative]::SetThreadDpiAwarenessContext([IntPtr]::new(-4)) -eq [IntPtr]::Zero) { throw 'No se pudo establecer geometría física en el worker UIA.' }
     Add-Type -AssemblyName UIAutomationClient
     Add-Type -AssemblyName UIAutomationTypes
     $request = [Console]::In.ReadToEnd() | ConvertFrom-Json -ErrorAction Stop
-    if ($null -eq $request -or $request.operation -notin @('inspect', 'read_content', 'locate_edit', 'set_value', 'invoke', 'check_value', 'locate_folder', 'scrape_app')) {
+    if ($null -eq $request -or $request.operation -notin @('inspect', 'read_content', 'locate_edit', 'set_value', 'invoke', 'check_value', 'locate_folder', 'scrape_app', 'set_state', 'read_grid')) {
         throw 'Operación UI Automation desconocida.'
     }
     if ($request.operation -eq 'locate_folder') {
@@ -35,6 +36,7 @@ try {
         throw 'La ventana observada ya no existe o pertenece a otro proceso.'
     }
     $processStarted = [Diagnostics.Process]::GetProcessById([int]$request.pid).StartTime.ToFileTimeUtc().ToString()
+    if ($request.expected_process_started -and $request.expected_process_started -cne $processStarted) { throw 'Cambió la instancia del proceso observado.' }
 
     function Get-ControlToken($element, [long]$windowId, [int]$processId) {
         $runtimeId = $element.GetRuntimeId()
@@ -52,15 +54,41 @@ try {
 
     function Get-SupportedPatterns($element) {
         $patterns = [System.Collections.Generic.List[string]]::new()
-        $dummy = $null
-        if ($element.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$dummy)) { $patterns.Add('Invoke') }
-        if ($element.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$dummy)) { $patterns.Add('Value') }
-        if ($element.TryGetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern, [ref]$dummy)) { $patterns.Add('Toggle') }
-        if ($element.TryGetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern, [ref]$dummy)) { $patterns.Add('SelectionItem') }
-        if ($element.TryGetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern, [ref]$dummy)) { $patterns.Add('ExpandCollapse') }
-        if ($element.TryGetCurrentPattern([System.Windows.Automation.ScrollPattern]::Pattern, [ref]$dummy)) { $patterns.Add('Scroll') }
-        if ($element.TryGetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern, [ref]$dummy)) { $patterns.Add('Text') }
+        foreach ($pattern in $element.GetSupportedPatterns()) {
+            $name = $pattern.ProgrammaticName -replace 'PatternIdentifiers\.Pattern$',''
+            if ($name -in @('Invoke','Value','Toggle','SelectionItem','ExpandCollapse','Scroll','Text','RangeValue','Grid','Table','Selection')) { $patterns.Add($name) }
+        }
         return @($patterns)
+    }
+
+    function Get-PatternState($element, $supported=$null) {
+        if ($null -eq $supported) { $supported=Get-SupportedPatterns $element }
+        $state = @{}; $p = $null
+        if ($supported -contains 'Toggle' -and $element.TryGetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern, [ref]$p)) { $state.Toggle = $p.Current.ToggleState.ToString() }
+        if ($supported -contains 'ExpandCollapse' -and $element.TryGetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern, [ref]$p)) { $state.ExpandCollapse = $p.Current.ExpandCollapseState.ToString() }
+        if ($supported -contains 'SelectionItem' -and $element.TryGetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern, [ref]$p)) { $state.SelectionItem = [bool]$p.Current.IsSelected }
+        if ($supported -contains 'RangeValue' -and $element.TryGetCurrentPattern([System.Windows.Automation.RangeValuePattern]::Pattern, [ref]$p)) {
+            $state.RangeValue = @{value=$p.Current.Value; minimum=$p.Current.Minimum; maximum=$p.Current.Maximum; read_only=$p.Current.IsReadOnly}
+        }
+        if ($supported -contains 'Scroll' -and $element.TryGetCurrentPattern([System.Windows.Automation.ScrollPattern]::Pattern, [ref]$p)) {
+            $state.Scroll = @{horizontal=$p.Current.HorizontalScrollPercent; vertical=$p.Current.VerticalScrollPercent}
+        }
+        if ($supported -contains 'Grid' -and $element.TryGetCurrentPattern([System.Windows.Automation.GridPattern]::Pattern, [ref]$p)) {
+            $state.Grid = @{rows=$p.Current.RowCount; columns=$p.Current.ColumnCount}
+        }
+        return $state
+    }
+
+    function Assert-StateTarget($element, [bool]$requireFocus=$true) {
+        if (-not $request.expected_tick_deadline -or [AxxUiNative]::GetTickCount64() -ge [UInt64]$request.expected_tick_deadline) { throw 'STALE_OBSERVATION: la observación caducó antes de verificar el estado.' }
+        if ($root.Current.Name -cne $request.expected_title -or $element.Current.Name -cne $request.expected_name -or
+            $root.Current.ProcessId -ne [int]$request.pid -or
+            [Diagnostics.Process]::GetProcessById([int]$request.pid).StartTime.ToFileTimeUtc().ToString() -cne $request.expected_process_started) { throw 'Cambió el objetivo de la observación.' }
+        if ($requireFocus -and [AxxUiNative]::GetForegroundWindow() -ne $hwnd) { throw 'La aplicación perdió el foco antes del efecto.' }
+        $rect = [AxxUiNative+Rect]::new()
+        if (-not [AxxUiNative]::GetWindowRect($hwnd, [ref]$rect) -or $rect.Left -ne $request.expected_bounds.x -or $rect.Top -ne $request.expected_bounds.y -or
+            ($rect.Right-$rect.Left) -ne $request.expected_bounds.width -or ($rect.Bottom-$rect.Top) -ne $request.expected_bounds.height) { throw 'La geometría observada cambió.' }
+        if (-not $element.Current.IsEnabled -or $element.Current.IsOffscreen -or $element.Current.IsPassword) { throw 'El control no está disponible para esta acción.' }
     }
 
     if ($request.operation -eq 'locate_edit') {
@@ -113,7 +141,8 @@ try {
             $controlType = $item.Current.ControlType.ProgrammaticName
             $name = ''
             if (($reading -and -not $item.Current.IsOffscreen) -or $controlType -in @('ControlType.Button', 'ControlType.CheckBox', 'ControlType.RadioButton',
-                'ControlType.MenuItem', 'ControlType.ComboBox', 'ControlType.TabItem', 'ControlType.ToolBar')) {
+                'ControlType.MenuItem', 'ControlType.ComboBox', 'ControlType.TabItem', 'ControlType.ToolBar',
+                'ControlType.ListItem', 'ControlType.TreeItem', 'ControlType.Slider', 'ControlType.Spinner')) {
                 $name = [string]$item.Current.Name
                 if ($name.Length -gt 200) { $name = $name.Substring(0, 200) }
             }
@@ -122,6 +151,11 @@ try {
             $hasInvokePattern = $item.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$invokePattern)
             $hasValuePattern = $item.TryGetCurrentPattern(
                 [System.Windows.Automation.ValuePattern]::Pattern, [ref]$valuePattern)
+            $supportedPatterns = Get-SupportedPatterns $item
+            if (@($supportedPatterns | Where-Object { $_ -in @('Toggle','ExpandCollapse','SelectionItem','RangeValue','Scroll','Value','Grid','Table') }).Count) {
+                $name = [string]$item.Current.Name
+                if ($name.Length -gt 200) { $name = $name.Substring(0, 200) }
+            }
             $text = ''; $value = ''
             if ($reading -and -not $item.Current.IsOffscreen -and $remaining -gt 0) {
                 if ($hasValuePattern) {
@@ -156,6 +190,8 @@ try {
                 offscreen = [bool]$item.Current.IsOffscreen
                 supports_value_pattern = [bool]$hasValuePattern
                 supports_invoke_pattern = [bool]$hasInvokePattern
+                patterns = $supportedPatterns
+                state = (Get-PatternState $item $supportedPatterns)
                 read_only = $(if ($hasValuePattern) { [bool]$valuePattern.Current.IsReadOnly } else { $true })
                 text = $text
                 value = $value
@@ -188,7 +224,7 @@ try {
             $answer['limitation'] = 'Solo contenido expuesto por la aplicación; puede faltar texto, enlaces o elementos fuera de pantalla. No es acceso al DOM.'
         }
     } else {
-        if ($request.operation -in @('set_value','invoke') -and [AxxUiNative]::GetForegroundWindow().ToInt64() -ne [long]$request.window_id) {
+        if ($request.operation -in @('set_value','invoke','set_state') -and [AxxUiNative]::GetForegroundWindow().ToInt64() -ne [long]$request.window_id) {
             throw 'La aplicación perdió el foco antes de escribir.'
         }
         if ($request.control_id -notmatch '^[a-f0-9]{64}$') { throw 'control_id observado inválido.' }
@@ -204,6 +240,95 @@ try {
         if ($matches.Count -ne 1) { throw 'El selector observado expiró o dejó de ser único; vuelve a inspeccionar.' }
         $element = $matches[0]
         if (-not $element.Current.IsEnabled -or $element.Current.IsOffscreen) { throw 'El control no está habilitado o visible.' }
+        if ($request.operation -eq 'read_grid') {
+            Assert-StateTarget $element $false
+            $grid=$null
+            if (-not $element.TryGetCurrentPattern([System.Windows.Automation.GridPattern]::Pattern,[ref]$grid)) { throw 'GridPattern no disponible.' }
+            if ($request.row -gt $grid.Current.RowCount -or $request.column -gt $grid.Current.ColumnCount) { throw 'Inicio fuera de la tabla.' }
+            $rowEnd=[Math]::Min($grid.Current.RowCount,$request.row+$request.rows)
+            $columnEnd=[Math]::Min($grid.Current.ColumnCount,$request.column+$request.columns)
+            $cells=[System.Collections.Generic.List[object]]::new(); $remaining=24000; $contentLimited=$false
+            for ($r=[int]$request.row; $r -lt $rowEnd -and $remaining -gt 0; $r++) {
+                for ($c=[int]$request.column; $c -lt $columnEnd -and $remaining -gt 0; $c++) {
+                    $cell=$grid.GetItem($r,$c); $text=''; $value=$null
+                    if (-not $cell.Current.IsPassword) {
+                        $text=[string]$cell.Current.Name
+                        if ($cell.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern,[ref]$value)) { $text=[string]$value.Current.Value }
+                    }
+                    if ($text.Length -gt [Math]::Min($remaining,8192)) { $contentLimited=$true }
+                    $text=$text.Substring(0,[Math]::Min($text.Length,[Math]::Min($remaining,8192))); $remaining-=$text.Length
+                    $cells.Add(@{row=$r;column=$c;text=$text;redacted=[bool]$cell.Current.IsPassword;control_id=(Get-ControlToken $cell ([long]$request.window_id) ([int]$request.pid))})
+                }
+            }
+            Assert-StateTarget $element $false
+            $answer=@{success=$true;window_id=[long]$request.window_id;pid=[int]$request.pid;process_started=$processStarted;
+                rows=$grid.Current.RowCount;columns=$grid.Current.ColumnCount;cells=@($cells);truncated=($rowEnd -lt $grid.Current.RowCount -or $columnEnd -lt $grid.Current.ColumnCount -or $remaining -le 0 -or $contentLimited);
+                verification='uia_grid_readback';effect_executed=$false}
+            [Console]::Out.Write(($answer | ConvertTo-Json -Depth 6 -Compress)); exit 0
+        }
+        if ($request.operation -eq 'set_state') {
+            Assert-StateTarget $element
+            $before = Get-PatternState $element
+            $pattern = $null
+            switch -CaseSensitive ($request.pattern) {
+                'Value' {
+                    if (-not $element.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern,[ref]$pattern) -or $pattern.Current.IsReadOnly) { throw 'ValuePattern no permite escritura.' }
+                    if (-not [String]::Equals($pattern.Current.Value,[string]$request.state,[StringComparison]::Ordinal)) { Assert-StateTarget $element; $effectStarted=$true; $pattern.SetValue([string]$request.state) }
+                    $actual=[string]$pattern.Current.Value
+                    $matchesState=[String]::Equals($actual,[string]$request.state,[StringComparison]::Ordinal)
+                    $sha=[Security.Cryptography.SHA256]::Create()
+                    try { $valueHash=[BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($actual))).Replace('-','').ToLowerInvariant() } finally { $sha.Dispose() }
+                }
+                'Toggle' {
+                    if (-not $element.TryGetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern, [ref]$pattern)) { throw 'TogglePattern no disponible.' }
+                    $desired = if ($request.state) { 'On' } else { 'Off' }
+                    # TogglePattern has no SetState; bound tri-state cycling and read each transition.
+                    for ($attempt=0; $pattern.Current.ToggleState.ToString() -cne $desired -and $attempt -lt 3; $attempt++) {
+                        Assert-StateTarget $element; $effectStarted=$true; $pattern.Toggle()
+                    }
+                    $matchesState = $pattern.Current.ToggleState.ToString() -ceq $desired
+                }
+                'ExpandCollapse' {
+                    if (-not $element.TryGetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern, [ref]$pattern)) { throw 'ExpandCollapsePattern no disponible.' }
+                    $desired = if ($request.state -eq 'expanded') { 'Expanded' } else { 'Collapsed' }
+                    if ($pattern.Current.ExpandCollapseState.ToString() -cne $desired) {
+                        Assert-StateTarget $element; $effectStarted=$true
+                        if ($request.state -eq 'expanded') { $pattern.Expand() } else { $pattern.Collapse() }
+                    }
+                    $matchesState = $pattern.Current.ExpandCollapseState.ToString() -ceq $desired
+                }
+                'SelectionItem' {
+                    if (-not $element.TryGetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern, [ref]$pattern)) { throw 'SelectionItemPattern no disponible.' }
+                    if ($pattern.Current.IsSelected -ne [bool]$request.state) {
+                        Assert-StateTarget $element; $effectStarted=$true
+                        if ($request.state) { $pattern.Select() } else { $pattern.RemoveFromSelection() }
+                    }
+                    $matchesState = $pattern.Current.IsSelected -eq [bool]$request.state
+                }
+                'RangeValue' {
+                    if (-not $element.TryGetCurrentPattern([System.Windows.Automation.RangeValuePattern]::Pattern, [ref]$pattern) -or $pattern.Current.IsReadOnly) { throw 'RangeValuePattern no permite escritura.' }
+                    $desired=[double]$request.state
+                    if ($desired -lt $pattern.Current.Minimum -or $desired -gt $pattern.Current.Maximum) { throw 'Valor fuera del rango observado.' }
+                    if ($pattern.Current.Value -ne $desired) { Assert-StateTarget $element; $effectStarted=$true; $pattern.SetValue($desired) }
+                    $matchesState = $pattern.Current.Value -eq $desired
+                }
+                'Scroll' {
+                    if (-not $element.TryGetCurrentPattern([System.Windows.Automation.ScrollPattern]::Pattern, [ref]$pattern)) { throw 'ScrollPattern no disponible.' }
+                    Assert-StateTarget $element; $effectStarted=$true
+                    $pattern.SetScrollPercent([double]$request.state.horizontal,[double]$request.state.vertical)
+                    $matchesState = ($request.state.horizontal -eq -1 -or [Math]::Abs($pattern.Current.HorizontalScrollPercent-$request.state.horizontal) -le 0.01) -and
+                                    ($request.state.vertical -eq -1 -or [Math]::Abs($pattern.Current.VerticalScrollPercent-$request.state.vertical) -le 0.01)
+                }
+                default { throw 'Patrón UIA no permitido.' }
+            }
+            Assert-StateTarget $element
+            if (-not $matchesState) { throw 'El estado leído no coincide con el objetivo solicitado.' }
+            $answer = @{success=$true;window_id=[long]$request.window_id;pid=[int]$request.pid;control_id=$request.control_id;
+                process_started=$processStarted;pattern=$request.pattern;before=$before;after=(Get-PatternState $element);
+                effect_executed=$effectStarted;verification='uia_state_readback';postconditions_passed=$true}
+            if ($request.pattern -eq 'Value') { $answer.value_sha256=$valueHash; $answer.value_length=$actual.Length; $answer.verification='uia_value_readback' }
+            [Console]::Out.Write(($answer | ConvertTo-Json -Depth 8 -Compress)); exit 0
+        }
         if ($request.operation -eq 'invoke') {
             if ($root.Current.Name -cne $request.expected_title -or $element.Current.Name -cne $request.expected_name) { throw 'La ventana o el control cambió antes de la acción.' }
             if ($element.Current.ControlType -ne [System.Windows.Automation.ControlType]::Button) { throw 'El control observado ya no es un botón.' }
@@ -241,6 +366,8 @@ try {
         if (-not $answer.success) { throw 'La lectura posterior no coincide con el texto solicitado.' }
     }
     $answer['process_started'] = $processStarted
+    $focusedElement = [System.Windows.Automation.AutomationElement]::FocusedElement
+    $answer['focused_control_id'] = if ($focusedElement -and $focusedElement.Current.ProcessId -eq [int]$request.pid) { Get-ControlToken $focusedElement ([long]$request.window_id) ([int]$request.pid) } else { $null }
     [Console]::Out.Write(($answer | ConvertTo-Json -Depth 8 -Compress))
 } catch {
     [Console]::Out.Write((@{success=$false;error=$_.Exception.Message;effect_started=$effectStarted} | ConvertTo-Json -Compress))

@@ -1,0 +1,3 @@
+# Explicitly configured local CDP browser transport; no browser/profile installation.
+websocket-client==1.9.2
+pywin32==311; sys_platform == 'win32'

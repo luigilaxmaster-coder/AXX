@@ -11,7 +11,9 @@ BACKGROUND_TOOLS = frozenset({
     'file_artifact_writer', 'file_inspection', 'system_telemetry', 'process_state_inspector',
     'architecture_status', 'desktop_list_apps', 'desktop_list_windows',
     'desktop_inspect_window', 'desktop_read_window', 'desktop_cli_anything_scan',
-    'desktop_find_control',
+    'desktop_find_control', 'computer_observe', 'computer_find', 'file_find', 'file_bundle',
+    'browser_tabs', 'browser_inspect', 'computer_grid', 'desktop_window_observe',
+    'computer_ground', 'computer_window',
 })
 
 
@@ -45,9 +47,16 @@ def architecture_status():
                  'backend': 'axx_native', 'reason': 'Worker local presente; compatibilidad por control se verifica al observar.' if uia_ready else 'Falta Windows o el worker de UIA.'},
                 {'id': 'model_router', 'state': 'unknown',
                  'reason': 'Router existente; credenciales y ejecución se comprueban por solicitud en Proveedores.'},
+                {'id': 'visual_grounding', 'state': 'unknown', 'backend': 'axx_native',
+                 'reason': 'Propuestas visuales registradas; requieren autorización de imagen y ruta visual gratuita seleccionada. Sin calibración ni ejecución automática.'},
+                {'id': 'computer_tasks', 'state': 'available', 'backend': 'axx_native',
+                 'reason': 'Pasos tipados, referencias a recibos verificados, pausa y reanudación. Máximo ocho pasos por plan.'},
+                {'id': 'browser_cdp', 'state': 'configured' if os.environ.get('AXX_BROWSER_CDP_URL') and os.environ.get('AXX_BROWSER_PROFILE_LABEL') else 'unavailable',
+                 'reason': 'Requiere endpoint loopback y perfil explícitos; cada operación comprueba sesión, pestaña y documento.'},
+                {'id': 'office_workflows', 'state': 'unknown',
+                 'reason': 'Adaptadores Word/PDF y CSV/Excel registrados; disponibilidad COM y archivos se comprueban por operación.'},
                 *[{'id': name, 'state': 'unavailable', 'reason': reason} for name, reason in (
                     ('cua_driver', 'No hay adaptador Cua registrado. UIA nativa no equivale a Cua.'),
-                    ('visual_grounding', 'No hay modelo visual calibrado ni pesos verificados registrados.'),
                     ('rea', 'No hay proveedor REA registrado y validado para este runtime.'),
                     ('isolated_desktop', 'No hay contexto VM con aislamiento verificado registrado.'),
                     ('telegram', 'No hay canal Telegram autenticado registrado.'),

@@ -9,7 +9,7 @@ Run the installer and open Axx. Python and Node are not required. Start with **A
 
 The packaged backend may take longer on its first launch while Windows extracts and scans it. The native host allows up to 90 seconds for backend readiness and reports a startup error if that limit is exceeded.
 
-Source and published Windows installer are both **v0.21.15**. Android APKs remain local test artifacts until separately published. See [mobile setup and validation](docs/mobile/README.md) and the [version and release procedure](docs/RELEASING.md).
+Source is **v0.22.0**; the published Windows installer is **v0.21.15**. Delivery of the newer source is pending publication. Android APKs remain local test artifacts until separately published. See [mobile setup and validation](docs/mobile/README.md) and the [version and release procedure](docs/RELEASING.md).
 <!-- release:download:end -->
 
 ---
@@ -29,7 +29,7 @@ Source and published Windows installer are both **v0.21.15**. Android APKs remai
   <img src="https://img.shields.io/badge/Frontend-CPU%203D%20%2F%20Canvas-black" alt="CPU 3D and Canvas" />
   <img src="https://img.shields.io/badge/Offline%20Voice-Faster--Whisper%20Tiny-green" alt="Faster-Whisper" />
   <img src="https://img.shields.io/badge/Protocol-Model%20Context%20Protocol%20(MCP)-blueviolet" alt="MCP" />
-  <img src="https://img.shields.io/badge/Source%20Version-v0.21.15-informational" alt="Source version 0.21.15" />
+  <img src="https://img.shields.io/badge/Source%20Version-v0.22.0-informational" alt="Source version 0.22.0" />
   <img src="https://img.shields.io/badge/Development-Active%20Refinement-yellow?logo=git" alt="Active Development" />
 </p>
 
@@ -46,6 +46,15 @@ Source and published Windows installer are both **v0.21.15**. Android APKs remai
 ---
 
 ## Desktop update · October 24, 2026
+
+### Desktop tasks · 0.22.0
+
+Use `/tarea` followed by an objective to review a typed plan with up to eight steps.
+New adapters cover fresh Windows observations, accessible control states, shared
+mouse/keyboard input, file bundles, explicitly configured browser sessions and
+verified Word/PDF and CSV/Excel copies. Tasks support pause, stop and reviewed
+resume. Delivered input remains uncertain until its effect is checked.
+[Setup, tested scope and unsupported workflows](docs/COMPUTER-USE.md).
 
 ### Unified execution · October 25, 2026
 
@@ -184,7 +193,7 @@ These are presentation captures of the current UI in an isolated browser. The mo
 ## 🚧 Project Status: Active Continuous Improvement
 
 > [!NOTE]
-> **Axx is under active development.** Source and published Windows installer are both **v0.21.15**. Validation is recorded per feature; a working UI or build does not by itself certify every hardware-dependent behavior.
+> **Axx is under active development.** Source is **v0.22.0**; the published Windows installer is **v0.21.15**. Delivery of the newer source is pending publication. Validation is recorded per feature; a working UI or build does not by itself certify every hardware-dependent behavior.
 
 ### 🟢 Implemented capabilities
 - **Native Startup:** Resident Windows application with a local backend and a launcher fallback to the executable built from this repository.

@@ -39,14 +39,18 @@ const {chromium} = createRequire(path.join(process.env.USERPROFILE, '.cache/code
       await new Promise(r=>setTimeout(r,100));
     }
     const base='http://127.0.0.1:'+JSON.parse(fs.readFileSync(ready,'utf8')).port;
-    const calls=[];
+    const calls=[], gatewayCalls=[];
     const request=async({method,path:route,body})=>{
       calls.push(route);
+      const diagnostic=route.startsWith('/axx-api/freellmapi/')?{route,started:Date.now(),state:'pending'}:null;
+      if(diagnostic)gatewayCalls.push(diagnostic);
       // The dedicated keyless suite tests discovery; this fixture must stay offline.
       if(route.startsWith('/axx-api/keyless/'))return {state:'ready',tasks:{}};
       const response=await fetch(base+route,{method,headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
         ...(method==='GET'||body==null?{}:{body:JSON.stringify(body)})});
-      const result=await response.json(); if(!response.ok)throw new Error(JSON.stringify(result)); return result;
+      const result=await response.json();
+      if(diagnostic){diagnostic.state=response.ok?'completed':'failed';diagnostic.elapsed_ms=Date.now()-diagnostic.started;diagnostic.profiles=result.profiles?.map(p=>({name:p.name,verified:p.verified,message:p.message}));}
+      if(!response.ok)throw new Error(JSON.stringify(result)); return result;
     };
     await request({method:'POST',path:'/axx-api/providers/save',body:{provider:'ollama',name:'plan-fixture',base_url:'http://127.0.0.1:'+modelServer.address().port,model:'plan-fixture',free_confirmed:true,billing_allowed:false,route_kind:'direct',cost_evidence:'direct_local',context_window:32768,capabilities:['text'],tasks:['chat','plan','parameters','repair','writing']}});
     server=http.createServer((req,res)=>{
@@ -70,12 +74,12 @@ const {chromium} = createRequire(path.join(process.env.USERPROFILE, '.cache/code
     await page.goto('http://127.0.0.1:'+server.address().port);
     await page.waitForFunction(()=>window.Axx?.commandLibrary && window.Axx?.resident?.firstFrame);
 
-    await page.waitForFunction(()=>window.Axx?.skillLibrary);
+    await page.waitForFunction(()=>window.Axx?.skillLibrary && Axx.chatWorkspace?.ready);
     await page.evaluate(()=>Object.assign(Axx.companion.data.prefs,{provider:'bridge',apiConnection:'ignored-pin',model:'ignored-model',selection_mode:'automatic_free',voiceRead:false,mutedAll:true}));
     await page.evaluate(()=>Axx.commandLibrary.planAction('prepara un archivo de saludo'));
     let plan=await page.evaluate(()=>Axx.commandLibrary.operation);
-    assert.equal(plan?.state,'awaiting_approval');assert.equal(modelCalls,1);assert.equal(fs.existsSync(target),false);
-    await page.locator('#command-library-approve').click();
+    assert.equal(plan?.state,'awaiting_approval',JSON.stringify(await page.evaluate(()=>({last:Axx.commandLibrary.lastOperation,status:document.getElementById('command-library-status').textContent})))) ;assert.equal(modelCalls,1);assert.equal(fs.existsSync(target),false);
+    await page.locator('#cw-operation').getByRole('button',{name:'Aprobar y ejecutar',exact:true}).click();
     await page.waitForFunction(()=>!Axx.commandLibrary.busy&&Axx.commandLibrary.lastOperation?.state==='succeeded');
     const first=await page.evaluate(()=>Axx.commandLibrary.lastOperation);
     assert.equal(fs.readFileSync(target,'utf8'),'Acción ejecutada de verdad.');
@@ -90,7 +94,7 @@ const {chromium} = createRequire(path.join(process.env.USERPROFILE, '.cache/code
     await page.waitForFunction(()=>Axx.commandLibrary.operation?.state==='awaiting_approval');
     plan=await page.evaluate(()=>Axx.commandLibrary.operation);assert.equal(plan.model_calls_used,0);assert.equal(modelCalls,1);
     assert.notEqual(plan.operation_id,first.operation_id);
-    await page.locator('#command-library-approve').click();
+    await page.locator('#cw-operation').getByRole('button',{name:'Aprobar y ejecutar',exact:true}).click();
     await page.waitForFunction(()=>!Axx.commandLibrary.busy&&Axx.commandLibrary.lastOperation?.state==='succeeded');
     assert.equal(fs.readFileSync(path.join(workspace,'artifacts','variante.txt'),'utf8'),'Variante comprobada');
     await page.evaluate(()=>Axx.skillLibrary.open());
@@ -104,20 +108,34 @@ const {chromium} = createRequire(path.join(process.env.USERPROFILE, '.cache/code
     await page.locator('#skills-editor form input').fill('nuevo.txt');
     await page.locator('#skills-editor').getByRole('button',{name:'Revisar y ejecutar'}).click();
     await page.waitForFunction(()=>Axx.commandLibrary.operation?.state==='awaiting_approval');
-    await page.locator('#command-library-approve').click();
+    await page.locator('#cw-operation').getByRole('button',{name:'Aprobar y ejecutar',exact:true}).click();
     await page.waitForFunction(()=>!Axx.commandLibrary.busy&&Axx.commandLibrary.lastOperation?.state==='succeeded');
     assert.equal(fs.readFileSync(path.join(workspace,'artifacts','nuevo.txt'),'utf8'),'Contenido nuevo comprobado.');
     assert.equal(modelCalls,2);
     await page.evaluate(()=>{Axx.companion.data.prefs.skillProject='Office';Axx.companion.save();});
-    await page.reload(); await page.waitForFunction(()=>window.Axx?.skillLibrary);
+    await page.reload(); await page.waitForFunction(()=>window.Axx?.skillLibrary && Axx.chatWorkspace?.ready);
     assert.equal(await page.evaluate(()=>Axx.companion.data.prefs.selection_mode),'automatic_free');
     assert.equal(await page.locator('#skills-project').inputValue(),'Office');
     assert.equal(await page.locator('#provider-selection-mode').inputValue(),'automatic_free');
     await page.evaluate(()=>{Axx.companion.openFeature('ai');document.getElementById('tab-mode-api').click();});
     await page.waitForFunction(()=>!document.getElementById('gateway-start').disabled);
-    await page.locator('#gateway-controls').evaluate(node=>node.open=true);
-    await page.locator('#gateway-start').click();
-    await page.waitForFunction(()=>document.getElementById('gateway-result').textContent.includes('Gateway conectado'));
+    await page.locator('#provider-advanced > summary').click();
+    await page.locator('#gateway-controls > summary').click();
+    const runGatewayHandler=async(selector,timeout)=>{
+      await page.waitForFunction(id=>!document.querySelector(id).disabled,selector);
+      await page.locator(selector).evaluate(async(node,timeout)=>{
+        if(node.disabled)throw new Error('Gateway action became disabled');
+        let timer;
+        try {
+          // Exercise the registered async handler/IPC contract, independent of
+          // resident panel movement, and await its complete multi-request work.
+          await Promise.race([node.onclick(),new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error('Gateway handler exceeded '+timeout+'ms')),timeout);})]);
+        } finally {clearTimeout(timer);}
+      },timeout).catch(async error=>{console.error('Gateway handler:',selector,await page.locator('#gateway-result').innerText(),await page.locator('#provider-status').innerText(),gatewayCalls);throw error;});
+    };
+    // Backend startup itself allows 20s, followed by credential/status reads.
+    await runGatewayHandler('#gateway-start',45000);
+    await page.waitForFunction(()=>document.getElementById('gateway-result').textContent.includes('Gateway conectado')).catch(async error=>{console.error('Gateway start:',await page.locator('#gateway-result').innerText(),await page.locator('#provider-status').innerText(),calls.filter(route=>route.includes('freellmapi')));throw error;});
     const gateway=await request({method:'GET',path:'/axx-api/freellmapi/status'});
     assert.equal(gateway.ownership,'managed');assert.equal(gateway.ready_count,0);
     await page.locator('#gateway-import-source').selectOption('plan-fixture');
@@ -127,10 +145,8 @@ const {chromium} = createRequire(path.join(process.env.USERPROFILE, '.cache/code
     await page.waitForFunction(()=>document.querySelector('#gateway-members input'));
     await page.locator('#gateway-members input').first().check();
     // This is a handler/IPC contract; the resident panel can move during a coordinate click.
-    await page.waitForFunction(()=>!document.getElementById('gateway-profiles').disabled);
-    await page.waitForTimeout(500);
-    await page.locator('#gateway-profiles').evaluate(node=>node.click());
-    await page.waitForFunction(()=>/perfiles verificados y guardados/.test(document.getElementById('gateway-result').textContent));
+    await runGatewayHandler('#gateway-profiles',90000);
+    assert.match(await page.locator('#gateway-result').innerText(),/perfiles verificados y guardados/,JSON.stringify(gatewayCalls));
     const providers=(await request({method:'GET',path:'/axx-api/providers'})).providers;
     assert(providers.some(p=>p.model==='auto:axx_plan'&&p.gateway_profile_verified),await page.locator('#gateway-result').textContent());
     await request({method:'POST',path:'/axx-api/providers/save',body:{provider:'ollama',name:'plan-fixture',base_url:'http://127.0.0.1:'+modelServer.address().port,model:'plan-fixture',enabled:false}});
@@ -138,11 +154,11 @@ const {chromium} = createRequire(path.join(process.env.USERPROFILE, '.cache/code
     const gatewayPlan=await page.evaluate(()=>Axx.commandLibrary.operation);
     assert.equal(gatewayPlan?.state,'awaiting_approval',await page.locator('#command-library-status').textContent());
     assert.equal(gatewayPlan.route.selection_mode,'automatic_free');assert.equal(gatewayPlan.route.configured_model,'auto:axx_plan');
-    await page.locator('#command-library-approve').click();
+    await page.locator('#cw-operation').getByRole('button',{name:'Aprobar y ejecutar',exact:true}).click();
     await page.waitForFunction(()=>!Axx.commandLibrary.busy&&Axx.commandLibrary.lastOperation?.state==='succeeded');
     await request({method:'POST',path:'/axx-api/freellmapi/stop',body:{}});
     assert.equal(errors.length,0,errors.join('\n'));
-    fs.writeFileSync(path.join(evidence,'result.json'),JSON.stringify({mode:sourceMode?'source':'packaged',modelCalls,first:first.operation_id,second:plan.operation_id,checks:['automatic ignores pins','real file effect','parameter variation zero inference','new execution identity','visible task history'],errors},null,2));
+    fs.writeFileSync(path.join(evidence,'result.json'),JSON.stringify({mode:sourceMode?'source':'packaged',modelCalls,first:first.operation_id,second:plan.operation_id,gatewayCalls,checks:['automatic ignores pins','real file effect','parameter variation zero inference','new execution identity','visible task history','gateway verified profiles','gateway exact planning route'],errors},null,2));
     console.log('PASS: automatic mode, real file learning, parameter UI, zero-call reuse, history. Evidence: '+evidence);
   } finally {
     await browser?.close();server?.close();modelServer.close();

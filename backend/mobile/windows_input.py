@@ -114,6 +114,7 @@ class WindowsInput:
     def move_absolute(self,lease,x,y):return self._call('move_absolute',lease,x,y)
     def renew(self,lease,ttl):return self._call('renew',lease,ttl)
     def events(self,lease,events):return self._call('events',lease,events)
+    def targeted(self,lease,target,operation,args=()):return self._call('targeted',lease,target,operation,args)
     def cancel(self,reason):self.abort_reason=reason;self.abort.set();return self._call('cancel',reason)
     def close(self):
         self.abort.set();self.stopping.set();self.user.PostThreadMessageW(self.thread_id,0x8000,0,0);self.thread.join(timeout=3)
@@ -184,6 +185,22 @@ class WindowsInput:
             self._set_hooks(True)
             self.abort.clear();self.abort_reason='expired_or_revoked';self.lease=args[0];self.deadline=now+args[1];self.active=True;self.source=args[2];self.reason='granted';self.granted_at=now;self.release_at=0;return
         self._check(args[0])
+        if operation=='targeted':
+            from backend.actions.desktop_input import verify_target
+            lease,target,kind,values=args
+            if kind not in ('check','move_absolute','events'):raise ValueError('Operación de entrada no registrada')
+            point=values if kind=='move_absolute' else None
+            verify_target(target, point=point, keyboard=kind=='events' and any(e.get('type') in ('key','text') for e in values))
+            self._check(lease)
+            if kind=='check':return {'checked':True}
+            if kind=='events':
+                from .control import checked_events
+                checked_events(list(values))
+                for event in values:
+                    verify_target(target,keyboard=event['type'] in ('key','text'),cursor=event['type'] in ('button','scroll'))
+                    self._execute('events',(lease,[event]))
+                return {'delivered':True}
+            return self._execute(kind,(lease,*values))
         if operation=='focus':
             from backend.actions.windows_automation import _windows_api
             user,_=_windows_api();hwnd=W.HWND(args[1]);pid=W.DWORD()
@@ -228,14 +245,14 @@ class WindowsInput:
                     b=event['button'];down=event['down']
                     if down==(b in self.held_buttons):continue
                     if down:self.held_buttons.add(b);self.pulse_at=now
-                    else:self.held_buttons.discard(b)
                     self._send([self._mouse(BUTTONS[b][0 if down else 1])])
+                    if not down:self.held_buttons.discard(b)
                 elif kind=='key':
                     key=event['key'];down=event['down']
                     if down==(key in self.held_keys):continue
                     if down:self.held_keys.add(key)
-                    else:self.held_keys.discard(key)
                     self._send([self._key(key,down)])
+                    if not down:self.held_keys.discard(key)
                 elif kind=='text':
                     if self.held_keys:raise ValueError('Suelta los modificadores antes de enviar texto Unicode')
                     data=event['text'].encode('utf-16-le');values=[]

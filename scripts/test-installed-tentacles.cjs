@@ -3,7 +3,7 @@ const fs=require('fs'),assert=require('node:assert/strict');
 const {chromium}=require(process.env.USERPROFILE+'/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
 (async()=>{
  const b=await chromium.connectOverCDP('http://127.0.0.1:9224'),p=b.contexts()[0].pages().find(p=>p.url().includes('Axx.html'));
- const out='build/chat-0.21.4/tentacles';fs.mkdirSync(out,{recursive:true});const receipt={kind:'INSTALLED_TENDRILS',checks:[],surfaces:[]};
+ const out=process.argv[2]||'build/chat-0.21.4/tentacles';fs.mkdirSync(out,{recursive:true});const receipt={kind:'INSTALLED_TENDRILS',checks:[],surfaces:[]};
  const saved=await p.evaluate(()=>({theme:Axx.interfaceTheme.value,positions:localStorage.getItem('axx.resident.panel-pos'),form:Axx.app.renderer.form,view:Axx.companion.dock.selected}));
  try{
   await p.evaluate(()=>{Axx.resident.summon(false);Axx.flow.showQuick();});await p.waitForTimeout(600);

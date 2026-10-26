@@ -31,6 +31,10 @@ class AutomationLease:
         if self.is_set(): raise ValueError('Control cancelado durante el movimiento')
         return result
 
+    def targeted(self, target, operation, args=()):
+        if self.is_set(): raise ValueError('Control cancelado antes de enviar entrada')
+        return self.native.targeted(self.lease_id, target, operation, args)
+
 
 def checked_events(events):
     if not isinstance(events,list) or not 1<=len(events)<=16:raise ValueError('Paquete de entrada inválido')

@@ -8,6 +8,7 @@ from __future__ import annotations
 import hashlib
 from contextlib import nullcontext
 import json
+import math
 import os
 from pathlib import Path, PureWindowsPath
 import re
@@ -21,6 +22,7 @@ import uuid
 from .actions.desktop import APPS, ENGINES, resolve_desktop, validate_inputs as validate_desktop_inputs
 from .actions.executor import ActionExecutionError
 from .actions.execution_contract import delivery_policy, resolve_mode
+from .actions.computer_tools import ADAPTERS as COMPUTER_ADAPTERS
 from .procedure_library import ProcedureLibrary
 
 TERMINAL = {'succeeded', 'failed', 'blocked', 'cancelled', 'expired', 'unknown'}
@@ -172,12 +174,15 @@ ADAPTERS = {
 
 
 # Explicit implementation bindings; imported prose cannot add to this map.
+ADAPTERS.update(COMPUTER_ADAPTERS)
 PROCEDURE_BINDINGS = {'AXX-02-0147': 'axx.file.sha256', 'AXX-02-0148': 'axx.file.compare'}
 PARALLEL_READ_COMMANDS = frozenset({'axx.file.sha256', 'axx.file.compare', 'axx.system.telemetry',
                                    'axx.process.inspect', 'axx.desktop.list_apps', 'axx.desktop.list_windows', 'axx.desktop.cli_anything.scan', 'axx.architecture.status'})
 # Recovery is independent of concurrency: serial UIA observations also have no
 # write effect to reconcile after interruption. This does not authorize overlap.
-READ_ONLY_COMMANDS = PARALLEL_READ_COMMANDS | frozenset({'axx.desktop.window.inspect', 'axx.desktop.window.read', 'axx.desktop.window.find'})
+READ_ONLY_COMMANDS = PARALLEL_READ_COMMANDS | frozenset({'axx.desktop.window.inspect', 'axx.desktop.window.read', 'axx.desktop.window.find',
+    'axx.desktop.window.select',
+    'axx.desktop.observe', 'axx.desktop.control.find', 'axx.desktop.grid.read', 'axx.desktop.window.observe', 'axx.file.find', 'axx.browser.tabs', 'axx.browser.inspect'})
 
 
 def normalized(value):
@@ -374,25 +379,48 @@ class CommandService:
             return desktop
         return {'match': 'ambiguous' if matches else 'none', 'candidates': matches}
 
-    def _validate_inputs(self, command_id, inputs, require_new=True, check_files=True):
+    def _validate_inputs(self, command_id, inputs, require_new=True, check_files=True, deferred_fields=()):
         if not isinstance(inputs, dict):
             raise ValueError('Los parámetros deben ser un objeto JSON')
         schema = self.commands[command_id]['parameters']
-        if set(inputs) - schema.keys():
+        if set(inputs) - schema.keys() or set(deferred_fields) - schema.keys():
             raise ValueError('Parámetro desconocido')
         for name, rule in schema.items():
             if name not in inputs:
-                if rule.get('required'):
+                if rule.get('required') and name not in deferred_fields:
                     raise ValueError(f'Falta el parámetro {name}')
                 continue
             value = inputs[name]
+            if 'enum' in rule and value not in rule['enum']:
+                raise ValueError(f'{name} no tiene un valor permitido')
+            if rule['type'] == 'boolean' and type(value) is not bool:
+                raise ValueError(f'{name} debe ser booleano')
+            if rule['type'] == 'number' and (type(value) not in (int, float) or not math.isfinite(value)
+                    or not rule.get('minimum', -1e12) <= value <= rule.get('maximum', 1e12)):
+                raise ValueError(f'{name} debe ser un número finito dentro de los límites')
+            if rule['type'] == 'array':
+                if not isinstance(value, list) or not rule.get('minItems', 0) <= len(value) <= rule.get('maxItems', 100):
+                    raise ValueError(f'{name} debe ser una lista acotada')
+                if rule.get('items', {}).get('type') == 'string' and any(not isinstance(item, str)
+                        or len(item) > rule['items'].get('maxLength', 4096) for item in value):
+                    raise ValueError(f'{name} debe contener sólo textos acotados')
+            if rule['type'] == 'object' and (not isinstance(value, dict)
+                    or len(json.dumps(value, allow_nan=False).encode()) > 65536):
+                raise ValueError(f'{name} debe ser un objeto acotado')
             if rule['type'] == 'integer' and (type(value) is not int or not rule['minimum'] <= value <= rule['maximum']):
                 raise ValueError(f'{name} debe ser un entero dentro de los límites')
             if rule['type'] == 'string':
                 if not isinstance(value, str) or len(value) > rule.get('maxLength', 65536) or len(value.encode('utf-8')) > rule.get('maxBytes', 262144):
                     raise ValueError(f'{name} debe ser texto dentro de los límites')
         inputs = dict(inputs)
-        if command_id == 'axx.desktop.window.find':
+        if deferred_fields:
+            return inputs  # Runtime resolves and validates the complete inputs before prepare.
+        if command_id in COMPUTER_ADAPTERS:
+            if check_files:
+                from .actions.tools import get_tool
+                valid, reason = get_tool(ADAPTERS[command_id]['tool']).verify_preconditions(inputs)
+                if not valid: raise ValueError(reason)
+        elif command_id == 'axx.desktop.window.find':
             from .actions.tools import get_tool
             valid, reason = get_tool('desktop_find_control').verify_preconditions(inputs)
             if not valid:
@@ -426,7 +454,8 @@ class CommandService:
 
     @staticmethod
     def _recovery_view(result):
-        if result and result.get('state') == 'unknown' and result.get('command_id') in READ_ONLY_COMMANDS:
+        if (result and result.get('state') == 'unknown' and result.get('command_id') in READ_ONLY_COMMANDS
+                and not (result.get('evidence') or {}).get('manual_reviewed')):
             result = result | {'evidence': dict(result.get('evidence') or {}, reconciliation_required=True)}
         return result
 
@@ -492,12 +521,19 @@ class CommandService:
                 if command_id not in READ_ONLY_COMMANDS:
                     for row in self.db.execute("SELECT result_json FROM command_runs WHERE state='unknown' AND command_id=?", (command_id,)):
                         previous = json.loads(row[0])
+                        if (previous.get('evidence') or {}).get('manual_reviewed') is True:
+                            continue
                         if previous['inputs'] == inputs:
                             raise ValueError('Hay un efecto desconocido de esta operación. Revisa su resultado antes de repetirla.')
-                if command_id in ('axx.desktop.notepad.text', 'axx.desktop.window.set_value', 'axx.desktop.window.invoke'):
+                if command_id in ('axx.desktop.notepad.text', 'axx.desktop.window.set_value', 'axx.desktop.window.invoke',
+                                   'axx.desktop.input', 'axx.desktop.state', 'axx.desktop.window.state', 'axx.browser.navigate'):
                     for row in self.db.execute("SELECT result_json FROM command_runs WHERE state='unknown' AND command_id=?", (command_id,)):
                         previous = json.loads(row[0])
+                        if (previous.get('evidence') or {}).get('manual_reviewed') is True:
+                            continue
                         identity = ('window_title',) if command_id == 'axx.desktop.notepad.text' else ('window_id', 'pid', 'control_id')
+                        if command_id in ('axx.desktop.input', 'axx.desktop.window.state'): identity = ('window_id', 'pid')
+                        if command_id == 'axx.browser.navigate': identity = ('browser_session', 'tab_id')
                         if all(previous['inputs'].get(key) == inputs.get(key) for key in identity):
                             raise ValueError('Hay una escritura incierta en ese destino. Usa Revisar efecto antes de preparar otra.')
             elif inputs != {}:
@@ -605,6 +641,44 @@ class CommandService:
                     self.parallel_operations.discard(operation_id)
                 else:
                     self.execution_gate.release()
+
+    def review_unknown(self, operation_id, reviewed=False):
+        """Acknowledge manual inspection, never certify or repeat the prior effect."""
+        if reviewed is not True:
+            raise ApprovalRequired('Confirma explícitamente que revisaste el efecto antes de preparar otra acción.')
+        with self.lock:
+            if self.closed:
+                raise ValueError('Servicio cerrado')
+            if self.parallel_operations or not self.execution_gate.acquire(blocking=False):
+                raise ValueError('Hay una operación en curso.')
+        try:
+            with self.executor.lock, self.lock:
+                result = self.get(operation_id)
+                if not result or result['state'] != 'unknown':
+                    raise ValueError('La operación no tiene un efecto incierto pendiente de revisión.')
+                if (result.get('evidence') or {}).get('manual_reviewed') is True:
+                    return result  # Idempotent acknowledgement preserves its original time.
+                action_id = result.get('action_operation_id') or 'cmd-' + hashlib.sha256(operation_id.encode()).hexdigest()
+                action = self.executor.get_operation(action_id)
+                if action and (action['state'] != 'unknown' or action.get('tool_name') != ADAPTERS[result['command_id']]['tool']):
+                    raise ValueError('El recibo del ejecutor cambió; revisa su estado actual.')
+                acknowledgement = {'manual_reviewed': True, 'manual_reviewed_at': time.time(),
+                                   'reconciliation_required': False, 'effect_uncertain': True}
+                result.update(state='unknown', postconditions_passed=False, effect_status='unknown',
+                              evidence=dict(result.get('evidence') or {}, **acknowledgement))
+                # Both journals live in this database. Persist acknowledgement atomically
+                # through one connection; a crash cannot unlock only one of them.
+                with self.db:
+                    if action:
+                        evidence = dict(action.get('evidence') or {}, **acknowledgement)
+                        action.update(state='unknown', postconditions_passed=False, effect_status='unknown', evidence=evidence)
+                        self.db.execute("UPDATE operations SET result_json=?,evidence_json=? WHERE operation_id=? AND state='unknown'",
+                                        (json.dumps(action, ensure_ascii=False), json.dumps(evidence), action_id))
+                    self.db.execute("UPDATE command_runs SET result_json=? WHERE operation_id=? AND state='unknown'",
+                                    (json.dumps(result, ensure_ascii=False), operation_id))
+                return result
+        finally:
+            self.execution_gate.release()
 
     def reconcile(self, operation_id):
         """Read back an uncertain UIA effect without dispatching it a second time."""

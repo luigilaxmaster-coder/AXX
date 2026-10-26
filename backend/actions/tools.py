@@ -523,7 +523,23 @@ class FindControlTool(BaseTool):
 
 
 # Registry of available tools
+from .computer_tools import ComputerTool
+from .file_workflows import FileBundleTool, FindFilesTool
+from .browser_bridge import BrowserBridgeTool
+from .desktop_window_state import WindowStateTool, WindowObservationTool
+from .office_workflows import ExcelCsvTool, WordPdfTool
+from .process_runner import ProcessRunTool
+
 TOOL_REGISTRY: dict[str, BaseTool] = {
+    **{('computer_' + kind): ComputerTool(kind) for kind in ('observe', 'find', 'state', 'input', 'grid', 'ground', 'window')},
+    ProcessRunTool.name: ProcessRunTool(),
+    WordPdfTool.name: WordPdfTool(),
+    WindowStateTool.name: WindowStateTool(),
+    WindowObservationTool.name: WindowObservationTool(),
+    ExcelCsvTool.name: ExcelCsvTool(),
+    **{('browser_' + kind): BrowserBridgeTool(kind) for kind in ('tabs', 'inspect', 'navigate')},
+    FileBundleTool.name: FileBundleTool(),
+    FindFilesTool.name: FindFilesTool(),
     FindControlTool.name: FindControlTool(),
     ArchitectureStatusTool.name: ArchitectureStatusTool(),
     FileInspectionTool.name: FileInspectionTool(),

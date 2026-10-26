@@ -128,6 +128,55 @@ class GatewayTests(unittest.TestCase):
             self.ready['execution_status'] = 'exhausted'
             with self.assertRaises(ValueError): gateway.verify_provider(self.provider())
 
+    def test_catalog_change_retries_whole_profile_validation_once(self):
+        changed = False
+        def request(base, path, *args, **kwargs):
+            nonlocal changed
+            result = self.request(base, path, *args, **kwargs)
+            if path == '/api/models' and not changed:
+                self.models.append({**self.models[0], 'id': 8, 'modelId': 'other', 'canonical': 'unrelated'})
+                changed = True
+            return result
+        with patch.object(gateway, '_request', side_effect=request):
+            result = gateway._profile_metadata(BASE, '', '', 'axx_plan', {7}, .5)
+        self.assertTrue(result['gateway_profile_verified'])
+        self.assertEqual(result['gateway_member_ids'], [7])
+        self.assertEqual(sum(path == '/api/settings/version' for path, _, _ in self.calls), 2)
+        self.assertEqual(sum(path == '/api/profiles/4/models' for path, _, _ in self.calls), 2)
+
+    def test_stable_incomplete_map_is_rejected_without_retry(self):
+        self.group_extra_ids = [999]
+        with patch.object(gateway, '_request', side_effect=self.request):
+            with self.assertRaisesRegex(ValueError, 'mapa completo'):
+                gateway._profile_metadata(BASE, '', '', 'axx_plan', {7}, .5)
+        self.assertEqual(sum(path == '/api/settings/version' for path, _, _ in self.calls), 1)
+
+    def test_catalog_retry_rechecks_free_members_and_rejects_new_unapproved_member(self):
+        changed = False
+        def request(base, path, *args, **kwargs):
+            nonlocal changed
+            result = self.request(base, path, *args, **kwargs)
+            if path == '/api/models' and not changed:
+                self.models.append({**self.models[0], 'id': 8, 'modelId': 'other', 'canonical': 'unrelated'})
+                self.members[4].append({'model_db_id': 8, 'enabled': True})
+                changed = True
+            return result
+        with patch.object(gateway, '_request', side_effect=request):
+            with self.assertRaisesRegex(ValueError, 'gratuidad confirmada'):
+                gateway._profile_metadata(BASE, '', '', 'axx_plan', {7}, .5)
+        self.assertEqual(sum(path == '/api/profiles/4/models' for path, _, _ in self.calls), 2)
+
+    def test_continuously_changing_catalog_stops_after_one_retry(self):
+        def request(base, path, *args, **kwargs):
+            result = self.request(base, path, *args, **kwargs)
+            if path == '/api/models':
+                self.models.append({**self.models[0], 'id': len(self.models) + 8, 'canonical': 'unrelated'})
+            return result
+        with patch.object(gateway, '_request', side_effect=request):
+            with self.assertRaisesRegex(ValueError, 'cambió durante'):
+                gateway._profile_metadata(BASE, '', '', 'axx_plan', {7}, .5)
+        self.assertEqual(sum(path == '/api/settings/version' for path, _, _ in self.calls), 2)
+
     def test_external_profile_ownership_persists_and_does_not_overwrite_existing(self):
         body = {'base_url': BASE, 'dashboard_token': 'dashboard-secret', 'create': True, 'gateway_free_model_ids': [7]}
         with patch.object(gateway, '_request', side_effect=self.request):

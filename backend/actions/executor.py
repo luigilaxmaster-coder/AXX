@@ -36,6 +36,7 @@ class ActionExecutor:
         self.workspace_root.mkdir(parents=True, exist_ok=True)
         self.lock = threading.RLock()
         self.input_control = None
+        self.capture_service = None
         self.reads_done = threading.Condition(self.lock)
         self.parallel_reads = 0
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -160,6 +161,8 @@ class ActionExecutor:
                      'desktop_notepad_text': {'window_title', 'value'}, 'desktop_explorer_folder': {'path'},
                      'file_inspection': {'path', 'other_path'}, 'architecture_status': set(),
                      'desktop_find_control': {'window_id', 'pid', 'name'}}
+        from .computer_tools import ADAPTERS as COMPUTER_ADAPTERS
+        permitted.update({adapter['tool']: set(adapter['parameters']) for adapter in COMPUTER_ADAPTERS.values()})
         if set(inputs) - permitted.get(tool_name, set()):
             raise ActionExecutionError('Unexpected action inputs')
         if tool_name == 'file_artifact_writer' and isinstance(inputs.get('path'), str):
@@ -233,7 +236,9 @@ class ActionExecutor:
             if allow_parallel_read:
                 self.lock.release()
             try:
-                if hasattr(tool, 'execute_with_control'):
+                if hasattr(tool, 'execute_with_runtime'):
+                    tool_res = tool.execute_with_runtime(inputs, self.workspace_root, cancel_event or threading.Event(), self)
+                elif hasattr(tool, 'execute_with_control'):
                     tool_res = tool.execute_with_control(inputs, self.workspace_root, cancel_event or threading.Event(), self.input_control)
                 else:
                     tool_res: ToolResult = tool.execute_cancellable(inputs, self.workspace_root, cancel_event or threading.Event())
@@ -287,9 +292,9 @@ class ActionExecutor:
             'duration_ms': round(duration_ms, 2),
             'evidence': tool_res.evidence,
             'delivery_mode': delivery_mode,
-            'dispatch_status': ('delivered' if tool_res.success or acknowledged_only or tool_res.evidence.get('verification') == 'process_exit'
+            'dispatch_status': ('delivered' if tool_res.success or acknowledged_only or tool_res.evidence.get('dispatch_status') == 'delivered' or tool_res.evidence.get('verification') == 'process_exit'
                                 else 'unknown' if final_state == 'unknown' else 'rejected'),
-            'effect_status': 'confirmed' if final_state == 'succeeded' else 'unknown' if final_state == 'unknown' else 'not_observed',
+            'effect_status': 'confirmed' if final_state == 'succeeded' else 'partial' if tool_res.evidence.get('partial_effect') else 'unknown' if final_state == 'unknown' else 'not_observed',
         }
         # State and complete receipt must commit together, including across a power loss.
         with self.db:

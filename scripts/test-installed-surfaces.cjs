@@ -6,7 +6,7 @@ await p.waitForFunction(()=>Axx.chatWorkspace?.ready,{},{timeout:120000});
 const original=await p.evaluate(()=>({theme:Axx.interfaceTheme.value,view:Axx.companion.dock.selected,chat:Axx.chatWorkspace.active.id}));let auditChat;
 try {
 auditChat=await p.evaluate(async()=>{const r=await Axx.backendRequest('POST','/axx-api/chat/create',{title:'Aceptación visual del chat'});await Axx.backendRequest('POST','/axx-api/chat/save',{id:r.id,messages:[{id:'audit-user-'+Date.now(),role:'user',status:'complete',at:Date.now(),text:'Revisa el aspecto de este chat.'},{id:'audit-assistant-'+Date.now(),role:'assistant',status:'complete',at:Date.now()+1,text:'Texto legible, **énfasis**, `comandos` y [documentación](https://github.com/luigilaxmaster-coder/AXX).'}]});await Axx.chatWorkspace.select(r.id);return r.id;});
-const dir='build/chat-0.21.4/surface-audit';fs.mkdirSync(dir,{recursive:true});const rows=[];
+const dir=process.argv[2]||'build/chat-0.21.4/surface-audit';fs.mkdirSync(dir,{recursive:true});const rows=[];
 const features=await p.evaluate(()=>Axx.FEATURES.filter((f,i,a)=>!['studio','tour','focusNow','reach','learn','magicpen'].includes(f.id)&&a.findIndex(x=>x.view===f.view)===i).map(f=>({id:f.id,view:f.view})));
 for(const theme of ['light','dark']){await p.evaluate(t=>Axx.interfaceTheme.apply(t),theme);
  for(const f of features){await p.evaluate(f=>{Axx.companion.dock.detail(f.id);Axx.companion.renderDock();Axx.resident.schedule();document.getElementById('view-'+f.view).scrollTop=0},f);await p.waitForTimeout(600);

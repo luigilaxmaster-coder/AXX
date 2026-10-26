@@ -638,7 +638,8 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                     return
                 action = path.rsplit('/', 1)[-1]
                 fields = {'propose': {'text', 'operation_id', 'context', 'model', 'provider_name', 'inputs', 'project_id', 'selection_mode', 'conversation_id'},
-                          'execute': {'operation_id', 'approved'}, 'cancel': {'operation_id'},
+                          'prepare': {'text', 'steps', 'operation_id', 'project_id', 'conversation_id'},
+                          'execute': {'operation_id', 'approved'}, 'cancel': {'operation_id'}, 'pause': {'operation_id'},
                           'resume': {'operation_id', 'approved'}, 'configure': {'id', 'changes'},
                           'repair': {'operation_id', 'text', 'inputs', 'model', 'provider_name', 'selection_mode'},
                           'context': {'project_id', 'changes'}, 'compose': {'text', 'parts', 'operation_id', 'project_id'},
@@ -657,8 +658,14 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                         context = context | {'demonstration': planning_reference(record)}
                     result = self.learning.propose(body.get('text'), body.get('operation_id'), context, body.get('model', ''), body.get('provider_name', ''),
                         inputs=body.get('inputs'), project_id=body.get('project_id', ''), selection_mode=body.get('selection_mode', 'manual'), conversation_id=body.get('conversation_id'))
+                elif action == 'prepare':
+                    if body.get('conversation_id') and self.chats: self.chats.get(body['conversation_id'])
+                    result = self.learning.prepare_steps(body.get('text'), body.get('steps'), body.get('operation_id'),
+                        body.get('project_id', ''), body.get('conversation_id'))
                 elif action == 'execute':
                     result = self.learning.execute(body.get('operation_id'), body.get('approved', False))
+                elif action == 'pause':
+                    result = self.learning.pause(body.get('operation_id'))
                 elif action == 'resume':
                     result = self.learning.resume(body.get('operation_id'), body.get('approved', False))
                 elif action == 'repair':
@@ -698,6 +705,7 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                     'execute': {'operation_id', 'approved'},
                     'cancel': {'operation_id'},
                     'reconcile': {'operation_id'},
+                    'review': {'operation_id', 'reviewed'},
                 }
                 action = path.rsplit('/', 1)[-1]
                 if action not in fields or set(body) - fields[action]:
@@ -713,6 +721,10 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                     result = self.commands.execute(body.get('operation_id'), body.get('approved', False))
                 elif action == 'reconcile':
                     result = self.commands.reconcile(body.get('operation_id'))
+                elif action == 'review':
+                    if set(body) != {'operation_id', 'reviewed'}:
+                        raise ValueError('La revisión requiere operation_id y reviewed explícitos')
+                    result = self.commands.review_unknown(body.get('operation_id'), body.get('reviewed'))
                 else:
                     result = self.commands.cancel(body.get('operation_id'))
                 self._send_json(200, result)
@@ -1100,6 +1112,7 @@ def run_server(host='127.0.0.1', port=4173, config_path='providers.json', state_
         recording = ScreenRecordingService(executor.workspace_root)
         services.append(recording)
         magic_pen = MagicPenService(executor.workspace_root, adapter)
+        executor.capture_service = magic_pen
         services.append(magic_pen)
         converter = ConverterService(executor.workspace_root)
         chats = ChatStore(state_path)
@@ -1168,6 +1181,9 @@ def run_server(host='127.0.0.1', port=4173, config_path='providers.json', state_
             ready_path.unlink(missing_ok=True)
 
 def main():
+    if '--office-worker' in sys.argv[1:]:
+        from backend.actions.office_workflows import worker_main as office_worker_main
+        return office_worker_main()
     if '--mcp-server' in sys.argv[1:]:
         from backend.connect.mcp_server import main as mcp_main
         return mcp_main()

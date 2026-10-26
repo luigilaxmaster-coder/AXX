@@ -197,7 +197,22 @@ def _profile_task(profile_name):
     return task
 
 
+class _CatalogSnapshotChanged(ValueError):
+    """Two read-only catalog observations crossed an actual membership change."""
+
+
 def _profile_metadata(base_url, api_key, dashboard, profile_name, free_ids, timeout, keyless=False):
+    # Gateway catalog sync can commit between /models and /fallback reads.
+    # Retry the complete authorization/readiness check once, never just the map.
+    for attempt in range(2):
+        try:
+            return _profile_metadata_once(base_url, api_key, dashboard, profile_name, free_ids, timeout, keyless)
+        except _CatalogSnapshotChanged:
+            if attempt:
+                raise
+
+
+def _profile_metadata_once(base_url, api_key, dashboard, profile_name, free_ids, timeout, keyless=False):
     release = _request(base_url, '/api/settings/version', dashboard, timeout=timeout)
     if not isinstance(release, dict) or release.get('version') != VERSION:
         raise ValueError('La verificación automática requiere el contrato FreeLLMAPI 0.16.9 integrado.')
@@ -234,7 +249,11 @@ def _profile_metadata(base_url, api_key, dashboard, profile_name, free_ids, time
         if isinstance(canonical, str) and type(row.get('modelDbId')) is int:
             groups.setdefault(canonical, set()).add(row['modelDbId'])
     covered = set().union(*groups.values()) if groups else set()
-    if covered != {m['id'] for m in models if m.get('enabled') is True}:
+    enabled_ids = {m['id'] for m in models if m.get('enabled') is True}
+    if covered != enabled_ids:
+        current_models = _rows(_request(base_url, '/api/models', dashboard, timeout=timeout))
+        if {m['id'] for m in current_models if m.get('enabled') is True} != enabled_ids:
+            raise _CatalogSnapshotChanged('El catálogo del gateway cambió durante la verificación del perfil.')
         raise ValueError('El gateway no devolvió el mapa completo de miembros de los grupos.')
     selected_ids = {m['model_db_id'] for m in members}
     ready = any(groups.get(row['id']) and groups[row['id']].issubset(selected_ids)

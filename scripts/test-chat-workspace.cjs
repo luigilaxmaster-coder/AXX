@@ -6,13 +6,13 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
  let browser;
  try{
   const config=await new Promise((resolve,reject)=>{let output='';child.stdout.on('data',d=>{output+=d;if(output.includes('\n'))resolve(JSON.parse(output.split('\n')[0]));});child.on('exit',code=>reject(Error('fixture exited '+code)));});
-  browser=await chromium.launch({headless:true,executablePath:path.join(process.env.LOCALAPPDATA,'ms-playwright/chromium_headless_shell-1248/chrome-headless-shell-win64/chrome-headless-shell.exe')});
+  browser=await chromium.launch({headless:true,executablePath:process.env.AXX_TEST_CHROMIUM});
   const page=await browser.newPage();page.setDefaultTimeout(10000);page.on('console',m=>console.log('BROWSER',m.text()));const errors=[];page.on('pageerror',e=>errors.push(e.message));
   await page.exposeFunction('backend',async(method,url,body)=>{const r=await fetch('http://127.0.0.1:'+config.port+url,{method,headers:{Authorization:'Bearer '+config.token,'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});const data=await r.json();if(!r.ok)throw Error(JSON.stringify(data));return data;});
   await page.route('http://chat.test/',route=>route.fulfill({contentType:'text/html',body:'<section id="view-chat"><div id="chat-log"></div><textarea id="chat-input"></textarea><button id="chat-new"></button></section><input id="keep-history" type="checkbox" checked>'}));
   await page.goto('http://chat.test/');
   await page.evaluate(()=>{
-   window.Axx={isNative:()=>true,newId:()=>crypto.randomUUID(),backendRequest:(method,url,body)=>url==='/axx-api/chat/operations'?Promise.resolve({operations:[{operation_id:'uncertain-restart',command_id:'axx.desktop.window.invoke',state:'unknown',postconditions_passed:false}]}):window.backend(method,url,body)};
+   window.Axx={isNative:()=>true,newId:()=>crypto.randomUUID(),backendRequest:(method,url,body)=>url==='/axx-api/chat/operations'?Promise.resolve({operations:[{operation_id:'reviewed-fixture',command_id:'axx.desktop.input',state:'unknown',postconditions_passed:false,evidence:{manual_reviewed:true}},{operation_id:'uncertain-restart',command_id:'axx.desktop.window.invoke',state:'unknown',postconditions_passed:false}]}):window.backend(method,url,body)};
    const data={messages:[{id:'legacy-message',role:'user',source:'model',status:'complete',text:'Legacy transcript',at:Date.now()}],draft:'Legacy draft',prefs:{keepHistory:true}};
    Axx.companion={data,save(){localStorage.setItem('legacy',JSON.stringify(this.data));},renderChat(){},cancelRequest(){},stopDictation(){},stopSpeech(){},renderAttachment(){},sayStatus(){},send(){},exportChat(){},brain:{async chat(p,m){return m;}}};
    Axx.commandLibrary={renderOperation(){},request:window.backend};
@@ -49,6 +49,18 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
   const auto=await page.evaluate(()=>Axx.commandLibrary.request('POST','/axx-api/commands/prepare',{command_id:'axx.system.telemetry',inputs:{},source:'text'}));assert.equal(auto.state,'prepared');
   await page.evaluate(id=>Axx.backendRequest('POST','/axx-api/commands/cancel',{operation_id:id}),auto.operation_id);
   const forged=await page.evaluate(()=>Axx.backendRequest('POST','/axx-api/commands/prepare',{command_id:'axx.artifact.write',inputs:{path:'must-not-exist.txt',content:'x'},source:'text',conversation_id:Axx.chatWorkspace.active.id,command_mode:'auto_safe'}));assert.equal(forged.state,'awaiting_approval');
-  assert.deepEqual(errors,[]);console.log('PASS: SQLite migration, per-chat drafts, navigation, curated context isolation, backend Ask/Auto policy and visible pending card');
+  await page.evaluate(()=>{
+   Axx.commandLibrary.pausePlan=()=>{window.taskAction='pause';};
+   Axx.commandLibrary.resumePlan=()=>{window.taskAction='resume';};
+   Axx.commandLibrary.renderOperation({kind:'learned_plan',operation_id:'checkpoint-fixture',state:'running',steps:[{},{}],step_records:[{state:'succeeded'}]});
+  });
+  await page.getByRole('button',{name:'Pausar tarea',exact:true}).click();assert.equal(await page.evaluate(()=>window.taskAction),'pause');
+  await page.evaluate(()=>Axx.commandLibrary.renderOperation({kind:'learned_plan',operation_id:'checkpoint-fixture',state:'paused',steps:[{},{}],step_records:[{state:'succeeded'}]}));
+  await page.getByRole('button',{name:'Retomar tarea',exact:true}).click();assert.equal(await page.evaluate(()=>window.taskAction),'resume');
+  await page.evaluate(()=>{Axx.commandLibrary.reviewUnknown=op=>{window.reviewedId=op.operation_id;};Axx.commandLibrary.renderOperation({operation_id:'uncertain-fixture',state:'unknown',evidence:{reconciliation_required:true}});});
+  await page.getByRole('button',{name:'Ya revisé el efecto: permitir otra acción',exact:true}).click();assert.equal(await page.evaluate(()=>window.reviewedId),'uncertain-fixture');
+  await page.evaluate(()=>Axx.commandLibrary.renderOperation({operation_id:'uncertain-fixture',state:'unknown',evidence:{manual_reviewed:true}}));
+  assert.equal(await page.getByRole('button',{name:'Ya revisé el efecto: permitir otra acción',exact:true}).count(),0);
+  assert.deepEqual(errors,[]);console.log('PASS: SQLite, context isolation, Ask/Auto policy, pending card and pause/resume controls');
  }finally{await browser?.close();child.kill();}
 })().catch(e=>{console.error(e);process.exitCode=1;});
