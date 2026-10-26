@@ -1,5 +1,6 @@
 """Disposable real HTTP fixture; deterministic proposal model, real command executor."""
 import json
+import os
 import tempfile
 from pathlib import Path
 from backend.actions.executor import ActionExecutor
@@ -21,7 +22,11 @@ with tempfile.TemporaryDirectory() as directory:
     path = Path(directory)
     executor = ActionExecutor(path / 'state.db', path / 'artifacts')
     commands = CommandService(executor)
-    learning = ActionLearning(commands, ProposalModel()); commands.learning = learning
+    model=ProposalModel()
+    if os.environ.get('AXX_TEST_GOAL_CYCLE')=='1':
+        from backend.tests.test_goal_cycle import Model
+        model=Model();model.commands=commands
+    learning = ActionLearning(commands, model); commands.learning = learning
     workshop = CapabilityWorkshop(learning)
     handler = type('WorkshopFixture', (AxxBridgeHandler,), {'workshop': workshop, 'commands': commands, 'learning': learning})
     server = ThreadedHTTPServer(('127.0.0.1', 0), handler)

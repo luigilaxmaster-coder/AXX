@@ -18,6 +18,20 @@ Ejemplos:
 
 Los atajos a sitios incluyen YouTube, Google, Gmail, GitHub, ChatGPT y Spotify. Las búsquedas abren resultados en el navegador; no entregan el contenido de la página al modelo. El recibo de apertura confirma que Windows aceptó la solicitud, no que una página haya terminado de cargar.
 
+## Chrome, elementos y continuidad musical
+
+La corrección local separa estas operaciones:
+
+- `abre Chrome y busca YouTube`: abre Chrome si hace falta y verifica la dirección en una ventana única. No confirma que haya cargado todo el contenido.
+- `pon el mouse sobre Geist en Chrome`: busca una etiqueta accesible exacta y única; mueve el cursor mediante el broker y comprueba su posición. Si la etiqueta falta, se repite o la observación está truncada, se abstiene.
+- `busca en yotune una cncion la cancion Faint de Linkin Park`: reconoce el destino y quita el prefijo de solicitud. La búsqueda conserva el título y artista.
+- `reprodúcela` o `reproduce la canción`: recupera la consulta de YouTube del mismo chat durante diez minutos, vuelve a observar resultados y solicita reproducción. Sin ese contexto pide la canción.
+- `reproduce Faint de Linkin Park en YouTube`: selecciona un resultado observado que coincida con los términos; prefiere una grabación oficial única. Una coincidencia múltiple requiere concretar la versión.
+
+La reproducción sólo entrega un recibo de éxito al observar el título seleccionado, el estado Pausa del reproductor y dos posiciones crecientes. Un anuncio visible, un árbol incompleto, un reproductor detenido o un bloqueo no acreditan reproducción. Escape y la intervención física conservan prioridad mediante el dueño de entrada existente. No se envía contenido leído a un modelo ni se añaden dependencias.
+
+Estado de esta corrección: implementación y pruebas de contrato locales. La aceptación del ejecutable instalado y de YouTube real está pendiente: el control visual se detuvo al no poder identificar con confianza la URL del navegador. La versión instalada y el enlace publicado no se modificaron. Los catálogos de tareas adjuntos siguen siendo casos especificados, salvo los recorridos expresamente probados.
+
 ## PowerShell
 
 Escribe, por ejemplo, `/powershell Get-Date`. Axx muestra el script exacto en la biblioteca. Pulsa **Aprobar y ejecutar este comando** para ejecutarlo. El resultado vuelve al chat con salida, errores y código de salida. Los comandos pueden modificar archivos y ajustes según los permisos del usuario actual; no se solicita elevación automática.

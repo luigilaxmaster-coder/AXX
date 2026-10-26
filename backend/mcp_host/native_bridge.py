@@ -22,6 +22,7 @@ NATIVE_TOOLS = frozenset({
     'desktop_first_video_pointer', 'desktop_spotify_play', 'desktop_set_window_value', 'desktop_invoke_window_button',
     'desktop_installed_app', 'desktop_open_url', 'desktop_open_app', 'desktop_search', 'desktop_cli_anything_scan',
     'application_open', 'application_windows', 'application_focus', 'application_inspect', 'application_close', 'application_navigate',
+    'application_browse', 'application_hover', 'application_youtube',
 })
 
 
@@ -117,7 +118,7 @@ class NativeMcpBridge:
         config = {'transport': 'streamable_http',
                   'url': self.gateway['gateway_url'] if self.gateway else f'http://127.0.0.1:{self.port}/mcp',
                   'token': self.gateway['gateway_token'] if self.gateway else self.token}
-        self.transport = Transport(config, cancelled=cancelled)
+        self.transport = Transport(config, cancelled=cancelled, call_timeout=90)
 
     def _redeem(self, ticket):
         with self.lock:

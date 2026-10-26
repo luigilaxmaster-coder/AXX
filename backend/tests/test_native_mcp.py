@@ -3,10 +3,16 @@ import unittest
 import urllib.request
 import urllib.error
 from backend.actions.tools import ToolResult
-from backend.mcp_host.native_bridge import NativeMcpBridge
+from backend.mcp_host.native_bridge import NativeMcpBridge, NATIVE_TOOLS
+from backend.mcp_host.client_manager import Transport
 
 
 class NativeMcpTests(unittest.TestCase):
+    def test_browser_workflows_use_the_same_admitted_native_route(self):
+        self.assertTrue({'application_browse','application_hover','application_youtube'} <= NATIVE_TOOLS)
+        for timeout in (True,0,91,'90'):
+            with self.assertRaises(ValueError):Transport({},call_timeout=timeout)
+
     def test_real_http_transport_and_single_use_admission(self):
         bridge = NativeMcpBridge()
         calls = []

@@ -36,13 +36,27 @@ class CapabilityProviderTests(unittest.TestCase):
             time.sleep(.005)
         self.fail('Controlled proposal turn did not start')
 
-    def background(self, body=None):
+    def background(self, body=None, planning=False):
         results = {}
         def work():
-            try: results['result'] = self.provider.generate_capability(body or request())
+            try: results['result'] = (self.provider.generate_plan if planning else self.provider.generate_capability)(body or request())
             except Exception as exc: results['error'] = exc
         thread = threading.Thread(target=work, daemon=True); thread.start()
         return thread, results
+
+    def test_planning_has_its_own_contract_and_cannot_request_tools(self):
+        thread,results=self.background(request(task='plan'),planning=True)
+        run=self.wait_started()
+        self.assertEqual(run['purpose'],'planning')
+        self.assertTrue(run['conversation_id'].startswith('axx-planning-'))
+        start=next(params for method,params in self.provider.rpc_calls if method=='thread/start')
+        self.assertEqual(start['dynamicTools'],[])
+        self.assertIn('capability_request',start['developerInstructions'])
+        self.provider._server_request({'id':88,'method':'item/tool/call','params':{
+            'threadId':'thread-test','turnId':'turn-test','tool':'axx_execute_action','arguments':{}}})
+        thread.join(2)
+        self.assertEqual(results['error'].code,'CAPABILITY_TOOLS_FORBIDDEN')
+        self.assertEqual(self.dispatched,[])
 
     def finish(self, text='{"unavailable":"fixture"}', status='completed'):
         self.provider._notification({'method': 'item/agentMessage/delta', 'params': {

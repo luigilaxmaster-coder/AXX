@@ -59,8 +59,11 @@ def checked_config(body):
 
 
 class Transport:
-    def __init__(self, config, cancelled=None):
+    def __init__(self, config, cancelled=None, call_timeout=25):
         from backend.inference.process_manager import spawn_managed_process
+        if type(call_timeout) is not int or not 1 <= call_timeout <= 90:
+            raise ValueError('Plazo MCP inválido')
+        self.call_timeout = call_timeout
         self.lock, self.messages = threading.RLock(), queue.Queue(maxsize=8)
         self.closed = False
         command = ([sys.executable, '--mcp-client-worker'] if getattr(sys, 'frozen', False)
@@ -79,7 +82,7 @@ class Transport:
         self.reader = threading.Thread(target=collect, name='axx-mcp-transport', daemon=True)
         self.reader.start()
         try:
-            self._write(config)
+            self._write(dict(config, call_timeout=call_timeout))
             self.ready = self._receive(cancelled or threading.Event(), 20)
             if self.ready.get('ready') is not True: raise ValueError('No se inicializó MCP: ' + str(self.ready.get('error', 'unknown')))
         except Exception:
@@ -104,7 +107,7 @@ class Transport:
             key = uuid.uuid4().hex
             try:
                 self._write({'id': key, 'method': method, **data})
-                response = self._receive(cancelled)
+                response = self._receive(cancelled, self.call_timeout + 5)
                 if response.get('id') != key or response.get('error'):
                     raise ValueError('Fallo de transporte MCP: ' + str(response.get('error', 'response_mismatch')))
                 return response['result']

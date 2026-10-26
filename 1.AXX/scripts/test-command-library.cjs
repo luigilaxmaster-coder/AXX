@@ -329,6 +329,7 @@ const { chromium } = bundledRequire('playwright');
     results.push('Unresolved ChatGPT actions use Connect tool discovery instead of the unrelated local planner');
     const actionWords=await page.evaluate(()=>['escribe en ChatGPT hola','pulsa Enviar','haz clic en Nuevo chat en ChatGPT','presiona Enviar en Antigravity','ejecuta en CMD: dir','/cmd dir','escribe un poema'].map(value=>Axx.commandLibrary.isActionRequest(value)));
     assert.deepEqual(actionWords,[true,true,true,true,true,true,false]);
+    assert.equal(await page.evaluate(()=>Axx.commandLibrary.isActionRequest('Con los muebles seleccionados, hazme una lámina')),true);
     results.push('Desktop interaction verbs route as actions while ordinary creative writing stays in chat');
     const language = await page.evaluate(() => ({
         actions: ['¿Me puedes abrirme Obsidian?', 'Oye Axx, por favor podrías buscarme gatos en YouTube',
@@ -340,6 +341,36 @@ const { chromium } = bundledRequire('playwright');
     assert(language.protected.every(value=>value===false));
     assert.deepEqual(language.media,[{id:'music',verb:'start',app:'spotify'},{id:'music',verb:'pause',app:'spotify'},{id:'music',verb:'pause',app:'spotify'}]);
     results.push('Spanish carriers and Spotify paraphrases select actions while negation and informational requests stay protected');
+    const contextChecks = await page.evaluate(async () => {
+      const library = Axx.commandLibrary, previous = Axx.backendRequest, oldChat = Axx.chatWorkspace?.active?.id;
+      const url = 'https://www.youtube.com/results?search_query=Faint+Linkin+Park';
+      const contexts = [];
+      Axx.backendRequest = async (method, route, body) => {
+        if (route === '/axx-api/commands/resolve') { contexts.push(structuredClone(body.context)); return {match:'needs_input',message:'fixture'}; }
+        if (route === '/axx-api/commands/prepare') {
+          const operation={operation_id:body.operation_id,command_id:body.command_id,inputs:body.inputs,state:'prepared',conversation_id:'song-chat'};
+          operations[body.operation_id]=operation;return operation;
+        }
+        const result = await previous(method, route, body);
+        if (route === '/axx-api/commands/execute') return {...result,output:{url},evidence:{verification:'application_url_readback'}};
+        return result;
+      };
+      try {
+        Axx.chatWorkspace.active.id = 'song-chat';
+        await library.prepare('axx.app.browse',{application:'chrome',url},'text');
+        await Axx.companion.send('reprodúcela');
+        Axx.chatWorkspace.active.id = 'another-chat';
+        await Axx.companion.send('reprodúcela');
+        library.actionContext={engine:'youtube',query:'old song'};library.actionContextChat='another-chat';library.actionContextAt=Date.now()-600001;
+        await Axx.companion.send('reproduce la cancion');
+        return {contexts,recognized:library.isActionRequest('reprodúcela')};
+      } finally { Axx.backendRequest=previous;Axx.chatWorkspace.active.id=oldChat; }
+    });
+    assert.equal(contextChecks.recognized,true);
+    assert.equal(contextChecks.contexts[0].query,'Faint Linkin Park');
+    assert.equal(contextChecks.contexts[0].application,'chrome');
+    assert.deepEqual(contextChecks.contexts.slice(1),[{},{}]);
+    results.push('Song followups retain the browser and query only in the same chat for ten minutes');
     assert.deepEqual(errors, []);
     console.log(JSON.stringify({ kind: 'COMMAND_LIBRARY_UI_IPC_CONTRACT_ONLY', passed: results.length, results, uncaught: errors }, null, 2));
   } finally { await browser.close(); }

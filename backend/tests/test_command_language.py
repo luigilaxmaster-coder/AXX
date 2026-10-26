@@ -53,7 +53,7 @@ class CommandLanguageTests(unittest.TestCase):
         for phrase in ('busca Árboles azules en Chrome','en Google Chrome, búscame Árboles azules',
                        'And Chrome. Bosca Árboles azules','me puedes buscar Árboles azules usando Chrome'):
             with self.subTest(phrase=phrase):
-                self.assertEqual(resolve_desktop(phrase,'voice')['inputs'],{'engine':'google','query':'Árboles azules'})
+                self.assertEqual(resolve_desktop(phrase,'voice')['inputs'],{'application':'chrome','url':'https://www.google.com/search?q=%C3%81rboles+azules'})
 
     def test_music_desire_and_app_alias_never_switch_to_youtube(self):
         for phrase in ('Quiero escuchar Bachata Rosa en Spotify','Reprogoce Bachata Rosa en Spotify',

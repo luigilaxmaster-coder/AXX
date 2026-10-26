@@ -8,7 +8,7 @@
   const element = (tag, text) => { const node = document.createElement(tag); if (text !== undefined) node.textContent = text; return node; };
   const button = (text, action) => { const node = element('button', text); node.type = 'button'; node.onclick = () => run(action); return node; };
   const run = async action => { try { await action(); } catch (error) { $('skills-status').textContent = error.message || String(error); } Axx.resident?.schedule(); };
-  const states = {candidate:'Candidata', verified:'Comprobada', awaiting_approval:'Requiere aprobación', waiting_capacity:'Esperando un modelo apto',
+  const states = {candidate:'Candidata', verified:'Comprobada', awaiting_approval:'Requiere aprobación', waiting_capacity:'Esperando un modelo apto', waiting_capability:'Construyendo una capacidad para esta tarea',
     succeeded:'Completada', failed:'Falló', unknown:'Resultado incierto', interrupted:'Interrumpida', cancelled:'Cancelada', expired:'Requiere revisión', running:'Ejecutando', needs_input:'Faltan datos'};
   const section = element('section'); section.id = 'skill-library'; section.className = 'setup-card';
   section.innerHTML = `<strong>Mis habilidades</strong>

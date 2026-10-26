@@ -17,6 +17,7 @@ from .commands import ADAPTERS, ApprovalRequired, normalized, parse_command_json
 from .actions.plan_contract import validate_bindings, resolve_inputs
 from .memory.procedural_memory import get_action_env_fingerprint
 from .memory.skill_memory import SkillMemory, NeedsInput, PARAMETER, bind, bounded_object, project_key, validate_schema
+from .goal_contract import contract as goal_contract, verify as verify_goal
 
 TERMINAL = {'succeeded', 'failed', 'cancelled', 'blocked', 'needs_input', 'expired', 'unknown'}
 ALLOWED = {key: value for key, value in ADAPTERS.items()
@@ -57,7 +58,7 @@ class ActionLearning:
     def allowed(self):
         with self.commands.lock:
             return ALLOWED | {key: value for key, value in self.commands.adapters.items()
-                              if key.startswith('axx.mcp.') and self.commands.commands[key]['execution_enabled']}
+                              if key.startswith(('axx.mcp.', 'axx.generated.')) and self.commands.commands[key]['execution_enabled']}
 
     def __init__(self, commands, adapter):
         self.commands, self.adapter = commands, adapter
@@ -71,6 +72,7 @@ class ActionLearning:
         self.recovery_stop = threading.Event()
         self.recovery_thread = None
         self.active_inference_ids = set()
+        self.inference_backends = {}
         self.db = sqlite3.connect(str(commands.executor.db_path), check_same_thread=False, timeout=10)
         self.events = {}
         self.pause_events = {}
@@ -79,7 +81,7 @@ class ActionLearning:
             self.db.execute('CREATE TABLE IF NOT EXISTS learning_plans (id TEXT PRIMARY KEY, payload TEXT NOT NULL)')
             for key, raw in self.db.execute('SELECT id,payload FROM learning_plans').fetchall():
                 plan = json.loads(raw)
-                if plan['state'] not in TERMINAL and plan['state'] not in ('awaiting_approval', 'waiting_capacity', 'paused'):
+                if plan['state'] not in TERMINAL and plan['state'] not in ('awaiting_approval', 'waiting_capacity', 'waiting_capability', 'paused'):
                     plan.update(state='interrupted', postconditions_passed=False,
                                 message='Sesión interrumpida. Revisa y reanuda el plan guardado.')
                     self.db.execute('UPDATE learning_plans SET payload=? WHERE id=?', (json.dumps(plan), key))
@@ -91,10 +93,10 @@ class ActionLearning:
             self.closing = True
             self.recovery_stop.set()
             for event in self.events.values(): event.set()
-            requests = list(self.active_inference_ids)
-        for request_id in requests:
+            requests = [(key,self.inference_backends.get(key,self.adapter)) for key in self.active_inference_ids]
+        for request_id,backend in requests:
             try:
-                if hasattr(self.adapter, 'cancel'): self.adapter.cancel(request_id)
+                if hasattr(backend, 'cancel'): backend.cancel(request_id)
             except Exception: pass
         if self.recovery_thread and self.recovery_thread is not threading.current_thread():
             self.recovery_thread.join(timeout=35)
@@ -311,7 +313,10 @@ class ActionLearning:
             return {name: {key: value for key, value in rule.items() if key in ('type', 'required', 'enum', 'items')}
                     for name, rule in parameters.items()}
         capabilities = [{'command_id': key, 'description': value['title'], 'parameters': shape(value['parameters'])}
-                        for key, value in ALLOWED.items()]
+                        for key, value in self.allowed.items() if not key.startswith('axx.mcp.')]
+        for item in capabilities:
+            if item['command_id'].startswith('axx.generated.'):
+                item['output_path']=['output','result']
         terms = set(normalized(text).split())
         with self.commands.lock:
             remote = [item for key, item in self.commands.commands.items() if key.startswith('axx.mcp.') and item['execution_enabled']]
@@ -352,6 +357,13 @@ class ActionLearning:
              'para reutilizar lo comprobado: templates puede usar {{parametro}}, pero al vincular inputs debe producir exactamente steps. '
              'Si falta información necesaria: {"needs_input":"pregunta concreta"}. '
              'Si no se puede realizar con estas herramientas: {"unavailable":"motivo concreto y capacidad faltante"}. '
+             'Primero comprende el resultado, objetos, fuentes, destino, filtros, parámetros y conservación. Puedes añadir goal_spec: '
+             '{"intent":"resultado","objects":[],"sources":[],"destination":"","filters":{},"parameters":{},"preserve":[],"checks":[{"path":"relativo a artifacts","text":"contenido final esperado"}]}. '
+             'Checks solo para texto final exacto conocido; nunca inventes el contenido. Si recibes goal_spec fijado, consérvalo sin modificar. '
+             'Distingue redacción nueva de una capacidad ausente: compón lo disponible antes de crear código. '
+             'Si falta una transformación pura de datos devuelve {"capability_request":{"kind":"python_transform","goal":"carencia concreta, entradas, salida y comprobación"},"goal_spec":{...}}. '
+             'Para APIs o aplicaciones sin interfaz comprobada usa kind source_proposal; es investigación para integración, no código ejecutable. '
+             'El Taller conserva esta tarea, genera un candidato y ejecuta sus pruebas puras. La activación conserva su revisión explícita. '
              'Máximo ocho pasos; valores literales concretos, sin código ni pseudocódigo. Los nuevos archivos van dentro de artifacts. '
              'Un paso puede añadir bindings:{"parametro":{"step":0,"path":["output","campo"]}} para usar un resultado verificado de un paso anterior (índice desde cero). '
              'No inventes HWND, PID, observation_id, control_id ni coordenadas. Obtén identificadores mediante observación fresca y bindings. '
@@ -394,6 +406,7 @@ class ActionLearning:
                     'steps': [], 'step_records': [], 'skill_versions': [], 'results': [], 'postconditions_passed': False,
                     'goal_confirmed': False, 'created_at': time.time(), 'model_calls_used': 0,
                     'operational_context': self.context(project_id)}
+            plan.update(goal_spec=goal_contract(text), goal_revision=1)
             return self._save(plan), True
 
     def _select(self, text, project_id, operational_context):
@@ -456,6 +469,9 @@ class ActionLearning:
             raise ValueError('La tarea fue cancelada')
         if plan['model_calls_used'] >= 2: raise ValueError('Se agotó el presupuesto de dos inferencias de esta tarea')
         settings = plan['planning_settings']
+        backend = getattr(self.workshop,'provider',None) if settings['provider_name']=='@codex' else self.adapter
+        if settings['provider_name']=='@codex' and (backend is None or not settings['model']):
+            raise ValueError('Selecciona un modelo Codex conectado; no se usará otro proveedor')
         plan['route_requests'] = plan.get('route_requests', 0) + 1
         plan['model_calls_used'] += 1
         counts = plan.setdefault('inference_counts', {})
@@ -466,12 +482,17 @@ class ActionLearning:
         with self.lock:
             if self.closing: raise ValueError('La sesión se está cerrando')
             self.active_inference_ids.add(request_id)
+            self.inference_backends[request_id]=backend
         try:
-            response = self.adapter.route({'task': task, 'request_id': request_id, 'model': settings['model'],
+            request = {'task': 'plan' if settings['provider_name']=='@codex' else task, 'request_id': request_id, 'model': settings['model'],
                 'provider_name': settings['provider_name'], 'selection_mode': settings['selection_mode'], 'messages': messages,
-                'generation': {'temperature': 0.1, 'max_tokens': 1800}})
+                'allow_paid':False,'deadline_ms':70000,'conversation_id':plan.get('conversation_id'),
+                'generation': {'temperature': 0.1, 'max_tokens': 3000}}
+            response = backend.generate_plan(request) if settings['provider_name']=='@codex' else backend.route(request)
         finally:
-            with self.lock: self.active_inference_ids.discard(request_id)
+            with self.lock:
+                self.active_inference_ids.discard(request_id)
+                self.inference_backends.pop(request_id,None)
         route = response.get('route', {})
         plan['route'] = route
         plan.setdefault('route_history', []).append({'task': task, 'request_id': request_id, 'route': route, 'ok': response.get('ok') is True})
@@ -501,6 +522,7 @@ class ActionLearning:
             records.append({'step_id': step_id, 'operation_id': 'learn-' + step_id,
                             'input_hash': self._hash(step), 'state': 'pending', 'result': None})
         plan.update(title=title, step_records=records,
+                    goal_locked=True,
                     state='awaiting_approval', prepared_at=time.time(), preparation_complete=True,
                     message='Revisa los pasos y parámetros. La aprobación autoriza únicamente este plan.')
         self._dependencies(plan)
@@ -520,6 +542,9 @@ class ActionLearning:
                            'identities': [{key: row[key] for key in ('step_id', 'operation_id', 'input_hash')}
                                           for row in plan['step_records']]}
         if plan.get('workshop_validation'): payload['workshop_validation'] = plan['workshop_validation']
+        if 'goal_spec' in plan:
+            payload['goal_spec'] = plan['goal_spec']
+            payload['goal_revision'] = plan.get('goal_revision',1)
         return self._hash(payload)
 
     def _assert_workshop_plan(self, plan):
@@ -570,6 +595,7 @@ class ActionLearning:
                     candidates = preparation['candidates']
                     if 'model_data' not in plan:
                         reference = {'previous_action': preparation['context'], 'operational_context': plan['operational_context'],
+                                     'goal_spec':plan.get('goal_spec') if plan.get('goal_locked') else None, 'capability_build':plan.get('capability_build'),
                                      'provided_inputs': plan['inputs'], 'available_skills': candidates}
                         messages = self._prompt(plan['request'], reference)
                         messages[0]['content'] += (' Si una habilidad disponible coincide con la solicitud, devuelve '
@@ -577,7 +603,14 @@ class ActionLearning:
                         response = self._infer(plan, 'plan', messages)
                         plan['model_data'] = self._model_data(response)
                         self._save(plan)
-                    data = plan['model_data']
+                    data = dict(plan['model_data'])
+                    if 'goal_spec' in data:
+                        goal = goal_contract(plan['request'], data.pop('goal_spec'))
+                        if plan.get('capability_build') and goal != plan['goal_spec']:
+                            raise ValueError('El planificador intentó cambiar el contrato durante la construcción')
+                        plan['goal_spec'] = goal
+                    if set(data) == {'capability_request'}:
+                        return self._build_capability(plan, data['capability_request'])
                     if set(data) in ({'needs_input'}, {'unavailable'}):
                         plan.update(state='needs_input' if 'needs_input' in data else 'blocked', message=str(next(iter(data.values())))[:2000])
                         if 'unavailable' in data: plan['capability_missing'] = True
@@ -625,6 +658,67 @@ class ActionLearning:
         data = parse_command_json(re.sub(r'^```(?:json)?\s*|\s*```$', '', raw))
         if not isinstance(data, dict): raise ValueError('El modelo no devolvió un plan JSON válido')
         return data
+
+    def _build_capability(self, plan, request):
+        request = bounded_object(request,8000)
+        if set(request) != {'kind','goal'} or request['kind'] not in ('python_transform','source_proposal'):
+            raise ValueError('Carencia de capacidad inválida')
+        if not isinstance(request['goal'],str) or not 1 <= len(request['goal']) <= 3000:
+            raise ValueError('Describe una carencia concreta')
+        if not self.workshop: raise ValueError('El Taller no está disponible')
+        if plan.get('capability_build'): raise ValueError('La tarea ya tiene una construcción; revisa su resultado antes de crear otra')
+        plan.update(state='waiting_capability',capability_missing=True,goal_locked=True,
+            capability_build={'status':'generating','goal_revision':plan['goal_revision'],'request':request,
+                'attempt':len(plan.get('capability_build_history',[]))+1})
+        self._save(plan)
+        build_id='capability-'+self._hash([plan['operation_id'],plan['goal_revision'],plan['capability_build']['attempt']])[:32]
+        backend=getattr(self.workshop,'provider',None) if plan['planning_settings']['provider_name']=='@codex' else self.adapter
+        try:
+            if self.events.setdefault(plan['operation_id'],threading.Event()).is_set():raise ValueError('Tarea cancelada')
+            with self.lock:
+                plan['active_inference_request_id']=build_id
+                self.active_inference_ids.add(build_id);self.inference_backends[build_id]=backend
+            generation_goal=request['goal']
+            if plan.get('capability_build_history'):
+                generation_goal+='\nEl candidato anterior fue rechazado: '+str(plan['capability_build_history'][-1].get('error',''))[:800]+'. Corrige únicamente ese fallo sin cambiar el contrato.'
+            item = self.workshop.generate(generation_goal,kind=request['kind'],project_id=plan['project_id'],
+                conversation_id=plan.get('conversation_id'),request_id=build_id,**plan['planning_settings'])
+            plan['capability_build'].update(id=item['id'],revision=item['revision'],digest=item['digest'],status='review_required')
+            self._save(plan)
+            if request['kind'] == 'python_transform':
+                self.workshop.validate(item['id'],item['revision'],item['digest'])
+            plan['message'] = 'La tarea se conserva. El Taller preparó la capacidad faltante; revisa su código y pruebas. Al activarla se retomará este objetivo.'
+        except Exception as exc:
+            plan['capability_build']['status'] = 'failed'
+            plan['capability_build']['error']=str(exc)[:1200]
+            plan['message'] = 'La tarea se conserva; la construcción no se completó: '+str(exc)[:1200]
+        finally:
+            with self.lock:
+                self.active_inference_ids.discard(build_id);self.inference_backends.pop(build_id,None)
+        return self._finish_planning(plan)
+
+    def _capacity_ready(self, plan):
+        ref=plan.get('capability_build',{})
+        if not self.workshop or ref.get('status') != 'review_required' or 'id' not in ref:return False
+        item=self.workshop.get(ref['id'])
+        return (item['revision']==ref['revision'] and item['digest']==ref['digest']
+                and item['state']=='active' and item['active_revision']==ref['revision'])
+
+    @active_operation
+    def bind_capability(self, key, capability_id, revision, digest, goal_revision):
+        with self.lock:
+            plan=self.get(key);ref=plan.get('capability_build',{})
+            if (plan['state']!='waiting_capability' or not self.workshop or capability_id!=ref.get('id')
+                    or type(goal_revision) is not int or goal_revision!=plan.get('goal_revision') or plan.get('step_records')):
+                raise ValueError('La tarea o la revisión del objetivo no admite este binding')
+            item=self.workshop.get(capability_id)
+            if (item['revision']!=revision or item['digest']!=digest or item['state']!='active'
+                    or item['active_revision']!=revision or item['project_id']!=plan['project_id']
+                    or item['definition']['kind']!=ref['request']['kind']):
+                raise ValueError('La versión exacta de capacidad no está activa y es compatible')
+            plan.setdefault('capability_build_history',[]).append(dict(ref))
+            plan['capability_build'].update(revision=revision,digest=digest,status='review_required')
+            return self._save(plan)
 
     @active_operation
     def propose(self, text, operation_id=None, context=None, model='', provider_name='', inputs=None, project_id='', selection_mode='manual', conversation_id=None):
@@ -700,13 +794,19 @@ class ActionLearning:
             return self._finish_planning(plan)
 
     @active_operation
-    def repair(self, key, text='', inputs=None, model='', provider_name='', selection_mode='manual'):
+    def repair(self, key, text='', inputs=None, model='', provider_name='', selection_mode='manual', goal_spec=None, goal_revision=None):
         if not isinstance(text, str) or len(text) > 4000: raise ValueError('Corrección inválida')
         if any(not isinstance(value, str) or len(value) > 200 for value in (model, provider_name)) or selection_mode not in ('manual', 'automatic_free'):
             raise ValueError('Selección de modelo inválida')
         if not self.gate.acquire(blocking=False): raise ValueError('Ya hay un plan ejecutándose')
         try:
             plan = self.get(key)
+            new_goal=None
+            if goal_spec is not None:
+                if not text.strip() or type(goal_revision) is not int or goal_revision != plan.get('goal_revision',1):
+                    raise ValueError('La corrección requiere texto y la revisión vigente del objetivo')
+                new_goal=goal_contract(plan['request'],goal_spec)
+            elif goal_revision is not None:raise ValueError('La revisión requiere un contrato corregido')
             if plan.get('workshop_validation') or any(str(ref.get('id', '')).startswith('workshop.cap.') for ref in plan.get('skill_versions', [])):
                 raise ValueError('Crea una revisión en el taller para corregir esta capacidad')
             if plan['state'] == 'cancelled': return plan
@@ -718,8 +818,11 @@ class ActionLearning:
             prefix = [{'step': step, 'record': record} for step, record in zip(plan['steps'], plan['step_records'])
                       if record['state'] == 'succeeded']
             history = {'steps': plan['steps'], 'step_records': plan['step_records'], 'skill_versions': plan['skill_versions'],
+                       'goal_spec':plan.get('goal_spec'),'goal_revision':plan.get('goal_revision',1),
                        'plan_hash': plan.get('plan_hash'), 'correction': text, 'at': time.time()}
             plan.setdefault('revisions', []).append(history)
+            if new_goal is not None:
+                plan.update(goal_spec=new_goal,goal_revision=plan.get('goal_revision',1)+1)
             plan.update(preparation={'kind': 'repair', 'prefix': prefix, 'previous': history, 'correction': text},
                         planning_settings={'model': model, 'provider_name': provider_name, 'selection_mode': selection_mode},
                         inputs=bounded_object(plan['inputs'] if inputs is None else inputs), state='planning', approved_hash=None)
@@ -734,6 +837,7 @@ class ActionLearning:
         prefix = preparation['prefix']
         if 'model_data' not in plan:
             reference = {'context': plan['operational_context'], 'completed': prefix, 'previous_attempt': preparation['previous'],
+                         'goal_spec':plan.get('goal_spec'),
                          'correction': preparation['correction'], 'inputs': plan['inputs']}
             messages = self._prompt(plan['request'], reference)
             messages[0]['content'] += (' Repara únicamente los pasos pendientes. Devuelve title y steps para el sufijo NUEVO. '
@@ -857,6 +961,19 @@ class ActionLearning:
                 plan['pause_requested'] = False
                 if self.events.setdefault(key, threading.Event()).is_set():
                     return self._save(plan | {'state': 'cancelled', 'message': 'Plan cancelado'})
+                if plan['state'] == 'waiting_capability':
+                    ref=plan.get('capability_build',{})
+                    if ref.get('status')=='failed' and 'id' not in ref and len(plan.get('capability_build_history',[]))<1:
+                        plan.setdefault('capability_build_history',[]).append(dict(ref))
+                        plan.pop('capability_build')
+                        return self._build_capability(plan,ref['request'])
+                    if not self._capacity_ready(plan): return plan
+                    if plan['capability_build']['goal_revision'] != plan['goal_revision']:
+                        raise ValueError('El objetivo cambió durante la construcción; revisa la tarea')
+                    plan['capability_build']['status']='available'
+                    plan['capability_missing']=False
+                    plan.pop('model_data',None)
+                    plan['preparation_complete']=False
                 needs_planning = plan.get('preparation') and (plan['state'] == 'waiting_capacity' or not plan.get('preparation_complete', True))
             if needs_planning:
                 # A new inference can change the displayed plan; approval follows its result.
@@ -884,7 +1001,7 @@ class ActionLearning:
         results = []
         for plan in plans:
             if self.closed: break
-            pending_planning = plan['state'] == 'waiting_capacity' or (plan['state'] == 'interrupted' and plan.get('preparation') and not plan.get('preparation_complete', True))
+            pending_planning = plan['state'] == 'waiting_capacity' or (plan['state']=='waiting_capability' and self._capacity_ready(plan)) or (plan['state'] == 'interrupted' and plan.get('preparation') and not plan.get('preparation_complete', True))
             if not pending_planning or plan.get('next_retry_at', 0) > time.time(): continue
             try: results.append(self.resume(plan['operation_id']))
             except ValueError: break  # The desktop owner is busy; the next scheduler tick retries.
@@ -994,6 +1111,11 @@ class ActionLearning:
             if event.is_set():
                 return self._save(plan | {'state': 'cancelled', 'message': 'Plan cancelado. Los pasos realizados no se deshacen.'})
             with self.lock, self.db:
+                goal = goal_contract(plan['request'],plan.get('goal_spec'))
+                plan['goal_verification']=verify_goal(goal,self.commands.executor.workspace_root,event)
+                if not plan['goal_verification']['passed']:
+                    return self._save(plan | {'state':'failed','postconditions_passed':False,
+                        'message':'Los pasos terminaron, pero el archivo final no cumple el contrato. Se conserva lo completado.'})
                 return self._learn(plan)
         except Exception as exc:
             if 'plan' not in locals(): raise
@@ -1065,8 +1187,11 @@ class ActionLearning:
             try: plan = self.get(key)
             except ValueError:
                 return self._save({'kind': 'learned_plan', 'operation_id': key, 'state': 'cancelled', 'steps': [], 'results': [], 'postconditions_passed': False, 'message': 'Cancelado antes de preparar.'})
-            if plan.get('active_inference_request_id') and hasattr(self.adapter, 'cancel'):
-                try: self.adapter.cancel(plan['active_inference_request_id'])
+            if plan.get('active_inference_request_id'):
+                try:
+                    request_id=plan['active_inference_request_id']
+                    backend=self.inference_backends.get(request_id,self.adapter)
+                    if hasattr(backend,'cancel'):backend.cancel(request_id)
                 except Exception: pass
             if plan['state'] in TERMINAL: return plan
             active = set(plan.get('active_operation_ids', []))

@@ -35,7 +35,7 @@
   <div class="cap-row"><h3>Mis capacidades</h3><button id="cap-refresh" type="button">Actualizar</button></div>
   <div id="cap-list" class="cap-list"></div><article id="cap-editor" class="cap-editor" hidden></article>`;
   $('view-commands').prepend(section);
-  let current = null, busy = false, serial = 0;
+  let current = null, busy = false, serial = 0, task = null;
   const stateNames = {draft:'Borrador', reviewed:'Revisada', approved:'Revisada', validated:'Comprobada', active:'Activa', revoked:'Desactivada', validation_pending:'Prueba pendiente', review_required:'Revisión de código', testing:'En comprobación', verified:'Comprobada'};
   const stateText = value => stateNames[value] || value || 'Borrador';
   const api = async (method, action, body) => {
@@ -71,6 +71,15 @@
   async function mutate(action, extra = {}) {
     current = await api('POST', action, {...reference(current), ...extra});
     await refresh(current.id);
+    if (action === 'activate' && task?.capability_build?.id === current.id) {
+      if(task.capability_build.revision!==current.revision || task.capability_build.digest!==current.digest)
+        task=await commands.request('POST','/axx-api/learning/bind-capability',{operation_id:task.operation_id,...reference(current),goal_revision:task.goal_revision});
+      const plan = await commands.request('POST','/axx-api/learning/resume',{operation_id:task.operation_id,approved:false});
+      if (plan.conversation_id === Axx.chatWorkspace?.active?.id) {
+        commands.lastOperation=plan; commands.operation=plan.state==='awaiting_approval'?plan:null;
+        commands.renderOperation(plan);commands.status(plan.message);Axx.companion.openChat();
+      }
+    }
   }
   function render() {
     const root = $('cap-editor'); root.hidden = !current; root.replaceChildren(); if (!current) return;
@@ -145,6 +154,12 @@
   const openFeature = Axx.companion.openFeature.bind(Axx.companion);
   Axx.companion.openFeature = id => { const result = openFeature(id); if (id === 'commands' && !busy) void run(() => refresh()); return result; };
   async function open(goal = '') { await run(async () => { Axx.companion.openFeature('commands'); if (goal) $('cap-goal').value = goal; await refresh(); section.scrollIntoView({block:'start'}); $('cap-goal').focus(); }); }
+  async function openTask(plan) {
+    if (plan.conversation_id && plan.conversation_id !== Axx.chatWorkspace?.active?.id) return;
+    if (!plan.capability_build?.id) return;
+    task=plan;
+    await run(async()=>{Axx.companion.openFeature('commands');await refresh(plan.capability_build.id);section.scrollIntoView({block:'start'});status('Objetivo conservado: '+plan.request+'. Revisa esta capacidad; al activarla Axx retomará la tarea.');});
+  }
   const profileLink = button('Crear y mejorar capacidades', () => open()); $('view-agent').append(profileLink);
   async function propose(goal, kind = 'source_proposal') {
     await open(goal); $('cap-kind').value = kind;
@@ -162,6 +177,6 @@
     if (create) { Axx.companion.message('user', raw, 'local'); return propose(create[1], /^(?:transformar|calcular|convertir texto|formatear|normalizar)\b/i.test(create[1]) ? 'python_transform' : 'workflow'); }
     return send(text, metadata);
   };
-  Axx.capabilityWorkshop = {open,propose,refresh,get current(){return current;}};
+  Axx.capabilityWorkshop = {open,openTask,propose,refresh,get current(){return current;}};
   void run(() => refresh());
 })(window.Axx);

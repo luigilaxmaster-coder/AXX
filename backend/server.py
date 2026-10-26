@@ -649,12 +649,15 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                           'prepare': {'text', 'steps', 'operation_id', 'project_id', 'conversation_id'},
                           'execute': {'operation_id', 'approved'}, 'cancel': {'operation_id'}, 'pause': {'operation_id'},
                           'resume': {'operation_id', 'approved'}, 'configure': {'id', 'changes'},
-                          'repair': {'operation_id', 'text', 'inputs', 'model', 'provider_name', 'selection_mode'},
+                          'repair': {'operation_id', 'text', 'inputs', 'model', 'provider_name', 'selection_mode','goal_spec','goal_revision'},
                           'context': {'project_id', 'changes'}, 'compose': {'text', 'parts', 'operation_id', 'project_id'},
                           'remember': {'operation_id'}}
+                fields['bind-capability']={'operation_id','id','revision','digest','goal_revision'}
                 if action not in fields or set(body) - fields[action]: raise ValueError('Campos de aprendizaje inválidos')
                 if action == 'remember':
                     result = self.learning.remember(body.get('operation_id'))
+                elif action == 'bind-capability':
+                    result=self.learning.bind_capability(body.get('operation_id'),body.get('id'),body.get('revision'),body.get('digest'),body.get('goal_revision'))
                 elif action == 'propose':
                     if body.get('conversation_id') and self.chats:
                         self.chats.get(body['conversation_id'])
@@ -678,7 +681,8 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                     result = self.learning.resume(body.get('operation_id'), body.get('approved', False))
                 elif action == 'repair':
                     result = self.learning.repair(body.get('operation_id'), body.get('text', ''), inputs=body.get('inputs'),
-                        model=body.get('model', ''), provider_name=body.get('provider_name', ''), selection_mode=body.get('selection_mode', 'manual'))
+                        model=body.get('model', ''), provider_name=body.get('provider_name', ''), selection_mode=body.get('selection_mode', 'manual'),
+                        goal_spec=body.get('goal_spec'),goal_revision=body.get('goal_revision'))
                 elif action == 'configure':
                     if not isinstance(body.get('changes'), dict): raise ValueError('Cambios requeridos')
                     result = self.learning.configure(body.get('id'), body['changes'])

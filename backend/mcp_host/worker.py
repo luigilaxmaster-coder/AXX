@@ -18,6 +18,9 @@ def emit(value):
 
 
 async def serve(config):
+    call_timeout = config.get('call_timeout', 25)
+    if type(call_timeout) is not int or not 1 <= call_timeout <= 90:
+        raise ValueError('Invalid bounded call timeout')
     from mcp import ClientSession, StdioServerParameters
     from mcp.client.stdio import stdio_client
     from mcp.client.streamable_http import streamablehttp_client
@@ -36,8 +39,8 @@ async def serve(config):
                                          follow_redirects=False, trust_env=False)
             headers = {'Authorization': 'Bearer ' + config['token']} if config.get('token') else {}
             streams = await stack.enter_async_context(streamablehttp_client(config['url'], headers=headers,
-                timeout=15, sse_read_timeout=30, httpx_client_factory=client_factory))
-        session = await stack.enter_async_context(ClientSession(streams[0], streams[1], read_timeout_seconds=datetime.timedelta(seconds=25)))
+                timeout=call_timeout if call_timeout > 25 else 15, sse_read_timeout=call_timeout + 5, httpx_client_factory=client_factory))
+        session = await stack.enter_async_context(ClientSession(streams[0], streams[1], read_timeout_seconds=datetime.timedelta(seconds=call_timeout)))
         initialized = await session.initialize()
         emit({'ready': True, 'protocol': initialized.protocolVersion,
               'server': initialized.serverInfo.model_dump(mode='json')})
@@ -52,7 +55,7 @@ async def serve(config):
                     result = await session.list_tools(cursor=request.get('cursor'))
                 elif request['method'] == 'tools/call':
                     result = await session.call_tool(request['name'], request['arguments'],
-                        read_timeout_seconds=datetime.timedelta(seconds=25), meta=request.get('meta'))
+                        read_timeout_seconds=datetime.timedelta(seconds=call_timeout), meta=request.get('meta'))
                 else:
                     raise ValueError('Unsupported host operation')
                 emit({'id': request['id'], 'result': result.model_dump(mode='json', by_alias=True, exclude_none=True)})

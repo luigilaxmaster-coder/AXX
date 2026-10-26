@@ -21,12 +21,22 @@ def _adapter(title, kind, risk, description, *, approval=False):
     if kind == 'navigate':
         parameters |= {'command_id': {'type': 'string', 'required': True, 'maxLength': 100},
                        'url': {'type': 'string', 'maxLength': 2048}}
+    if kind == 'browse':
+        parameters['url'] = {'type': 'string', 'required': True, 'maxLength': 2048}
+    if kind in ('hover', 'youtube'):
+        parameters['name' if kind == 'hover' else 'query'] = {'type': 'string', 'required': True, 'maxLength': 500}
     return {'title': title, 'tool': 'application_' + kind, 'risk': risk,
             'requires_approval': approval, 'parameters': parameters, 'aliases': [],
             'description': description}
 
 
 ADAPTERS = {
+    'axx.app.browse': _adapter('Navegar en el navegador solicitado', 'browse', 'local_state',
+        'Abre si hace falta y navega en una ventana única del navegador; verifica su barra de direcciones.'),
+    'axx.app.hover': _adapter('Mover cursor sobre un elemento por nombre', 'hover', 'local_content_read',
+        'Lee la ventana solicitada, localiza una etiqueta visible única y verifica el cursor mediante el broker.'),
+    'axx.app.youtube': _adapter('Reproducir un resultado identificado en YouTube', 'youtube', 'local_content_read',
+        'Busca la canción, selecciona un resultado observado por título y comprueba identidad y avance del reproductor.'),
     'axx.app.catalog': _adapter('Aplicaciones y comandos disponibles', 'catalog', 'read',
         'Inventario real de Windows y perfiles con instrucciones. La instalación no acredita compatibilidad ni ejecución de todas sus acciones.'),
     'axx.app.open': _adapter('Abrir aplicación exacta', 'open', 'desktop_open',
@@ -121,9 +131,11 @@ def _command(inputs):
     return command
 
 
-def _observe(window, cancelled):
+def _observe(window, cancelled, browser=False):
     from .desktop_observation import observe_desktop
-    result = observe_desktop(window['window_id'], window['pid'], cancelled=cancelled)
+    result = (uia.inspect_browser_controls(window['window_id'], window['pid'], cancelled=cancelled) if browser
+              else observe_desktop(window['window_id'], window['pid'], cancelled=cancelled))
+    if browser: result['quality'] = 'unobservable' if result['observation'].get('minimized') else 'truncated' if result.get('truncated') else 'complete'
     if result.get('truncated') or result.get('quality') != 'complete':
         raise ValueError('La observación está truncada o no es accesible.')
     if result['observation'].get('process_started') != window['process_started']:
@@ -201,6 +213,12 @@ class ApplicationTool:
                 raise ValueError('window_id y pid deben indicarse juntos.')
             if self.kind == 'navigate':
                 _command(inputs)
+            if self.kind == 'browse':
+                validate_url(inputs['url'])
+            if self.kind in ('browse', 'youtube'):
+                profile = _profile(inputs['application'])
+                if not profile or not any(c['kind'] == 'navigate' for c in profile['commands']):
+                    raise ValueError('La aplicación no tiene navegación verificable.')
             return True, 'Argumentos tipados; identidad y controles se comprueban antes de actuar.'
         except (ValueError, TypeError, UnicodeError) as exc:
             return False, str(exc)
@@ -237,6 +255,9 @@ class ApplicationTool:
                     rows = [row for row in rows if row['window_id'] == inputs['window_id'] and row['pid'] == inputs['pid']]
                 return ToolResult(True, output={'application': inputs['application'], 'profile_id': profile['id'] if profile else None,
                     'windows': rows, 'ambiguous': len(rows) > 1}, evidence={'verification': 'application_window_inventory', 'count': len(rows), 'effect_executed': False})
+            if self.kind in ('browse', 'hover', 'youtube'):
+                from .browser_tasks import execute
+                return execute(self, inputs, workspace_root, cancelled, runtime)
             profile, window = _select_window(inputs)
             target = {'window_id': hex(window['window_id']), 'pid': window['pid']}
             if self.kind in ('focus', 'inspect', 'close'):
@@ -264,7 +285,7 @@ class ApplicationTool:
                 if current['process_started'] != window['process_started']:
                     raise ValueError('Cambió el proceso antes de adquirir entrada.')
                 uia.focus_window(window['window_id'], window['pid'], control=control)
-                observed = _observe(window, control)
+                observed = _observe(window, control, browser=command['kind'] == 'navigate')
                 if command['kind'] == 'shortcut':
                     output = _input(window, observed, 'hotkey', control, keys=command['keys'])
                     return ToolResult(**output)
@@ -280,7 +301,7 @@ class ApplicationTool:
         try:
             dispatched = True
             _input(window, observed, 'hotkey', control, keys=['Control', 'L'])
-            observed = _observe(window, control)
+            observed = _observe(window, control, browser=True)
             candidates = _address_bars(observed, command)
             focused = [row for row in candidates if row.get('control_id') == observed.get('focused_control_id')]
             if len(focused) != 1:
@@ -288,7 +309,7 @@ class ApplicationTool:
                     f'Barras compatibles: {len(candidates)}; foco UIA presente: {bool(observed.get("focused_control_id"))}.')
             uia.set_control_value(window['window_id'], window['pid'], focused[0]['control_id'], inputs['url'],
                                   cancelled=control, expected_title=window['title'])
-            observed = _observe(window, control)
+            observed = _observe(window, control, browser=True)
             current = next((row for row in observed['controls'] if row.get('control_id') == focused[0]['control_id']), None)
             if not current or observed.get('focused_control_id') != current['control_id']:
                 raise ValueError('La barra de direcciones perdió el foco antes de navegar.')
@@ -297,7 +318,7 @@ class ApplicationTool:
             if not _same_url(readback['value'], inputs['url']):
                 raise ValueError('La barra de direcciones no confirmó la URL antes de navegar.')
             _input(window, observed, 'hotkey', control, keys=['Enter'])
-            observed = _observe(window, control)
+            observed = _observe(window, control, browser=True)
             matches = _address_bars(observed, command)
             if len(matches) != 1:
                 raise ValueError('La navegación se entregó, pero no se confirmó una URL única después.')
@@ -320,6 +341,9 @@ class ApplicationTool:
             valid = result.success and result.evidence.get('verification') in ('application_inventory_and_profiles', 'application_window_inventory')
         elif self.kind == 'navigate':
             valid = result.success and result.evidence.get('verification') == 'application_url_readback'
+        elif self.kind in ('browse', 'hover', 'youtube'):
+            expected = {'browse': 'application_url_readback', 'hover': 'cursor_readback', 'youtube': 'youtube_player_progress'}[self.kind]
+            valid = result.success and result.evidence.get('verification') == expected
         else:
             from .tools import DesktopTool
             kind = {'open': 'installed_app', 'focus': 'focus_window', 'inspect': 'inspect_window', 'close': 'close_window'}[self.kind]
@@ -327,7 +351,7 @@ class ApplicationTool:
         return bool(valid), 'Resultado observado de la aplicación' if valid else 'El efecto de la aplicación aún no está verificado.'
 
 
-TOOLS = {tool.name: tool for tool in (ApplicationTool(kind) for kind in ('catalog', 'open', 'windows', 'focus', 'inspect', 'close', 'navigate'))}
+TOOLS = {tool.name: tool for tool in (ApplicationTool(kind) for kind in ('catalog', 'open', 'windows', 'focus', 'inspect', 'close', 'navigate', 'browse', 'hover', 'youtube'))}
 
 
 def resolve_application_command(text):

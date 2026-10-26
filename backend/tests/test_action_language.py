@@ -10,8 +10,6 @@ class ActionLanguageTests(unittest.TestCase):
             'abre youtube y buscame un video de gatitos':('youtube','un video de gatitos'),
             '/search youtube afraid':('youtube','afraid'),
             'busca afraid':('google','afraid'),
-            'ponme afraid the theneihborrhod':('youtube','afraid the theneihborrhod'),
-            'reproduce una canción de The Neighbourhood':('youtube','una canción de The Neighbourhood'),
             'puedes buscar en youtube vídeos de gatos':('youtube','vídeos de gatos'),
             'abre Google y busca conversión de unidades':('google','conversión de unidades'),
         }
@@ -50,12 +48,12 @@ class ActionLanguageTests(unittest.TestCase):
 
     def test_recent_spoken_commands_keep_the_requested_destination(self):
         self.assertEqual(resolve_desktop('abre yotube','voice')['inputs'],{'url':'https://www.youtube.com/'})
-        self.assertEqual(resolve_desktop('en chrome busca youtube','voice')['inputs'],{'engine':'google','query':'youtube'})
-        self.assertEqual(resolve_desktop('And Chrome. Busca YouTube.','voice')['inputs'],{'engine':'google','query':'YouTube'})
+        self.assertEqual(resolve_desktop('en chrome busca youtube','voice')['inputs'],{'application':'chrome','url':'https://www.google.com/search?q=youtube'})
+        self.assertEqual(resolve_desktop('And Chrome. Busca YouTube.','voice')['inputs'],{'application':'chrome','url':'https://www.google.com/search?q=YouTube'})
         self.assertIsNone(resolve_desktop('And Chrome. Busca YouTube.','text'))
-        self.assertEqual(resolve_desktop('En Chrome Bosca YouTube.','voice')['inputs'],{'engine':'google','query':'YouTube'})
+        self.assertEqual(resolve_desktop('En Chrome Bosca YouTube.','voice')['inputs'],{'application':'chrome','url':'https://www.google.com/search?q=YouTube'})
         self.assertIsNone(resolve_desktop('En Chrome Bosca YouTube.','text'))
-        self.assertEqual(resolve_desktop('busca en Chrome Obsidian','voice')['inputs'],{'engine':'google','query':'Obsidian'})
+        self.assertEqual(resolve_desktop('busca en Chrome Obsidian','voice')['inputs'],{'application':'chrome','url':'https://www.google.com/search?q=Obsidian'})
         result=resolve_desktop('ponme en spotify faint de linkinpark','voice')
         self.assertEqual(result['command_id'],'axx.desktop.open_url')
         self.assertEqual(result['inputs']['url'],'https://open.spotify.com/search/faint%20de%20linkinpark')

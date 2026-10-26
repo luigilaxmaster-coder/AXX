@@ -21,7 +21,7 @@ VERBS = {
 FORM = {word: verb for verb, words in VERBS.items() for word in words}
 VOICE_VERBS = {'habre': 'abre', 'avre': 'abre', 'bosca': 'busca', 'vusca': 'busca',
                'reprogoce': 'reproduce', 'reprodose': 'reproduce'}
-TARGETS = {'you tube': 'youtube', 'google chrome': 'chrome', 'chat gpt': 'chatgpt'}
+TARGETS = {'you tube': 'youtube', 'yotube': 'youtube', 'yotune': 'youtube', 'google chrome': 'chrome', 'chat gpt': 'chatgpt'}
 VOICE_TARGETS = {'yotube': 'youtube', 'yutube': 'youtube', 'yu tube': 'youtube',
                  'crom': 'chrome', 'gugle': 'google', 'espotifai': 'spotify',
                  'espotify': 'spotify', 'spatifi': 'spotify', 'obsedia': 'obsidian'}

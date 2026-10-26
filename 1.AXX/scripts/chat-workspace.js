@@ -205,6 +205,7 @@
         const label=document.createElement('strong');label.textContent=({awaiting_approval:'TU APROBACIÓN',prepared:'ACCIÓN PREPARADA',running:'EN CURSO',paused:'PAUSADO',pausing:'PAUSA SOLICITADA',interrupted:'INTERRUMPIDO',unknown:'RESULTADO POR COMPROBAR',preparing:'PREPARANDO',succeeded:'COMPLETADO Y VERIFICADO',failed:'NO SE COMPLETÓ',blocked:'ACCIÓN BLOQUEADA',cancelled:'CANCELADO',expired:'APROBACIÓN VENCIDA'})[op.state]||op.state;if(op.state==='succeeded'&&!op.postconditions_passed)label.textContent='RESULTADO RECIBIDO';box.append(label);
         const detail=document.createElement('p');detail.textContent=(op.title||lib.commands?.find(c=>c.id===op.command_id)?.title||op.command_id||'Comando')+(op.conversation_id&&op.conversation_id!==active?.id?' · de otro chat':'');box.append(detail);
         const parameters=op.steps?.length?op.steps:op.inputs||{};
+        if(op.goal_spec){const goal=document.createElement('p');goal.textContent='Objetivo: '+op.goal_spec.intent;box.append(goal);}
         if(Object.keys(parameters).length){const args=document.createElement('pre');args.textContent=JSON.stringify(parameters,null,2);box.append(args);}
         if(op.conversation_id&&op.conversation_id!==active?.id)box.append(button('Ir al chat de origen',()=>select(op.conversation_id)));
         if(!terminal&&op.state==='prepared'){const b=button('Ejecutar acción preparada',()=>lib.execute(true));b.className='cw-primary';box.append(b);}
@@ -215,6 +216,11 @@
             box.append(progress);
             if(['running','awaiting_approval'].includes(op.state))box.append(button('Pausar tarea',()=>lib.pausePlan()));
             if(['paused','interrupted'].includes(op.state))box.append(button('Retomar tarea',()=>lib.resumePlan()));
+            if(op.state==='waiting_capability'){
+                const note=document.createElement('p');note.textContent=op.message||'La tarea espera la capacidad en construcción.';box.append(note);
+                if(op.capability_build?.id)box.append(button('Revisar capacidad de esta tarea',()=>Axx.capabilityWorkshop?.openTask(op)));
+                box.append(button('Comprobar y retomar objetivo',()=>lib.resumePlan()));
+            }
             if(op.state==='pausing')progress.textContent+=' · pausa al terminar el paso actual';
         }
         if(op.state==='unknown'){

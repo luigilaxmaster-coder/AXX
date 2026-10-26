@@ -131,7 +131,7 @@ def _validate_window_ref(window_id, pid):
 
 def resolve_desktop(text, source, context=None):
     context = {} if context is None else context
-    if not isinstance(context, dict) or set(context)-{'engine','query','url'}:
+    if not isinstance(context, dict) or set(context)-{'engine','query','url','application'}:
         raise ValueError('Contexto de acción inválido.')
     if any(not isinstance(v,str) or len(v)>2048 for v in context.values()):
         raise ValueError('Contexto de acción inválido.')
@@ -139,7 +139,23 @@ def resolve_desktop(text, source, context=None):
         engine = 'google' if engine == 'internet' else engine
         inputs = {'engine':engine,'query':query.strip()}
         validate_inputs('search', inputs)
+        if context.get('application') == 'chrome':
+            base, param = ENGINES[engine]
+            return browse_result(base + '?' + urlencode({param: inputs['query']}))
         return {'match':'exact','command_id':'axx.desktop.search','inputs':inputs}
+    def browse_result(url):
+        return {'match':'exact','command_id':'axx.app.browse','inputs':{'application':'chrome','url':validate_url(url)}}
+    def music_query(query):
+        query = re.sub(r'^(?:(?:una|un|la|el)\s+)?(?:canci[oó]n|cncion|m[uú]sica|tema|v[ií]deo)\s+', '', query.strip(), flags=re.I)
+        return re.sub(r'^(?:la\s+canci[oó]n\s+|de\s+)', '', query, flags=re.I).strip(' .!?')
+    def play_result(query):
+        query = music_query(query or '')
+        if not query or plain(query) in ('la cancion','cancion','esa cancion','esa','ese video','el video'):
+            query = context.get('query', '') if context.get('engine') == 'youtube' else ''
+        if not query:
+            return {'match':'needs_input','message':'¿Qué canción o vídeo quieres reproducir? No hay una búsqueda de YouTube en esta conversación.'}
+        validate_inputs('search', {'engine':'youtube','query':query})
+        return {'match':'exact','command_id':'axx.app.youtube','inputs':{'application':'chrome','query':query}}
     missing = {'match':'needs_input','message':'¿Qué quieres buscar? Puedes decir «busca gatitos en YouTube».'}
     shell = re.fullmatch(r'(?:/powershell\s+|ejecuta\s+en\s+powershell:\s*)(.+)', text.strip(), re.I | re.S)
     if shell:
@@ -150,6 +166,12 @@ def resolve_desktop(text, source, context=None):
     if cmd:
         return {'match': 'exact', 'command_id': 'axx.shell.cmd', 'inputs': {'script': cmd[1]}}
     raw = command_text(text, source)
+    followup = plain(raw).strip(' .!?')
+    if followup in ('reproducela', 'reproducelo', 'reproduce la cancion', 'reproduce esa cancion', 'reproduce el video', 'reproduce ese video'):
+        return play_result(None)
+    hover = re.fullmatch(r'(?:mueve|mover|pon|poner|coloca|colocar)\s+(?:el\s+)?(?:mouse|rat[oó]n|cursor|puntero)\s+(?:sobre|en)\s+(.+?)\s+en\s+([\w .-]{2,100})[.!?]*', raw, re.I)
+    if hover:
+        return {'match':'exact','command_id':'axx.app.hover','inputs':{'application':target_name(hover[2],source),'name':hover[1]}}
     desktop_app = re.fullmatch(r'(?:busca|encuentra|localiza)\s+(.+?)\s+en (?:mi|el) escritorio y (?:abrelo|ábrelo|abrela|ábrela)[.!?]*', raw, re.I)
     if desktop_app:
         if not re.fullmatch(r'[\w\s-]{2,100}', desktop_app[1], re.UNICODE):
@@ -220,8 +242,16 @@ def resolve_desktop(text, source, context=None):
     engine_pattern = r'(youtube|google|bing|duckduckgo|internet)'
     chrome_search = re.fullmatch(r'(?:en\s+(?:google\s+)?chrome\s+busca|busca\s+en\s+(?:google\s+)?chrome)\s+(.+?)[.!?]*', raw, re.I)
     if chrome_search:
-        return search_result('google', chrome_search[1])
+        return browse_result(ENGINES['google'][0] + '?' + urlencode({'q':chrome_search[1]}))
     if re.fullmatch(r'en\s+chrome\s+busca\s*', raw, re.I):return missing
+    chrome_compound = re.fullmatch(r'abre\s+(?:google\s+)?chrome\s*(?:,|y)\s*(?:busca|abre|entra\s+a)\s+(.+?)[.!?]*',raw,re.I)
+    if chrome_compound:
+        rest = chrome_compound[1]
+        site = plain(target_name(rest, source))
+        if site in SITES:
+            return browse_result(SITES[site])
+        resolved = resolve_desktop('busca '+rest, source, dict(context, application='chrome'))
+        return resolved
     # Compound open+search is a single typed URL action, not two unrelated effects.
     compound = re.fullmatch(r'(?:abre|abrir|abreme|ábreme)\s+'+engine_pattern+r'\s+y\s+(?:busca|buscar|buscame|búscame)(?:\s+(.+))?',raw,re.I)
     if compound:return search_result(compound[1].lower(),compound[2]) if compound[2] else missing
@@ -260,8 +290,19 @@ def resolve_desktop(text, source, context=None):
                 'inputs':{'url':validate_url('https://open.spotify.com/search/'+quote(query,safe=''))}}
     if re.match(r'^(?:ponme|pon|reproduce|reproducir|escuchar|busca|buscar|buscame|búscame)\b', raw, re.I) and 'spotify' in plain(raw):
         return {'match':'needs_input','message':'¿Qué canción o artista quieres en Spotify? Indica el título para abrir su búsqueda.'}
-    music = re.fullmatch(r'(?:ponme|pon|reproduce|reproducir|escuchar)(?:\s+(.+))?',raw,re.I)
-    if music:return search_result('youtube',music[1]) if music[1] else missing
+    media_search = re.fullmatch(r'busca\s+en\s+youtube\s+(.+)', raw, re.I)
+    if media_search:
+        return search_result('youtube', music_query(media_search[1]))
+    music = re.fullmatch(r'(ponme|pon|reproduce|reproducir|escuchar)(?:\s+(.+))?',raw,re.I)
+    if music:
+        query = music[2] or ''
+        media_slot = re.fullmatch(r'(?:en\s+youtube\s+(.+)|(.+?)\s+en\s+youtube)[.!?]*', query, re.I)
+        if media_slot:
+            return play_result(media_slot[1] or media_slot[2])
+        if not query:return missing
+        if plain(music[1]) in ('reproduce','reproducir','escuchar','ponme') or re.match(r'(?:(?:la|una|el|un)\s+)?(?:canci[oó]n|m[uú]sica|tema|video)\b',query,re.I):
+            return play_result(query)
+        return None
     music_search = re.fullmatch(r'(?:busca|buscar|buscame|búscame)\s+(?:(?:una|un|la|el)\s+)?(?:musica|música|cancion|canción|tema)\s+(?:de\s+)?(.+)', raw, re.I)
     if music_search:return search_result('youtube', music_search[1])
     # Preserve URL case and query punctuation. Only trim sentence marks for named targets.

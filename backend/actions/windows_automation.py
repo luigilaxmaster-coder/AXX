@@ -372,6 +372,11 @@ def inspect_controls(window_id, expected_pid, cancelled=None):
                  'pid': _positive_int(expected_pid, 'pid')}, cancelled=cancelled)
 
 
+def inspect_browser_controls(window_id, expected_pid, cancelled=None):
+    return _uia({'operation': 'inspect_browser', 'window_id': _positive_int(window_id, 'window_id'),
+                 'pid': _positive_int(expected_pid, 'pid')}, cancelled=cancelled)
+
+
 def find_control(window_id, expected_pid, name, cancelled=None):
     """Resolve an exact semantic button label; abstain on incomplete/ambiguous trees."""
     if not isinstance(name, str) or not name.strip() or len(name) > 200:
@@ -520,7 +525,7 @@ def _uia(payload, cancelled=None, timeout=None):
     env['AXX_UIA_WORKER'] = str(script.resolve())
     started_at = time.time()
     started_monotonic = time.monotonic()
-    observing = payload['operation'] in ('inspect', 'read_content', 'scrape_app', 'locate_edit')
+    observing = payload['operation'] in ('inspect', 'inspect_browser', 'read_content', 'scrape_app', 'locate_edit')
     geometry = observe_geometry(payload['window_id']) if observing else None
     try:
         process = subprocess.Popen([str(executable), '-NoLogo', '-NoProfile', '-NonInteractive', '-MTA',

@@ -240,7 +240,7 @@ class ApplicationToolTests(unittest.TestCase):
         observed = [observation('', sequence=index, controls=[dict(ADDRESS, name='Address and search bar ', value='')])
                     for index in range(1, 5)]
         with owned_windows(), patch.object(apps.uia, 'focus_window'), \
-                patch('backend.actions.desktop_observation.observe_desktop', side_effect=observed), \
+                patch.object(apps.uia, 'inspect_browser_controls', side_effect=observed), \
                 patch('backend.actions.desktop_input.execute_action', return_value={'success': True}) as action, \
                 patch.object(apps.uia, 'read_control_value', return_value={'value': inputs['url']}) as read, \
                 patch.object(apps.uia, 'set_control_value') as write:
@@ -259,7 +259,7 @@ class ApplicationToolTests(unittest.TestCase):
             self.assertEqual((owner.acquisitions, owner.releases), (1, 1))
         for unsafe_observation in [observation(focused='other-control'), observation(controls=[dict(ADDRESS, read_only=True)]), observation(birth='replacement')]:
             with self.subTest(observation=unsafe_observation), owned_windows(), patch.object(apps.uia, 'focus_window'), \
-                    patch('backend.actions.desktop_observation.observe_desktop', side_effect=[observation(), unsafe_observation]), \
+                    patch.object(apps.uia, 'inspect_browser_controls', side_effect=[observation(), unsafe_observation]), \
                     patch('backend.actions.desktop_input.execute_action', return_value={'success': True}) as action, \
                     patch.object(apps.uia, 'set_control_value') as write:
                 result = self.run_tool('navigate', inputs, InputOwner())
@@ -273,7 +273,7 @@ class ApplicationToolTests(unittest.TestCase):
             requested = scheme + '://example.com:8443/path?q=owned#section'
             inputs = {'application': 'chrome', 'command_id': 'navigate', 'url': requested}
             with self.subTest(scheme=scheme), owned_windows(), patch.object(apps.uia, 'focus_window'), \
-                    patch('backend.actions.desktop_observation.observe_desktop', side_effect=[observation('') for _ in range(4)]), \
+                    patch.object(apps.uia, 'inspect_browser_controls', side_effect=[observation('') for _ in range(4)]), \
                     patch('backend.actions.desktop_input.execute_action', return_value={'success': True}), \
                     patch.object(apps.uia, 'set_control_value'), \
                     patch.object(apps.uia, 'read_control_value', side_effect=[{'value': requested}, {'value': requested.split('://', 1)[1]}]):
@@ -291,7 +291,7 @@ class ApplicationToolTests(unittest.TestCase):
         ambiguous = observation('', controls=[dict(ADDRESS, value=''),
             dict(ADDRESS, control_id='b' * 64, name='Address and search bar ', value='')])
         with owned_windows(), patch.object(apps.uia, 'focus_window'), \
-                patch('backend.actions.desktop_observation.observe_desktop', side_effect=[observation(''), observation(''), observation(''), ambiguous]), \
+                patch.object(apps.uia, 'inspect_browser_controls', side_effect=[observation(''), observation(''), observation(''), ambiguous]), \
                 patch('backend.actions.desktop_input.execute_action', return_value={'success': True}) as action, \
                 patch.object(apps.uia, 'set_control_value'), \
                 patch.object(apps.uia, 'read_control_value', return_value={'value': inputs['url']}) as read:
@@ -304,7 +304,7 @@ class ApplicationToolTests(unittest.TestCase):
     def test_navigation_does_not_press_enter_after_wrong_value_readback(self):
         inputs = {'application': 'chrome', 'command_id': 'navigate', 'url': 'https://example.com/requested'}
         with owned_windows(), patch.object(apps.uia, 'focus_window'), \
-                patch('backend.actions.desktop_observation.observe_desktop', side_effect=[observation(), observation(), observation('https://other.example/')]), \
+                patch.object(apps.uia, 'inspect_browser_controls', side_effect=[observation(), observation(), observation('https://other.example/')]), \
                 patch('backend.actions.desktop_input.execute_action', return_value={'success': True}) as action, \
                 patch.object(apps.uia, 'set_control_value'), \
                 patch.object(apps.uia, 'read_control_value', return_value={'value': 'https://other.example/'}):
@@ -316,7 +316,7 @@ class ApplicationToolTests(unittest.TestCase):
     def test_navigation_keeps_unknown_after_enter_when_explicit_bar_readback_differs(self):
         inputs = {'application': 'chrome', 'command_id': 'navigate', 'url': 'https://example.com/requested'}
         with owned_windows(), patch.object(apps.uia, 'focus_window'), \
-                patch('backend.actions.desktop_observation.observe_desktop', side_effect=[observation('') for _ in range(4)]), \
+                patch.object(apps.uia, 'inspect_browser_controls', side_effect=[observation('') for _ in range(4)]), \
                 patch('backend.actions.desktop_input.execute_action', return_value={'success': True}) as action, \
                 patch.object(apps.uia, 'set_control_value'), \
                 patch.object(apps.uia, 'read_control_value', side_effect=[{'value': inputs['url']}, {'value': 'https://other.example/'}]) as read:

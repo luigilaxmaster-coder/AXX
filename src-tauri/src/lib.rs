@@ -246,7 +246,7 @@ fn backend_timeout_seconds(path: &str) -> u64 {
         || path == "/axx-api/commands/cancel"
     {
         3
-    } else if matches!(path, "/axx-api/actions/execute" | "/axx-api/commands/execute") {
+    } else if matches!(path, "/axx-api/actions/execute" | "/axx-api/commands/execute" | "/axx-api/learning/propose") {
         150
     } else if matches!(path, "/axx-api/learning/execute" | "/axx-api/learning/resume") {
         1000
@@ -1234,6 +1234,7 @@ mod tests {
     #[test]
     fn long_actions_fit_worker_deadlines_without_delaying_stop() {
         assert!(backend_timeout_seconds("/axx-api/commands/execute") > 120);
+        assert!(backend_timeout_seconds("/axx-api/learning/propose") > 140);
         assert!(backend_timeout_seconds("/axx-api/learning/execute") > 8 * 120);
         assert_eq!(backend_timeout_seconds("/axx-api/commands/cancel"), 3);
         assert_eq!(backend_timeout_seconds("/axx-api/status"), 3);

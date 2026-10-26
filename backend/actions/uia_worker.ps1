@@ -10,7 +10,7 @@ try {
     Add-Type -AssemblyName UIAutomationClient
     Add-Type -AssemblyName UIAutomationTypes
     $request = [Console]::In.ReadToEnd() | ConvertFrom-Json -ErrorAction Stop
-    if ($null -eq $request -or $request.operation -notin @('inspect', 'read_content', 'locate_edit', 'set_value', 'invoke', 'check_value', 'locate_folder', 'scrape_app', 'set_state', 'read_grid', 'read_value')) {
+    if ($null -eq $request -or $request.operation -notin @('inspect', 'inspect_browser', 'read_content', 'locate_edit', 'set_value', 'invoke', 'check_value', 'locate_folder', 'scrape_app', 'set_state', 'read_grid', 'read_value')) {
         throw 'Operación UI Automation desconocida.'
     }
     if ($request.operation -eq 'locate_folder') {
@@ -110,7 +110,7 @@ try {
         exit 0
     }
 
-    if ($request.operation -in @('inspect', 'read_content', 'scrape_app')) {
+    if ($request.operation -in @('inspect', 'inspect_browser', 'read_content', 'scrape_app')) {
         $reading = $request.operation -eq 'read_content'
         $scraping = $request.operation -eq 'scrape_app'
         $remaining = 24000
@@ -129,8 +129,15 @@ try {
             $scope = $matching[0]
         }
         $items = [System.Collections.Generic.List[object]]::new()
-        $all = $scope.FindAll([System.Windows.Automation.TreeScope]::Subtree,
-            [System.Windows.Automation.Condition]::TrueCondition)
+        if ($request.operation -eq 'inspect_browser') {
+            $all = $root.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+                [System.Windows.Automation.OrCondition]::new(
+                    [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Edit),
+                    [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::ComboBox)))
+        } else {
+            $all = $scope.FindAll([System.Windows.Automation.TreeScope]::Subtree,
+                [System.Windows.Automation.Condition]::TrueCondition)
+        }
         $protected = $scope.FindFirst([System.Windows.Automation.TreeScope]::Subtree,
             [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::IsPasswordProperty, $true))
         $maxAllowed = if ($scraping) { 1000 } elseif ($reading) { 1000 } else { 250 }

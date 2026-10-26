@@ -14,7 +14,7 @@
         return text.replace(/^(?:quiero|necesito|quisiera|me gustaria)\s+(?=abrir|iniciar|cerrar|buscar|escuchar|reproducir|mover|leer|pulsar)/,'').replace(/[.!?]+$/,'').replace(/\s+por favor$/,'').trim();
     };
     class CommandLibrary {
-        generation = 0; searchGeneration = 0; observationRevision = 0; cancellingGeneration = null; busy = false; operation = null; pendingOperationId = null; commands = []; voiceDraft = null; actionContext = {};
+        generation = 0; searchGeneration = 0; observationRevision = 0; cancellingGeneration = null; busy = false; operation = null; pendingOperationId = null; commands = []; voiceDraft = null; actionContext = {}; actionContextChat = ''; actionContextAt = 0;
         constructor() {
             this.installControls();
             this.installDispatch();
@@ -256,8 +256,9 @@
         isActionRequest(raw) {
             const text=requestWords(raw)
                 .replace(/^(?:en|and)\s+(?:(?:google\s+)?chrome|crom|youtube|you tube|yutube|google|gugle|bing|duckduckgo|spotify)[,.:]?\s+(?:busca|buscar|buscame|bosca|vusca|encuentra|encontrar|localiza)\b/,'busca');
+            if (/^(?:con\s+.{1,300}?\s+)?(?:hazme|preparame|generame)\s+(?:una?|la|el)\s+(?:lamina|excel|carpeta|pdf|archivo|tabla|informe)\b/.test(text)) return true;
             if (/^(?:habre|avre|lanza|lanzar|arranca|iniciar|cerrarme|cierres|buscarme|busques|bosca|vusca|escucha|reproduzcas|reprogoce|reprodose|mover|moverme|mueveme|muevas|colocar|colocame|pulsar|pulses|enfoques|leeme|leas)\b/.test(text)) return true;
-            return /^(?:\/(?:search|buscar|comando|powershell|cmd)\b|en\s+(?:google\s+)?chrome\s+busca\b|mis\s+ventanas\b|(?:lista|muestra)\s+(?:mis\s+)?(?:ventanas|aplicaciones)\b|(?:haz|repite|usa|saca|abre|abrir|abrirme|abras|abreme|abrela|abrelo|cierra|cerrar|cierrame|salir|inicia|ejecuta|busca|buscar|buscame|encuentra|localiza|observa|inspecciona|lee|leer|enfoca|enfocar|ponme|pon|reproduce|reproducir|escuchar|prepara|organiza|crea|crear|convierte|mueve|pulsa|presiona|clic|teclea|pega|selecciona|desplaza|navega|copia|renombra|comprime|extrae|descarga|instala|borra|elimina|envia|publica)\b|escribe\s+(?:en|dentro\s+de)\b)/.test(text);
+            return /^(?:\/(?:search|buscar|comando|powershell|cmd)\b|en\s+(?:google\s+)?chrome\s+busca\b|mis\s+ventanas\b|(?:lista|muestra)\s+(?:mis\s+)?(?:ventanas|aplicaciones)\b|(?:haz|repite|usa|saca|abre|abrir|abrirme|abras|abreme|abrela|abrelo|cierra|cerrar|cierrame|salir|inicia|ejecuta|busca|buscar|buscame|encuentra|localiza|observa|inspecciona|lee|leer|enfoca|enfocar|ponme|pon|reproduce|reproducela|reproducelo|reproducir|escuchar|prepara|organiza|crea|crear|convierte|mueve|pulsa|presiona|clic|teclea|pega|selecciona|desplaza|navega|copia|renombra|comprime|extrae|descarga|instala|borra|elimina|envia|publica)\b|escribe\s+(?:en|dentro\s+de)\b)/.test(text);
         }
         internalAction(raw) {
             const plain = value => String(value).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
@@ -454,6 +455,7 @@
                 this.voiceDraft = null;
                 const serial = ++this.generation; let prepared = false; this.busy = true;
                 try {
+                    if (this.actionContextChat !== (origin || '') || Date.now() - this.actionContextAt > 600000) this.actionContext = {};
                     const resolved = await this.request('POST', '/axx-api/commands/resolve', { text: raw, source, context: this.actionContext, project_id:Axx.skillLibrary?.project() || '' });
                     if (serial !== this.generation) return;
                     this.busy = false;
@@ -468,7 +470,7 @@
                     if (resolved.match === 'unsupported') {
                         Axx.companion.message('user', raw, 'local');
                         Axx.companion.localNotice(resolved.message || 'No encontré una acción ejecutable para esa petición.');
-                        if (this.isActionRequest(raw)) await Axx.capabilityWorkshop?.propose(raw);
+                        if (this.isActionRequest(raw)) await this.planAction(raw);
                         return;
                     }
                     if (resolved.match === 'none') {
@@ -638,13 +640,28 @@
                     } else if (ev.name && ev.pid) detail = ` (${ev.name}, PID ${ev.pid})`;
                 }
                 let message = verified ? 'Comando completado y verificado: ' + result.command_id + detail + '.' : result.state === 'cancelled' ? 'Comando cancelado. No se marcó como completado.' : 'Comando sin éxito verificado: ' + errorText(result.error || result.state) + '.';
+                const contextOrigin = operation.conversation_id || Axx.chatWorkspace?.active?.id || '';
+                const remember = context => {
+                    if (contextOrigin !== (Axx.chatWorkspace?.active?.id || '')) return;
+                    this.actionContext = context; this.actionContextChat = contextOrigin; this.actionContextAt = Date.now();
+                };
+                if (verified && result.command_id === 'axx.app.browse') {
+                    const url = new URL(operation.inputs.url), engine = url.hostname.replace(/^www\./, '') === 'youtube.com' ? 'youtube' : 'google';
+                    remember({application:operation.inputs.application, engine, url:url.href, ...(url.searchParams.get(engine === 'youtube' ? 'search_query' : 'q') ? {query:url.searchParams.get(engine === 'youtube' ? 'search_query' : 'q')} : {})});
+                    message = 'Navegué en Chrome y comprobé la dirección: ' + result.output.url + '. El contenido de la página todavía no está verificado.';
+                }
+                if (verified && result.command_id === 'axx.app.youtube') {
+                    remember({application:operation.inputs.application,engine:'youtube',query:operation.inputs.query,url:result.output.url});
+                    message = 'Reproduciendo «' + result.output.video_title + '». Comprobé el avance del reproductor.';
+                }
+                if (verified && result.command_id === 'axx.app.hover') message = 'Moví el mouse sobre «' + operation.inputs.name + '» y comprobé su posición.';
                 if (result.state === 'succeeded' && result.evidence?.verification === 'os_handoff') {
                     const target=result.evidence.target;
-                    if(result.command_id==='axx.desktop.search')this.actionContext={engine:operation.inputs.engine,query:operation.inputs.query,url:target};
+                    if(result.command_id==='axx.desktop.search')remember({engine:operation.inputs.engine,query:operation.inputs.query,url:target});
                     else if(result.command_id==='axx.desktop.open_url'){
                         const host=new URL(target).hostname.replace(/^www\./,'');
                         const engine=({'youtube.com':'youtube','google.com':'google','bing.com':'bing','duckduckgo.com':'duckduckgo'})[host];
-                        this.actionContext={url:target,...(engine?{engine}:{})};
+                        remember({url:target,...(engine?{engine}:{})});
                     }
                     if (launchNeedsWindow && !result.output?.ready_for_action) {
                         message = 'Windows aceptó abrir ' + (result.output?.label || result.evidence.target)
@@ -713,7 +730,7 @@
             try {
                 const plan = await this.request('POST', '/axx-api/learning/propose', { text, operation_id:id, context:{...this.actionContext, ...options.context},
                     inputs:options.inputs, project_id:Axx.skillLibrary?.project() || '', selection_mode:prefs.selection_mode || 'manual',
-                    model:prefs.model || '', provider_name:prefs.provider === 'bridge' ? prefs.apiConnection || '' : '' });
+                    model:prefs.model || '', provider_name:prefs.provider === 'chatgpt' ? '@codex' : prefs.provider === 'bridge' ? prefs.apiConnection || '' : '' });
                 if (serial !== this.generation) return;
                 this.lastOperation = plan; this.operation = plan.state === 'awaiting_approval' ? plan : null;
                 this.learningQuestion = plan.state === 'needs_input' ? {request:text,question:plan.message,operation_id:plan.operation_id} : null;
@@ -721,7 +738,8 @@
                 if (this.operation) { if(Axx.chatWorkspace) Axx.companion.openChat(); else this.open(); }
                 this.notice(plan.message || 'No se pudo preparar la acción.', origin);
                 Axx.companion.action(this.operation ? 'approval' : 'idle');
-                if (plan.capability_missing === true && this.isActionRequest(text)) await Axx.capabilityWorkshop?.propose(text);
+                if (plan.state === 'waiting_capability' && plan.capability_build?.id) await Axx.capabilityWorkshop?.openTask(plan);
+                else if (plan.capability_missing === true && this.isActionRequest(text)) await Axx.capabilityWorkshop?.propose(text);
             } catch (error) {
                 if (serial !== this.generation) return;
                 this.operation = null; this.report(error);
