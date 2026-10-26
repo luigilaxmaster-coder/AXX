@@ -1,7 +1,16 @@
 // UI authorization, provider routing, visible status and revocation on chat change.
-const assert=require('node:assert/strict'),path=require('node:path');
+const assert=require('node:assert/strict'),path=require('node:path'),fs=require('node:fs');
 const {chromium}=require(process.env.USERPROFILE+'/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
 (async()=>{
+  const html=fs.readFileSync('1.AXX/Axx.html','utf8'),start=html.indexOf('        async send(raw, options = {}) {'),end=html.indexOf('        runLocal(i) {',start);
+  assert.ok(start>0&&end>start);
+  let visual=true,externalCalls=0,parsed=0;
+  const axx={computerUse:{activeFor:id=>visual&&id==='chat-one'},chatWorkspace:{active:{id:'chat-one'}},parseIntent:()=>{parsed++;return null;}};
+  const send=new Function('Axx','node','return ({'+html.slice(start,end)+'}).send')(axx,()=>({disabled:false}));
+  const companion={pending:false,externalBusy:false,externalCommand:()=>{externalCalls++;return async()=>'local';},attachment:null,brain:{connected:false},
+    app:{stopDemo(){},toast(){}},stopTour(){},stopSpeech(){},message(){return{};},renderChat(){},save(){},sayStatus(){},speakReply(){},action(){},error:e=>e.message};
+  await send.call(companion,'reproduce Faint');assert.equal(externalCalls,0);assert.equal(parsed,0);
+  visual=false;await send.call(companion,'reproduce Faint');assert.equal(externalCalls,1);
   const browser=await chromium.launch({headless:true,executablePath:path.join(process.env.LOCALAPPDATA,'ms-playwright/chromium_headless_shell-1248/chrome-headless-shell-win64/chrome-headless-shell.exe')});
   try{
     const p=await browser.newPage(),errors=[];p.on('pageerror',e=>errors.push(e.message));

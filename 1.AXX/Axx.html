@@ -8889,7 +8889,8 @@ var Axx;
                 this.app.toast('Límite de 10.000 caracteres por mensaje.');
                 return;
             }
-            const external = this.attachment ? null : this.externalCommand?.(raw);
+            const visual = Axx.computerUse?.activeFor(Axx.chatWorkspace?.active?.id);
+            const external = this.attachment || visual ? null : this.externalCommand?.(raw);
             if (external) {
                 this.externalBusy = true;
                 this.stopTour(false);
@@ -8928,7 +8929,7 @@ var Axx;
             this.sayStatus('');
             let intent = null;
             try {
-                intent = this.attachment ? null : Axx.parseIntent(raw);
+                intent = this.attachment || visual ? null : Axx.parseIntent(raw);
             }
             catch (e) {
                 const errText = this.error(e);
