@@ -21,6 +21,13 @@ herramientas Axx conservan admisión, permisos, aprobación y recibos de ejecuci
 - Las órdenes sin coincidencia determinista usan las herramientas de Connect
   cuando ChatGPT está seleccionado. Las coincidencias ambiguas, errores de
   autorización y restricciones explícitas siguen siendo visibles.
+- Las herramientas se publican en el namespace `axx`, con exposición directa y
+  sin carga diferida. Codex 0.160 permite `direct_only_tool_namespaces`; se usa
+  únicamente para `axx` y se mantiene `code_mode_host=false`. Así los modelos
+  cuyo catálogo requiere Code Mode pueden llamar las herramientas de Axx sin
+  activar el host de código. Las conversaciones antiguas conservan su asociación
+  original; la ruta nueva crea una asociación separada y Axx reenvía su contexto
+  local. No se borra el historial.
 - Las tarjetas de modelos separan catálogo, modalidades declaradas, inferencia
   comprobada, herramientas de Axx y motores de voz. Una conexión detectada no se
   etiqueta como inferencia comprobada. Los metadatos se insertan como texto.
@@ -45,6 +52,7 @@ Fuentes consultadas el 26 de octubre de 2026:
 - [Limitaciones del acceso con ChatGPT](https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations)
 - [Conversaciones Realtime e interrupciones](https://developers.openai.com/api/docs/guides/realtime-conversations)
 - [Detección de turnos de voz](https://developers.openai.com/api/docs/guides/realtime-vad)
+- [Configuración oficial de Codex 0.160](https://github.com/openai/codex/blob/rust-v0.160.0/codex-rs/core/config.schema.json)
 
 ## Validación y límites
 

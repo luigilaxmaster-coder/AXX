@@ -970,8 +970,9 @@ class CodexProvider:
             with self.lock:
                 run['usage_permission'] = usage_permission
             with self.lock:
+                # Legacy threads retain their old tool schema; preserve them under their original key.
                 saved = self.db.execute('SELECT * FROM connect_conversations WHERE conversation_id=?',
-                                        (run['conversation_id'],)).fetchone()
+                                        (run['conversation_id'] + ':axx-direct-v1',)).fetchone()
             common = {'model': run['model'], 'modelProvider': 'openai', 'cwd': self.cwd,
                       'approvalPolicy': 'on-request', 'sandbox': 'read-only',
                       'approvalsReviewer': 'user',
@@ -983,7 +984,8 @@ class CodexProvider:
                         'usa axx_execute_action con parámetros observados y comunica el estado real del recibo. '
                         'Si una acción falla, explica el error concreto y la alternativa registrada disponible. '
                         'No solicites credenciales, compras, créditos ni cambios de plan.',
-                      'config': {'features': dict.fromkeys(REQUESTED_DISABLED_FEATURES, False),
+                      'config': {'features': dict(dict.fromkeys(REQUESTED_DISABLED_FEATURES, False),
+                                 code_mode={'enabled': False, 'direct_only_tool_namespaces': ['axx']}),
                                  'web_search': 'disabled', 'mcp_servers': self.disabled_mcp,
                                  'plugins': self.disabled_plugins}}
             if run['purpose'] == 'voice':
@@ -1017,7 +1019,7 @@ class CodexProvider:
                 self.thread_runs[thread_id] = run['request_id']
                 with self.db:
                     self.db.execute('INSERT OR REPLACE INTO connect_conversations VALUES (?,?,?,?)',
-                                    (run['conversation_id'], thread_id, run['model'], time.time()))
+                                    (run['conversation_id'] + ':axx-direct-v1', thread_id, run['model'], time.time()))
                 self._event(run, 'thread/ready', {'thread_id': thread_id, 'resumed': bool(saved)})
             if run['_cancel'].is_set():
                 run['state'] = 'cancelled'

@@ -266,5 +266,8 @@ def tool_descriptors(commands=None):
 
 
 def dynamic_tools(commands=None):
-    return [{'type': 'function', 'name': entry['name'], 'description': entry['description'],
-             'inputSchema': entry['inputSchema']} for entry in tool_descriptors(commands)]
+    return [{'type': 'namespace', 'name': 'axx',
+             'description': 'Herramientas de Axx con permisos y verificación del ejecutor local.',
+             'tools': [{'type': 'function', 'name': entry['name'], 'description': entry['description'],
+                        'inputSchema': entry['inputSchema'], 'deferLoading': False}
+                       for entry in tool_descriptors(commands)]}]

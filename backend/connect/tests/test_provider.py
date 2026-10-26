@@ -236,6 +236,16 @@ class ProviderTests(unittest.TestCase):
         start = next(params for method, params in self.provider.rpc_calls if method == 'thread/start')
         self.assertEqual(start['environments'], [])
 
+    def test_legacy_tool_thread_is_preserved_but_not_resumed(self):
+        with self.provider.db:
+            self.provider.db.execute('INSERT INTO connect_conversations VALUES (?,?,?,?)',
+                                     ('axx-main', 'legacy-flat-tools', 'gpt-6.1-sol', time.time()))
+        self.start(); self.wait_started()
+        self.assertTrue(any(method == 'thread/start' for method, _ in self.provider.rpc_calls))
+        self.assertFalse(any(method == 'thread/resume' for method, _ in self.provider.rpc_calls))
+        old = self.provider.db.execute('SELECT thread_id FROM connect_conversations WHERE conversation_id=?', ('axx-main',)).fetchone()
+        self.assertEqual(old['thread_id'], 'legacy-flat-tools')
+
     def test_restart_marks_unfinished_unknown_and_preserves_idempotence(self):
         self.start(); self.wait_started()
         self.provider.close()
@@ -961,7 +971,9 @@ class ProviderTests(unittest.TestCase):
             for method in ('thread/start', 'thread/resume'):
                 configuration = next(params['config'] for called, params in self.provider.rpc_calls if called == method)
                 self.assertTrue(all(configuration['features'][feature] is False for feature in additional))
-                self.assertEqual(set(configuration['features']), requested)
+                self.assertEqual(set(configuration['features']), requested | {'code_mode'})
+                self.assertEqual(configuration['features']['code_mode'],
+                                 {'enabled': False, 'direct_only_tool_namespaces': ['axx']})
         finally:
             process.terminate(); self.provider.writer.thread.join(1)
             self.provider.process = self.provider.writer = None
