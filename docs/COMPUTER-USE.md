@@ -26,8 +26,9 @@ La captura usa PrintWindow sobre el HWND autorizado dentro del worker acotado de
 Windows. Se comprueban proceso, geometría física, topología y límites antes de
 enviarla. Los puntos visuales se transforman desde la imagen a coordenadas físicas
 y requieren una imagen vigente sin cambios. Los controles semánticos se vuelven
-a resolver. No se controla el escritorio seguro, ventanas elevadas ni terminales
-desde este modo. Una captura negra o no compatible produce un error visible.
+a resolver. Los procesos de terminal conocidos están bloqueados; Windows puede
+rechazar ventanas elevadas o protegidas. Una captura negra o no compatible produce
+un error visible.
 
 Salvo mover el cursor, cada gesto declara una condición de accesibilidad y Axx la
 comprueba después. Un efecto no verificable queda `unknown` y bloquea nuevos
