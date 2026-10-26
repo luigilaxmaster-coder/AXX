@@ -32,7 +32,8 @@ de reiniciar Windows se debe ejecutar `start`.
 
 1. Abre `http://localhost:3000` y completa el primer administrador.
 2. Configura en AnythingMCP el conector de la aplicación/API y su credencial MCP.
-3. En Axx registra `http://127.0.0.1:4000/mcp` con esa credencial, comprueba el
+3. En Axx registra el endpoint del servidor elegido
+   (`http://127.0.0.1:4000/mcp/<id-del-servidor>`) con esa credencial, comprueba el
    catálogo y activa exclusivamente las herramientas revisadas.
 4. Ejecuta una lectura y comprueba su resultado. Una respuesta HTTP de salud no
    acredita autenticación ni ejecución de herramientas.
@@ -47,9 +48,23 @@ El servidor «Axx verificación de lectura» expone un conector REST con un GET
 fijo a los metadatos públicos de `HelpCode-ai/anythingmcp` en la API de GitHub.
 Su clave MCP está acotada a ese servidor y guardada con DPAPI. Axx comprobó el
 catálogo autenticado y activó exclusivamente `axx_gateway_public_repo`; la
-herramienta auxiliar de conocimiento sigue desactivada. La primera lectura
-(`anythingmcp-public-read-20261026`) espera aprobación en Axx: conexión y catálogo
-no acreditan todavía ejecución. La instancia mantiene rechazado el MCP anónimo.
+herramienta auxiliar de conocimiento sigue desactivada. La preparación inicial
+(`anythingmcp-public-read-20261026`) caducó antes de llegar al ejecutor. Tras la
+autorización humana explícita, la misma lectura se preparó como
+`anythingmcp-public-read-20261026-authorized` y terminó con `succeeded` y
+`postconditions_passed=true`. El recibo de ejecución es
+`build/anythingmcp-setup/authorized-call.json`.
+
+La respuesta coincidió con un GET directo en `id=1169252093`,
+`full_name=HelpCode-ai/anythingmcp` y
+`html_url=https://github.com/HelpCode-ai/anythingmcp`. La auditoría de AnythingMCP
+confirmó una única invocación exitosa con los identificadores de herramienta,
+conector y servidor de esta prueba. El recibo conjunto es
+`build/anythingmcp-setup/gateway-verification.json`. Esto acredita el recorrido
+Axx → AnythingMCP → API pública en este caso. En las pruebas negativas,
+`initialize` mediante POST sin credencial devolvió HTTP 401; la misma clave
+contra el servidor predeterminado distinto devolvió HTTP 403. El GET a un
+endpoint MCP específico devuelve HTTP 405 y no acredita autenticación.
 
 ## Ejecución y verificación
 

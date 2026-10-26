@@ -41,9 +41,14 @@ Se conserva CommandService → ActionExecutor, WindowsInput, voz, ajustes y UI 3
   0.22.3. No acredita todas las aplicaciones.
 - AnythingMCP local: Docker en WSL, PostgreSQL privado, imágenes por digest,
   HTTP de salud 200 y MCP anónimo 401. Administrador creado, inicio de sesión y
-  catálogo autenticado verificados; primera lectura pública por gateway pendiente
-  de aprobación de la operación `anythingmcp-public-read-20261026`. La fachada Windows actualmente
-  conecta directamente por MCP, no a través del gateway.
+  catálogo autenticado verificados. La preparación inicial caducó antes del
+  ejecutor; la lectura idéntica autorizada
+  `anythingmcp-public-read-20261026-authorized` terminó con `succeeded` y
+  `postconditions_passed=true`. Una consulta directa confirmó el mismo ID
+  `1169252093`, nombre y URL del repositorio; AnythingMCP registró una única
+  invocación exitosa ligada a la herramienta, conector y servidor de la prueba.
+  Recibo: `build/anythingmcp-setup/gateway-verification.json`. La fachada Windows
+  actualmente conecta directamente por MCP, no a través del gateway.
 - Instrucciones y límites: [MCP-LOCAL.md](MCP-LOCAL.md).
 
 ## Evidencia
