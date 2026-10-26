@@ -68,6 +68,7 @@ const {chromium} = createRequire(path.join(process.env.USERPROFILE, '.cache/code
     await page.locator('#chat-input').fill('abre YouTube');
     await page.locator('#chat-send').click();
     console.log('fixture: YouTube submitted');
+    await page.locator('#cw-operation').getByRole('button',{name:'Aprobar y ejecutar',exact:true}).click();
     try { await page.waitForFunction(()=>Axx.commandLibrary.lastOperation?.state === 'succeeded'); }
     catch(error) {
       console.log(JSON.stringify({calls, ui:await page.evaluate(()=>({operation:Axx.commandLibrary.lastOperation,messages:Axx.companion.data.messages,status:document.getElementById('command-library-status').textContent}))},null,2));
@@ -79,30 +80,31 @@ const {chromium} = createRequire(path.join(process.env.USERPROFILE, '.cache/code
     assert.equal(opened.evidence.target,'https://www.youtube.com/');
     assert.equal(opened.evidence.verification,'os_handoff');
     assert.match(await page.locator('#chat-log').innerText(), /enviado a Windows/);
-    await page.locator('#chat-input').fill('/powershell Write-Output "AXX-COMMAND-OK"');
+    await page.locator('#chat-input').fill('/cmd echo AXX-COMMAND-OK');
     await page.locator('#chat-send').click();
     await page.waitForFunction(()=>Axx.commandLibrary.operation?.state === 'awaiting_approval');
-    assert.equal(await page.locator('#command-library-approval').isVisible(),true);
-    assert.match(await page.locator('#command-library-preview').innerText(),/Write-Output "AXX-COMMAND-OK"/);
+    assert.equal(await page.locator('#cw-operation').isVisible(),true);
+    assert.match(await page.locator('#cw-operation').innerText(),/echo AXX-COMMAND-OK/);
     await page.evaluate(()=>Axx.backendRequest('POST','/axx-api/speech/cancel',{}));
     const pendingId = await page.evaluate(()=>Axx.commandLibrary.operation.operation_id);
     const observed = await request({method:'GET',path:'/axx-api/commands/operations?operation_id='+pendingId});
     assert.equal(observed.operation.state,'awaiting_approval');
     const before = calls.filter(p=>p.endsWith('/execute')).length;
     assert.equal(before,1);
-    await page.locator('#command-library-approve').click();
+    await page.locator('#cw-operation').getByRole('button',{name:'Aprobar y ejecutar',exact:true}).click();
     await page.waitForFunction(()=>!Axx.commandLibrary.busy && ['succeeded','failed','cancelled','unknown'].includes(Axx.commandLibrary.lastOperation?.state));
     const result = await page.evaluate(()=>Axx.commandLibrary.lastOperation);
     assert.equal(result.state,'succeeded',JSON.stringify(result));
     assert.equal(result.output.stdout.trim(),'AXX-COMMAND-OK');
     await page.evaluate(()=>Axx.flow.select('chat'));
-    assert.match(await page.locator('#chat-log').innerText(), /PowerShell terminó correctamente/);
+    await page.waitForFunction(()=>document.getElementById('chat-log').textContent.includes('CMD terminó correctamente'));
+    assert.match(await page.locator('#chat-log').innerText(), /CMD terminó correctamente/);
     assert.match(await page.locator('#chat-log').innerText(), /AXX-COMMAND-OK/);
     assert.equal(calls.some(p=>p==='/axx-api/chat'),false);
     assert.deepEqual(errors,[]);
     await page.screenshot({path:path.join(evidence,'chat-result.png')});
     const report={kind:'FULL_HTML_HTTP_FROZEN_WINDOWS_ACTIONS',binary,sha256:crypto.createHash('sha256').update(fs.readFileSync(binary)).digest('hex'),
-      passed:['YouTube command from chat reaches real Windows handoff','No model required or called','PowerShell approval is visible before execution','Stopping speech preserves pending command approval','Real PowerShell output returns to chat','Real local Whisper transcription of generated speech','No browser exceptions'],
+      passed:['YouTube command from chat reaches real Windows handoff after approval','No model required or called','CMD approval is visible in chat before execution','Stopping speech preserves pending command approval','Real CMD output returns to chat','Real local Whisper transcription of generated speech','No browser exceptions'],
       generated_audio_transcript:transcript.text,
       limitations:['Tauri IPC emulated by a test bridge; backend and Windows actions are real','OS accepted browser launch; loaded webpage not inspected']};
     fs.writeFileSync(path.join(evidence,'e2e.json'),JSON.stringify(report,null,2));

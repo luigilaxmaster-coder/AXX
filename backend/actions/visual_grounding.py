@@ -26,6 +26,24 @@ def _current(observed):
         raise ValueError('STALE_OBSERVATION: cambió el destino visual.')
 
 
+def captured_window(observed, capture_service):
+    identity = observed['observation']; shot = identity.get('screenshot')
+    if not capture_service or not shot or shot.get('content_status') != 'captured' or identity.get('minimized'):
+        raise ValueError('CAPTURE_UNAVAILABLE: primero captura una imagen observable de esta ventana.')
+    document = capture_service.get(shot['document_id'])
+    source = document['source']
+    if source['sha256'] != shot['sha256'] or document['revision'] != shot['revision']:
+        raise ValueError('STALE_OBSERVATION: cambió la imagen autorizada.')
+    original = capture_service.original(document)
+    bounds = identity['window_bounds']
+    crop = (max(0, bounds['x']-source['x']), max(0, bounds['y']-source['y']),
+            min(original.width, bounds['x']+bounds['width']-source['x']),
+            min(original.height, bounds['y']+bounds['height']-source['y']))
+    if crop[0] >= crop[2] or crop[1] >= crop[3]:
+        raise ValueError('La captura no contiene el objetivo solicitado.')
+    return original.crop(crop), crop, source, shot
+
+
 def propose_grounding(window_id, expected_pid, observation_id, goal, *, capture_service,
                       provider_name, model, image_authorized=False, cancelled=None):
     if image_authorized is not True:
@@ -46,21 +64,8 @@ def propose_grounding(window_id, expected_pid, observation_id, goal, *, capture_
     if cancelled.is_set():
         raise ValueError('Grounding cancelado antes del envío.')
     observed = uia.get_observation(observation_id, window_id, expected_pid)
-    identity = observed['observation']; shot = identity.get('screenshot')
-    if not shot or shot.get('content_status') != 'captured' or identity.get('minimized'):
-        raise ValueError('CAPTURE_UNAVAILABLE: primero captura una imagen observable de esta ventana.')
-    document = capture_service.get(shot['document_id'])
-    source = document['source']
-    if source['sha256'] != shot['sha256'] or document['revision'] != shot['revision']:
-        raise ValueError('STALE_OBSERVATION: cambió la imagen autorizada.')
-    original = capture_service.original(document)
-    bounds = identity['window_bounds']
-    crop = (max(0, bounds['x']-source['x']), max(0, bounds['y']-source['y']),
-            min(original.width, bounds['x']+bounds['width']-source['x']),
-            min(original.height, bounds['y']+bounds['height']-source['y']))
-    if crop[0] >= crop[2] or crop[1] >= crop[3]:
-        raise ValueError('La captura no contiene el objetivo solicitado.')
-    frame = original.crop(crop)
+    identity = observed['observation']
+    frame, crop, source, shot = captured_window(observed, capture_service)
     pixel_hash = hashlib.sha256(frame.tobytes()).hexdigest()
     image = frame.copy(); image.thumbnail((1280, 1280))
     transform = {'scale_x': frame.width/image.width, 'scale_y': frame.height/image.height,

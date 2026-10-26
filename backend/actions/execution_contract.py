@@ -14,6 +14,9 @@ BACKGROUND_TOOLS = frozenset({
     'desktop_find_control', 'computer_observe', 'computer_find', 'file_find', 'file_bundle',
     'browser_tabs', 'browser_inspect', 'computer_grid', 'desktop_window_observe',
     'computer_ground', 'computer_window',
+    'artifact_pdf', 'artifact_media', 'artifact_ocr', 'computer_ocr',
+    'ifc_inventory_csv',
+    'obs_observe', 'obs_control',
 })
 
 

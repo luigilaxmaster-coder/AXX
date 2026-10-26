@@ -22,14 +22,14 @@ const {chromium} = createRequire(path.join(process.env.USERPROFILE, '.cache/code
     const plan = user.includes('archivo') ? {title:'Saludo comprobado',steps:[
       {command_id:'axx.artifact.write',inputs:{path:'aprendido.txt',content:'Acción ejecutada de verdad.'}},
       {command_id:'axx.file.sha256',inputs:{path:target}}
-    ]} : {title:'Diagnóstico aprendido',steps:[{command_id:'axx.system.telemetry',inputs:{}},{command_id:'axx.process.inspect',inputs:{}}]};
+    ]} : {title:'Diagnóstico aprendido',steps:[{command_id:'axx.system.telemetry',inputs:{}},{command_id:'axx.process.inspect',inputs:{pid:process.pid}}]};
     res.setHeader('Content-Type','application/json');
     res.end(JSON.stringify({choices:[{message:{role:'assistant',content:JSON.stringify(plan)},finish_reason:'stop'}]}));
   });
   await new Promise(r=>modelServer.listen(0,'127.0.0.1',r));
   const token=crypto.randomBytes(32).toString('hex'), ready=path.join(workspace,'ready.json');
   const log=fs.openSync(path.join(workspace,'backend.log'),'a');
-  const backend=spawn(sourceMode?'py':binary,[...(sourceMode?['-3.14',binary]:[]),'--port','0','--data-dir',workspace,'--ready-file',ready],{cwd:root,env:{...process.env,AXX_HOST_TOKEN:token},windowsHide:true,stdio:['ignore',log,log]});
+  const backend=spawn(sourceMode?(process.env.AXX_TEST_PYTHON||path.join(root,'.venv/Scripts/python.exe')):binary,[...(sourceMode?[binary]:[]),'--port','0','--data-dir',workspace,'--ready-file',ready],{cwd:root,env:{...process.env,AXX_HOST_TOKEN:token},windowsHide:true,stdio:['ignore',log,log]});
   let browser,server;
   try {
     const deadline=Date.now()+90000;
@@ -77,7 +77,7 @@ const {chromium} = createRequire(path.join(process.env.USERPROFILE, '.cache/code
     assert.equal(plan.steps.length,2);assert.equal(fs.existsSync(target),false);
     assert.match(await page.locator('#command-library-preview').innerText(),/aprendido.txt/);
     await page.screenshot({path:path.join(evidence,'learning-approval.png')});
-    await page.locator('#command-library-approve').click();
+    await page.locator('#cw-operation').getByRole('button',{name:'Aprobar y ejecutar',exact:true}).click();
     await page.waitForFunction(()=>!Axx.commandLibrary.busy && Axx.commandLibrary.lastOperation?.state==='succeeded');
     assert.equal(fs.readFileSync(target,'utf8'),'Acción ejecutada de verdad.');
     plan=await page.evaluate(()=>Axx.commandLibrary.lastOperation);
@@ -85,17 +85,19 @@ const {chromium} = createRequire(path.join(process.env.USERPROFILE, '.cache/code
     assert.equal(modelCalls,1);console.log('Model plan executed real write and hash, then saved');
 
     await page.evaluate(()=>Axx.companion.send('prepara un diagnóstico completo'));
-    await page.locator('#command-library-approve').click();
+    await page.locator('#cw-operation').getByRole('button',{name:'Aprobar y ejecutar',exact:true}).click();
     await page.waitForFunction(()=>!Axx.commandLibrary.busy && Axx.commandLibrary.lastOperation?.state==='succeeded');
     assert.equal(modelCalls,2);
     await page.evaluate(()=>Axx.companion.send('prepara un diagnóstico completo'));
     plan=await page.evaluate(()=>Axx.commandLibrary.operation);
     assert.equal(plan.model_calls_used,0);assert.equal(modelCalls,2);
-    await page.locator('#command-library-approve').click();
+    await page.locator('#cw-operation').getByRole('button',{name:'Aprobar y ejecutar',exact:true}).click();
     await page.waitForFunction(()=>!Axx.commandLibrary.busy && Axx.commandLibrary.lastOperation?.state==='succeeded');
     console.log('Learned workflow repeated without another model call');
 
     await page.evaluate(()=>Axx.companion.send('abre youtube y buscame un video de gatitos'));
+    await page.locator('#cw-operation').getByRole('button',{name:'Aprobar y ejecutar',exact:true}).click();
+    await page.waitForFunction(()=>!Axx.commandLibrary.busy && Axx.commandLibrary.lastOperation?.state==='succeeded');
     plan=await page.evaluate(()=>Axx.commandLibrary.lastOperation);
     assert.equal(plan.state,'succeeded');assert.match(plan.evidence.target,/youtube.com\/results\?search_query=/);
     assert.equal(modelCalls,2);assert.equal(calls.includes('/axx-api/chat'),false);

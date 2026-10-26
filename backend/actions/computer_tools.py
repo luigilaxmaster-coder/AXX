@@ -23,6 +23,8 @@ ADAPTERS = {
             'model': {'type':'string','required':True,'maxLength':200},
             'image_authorized': {'type':'boolean','required':True}},
         'Envía únicamente la imagen de la ventana autorizada al proveedor visual gratuito seleccionado. Devuelve propuesta sin ejecutar entrada; exige imagen fresca e idéntica al terminar.'),
+    'axx.desktop.ocr': adapter('Leer texto de ventana con OCR local', 'computer_ocr', 'local_content_read', TARGET | OBSERVATION,
+        'Recorte de ventana capturada, fresco e idéntico después de OCR latino local. Devuelve texto/cajas como contenido no verificado semánticamente; no hace clic ni envía imágenes.'),
     'axx.desktop.window.observe': adapter('Observar geometría de ventana', 'desktop_window_observe', 'read', TARGET,
         'Observa identidad, sesión, geometría y estado minimizado sin leer contenido. Permite preparar una restauración con referencia fresca.'),
     'axx.desktop.observe': adapter('Observar escritorio y ventana', 'computer_observe', 'local_content_read',
@@ -72,6 +74,14 @@ ADAPTERS = {
         'Abre una instancia privada de Excel, importa CSV acotado, genera SUM y guarda una copia XLSX nueva. Reabre y comprueba celdas y total; conserva el CSV.'),
 }
 from .process_runner import PARAMETERS as PROCESS_PARAMETERS
+ADAPTERS['axx.ifc.inventory.csv'] = adapter('Inventariar IFC a CSV', 'ifc_inventory_csv', 'workspace_write',
+    {'source': {'type': 'string', 'required': True, 'maxLength': 240},
+     'destination': {'type': 'string', 'required': True, 'maxLength': 180}},
+    'IFC local de hasta 40 MiB/500 elementos. Conserva GUID y unidad declarada; CSV nuevo con Count para Excel. No calcula cantidades geométricas ni valida un modelo CAD anfitrión.')
+for kind in ('pdf', 'media', 'ocr'):
+    ADAPTERS['axx.artifact.' + kind] = adapter('Comprobar archivo ' + kind, 'artifact_' + kind, 'local_file_read',
+        {'path': {'type': 'string', 'required': True, 'maxLength': 240}},
+        'Inspección local acotada con hash. PDF: páginas, dimensiones y texto; multimedia: duración y pistas ffprobe. No acredita render visual ni decodificación completa.')
 ADAPTERS['axx.process.run'] = adapter('Ejecutar proceso explícito', 'process_run', 'system_command',
     {name: dict(schema, required=name in PROCESS_PARAMETERS['required']) for name, schema in PROCESS_PARAMETERS['properties'].items()},
     'Sólo para una petición explícita de terminal: ejecutable .exe y argumentos literales revisados. Controla su árbol propio y verifica salida y artefacto nuevo opcional; código cero no demuestra el efecto.')
@@ -80,6 +90,15 @@ ADAPTERS['axx.office.word.pdf'] = adapter('Crear copia Word y PDF', 'office_word
      'destination': {'type':'string','required':True,'maxLength':180},
      'append_text': {'type':'string','required':True,'maxLength':10000}},
     'Con Word cerrado, abre una copia privada del DOCX, añade texto literal y genera DOCX/PDF nuevos en artifacts. Verifica texto y páginas y conserva el original.')
+ADAPTERS['axx.blender.scene.render'] = adapter('Editar copia Blender y renderizar', 'blender_scene_render', 'workspace_write',
+    {name:{'type':'string','required':True,'maxLength':240} for name in ('source','destination','scene','camera','object')}
+    | {'position':{'type':'array','required':True,'minItems':3,'maxItems':3,'items':{'type':'number'}},
+       'width':{'type':'integer','required':True,'minimum':64,'maximum':2048}, 'height':{'type':'integer','required':True,'minimum':64,'maximum':2048}},
+    'Copia local sin autoejecutar scripts; escena, cámara y objeto estático exactos. Cambia posición, guarda copia y render PNG con dimensiones verificadas. Sin librerías vinculadas, compositor ni secuenciador.')
+ADAPTERS['axx.office.powerpoint.pdf'] = adapter('Editar copia PowerPoint y exportar PDF', 'office_powerpoint_pdf', 'workspace_write',
+    {name:{'type':'string','required':True,'maxLength':limit} for name,limit in [('source',240),('destination',180),('shape_name',200),('expected_text',4000),('new_text',4000)]}
+    | {'slide':{'type':'integer','required':True,'minimum':1,'maximum':100}},
+    'Con PowerPoint cerrado, modifica una forma por diapositiva/nombre/texto esperado exactos en una copia. Reabre PPTX y comprueba PDF, páginas/texto y origen intacto. No admite macros ni enlaces externos.')
 for kind in ('tabs', 'inspect', 'navigate'):
     parameters = {} if kind == 'tabs' else {
         'tab_id': {'type': 'string', 'required': True, 'maxLength': 200},
@@ -91,6 +110,25 @@ for kind in ('tabs', 'inspect', 'navigate'):
     ADAPTERS['axx.browser.' + kind] = adapter('Navegador: ' + kind, 'browser_' + kind,
         'local_state' if kind == 'navigate' else 'local_content_read', parameters,
         'Puente CDP configurado explícitamente: perfil, sesión y pestaña exactos. No conecta perfiles personales automáticamente ni ejecuta JavaScript libre.')
+
+
+ADAPTERS['axx.browser.download_pdf'] = adapter('Descargar PDF observado', 'browser_download_pdf', 'workspace_write',
+    {name: {'type': 'string', 'required': True, 'maxLength': limit} for name, limit in (
+        ('browser_session', 64), ('tab_id', 128), ('document_id', 128), ('expected_url', 4096),
+        ('link_name', 500), ('download_url', 4096), ('destination', 180))},
+    'Descarga un enlace único por nombre y URL exactos en la pestaña y documento observados. Persiste PDF nuevo en workspace, verifica páginas/hash; rechaza redirecciones y documentos cambiados. Devuelve path para abrir el mismo archivo.')
+ADAPTERS['axx.browser.open_pdf'] = adapter('Abrir el PDF verificado', 'browser_open_pdf', 'local_state',
+    {name:{'type':'string','required':True,'maxLength':limit} for name,limit in [('path',240),('sha256',64),('browser_session',64)]},
+    'Abre el archivo PDF por ruta y hash exactos en una pestaña nueva del perfil CDP configurado. Comprueba URL file del visor y hash; no acredita calidad visual.')
+
+ADAPTERS['axx.obs.observe'] = adapter('Observar OBS', 'obs_observe', 'local_content_read', {},
+    'OBS local autenticado: proceso/sesión, perfil, colección, escenas y grabación. No habilita OBS ni cambia su configuración.')
+ADAPTERS['axx.obs.control'] = adapter('Controlar grabación o escena OBS', 'obs_control', 'local_state',
+    {name: {'type': 'string', 'required': True, 'maxLength': limit} for name, limit in (
+        ('obs_session', 64), ('profile', 256), ('collection', 256), ('scene', 256))} |
+    {'action': {'type': 'string', 'required': True, 'enum': ['start', 'stop', 'pause', 'resume', 'scene']},
+     'target_scene': {'type': 'string', 'maxLength': 256}},
+    'Establece estado sin alternar; requiere contexto OBS observado. Stop verifica el archivo outputPath con ffprobe. Una cancelación no detiene automáticamente una grabación ya iniciada; requiere observar y detener explícitamente.')
 
 
 class ComputerTool:

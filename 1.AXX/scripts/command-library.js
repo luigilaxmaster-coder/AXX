@@ -654,9 +654,10 @@
                     } else message = 'He enviado a Windows la apertura de ' + (result.output?.label || result.evidence.target) + '.';
                     if (result.command_id === 'axx.desktop.search') message += ' Los resultados se abren en tu navegador.';
                 }
-                if (result.command_id === 'axx.shell.powershell') {
+                if (['axx.shell.powershell', 'axx.shell.cmd'].includes(result.command_id)) {
                     const output = result.output || {};
-                    message = result.state === 'cancelled' ? 'PowerShell cancelado. Los cambios ya realizados no se deshacen.' : verified ? 'PowerShell terminó correctamente (código 0).' : 'PowerShell: ' + errorText(result.error || result.state);
+                    const shell = result.command_id === 'axx.shell.cmd' ? 'CMD' : 'PowerShell';
+                    message = result.state === 'cancelled' ? `${shell} cancelado. Los cambios ya realizados no se deshacen.` : verified ? `${shell} terminó correctamente (código 0).` : shell + ': ' + errorText(result.error || result.state);
                     if (output.stdout) message += '\n\nSalida:\n' + output.stdout.slice(0, 12000);
                     if (output.stderr) message += '\n\nErrores:\n' + output.stderr.slice(0, 12000);
                     if ((output.stdout?.length || 0) > 12000 || (output.stderr?.length || 0) > 12000) message += '\n\nConsulta el resultado completo en la biblioteca.';

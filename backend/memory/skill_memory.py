@@ -102,7 +102,11 @@ class SkillMemory:
             db.execute('CREATE TABLE IF NOT EXISTS skill_versions (id TEXT, version INTEGER, payload TEXT NOT NULL, PRIMARY KEY(id,version))')
             db.execute('CREATE TABLE IF NOT EXISTS skill_evidence (id TEXT, version INTEGER, operation_id TEXT, payload TEXT NOT NULL, PRIMARY KEY(id,version,operation_id))')
             db.execute('CREATE TABLE IF NOT EXISTS skill_context (project_id TEXT PRIMARY KEY, payload TEXT NOT NULL)')
+            db.execute("CREATE VIRTUAL TABLE IF NOT EXISTS skill_search USING fts5(id UNINDEXED, project_id UNINDEXED, text, tokenize='unicode61 remove_diacritics 2')")
             self._migrate()
+            db.execute('DELETE FROM skill_search')
+            for row in db.execute('SELECT payload FROM skill_versions v WHERE version=(SELECT MAX(version) FROM skill_versions WHERE id=v.id)').fetchall():
+                self._index(json.loads(row[0]))
 
     def _migrate(self):
         for row in self.db.execute('SELECT id,trigger,title,steps,environment,verified_at FROM learned_actions').fetchall():
@@ -127,7 +131,26 @@ class SkillMemory:
     def insert(self, skill):
         with self.lock, self.db:
             self.db.execute('INSERT INTO skill_versions VALUES (?,?,?)', (skill['id'], skill['version'], json.dumps(skill, ensure_ascii=False, allow_nan=False)))
+            latest = self.db.execute('SELECT payload FROM skill_versions WHERE id=? ORDER BY version DESC LIMIT 1', (skill['id'],)).fetchone()
+            self._index(json.loads(latest[0]))
         return self.get(skill['id'], skill['version'])
+
+    def _index(self, skill):
+        self.db.execute('DELETE FROM skill_search WHERE id=?', (skill['id'],))
+        text = ' '.join([skill['title'], skill['trigger'], skill.get('objective', ''), *skill.get('examples', [])])
+        self.db.execute('INSERT INTO skill_search(id,project_id,text) VALUES (?,?,?)', (skill['id'], skill.get('project_id', ''), text))
+
+    def search(self, text, project_id='', limit=24):
+        project_key(project_id)
+        if not isinstance(text, str) or len(text) > 70000 or type(limit) is not int or not 1 <= limit <= 100:
+            raise ValueError('Búsqueda de habilidades inválida')
+        tokens = list(dict.fromkeys(re.findall(r'[^\W_]+', text.casefold(), re.UNICODE)))[:16]
+        if not tokens: return []
+        query = ' OR '.join('"' + token + '"' for token in tokens)
+        with self.lock:
+            rows = self.db.execute("SELECT id FROM skill_search WHERE skill_search MATCH ? AND project_id IN ('',?) ORDER BY bm25(skill_search) LIMIT ?",
+                                   (query, project_id, limit)).fetchall()
+            return [self.get(row[0]) for row in rows]
 
     def get(self, key, version=None):
         with self.lock:

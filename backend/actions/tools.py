@@ -526,6 +526,9 @@ class FindControlTool(BaseTool):
 from .computer_tools import ComputerTool
 from .file_workflows import FileBundleTool, FindFilesTool
 from .browser_bridge import BrowserBridgeTool
+from .browser_download import BrowserDownloadTool
+from .artifact_verification import ArtifactInspectTool
+from .obs_bridge import ObsTool
 from .desktop_window_state import WindowStateTool, WindowObservationTool
 from .office_workflows import ExcelCsvTool, WordPdfTool
 from .process_runner import ProcessRunTool
@@ -534,10 +537,13 @@ TOOL_REGISTRY: dict[str, BaseTool] = {
     **{('computer_' + kind): ComputerTool(kind) for kind in ('observe', 'find', 'state', 'input', 'grid', 'ground', 'window')},
     ProcessRunTool.name: ProcessRunTool(),
     WordPdfTool.name: WordPdfTool(),
+    BrowserDownloadTool.name: BrowserDownloadTool(),
     WindowStateTool.name: WindowStateTool(),
     WindowObservationTool.name: WindowObservationTool(),
     ExcelCsvTool.name: ExcelCsvTool(),
     **{('browser_' + kind): BrowserBridgeTool(kind) for kind in ('tabs', 'inspect', 'navigate')},
+    **{('artifact_' + kind): ArtifactInspectTool(kind) for kind in ('pdf', 'media', 'ocr')},
+    **{('obs_' + kind): ObsTool(kind) for kind in ('observe', 'control')},
     FileBundleTool.name: FileBundleTool(),
     FindFilesTool.name: FindFilesTool(),
     FindControlTool.name: FindControlTool(),
@@ -551,6 +557,18 @@ TOOL_REGISTRY: dict[str, BaseTool] = {
         'open_url', 'open_app', 'installed_app', 'list_apps', 'search', 'powershell', 'cmd',
         'list_windows', 'close_window', 'inspect_window', 'read_window', 'focus_window', 'move_pointer', 'first_video_pointer', 'spotify_play', 'set_window_value', 'invoke_window_button', 'notepad_text', 'explorer_folder', 'cli_anything_scan')},
 }
+
+from .ifc_inventory import IfcInventoryTool
+from .local_ocr import DesktopOcrTool
+from .browser_pdf import BrowserPdfTool
+from .powerpoint_workflow import PowerPointTool
+from .blender_scene import BlenderSceneTool
+TOOL_REGISTRY[IfcInventoryTool.name] = IfcInventoryTool()
+TOOL_REGISTRY[DesktopOcrTool.name] = DesktopOcrTool()
+TOOL_REGISTRY[BrowserPdfTool.name] = BrowserPdfTool()
+TOOL_REGISTRY[PowerPointTool.name] = PowerPointTool()
+TOOL_REGISTRY[BlenderSceneTool.name] = BlenderSceneTool()
+
 
 def get_tool(name: str) -> BaseTool | None:
     return TOOL_REGISTRY.get(name)

@@ -8,6 +8,7 @@ a = Analysis(
     binaries=collect_dynamic_libs('ctranslate2') + collect_dynamic_libs('av') + collect_dynamic_libs('tokenizers'),
     datas=[('resources/providers.default.json', 'resources'),
            ('resources/model-candidates.json', 'resources'),
+           ('resources/ocr-model-manifest.json', 'resources'),
            ('scripts/setup-freellmapi.ps1', 'scripts'),
            ('backend/speech/moss_worker.py', 'speech'),
            ('backend/speech/speech_text.py', 'speech'),
@@ -19,17 +20,20 @@ a = Analysis(
            ('vendor/cli_anything_blender/LICENSE', 'licenses/cli-anything'),
            ('vendor/cli_anything_blender/UPSTREAM.json', 'licenses/cli-anything'),
            ('resources/models/faster-whisper-tiny', 'models/faster-whisper-tiny')]
-           + collect_data_files('faster_whisper'),
-    hiddenimports=collect_submodules('backend', filter=lambda name: '.tests' not in name and '.test_' not in name) + [
+           + collect_data_files('faster_whisper') + collect_data_files('mcp') + collect_data_files('jsonschema_specifications')
+           + collect_data_files('rapidocr_onnxruntime', excludes=['models/*']),
+    hiddenimports=collect_submodules('backend', filter=lambda name: '.tests' not in name and '.test_' not in name)
+        + collect_submodules('mcp') + collect_submodules('uvicorn') + [
         'cli_anything.blender.core.scene', 'cli_anything.blender.core.objects',
         'cli_anything.blender.core.lighting', 'cli_anything.blender.core.render',
         'cli_anything.blender.utils.bpy_gen', 'faster_whisper', 'ctranslate2',
         'av', 'numpy', 'tokenizers', 'huggingface_hub', 'pypdf', 'qrcode', 'qrcode.image.svg', 'websocket',
-        'win32com.client', 'pythoncom', 'pywintypes'],
+        'win32com.client', 'pythoncom', 'pywintypes', 'playwright.async_api', 'psutil', 'jsonschema', 'httpx', 'anyio',
+        'ifcopenshell', 'ifcopenshell.util.unit', 'rapidocr_onnxruntime', 'onnxruntime'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=['torch', 'torchaudio', 'transformers', 'tensorflow', 'fairseq', 'onnxruntime', 'pandas', 'scipy', 'matplotlib', 'pytest', 'IPython'],
+    excludes=['torch', 'torchaudio', 'transformers', 'tensorflow', 'fairseq', 'pandas', 'scipy', 'matplotlib', 'pytest', 'IPython'],
     noarchive=False,
     optimize=0,
 )

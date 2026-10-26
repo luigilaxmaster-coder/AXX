@@ -226,9 +226,10 @@ def worker_main():
         if len(raw) > 4 * MAX_CSV_BYTES:
             raise ValueError('Office worker request exceeds the bound')
         request = json.loads(raw)
-        if set(request) != {'operation', 'data', 'output'} or request['operation'] not in ('excel_csv', 'word_pdf'):
+        if set(request) != {'operation', 'data', 'output'} or request['operation'] not in ('excel_csv', 'word_pdf', 'powerpoint_pdf'):
             raise ValueError('Unsupported fixed Office operation')
-        result = _excel_worker(request) if request['operation'] == 'excel_csv' else _word_worker(request)
+        from .powerpoint_workflow import powerpoint_worker
+        result = {'excel_csv':_excel_worker, 'word_pdf':_word_worker, 'powerpoint_pdf':powerpoint_worker}[request['operation']](request)
     except Exception as exc:
         result = {'success': False, 'error': str(exc)[:800]}
     sys.stdout.write(json.dumps(result, ensure_ascii=True))

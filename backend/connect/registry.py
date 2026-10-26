@@ -30,7 +30,7 @@ LOCAL_ACTIONS = ['timer', 'pause', 'resume', 'cancel', 'note', 'todo', 'complete
                  'time', 'date', 'summon', 'follow', 'stay', 'hide', 'help', 'greet']
 PANEL_IDS = ['stopwatch', 'textstudio', 'images', 'reach', 'chat', 'timer', 'notes', 'todos',
              'calculator', 'files', 'focus', 'appearance', 'studio', 'lab', 'audio', 'sound',
-             'ai', 'settings', 'inbox', 'help', 'dictation', 'reader', 'translation',
+             'ai', 'settings', 'mcp', 'inbox', 'help', 'dictation', 'reader', 'translation',
              'transcript', 'morphui', 'roadmap', 'organic', 'music', 'screen', 'layout11']
 
 # Definitions describe the existing handlers. UI availability is a live heartbeat,

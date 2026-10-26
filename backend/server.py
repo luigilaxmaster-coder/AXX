@@ -47,6 +47,7 @@ from backend.auth.chatgpt_auth import ChatGPTAuthManager
 from backend.inference.chatgpt_adapter import ChatGPTSubscriptionAdapter
 from backend.auth.callback_page import get_callback_html
 from backend.connect.http_api import ConnectHTTP, publish_endpoint, remove_endpoint
+from backend.mcp_host.http_api import McpHTTP
 from backend.connect.service import ConnectService
 from backend.connect.provider import CodexProvider, ProviderError
 from backend.screen_recording import ScreenRecordingService
@@ -213,6 +214,8 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
             if MobileHTTP(self).get(path):
                 return
             if ConnectHTTP(self).get(path):
+                return
+            if McpHTTP(self).get(path):
                 return
             if path == '/axx-api/chat/conversations':
                 query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
@@ -432,6 +435,8 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
             if MobileHTTP(self).post(path, body):
                 return
             if ConnectHTTP(self).post(path, body):
+                return
+            if McpHTTP(self).post(path, body):
                 return
             if path.startswith('/axx-api/converter/'):
                 if not self.converter:
@@ -1119,6 +1124,12 @@ def run_server(host='127.0.0.1', port=4173, config_path='providers.json', state_
         services.append(chats)
         commands = CommandService(executor)
         services.append(commands)
+        from backend.mcp_host.client_manager import McpHost
+        mcp_host = McpHost(state_dir, commands)
+        services.append(mcp_host)
+        from backend.mcp_host.native_bridge import NativeMcpBridge
+        executor.native_bridge = NativeMcpBridge()
+        services.append(executor.native_bridge)
         learning = ActionLearning(commands, adapter)
         commands.learning = learning
         services.append(learning)
@@ -1149,7 +1160,7 @@ def run_server(host='127.0.0.1', port=4173, config_path='providers.json', state_
             'transcription': transcription, 'chatgpt_auth': chatgpt_auth,
             'chatgpt_adapter': chatgpt_adapter, 'config_path': Path(config_path),
             'connect': connect, 'provider': provider, 'recording': recording, 'magic_pen': magic_pen,
-            'converter': converter
+            'converter': converter, 'mcp_host': mcp_host
         })
         server = ThreadedHTTPServer((host, port), handler)
         from backend.mobile.gateway import MobileGateway
@@ -1181,6 +1192,12 @@ def run_server(host='127.0.0.1', port=4173, config_path='providers.json', state_
             ready_path.unlink(missing_ok=True)
 
 def main():
+    if '--mcp-client-worker' in sys.argv[1:]:
+        from backend.mcp_host.worker import main as mcp_client_main
+        return mcp_client_main()
+    if '--artifact-worker' in sys.argv[1:]:
+        from backend.actions.artifact_verification import worker_main as artifact_worker_main
+        return artifact_worker_main()
     if '--office-worker' in sys.argv[1:]:
         from backend.actions.office_workflows import worker_main as office_worker_main
         return office_worker_main()

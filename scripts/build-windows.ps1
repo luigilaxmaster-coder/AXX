@@ -15,7 +15,7 @@ try {
     $dependency = Get-Content -LiteralPath 'resources\dependency-manifest.json' -Raw | ConvertFrom-Json
     & $PythonExecutable -c 'import PIL, pypdf'
     if ($LASTEXITCODE -ne 0) { throw 'Install requirements-converter.txt before building the Axx backend' }
-    & $PythonExecutable -c "import websocket, win32com.client, pythoncom, importlib.metadata; assert websocket.__version__ == '1.9.2'; assert importlib.metadata.version('pywin32') == '311'"
+    & $PythonExecutable -c "import websocket, win32com.client, pythoncom, playwright.async_api, mcp, uvicorn, psutil, jsonschema, ifcopenshell, rapidocr_onnxruntime, onnxruntime, importlib.metadata as m; assert all(m.version(k) == v for k,v in {'websocket-client':'1.9.2','pywin32':'311','playwright':'1.64.1','mcp':'1.30.0','psutil':'7.2.2','jsonschema':'4.26.0','ifcopenshell':'0.9.0.post1','rapidocr-onnxruntime':'1.4.4','onnxruntime':'1.31.0'}.items())"
     if ($LASTEXITCODE -ne 0) { throw 'Install requirements-computer-use.txt before building the Axx backend' }
     & $PythonExecutable -m backend.mobile.pairing_qr
     if ($LASTEXITCODE -ne 0) { throw 'QR generation failed. Install the qrcode version pinned in requirements-mobile.txt before building' }

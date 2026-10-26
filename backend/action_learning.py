@@ -53,6 +53,12 @@ def active_operation(method):
 
 
 class ActionLearning:
+    @property
+    def allowed(self):
+        with self.commands.lock:
+            return ALLOWED | {key: value for key, value in self.commands.adapters.items()
+                              if key.startswith('axx.mcp.') and self.commands.commands[key]['execution_enabled']}
+
     def __init__(self, commands, adapter):
         self.commands, self.adapter = commands, adapter
         self.workshop = None
@@ -177,7 +183,7 @@ class ActionLearning:
         if (not result or result.get('command_id') not in supported or result['state'] != 'succeeded'
                 or result.get('postconditions_passed') is not True or not result.get('evidence')):
             raise ValueError('Solo se guardan flujos de aplicación con efecto verificado por el ejecutor.')
-        command_id = result['command_id']; adapter = ALLOWED[command_id]
+        command_id = result['command_id']; adapter = self.allowed[command_id]
         key = 'verified.' + hashlib.sha256(operation_id.encode()).hexdigest()
         with self.lock:
             if self.db.execute('SELECT 1 FROM skill_versions WHERE id=?', (key,)).fetchone(): return self.skills.get(key)
@@ -245,9 +251,9 @@ class ActionLearning:
             templates = skill['templates']
             if not isinstance(templates, list) or not 1 <= len(templates) <= 8: raise ValueError('Se requieren de uno a ocho pasos')
             for step in templates:
-                if not isinstance(step, dict) or set(step) != {'command_id', 'inputs'} or step['command_id'] not in ALLOWED or not isinstance(step['inputs'], dict):
+                if not isinstance(step, dict) or set(step) != {'command_id', 'inputs'} or step['command_id'] not in self.allowed or not isinstance(step['inputs'], dict):
                     raise ValueError('Plantilla de comando inválida')
-                parameters = ALLOWED[step['command_id']]['parameters']
+                parameters = self.allowed[step['command_id']]['parameters']
                 if set(step['inputs']) - parameters.keys() or any(spec.get('required') and name not in step['inputs'] for name, spec in parameters.items()):
                     raise ValueError('Parámetros de comando inválidos')
                 for name, value in step['inputs'].items():
@@ -280,7 +286,7 @@ class ActionLearning:
             raise ValueError('El plan debe contener de uno a ocho pasos concretos.')
         result = []
         for index, step in enumerate(steps):
-            if not isinstance(step, dict) or not {'command_id', 'inputs'} <= set(step) or set(step) - {'command_id', 'inputs', 'bindings', 'delivery_mode'} or (step['command_id'] not in ALLOWED and not (allow_shell and step['command_id'] in ('axx.shell.cmd', 'axx.process.run'))):
+            if not isinstance(step, dict) or not {'command_id', 'inputs'} <= set(step) or set(step) - {'command_id', 'inputs', 'bindings', 'delivery_mode'} or (step['command_id'] not in self.allowed and not (allow_shell and step['command_id'] in ('axx.shell.cmd', 'axx.process.run'))):
                 raise ValueError('El modelo propuso una herramienta no disponible. No se ejecutó.')
             if not isinstance(step['inputs'], dict): raise ValueError('Parámetros de paso inválidos')
             bindings = validate_bindings(step, index)
@@ -295,7 +301,7 @@ class ActionLearning:
             if bindings: resolved['bindings'] = bindings
             if 'delivery_mode' in step:
                 from .actions.execution_contract import resolve_mode
-                resolved['delivery_mode'] = resolve_mode(ADAPTERS[step['command_id']]['tool'], step['delivery_mode'])
+                resolved['delivery_mode'] = resolve_mode(self.commands.adapters[step['command_id']]['tool'], step['delivery_mode'])
             result.append(resolved)
         return result
 
@@ -304,11 +310,25 @@ class ActionLearning:
         def shape(parameters):
             return {name: {key: value for key, value in rule.items() if key in ('type', 'required', 'enum', 'items')}
                     for name, rule in parameters.items()}
-        capabilities = [{'command_id': key, 'description': value['description'], 'parameters': shape(value['parameters'])}
+        capabilities = [{'command_id': key, 'description': value['title'], 'parameters': shape(value['parameters'])}
                         for key, value in ALLOWED.items()]
+        terms = set(normalized(text).split())
+        with self.commands.lock:
+            remote = [item for key, item in self.commands.commands.items() if key.startswith('axx.mcp.') and item['execution_enabled']]
+            remote.sort(key=lambda item: sum(term in self.commands.search_index[item['id']] for term in terms), reverse=True)
+            # Only relevant remote schemas enter the prompt; descriptions remain untrusted data.
+            remote_bytes = 0
+            for item in remote[:8]:
+                if terms and not any(term in self.commands.search_index[item['id']] for term in terms): continue
+                record = {'command_id': item['id'], 'description': item['description'],
+                          'input_schema': item['input_schema'], 'source': 'untrusted_mcp_catalog'}
+                size = len(json.dumps(record, ensure_ascii=False).encode())
+                if remote_bytes + size > 6000: continue
+                capabilities.append(record)
+                remote_bytes += size
         if terminal_requested(text):
             for key in ('axx.shell.cmd', 'axx.process.run'):
-                adapter = ADAPTERS[key]
+                adapter = self.commands.adapters[key]
                 capabilities.append({'command_id': key, 'description': adapter['description'], 'parameters': shape(adapter['parameters'])})
         # Retrieve a few relevant procedures as reference data, never as policy.
         terms = {word for word in normalized(text).split() if len(word) > 3}
@@ -582,7 +602,7 @@ class ActionLearning:
                             if not isinstance(candidate['templates'], list) or not 1 <= len(candidate['templates']) <= 8:
                                 raise ValueError('Plantillas de receta inválidas')
                             for step in candidate['templates']:
-                                if not isinstance(step, dict) or set(step) != {'command_id', 'inputs'} or step['command_id'] not in ALLOWED:
+                                if not isinstance(step, dict) or set(step) != {'command_id', 'inputs'} or step['command_id'] not in self.allowed:
                                     raise ValueError('La receta debe usar identificadores literales de comandos reales')
                             if not isinstance(candidate['examples'], list) or len(candidate['examples']) > 32 or any(not isinstance(value, str) or not 1 <= len(value) <= 4000 for value in candidate['examples']):
                                 raise ValueError('Ejemplos de receta inválidos')
@@ -647,9 +667,8 @@ class ActionLearning:
         plan.update(steps=steps, conversation_id=conversation_id, proposal_source='typed_request')
         return self._save(self._ready(plan, text[:120]))
     def _candidates(self, text, project_id):
-        terms = set(normalized(text).split())
-        rows = [row for row in self.list_actions(project_id) if row['environment_matches']]
-        rows.sort(key=lambda row: (len(terms.intersection(normalized(' '.join([row['title'], row['intent'], *row['examples']])).split())), row['favorite']), reverse=True)
+        # FTS only proposes candidates; _select still requires an exact, authorized skill.
+        rows = [row for row in self.skills.search(text, project_id) if row['environment_matches']]
         return [{key: row[key] for key in ('id', 'version', 'title', 'objective', 'examples', 'schema')} for row in rows[:24]]
 
     @active_operation
@@ -785,7 +804,7 @@ class ActionLearning:
             action_inputs = dict(inputs)
             if step['command_id'] == 'axx.artifact.write':
                 action_inputs['path'] = str((self.commands.executor.workspace_root / inputs['path']).resolve())
-            if action and action.get('inputs') == action_inputs and action.get('tool_name') == ADAPTERS[step['command_id']]['tool']:
+            if action and action.get('inputs') == action_inputs and action.get('tool_name') == self.commands.adapters[step['command_id']]['tool']:
                 if action['state'] in ('succeeded', 'failed', 'cancelled'):
                     result = result | {name: action.get(name) for name in ('state', 'postconditions_passed', 'output', 'evidence', 'error')}
                     result['reconciled_action_operation_id'] = action_id
@@ -880,7 +899,7 @@ class ActionLearning:
                 except Exception: pass  # Metrics never change an execution receipt.
 
     def _learn(self, plan):
-        if any(step.get('bindings') or step['command_id'].startswith(('axx.desktop.window.', 'axx.desktop.input', 'axx.desktop.state', 'axx.desktop.observe', 'axx.desktop.control.', 'axx.desktop.ground', 'axx.desktop.grid.', 'axx.browser.')) for step in plan['steps']):
+        if any(step.get('bindings') or step['command_id'].startswith(('axx.desktop.window.', 'axx.desktop.input', 'axx.desktop.state', 'axx.desktop.observe', 'axx.desktop.control.', 'axx.desktop.ground', 'axx.desktop.grid.', 'axx.browser.', 'axx.mcp.')) for step in plan['steps']):
             return self._save(plan | {'state': 'succeeded', 'postconditions_passed': True,
                 'learned_action_id': None, 'message': 'Pasos verificados. Las referencias de esta sesión no se guardan como una receta permanente.'})
         self._assert_workshop_plan(plan)

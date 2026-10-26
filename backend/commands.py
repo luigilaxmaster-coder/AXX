@@ -212,6 +212,7 @@ class CommandService:
     """Persist intent, bind approval to immutable inputs, observe actual executor results."""
     def __init__(self, executor, library_path=None):
         self.executor = executor
+        self.adapters = dict(ADAPTERS)
         self.learning = None
         self.lock = threading.RLock()
         self.execution_gate = threading.Lock()
@@ -234,7 +235,7 @@ class CommandService:
                 self.db.execute('UPDATE command_runs SET state=?,result_json=? WHERE operation_id=?',
                                 (state, json.dumps(result), row['operation_id']))
         self.commands = {}
-        for command_id, adapter in ADAPTERS.items():
+        for command_id, adapter in self.adapters.items():
             self.commands[command_id] = {k: v for k, v in adapter.items() if k != 'tool'} | {
                 'id': command_id, 'category': 'Axx local', 'execution_enabled': True,
                 'requires_approval': adapter.get('requires_approval', adapter['risk'] != 'read'), 'blocked_reason': None,
@@ -309,6 +310,34 @@ class CommandService:
                 for phrase in [command['title'], *command.get('voice_phrases', [])]:
                     self.documentary_phrases.setdefault(normalized(phrase), set()).add(command_id)
 
+    def refresh_mcp_catalog(self, host, records):
+        from .mcp_host.tool_adapter import McpTool
+        with self.lock:
+            commands, adapters = dict(self.commands), dict(self.adapters)
+            tools = dict(self.executor.dynamic_tools)
+            for key, item in commands.items():
+                if key.startswith('axx.mcp.'):
+                    commands[key] = item | {'execution_enabled': False, 'blocked_reason': 'Conexión desactivada o catálogo actualizado'}
+            for record in records:
+                key = record['id']
+                parameters = {name: dict(spec, required=name in record['input_schema'].get('required', []))
+                              for name, spec in record['input_schema'].get('properties', {}).items()}
+                adapter = {'title': record['title'], 'description': record['description'], 'parameters': parameters,
+                           'aliases': [], 'risk': 'external_content' if record['read_only'] else 'local_state',
+                           'requires_approval': True, 'tool': key}
+                adapters[key] = adapter
+                tools[key] = McpTool(host, record)
+                commands[key] = {**adapter, 'id': key, 'category': 'Conexiones MCP', 'execution_enabled': record['enabled'],
+                    'blocked_reason': None if record['enabled'] else 'Activa y revisa esta herramienta en Conexiones MCP',
+                    'source_status': 'DESCUBIERTO_MCP', 'validation_level': 'SCHEMA_CHECKED',
+                    'source': {'kind': 'mcp', 'connection_id': record['connection_id']},
+                    'input_schema': record['input_schema'], 'schema_digest': record['schema_digest'],
+                    'delivery': delivery_policy(key)}
+            index = {key: normalized(' '.join([item['id'], item['title'], item.get('description', ''),
+                     *item.get('aliases', []), *item.get('voice_phrases', [])])) for key, item in commands.items()}
+            self.executor.dynamic_tools = tools
+            self.adapters, self.commands, self.search_index = adapters, commands, index
+
     def close(self):
         with self.lock:
             for event in self.cancel_events.values():
@@ -323,8 +352,8 @@ class CommandService:
         if not 1 <= limit <= 100 or not 0 <= offset <= 20000:
             raise ValueError('Paginación fuera de límites')
         terms = normalized(query).split()
-        hits = [c for key, c in self.commands.items() if all(term in self.search_index[key] for term in terms)]
         with self.lock:
+            hits = [c for key, c in self.commands.items() if all(term in self.search_index[key] for term in terms)]
             verified = self.db.execute("SELECT COUNT(*) FROM command_runs WHERE state='succeeded'").fetchone()[0]
         enabled = sum(bool(c['execution_enabled']) for c in self.commands.values())
         return {'commands': hits[offset:offset + limit], 'matched': len(hits), 'offset': offset,
@@ -362,7 +391,7 @@ class CommandService:
                                            'asr_correction_allowed':source == 'voice'}
             return result
         phrase = normalized(canonical)
-        matches = [command_id for command_id, adapter in ADAPTERS.items()
+        matches = [command_id for command_id, adapter in self.adapters.items()
                    if phrase in [normalized(s) for s in adapter['aliases']] or phrase == normalized(command_id)]
         if len(matches) == 1:
             return understood({'match': 'exact', 'command_id': matches[0], 'inputs': {}, 'parameters': self.commands[matches[0]]['parameters']})
@@ -392,6 +421,20 @@ class CommandService:
     def _validate_inputs(self, command_id, inputs, require_new=True, check_files=True, deferred_fields=()):
         if not isinstance(inputs, dict):
             raise ValueError('Los parámetros deben ser un objeto JSON')
+        if command_id.startswith('axx.mcp.'):
+            from .mcp_host.catalog import validate_arguments
+            descriptor = self.commands[command_id]
+            if not descriptor['execution_enabled']:
+                raise ValueError('La herramienta MCP ya no está activa')
+            schema = descriptor['input_schema']
+            if deferred_fields:
+                if set(deferred_fields) - schema.get('properties', {}).keys(): raise ValueError('Binding MCP desconocido')
+                schema = schema | {'required': [name for name in schema.get('required', []) if name not in deferred_fields]}
+            validate_arguments(schema, inputs)
+            if check_files and not deferred_fields:
+                valid, reason = self.executor.dynamic_tools[command_id].verify_preconditions(inputs)
+                if not valid: raise ValueError(reason)
+            return dict(inputs)
         schema = self.commands[command_id]['parameters']
         if set(inputs) - schema.keys() or set(deferred_fields) - schema.keys():
             raise ValueError('Parámetro desconocido')
@@ -428,7 +471,7 @@ class CommandService:
         if command_id in COMPUTER_ADAPTERS:
             if check_files:
                 from .actions.tools import get_tool
-                valid, reason = get_tool(ADAPTERS[command_id]['tool']).verify_preconditions(inputs)
+                valid, reason = get_tool(self.adapters[command_id]['tool']).verify_preconditions(inputs)
                 if not valid: raise ValueError(reason)
         elif command_id == 'axx.desktop.window.find':
             from .actions.tools import get_tool
@@ -436,7 +479,7 @@ class CommandService:
             if not valid:
                 raise ValueError(reason)
         elif command_id.startswith('axx.desktop.') or command_id in ('axx.shell.powershell', 'axx.shell.cmd'):
-            validate_desktop_inputs(ADAPTERS[command_id]['tool'].removeprefix('desktop_'), inputs)
+            validate_desktop_inputs(self.adapters[command_id]['tool'].removeprefix('desktop_'), inputs)
         if command_id == 'axx.process.inspect':
             inputs.setdefault('pid', os.getpid())
         if command_id in ('axx.file.sha256', 'axx.file.compare'):
@@ -497,8 +540,8 @@ class CommandService:
             command_id = PROCEDURE_BINDINGS.get(command_id, command_id)
         if not isinstance(command_id, str) or command_id not in self.commands or source not in ('text', 'voice'):
             raise ValueError('Comando u origen desconocido')
-        mode = resolve_mode(ADAPTERS[command_id]['tool'], delivery_mode) if command_id in ADAPTERS else None
-        if command_id not in ADAPTERS and delivery_mode is not None:
+        mode = resolve_mode(self.adapters[command_id]['tool'], delivery_mode) if command_id in self.adapters else None
+        if command_id not in self.adapters and delivery_mode is not None:
             raise ValueError('El comando documental no tiene modo ejecutable.')
         if command_id == 'axx.shell.powershell' and source != 'text':
             raise ValueError('Escribe el script PowerShell y revisa su aprobación.')
@@ -514,7 +557,7 @@ class CommandService:
                 if existing.get('command_id') == '' and existing['state'] == 'cancelled':
                     return existing | {'replayed': True}
                 existing_inputs = existing['inputs']
-                candidate = self._validate_inputs(command_id, inputs, require_new=False) if command_id in ADAPTERS else inputs
+                candidate = self._validate_inputs(command_id, inputs, require_new=False) if command_id in self.adapters else inputs
                 if existing['command_id'] != command_id or existing_inputs != candidate or existing['source'] != source or existing.get('conversation_id') != conversation_id or existing.get('command_mode') != command_mode or existing.get('delivery_mode', mode) != mode:
                     raise ValueError('operation_id ya está vinculado a otros parámetros')
                 return existing | {'replayed': True}
@@ -624,14 +667,14 @@ class CommandService:
                         current = self.get(operation_id)
                         if current['cancel_requested']:
                             return self._save(current | {'state': 'cancelled', 'error': {'code': 'CANCELLED', 'message': 'Cancelado antes de ejecutar.'}})
-                    args = (ADAPTERS[result['command_id']]['tool'], result['inputs'], action_id)
+                    args = (self.adapters[result['command_id']]['tool'], result['inputs'], action_id)
                     mode_args = {'delivery_mode': result['delivery_mode']} if result.get('delivery_mode') else {}
                     if allow_parallel_read:
                         action = self.executor.execute_action(*args, cancel_event=self.cancel_events[operation_id], allow_parallel_read=True, **mode_args)
                     else:
                         action = self.executor.execute_action(*args, cancel_event=self.cancel_events[operation_id], **mode_args) if operation_id in self.cancel_events else self.executor.execute_action(*args, **mode_args)
                 final = result | {key: action.get(key) for key in ('state', 'postconditions_passed', 'output', 'evidence', 'duration_ms', 'dispatch_status', 'effect_status')}
-                final.update(action_operation_id=action_id, tool_name=ADAPTERS[result['command_id']]['tool'])
+                final.update(action_operation_id=action_id, tool_name=self.adapters[result['command_id']]['tool'])
                 final.update(model_calls_used=0, model_calls_source='deterministic_no_model_path')
                 final['error'] = {'code': 'ACTION_FAILED', 'message': action['error']} if action.get('error') else None
                 if final['state'] not in TERMINAL:
@@ -670,7 +713,7 @@ class CommandService:
                     return result  # Idempotent acknowledgement preserves its original time.
                 action_id = result.get('action_operation_id') or 'cmd-' + hashlib.sha256(operation_id.encode()).hexdigest()
                 action = self.executor.get_operation(action_id)
-                if action and (action['state'] != 'unknown' or action.get('tool_name') != ADAPTERS[result['command_id']]['tool']):
+                if action and (action['state'] != 'unknown' or action.get('tool_name') != self.adapters[result['command_id']]['tool']):
                     raise ValueError('El recibo del ejecutor cambió; revisa su estado actual.')
                 acknowledgement = {'manual_reviewed': True, 'manual_reviewed_at': time.time(),
                                    'reconciliation_required': False, 'effect_uncertain': True}

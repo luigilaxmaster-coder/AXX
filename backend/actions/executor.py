@@ -36,6 +36,8 @@ class ActionExecutor:
         self.workspace_root.mkdir(parents=True, exist_ok=True)
         self.lock = threading.RLock()
         self.input_control = None
+        self.dynamic_tools = {}
+        self.native_bridge = None
         self.capture_service = None
         self.reads_done = threading.Condition(self.lock)
         self.parallel_reads = 0
@@ -85,6 +87,13 @@ class ActionExecutor:
         with self.reads_done:
             while self.parallel_reads:
                 self.reads_done.wait()
+
+    def invoke_primitive(self, tool, inputs, cancelled):
+        if hasattr(tool, 'execute_with_runtime'):
+            return tool.execute_with_runtime(inputs, self.workspace_root, cancelled, self)
+        if hasattr(tool, 'execute_with_control'):
+            return tool.execute_with_control(inputs, self.workspace_root, cancelled, self.input_control)
+        return tool.execute_cancellable(inputs, self.workspace_root, cancelled)
 
     def execute_action(self, tool_name: str, inputs: dict, operation_id: str | None = None, cancel_event=None,
                        *, allow_parallel_read=False, delivery_mode=None) -> dict:
@@ -137,7 +146,7 @@ class ActionExecutor:
             raise ActionExecutionError('tool_name must be a string and inputs an object')
         if operation_id is not None and (not isinstance(operation_id, str) or not 1 <= len(operation_id) <= 128):
             raise ActionExecutionError('Invalid operation_id')
-        tool = get_tool(tool_name)
+        tool = self.dynamic_tools.get(tool_name) or get_tool(tool_name)
         if not tool:
             raise ActionExecutionError(f"Tool '{tool_name}' not registered in capability catalogue")
 
@@ -163,7 +172,9 @@ class ActionExecutor:
                      'desktop_find_control': {'window_id', 'pid', 'name'}}
         from .computer_tools import ADAPTERS as COMPUTER_ADAPTERS
         permitted.update({adapter['tool']: set(adapter['parameters']) for adapter in COMPUTER_ADAPTERS.values()})
-        if set(inputs) - permitted.get(tool_name, set()):
+        if tool_name in self.dynamic_tools:
+            permitted[tool_name] = tool.parameter_names
+        if tool_name not in self.dynamic_tools and set(inputs) - permitted.get(tool_name, set()):
             raise ActionExecutionError('Unexpected action inputs')
         if tool_name == 'file_artifact_writer' and isinstance(inputs.get('path'), str):
             candidate = Path(inputs['path'])
@@ -236,12 +247,14 @@ class ActionExecutor:
             if allow_parallel_read:
                 self.lock.release()
             try:
-                if hasattr(tool, 'execute_with_runtime'):
-                    tool_res = tool.execute_with_runtime(inputs, self.workspace_root, cancel_event or threading.Event(), self)
-                elif hasattr(tool, 'execute_with_control'):
-                    tool_res = tool.execute_with_control(inputs, self.workspace_root, cancel_event or threading.Event(), self.input_control)
+                if self.native_bridge is not None and tool_name in self.native_bridge.tools:
+                    cancelled = cancel_event or threading.Event()
+                    tool_res = self.native_bridge.execute(tool_name,
+                        lambda: self.invoke_primitive(tool, inputs, cancelled), cancelled, op_id)
+                elif hasattr(tool, 'execute_admitted'):
+                    tool_res = tool.execute_admitted(inputs, self.workspace_root, cancel_event or threading.Event(), self, op_id)
                 else:
-                    tool_res: ToolResult = tool.execute_cancellable(inputs, self.workspace_root, cancel_event or threading.Event())
+                    tool_res = self.invoke_primitive(tool, inputs, cancel_event or threading.Event())
             finally:
                 if allow_parallel_read:
                     self.lock.acquire()
