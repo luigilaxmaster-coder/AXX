@@ -15,7 +15,7 @@ Se conserva CommandService → ActionExecutor, WindowsInput, voz, ajustes y UI 3
 | 2 | ASR/VAD/parada | Conservar cambios de 0.22.1; separar pruebas de transcripción, parada y micrófono físico. |
 | 3 | IFC → CSV → Excel → informe | IfcOpenShell real, Excel y Word/PDF: GUID, escala de unidad, nombre y total conservados; originales intactos. No certifica geometría BIM. |
 | 3 | Puente CAD/BIM | AutoCAD/Revit/SketchUp no figuran en inventario. No declarar capacidades nativas verificadas sin anfitrión. |
-| 4 | Blender y PowerPoint | Blender real: copia, escena/cámara/posición exactas, PNG decodificado a 128×128. PowerPoint real: texto exacto en copia, PPTX reabierto y PDF de una página con texto comprobado. Composición visual pendiente. |
+| 4 | Blender y PowerPoint | Blender real: copia, escena/cámara/posición exactas, PNG decodificado a 128×128. PowerPoint real: texto exacto en copia, PPTX reabierto y PDF de una página. PDF PowerPoint e informe IFC renderizados y revisados visualmente: texto legible y sin recortes en estos fixtures; calidad general pendiente. |
 | 4 | Obsidian/Spotify/Outlook | Apps detectadas; plugin, cuenta, scopes y operaciones no acreditados por presencia. |
 | 4 | Adobe/VLC/Rhino/Resolve | No detectados; disponibilidad y aceptación condicionadas. |
 | 5 | Componentes opcionales | Cua, OmniParser, UI-TARS, Pipecat, sqlite-vec y CLI-Anything sólo se adoptan ante mejora medida. |
@@ -37,7 +37,8 @@ Se conserva CommandService → ActionExecutor, WindowsInput, voz, ajustes y UI 3
   explícita; secretos DPAPI. Pruebas reales con servidor MCP de fixture.
 - Fachada nativa MCP HTTP local: tickets de un uso para operaciones ya admitidas;
   mismo broker de entrada y una sola entrada en el diario. Cursor Windows movido
-  y restaurado con lectura posterior real. No acredita todas las aplicaciones.
+  y restaurado con lectura posterior real, también desde el host instalado
+  0.22.3. No acredita todas las aplicaciones.
 - AnythingMCP local: Docker en WSL, PostgreSQL privado, imágenes por digest,
   HTTP de salud 200 y MCP anónimo 401. Primer administrador y llamada autenticada
   por gateway pendientes de contraseña aceptada. La fachada Windows actualmente
@@ -59,7 +60,14 @@ ventana, Blender, PowerPoint, Word/Excel y navegador se comprobaron además con
 sus fixtures nativos. La prueba HTML → backend fuente → creación/hash de archivo
 y repetición aprendida pasó usando la aprobación actual dentro del chat.
 
-El cambio todavía no acredita el paquete instalado ni una publicación nueva.
+El backend congelado de 0.22.3 pasó cinco recorridos: MCP de fixture, enumeración
+Windows por fachada MCP, PDF, IFC y OCR latino. El hash del binario queda en
+`build/release-0.22.3/packaged-mcp.json`. Las pruebas HTML con ese backend también
+verificaron aprobación dentro del chat, salida CMD y repetición aprendida; el
+puente Tauri de esas pruebas es simulado y no acredita el host instalado.
+
+La instalación y publicación se acreditan por los recibos de entrega y la
+confirmación de hash de GitHub, respectivamente.
 No se han validado aplicaciones ausentes, cuentas externas, micrófono físico,
 multimonitor/DPI ni calidad visual general de los documentos exportados.
 

@@ -5,7 +5,11 @@
     const $ = id => document.getElementById(id);
     const card = document.createElement('section');
     card.id = 'mcp-connections'; card.className = 'setup-card';
-    card.innerHTML = `<h3>Conexiones MCP</h3>
+    card.innerHTML = `<style>
+      #mcp-connections > label, #mcp-connections > div > label { display:grid; gap:6px; margin:12px 0; }
+      #mcp-connections :is(input:not([type="checkbox"]),select,textarea) { box-sizing:border-box; width:100%; min-width:0; }
+      #mcp-connections :is(p,pre,summary) { overflow-wrap:anywhere; }
+      </style><h3>Conexiones MCP</h3>
       <p>Conecta aplicaciones y servicios. Primero comprueba la conexión y después revisa qué herramientas activar.</p>
       <label>Nombre<input id="mcp-name" maxlength="120" autocomplete="off" placeholder="Navegador de trabajo"></label>
       <label>Cuenta o contexto<input id="mcp-context" maxlength="120" autocomplete="off" placeholder="Perfil o espacio de trabajo"></label>

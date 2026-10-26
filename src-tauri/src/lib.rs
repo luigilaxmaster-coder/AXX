@@ -235,14 +235,8 @@ fn validate_route(method: &str, path: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn request_backend(
-    connection: &BackendConnection,
-    method: &str,
-    path: &str,
-    body: Option<Value>,
-) -> Result<Value, String> {
-    validate_route(method, path)?;
-    let timeout = if path == "/axx-api/speech/synthesize" {
+fn backend_timeout_seconds(path: &str) -> u64 {
+    if path == "/axx-api/speech/synthesize" {
         230
     } else if path == "/axx-api/speech/transcribe" {
         95
@@ -252,13 +246,26 @@ fn request_backend(
         || path == "/axx-api/commands/cancel"
     {
         3
+    } else if matches!(path, "/axx-api/actions/execute" | "/axx-api/commands/execute") {
+        150
+    } else if matches!(path, "/axx-api/learning/execute" | "/axx-api/learning/resume") {
+        1000
     } else {
         73
-    };
+    }
+}
+
+fn request_backend(
+    connection: &BackendConnection,
+    method: &str,
+    path: &str,
+    body: Option<Value>,
+) -> Result<Value, String> {
+    validate_route(method, path)?;
     let client = reqwest::blocking::Client::builder()
         .no_proxy()
         .connect_timeout(Duration::from_secs(3))
-        .timeout(Duration::from_secs(timeout))
+        .timeout(Duration::from_secs(backend_timeout_seconds(path)))
         .build()
         .map_err(|_| "Cannot initialize local transport".to_string())?;
     let mut request = client
@@ -1224,6 +1231,13 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn long_actions_fit_worker_deadlines_without_delaying_stop() {
+        assert!(backend_timeout_seconds("/axx-api/commands/execute") > 120);
+        assert!(backend_timeout_seconds("/axx-api/learning/execute") > 8 * 120);
+        assert_eq!(backend_timeout_seconds("/axx-api/commands/cancel"), 3);
+        assert_eq!(backend_timeout_seconds("/axx-api/status"), 3);
+    }
     #[test]
     fn hit_regions_validate_and_use_logical_coordinates() {
         let r = Rect {

@@ -46,7 +46,20 @@ memory_path = args.installed / 'resources' / 'ai-memory.exe'
 memory_hash = digest(memory_path.read_bytes())
 if memory_hash.lower() != memory_inputs[0].lower():
     raise RuntimeError('ai-memory differs from frozen dependency verified during build')
+notice_count = 0
+for name, expected_hash in build['source_hashes'].items():
+    marker_path = 'src-tauri/resources/license-notices/'
+    normalized = name.replace('\\', '/')
+    if marker_path in normalized:
+        relative = normalized.split(marker_path, 1)[1]
+        notice = args.installed / 'resources' / 'license-notices' / relative
+        if digest(notice.read_bytes()).lower() != expected_hash.lower():
+            raise RuntimeError(f'Installed license notice differs: {relative}')
+        notice_count += 1
+if not notice_count:
+    raise RuntimeError('Build receipt contains no license notices')
 report = {'result': 'PASS', 'version': build['artifacts'][0]['version'],
+          'license_notices_verified': notice_count,
           'installed_directory': str(args.installed.resolve()), 'tauri_bundle_marker': marker,
           'installed_exe_sha256': digest(installed), 'release_exe_sha256': digest(release),
           'backend_sha256': backend_hash, 'ai_memory_sha256': memory_hash,

@@ -29,6 +29,7 @@ try {
     }
     $sourceFiles = @(Get-ChildItem -LiteralPath '1.AXX' -File -Recurse | Where-Object { $_.Extension -in '.html','.js','.css','.json','.png','.ico','.svg','.woff','.woff2' } | ForEach-Object FullName) + @('axx-backend.spec', 'scripts\setup-freellmapi.ps1', 'src-tauri\tauri.conf.json', 'src-tauri\Cargo.toml', 'src-tauri\resources\ai-memory.exe')
     $sourceFiles += @(Get-ChildItem backend,src-tauri\src,resources,vendor -File -Recurse | Where-Object { $_.Extension -in '.ps1','.py','.rs','.json','.bin','.txt','.zip' -and $_.FullName -notmatch '\\(__pycache__|tests)\\' -and $_.Name -notlike 'test_*.py' } | ForEach-Object FullName)
+    $sourceFiles += @(Get-ChildItem -LiteralPath 'src-tauri\resources\license-notices' -File -Recurse | ForEach-Object FullName)
     $before = @{}
     foreach ($file in $sourceFiles) { $before[$file] = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash }
     $steps = @()

@@ -26,6 +26,8 @@ class McpUiTests(unittest.TestCase):
                     Axx.mcpConnections.open();
                 }''')
                 self.assertEqual(page.evaluate('Axx.companion.dock.selected'), 'mcp')
+                self.assertEqual(page.locator('#mcp-name').evaluate('(e)=>getComputedStyle(e.parentElement).display'), 'grid')
+                self.assertGreater(page.locator('#mcp-name').bounding_box()['width'], 250)
                 page.locator('#mcp-name').fill('Fixture')
                 page.locator('#mcp-context').fill('UI contract fixture')
                 page.locator('#mcp-url').fill('https://example.test/mcp')

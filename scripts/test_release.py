@@ -98,6 +98,16 @@ class ReleaseTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Source changed"):
             release.validate_receipts(self.root, b, i)
 
+    def test_license_notice_bytes_are_part_of_delivery(self):
+        notice = self.root / 'src-tauri/resources/license-notices/example/LICENSE'
+        notice.parent.mkdir(parents=True)
+        notice.write_text('Original notice', encoding='utf-8')
+        installer, b, i = self.receipt()
+        self.assertEqual(release.validate_receipts(self.root, b, i), installer)
+        notice.write_text('Changed notice', encoding='utf-8')
+        with self.assertRaisesRegex(ValueError, 'Source changed'):
+            release.validate_receipts(self.root, b, i)
+
     def test_verified_receipt_can_publish_from_identical_checkout(self):
         installer, b, i = self.receipt()
         other = tempfile.TemporaryDirectory()

@@ -5,7 +5,8 @@ from pathlib import Path
 a = Analysis(
     ['backend/server.py'],
     pathex=[SPECPATH, str(Path(SPECPATH) / 'vendor' / 'cli_anything_blender')],
-    binaries=collect_dynamic_libs('ctranslate2') + collect_dynamic_libs('av') + collect_dynamic_libs('tokenizers'),
+    binaries=collect_dynamic_libs('ctranslate2') + collect_dynamic_libs('av') + collect_dynamic_libs('tokenizers')
+        + collect_dynamic_libs('ifcopenshell', search_patterns=['ifcopenshell_parse_schema_*.dll']),
     datas=[('resources/providers.default.json', 'resources'),
            ('resources/model-candidates.json', 'resources'),
            ('resources/ocr-model-manifest.json', 'resources'),
@@ -23,7 +24,7 @@ a = Analysis(
            + collect_data_files('faster_whisper') + collect_data_files('mcp') + collect_data_files('jsonschema_specifications')
            + collect_data_files('rapidocr_onnxruntime', excludes=['models/*']),
     hiddenimports=collect_submodules('backend', filter=lambda name: '.tests' not in name and '.test_' not in name)
-        + collect_submodules('mcp') + collect_submodules('uvicorn') + [
+        + collect_submodules('mcp', filter=lambda name: not name.startswith('mcp.cli')) + collect_submodules('uvicorn') + [
         'cli_anything.blender.core.scene', 'cli_anything.blender.core.objects',
         'cli_anything.blender.core.lighting', 'cli_anything.blender.core.render',
         'cli_anything.blender.utils.bpy_gen', 'faster_whisper', 'ctranslate2',

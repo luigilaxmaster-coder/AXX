@@ -66,6 +66,7 @@ const {chromium} = createRequire(path.join(process.env.USERPROFILE, '.cache/code
     });
     await page.goto('http://127.0.0.1:'+server.address().port);
     await page.waitForFunction(()=>window.Axx?.commandLibrary && window.Axx?.resident?.firstFrame);
+    await page.waitForFunction(()=>window.Axx?.chatWorkspace?.ready);
     await page.evaluate(()=>Object.assign(Axx.companion.data.prefs,{provider:'bridge',selection_mode:'manual',apiConnection:'plan-fixture',model:'plan-fixture',voiceRead:false,mutedAll:true}));
     await page.evaluate(()=>Axx.commandLibrary.search('AXX-01-0001'));
     await page.waitForFunction(()=>document.getElementById('command-library-steps').textContent.includes('Windows'));
@@ -73,7 +74,7 @@ const {chromium} = createRequire(path.join(process.env.USERPROFILE, '.cache/code
 
     await page.evaluate(()=>Axx.companion.send('prepara un archivo de saludo y comprueba su hash'));
     let plan=await page.evaluate(()=>Axx.commandLibrary.operation);
-    assert.equal(plan?.state,'awaiting_approval',JSON.stringify(await page.locator('#command-library-status').textContent()));
+    assert.equal(plan?.state,'awaiting_approval',JSON.stringify({status:await page.locator('#command-library-status').textContent(),chat:await page.locator('#chat-log').innerText(),calls}));
     assert.equal(plan.steps.length,2);assert.equal(fs.existsSync(target),false);
     assert.match(await page.locator('#command-library-preview').innerText(),/aprendido.txt/);
     await page.screenshot({path:path.join(evidence,'learning-approval.png')});

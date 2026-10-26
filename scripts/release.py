@@ -141,6 +141,7 @@ def source_inventory(root: Path) -> set[Path]:
                                 "src-tauri/Cargo.toml", "src-tauri/resources/ai-memory.exe")}
     paths.update(p for p in (root / "1.AXX").rglob("*") if p.is_file() and
                  p.suffix in (".html", ".js", ".css", ".json", ".png", ".ico", ".svg", ".woff", ".woff2"))
+    paths.update(p for p in (root / "src-tauri/resources/license-notices").rglob("*") if p.is_file())
     for folder in ("backend", "src-tauri/src", "resources", "vendor"):
         paths.update(p for p in (root / folder).rglob("*") if p.is_file() and
                      p.suffix in (".ps1", ".py", ".rs", ".json", ".bin", ".txt", ".zip") and
