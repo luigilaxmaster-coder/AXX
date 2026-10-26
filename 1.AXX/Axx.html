@@ -1793,7 +1793,7 @@ body.axx-resident :is(.panel-head,.flow-library-head,.organic-satellite-head,.v1
 <script>"use strict";
 var Axx;
 (function (Axx) {
-    Axx.VERSION = '0.22.5';
+    Axx.VERSION = '0.22.6';
     function newId() {
         if (typeof crypto.randomUUID === 'function')
             return crypto.randomUUID();
@@ -7798,7 +7798,7 @@ var Axx;
             return false;
         } }
         refreshIdentity() { this.lastState = ''; this.applySettings(); this.tick(); }
-        audioLevel() { if (!this.analyser || !this.audioBins)
+        audioLevel() { const quick=Axx.quickReply?.microphoneLevel;if(Number.isFinite(quick))return quick; if (!this.analyser || !this.audioBins)
             return 0; this.analyser.getByteTimeDomainData(this.audioBins); let sum = 0; for (const v of this.audioBins)
             sum += ((v - 128) / 128) ** 2; return Axx.clamp((Math.sqrt(sum / this.audioBins.length) - .009) * 5.5, 0, 1); }
         snapshot() { const r = this.machine.resolve(Date.now()); return { state: r.state, visible: this.machine.visible, demo: r.demo, timer: this.store.data.timer, notes: this.store.data.notes.length, native: this.bridge.available, audio: this.captureMode }; }
@@ -8479,7 +8479,7 @@ var Axx;
             else {
                 this.lastAudioEnergy *= Math.exp(-dt / .14);
                 if (this.speaking || this.dictating)
-                    this.app.renderer.setState(this.speaking ? 'speaking' : 'listening', 0);
+                    this.app.renderer.setState(this.speaking ? 'speaking' : 'listening', Axx.quickReply?.microphoneLevel || 0);
             }
         }
         paintStage() { const st = node('stage'); st.style.setProperty('--axx-x', this.follower.x + 'px'); st.style.setProperty('--axx-y', this.follower.y + 'px'); }
@@ -8530,6 +8530,7 @@ var Axx;
         }
         hide() { this.stopDictation(); this.stopSpeech(); this.app.setVisible(false); this.dock.close(); this.renderDock(); }
         openChat(reposition = true) {
+            if(Axx.quickReply?.active){Axx.quickReply.show();return;}
             this.app.setVisible(true);
             let anchor = null;
             if (reposition && this.data.prefs.mode === 'companion' && innerWidth > 760) {
@@ -19196,7 +19197,7 @@ var Axx;
             document.body.style.setProperty('--resident-y', this.anchor.y + 'px');
             document.body.style.setProperty('--resident-size', this.size + 'px');
         }
-        tap() { if (['music','screen'].includes(Axx.actions?.selected)) { Axx.actions.primary(); this.schedule(); return; } if (Axx.actions?.selected === 'dictation') { Axx.voice13.toggle(); this.schedule(); return; } Axx.flow.tap(); const isOpen = (Axx.flow.nav.step !== 0); this.invoked = isOpen; document.body.classList.toggle('resident-invoked', isOpen); this.schedule(); }
+        tap() { Axx.quickReply?.close(); if(Axx.flow.nav.step!==2)Axx.flow.fold(); Axx.flow.tap(); const isOpen = (Axx.flow.nav.step !== 0); this.invoked = isOpen; document.body.classList.toggle('resident-invoked', isOpen); this.schedule(); }
         summon(follow = true) { this.invoked = true; document.body.classList.add('resident-invoked'); Axx.home18.wake(); Axx.companion.data.prefs.follow = follow; Axx.flow.compactTools(); this.activity(); this.schedule(); }
         home(move = false) { this.fold(); Axx.companion.data.prefs.follow = false; this.activity(); if (move) void Axx.app.bridge.action('recenter'); }
         fold(render = true) {
@@ -19436,6 +19437,7 @@ var Axx;
                     boxes.push({ id: 'reach-bounds', x: -reachHalf, y: -reachHalf, width: reachBox, height: reachBox });
                 }
                 const add = (id, x, y, width, height) => boxes.push({ id, x, y, width, height });
+                Axx.quickReply?.layout(g,size,add);
                 const step = Axx.flow.nav.step;
                 const panel = this.visible('panel');
                 const extraIds = ['reach-tray', 'ink-review', 'v13-dock', 'v13-settings', 'v13-pad', 'reader-mini', 'reach-preview'];
@@ -19546,7 +19548,7 @@ var Axx;
         }
         interactiveRegions() {
             const regions = [];
-            for (const n of document.querySelectorAll('#mp-canvas,#mp-toolbar,#mp-widget,#panel,#dock-shell,#flow-sheet,#flow-pill,#flow-fan>button,#flow-all,#reach-tray,#reach-preview,#ink-review,#v13-dock,#v13-settings,#v13-pad,#reader-mini,.organic-satellite,dialog[open],button,input,textarea,select,summary,.resident-resize-handle')) {
+            for (const n of document.querySelectorAll('#quick-actions,#quick-compose,#quick-reply,#mp-canvas,#mp-toolbar,#mp-widget,#panel,#dock-shell,#flow-sheet,#flow-pill,#flow-fan>button,#flow-all,#reach-tray,#reach-preview,#ink-review,#v13-dock,#v13-settings,#v13-pad,#reader-mini,.organic-satellite,dialog[open],button,input,textarea,select,summary,.resident-resize-handle')) {
                 if (n.id === 'a11-main-button' || n.hidden || !n.getClientRects().length) continue;
                 // These bounded surfaces already own their input. Descendant
                 // rectangles can extend outside their scroll clip and must not
@@ -19807,4 +19809,4 @@ body[data-media16-source="system"] #view-music .m16-now{padding:12px;margin-top:
 body[data-media16-source="system"] #view-music .m16-transport{margin:8px 0 0}
 body[data-media16-source="system"] #view-music .m16-compact{padding:10px 14px;margin-top:8px}
 </style><script src="scripts/native-speech-stream.js"></script><script src="scripts/native-voice.js"></script><script src="scripts/voice-conversation.js"></script><script src="scripts/command-library.js"></script><script src="scripts/skill-library.js"></script><script src="scripts/window-content.js"></script><script src="scripts/axx-connect.js"></script><script src="scripts/mcp-connections.js"></script><script src="scripts/application-catalog.js"></script><script src="scripts/model-profile.js"></script><script src="scripts/providers.js"></script><script src="scripts/native-music.js"></script><script src="scripts/native-capture.js"></script><script src="scripts/magic-pen.js"></script><script src="scripts/converter.js"></script><script src="scripts/chat-workspace.js"></script><script src="scripts/chat-workspace-design.js"></script><script src="scripts/mobile-gateway.js"></script>
-<script src="scripts/remote-voice.js"></script><script src="scripts/remote-control.js"></script><script src="scripts/mobile-work-approval.js"></script><script src="scripts/avatar-remote.js"></script><link rel="stylesheet" href="scripts/chat-workspace.css"><link rel="stylesheet" href="scripts/interface-theme.css"><script src="scripts/interface-theme.js"></script><script src="scripts/agent-profile.js"></script><script src="scripts/chat-live.js"></script><script src="scripts/capability-workshop.js"></script><script src="scripts/computer-use.js"></script></body></html>
+<script src="scripts/remote-voice.js"></script><script src="scripts/remote-control.js"></script><script src="scripts/mobile-work-approval.js"></script><script src="scripts/avatar-remote.js"></script><link rel="stylesheet" href="scripts/chat-workspace.css"><link rel="stylesheet" href="scripts/interface-theme.css"><script src="scripts/interface-theme.js"></script><script src="scripts/agent-profile.js"></script><script src="scripts/chat-live.js"></script><script src="scripts/capability-workshop.js"></script><script src="scripts/computer-use.js"></script><script src="scripts/quick-reply.js"></script></body></html>

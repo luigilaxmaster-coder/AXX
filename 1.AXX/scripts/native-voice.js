@@ -198,7 +198,7 @@
                 if(id!==this.generation)return;
                 const meter = this.owner === Axx.voice13?.capture ? Axx.voice13.meter : null;
                 const borrowedMeter = !!meter?.active; this.borrowedMeter = borrowedMeter;
-                const device = this.owner === Axx.symbiosis?.dictation && Axx.symbiosis.use === 'live' ? state.liveDeviceId : '';
+                const device = this.owner === Axx.quickReply?.capture || this.owner === Axx.symbiosis?.dictation && Axx.symbiosis.use === 'live' ? state.liveDeviceId : '';
                 const stream = borrowedMeter ? meter.stream : await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, ...(device ? {deviceId:{exact:device}} : {}) }, video: false });
                 if (id !== this.generation) { if (!borrowedMeter) stream.getTracks().forEach(track => track.stop()); return; }
                 this.stream = stream;
@@ -220,7 +220,8 @@
         }
         async startVad(stream, id) {
             const isChatDraft = this.owner === state.chatDraft;
-            if (!isChatDraft && (this.owner !== Axx.symbiosis?.dictation || !['command', 'live'].includes(Axx.symbiosis?.use))) return;
+            const isQuick = this.owner === Axx.quickReply?.capture;
+            if (!isChatDraft && !isQuick && (this.owner !== Axx.symbiosis?.dictation || !['command', 'live'].includes(Axx.symbiosis?.use))) return;
                 const Ctx = window.AudioContext || window.webkitAudioContext;
                 if (!Ctx) throw new Error('El analizador de voz no está disponible. Actualiza WebView2 y vuelve a iniciar.');
                 const ctx = new Ctx(), src = ctx.createMediaStreamSource(stream), analyser = ctx.createAnalyser();
@@ -253,7 +254,7 @@
                     else {
                         voiceFrames=0;
                         if(!calibrating)noiseFloor = rms<noiseFloor ? noiseFloor*.85+rms*.15 : noiseFloor*.997+Math.min(rms,.08)*.003;
-                        const live = !isChatDraft && Axx.symbiosis?.use === 'live';
+                        const live = isQuick || !isChatDraft && Axx.symbiosis?.use === 'live';
                         const pause = live ? (Axx.liveConversation?.pauseMs || 550) : 550;
                         if (heardSpeech && now - lastVoiceAt > pause && now - startedAt > 600) this.finish();
                         else if (!heardSpeech && now - startedAt > (live ? 30000 : 9000)) this.fail(id,new Error('No se detectó una frase. Revisa el nivel y el micrófono elegido; también puedes pulsar Responder ahora.'));

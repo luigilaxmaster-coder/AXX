@@ -198,10 +198,21 @@
     const originalSend=c.send.bind(c);
     c.send=async function(...args){ if(!ready){error(Error('El historial todavía se está cargando.'));return;} expireLocal();return originalSend(...args); };
     const lib=Axx.commandLibrary;
+    let dismissedResult=null;
     function operationCard(op) {
         const box=$('cw-operation');box.replaceChildren();
         const terminal=op&&['succeeded','failed','blocked','cancelled','expired'].includes(op.state);
         box.hidden=!op||(terminal&&op.conversation_id!==active?.id);if(box.hidden)return;
+        const compact=['succeeded','cancelled'].includes(op.state);
+        box.classList.toggle('cw-compact-result',compact);
+        if(compact){
+            if(dismissedResult===op.operation_id&&op.operation_id){box.hidden=true;return;}
+            const status=document.createElement('strong');status.textContent=op.state==='cancelled'?'Cancelado':op.postconditions_passed?'Completado':'Resultado recibido';
+            const title=document.createElement('span');title.className='cw-result-title';title.textContent=op.title||lib.commands?.find(c=>c.id===op.command_id)?.title||'Acción';title.title=title.textContent;
+            const details=button('Ver detalles',()=>{lib.open();lib.renderOperation(op);});
+            const dismiss=button('×',()=>{dismissedResult=op.operation_id;box.hidden=true;});dismiss.setAttribute('aria-label','Ocultar resultado');
+            box.append(status,title,details,dismiss);return;
+        }
         const label=document.createElement('strong');label.textContent=({awaiting_approval:'TU APROBACIÓN',prepared:'ACCIÓN PREPARADA',running:'EN CURSO',paused:'PAUSADO',pausing:'PAUSA SOLICITADA',interrupted:'INTERRUMPIDO',unknown:'RESULTADO POR COMPROBAR',preparing:'PREPARANDO',succeeded:'COMPLETADO Y VERIFICADO',failed:'NO SE COMPLETÓ',blocked:'ACCIÓN BLOQUEADA',cancelled:'CANCELADO',expired:'APROBACIÓN VENCIDA'})[op.state]||op.state;if(op.state==='succeeded'&&!op.postconditions_passed)label.textContent='RESULTADO RECIBIDO';box.append(label);
         const detail=document.createElement('p');detail.textContent=(op.title||lib.commands?.find(c=>c.id===op.command_id)?.title||op.command_id||'Comando')+(op.conversation_id&&op.conversation_id!==active?.id?' · de otro chat':'');box.append(detail);
         const parameters=op.steps?.length?op.steps:op.inputs||{};

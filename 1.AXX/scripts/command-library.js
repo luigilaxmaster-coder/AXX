@@ -124,7 +124,7 @@
             link.onclick = () => { this.open(); void this.search().catch(e => this.status(errorText(e))); };
             node('desktop-runtime')?.prepend(link);
         }
-        open() { Axx.companion.openFeature(document.getElementById('view-commands') ? 'commands' : 'files'); node(this.operation?.state === 'awaiting_approval' ? 'command-library-approval' : 'command-library').scrollIntoView({ block: 'start' }); Axx.resident?.schedule(); }
+        open() { if(Axx.quickReply?.active){Axx.quickReply.show();return;} Axx.companion.openFeature(document.getElementById('view-commands') ? 'commands' : 'files'); node(this.operation?.state === 'awaiting_approval' ? 'command-library-approval' : 'command-library').scrollIntoView({ block: 'start' }); Axx.resident?.schedule(); }
         connectExistingActions() {
             if (!Axx.desktop) return;
             const ids = { system_telemetry: 'axx.system.telemetry', process_state_inspector: 'axx.process.inspect', file_artifact_writer: 'axx.artifact.write' };

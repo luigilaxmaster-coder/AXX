@@ -61,6 +61,15 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
   await page.getByRole('button',{name:'Ya revisé el efecto: permitir otra acción',exact:true}).click();assert.equal(await page.evaluate(()=>window.reviewedId),'uncertain-fixture');
   await page.evaluate(()=>Axx.commandLibrary.renderOperation({operation_id:'uncertain-fixture',state:'unknown',evidence:{manual_reviewed:true}}));
   assert.equal(await page.getByRole('button',{name:'Ya revisé el efecto: permitir otra acción',exact:true}).count(),0);
+  await page.addStyleTag({path:'1.AXX/scripts/chat-workspace.css'});
+  await page.evaluate(()=>{Axx.commandLibrary.open=()=>{window.openedDetails=true;};Axx.commandLibrary.renderOperation({operation_id:'finished-card',conversation_id:Axx.chatWorkspace.active.id,command_id:'axx.desktop.search',state:'succeeded',postconditions_passed:true,inputs:{engine:'youtube',query:'Faint'}});});
+  assert.equal(await page.locator('#cw-operation pre').count(),0);
+  assert.match(await page.locator('#cw-operation').innerText(),/Completado/);
+  assert.ok((await page.locator('#cw-operation').boundingBox()).height<65);
+  await page.locator('#cw-operation').getByRole('button',{name:'Ver detalles',exact:true}).click();assert.equal(await page.evaluate(()=>openedDetails),true);
+  await page.getByRole('button',{name:'Ocultar resultado',exact:true}).click();
+  await page.evaluate(()=>Axx.commandLibrary.renderOperation({operation_id:'finished-card',conversation_id:Axx.chatWorkspace.active.id,state:'succeeded',postconditions_passed:true}));assert.equal(await page.locator('#cw-operation').isHidden(),true);
+  await page.evaluate(()=>Axx.commandLibrary.renderOperation({operation_id:'unverified-result',conversation_id:Axx.chatWorkspace.active.id,state:'succeeded',postconditions_passed:false}));assert.match(await page.locator('#cw-operation').innerText(),/Resultado recibido/);
   assert.deepEqual(errors,[]);console.log('PASS: SQLite, context isolation, Ask/Auto policy, pending card and pause/resume controls');
  }finally{await browser?.close();child.kill();}
 })().catch(e=>{console.error(e);process.exitCode=1;});

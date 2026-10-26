@@ -60,8 +60,9 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
     });
     for(const key of ['x','y','width','height'])assert.ok(Math.abs(layout.before[key]-layout.after[key])<1,`Dictation layout has competing ${key}: ${JSON.stringify(layout)}`);
     await page.evaluate(()=>Axx.resident.tap());
-    assert.equal(await page.evaluate(()=>Axx.voice13.permit),true,'Avatar must request dictation consent instead of toggling the tool menu');
-    await page.evaluate(()=>{Axx.voice13.openFields();Axx.voice13.consent=true;Axx.voice13.permit=false;});
+    assert.equal(await page.evaluate(()=>Axx.flow.nav.step),2,'Avatar click opens all options without starting capture');
+    assert.equal(await page.evaluate(()=>micRequests),0);
+    await page.evaluate(()=>{Axx.flow.select('dictation');Axx.voice13.openFields();Axx.voice13.consent=true;Axx.voice13.permit=false;});
     const overlap=await page.evaluate(async()=>{
       await Axx.resident.layout();
       const a=document.getElementById('v13-dock').getBoundingClientRect(),b=document.getElementById('v13-pad').getBoundingClientRect();
@@ -161,7 +162,7 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
     for(let trial=0;trial<5;trial++){
       await page.evaluate(n=>{fixtureInput=n===0?'startup-noise':'noise';traceVad=true;vadTrace=[];},trial);await page.locator('#chat-live-toggle').click();await page.waitForTimeout(2000);
       noiseTraces.push(await page.evaluate(()=>vadTrace));assert.equal(await page.evaluate(()=>Axx.symbiosis.dictation.state),'listening');assert.equal(await page.evaluate(()=>Axx.nativeVoice.inputLevel.heard_speech),false,'Steady background noise must not count as voice: '+JSON.stringify(noiseTraces.at(-1)));await page.evaluate(()=>traceVad=false);
-      assert(await page.locator('#chat-live-level').evaluate(el=>el.value>0),'Meter must reveal that the selected input carries a signal');await page.locator('#chat-live-toggle').click();
+      await page.waitForFunction(()=>document.getElementById('chat-live-level').value>0);assert(await page.locator('#chat-live-level').evaluate(el=>el.value>0),'Meter must reveal that the selected input carries a signal');await page.locator('#chat-live-toggle').click();
     }
     const tracesPath=path.resolve(__dirname,'../../build/chat-'+require('../../package.json').version+'/vad-noise-traces.json');fs.mkdirSync(path.dirname(tracesPath),{recursive:true});fs.writeFileSync(tracesPath,JSON.stringify(noiseTraces,null,2));
     await page.evaluate(()=>{fixtureInput='silence';});await page.locator('#chat-live-toggle').click();await page.waitForFunction(()=>Axx.nativeVoice.inputLevel?.phase==='calibrating');
@@ -211,8 +212,24 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
     await page.reload();
     await page.waitForFunction(()=>Axx.nativeVoice?.wake?.active&&Axx.symbiosis?.dictation?.state==='listening');
     await page.evaluate(()=>Axx.nativeVoice.wake.setMode('hotkey'));
+    // The real avatar, capture adapter and chat pipeline run inside the full UI.
+    await page.evaluate(()=>{
+      Axx.chatWorkspace={ready:true,active:{id:'quick-voice-fixture'}};
+      const c=Axx.companion;c.send=Object.getPrototypeOf(c).send.bind(c);c.brain.connected=true;c.brain.models=['ui-contract'];c.brain.chat=async()=>({text:'Respuesta breve de la prueba',reason:'stop'});
+      Object.assign(c.data.prefs,{provider:'chatgpt',model:'ui-contract',selection_mode:'manual',mutedAll:true});
+      fixtureInput='quiet-voice';Axx.resident.fold();Axx.quickReply.talk();
+    });
+    await page.waitForFunction(()=>Axx.quickReply.capture.state==='listening');
+    assert.equal(await page.evaluate(()=>Axx.companion.dictating),true);
+    await page.waitForFunction(()=>typeof releaseTranscript==='function');await page.evaluate(()=>releaseTranscript());
+    await page.waitForFunction(()=>document.getElementById('quick-reply-text').textContent==='Respuesta breve de la prueba');
+    assert.equal(await page.evaluate(()=>document.getElementById('panel').hidden),true);
+    assert.equal(await page.evaluate(()=>Axx.quickReply.capture.state),'idle');
+    assert.equal(await page.evaluate(()=>fixtureTracks.every(t=>t.readyState==='ended')),true);
+    const quick=await page.locator('#quick-compose').boundingBox();assert.ok(quick.width<=340&&quick.height<150);
+    await page.evaluate(()=>Axx.quickReply.close());
     assert.deepEqual(errors,[]);
-    const output=path.resolve(__dirname,'../../evidence/chat-actions-20261021');fs.mkdirSync(output,{recursive:true});
+    const output=path.resolve(__dirname,'../../build/quick-reply-0.22.6');fs.mkdirSync(output,{recursive:true});
     await page.screenshot({path:path.join(output,'dictation.png')});
     console.log('PASS: dictation geometry/owner/draft, live blur retention, quiet and short utterance VAD, steady-noise rejection, visible input meter, unavailable exact device, cancellation barriers, single command shortcut and always-active rearm');
   }finally{await browser.close();await new Promise(r=>server.close(r));}

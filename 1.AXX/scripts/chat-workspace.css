@@ -62,6 +62,10 @@ body.native.axx-resident #panel[data-view=chat] #cw-browser input[type=checkbox]
 #chat-workspace #cw-operation pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:90px;overflow:auto;font:11px/1.65 Consolas,monospace;color:#566474;background:#edf2f8;border-radius:7px;padding:8px 10px}
 #view-chat[data-layout=messages] #cw-operation button{font-size:12px;min-height:40px;margin:3px 5px 0 0;border-color:#dae3ee;background:var(--surface);color:#53677e}
 #view-chat[data-layout=messages] #cw-operation .cw-primary{background:var(--accent-fill,#0064cf)!important;color:white!important;border-color:transparent}
+#chat-workspace #cw-operation.cw-compact-result:not([hidden]){display:flex;align-items:center;gap:8px;margin:6px 0;padding:4px 8px;border-radius:10px}
+#chat-workspace #cw-operation.cw-compact-result>strong{margin:0;font-size:11px;letter-spacing:0;white-space:nowrap}
+#cw-operation .cw-result-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}
+#view-chat[data-layout=messages] #cw-operation.cw-compact-result button{flex:none;margin:0;min-height:40px;padding:4px 8px}
 #chat-workspace #cw-error{font-size:12px;color:#a13a3a;background:#fff5f4;border:1px solid #eed8d5;border-radius:9px;padding:12px 14px}
 #chat-workspace #cw-context{padding:14px 0;max-height:55vh;overflow:auto;scrollbar-width:thin;color:#41414b}
 #chat-workspace #cw-context .cw-heading{display:flex;align-items:center;justify-content:space-between;gap:8px}
