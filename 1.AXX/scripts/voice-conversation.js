@@ -13,7 +13,8 @@
             }
             if (text.length > limit) {
                 const clause = text.slice(0, limit).match(/^([\s\S]{45,}[,;:])\s/);
-                return clause ? clause[1].length : Math.max(0, text.lastIndexOf(' ', limit));
+                const boundary = clause ? clause[1].length : text.lastIndexOf(' ', limit);
+                return boundary > 0 ? boundary : final ? text.length : 0;
             }
             return final ? text.length : 0;
         },

@@ -8,6 +8,8 @@ assert.equal(voice.phraseLength('Cuesta 2.50 euros. Luego sigo'),'Cuesta 2.50 eu
 assert.equal(voice.phraseLength('El Dr. Pérez llegará pronto. Seguimos'),'El Dr. Pérez llegará pronto.'.length);
 assert.equal(voice.phraseLength('Todavía estoy escribiendo'),0);
 assert.equal(voice.phraseLength('Texto final',true),11);
+assert.equal(voice.phraseLength('x'.repeat(200)),0);
+assert.equal(voice.phraseLength('x'.repeat(200),true),200);
 const long = 'Esta es una frase larga, ' + 'palabra '.repeat(40);
 const size=voice.phraseLength(long);
 assert(size>0 && size<=180 && long[size]===' ');

@@ -14,7 +14,8 @@ herramientas Axx conservan admisión, permisos, aprobación y recibos de ejecuci
   Codex recibe `purpose=voice`, manteniendo sus herramientas tipadas.
 - Las frases se envían al lector cuando están completas, con bloques de hasta
   180 caracteres cortados por palabras o cláusulas. No se corta un decimal ni un
-  tratamiento como «Dr.». El remanente se entrega al terminar el modelo.
+  tratamiento como «Dr.». Un identificador sin espacios se conserva completo al
+  finalizar, aunque supere ese tamaño. El remanente se entrega al terminar el modelo.
 - SAPI y MOSS esperan si se agota temporalmente el texto generado. Esa espera no
   cierra el turno ni rearma el micrófono. Cancelar invalida el audio pendiente.
 - Las órdenes sin coincidencia determinista usan las herramientas de Connect
