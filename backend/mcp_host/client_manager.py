@@ -59,7 +59,7 @@ def checked_config(body):
 
 
 class Transport:
-    def __init__(self, config):
+    def __init__(self, config, cancelled=None):
         from backend.inference.process_manager import spawn_managed_process
         self.lock, self.messages = threading.RLock(), queue.Queue(maxsize=8)
         self.closed = False
@@ -80,7 +80,7 @@ class Transport:
         self.reader.start()
         try:
             self._write(config)
-            self.ready = self._receive(threading.Event(), 20)
+            self.ready = self._receive(cancelled or threading.Event(), 20)
             if self.ready.get('ready') is not True: raise ValueError('No se inicializó MCP: ' + str(self.ready.get('error', 'unknown')))
         except Exception:
             self.close(); raise

@@ -7,7 +7,11 @@ class McpHTTP:
     def get(self, path):
         if path != '/axx-api/mcp/connections': return False
         if not self.host: raise ValueError('Host MCP no disponible')
-        self.h._send_json(200, self.host.list())
+        result = self.host.list()
+        native = getattr(getattr(self.h, 'executor', None), 'native_bridge', None)
+        if native is not None:
+            result['native_windows'] = native.status()
+        self.h._send_json(200, result)
         return True
 
     def post(self, path, body):

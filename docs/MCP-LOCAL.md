@@ -75,10 +75,45 @@ cancelación, identidad de operación y diario existentes. Una mutación remota
 queda en estado desconocido si sólo existe una confirmación del servidor y no
 una postcondición independiente. No se repite automáticamente.
 
-El adaptador nativo de Windows usa MCP HTTP local con bearer efímero y tickets
-de un solo uso para acciones ya admitidas. Comparte el broker de entrada y el
-diario de Axx. Actualmente esa conexión nativa es directa: no se ha probado su
-recorrido a través de AnythingMCP.
+El adaptador de Windows admite dos rutas: MCP HTTP directo o el gateway local
+de AnythingMCP. Ambas conservan el mismo ActionExecutor, broker de entrada y
+diario; el gateway transporta un ticket opaco de un uso y un recibo, no los
+argumentos ni el contenido de las ventanas. No hay segundo ejecutor, reintento
+automático ni retorno a la ruta directa si falla el gateway configurado.
+
+### Windows mediante el gateway
+
+Con el gateway local iniciado, configura el backend instalado desde PowerShell:
+
+```powershell
+& "$env:LOCALAPPDATA\Programs\Axx\resources\axx-backend.exe" --configure-native-gateway login
+& "$env:LOCALAPPDATA\Programs\Axx\resources\axx-backend.exe" --configure-native-gateway configure
+& "$env:LOCALAPPDATA\Programs\Axx\resources\axx-backend.exe" --configure-native-gateway status
+```
+
+`login` solicita correo y contraseña sin eco y conserva la sesión con DPAPI.
+`configure` crea el servidor Windows dedicado y una clave restringida, verifica
+las IP reales de WSL y añade sólo la IP exacta del host a la lista SSRF del
+gateway. No desactiva el filtro de redes privadas. Reinicia Axx después de
+configurar. En Ajustes → Conexiones MCP se muestra la ruta y el estado de la
+última operación; «configurado» todavía no acredita una ejecución.
+
+La fachada sólo escucha en la interfaz privada de WSL, exige su IP de origen
+observada y una credencial independiente de la clave del gateway. Si cambia la
+red WSL, vuelve a configurar con Axx cerrado. Los tickets caducan y la auditoría
+conserva sus valores opacos; no son credenciales reutilizables. El recibo local
+incluye `gateway_receipt_sha256` para correlacionar la invocación auditada sin
+publicar el recibo original. La marca SUCCESS del gateway no basta: se valida
+también el resultado nativo interior.
+
+Para recuperar expresamente la ruta directa, cierra Axx, ejecuta `disable` y
+reinícialo. Se conserva una copia privada de configuración. El alcance del
+gateway nativo comprende controles GUI y ventanas registrados; PowerShell,
+Office, inferencia y OCR mantienen sus contratos propios.
+
+La lectura real Windows de desarrollo ya recorrió ActionExecutor → AnythingMCP
+→ fachada nativa, con postcondiciones y correlación de auditoría. La aceptación
+del instalador se registra por separado en las notas de cada entrega.
 
 ## Capacidades nuevas y requisitos
 

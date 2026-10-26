@@ -468,6 +468,7 @@
                     if (resolved.match === 'unsupported') {
                         Axx.companion.message('user', raw, 'local');
                         Axx.companion.localNotice(resolved.message || 'No encontré una acción ejecutable para esa petición.');
+                        if (this.isActionRequest(raw)) await Axx.capabilityWorkshop?.propose(raw);
                         return;
                     }
                     if (resolved.match === 'none') {
@@ -720,6 +721,7 @@
                 if (this.operation) { if(Axx.chatWorkspace) Axx.companion.openChat(); else this.open(); }
                 this.notice(plan.message || 'No se pudo preparar la acción.', origin);
                 Axx.companion.action(this.operation ? 'approval' : 'idle');
+                if (plan.capability_missing === true && this.isActionRequest(text)) await Axx.capabilityWorkshop?.propose(text);
             } catch (error) {
                 if (serial !== this.generation) return;
                 this.operation = null; this.report(error);

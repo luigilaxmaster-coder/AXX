@@ -17,11 +17,12 @@ BACKGROUND_TOOLS = frozenset({
     'artifact_pdf', 'artifact_media', 'artifact_ocr', 'computer_ocr',
     'ifc_inventory_csv',
     'obs_observe', 'obs_control',
+    'application_catalog', 'application_windows', 'application_inspect',
 })
 
 
 def delivery_policy(tool_name):
-    background = tool_name in BACKGROUND_TOOLS
+    background = tool_name in BACKGROUND_TOOLS or tool_name.startswith('axx.generated.')
     return {'default_mode': 'background' if background else 'foreground',
             'supported_modes': ['background', 'foreground'] if background else ['foreground'],
             'may_use_global_input': not background,

@@ -21,11 +21,12 @@ class McpUiTests(unittest.TestCase):
                         const f=mcpFixture; f.calls.push({method,path,body:structuredClone(body)});
                         if(path.endsWith('/add')) f.connections.push({id:'fixture', name:'<img src=x onerror="window.injected=true">',
                             context:'UI contract fixture', endpoint:body.url, status:'disconnected', tools:[]});
-                        return {connections:f.connections};
+                        return {connections:f.connections,native_windows:{mode:'gateway',state:'verified'}};
                     };
                     Axx.mcpConnections.open();
                 }''')
                 self.assertEqual(page.evaluate('Axx.companion.dock.selected'), 'mcp')
+                page.wait_for_function('() => document.getElementById("mcp-native-status").textContent.includes("última operación comprobada")')
                 self.assertEqual(page.locator('#mcp-name').evaluate('(e)=>getComputedStyle(e.parentElement).display'), 'grid')
                 self.assertGreater(page.locator('#mcp-name').bounding_box()['width'], 250)
                 page.locator('#mcp-name').fill('Fixture')

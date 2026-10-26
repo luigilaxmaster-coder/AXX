@@ -20,7 +20,8 @@
       <label>Argumentos como lista JSON<textarea id="mcp-args" rows="2" maxlength="16000">[]</textarea></label>
       <p>Probar iniciará este proceso local. Usa únicamente servidores que hayas revisado.</p></div>
       <div class="quick-row"><button id="mcp-add" type="button">Guardar conexión</button><button id="mcp-refresh" type="button">Actualizar estado</button></div>
-      <p id="mcp-status" role="status" aria-live="polite">Sin conexiones comprobadas.</p><div id="mcp-list"></div>`;
+      <p id="mcp-status" role="status" aria-live="polite">Sin conexiones comprobadas.</p>
+      <p id="mcp-native-status" role="status" aria-live="polite">Ruta Windows pendiente de consulta.</p><div id="mcp-list"></div>`;
     $('view-settings')?.append(card);
     const api = async (method, action, body) => {
         if (!A.isNative()) throw new Error('Las conexiones requieren Axx Desktop.');
@@ -44,6 +45,11 @@
     }
     async function refresh() {
         const data = await api('GET', 'connections');
+        const native = data.native_windows;
+        $('mcp-native-status').textContent = !native ? 'Ruta Windows no informada por el backend.'
+            : native.mode === 'direct' ? 'Windows: MCP directo.'
+            : 'Windows vía AnythingMCP: ' + ({verified:'última operación comprobada.', error:'la última operación no quedó comprobada; revisa el gateway.',
+                running:'operación en curso.', configured:'configurado; falta comprobar una operación.'}[native.state] || 'estado pendiente.');
         const list = $('mcp-list'); list.replaceChildren();
         if (data.storage_error) { status(data.storage_error); return; }
         for (const connection of data.connections || []) {

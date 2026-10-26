@@ -9,7 +9,7 @@ Run the installer and open Axx. Python and Node are not required. Start with **A
 
 The packaged backend may take longer on its first launch while Windows extracts and scans it. The native host allows up to 90 seconds for backend readiness and reports a startup error if that limit is exceeded.
 
-Source and published Windows installer are both **v0.22.3**. Android APKs remain local test artifacts until separately published. See [mobile setup and validation](docs/mobile/README.md) and the [version and release procedure](docs/RELEASING.md).
+Source is **v0.22.4**; the published Windows installer is **v0.22.3**. Delivery of the newer source is pending publication. Android APKs remain local test artifacts until separately published. See [mobile setup and validation](docs/mobile/README.md) and the [version and release procedure](docs/RELEASING.md).
 <!-- release:download:end -->
 
 ---
@@ -29,7 +29,7 @@ Source and published Windows installer are both **v0.22.3**. Android APKs remain
   <img src="https://img.shields.io/badge/Frontend-CPU%203D%20%2F%20Canvas-black" alt="CPU 3D and Canvas" />
   <img src="https://img.shields.io/badge/Offline%20Voice-Faster--Whisper%20Tiny-green" alt="Faster-Whisper" />
   <img src="https://img.shields.io/badge/Protocol-Model%20Context%20Protocol%20(MCP)-blueviolet" alt="MCP" />
-  <img src="https://img.shields.io/badge/Source%20Version-v0.22.3-informational" alt="Source version 0.22.3" />
+  <img src="https://img.shields.io/badge/Source%20Version-v0.22.4-informational" alt="Source version 0.22.4" />
   <img src="https://img.shields.io/badge/Development-Active%20Refinement-yellow?logo=git" alt="Active Development" />
 </p>
 
@@ -101,14 +101,24 @@ pause the microphone during playback and do not promise subsecond responses.
 
 The **Taller de Axx** in **Comandos** turns a goal into a versioned proposal using
 the selected model. Review the parameters, approve the revision and run its
-validation through the existing command card. Activation requires real executor
-evidence; changes and rollback require their own review. Source-code proposals
-can be inspected and exported for integration. They are never imported or run
-automatically. The chat microphone dictates a draft; **Voz en vivo** starts a
+validation through the existing command card. Workflows require real executor
+evidence. Pure Python transformations run bounded tests and require approval of
+the exact source, schemas and test cases before registration; revision and rollback
+require their own review. General integration proposals remain exportable text.
+The selected Codex model can draft code with Axx tools disabled, without provider
+fallback. [Generated code and limits](docs/GENERATED-COMMANDS.md).
+The chat microphone dictates a draft; **Voz en vivo** starts a
 conversation and speaks the response.
 [Capability workshop](docs/SELF-IMPROVEMENT.md) · [ECC engineering workflow](docs/ECC-WORKFLOW.md).
 
 ### Avatar connections and application discovery
+
+**Aplicaciones y comandos** in Productividad joins 48 profiles to the real Windows
+inventory. Open an exact app, inspect its windows and prepare supported controls;
+guides remain visibly distinct from executable routes. Windows GUI commands can
+use the local AnythingMCP gateway while retaining Axx's single input broker and
+execution journal. [Per-application guide](docs/APPLICATION-COMMANDS.md) ·
+[Gateway setup](docs/MCP-LOCAL.md).
 
 Tentacles attach to the rendered body contour and taper with available space.
 Their analytic surface uses continuous normals, subpixel edge coverage and
@@ -201,7 +211,7 @@ These are presentation captures of the current UI in an isolated browser. The mo
 ## 🚧 Project Status: Active Continuous Improvement
 
 > [!NOTE]
-> **Axx is under active development.** Source and published Windows installer are both **v0.22.3**. Validation is recorded per feature; a working UI or build does not by itself certify every hardware-dependent behavior.
+> **Axx is under active development.** Source is **v0.22.4**; the published Windows installer is **v0.22.3**. Delivery of the newer source is pending publication. Validation is recorded per feature; a working UI or build does not by itself certify every hardware-dependent behavior.
 
 ### 🟢 Implemented capabilities
 - **Native Startup:** Resident Windows application with a local backend and a launcher fallback to the executable built from this repository.

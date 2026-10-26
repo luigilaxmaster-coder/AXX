@@ -1,4 +1,5 @@
 import json
+import time
 import subprocess
 import threading
 import unittest
@@ -8,6 +9,37 @@ from backend.actions import windows_automation as automation
 
 
 class WindowsAutomationTests(unittest.TestCase):
+    def test_read_value_binds_one_fresh_metadata_control_without_page_content(self):
+        control_id = 'a' * 64
+        observed = {'window_title': 'Owned browser fixture', 'truncated': False,
+            'controls': [{'control_id': control_id, 'name': 'Address bar', 'enabled': True,
+                          'offscreen': False, 'supports_value_pattern': True, 'value': ''}],
+            'observation': {'process_started': '123456', 'window_bounds': {'x': 0, 'y': 0, 'width': 100, 'height': 100},
+                            'completed_monotonic': time.monotonic()}}
+        answer = {'success': True, 'verification': 'uia_control_value_observed', 'window_id': 12, 'pid': 45,
+                  'control_id': control_id, 'process_started': '123456', 'value': 'https://example.com/'}
+        with patch.object(automation, 'get_observation', return_value=observed) as lookup, \
+                patch.object(automation, '_uia', return_value=answer) as worker:
+            result = automation.read_control_value(12, 45, control_id, 'owned-observation')
+        self.assertEqual(result['value'], answer['value'])
+        lookup.assert_called_once_with('owned-observation', 12, 45)
+        payload = worker.call_args.args[0]
+        self.assertEqual(payload['operation'], 'read_value')
+        self.assertEqual(payload['control_id'], control_id)
+        self.assertEqual(payload['expected_process_started'], '123456')
+        self.assertEqual(payload['expected_name'], 'Address bar')
+        self.assertNotIn('value', payload)
+        for change in [{'truncated': True}, {'controls': observed['controls'] * 2},
+                       {'controls': [dict(observed['controls'][0], offscreen=True)]}]:
+            with self.subTest(change=change), patch.object(automation, 'get_observation', return_value=observed | change), \
+                    patch.object(automation, '_uia') as worker, self.assertRaises(ValueError):
+                automation.read_control_value(12, 45, control_id, 'owned-observation')
+            worker.assert_not_called()
+        with patch.object(automation, 'get_observation', return_value=observed), \
+                patch.object(automation, '_uia', return_value=dict(answer, process_started='replacement')), \
+                self.assertRaises(ValueError):
+            automation.read_control_value(12, 45, control_id, 'owned-observation')
+
     def test_worker_proves_rejection_before_write_is_not_uncertain(self):
         class Worker:
             returncode=2
@@ -107,11 +139,14 @@ class WindowsAutomationTests(unittest.TestCase):
             killed = False
             def kill(self): self.killed = True
 
+        worker = Worker()
         with patch.object(automation.os, 'name', 'nt'), \
-             patch.object(automation.subprocess, 'Popen', return_value=Worker()), \
-             patch.object(automation, 'UIA_TIMEOUT_SECONDS', 0.01):
+             patch.object(automation, 'observe_geometry', return_value={}), \
+             patch.object(automation.subprocess, 'Popen', return_value=worker), \
+             patch.object(automation.time, 'monotonic', side_effect=[0, 0, 0, 16]):
             with self.assertRaisesRegex(ValueError, 'verifica la ventana antes de reintentar'):
                 automation.inspect_controls(12, 45)
+        self.assertTrue(worker.killed)
 
     def test_uia_cancellation_terminates_worker_promptly(self):
         cancelled = threading.Event()
@@ -130,6 +165,7 @@ class WindowsAutomationTests(unittest.TestCase):
 
         worker = Worker()
         with patch.object(automation.os, 'name', 'nt'), \
+             patch.object(automation, 'observe_geometry', return_value={}), \
              patch.object(automation.subprocess, 'Popen', return_value=worker):
             with self.assertRaisesRegex(ValueError, 'cancelada'):
                 automation.inspect_controls(12, 45, cancelled=cancelled)

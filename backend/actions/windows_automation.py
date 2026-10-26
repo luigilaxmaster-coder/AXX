@@ -14,6 +14,7 @@ import json
 import math
 import os
 from pathlib import Path
+import re
 import subprocess
 import time
 import threading
@@ -449,6 +450,31 @@ def set_control_value(window_id, expected_pid, control_id, value, cancelled=None
                  'control_id': control_id, 'value': value, 'expected_title': expected_title}, cancelled=cancelled)
 
 
+def read_control_value(window_id, expected_pid, control_id, observation_id, cancelled=None):
+    """Read one visible ValuePattern control bound to a fresh backend observation."""
+    window_id = _positive_int(window_id, 'window_id')
+    expected_pid = _positive_int(expected_pid, 'pid')
+    if not isinstance(control_id, str) or not re.fullmatch(r'[a-f0-9]{64}', control_id):
+        raise ValueError('control_id observado inválido')
+    observed = get_observation(observation_id, window_id, expected_pid)
+    controls = [row for row in observed.get('controls', []) if row.get('control_id') == control_id]
+    if (observed.get('truncated') or len(controls) != 1 or not controls[0].get('supports_value_pattern')
+            or not controls[0].get('enabled') or controls[0].get('offscreen')):
+        raise ValueError('El control de valor no es único, visible o compatible en la observación.')
+    identity, control = observed['observation'], controls[0]
+    result = _uia({'operation': 'read_value', 'window_id': _positive_int(window_id, 'window_id'),
+        'pid': _positive_int(expected_pid, 'pid'), 'control_id': control_id,
+        'expected_title': observed['window_title'], 'expected_name': control['name'],
+        'expected_process_started': identity['process_started'], 'expected_bounds': identity['window_bounds'],
+        '_observation_deadline': identity['completed_monotonic'] + OBSERVATION_MAX_AGE}, cancelled=cancelled)
+    if (result.get('verification') != 'uia_control_value_observed' or result.get('control_id') != control_id
+            or result.get('window_id') != window_id or result.get('pid') != expected_pid
+            or result.get('process_started') != identity['process_started']
+            or not isinstance(result.get('value'), str) or len(result['value'].encode('utf-16-le')) > 4096):
+        raise ValueError('La lectura del control no coincide con su identidad o excede el límite.')
+    return result
+
+
 def invoke_control(window_id, expected_pid, control_id, expected_title, expected_name, cancelled=None):
     window_id = _positive_int(window_id, 'window_id')
     expected_pid = _positive_int(expected_pid, 'pid')
@@ -468,7 +494,7 @@ def _uia(payload, cancelled=None, timeout=None):
     if not executable.is_file() or not script.is_file():
         raise ValueError('El worker UI Automation no está disponible en este runtime.')
     payload = dict(payload)
-    if payload['operation'] in ('set_state', 'read_grid'):
+    if payload['operation'] in ('set_state', 'read_grid', 'read_value'):
         remaining_ms = int((payload.pop('_observation_deadline', 0) - time.monotonic()) * 1000)
         if not 0 < remaining_ms <= OBSERVATION_MAX_AGE * 1000:
             raise ValueError('STALE_OBSERVATION: la observación caducó antes del worker.')

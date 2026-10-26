@@ -172,6 +172,8 @@ class ActionExecutor:
                      'desktop_find_control': {'window_id', 'pid', 'name'}}
         from .computer_tools import ADAPTERS as COMPUTER_ADAPTERS
         permitted.update({adapter['tool']: set(adapter['parameters']) for adapter in COMPUTER_ADAPTERS.values()})
+        from .application_tools import ADAPTERS as APPLICATION_ADAPTERS
+        permitted.update({adapter['tool']: set(adapter['parameters']) for adapter in APPLICATION_ADAPTERS.values()})
         if tool_name in self.dynamic_tools:
             permitted[tool_name] = tool.parameter_names
         if tool_name not in self.dynamic_tools and set(inputs) - permitted.get(tool_name, set()):

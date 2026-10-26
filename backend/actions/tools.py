@@ -568,6 +568,8 @@ TOOL_REGISTRY[DesktopOcrTool.name] = DesktopOcrTool()
 TOOL_REGISTRY[BrowserPdfTool.name] = BrowserPdfTool()
 TOOL_REGISTRY[PowerPointTool.name] = PowerPointTool()
 TOOL_REGISTRY[BlenderSceneTool.name] = BlenderSceneTool()
+from .application_tools import TOOLS as APPLICATION_TOOLS
+TOOL_REGISTRY.update(APPLICATION_TOOLS)
 
 
 def get_tool(name: str) -> BaseTool | None:

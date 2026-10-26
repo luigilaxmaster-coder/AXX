@@ -26,9 +26,9 @@
     #capability-workshop pre{max-height:210px;overflow:auto}
   </style>
   <p class="cap-kicker">Taller de Axx</p><h2 id="cap-title">Crear y mejorar capacidades</h2>
-  <p>Describe una tarea. Axx propone una herramienta que puedes revisar, probar y guardar con sus resultados.</p>
+  <p>Describe una tarea. Axx prepara código o un procedimiento, muestra las pruebas y pide tu aprobación antes de activar esa versión.</p>
   <form id="cap-form"><label class="setting">Qué quieres que aprenda<textarea id="cap-goal" rows="3" maxlength="4000" required placeholder="Por ejemplo: consultar el estado del equipo y guardar un resumen"></textarea></label>
-  <div class="cap-row"><label class="setting">Tipo<select id="cap-kind"><option value="workflow">Procedimiento con comandos disponibles</option><option value="source_proposal">Propuesta de herramienta en código</option></select></label>
+  <div class="cap-row"><label class="setting">Tipo<select id="cap-kind"><option value="workflow">Procedimiento con comandos disponibles</option><option value="python_transform">Código para transformar y calcular datos</option><option value="source_proposal">Propuesta de integración para revisión técnica</option></select></label>
   <button id="cap-generate" type="submit" class="primary">Crear propuesta</button></div>
   <p id="cap-provider"></p></form>
   <p id="cap-status" role="status" aria-live="polite"></p>
@@ -44,7 +44,7 @@
     return r;
   };
   const status = text => { $('cap-status').textContent = text; Axx.resident?.schedule(); };
-  const prefs = () => { const p = Axx.companion.data.prefs; return {model:p.model || '',provider_name:p.apiConnection || '',selection_mode:p.selection_mode || 'manual'}; };
+  const prefs = () => { const p = Axx.companion.data.prefs; return {model:p.model || '',provider_name:p.provider === 'chatgpt' ? '@codex' : p.apiConnection || '',selection_mode:p.selection_mode || 'manual'}; };
   const reference = r => ({id:r.id, revision:r.revision, digest:r.digest});
   const button = (text, action, primary = false) => { const n = el('button', text, primary ? 'primary' : ''); n.type = 'button'; n.onclick = () => void run(action); return n; };
   function lock(value) { busy = value; section.setAttribute('aria-busy', String(value)); for (const n of section.querySelectorAll('button,input,select,textarea')) n.disabled = value; }
@@ -66,6 +66,7 @@
     if (!list.children.length) list.append(el('p', 'Tus propuestas y sus versiones aparecerán aquí.', 'cap-empty'));
     if (selectedId) { current = await api('GET', 'get?id=' + encodeURIComponent(selectedId)); render(); }
     const p = prefs(); $('cap-provider').textContent = 'Modelo seleccionado: ' + (p.model || 'automático según tus ajustes') + '. Solo se envían el objetivo y los contratos disponibles.';
+    status(`${r.capabilities?.length || 0} propuestas guardadas. Revisa la versión antes de activarla.`);
   }
   async function mutate(action, extra = {}) {
     current = await api('POST', action, {...reference(current), ...extra});
@@ -73,21 +74,33 @@
   }
   function render() {
     const root = $('cap-editor'); root.hidden = !current; root.replaceChildren(); if (!current) return;
-    const r = current, def = r.definition, source = def.kind === 'source_proposal';
+    const r = current, def = r.definition, source = def.kind === 'source_proposal', transform = def.kind === 'python_transform';
     const head = el('div', undefined, 'cap-row'); head.append(el('h3', def.title), el('span', `v${r.revision} · ${stateText(r.state)}`, 'cap-stage')); root.append(head);
     root.append(el('p', def.objective));
-    root.append(el('p', source ? 'Código propuesto para revisión e integración. Axx no lo ejecuta ni lo instala automáticamente.' : r.validation?.runtime_verified ? 'Efecto comprobado por el ejecutor. La activación conserva los permisos de cada comando.' : 'Contrato revisado. La comprobación real se registra al ejecutar la prueba.'));
-    if (!source) {
+    root.append(el('p', source ? 'Código propuesto para revisión e integración. Axx no lo ejecuta ni lo instala automáticamente.' : transform ? 'Código puro acotado: transforma datos sin acceso a archivos, red, procesos ni credenciales. La aprobación corresponde al código, contratos y pruebas de esta versión.' : r.validation?.runtime_verified ? 'Efecto comprobado por el ejecutor. La activación conserva los permisos de cada comando.' : 'Contrato revisado. La comprobación real se registra al ejecutar la prueba.'));
+    root.append(el('p', 'Huella de la versión: ' + r.digest));
+    if (!source && !transform) {
       const steps = el('ol', undefined, 'cap-steps');
       for (const step of r.validation?.steps || def.templates || []) { const li = el('li', step.command_id); li.append(el('pre', JSON.stringify(step.inputs, null, 2))); steps.append(li); }
       root.append(steps);
       if (r.validation?.risks?.length) root.append(el('p', 'Riesgos declarados: ' + r.validation.risks.map(x => typeof x === 'string' ? x : JSON.stringify(x)).join(' · ')));
     } else { const code = el('pre', def.source); root.append(code); }
+    if (transform) {
+      const tests = el('details'); tests.append(el('summary', 'Contratos, pruebas y resultados'));
+      tests.append(el('pre', JSON.stringify({schema:def.schema,output_schema:def.output_schema,tests:def.tests,validation:r.validation}, null, 2))); root.append(tests);
+    }
     const details = el('details'); details.append(el('summary', 'Revisar y editar la definición'));
     const label = el('label', 'Definición y parámetros (JSON)', 'setting'); const editor = el('textarea', undefined, 'cap-code'); editor.id = 'cap-definition'; editor.rows = 12; editor.value = JSON.stringify(def, null, 2); label.append(editor); details.append(label);
     details.append(button('Guardar una nueva versión', async () => { const definition = JSON.parse(editor.value); await mutate('revise', {definition}); status('Nueva versión guardada. Requiere revisión y comprobación propias.'); })); root.append(details);
     const actions = el('div', undefined, 'cap-actions');
-    if (!source && r.state !== 'revoked' && r.state !== 'active') {
+    if (transform && r.state !== 'revoked' && r.state !== 'active') {
+      actions.append(button('Ejecutar pruebas de esta versión', async () => {
+        const result = await api('POST', 'validate', reference(r)); await refresh(r.id);
+        status(result.self_tests_passed ? 'Todas las pruebas declaradas pasaron. Revisa el código antes de aprobar.' : 'Hay pruebas fallidas. Revisa el resultado y corrige la propuesta.');
+      }));
+      if (r.validation?.self_tests_passed && !r.approval) actions.append(button('Aprobar este código y sus contratos', async () => { await mutate('approve', {confirmed:true}); status('Código aprobado para esta huella. Falta activarlo.'); }, true));
+      if (r.approval) actions.append(button('Activar comando aprobado', async () => { await mutate('activate'); status('Comando activado en la biblioteca. Cada uso valida sus parámetros.'); }, true));
+    } else if (!source && r.state !== 'revoked' && r.state !== 'active') {
       if (!r.approval) actions.append(button('Aprobar esta versión', async () => { await mutate('approve', {confirmed:true}); status('Versión aprobada. Preparar la prueba mostrará las acciones y sus destinos.'); }, true));
       else {
         actions.append(button(r.validation_operation_id ? 'Consultar prueba' : 'Preparar prueba', async () => {
@@ -101,7 +114,8 @@
         if (r.validation_operation_id) actions.append(button('Comprobar resultado y activar', async () => { await mutate('activate'); status('Capacidad activada con evidencia. Ya aparece en Mis habilidades.'); }, true));
       }
     }
-    if (r.state === 'active' && Axx.skillLibrary) actions.append(button('Usar capacidad', () => Axx.skillLibrary.open(r.skill_id), true));
+    if (r.state === 'active' && transform) actions.append(button('Usar comando', async () => { await commands.search(r.generated_command_id); commands.open(); }, true));
+    else if (r.state === 'active' && Axx.skillLibrary) actions.append(button('Usar capacidad', () => Axx.skillLibrary.open(r.skill_id), true));
     if (r.active_revision != null && r.state !== 'revoked') actions.append(button('Desactivar capacidad', async () => { await mutate('revoke'); status('Capacidad desactivada. Se conservan sus versiones y resultados.'); }));
     actions.append(button('Exportar propuesta', async () => {
       const file = await api('GET', 'export?id=' + encodeURIComponent(r.id) + '&revision=' + r.revision);
@@ -128,10 +142,26 @@
     await refresh(current.id); status('Propuesta guardada. Revisa su definición y sus parámetros.'); $('cap-editor').scrollIntoView({block:'nearest'});
   }); };
   $('cap-refresh').onclick = () => void run(() => refresh());
-  async function open(goal = '') { Axx.companion.openFeature('commands'); if (goal) $('cap-goal').value = goal; await run(() => refresh()); section.scrollIntoView({block:'start'}); $('cap-goal').focus(); }
+  const openFeature = Axx.companion.openFeature.bind(Axx.companion);
+  Axx.companion.openFeature = id => { const result = openFeature(id); if (id === 'commands' && !busy) void run(() => refresh()); return result; };
+  async function open(goal = '') { await run(async () => { Axx.companion.openFeature('commands'); if (goal) $('cap-goal').value = goal; await refresh(); section.scrollIntoView({block:'start'}); $('cap-goal').focus(); }); }
   const profileLink = button('Crear y mejorar capacidades', () => open()); $('view-agent').append(profileLink);
+  async function propose(goal, kind = 'source_proposal') {
+    await open(goal); $('cap-kind').value = kind;
+    await run(async () => {
+      status('Falta una capacidad ejecutable. Axx está preparando código para revisión…');
+      current = await api('POST', 'generate', {goal,kind,...prefs(),conversation_id:Axx.chatWorkspace?.active?.id});
+      await refresh(current.id); status('Propuesta preparada. Revisa el código y sus límites antes de aprobar su implementación.');
+    });
+  }
   const send = Axx.companion.send.bind(Axx.companion);
-  Axx.companion.send = async (text, metadata) => { const match = String(text || '').trim().match(/^\/(?:capacidad|herramienta)(?:\s+([\s\S]+))?$/i); if (match) return open(match[1] || ''); return send(text, metadata); };
-  Axx.capabilityWorkshop = {open,refresh,get current(){return current;}};
+  Axx.companion.send = async (text, metadata) => {
+    const raw = String(text || '').trim(), match = raw.match(/^\/(?:capacidad|herramienta)(?:\s+([\s\S]+))?$/i);
+    if (match) return open(match[1] || '');
+    const create = raw.match(/^(?:crea|crear|desarrolla|programa)\s+(?:una?\s+)?(?:capacidad|habilidad|comando|herramienta)\s+(?:para\s+)?([\s\S]{3,4000})$/i);
+    if (create) { Axx.companion.message('user', raw, 'local'); return propose(create[1], /^(?:transformar|calcular|convertir texto|formatear|normalizar)\b/i.test(create[1]) ? 'python_transform' : 'workflow'); }
+    return send(text, metadata);
+  };
+  Axx.capabilityWorkshop = {open,propose,refresh,get current(){return current;}};
   void run(() => refresh());
 })(window.Axx);

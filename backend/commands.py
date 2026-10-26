@@ -24,6 +24,7 @@ from .actions.command_language import command_text, voice_suggestion
 from .actions.executor import ActionExecutionError
 from .actions.execution_contract import delivery_policy, resolve_mode
 from .actions.computer_tools import ADAPTERS as COMPUTER_ADAPTERS
+from .actions.application_tools import ADAPTERS as APPLICATION_ADAPTERS, resolve_application_command
 from .procedure_library import ProcedureLibrary
 
 TERMINAL = {'succeeded', 'failed', 'blocked', 'cancelled', 'expired', 'unknown'}
@@ -176,6 +177,7 @@ ADAPTERS = {
 
 # Explicit implementation bindings; imported prose cannot add to this map.
 ADAPTERS.update(COMPUTER_ADAPTERS)
+ADAPTERS.update(APPLICATION_ADAPTERS)
 PROCEDURE_BINDINGS = {'AXX-02-0147': 'axx.file.sha256', 'AXX-02-0148': 'axx.file.compare'}
 PARALLEL_READ_COMMANDS = frozenset({'axx.file.sha256', 'axx.file.compare', 'axx.system.telemetry',
                                    'axx.process.inspect', 'axx.desktop.list_apps', 'axx.desktop.list_windows', 'axx.desktop.cli_anything.scan', 'axx.architecture.status'})
@@ -346,6 +348,38 @@ class CommandService:
                 self.closed = True
                 self.db.close()
 
+    def refresh_generated_catalog(self, records):
+        from .generated_commands import GeneratedTool
+        with self.lock:
+            commands, adapters = dict(self.commands), dict(self.adapters)
+            tools = {key: value for key, value in self.executor.dynamic_tools.items()
+                     if not key.startswith('axx.generated.')}
+            for key, item in commands.items():
+                if key.startswith('axx.generated.'):
+                    commands[key] = item | {'execution_enabled': False, 'blocked_reason': 'Versión revocada o sustituida'}
+            for record in records:
+                tool = GeneratedTool(record)
+                key = tool.name
+                previous = self.executor.dynamic_tools.get(key)
+                if isinstance(previous, GeneratedTool) and previous.record == record:
+                    tool = previous
+                parameters = {name: dict(spec, required=name in record['input_schema'].get('required', []))
+                              for name, spec in record['input_schema']['properties'].items()}
+                adapter = {'title': record['title'], 'description': record['description'], 'parameters': parameters,
+                           'aliases': [], 'risk': 'read', 'requires_approval': False, 'tool': key}
+                adapters[key] = adapter
+                tools[key] = tool
+                commands[key] = {**adapter, 'id': key, 'category': 'Código aprobado', 'execution_enabled': True,
+                    'blocked_reason': None, 'source_status': 'CODIGO_REVISADO', 'validation_level': 'SELF_TESTED',
+                    'source': {'kind': 'generated', 'capability_id': record['capability_id'],
+                               'revision': record['revision'], 'digest': record['digest']},
+                    'input_schema': record['input_schema'], 'output_schema': record['output_schema'],
+                    'delivery': delivery_policy(key)}
+            index = {key: normalized(' '.join([item['id'], item['title'], item.get('description', ''),
+                     *item.get('aliases', []), *item.get('voice_phrases', [])])) for key, item in commands.items()}
+            self.executor.dynamic_tools = tools
+            self.adapters, self.commands, self.search_index = adapters, commands, index
+
     def search(self, query='', limit=30, offset=0):
         if not isinstance(query, str) or len(query) > 500 or type(limit) is not int or type(offset) is not int:
             raise ValueError('Búsqueda o paginación inválida')
@@ -391,6 +425,14 @@ class CommandService:
                                            'asr_correction_allowed':source == 'voice'}
             return result
         phrase = normalized(canonical)
+        generated = re.fullmatch(r'(?:ejecuta|ejecutar|usa|usar) (?:el )?comando (.+)', phrase)
+        if generated:
+            candidates = [key for key, item in self.commands.items() if key.startswith('axx.generated.')
+                          and item['execution_enabled'] and normalized(item['title']) == generated[1]]
+            if len(candidates) == 1:
+                key = candidates[0]
+                return {'match': 'exact', 'command_id': key, 'inputs': {}, 'parameters': self.commands[key]['parameters']}
+            return {'match': 'ambiguous' if candidates else 'none', 'candidates': candidates}
         matches = [command_id for command_id, adapter in self.adapters.items()
                    if phrase in [normalized(s) for s in adapter['aliases']] or phrase == normalized(command_id)]
         if len(matches) == 1:
@@ -398,6 +440,10 @@ class CommandService:
         desktop = resolve_desktop(text, source, context)
         if desktop and desktop.get('match') == 'exact':
             return understood(desktop)
+        application = resolve_application_command(canonical)
+        if application:
+            application['parameters'] = self.commands[application['command_id']]['parameters']
+            return understood(application)
         if self.learning:
             learned = self.learning.find(text, project_id)
             if learned:
@@ -421,11 +467,14 @@ class CommandService:
     def _validate_inputs(self, command_id, inputs, require_new=True, check_files=True, deferred_fields=()):
         if not isinstance(inputs, dict):
             raise ValueError('Los parámetros deben ser un objeto JSON')
-        if command_id.startswith('axx.mcp.'):
-            from .mcp_host.catalog import validate_arguments
+        if command_id.startswith(('axx.mcp.', 'axx.generated.')):
+            if command_id.startswith('axx.generated.'):
+                from .generated_commands import validate_arguments
+            else:
+                from .mcp_host.catalog import validate_arguments
             descriptor = self.commands[command_id]
             if not descriptor['execution_enabled']:
-                raise ValueError('La herramienta MCP ya no está activa')
+                raise ValueError('La herramienta ya no está activa')
             schema = descriptor['input_schema']
             if deferred_fields:
                 if set(deferred_fields) - schema.get('properties', {}).keys(): raise ValueError('Binding MCP desconocido')
@@ -468,7 +517,7 @@ class CommandService:
         inputs = dict(inputs)
         if deferred_fields:
             return inputs  # Runtime resolves and validates the complete inputs before prepare.
-        if command_id in COMPUTER_ADAPTERS:
+        if command_id in APPLICATION_ADAPTERS or command_id in COMPUTER_ADAPTERS:
             if check_files:
                 from .actions.tools import get_tool
                 valid, reason = get_tool(self.adapters[command_id]['tool']).verify_preconditions(inputs)

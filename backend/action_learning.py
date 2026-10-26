@@ -580,6 +580,7 @@ class ActionLearning:
                     data = plan['model_data']
                     if set(data) in ({'needs_input'}, {'unavailable'}):
                         plan.update(state='needs_input' if 'needs_input' in data else 'blocked', message=str(next(iter(data.values())))[:2000])
+                        if 'unavailable' in data: plan['capability_missing'] = True
                     elif set(data) == {'skill_id', 'version', 'inputs'}:
                         if type(data['version']) is not int or not isinstance(data['skill_id'], str): raise ValueError('Referencia de habilidad inválida')
                         if not any(row['id'] == data['skill_id'] and row['version'] == data['version'] for row in candidates):

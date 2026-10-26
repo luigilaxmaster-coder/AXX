@@ -4,23 +4,25 @@ El taller permite convertir un objetivo en una propuesta de capacidad, revisarla
 comprobar sus efectos y guardar una versión reutilizable. Usa el proveedor y el
 modelo seleccionados en Axx. No instala otro proveedor ni habilita facturación.
 
-## Dos tipos de propuesta
+## Tipos de propuesta
 
 | Tipo | Resultado | Ejecución |
 | --- | --- | --- |
 | Flujo de comandos | Una composición de uno a ocho comandos registrados, con parámetros tipados | Solo mediante `CommandService` y `ActionExecutor`, después de revisión y aprobación |
+| Transformación Python pura | Función `run(inputs)`, esquemas y casos esperados | Intérprete AST acotado; pruebas, aprobación por digest y registro explícito. Sin I/O ni Python general |
 | Propuesta de código | Código y notas de integración exportables en Markdown | No se importa, instala ni ejecuta desde el taller |
 
 Axx puede proponer mejoras de una capacidad anterior. Cada mejora crea una revisión
-nueva. No puede concederse permisos, alterar la política del backend ni ejecutar
-código que haya generado. Para incorporar un adaptador nuevo al programa sigue
+nueva. No puede concederse permisos ni alterar la política del backend. El código
+puro activable y sus límites se explican en [GENERATED-COMMANDS.md](GENERATED-COMMANDS.md).
+Para incorporar un adaptador con acceso al sistema sigue
 [COMMAND-EXTENSIONS.md](COMMAND-EXTENSIONS.md) y el proceso de revisión, pruebas y
 entrega del proyecto.
 
 ## Uso desde la aplicación
 
 1. Abre **Comandos → Taller de capacidades** o escribe `/capacidad` en el chat.
-2. Describe el objetivo y elige **Flujo de comandos** o **Propuesta de código**.
+2. Describe el objetivo y elige procedimiento, transformación pura o propuesta de integración.
 3. Revisa el contenido generado, los parámetros de muestra, destinos y riesgos.
 4. Confirma la revisión. La confirmación queda ligada al número de revisión y a su
    SHA256; modificar el contenido invalida esa aprobación.
@@ -40,19 +42,22 @@ automáticamente ni se convierte en evidencia de éxito.
 
 | Estado | Evidencia |
 | --- | --- |
-| `draft` | Definición guardada; no aprobada ni ejecutada |
+| `draft` | Definición sin aprobar ni activar; sus pruebas puras pueden haberse ejecutado |
 | `reviewed` | Confirmación humana ligada a revisión y digest |
-| `active` | Muestra ejecutada con postcondiciones y recibos reales; versión publicada en `SkillMemory` |
+| `active` | Flujo con muestra y recibos reales en `SkillMemory`, o transformación con pruebas pasadas, aprobación exacta y herramienta registrada |
 | `superseded` | Otra revisión reemplazó esta versión activa |
 | `revoked` | Deshabilitada; no se pueden preparar ejecuciones con versiones históricas |
 
 `validation.status = static_validated` comprueba estructura, tipos, comandos y
 parámetros de muestra. No acredita interacción física ni éxito en otras aplicaciones,
-ventanas, cuentas o equipos. `runtime_verified` solo se establece al activar usando
+ventanas, cuentas o equipos. En un `workflow`, `runtime_verified` se establece al activar usando
 el plan vinculado y los recibos persistidos tanto del servicio de comandos como del
-ejecutor. La evidencia corresponde a esa muestra concreta.
+ejecutor. La evidencia corresponde a esa muestra concreta. Una transformación usa
+`self_tests_passed` ligado a su digest y aprobación; su activación registra una
+herramienta en el catálogo dinámico. No publica un flujo en `SkillMemory` ni
+acredita efectos sobre aplicaciones.
 
-## Formato declarativo
+## Formato declarativo de un workflow
 
 ```json
 {
@@ -86,8 +91,10 @@ cuando se ejecutan. Una capacidad nunca toma coordenadas guardadas como identida
   local que ya utiliza `ActionLearning`; no hay un catálogo ejecutor paralelo.
 - La definición y el digest de cada revisión son inmutables. La aprobación, el plan
   vinculado y la evidencia se conservan separados de la definición.
-- Publicar una versión y cambiar el estado activo ocurre en la misma transacción
-  SQLite que crea la versión y su evidencia en `SkillMemory`.
+- Para un `workflow`, publicar y cambiar el estado activo comparte la transacción
+  SQLite que crea su versión y evidencia en `SkillMemory`. Una transformación
+  persiste su revisión activa y actualiza el registro dinámico; al reiniciar se
+  reconstruye desde las revisiones aprobadas.
 - Revocar deshabilita la versión activa y solicita cancelación de planes pendientes
   vinculados. Un efecto ya ejecutado no se deshace; un efecto en curso conserva sus
   recibos y requiere comprobar su estado real.
@@ -112,8 +119,9 @@ expone el taller por los mismos controles de acceso que el resto de Axx.
 | `generate(goal, model, provider_name, selection_mode, kind, ...)` | Solicitar una propuesta al proveedor configurado |
 | `revise(id, revision, digest, definition)` | Crear revisión con control de concurrencia |
 | `approve(id, revision, digest, confirmed=True)` | Confirmar la definición exacta |
-| `prepare_validation(id, revision, digest, conversation_id)` | Crear o recuperar el plan de muestra, sin ejecutarlo |
-| `activate(id, revision, digest)` | Verificar recibos y publicar en `SkillMemory` |
+| `validate(id, revision, digest)` | Validar contratos del flujo o ejecutar los casos de prueba puros |
+| `prepare_validation(id, revision, digest, conversation_id)` | Crear o recuperar el plan de muestra de un workflow, sin ejecutarlo |
+| `activate(id, revision, digest)` | Publicar el workflow con recibos en `SkillMemory`, o registrar la transformación probada y aprobada |
 | `revoke(id, revision, digest)` | Deshabilitar y cancelar planes vinculados |
 | `rollback(id, revision, digest, target_revision)` | Recuperar una definición anterior como nuevo borrador |
 | `export(id, revision=None)` | Devolver contenido para descarga; no escribir ni ejecutar archivos |

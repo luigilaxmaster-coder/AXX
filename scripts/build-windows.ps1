@@ -30,12 +30,13 @@ try {
     $sourceFiles = @(Get-ChildItem -LiteralPath '1.AXX' -File -Recurse | Where-Object { $_.Extension -in '.html','.js','.css','.json','.png','.ico','.svg','.woff','.woff2' } | ForEach-Object FullName) + @('axx-backend.spec', 'scripts\setup-freellmapi.ps1', 'src-tauri\tauri.conf.json', 'src-tauri\Cargo.toml', 'src-tauri\resources\ai-memory.exe')
     $sourceFiles += @(Get-ChildItem backend,src-tauri\src,resources,vendor -File -Recurse | Where-Object { $_.Extension -in '.ps1','.py','.rs','.json','.bin','.txt','.zip' -and $_.FullName -notmatch '\\(__pycache__|tests)\\' -and $_.Name -notlike 'test_*.py' } | ForEach-Object FullName)
     $sourceFiles += @(Get-ChildItem -LiteralPath 'src-tauri\resources\license-notices' -File -Recurse | ForEach-Object FullName)
+    $sourceFiles += @('scripts\configure-native-gateway.py', 'scripts\anythingmcp-local.py')
     $before = @{}
     foreach ($file in $sourceFiles) { $before[$file] = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash }
     $steps = @()
     $started = [DateTimeOffset]::Now
     $backendInputs = @{}
-    foreach ($file in @(Get-ChildItem backend,resources,vendor -File -Recurse | Where-Object { $_.Extension -in '.ps1','.py','.json','.bin','.txt','.zip' -and $_.FullName -notmatch '\\(__pycache__|tests)\\' -and $_.Name -notlike 'test_*.py' } | ForEach-Object FullName) + @('axx-backend.spec', 'scripts\setup-freellmapi.ps1')) {
+    foreach ($file in @(Get-ChildItem backend,resources,vendor -File -Recurse | Where-Object { $_.Extension -in '.ps1','.py','.json','.bin','.txt','.zip' -and $_.FullName -notmatch '\\(__pycache__|tests)\\' -and $_.Name -notlike 'test_*.py' } | ForEach-Object FullName) + @('axx-backend.spec', 'scripts\setup-freellmapi.ps1', 'scripts\configure-native-gateway.py', 'scripts\anythingmcp-local.py')) {
         $backendInputs[$file] = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash
     }
     $backendReceiptPath = Join-Path $projectRoot 'build\backend-build-receipt.json'
@@ -61,6 +62,9 @@ try {
     & (Join-Path $projectRoot 'dist\axx-backend.exe') --verify-mobile-qr *> (Join-Path $evidencePath 'packaged-mobile-qr.json')
     $steps += @{command='axx-backend.exe --verify-mobile-qr'; exit_code=$LASTEXITCODE}
     if ($LASTEXITCODE -ne 0) { throw 'Packaged QR rendering failed; see packaged-mobile-qr.json' }
+    & (Join-Path $projectRoot 'dist\axx-backend.exe') --configure-native-gateway --help *> (Join-Path $evidencePath 'packaged-native-gateway-help.txt')
+    $steps += @{command='axx-backend.exe --configure-native-gateway --help'; exit_code=$LASTEXITCODE}
+    if ($LASTEXITCODE -ne 0) { throw 'Packaged gateway configuration command failed' }
     Copy-Item -LiteralPath 'dist\axx-backend.exe' -Destination 'src-tauri\resources\axx-backend.exe' -Force
     if ($BackendOnly) {
         Get-Item -LiteralPath 'dist\axx-backend.exe' | Select-Object FullName,Length

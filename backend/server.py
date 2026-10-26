@@ -277,6 +277,9 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                 self._send_json(200, self.freellmapi.status(config=self.adapter.config))
             elif path == '/axx-api/actions':
                 self._send_json(200, {'tools': list_tools(), 'artifact_root': str(self.executor.workspace_root)})
+            elif path == '/axx-api/apps/catalog':
+                from backend.application_catalog import installed_catalog
+                self._send_json(200, installed_catalog())
             elif path.startswith('/axx-api/capabilities/'):
                 if not self.workshop:
                     self._unsupported('Taller de capacidades no disponible')
@@ -1128,7 +1131,7 @@ def run_server(host='127.0.0.1', port=4173, config_path='providers.json', state_
         mcp_host = McpHost(state_dir, commands)
         services.append(mcp_host)
         from backend.mcp_host.native_bridge import NativeMcpBridge
-        executor.native_bridge = NativeMcpBridge()
+        executor.native_bridge = NativeMcpBridge(state_dir)
         services.append(executor.native_bridge)
         learning = ActionLearning(commands, adapter)
         commands.learning = learning
@@ -1154,6 +1157,7 @@ def run_server(host='127.0.0.1', port=4173, config_path='providers.json', state_
         services.append(connect)
         provider = CodexProvider(commands, state_path, state_dir, dispatcher=connect.dispatch)
         services.append(provider)
+        workshop.provider = provider
         handler = type('ConfiguredAxxHandler', (AxxBridgeHandler,), {
             'chats': chats, 'adapter': adapter, 'executor': executor, 'commands': commands, 'learning': learning, 'workshop': workshop, 'demonstration': demonstration, 'freellmapi': freellmapi, 'model_candidates': model_candidates, 'keyless': keyless,
             'memory': memory, 'identity': identity, 'speech': speech,
@@ -1192,6 +1196,12 @@ def run_server(host='127.0.0.1', port=4173, config_path='providers.json', state_
             ready_path.unlink(missing_ok=True)
 
 def main():
+    if sys.argv[1:2] == ['--configure-native-gateway']:
+        import runpy
+        script = Path(getattr(sys, '_MEIPASS', root_dir)) / 'scripts' / 'configure-native-gateway.py'
+        sys.argv = [str(script), *sys.argv[2:]]
+        runpy.run_path(str(script), run_name='__main__')
+        return 0
     if '--mcp-client-worker' in sys.argv[1:]:
         from backend.mcp_host.worker import main as mcp_client_main
         return mcp_client_main()

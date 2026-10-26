@@ -24,7 +24,7 @@ class ReleaseTests(unittest.TestCase):
         self.current = release.check(self.root)
 
     def receipt(self):
-        for name in ("axx-backend.spec", "scripts/setup-freellmapi.ps1", "src-tauri/resources/ai-memory.exe"):
+        for name in ("axx-backend.spec", "scripts/setup-freellmapi.ps1", "scripts/configure-native-gateway.py", "scripts/anythingmcp-local.py", "src-tauri/resources/ai-memory.exe"):
             path = self.root / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(b"unit test source fixture")

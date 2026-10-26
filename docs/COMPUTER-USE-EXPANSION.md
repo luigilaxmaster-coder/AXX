@@ -32,6 +32,12 @@ Se conserva CommandService → ActionExecutor, WindowsInput, voz, ajustes y UI 3
 
 ## MCP y entrada nativa
 
+Los perfiles y acciones por aplicación se documentan en
+[APPLICATION-COMMANDS.md](APPLICATION-COMMANDS.md). El taller puede ampliar el
+registro con procedimientos revisados y transformaciones de datos generadas;
+consulta [GENERATED-COMMANDS.md](GENERATED-COMMANDS.md). Una guía o propuesta de
+código no equivale a un conector autenticado ni a compatibilidad universal.
+
 - Cliente stdio y Streamable HTTP integrado en el registro, permisos, planificador
   y ejecutor existentes. Catálogo dinámico con esquemas completos y activación
   explícita; secretos DPAPI. Pruebas reales con servidor MCP de fixture.
