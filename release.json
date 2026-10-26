@@ -1,6 +1,6 @@
 {
-  "version": "0.22.2",
-  "sha256": "c59efa4220c7e0fa5cf22f450562ee4f644bf42881a18ce91103ea8038d64a00",
+  "version": "0.22.3",
+  "sha256": "f2a3969732db5b6173223f1c5b85dbc3c6a183675cdf9ce1919cd5732e551e84",
   "prerelease": true,
-  "source_commit": "c8790aa9645f867c5f5a3ae31a94bf54ff9f00e9"
+  "source_commit": "c4516f30f60bb41ee2edd9cd035233ab8cee74cf"
 }
