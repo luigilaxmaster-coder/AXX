@@ -79,7 +79,7 @@
     Object.defineProperty(proto, 'available', { configurable: true, get() { return Axx.isNative() || browserAvailable.call(this); } });
     proto.cancelUtterance = function () {
         if (!Axx.isNative()) return browserCancel.call(this);
-        this.generation++; clearTimeout(this.watchdog); this.watchdog = null; this.current = null;
+        this.awaitingText = false; this.generation++; clearTimeout(this.watchdog); this.watchdog = null; this.current = null;
         if (this.nativePending) { this.nativePending = false; cancelWorker(); }
         if (this.nativeStream) { void this.nativeStream.stop(); this.nativeStream = null; }
         this.nativePrefetch = null;
@@ -135,7 +135,7 @@
         const text = this.chunks[this.index]?.slice(this.offset); if (!text) return;
         const carried = this.nativePrefetch?.index === this.index && this.nativePrefetch.generation === this.generation
             ? this.nativePrefetch : null;
-        if (!carried) this.cancelUtterance();
+        if (!carried) { const awaiting = this.awaitingText; this.cancelUtterance(); this.awaitingText = awaiting; }
         const generation = this.generation;
         this.current = { engine: 'windows-sapi' }; this.nativePending = false; this.state = 'starting'; this.hasBoundary = false; this.onChange?.();
         void (async () => {
@@ -169,7 +169,7 @@
                 if (data.engine === 'moss-onnx') audio.playbackRate = Math.max(.75,Math.min(1.3,Number(this.rate)||1));
                 const valid = () => generation === this.generation && this.nativeAudio === audio;
                 audio.onplaying = () => { if (!valid()) return; this.state = 'speaking'; this.nativeVoiceName = voice.name; state.playback = { engine: data.engine, voice: data.voice, sha256: data.evidence?.sha256, playing_event: true, ended_event: false, duration_seconds: data.duration_seconds }; this.prefetchNativeNext(); this.onChange?.(); };
-                audio.onended = () => { if (!valid()) return; if (state.playback) state.playback.ended_event = true; this.nativeAudio = null; this.current = null; URL.revokeObjectURL(url); this.nativeAudioUrl = null; this.offset = this.wordOffset = this.wordLength = 0; if (++this.index < this.chunks.length) this.speakCurrent(); else { this.index = Math.max(0, this.chunks.length - 1); this.state = 'ended'; this.onChange?.(); this.onEnded?.(); } };
+                audio.onended = () => { if (!valid()) return; if (state.playback) state.playback.ended_event = true; this.nativeAudio = null; this.current = null; URL.revokeObjectURL(url); this.nativeAudioUrl = null; this.offset = this.wordOffset = this.wordLength = 0; if (++this.index < this.chunks.length) this.speakCurrent(); else { this.index = Math.max(0, this.chunks.length - 1); this.state = this.awaitingText ? 'waiting' : 'ended'; this.onChange?.(); if (!this.awaitingText) this.onEnded?.(); } };
                 audio.onerror = () => { if (!valid()) return; this.cancelUtterance(); this.state = 'error'; this.onError?.('No se pudo reproducir el WAV de Windows. El texto se conserva.'); this.onChange?.(); };
                 await audio.play();
             } catch (error) {

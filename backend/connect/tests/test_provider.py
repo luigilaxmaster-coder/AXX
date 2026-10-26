@@ -236,6 +236,16 @@ class ProviderTests(unittest.TestCase):
         start = next(params for method, params in self.provider.rpc_calls if method == 'thread/start')
         self.assertEqual(start['environments'], [])
 
+    def test_legacy_tool_thread_is_preserved_but_not_resumed(self):
+        with self.provider.db:
+            self.provider.db.execute('INSERT INTO connect_conversations VALUES (?,?,?,?)',
+                                     ('axx-main', 'legacy-flat-tools', 'gpt-6.1-sol', time.time()))
+        self.start(); self.wait_started()
+        self.assertTrue(any(method == 'thread/start' for method, _ in self.provider.rpc_calls))
+        self.assertFalse(any(method == 'thread/resume' for method, _ in self.provider.rpc_calls))
+        old = self.provider.db.execute('SELECT thread_id FROM connect_conversations WHERE conversation_id=?', ('axx-main',)).fetchone()
+        self.assertEqual(old['thread_id'], 'legacy-flat-tools')
+
     def test_restart_marks_unfinished_unknown_and_preserves_idempotence(self):
         self.start(); self.wait_started()
         self.provider.close()
@@ -433,6 +443,18 @@ class ProviderTests(unittest.TestCase):
         run=self.provider.get('r1')
         self.assertEqual(run['state'], 'unknown')
         self.assertFalse(run['effects_reverted'])
+
+    def test_voice_keeps_typed_tools_and_natural_instructions(self):
+        self.provider._tool_specs = lambda: [{'name': 'axx_status'}]
+        self.start(purpose='voice'); self.wait_started()
+        start = next(params for method, params in self.provider.rpc_calls if method == 'thread/start')
+        self.assertIn('Conversación hablada', start['developerInstructions'])
+        self.assertIn('usa las herramientas Axx', start['developerInstructions'])
+        self.assertEqual(start['dynamicTools'], [{'name': 'axx_status'}])
+        self.assertEqual(start['sandbox'], 'read-only')
+        self.assertEqual(start['approvalPolicy'], 'on-request')
+        self.assertFalse(start['allowProviderModelFallback'])
+        with self.assertRaises(ProviderError): self.start(purpose='chat')
 
     def test_translation_uses_isolated_thread_and_no_tools(self):
         self.start(purpose='translation', source_language='es-DO', target_language='en', conversation_id='axx-main')
@@ -949,7 +971,9 @@ class ProviderTests(unittest.TestCase):
             for method in ('thread/start', 'thread/resume'):
                 configuration = next(params['config'] for called, params in self.provider.rpc_calls if called == method)
                 self.assertTrue(all(configuration['features'][feature] is False for feature in additional))
-                self.assertEqual(set(configuration['features']), requested)
+                self.assertEqual(set(configuration['features']), requested | {'code_mode'})
+                self.assertEqual(configuration['features']['code_mode'],
+                                 {'enabled': False, 'direct_only_tool_namespaces': ['axx']})
         finally:
             process.terminate(); self.provider.writer.thread.join(1)
             self.provider.process = self.provider.writer = None

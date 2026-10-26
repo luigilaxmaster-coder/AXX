@@ -255,7 +255,7 @@ assert(!html.includes("const apiBase ="), 'Production must not hardcode a develo
       assert.equal(turn.requests[0].model, model);
       assert.equal(turn.requests[0].provider_name, 'contract-fixture');
       assert.equal(turn.requests[0].stream, false);
-      assert.equal(turn.requests[0].max_tokens === 80, voice, name + ' must apply voice brevity only to an explicit voice turn');
+      assert.equal(turn.requests[0].max_tokens === 384, voice, name + ' must apply voice brevity only to an explicit voice turn');
       assert.equal(turn.requests[0].messages.some(message => message.role === 'system' && message.content.includes('MODO VOZ:')), voice);
       assert(turn.messages.some(message => message.role === 'user' && message.text === turn.text));
       assert(turn.messages.some(message => message.role === 'assistant' && message.text === 'Contract fixture response' && message.model === model && message.status === 'complete'), name + ' must finish with the actual model response');
@@ -437,7 +437,7 @@ assert(!html.includes("const apiBase ="), 'Production must not hardcode a develo
     assert.equal(voicePreferences.reloaded, voicePreferences.persisted);
     assert.deepEqual(voicePreferences.defaults, [false, false]);
     assert.deepEqual(voicePreferences.savedCues, [true, true]);
-    assert.deepEqual(voicePreferences.reloadedCues, [true, true]);
+    assert.deepEqual(voicePreferences.reloadedCues, [false, false]);
     assert.deepEqual(voicePreferences.invalidCues, [false, false]);
     assert.equal(voicePreferences.persistError, false);
     results.push('Version 4 voice model preferences survive the actual save/decode path exactly, retain legacy defaults, and reject invalid types or names longer than 200 characters');
@@ -550,6 +550,16 @@ assert(!html.includes("const apiBase ="), 'Production must not hardcode a develo
       const speech = await page.evaluate(() => window.__contractCalls.filter(c => c.args?.path === '/axx-api/speech/synthesize'));
       assert.equal(speech.length, 1); assert.equal(speech[0].args.body.voice, 'Contract fixture voice');
       results.push('Native reader contract decodes a real PCM fixture WAV and receives playing/ended events without physical speaker claims');
+      await page.evaluate(()=>{const r=window.__streamReader=new Axx.SpeechReader();window.__streamEnds=0;r.onEnded=()=>window.__streamEnds++;r.setText('Primera frase hablada.');r.awaitingText=true;r.play();});
+      await page.waitForFunction(()=>window.__streamReader.state==='waiting');
+      assert.equal(await page.evaluate(()=>window.__streamEnds),0);
+      await page.evaluate(()=>{const r=window.__streamReader,first=r.chunks.length;r.chunks.push('Segunda frase hablada.');r.jump(first);r.awaitingText=true;r.play();});
+      await page.waitForFunction(()=>window.__streamReader.state==='waiting');
+      await page.evaluate(()=>Axx.voiceConversation.finish(window.__streamReader));
+      assert.equal(await page.evaluate(()=>window.__streamReader.state),'ended');
+      assert.equal(await page.evaluate(()=>window.__streamEnds),1);
+      results.push('Native SAPI playback waits through model text gaps, resumes the next phrase and signals exactly one final end');
+
       const asr = await page.evaluate(async () => {
         const session = Axx.nativeVoice.sessions[0], saved = session.owner.onFinal, finals = [];
         session.owner.onFinal = text => finals.push(text); session.lang = 'es-DO';

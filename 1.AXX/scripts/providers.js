@@ -99,6 +99,20 @@
       gemini: 'https://generativelanguage.googleapis.com/v1beta/openai', custom: '', freellmapi: ''
     };
     let entries = [], busy = false;
+    const profile = document.createElement('article'); profile.id='provider-model-profile';
+    $('provider-model').closest('label').after(profile);
+    const quickProfile = document.createElement('article'); quickProfile.id='ollama-model-profile';
+    $('ollama-quick-model').closest('label').after(quickProfile);
+    const modelProfile = (quick = false) => {
+      const model = quick ? $('ollama-quick-model').value : $('provider-model').value === '__manual__' ? $('provider-model-manual').value : $('provider-model').value;
+      const kind = quick ? 'ollama' : $('provider-kind').value;
+      const saved = entries.find(p => p.model === model && p.kind === kind && (quick || p.name === $('provider-name').value));
+      const c = Axx.companion, verified = !!saved && c.brain.connected && c.brain.inferenceVerified === true && c.data.prefs.provider === 'bridge' && c.data.prefs.apiConnection === saved.name && c.data.prefs.model === model;
+      Axx.renderModelProfile?.(quick ? quickProfile : profile, {...saved, model, kind, declared:!!saved, verified});
+    };
+    $('ollama-quick-model').onchange=()=>modelProfile(true);
+    $('provider-model-manual').oninput=()=>modelProfile();
+
     const normalize = value => String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
     Axx.modelSelection = {
       parse(text) {
@@ -191,6 +205,17 @@
     const checkTaskModels = async () => {
       const root = $('model-task-options'), task = $('model-task-kind').value, prefs = Axx.companion.data.prefs;
       root.replaceChildren();
+      if (prefs.provider === 'chatgpt') {
+        const engine = Axx.connect?.state?.engine || {};
+        if (['chat','voice','plan','code','writing','translation'].includes(task)) {
+          root.textContent = 'ChatGPT puede responder y consultar las herramientas locales de Axx con sus permisos. La voz usa transcripción y síntesis locales. Elige y prueba el modelo en la pestaña ChatGPT.';
+        } else root.textContent = 'El catálogo puede declarar visión, pero esta conexión de Axx envía texto al modelo. Para imágenes usa una conexión visual configurada; Agent-S necesita una prueba de localización propia.';
+        const item=(engine.model_catalog || engine.models || []).find(m=>typeof m === 'string' ? m === prefs.model : (m.model || m.id) === prefs.model);
+        const card=document.createElement('article'); root.append(card);
+        Axx.renderModelProfile?.(card,{...(typeof item === 'object' ? item : {}),kind:'chatgpt',model:prefs.model,
+          verified:engine.authenticated === true && engine.inference_verified === true && engine.model === prefs.model});
+        return;
+      }
       if (task === 'grounding') {
         root.textContent = 'Agent-S requiere localizar controles por coordenadas. Ningún modelo de Ollama ha superado esa prueba en este equipo.';
         return;
@@ -290,9 +315,9 @@
       $('provider-priority').value = p.task_priority?.chat ?? Object.values(p.task_priority || {})[0] ?? 50;
       for (const option of $('provider-capabilities').options) option.selected = (p.capabilities || []).includes(option.value);
       for (const option of $('provider-tasks').options) option.selected = (p.tasks || []).includes(option.value);
-      $('provider-enabled').checked = p.enabled; status(p.has_key ? 'Clave guardada. Déjala vacía para conservarla.' : 'Conexión sin clave guardada.');
+      $('provider-enabled').checked = p.enabled; modelProfile(); status(p.has_key ? 'Clave guardada. Déjala vacía para conservarla.' : 'Conexión sin clave guardada.');
     };
-    $('provider-model').onchange = () => { $('provider-manual-row').hidden = $('provider-model').value !== '__manual__'; };
+    $('provider-model').onchange = () => { $('provider-manual-row').hidden = $('provider-model').value !== '__manual__'; modelProfile(); };
     const discover = async () => {
       status('Consultando el servidor…');
       const result = await Axx.backendRequest('POST', '/axx-api/providers/discover', payload());
@@ -301,7 +326,7 @@
       $('provider-model').value = result.models.includes(previous) ? previous : result.models[0] || '';
       $('provider-manual-row').hidden = true;
       const message = result.models.length ? `${result.models.length} modelos disponibles. Abre la lista y elige uno.` : $('provider-kind').value === 'ollama' ? 'Ollama está conectado, pero no tiene modelos instalados. Para usar una clave de API elige Ollama Cloud; para uso local instala primero un modelo en Ollama.' : 'El servidor no devolvió modelos. Puedes introducir el ID manualmente.';
-      $('provider-catalog-status').textContent = message; status(message);
+      $('provider-catalog-status').textContent = message; status(message); modelProfile();
     };
     $('provider-discover').onclick = () => action(discover);
     $('ollama-quick-find').onclick = () => action(async () => {
@@ -310,6 +335,7 @@
       $('provider-name').value = 'Ollama local';
       const result = await Axx.backendRequest('POST', '/axx-api/providers/discover', payload());
       $('ollama-quick-model').replaceChildren(new Option(result.models.length ? 'Elige un modelo' : 'No hay modelos instalados', ''), ...result.models.map(model => new Option(model, model)));
+      modelProfile(true);
       $('ollama-quick-status').textContent = result.models.length ? `${result.models.length} modelos detectados. Elige uno para usarlo en el chat.` : 'Ollama responde, pero no tiene modelos instalados.';
     });
     $('ollama-quick-use').onclick = () => action(async () => {
@@ -319,7 +345,7 @@
       $('provider-model').replaceChildren(new Option(model, model)); $('provider-model').value = model;
       $('provider-cost').value = 'direct_local'; $('provider-route').value = 'direct'; $('provider-free').checked = true;
       await saveProvider();
-      $('ollama-quick-status').textContent = statusText();
+      $('ollama-quick-status').textContent = statusText(); modelProfile(true);
     }, true);
     const statusText = () => $('provider-status').textContent;
     const saveProvider = async () => {

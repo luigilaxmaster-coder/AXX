@@ -330,7 +330,9 @@ class CodexProvider:
                 try:
                     catalog = self._rpc('model/list', {'limit': 100, 'includeHidden': False})
                     self.model_catalog = [{'id': row.get('id'), 'model': row.get('model'),
-                        'display_name': row.get('displayName')} for row in catalog.get('data', [])]
+                        'display_name': row.get('displayName'), 'description': row.get('description'),
+                        'input_modalities': row.get('inputModalities'),
+                        'reasoning_efforts': row.get('supportedReasoningEfforts')} for row in catalog.get('data', [])]
                 except ProviderError:
                     self.model_catalog = []
                 self.runtime_error = None
@@ -894,7 +896,7 @@ class CodexProvider:
         conversation_id = body.get('conversation_id', 'axx-main')
         model = body.get('model', 'gpt-6.1-sol')
         purpose = body.get('purpose', 'chat')
-        if purpose not in {'chat', 'translation'}:
+        if purpose not in {'chat', 'voice', 'translation'}:
             raise ProviderError('INVALID_INPUT', 'Propósito de inferencia no permitido.')
         source_language, target_language = body.get('source_language'), body.get('target_language')
         if purpose == 'translation':
@@ -968,8 +970,9 @@ class CodexProvider:
             with self.lock:
                 run['usage_permission'] = usage_permission
             with self.lock:
+                # Legacy threads retain their old tool schema; preserve them under their original key.
                 saved = self.db.execute('SELECT * FROM connect_conversations WHERE conversation_id=?',
-                                        (run['conversation_id'],)).fetchone()
+                                        (run['conversation_id'] + ':axx-direct-v1',)).fetchone()
             common = {'model': run['model'], 'modelProvider': 'openai', 'cwd': self.cwd,
                       'approvalPolicy': 'on-request', 'sandbox': 'read-only',
                       'approvalsReviewer': 'user',
@@ -981,9 +984,16 @@ class CodexProvider:
                         'usa axx_execute_action con parámetros observados y comunica el estado real del recibo. '
                         'Si una acción falla, explica el error concreto y la alternativa registrada disponible. '
                         'No solicites credenciales, compras, créditos ni cambios de plan.',
-                      'config': {'features': dict.fromkeys(REQUESTED_DISABLED_FEATURES, False),
+                      'config': {'features': dict(dict.fromkeys(REQUESTED_DISABLED_FEATURES, False),
+                                 code_mode={'enabled': False, 'direct_only_tool_namespaces': ['axx']}),
                                  'web_search': 'disabled', 'mcp_servers': self.disabled_mcp,
                                  'plugins': self.disabled_plugins}}
+            if run['purpose'] == 'voice':
+                common['developerInstructions'] += (
+                    ' Conversación hablada: responde de forma natural y directa en el idioma del usuario. '
+                    'Empieza por información útil, amplía cuando haga falta y evita saludos repetidos, '
+                    'coletillas y códigos leídos en voz alta. Ante una orden, usa las herramientas Axx '
+                    'disponibles antes de responder; si falta una capacidad, identifica la limitación concreta. ')
             if run['purpose'] == 'translation':
                 common['developerInstructions'] = (
                     'Translate the complete user-supplied source text from ' + run['source_language'] + ' to ' +
@@ -1009,7 +1019,7 @@ class CodexProvider:
                 self.thread_runs[thread_id] = run['request_id']
                 with self.db:
                     self.db.execute('INSERT OR REPLACE INTO connect_conversations VALUES (?,?,?,?)',
-                                    (run['conversation_id'], thread_id, run['model'], time.time()))
+                                    (run['conversation_id'] + ':axx-direct-v1', thread_id, run['model'], time.time()))
                 self._event(run, 'thread/ready', {'thread_id': thread_id, 'resumed': bool(saved)})
             if run['_cancel'].is_set():
                 run['state'] = 'cancelled'

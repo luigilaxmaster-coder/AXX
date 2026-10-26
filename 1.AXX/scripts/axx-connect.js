@@ -13,6 +13,7 @@
     card.innerHTML = `<div class="ai-section-head"><span>02</span><div><h3>Elegir y probar un modelo</h3><p>Primero inicia sesión arriba. Elegir aquí no cambia tu modelo actual.</p></div></div>
       <p id="axx-connect-status" role="status">Comprobando sesión y motor…</p>
       <label class="setting">Modelo de ChatGPT<select id="axx-connect-model"><option value="">Selecciona un modelo</option></select></label>
+      <article id="axx-connect-model-profile" aria-label="Capacidades del modelo de ChatGPT"></article>
       <button class="primary" id="axx-connect-verify" type="button">Probar respuesta y usar modelo</button>
       <p class="micro-copy">Axx hará una pregunta breve de prueba. Solo activará el modelo si responde correctamente; no usará una API de pago ni cambiará al modelo local automáticamente.</p>
       <div id="axx-connect-interventions"></div>
@@ -24,6 +25,12 @@
     const originalChat = Axx.BrainClient.prototype.chat;
     const connectionError = (code, message) => Object.assign(new Error(code + ': ' + message), {code});
     const catalog = engine => [...new Set((engine.models || []).map(item => typeof item === 'string' ? item : item.model || item.id).filter(item => typeof item === 'string' && item.length <= 200))].slice(0,100);
+    function renderProfile() {
+        const engine = state.engine || {}, id = $('axx-connect-model').value;
+        const item = (engine.model_catalog || engine.models || []).find(m => typeof m === 'string' ? m === id : (m.model || m.id) === id);
+        Axx.renderModelProfile?.($('axx-connect-model-profile'), {...(typeof item === 'object' ? item : {}), model:id, kind:'chatgpt',
+            executor_ready:state.executorReady === true, verified:engine.authenticated === true && engine.local_connection_enabled !== false && engine.inference_verified === true && engine.model === id});
+    }
     function renderModels(engine) {
         const select = $('axx-connect-model'), selected = state.draftModel || (c.data.prefs.provider === 'chatgpt' ? c.data.prefs.model || '' : '');
         const models = catalog(engine), placeholder = document.createElement('option');
@@ -31,7 +38,7 @@
         select.replaceChildren(placeholder);
         for (const id of models) { const option = document.createElement('option'); option.value = id; option.textContent = id; select.append(option); }
         if (selected && !models.includes(selected)) { const unavailable = document.createElement('option'); unavailable.value = selected; unavailable.textContent = 'No disponible: ' + selected; unavailable.disabled = true; select.append(unavailable); }
-        select.value = selected; select.disabled = !!state.active;
+        select.value = selected; select.disabled = !!state.active; renderProfile();
     }
 
     function refresh() {
@@ -39,8 +46,9 @@
         const pending = (async () => {
             try {
                 const result = await api('GET', 'status?engine=1');
+                if (!result || typeof result.engine !== 'object' || !result.engine) throw connectionError('ENGINE_UNAVAILABLE', 'No se pudo consultar el motor. Pulsa Actualizar estado para reintentar.');
                 if (sequence !== state.refreshSeq) return state.refreshPromise;
-                state.engine = result.engine;
+                state.engine = result.engine; state.executorReady = result.executor === 'ready';
                 const e = result.engine || {};
                 renderModels(e);
                 const authenticated = e.local_connection_enabled !== false && e.authenticated === true;
@@ -65,7 +73,7 @@
         return pending;
     }
 
-    function interventions(run) {
+    function interventions(run, presented) {
         const root = $('axx-connect-interventions'); root.replaceChildren();
         for (const approvalId of run.pending_approvals || []) {
             const approval = (run.events || []).find(event => event.data?.approval_id === approvalId)?.data || {};
@@ -82,6 +90,14 @@
             const data = event.data || {};
                 const operation = data.result || data;
             if (operation.state === 'awaiting_approval' && operation.operation_id) {
+                const library = Axx.commandLibrary;
+                if (!presented.has(operation.operation_id) && Axx.chatWorkspace?.ready
+                    && operation.conversation_id && operation.conversation_id === Axx.chatWorkspace.active?.id
+                    && library && !library.busy && (!library.operation || library.operation.operation_id === operation.operation_id)) {
+                    presented.add(operation.operation_id);
+                    library.operation = library.lastOperation = operation;
+                    library.renderOperation(operation);
+                }
                 const button = document.createElement('button'); button.textContent = 'Revisar acción en Biblioteca';
                 button.onclick = () => { Axx.commandLibrary.open(); Axx.commandLibrary.lastOperation = operation; void Axx.commandLibrary.recover(); };
                 root.append(button);
@@ -112,6 +128,7 @@
         };
         let started;
         let after = 0, observed = '', last;
+        const presented = new Set();
         try {
             if (signal?.aborted) throw new DOMException('Cancelado', 'AbortError');
             started = api('POST', 'start', {...body, request_id: requestId});
@@ -127,7 +144,7 @@
                 const text = last.response ?? '';
                 if (typeof text === 'string' && text !== observed) { observed = text; onDelta(observed); }
                 status(last.state === 'running' ? 'Procesando · ' + requestId : String(last.state || 'Procesando'));
-                interventions(last);
+                interventions(last, presented);
                 if (terminal.has(last.state)) {
                     if (last.state !== 'completed') throw new Error(last.error?.message || last.error || 'Turno finalizado: ' + last.state);
                     if (!observed.trim()) throw new Error('Codex completó sin texto de respuesta.');
@@ -184,7 +201,7 @@
         const instructions = messages.filter(item => item.role === 'system').map(item => item.content).join('\n\n').slice(0,12000);
         const prefix = instructions ? 'Instrucciones del asistente configuradas por el usuario:\n' + instructions + '\n\nConversación:\n' : '';
         const transcript = context.map(item => (item.role === 'assistant' ? 'Axx: ' : 'Usuario: ') + item.content).join('\n\n');
-        const result = await run({message: prefix + transcript.slice(-(32000-prefix.length)), model: p.model, conversation_id: c.data.connectConversationId}, signal, onDelta);
+        const result = await run({message: prefix + transcript.slice(-(32000-prefix.length)), purpose:p.voice_turn ? 'voice' : 'chat', model: p.model, conversation_id: c.data.connectConversationId}, signal, onDelta);
         c.save(); this.inferenceVerified = true; this.connected = true; this.lastRoute = result.route;
         return result;
     };
@@ -223,7 +240,7 @@
     $('axx-connect-model').onchange = () => {
         const selected = $('axx-connect-model').value;
         if (state.active || !catalog(state.engine || {}).includes(selected)) { renderModels(state.engine || {}); return; }
-        state.draftModel = selected;
+        state.draftModel = selected; renderProfile();
         status('Listo para probar: ' + selected + '. El modelo en uso sigue igual hasta que pase la prueba.');
     };
     $('axx-connect-reconnect').onclick = async () => { try { await api('POST','reconnect',{}); await refresh(); } catch(e) { status(error(e)); } };
