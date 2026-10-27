@@ -1793,7 +1793,7 @@ body.axx-resident :is(.panel-head,.flow-library-head,.organic-satellite-head,.v1
 <script>"use strict";
 var Axx;
 (function (Axx) {
-    Axx.VERSION = '0.22.10';
+    Axx.VERSION = '0.22.11';
     function newId() {
         if (typeof crypto.randomUUID === 'function')
             return crypto.randomUUID();
@@ -7811,6 +7811,7 @@ var Axx;
         throw new Error('Falta el control ' + id); return n; }
     const families = { actions: 'Acciones', focus: 'Enfocar', matter: 'Materia', states: 'Estados', settings: 'Ajustes' };
     Axx.FEATURES = [
+        { id: 'computeruse', family: 'actions', title: 'Computer Use · Controlar PC', description: 'Configura ChatGPT, elige una ventana y autoriza a Axx a verla y controlar su mouse y teclado para este chat.', view: 'computeruse', availability: 'VENTANA AUTORIZADA · CHATGPT VERIFICADO' },
         { id: 'magicpen', family: 'actions', title: 'Magic Pen', description: 'Selecciona y marca directamente sobre el escritorio. Recibe una explicación junto a lo señalado y exporta tus anotaciones.', view: 'magicpen', availability: 'CAPTURA LOCAL · VISIÓN SEGÚN PROVEEDOR' },
         { id: 'converter', family: 'actions', title: 'Convertidor y PDF', description: 'Convierte PNG/JPEG y organiza páginas PDF con resultados verificados.', view: 'converter', availability: 'LOCAL · AXX DESKTOP' },
         { id: 'experience', family: 'states', title: 'Probar Axx', description: 'Recorre contacto, dock y una cuenta atrás real de diez segundos.', view: 'experience', availability: 'LOCAL · INICIO EXPLÍCITO' },
@@ -12688,12 +12689,12 @@ var Axx;
         undo: '<path d="M3 10h12a6 6 0 0 1 0 12M3 10l6-6M3 10l6 6"/>', image: '<rect x="2" y="3" width="20" height="18" rx="3"/><circle cx="8" cy="9" r="2"/><path d="m2 17 5-4 5 4 4-5 6 5"/>'
     };
     function icon(name) { return '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round">' + (ICONS[name] || ICONS.sparkle) + '</svg>'; }
-    const LABELS = { converter: 'Convertidor', magicpen: 'Magic Pen', music: 'Música', screen: 'Grabar pantalla', layout11: 'Ajustar espacio', chat: 'Chat', dictation: 'Dictar', reader: 'Leer', translation: 'Traducir', notes: 'Notas', timer: 'Temporizador', todos: 'Tareas', calculator: 'Calcular', stopwatch: 'Cronómetro', textstudio: 'Editar texto', images: 'Imágenes', reach: 'Archivos y apps', files: 'Huella de archivo', organic: 'Cuadernos', appearance: 'Apariencia', morphui: 'Modos y materia', studio: 'Girar en 3D', focus: 'Concentración', focusNow: 'Enfocar 25 min', transcript: 'Transcribir / vídeo', ai: 'Conectar IA', sound: 'Sonidos', settings: 'Datos y sistema', inbox: 'Actividad', help: 'Ayuda', roadmap: 'Próximamente', experience: 'Probar Axx', lab: 'Animaciones', audio: 'Audio reactivo', tour: 'Cómo se abre' };
-    const TOOL_ICONS = { converter: 'file', magicpen: 'pen', music: 'music', screen: 'screen', layout11: 'app', chat: 'chat', dictation: 'mic', reader: 'read', translation: 'translate', notes: 'note', timer: 'timer', todos: 'task', calculator: 'calculator', stopwatch: 'timer', textstudio: 'edit', images: 'image', reach: 'file', files: 'hash', organic: 'book', ai: 'sparkle', sound: 'read', settings: 'settings', morphui: 'cube', transcript: 'waveform', appearance: 'palette', studio: 'rotate', focus: 'focus', focusNow: 'focus', inbox: 'activity', help: 'help', roadmap: 'route', experience: 'play', lab: 'lab', audio: 'waveform', tour: 'route' };
+    const LABELS = { computeruse: 'Computer Use · Controlar PC', converter: 'Convertidor', magicpen: 'Magic Pen', music: 'Música', screen: 'Grabar pantalla', layout11: 'Ajustar espacio', chat: 'Chat', dictation: 'Dictar', reader: 'Leer', translation: 'Traducir', notes: 'Notas', timer: 'Temporizador', todos: 'Tareas', calculator: 'Calcular', stopwatch: 'Cronómetro', textstudio: 'Editar texto', images: 'Imágenes', reach: 'Archivos y apps', files: 'Huella de archivo', organic: 'Cuadernos', appearance: 'Apariencia', morphui: 'Modos y materia', studio: 'Girar en 3D', focus: 'Concentración', focusNow: 'Enfocar 25 min', transcript: 'Transcribir / vídeo', ai: 'Conectar IA', sound: 'Sonidos', settings: 'Datos y sistema', inbox: 'Actividad', help: 'Ayuda', roadmap: 'Próximamente', experience: 'Probar Axx', lab: 'Animaciones', audio: 'Audio reactivo', tour: 'Cómo se abre' };
+    const TOOL_ICONS = { computeruse: 'screen', converter: 'file', magicpen: 'pen', music: 'music', screen: 'screen', layout11: 'app', chat: 'chat', dictation: 'mic', reader: 'read', translation: 'translate', notes: 'note', timer: 'timer', todos: 'task', calculator: 'calculator', stopwatch: 'timer', textstudio: 'edit', images: 'image', reach: 'file', files: 'hash', organic: 'book', ai: 'sparkle', sound: 'read', settings: 'settings', morphui: 'cube', transcript: 'waveform', appearance: 'palette', studio: 'rotate', focus: 'focus', focusNow: 'focus', inbox: 'activity', help: 'help', roadmap: 'route', experience: 'play', lab: 'lab', audio: 'waveform', tour: 'route' };
     const GROUPS = {
         create: { label: 'Crear', icon: 'note', ids: ['magicpen', 'converter', 'chat', 'dictation', 'screen', 'notes', 'organic', 'textstudio', 'images'] },
         work: { label: 'Productividad', icon: 'timer', ids: ['commands','applications','timer', 'todos', 'focus', 'calculator', 'stopwatch', 'reach', 'files'] },
-        assist: { label: 'Asistencia', icon: 'sparkle', ids: ['agent','music', 'reader', 'layout11', 'translation', 'transcript', 'ai', 'appearance', 'morphui', 'studio', 'sound', 'settings', 'audio', 'lab', 'inbox', 'help', 'roadmap', 'experience', 'tour'] }
+        assist: { label: 'Asistencia', icon: 'sparkle', ids: ['computeruse','agent','music', 'reader', 'layout11', 'translation', 'transcript', 'ai', 'appearance', 'morphui', 'studio', 'sound', 'settings', 'audio', 'lab', 'inbox', 'help', 'roadmap', 'experience', 'tour'] }
     };
     /** Small presentation layer over the existing application and real tools. */
     class FlowExperience {
@@ -19502,7 +19503,7 @@ var Axx;
                 if (step === 3) panelBox('flow-sheet', 520, 640);
                 if (panel) {
                     const selected = Axx.companion.dock.selected;
-                    const dimensions = selected === 'chat' ? [940, 720] : ['ai','settings','files','appearance','magicpen'].includes(selected) ? [680, 720] : ['music','timer','roadmap','screen'].includes(selected) ? [600, 680] : [540, 620];
+                    const dimensions = selected === 'chat' ? [940, 720] : ['ai','settings','files','appearance','magicpen','computeruse'].includes(selected) ? [680, 720] : ['music','timer','roadmap','screen'].includes(selected) ? [600, 680] : [540, 620];
                     panelBox('panel', ...dimensions);
                 }
                 for (const id of extraIds) if (this.visible(id)) {

@@ -167,15 +167,22 @@ try {
             [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::IsPasswordProperty, $true))
         $maxAllowed = if ($scraping) { 1000 } elseif ($reading) { 1000 } else { 250 }
         $count = [Math]::Min($all.Count, $maxAllowed)
+        # Batch metadata across the provider boundary instead of fetching each property repeatedly.
+        $metadata = [System.Windows.Automation.CacheRequest]::new()
+        $metadata.TreeScope = [System.Windows.Automation.TreeScope]::Element
+        foreach ($property in @('IsPassword','ControlType','IsOffscreen','Name','BoundingRectangle','AutomationId','ClassName','IsEnabled')) {
+            $metadata.Add([System.Windows.Automation.AutomationElement]::("${property}Property"))
+        }
         for ($i = 0; $i -lt $count; $i++) {
             $item = $all.Item($i)
-            if ($item.Current.IsPassword) { continue }
-            $controlType = $item.Current.ControlType.ProgrammaticName
+            $info = $item.GetUpdatedCache($metadata).Cached
+            if ($info.IsPassword) { continue }
+            $controlType = $info.ControlType.ProgrammaticName
             $name = ''
-            if (($reading -and -not $item.Current.IsOffscreen) -or $controlType -in @('ControlType.Button', 'ControlType.CheckBox', 'ControlType.RadioButton',
+            if (($reading -and -not $info.IsOffscreen) -or $controlType -in @('ControlType.Button', 'ControlType.CheckBox', 'ControlType.RadioButton',
                 'ControlType.MenuItem', 'ControlType.ComboBox', 'ControlType.TabItem', 'ControlType.ToolBar',
                 'ControlType.ListItem', 'ControlType.TreeItem', 'ControlType.Slider', 'ControlType.Spinner')) {
-                $name = [string]$item.Current.Name
+                $name = [string]$info.Name
                 if ($name.Length -gt 200) { $name = $name.Substring(0, 200) }
             }
             $valuePattern = $null
@@ -185,11 +192,11 @@ try {
                 [System.Windows.Automation.ValuePattern]::Pattern, [ref]$valuePattern)
             $supportedPatterns = Get-SupportedPatterns $item
             if (@($supportedPatterns | Where-Object { $_ -in @('Toggle','ExpandCollapse','SelectionItem','RangeValue','Scroll','Value','Grid','Table') }).Count) {
-                $name = [string]$item.Current.Name
+                $name = [string]$info.Name
                 if ($name.Length -gt 200) { $name = $name.Substring(0, 200) }
             }
             $text = ''; $value = ''
-            if ($reading -and -not $item.Current.IsOffscreen -and $remaining -gt 0) {
+            if ($reading -and -not $info.IsOffscreen -and $remaining -gt 0) {
                 if ($hasValuePattern) {
                     $value = [string]$valuePattern.Current.Value
                     if ($value.Length -gt [Math]::Min(8192, $remaining)) { $contentLimited = $true }
@@ -197,7 +204,7 @@ try {
                     $remaining -= $value.Length
                 }
                 if ($controlType -in @('ControlType.Text', 'ControlType.Hyperlink') -and $remaining -gt 0) {
-                    $text = [string]$item.Current.Name
+                    $text = [string]$info.Name
                     if ($text.Length -gt [Math]::Min(2000, $remaining)) { $contentLimited = $true }
                     $text = $text.Substring(0, [Math]::Min($text.Length, [Math]::Min(2000, $remaining)))
                     $remaining -= $text.Length
@@ -211,15 +218,15 @@ try {
                     }
                 }
             }
-            $rect = $item.Current.BoundingRectangle
+            $rect = $info.BoundingRectangle
             $controlEntry = [ordered]@{
                 control_id = (Get-ControlToken $item ([long]$request.window_id) ([int]$request.pid))
-                automation_id = [string]$item.Current.AutomationId
+                automation_id = [string]$info.AutomationId
                 control_type = $controlType
                 name = $name
-                class_name = [string]$item.Current.ClassName
-                enabled = [bool]$item.Current.IsEnabled
-                offscreen = [bool]$item.Current.IsOffscreen
+                class_name = [string]$info.ClassName
+                enabled = [bool]$info.IsEnabled
+                offscreen = [bool]$info.IsOffscreen
                 supports_value_pattern = [bool]$hasValuePattern
                 supports_invoke_pattern = [bool]$hasInvokePattern
                 patterns = $supportedPatterns

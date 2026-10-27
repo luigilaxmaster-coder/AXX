@@ -3,13 +3,13 @@
 ## Download Axx for Windows
 
 <!-- release:download:start -->
-**[Download Windows x64 test installer · v0.22.10](https://github.com/luigilaxmaster-coder/AXX/releases/download/v0.22.10/Axx_0.22.10_x64-setup.exe)** · [Release files](https://github.com/luigilaxmaster-coder/AXX/releases/tag/v0.22.10) · [SHA-256](https://github.com/luigilaxmaster-coder/AXX/releases/download/v0.22.10/SHA256SUMS.txt)
+**[Download Windows x64 test installer · v0.22.11](https://github.com/luigilaxmaster-coder/AXX/releases/download/v0.22.11/Axx_0.22.11_x64-setup.exe)** · [Release files](https://github.com/luigilaxmaster-coder/AXX/releases/tag/v0.22.11) · [SHA-256](https://github.com/luigilaxmaster-coder/AXX/releases/download/v0.22.11/SHA256SUMS.txt)
 
 Run the installer and open Axx. Python and Node are not required. Start with **Automático gratis · Sin claves**; Axx checks available free routes, whose availability can change. Personal API keys are optional in Settings. Credentials and conversation history are not included in the installer. Windows may need Internet to install WebView2. The installer is unsigned.
 
 The packaged backend may take longer on its first launch while Windows extracts and scans it. The native host allows up to 90 seconds for backend readiness and reports a startup error if that limit is exceeded.
 
-Source and published Windows installer are both **v0.22.10**. Android APKs remain local test artifacts until separately published. See [mobile setup and validation](docs/mobile/README.md) and the [version and release procedure](docs/RELEASING.md).
+Source and published Windows installer are both **v0.22.11**. Android APKs remain local test artifacts until separately published. See [mobile setup and validation](docs/mobile/README.md) and the [version and release procedure](docs/RELEASING.md).
 <!-- release:download:end -->
 
 ---
@@ -29,7 +29,7 @@ Source and published Windows installer are both **v0.22.10**. Android APKs remai
   <img src="https://img.shields.io/badge/Frontend-CPU%203D%20%2F%20Canvas-black" alt="CPU 3D and Canvas" />
   <img src="https://img.shields.io/badge/Offline%20Voice-Faster--Whisper%20Tiny-green" alt="Faster-Whisper" />
   <img src="https://img.shields.io/badge/Protocol-Model%20Context%20Protocol%20(MCP)-blueviolet" alt="MCP" />
-  <img src="https://img.shields.io/badge/Source%20Version-v0.22.10-informational" alt="Source version 0.22.10" />
+  <img src="https://img.shields.io/badge/Source%20Version-v0.22.11-informational" alt="Source version 0.22.11" />
   <img src="https://img.shields.io/badge/Development-Active%20Refinement-yellow?logo=git" alt="Active Development" />
 </p>
 
@@ -211,7 +211,7 @@ These are presentation captures of the current UI in an isolated browser. The mo
 ## 🚧 Project Status: Active Continuous Improvement
 
 > [!NOTE]
-> **Axx is under active development.** Source and published Windows installer are both **v0.22.10**. Validation is recorded per feature; a working UI or build does not by itself certify every hardware-dependent behavior.
+> **Axx is under active development.** Source and published Windows installer are both **v0.22.11**. Validation is recorded per feature; a working UI or build does not by itself certify every hardware-dependent behavior.
 
 ### 🟢 Implemented capabilities
 - **Native Startup:** Resident Windows application with a local backend and a launcher fallback to the executable built from this repository.
