@@ -13,6 +13,10 @@ const { chromium } = require(process.env.USERPROFILE + '/.cache/codex-runtimes/c
   assert(page, 'Installed Axx WebView unavailable');
   const receipt = { kind: 'INSTALLED_MAGIC_PEN_NATIVE_CAPTURE_REAL_VISION', started: new Date().toISOString(), checks: [] };
   const api = (op, body = {}) => page.evaluate(({ op, body }) => Axx.backendRequest('POST', '/axx-api/pen/' + op, body), { op, body });
+  const clickControl = async selector => {
+    if (!await page.locator(selector).isVisible()) await page.locator('#mp-more-toggle').click();
+    await page.locator(selector).click();
+  };
   let fixture, prior;
   try {
     page.setDefaultTimeout(12000);
@@ -74,8 +78,21 @@ finally:u.SetThreadDpiAwarenessContext(old)
     await page.waitForFunction(() => Axx.magicPen.active && !Axx.magicPen.working && (Axx.magicPen.doc || Axx.magicPen.state === 'error'));
     const opened = await page.evaluate(() => ({ source: Axx.magicPen.doc?.source, status: document.getElementById('mp-status').textContent }));
     assert(opened.source, 'Native desktop capture failed: ' + opened.status);
-    if (await page.locator('#mp-live').getAttribute('aria-pressed') !== 'true') await page.locator('#mp-live').click();
-    if (await page.locator('#mp-pause').innerText() === 'Reanudar') await page.locator('#mp-pause').click();
+    await page.locator('#mp-more-toggle').focus();
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => document.getElementById('mp-more-tools').open);
+    await page.waitForFunction(() => {
+      const rect = document.getElementById('mp-more-panel').getBoundingClientRect();
+      return Axx.resident.interactiveRegions().some(r => Math.abs(r.x - rect.x) < 1 && Math.abs(r.y - rect.y) < 1 && Math.abs(r.width - rect.width) < 1 && Math.abs(r.height - rect.height) < 1);
+    });
+    await page.locator('#mp-more-panel').screenshot({ path: path.join(out, 'more-tools.png') });
+    await page.locator('#mp-more-toggle').click();
+    await page.locator('#mp-toolbar').screenshot({ path: path.join(out, 'compact-toolbar.png') });
+    receipt.checks.push('Compact toolbar and keyboard disclosure expose the secondary tools with their own native hit region');
+    assert.equal(await page.locator('#mp-more-tools').evaluate(el => el.open), false);
+    if (await page.locator('#mp-live').getAttribute('aria-pressed') !== 'true') await clickControl('#mp-live');
+    if (await page.locator('#mp-pause').innerText() === 'Reanudar') await clickControl('#mp-pause');
+    if (await page.locator('#mp-more-tools').evaluate(el => el.open)) await page.locator('#mp-more-toggle').click();
     const geometry = await page.evaluate(() => ({ source: Axx.magicPen.doc.source, viewport: Axx.magicPen.viewport }));
     receipt.geometry = geometry;
     const question = 'Transcribe los números visibles y describe la forma y su color.';
@@ -87,7 +104,7 @@ finally:u.SetThreadDpiAwarenessContext(old)
     const fixtureBox = receipt.stimulus.physical, viewport = geometry.viewport;
     const target = { x0: (fixtureBox.left + 20 - viewport.x) / viewport.scale, y0: (fixtureBox.top + 90 - viewport.y) / viewport.scale, x1: (fixtureBox.right - 20 - viewport.x) / viewport.scale, y1: (fixtureBox.bottom - 30 - viewport.y) / viewport.scale };
     const mark = async (tool, points) => {
-      await page.locator('[data-mp-tool="' + tool + '"]').click();
+      await clickControl('[data-mp-tool="' + tool + '"]');
       await page.waitForFunction(() => !Axx.magicPen.working && Axx.magicPen.inputEnabled);
       await page.mouse.move(...points[0]); await page.mouse.down();
       for (const point of points.slice(1)) await page.mouse.move(...point, { steps: 8 });
@@ -146,7 +163,7 @@ finally:u.SetThreadDpiAwarenessContext(old)
     receipt.ink = ink;
     receipt.checks.push('Ink accepted during real inference; pause automatically analyzed the new region without another Ask');
 
-    await page.locator('#mp-pause').click();
+    await clickControl('#mp-pause');
     assert.equal(await page.locator('#mp-pause').innerText(), 'Reanudar');
     const beforePause = await page.evaluate(() => Axx.magicPen.doc.id);
     await mark('pen', [[900, 280], [950, 300]]);
@@ -161,7 +178,7 @@ finally:u.SetThreadDpiAwarenessContext(old)
     await page.waitForFunction(() => !Axx.magicPen.working && Axx.magicPen.doc?.selection?.shape === 'point');
     await mark('lasso', [[720, 320], [920, 320], [920, 480], [720, 480], [720, 320]]);
     await page.waitForFunction(() => !Axx.magicPen.working && Axx.magicPen.doc?.selection?.shape === 'lasso');
-    await page.locator('#mp-all').click();
+    await clickControl('#mp-all');
     await page.waitForFunction(() => !Axx.magicPen.working && Axx.magicPen.doc?.selection?.bounds?.[0] === 0);
     assert.deepEqual(await page.evaluate(() => Axx.magicPen.doc.selection.bounds), [0, 0, geometry.source.width, geometry.source.height]);
     const strokesBefore = await page.evaluate(() => Axx.magicPen.doc.strokes.length);
@@ -169,7 +186,7 @@ finally:u.SetThreadDpiAwarenessContext(old)
     assert.equal(await page.evaluate(() => Axx.magicPen.doc.strokes.length), strokesBefore + 1);
     await page.locator('#mp-undo').click();
     assert.equal(await page.evaluate(() => Axx.magicPen.doc.strokes.length), strokesBefore);
-    await page.locator('#mp-redo').click();
+    await clickControl('#mp-redo');
     assert.equal(await page.evaluate(() => Axx.magicPen.doc.strokes.length), strokesBefore + 1);
     await mark('erase', [[1100, 450]]);
     assert.equal(await page.evaluate(() => Axx.magicPen.doc.strokes.length), strokesBefore);
@@ -190,7 +207,7 @@ finally:u.SetThreadDpiAwarenessContext(old)
       const metrics = await page.evaluate(() => {
         const w = document.getElementById('mp-widget').getBoundingClientRect();
         const t = document.getElementById('mp-toolbar').getBoundingClientRect();
-        return { widgetBottom: w.bottom, toolbarTop: t.top, toolbarWidth: t.width, viewport: innerWidth, controls: ['mp-live', 'mp-pause', 'mp-done'].map(id => ({ id, height: document.getElementById(id).getBoundingClientRect().height })) };
+        return { widgetBottom: w.bottom, toolbarTop: t.top, toolbarWidth: t.width, viewport: innerWidth, controls: ['mp-interact', 'mp-more-toggle', 'mp-done'].map(id => ({ id, height: document.getElementById(id).getBoundingClientRect().height })) };
       });
       assert(metrics.widgetBottom <= metrics.toolbarTop - 2, 'Historical widget overlaps toolbar');
       assert(metrics.toolbarWidth <= metrics.viewport, 'Toolbar exceeds viewport');

@@ -5,6 +5,13 @@
 Abra **Magic Pen** desde las herramientas del avatar. La barra permanece sobre
 el escritorio; el resto de las herramientas conserva su panel independiente.
 
+La barra principal ofrece **Seleccionar**, **Dibujar**, **Usar escritorio**,
+**Deshacer** y **Listo**. **Más herramientas** reúne las variantes de selección,
+marcador, borrador, puntero, color, grosor, rehacer y análisis en directo.
+Se abre también con el teclado; al elegir una variante se cierra y conserva el
+foco en su acceso. Durante un análisis, **Detener** permanece en la barra principal.
+Las transiciones respetan la preferencia de reducir movimiento del sistema.
+
 - **Rectángulo, punto y lazo:** marque el detalle que desea explicar.
 - **Todo:** selecciona la pantalla actual. **Usar escritorio** permite pulsar las
   aplicaciones debajo; un selector vuelve a activar la superficie de dibujo.

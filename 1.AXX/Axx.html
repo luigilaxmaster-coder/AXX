@@ -19561,12 +19561,12 @@ var Axx;
         }
         interactiveRegions() {
             const regions = [];
-            for (const n of document.querySelectorAll('#quick-actions,#quick-compose,#quick-reply,#mp-canvas,#mp-toolbar,#mp-widget,#panel,#dock-shell,#flow-sheet,#flow-pill,#flow-fan>button,#flow-all,#reach-tray,#reach-preview,#ink-review,#v13-dock,#v13-settings,#v13-pad,#reader-mini,.organic-satellite,dialog[open],button,input,textarea,select,summary,.resident-resize-handle')) {
+            for (const n of document.querySelectorAll('#quick-actions,#quick-compose,#quick-reply,#mp-canvas,#mp-toolbar,#mp-more-panel,#mp-widget,#panel,#dock-shell,#flow-sheet,#flow-pill,#flow-fan>button,#flow-all,#reach-tray,#reach-preview,#ink-review,#v13-dock,#v13-settings,#v13-pad,#reader-mini,.organic-satellite,dialog[open],button,input,textarea,select,summary,.resident-resize-handle')) {
                 if (n.id === 'a11-main-button' || n.hidden || n.closest('[inert]') || !n.getClientRects().length) continue;
                 // These bounded surfaces already own their input. Descendant
                 // rectangles can extend outside their scroll clip and must not
                 // intercept the desktop through invisible controls.
-                if (n.parentElement?.closest('#mp-widget,#mp-toolbar,#quick-actions,#quick-compose,#quick-reply')) continue;
+                if (n.id !== 'mp-more-panel' && n.parentElement?.closest('#mp-widget,#mp-toolbar,#quick-actions,#quick-compose,#quick-reply')) continue;
                 const style = getComputedStyle(n); if (style.visibility === 'hidden' || style.pointerEvents === 'none' || Number(style.opacity) === 0) continue;
                 const r = n.getBoundingClientRect();
                 if (r.width > 0 && r.height > 0 && r.right > 0 && r.bottom > 0 && r.x < innerWidth && r.y < innerHeight) regions.push({ x: r.x, y: r.y, width: r.width, height: r.height });
