@@ -23,10 +23,11 @@ BLOCKED_PROCESSES={'cmd.exe','powershell.exe','pwsh.exe','windowsterminal.exe','
 
 def predicate(observed, expected):
     rows=[row for row in observed.get('controls',[]) if not row.get('offscreen')]
+    if expected.get('focused'):rows=[row for row in rows if row.get('control_id')==observed.get('focused_control_id')]
     found=[row for row in rows if row.get('name')==expected['name']]
-    if 'value' in expected:found=[row for row in found if not row.get('value_truncated') and row.get('value')==expected['value']]
-    if expected.get('focused'):
-        found=[row for row in found if row.get('control_id')==observed.get('focused_control_id')]
+    if 'value' in expected:
+        if any(row.get('value_truncated') or not isinstance(row.get('value'),str) for row in found):return False
+        found=[row for row in found if row.get('value')==expected['value']]
     focused_complete=observed.get('focused_only') is True and expected.get('focused') is True and any(row.get('control_id')==observed.get('focused_control_id') for row in rows)
     if observed.get('truncated') and not focused_complete:return False
     return len(found)==1 if expected.get('present',True) else not found

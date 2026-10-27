@@ -68,7 +68,11 @@ class DesktopComputerTests(unittest.TestCase):
     def test_partial_focused_probe_cannot_claim_global_presence_or_absence(self):
         observed={'truncated':True,'focused_only':True,'focused_control_id':'editor','controls':[{'control_id':'editor','name':'Editor','value':'hey'}]}
         self.assertTrue(cu.predicate(observed,{'name':'Editor','value':'hey','focused':True}))
-        observed['controls'][0]['value_truncated']=True;self.assertFalse(cu.predicate(observed,{'name':'Editor','value':'hey','focused':True}));observed['controls'][0]['value_truncated']=False
+        observed['controls'][0]['value_truncated']=True
+        for present in (True,False):self.assertFalse(cu.predicate(observed,{'name':'Editor','value':'hey','focused':True,'present':present}))
+        observed['controls'][0]['value_truncated']=False;observed['controls'][0]['value']=None
+        for present in (True,False):self.assertFalse(cu.predicate(observed,{'name':'Editor','value':'hey','focused':True,'present':present}))
+        observed['controls'][0]['value']='hey'
         self.assertFalse(cu.predicate(observed,{'name':'Editor'}));self.assertFalse(cu.predicate(observed,{'name':'Elsewhere','present':False}))
         observed['focused_only']=False;self.assertFalse(cu.predicate(observed,{'name':'Elsewhere','present':False,'focused':True}))
 
