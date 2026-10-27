@@ -10,34 +10,57 @@
     const privacyDetail = document.getElementById('v13-permission-state')?.nextElementSibling;
     if (privacyDetail?.tagName === 'P') privacyDetail.textContent = 'Dictado local con Whisper. El audio del micrófono no se envía a un proveedor de IA. Termina la captura para colocar la frase reconocida.';
     const cancelWorker = () => state.cancelPromise = Axx.backendRequest('POST', '/axx-api/speech/cancel', {}).catch(() => {});
+    const showVoiceStatus = (message, phase = 'idle') => {
+        for (const id of ['native-reader-engine', 'chat-voice-status', 'chat-live-voice-status']) {
+            const info = document.getElementById(id);
+            if (info) { info.setAttribute('role', 'status'); info.dataset.phase = phase; info.textContent = message; }
+        }
+    };
+    const defaultVoice = document.getElementById('chat-voice-default');
+    if (defaultVoice) {
+        defaultVoice.hidden = false;
+        defaultVoice.onclick = () => {
+            const select = document.getElementById('chat-voice-select');
+            if (!state.voices.some(voice => voice.name === 'moss:axx-sam') || !select) return;
+            select.value = 'moss:axx-sam';
+            select.dispatchEvent(new Event('change', { bubbles: true }));
+        };
+    }
     state.prepareVoice = voice => {
         const ticket = state.prepareTicket = (state.prepareTicket || 0) + 1;
-        if (!voice?.startsWith('moss:')) return;
+        if (!voice?.startsWith('moss:')) { showVoiceStatus('Voz del sistema seleccionada. Pulsa Probar voz para escucharla.'); return; }
+        const selected = state.voices.find(item => item.name === voice);
+        if (!selected) { showVoiceStatus('La voz seleccionada no está disponible. Comprueba MOSS y su muestra local; después pulsa Actualizar voces.', 'error'); return; }
+        const label = (selected.label || selected.name).split(' · ')[0];
+        showVoiceStatus(label + ' · Preparando el modelo local… La primera carga puede tardar varios segundos.', 'loading');
         void Axx.prepareSpeechAudio?.();
         void (async () => {
             let status = await Axx.backendRequest('POST', '/axx-api/speech/prepare', { voice });
             for (let attempt = 0; attempt < 180 && ticket === state.prepareTicket; attempt++) {
-                const info = document.getElementById('native-reader-engine');
                 const ready = status.prepared_voices?.includes(voice);
-                if (info) { info.setAttribute('role', 'status'); info.textContent = ready
-                    ? 'Voz Axx lista · audio progresivo en español e inglés.'
-                    : 'Preparando la voz Axx por primera vez… Puedes escribir mientras se carga.'; }
-                if (ready) return;
+                if (ready) { showVoiceStatus(label + ' · Lista para hablar. Pulsa Probar voz para escucharla.', 'ready'); return; }
                 await new Promise(resolve => setTimeout(resolve, 500));
                 if (ticket !== state.prepareTicket) return;
                 status = (await Axx.backendRequest('GET', '/axx-api/speech/status')).custom;
                 if (!status?.preparing_voice && !status?.prepared_voices?.includes(voice))
                     status = await Axx.backendRequest('POST', '/axx-api/speech/prepare', { voice });
             }
-        })().catch(() => { const info = document.getElementById('native-reader-engine');
-            if (info && ticket === state.prepareTicket) info.textContent = 'No se pudo preparar la voz. Vuelve a seleccionarla para reintentar.'; });
+            if (ticket === state.prepareTicket) throw new Error('Voice preparation timed out');
+        })().catch(() => {
+            if (ticket === state.prepareTicket) showVoiceStatus('No se pudo preparar ' + label + '. Pulsa Actualizar voces para reintentar.', 'error'); });
     };
     const base64 = blob => new Promise((resolve, reject) => { const reader = new FileReader(); reader.onerror = () => reject(new Error('No se pudo leer el audio capturado.')); reader.onload = () => resolve(String(reader.result).split(',')[1]); reader.readAsDataURL(blob); });
     state.refreshVoices = async (force = false) => {
         if (force) state.voicePromise = null;
+        if (!state.voicePromise) showVoiceStatus('Buscando las voces instaladas…', 'loading');
         if (!state.voicePromise) state.voicePromise = Axx.backendRequest('GET', '/axx-api/speech/voices').then(data => {
             if (!data.available || !Array.isArray(data.voices)) throw new Error('Windows no ofrece voces locales de lectura.');
             state.voices = data.voices.filter(v => v.enabled !== false && typeof v.name === 'string');
+            const hasDefault = state.voices.some(voice => voice.name === 'moss:axx-sam');
+            if (defaultVoice) {
+                defaultVoice.disabled = !hasDefault;
+                defaultVoice.textContent = hasDefault ? 'Usar Xxx default' : 'Xxx default no disponible';
+            }
             const savedRate = Number(localStorage.getItem('axx.voice.rate') || 1);
             if (Number.isFinite(savedRate) && savedRate >= .75 && savedRate <= 1.3)
                 for (const reader of [Axx.symbiosis?.reader, Axx.voice13?.reader]) if (reader) reader.rate=savedRate;
@@ -46,22 +69,23 @@
             const defaultURI = (!window.__contractCalls &&
                 (state.voices.find(v => v.name === 'moss:axx-sam') || state.voices.find(v => v.name === 'moss:axx-valeria'))?.name) || '';
             const effectiveURI = savedURI ?? defaultURI;
-            if (effectiveURI) {
-                if (Axx.symbiosis?.reader && !Axx.symbiosis.reader.voiceURI) Axx.symbiosis.reader.voiceURI = effectiveURI;
-                if (Axx.voice13?.reader && !Axx.voice13.reader.voiceURI) Axx.voice13.reader.voiceURI = effectiveURI;
-                state.prepareVoice(effectiveURI);
-            }
-            for (const [id, reader] of [['reader-voice', Axx.symbiosis?.reader], ['v13-voice', Axx.voice13?.reader], ['chat-voice-select', Axx.symbiosis?.reader]]) {
+            for (const reader of [Axx.symbiosis?.reader, Axx.voice13?.reader])
+                if (reader) reader.voiceURI = effectiveURI;
+            for (const [id, reader] of [['reader-voice', Axx.symbiosis?.reader], ['v13-voice', Axx.voice13?.reader], ['chat-voice-select', Axx.symbiosis?.reader], ['chat-live-voice', Axx.symbiosis?.reader]]) {
                 const select = document.getElementById(id); if (!select) continue;
                 select.replaceChildren(new Option('Voz rápida de Windows · automática', ''));
                 for (const voice of state.voices) select.add(new Option(voice.engine === 'moss-onnx' ? (voice.label || voice.name) : (voice.label || voice.name) + ' · ' + voice.language, voice.engine === 'moss-onnx' ? voice.name : 'sapi:' + voice.name));
+                if (!hasDefault) { const missing = new Option('Xxx default · no disponible', 'moss:axx-sam'); missing.disabled = true; select.add(missing); }
                 for (const wv of webVoices) select.add(new Option(wv.name + ' · ' + wv.lang + ' (Sistema)', 'web:' + wv.voiceURI));
                 const targetVal = reader?.voiceURI || effectiveURI || '';
                 if ([...select.options].some(o => o.value === targetVal)) select.value = targetVal;
                 else select.value = '';
                 if (!select.dataset.customVoicePrepare) {
                     select.dataset.customVoicePrepare = 'true';
-                    select.addEventListener('change', () => state.prepareVoice(select.value));
+                    select.addEventListener('change', () => {
+                        Axx.stability20?.syncVoiceURI?.(select.value);
+                        state.prepareVoice(select.value);
+                    });
                 }
             }
             const host = document.getElementById('view-reader');
@@ -70,8 +94,13 @@
                 info.textContent = state.voices.some(v => v.engine === 'moss-onnx') ? 'Voces Axx: audio progresivo en español e inglés. El modelo se prepara al abrir Axx y la voz al seleccionarla; la primera preparación puede tardar.' : 'Lectura local Windows SAPI. Elige una voz instalada.';
                 host.prepend(info);
             }
+            state.prepareVoice(effectiveURI);
             return state.voices;
-        }).catch(error => { state.voicePromise = null; throw error; });
+        }).catch(error => {
+            state.voicePromise = null;
+            showVoiceStatus('No se pudo consultar las voces locales. Pulsa Actualizar voces para reintentar.', 'error');
+            throw error;
+        });
         return state.voicePromise;
     };
     const proto = Axx.SpeechReader.prototype;
@@ -181,6 +210,7 @@
                     try { browserSpeak.call(this); return; } catch { }
                 }
                 this.state = 'error'; this.onChange?.(); this.onError?.(error instanceof Error ? error.message : String(error));
+                showVoiceStatus(error instanceof Error ? error.message : 'No se pudo reproducir la voz.', 'error');
             }
         })();
     };

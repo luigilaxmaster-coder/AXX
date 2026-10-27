@@ -12,6 +12,12 @@ saved voice choice (including automatic Windows speech) is preserved. To change
 an existing profile, select **Xxx default** in the voice control once. It uses
 MOSS reference conditioning; no model weights were trained or replaced.
 
+The chat voice panel also has **Usar Xxx default**. Selection is shared by chat,
+reader, dictation and live conversation; a saved choice overrides stale reader
+preferences. Chat and live conversation report preparation, readiness and failures. An unavailable
+Xxx default stays visible as a disabled option rather than silently appearing
+as Windows speech. **Actualizar voces** retries discovery and preparation.
+
 ## Latency and continuity
 
 - The existing MOSS worker and reference-code cache remain resident/reusable.
@@ -76,7 +82,8 @@ node scripts/test-installed-speech.cjs
 ```
 
 The last check requires an installed Axx WebView exposed on loopback CDP port
-9224. It exercises real synthesis and a repeated cached response, records
+9224, with **Xxx default** already selected and saved through the UI. It checks
+that all four voice controls agree, exercises synthesis and a cached response, records
 playback evidence under `build/chat-<version>/installed-speech.json`, and restores
 the prior reader selection. Installed acceptance and release publication must
 be reported separately from the source/backend checks above.

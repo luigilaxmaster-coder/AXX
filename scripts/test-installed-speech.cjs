@@ -8,7 +8,11 @@ const {chromium}=require(process.env.USERPROFILE+'/.cache/codex-runtimes/codex-p
  try{
   const voices=await p.evaluate(()=>Axx.nativeVoice.refreshVoices());
   saved=await p.evaluate(()=>{const r=Axx.symbiosis.reader;return {voiceURI:r.voiceURI,lang:r.lang,rate:r.rate,text:r.text};});
-  const selected=voices.some(v=>v.name==='moss:axx-sam')?'moss:axx-sam':'moss:axx-valeria';
+  const selected='moss:axx-sam';
+  assert(voices.some(v=>v.name===selected),'Xxx default is missing from the installed voice catalog');
+  receipt.selection=await p.evaluate(()=>({stored:localStorage.getItem('axx.voice.uri'),chat:document.getElementById('chat-voice-select')?.value,
+    reader:Axx.symbiosis.reader.voiceURI,dictation:Axx.voice13.reader.voiceURI,live:document.getElementById('chat-live-voice')?.value}));
+  assert(Object.values(receipt.selection).every(uri=>uri===selected),'Select Xxx default in the installed app before acceptance; all controls must retain it');
   for(const name of [selected,selected]){
    assert(voices.some(v=>v.name===name),'Missing local sample: '+name);
    await p.evaluate(name=>{const r=Axx.symbiosis.reader;r.stop();r.voiceURI=name;r.lang='es';r.rate=1;r.setText('Hola, Señor. Estoy lista para ayudar con sus proyectos.','Aceptación de voz');Axx.nativeVoice.playback=null;r.play();},name);

@@ -8,8 +8,9 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
     res.setHeader('Content-Type',file.endsWith('.js')?'application/javascript':file.endsWith('.css')?'text/css':'text/html');res.end(fs.readFileSync(file));
   });
   await new Promise(r=>server.listen(0,'127.0.0.1',r));
-  const browser=await chromium.launch({headless:true,executablePath:process.env.AXX_TEST_CHROMIUM});
+  let browser;
   try{
+    browser=await chromium.launch({headless:true,executablePath:process.env.AXX_TEST_CHROMIUM});
     const page=await browser.newPage({viewport:{width:1300,height:1000},reducedMotion:'reduce'}),errors=[];
     page.setDefaultTimeout(15000);page.on('pageerror',e=>errors.push(e.message));
     await page.addInitScript(()=>{
@@ -41,7 +42,8 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
           requests.push(args.path);
           if(args.path==='/axx-api/speech/transcribe') {await new Promise(r=>window.releaseTranscript=r);return {text:'Hola desde el dictado'};}
           if(args.path==='/axx-api/speech/cancel'&&holdCancel){await new Promise(resolve=>window.releaseCancel=resolve);return {};}
-          if(args.path==='/axx-api/speech/voices')return {available:true,voices:window.fixtureVoices||[]};
+          if(args.path==='/axx-api/speech/voices') {if(window.failVoiceList)throw Error('fixture voice list failed');return {available:true,voices:window.fixtureVoices||[]};}
+          if(args.path==='/axx-api/speech/prepare') {if(window.failVoicePrepare)throw Error('fixture prepare failed');if(window.holdVoicePrepare)await new Promise(resolve=>window.releaseVoicePrepare=resolve);return {prepared_voices:[args.body.voice]};}
           if(args.path==='/axx-api/connect/ui/claim')return {tasks:[]};
           if(args.path.includes('/commands/resolve'))return {match:'none'};
           return {};
@@ -65,6 +67,41 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
     });
     assert.deepEqual(voiceDefaults.slice(0,4),['moss:axx-sam','moss:axx-valeria','','moss:axx-valeria'],
       'The private default must fall back when absent and respect explicit Windows/other voice choices');
+    await page.evaluate(async()=>{
+      fixtureVoices=[{name:'moss:axx-sam',label:'Xxx default',engine:'moss-onnx'}, {name:'moss:axx-valeria',label:'Axx Valeria',engine:'moss-onnx'}];
+      localStorage.setItem('axx.voice.uri','moss:axx-sam');
+      Axx.symbiosis.reader.voiceURI=Axx.voice13.reader.voiceURI='moss:axx-valeria';
+      await Axx.nativeVoice.refreshVoices(true);
+      window.savedVoiceRead=Axx.companion.read;Axx.companion.read=()=>{};
+      Axx.companion.openChat();document.getElementById('chat20-menu').open=true;
+    });
+    assert.equal(await page.evaluate(()=>Axx.voice13.reader.voiceURI),'moss:axx-sam','Persisted selection must replace a stale legacy reader setting');
+    assert.equal(await page.locator('#chat-live-voice').inputValue(),'moss:axx-sam');
+    await page.waitForFunction(()=>document.getElementById('chat-voice-status').dataset.phase==='ready');
+    await page.evaluate(()=>{const select=document.getElementById('chat-live-voice');select.value='moss:axx-valeria';select.dispatchEvent(new Event('change'));});
+    assert.equal(await page.locator('#chat-voice-select').inputValue(),'moss:axx-valeria','Live voice must share the same selection owner');
+    await page.locator('#chat-voice-select').selectOption('moss:axx-valeria');
+    await page.evaluate(()=>window.holdVoicePrepare=true);
+    await page.locator('#chat-voice-default').click();
+    await page.waitForFunction(()=>typeof releaseVoicePrepare==='function');
+    assert.equal(await page.locator('#chat-voice-status').getAttribute('data-phase'),'loading');
+    assert.deepEqual(await page.evaluate(()=>[localStorage.getItem('axx.voice.uri'),Axx.symbiosis.reader.voiceURI,Axx.voice13.reader.voiceURI,document.getElementById('chat-live-voice').value]),Array(4).fill('moss:axx-sam'));
+    await page.evaluate(()=>{holdVoicePrepare=false;releaseVoicePrepare();});
+    await page.waitForFunction(()=>document.getElementById('chat-voice-status').dataset.phase==='ready');
+    const voiceEvidence=path.resolve(__dirname,'../../build/voice-ui-'+require('../../package.json').version);fs.mkdirSync(voiceEvidence,{recursive:true});
+    await page.locator('.chat20-voice-card').first().screenshot({path:path.join(voiceEvidence,'settings.png')});
+    await page.evaluate(async()=>{fixtureVoices=fixtureVoices.slice(1);await Axx.nativeVoice.refreshVoices(true);});
+    assert.equal(await page.locator('#chat-voice-default').isDisabled(),true);
+    assert.equal(await page.locator('#chat-voice-select').inputValue(),'moss:axx-sam','Missing selected voice must not silently appear as Windows');
+    assert.equal(await page.locator('#chat-voice-status').getAttribute('data-phase'),'error');
+    await page.evaluate(async()=>{failVoiceList=true;await Axx.nativeVoice.refreshVoices(true).catch(()=>{});});
+    assert.match(await page.locator('#chat-voice-status').textContent(),/No se pudo consultar/);
+    await page.evaluate(async()=>{failVoiceList=false;failVoicePrepare=true;fixtureVoices=[{name:'moss:axx-sam',label:'Xxx default',engine:'moss-onnx'}];await Axx.nativeVoice.refreshVoices(true);});
+    await page.waitForFunction(()=>document.getElementById('chat-voice-status').textContent.includes('No se pudo preparar'));
+    await page.evaluate(async()=>{
+      failVoicePrepare=false;fixtureVoices=[];localStorage.setItem('axx.voice.uri','');await Axx.nativeVoice.refreshVoices(true);
+      Axx.companion.read=savedVoiceRead;localStorage.removeItem('axx.voice.uri');document.getElementById('chat20-menu').open=false;
+    });
     await page.evaluate(()=>{Axx.resident.summon(false);Axx.flow.select('dictation');});
     await page.waitForFunction(()=>document.getElementById('v13-dock').getBoundingClientRect().width>0);
     const layout=await page.evaluate(async()=>{
@@ -246,6 +283,6 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
     assert.deepEqual(errors,[]);
     const output=path.resolve(__dirname,'../../build/quick-reply-'+require('../../package.json').version);fs.mkdirSync(output,{recursive:true});
     await page.screenshot({path:path.join(output,'dictation.png')});
-    console.log('PASS: dictation geometry/owner/draft, live blur retention, quiet and short utterance VAD, steady-noise rejection, visible input meter, unavailable exact device, cancellation barriers, single command shortcut and always-active rearm');
-  }finally{await browser.close();await new Promise(r=>server.close(r));}
+    console.log('PASS: shared Xxx default selection, persisted voice, loading/ready/error states, missing voice, dictation geometry/owner/draft, live blur retention, quiet and short utterance VAD, steady-noise rejection, visible input meter, unavailable exact device, cancellation barriers, single command shortcut and always-active rearm');
+  }finally{await browser?.close();await new Promise(r=>server.close(r));}
 })().catch(e=>{console.error(e);process.exitCode=1;});

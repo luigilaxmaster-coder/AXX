@@ -8,6 +8,7 @@
  const card=document.createElement('section');card.id='chat-live';card.hidden=true;card.setAttribute('aria-label','Conversación por voz');
  card.innerHTML='<div class="chat-live-heading"><strong>Conversación por voz</strong><button id="chat-live-close" type="button" aria-label="Cerrar conversación por voz">×</button></div><p id="chat-live-status" role="status" aria-live="polite">Habla y deja una pausa. Axx responderá y volverá a escucharte.</p><div class="chat-live-controls"><button id="chat-live-start" type="button">Iniciar</button><button id="chat-live-finish" type="button" hidden>Responder ahora</button><button id="chat-live-interrupt" type="button" hidden>Interrumpir y hablar</button><button id="chat-live-stop" type="button" hidden>Terminar</button></div><small id="chat-live-metrics"></small><details><summary>Voz, ritmo y privacidad</summary><div class="chat-live-settings"><label>Voz<select id="chat-live-voice"></select></label><label>Modelo para voz<select id="chat-live-model"><option value="">Mismo del chat</option></select></label><label>Pausa para responder<select id="chat-live-pause"><option value="700">Rápida · 0,7 s</option><option value="900">Ágil · 0,9 s</option><option value="1500">Tranquila · 1,5 s</option></select></label></div><p class="chat-live-privacy">Micrófono y transcripción local. El texto y el contexto elegido van al modelo del chat. El micrófono se pausa mientras Axx responde.</p></details>';
  $('chat-workspace').append(card);
+ const voiceStatus=document.createElement('p');voiceStatus.id='chat-live-voice-status';voiceStatus.className='chat-live-privacy';voiceStatus.setAttribute('role','status');card.querySelector('.chat-live-settings').after(voiceStatus);
  const style=document.createElement('style');style.textContent=`
  #chat-live{border-radius:20px;padding:20px;background:var(--surface,var(--bg));border:1px solid var(--line);box-shadow:0 12px 36px #0002}
  #chat-live .chat-live-signal{display:flex;align-items:center;gap:5px;height:40px;margin:14px 0}
@@ -60,12 +61,7 @@
  }
  async function voices(){
   try{
-   const list=await Axx.nativeVoice.refreshVoices(),select=$('chat-live-voice');select.replaceChildren();
-   select.add(new Option('Windows automática · menor espera',''));
-   for(const v of list)select.add(new Option((v.engine==='moss-onnx'?'Natural · ':'Windows · ')+(v.label||v.name),v.engine==='moss-onnx'?v.name:'sapi:'+v.name));
-   const uri=s.reader.voiceURI||'';
-   if(uri.startsWith('web:'))select.add(new Option('Voz del sistema seleccionada',uri));
-   select.value=uri;
+   await Axx.nativeVoice.refreshVoices(true);
   }catch(e){lastError=e.message||String(e);render();}
  }
  async function microphones(){
@@ -112,12 +108,6 @@
  $('chat-live-finish').onclick=()=>s.dictation.finish();$('chat-live-close').onclick=()=>{stop();card.hidden=true;toggle.setAttribute('aria-expanded','false');toggle.focus();};
   $('chat-live-pause').onchange=e=>{const v=parseInt(e.target.value,10);pauseMs=[700,900,1500].includes(v)?v:900;try{localStorage.setItem('axx.live.pause',String(pauseMs));}catch{}};
   $('chat-live-model').onchange=e=>{const m=e.target.value;if(m&&(!c.brain.connected||c.data.prefs.selection_mode==='automatic_free'||!c.brain.models.includes(m))){lastError='Selecciona un modelo disponible en esta conexión.';models();render();return;}c.data.prefs.voiceModel=m;lastError='';c.save();render();};
- $('chat-live-voice').onchange=e=>{
-  const uri=e.target.value;s.reader.voiceURI=uri;if(Axx.voice13?.reader)Axx.voice13.reader.voiceURI=uri;
-  try{localStorage.setItem('axx.voice.uri',uri);}catch{}
-  for(const id of ['chat-voice-select','reader-voice','v13-voice'])if($(id))$(id).value=uri;
-  Axx.nativeVoice.prepareVoice(uri);
- };
  $('chat-live-microphone').onchange=e=>{Axx.nativeVoice.liveDeviceId=e.target.value;try{localStorage.setItem('axx.live.microphone',e.target.value);}catch{lastError='No se pudo guardar el micrófono seleccionado.';}render();};
  const deviceChange=()=>{void microphones();};navigator.mediaDevices?.addEventListener?.('devicechange',deviceChange);
  const poll=setInterval(()=>{if((s.liveActive||starting)&&($('panel').hidden||$('panel').dataset.view!=='chat'||document.hidden))stop();if(!card.hidden)render();},200);

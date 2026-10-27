@@ -18163,7 +18163,7 @@ var Axx;
             const menu = header.querySelector('.chat20-menu-body');
             const voiceCard = document.createElement('div');
             voiceCard.className = 'chat20-voice-card';
-            voiceCard.innerHTML = '<label>Voz de Axx<select id="chat-voice-select" aria-label="Seleccionar voz de Axx"><option value="">Voz automática del sistema</option></select></label><label>Idioma de respuesta<select id="chat-voice-language"><option value="auto">Automático · español o inglés</option><option value="es">Español</option><option value="en">English</option></select></label><label>Velocidad de voz <output id="chat-voice-speed-value">1,00×</output><input id="chat-voice-speed" type="range" min="0.75" max="1.30" step="0.05" value="1"></label><div class="quick-row"><button id="chat-voice-test" type="button">🔊 Probar voz</button><button id="chat-voice-refresh" type="button">↻ Voces</button></div>';
+            voiceCard.innerHTML = '<button id="chat-voice-default" type="button" hidden disabled>Usar Xxx default</button><p id="chat-voice-status" class="micro-copy" role="status" aria-live="polite">Elige una voz y pulsa Probar voz.</p><label>Voz de Axx<select id="chat-voice-select" aria-label="Seleccionar voz de Axx"><option value="">Voz automática del sistema</option></select></label><label>Idioma de respuesta<select id="chat-voice-language"><option value="auto">Automático · español o inglés</option><option value="es">Español</option><option value="en">English</option></select></label><label>Velocidad de voz <output id="chat-voice-speed-value">1,00×</output><input id="chat-voice-speed" type="range" min="0.75" max="1.30" step="0.05" value="1"></label><div class="quick-row"><button id="chat-voice-test" type="button">🔊 Probar voz</button><button id="chat-voice-refresh" type="button">Actualizar voces</button></div>';
             menu.append(voiceCard);
             const voiceModelLabel = document.createElement('label');
             voiceModelLabel.textContent = 'Modelo para voz';
@@ -18243,7 +18243,7 @@ var Axx;
                 try { localStorage.setItem('axx.voice.uri', uri); } catch { }
                 if (this.symbiosis?.reader) this.symbiosis.reader.voiceURI = uri;
                 if (Axx.voice13?.reader) Axx.voice13.reader.voiceURI = uri;
-                for (const id of ['chat-voice-select', 'reader-voice', 'v13-voice']) {
+                for (const id of ['chat-voice-select', 'reader-voice', 'v13-voice', 'chat-live-voice']) {
                     const el = document.getElementById(id);
                     if (el && el.value !== uri) el.value = uri;
                 }
