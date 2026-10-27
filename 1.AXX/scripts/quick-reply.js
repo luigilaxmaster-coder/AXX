@@ -32,6 +32,9 @@
  #quick-level i{display:block;width:4px;height:var(--bar,4px);border-radius:4px;background:var(--accent,#95c9fc);transition:height .1s}
  #quick-reply{width:260px;border-radius:18px;padding:8px 12px}
  #quick-reply:after{content:"";position:absolute;bottom:-5px;left:calc(50% - 5px);width:10px;height:10px;background:var(--quick-bg);border-right:1px solid var(--line,#ffffff26);border-bottom:1px solid var(--line,#ffffff26);transform:rotate(45deg)}
+ #quick-reply[data-placement=below]:after{top:-5px;bottom:auto;transform:rotate(225deg)}
+ #quick-reply[data-placement=left]:after{left:auto;right:-5px;top:calc(50% - 5px);bottom:auto;transform:rotate(-45deg)}
+ #quick-reply[data-placement=right]:after{left:-5px;top:calc(50% - 5px);bottom:auto;transform:rotate(135deg)}
  #quick-reply-head{display:flex;justify-content:flex-end;font-size:10px;color:var(--secondary,#a9b6c6)}
  #quick-reply-head strong{display:none}
  #quick-reply-text{margin:4px 0;max-height:84px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;scrollbar-width:thin}
@@ -58,6 +61,7 @@
  onError(text){notice=text;phase='error';refresh();}};
  Axx.nativeVoice.attach(capture);
  function changed(){r.schedule();void Axx.app.updateHitMap();}
+ function aboveAvatar(g,size){return g?g.spaceBelow<size*.34+144&&g.spaceAbove>g.spaceBelow:root.dataset.above==='true';}
  function reveal(id,on){
   const node=$(id);if(node.dataset.quickVisible===String(on))return;
   const prior=motions.get(id),wasHidden=node.hidden,style=getComputedStyle(node),from={opacity:style.opacity,translate:style.translate,scale:style.scale,borderRadius:style.borderRadius};
@@ -65,7 +69,7 @@
   if(!on&&wasHidden)return;
   node.hidden=false;
   const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches,duration=reduced||document.hidden?0:(Axx.interfaceTheme?.motionDuration||520)*(on?1:.65);
-  const drop=id==='quick-actions'?'0 -70px':id==='quick-compose'?'0 -42px':'0 14px',small=id==='quick-actions'?'.2 .6':'.9 .86';
+  const above=aboveAvatar(r.geometry,r.size),drop=id==='quick-actions'?(above?'0 70px':'0 -70px'):id==='quick-compose'?(above?'0 42px':'0 -42px'):'0 14px',small=id==='quick-actions'?'.2 .6':'.9 .86';
   const rest={opacity:1,translate:'0 0',scale:'1 1',borderRadius:id==='quick-actions'||id==='quick-compose'?'28px':'18px'};
   const frames=on?(wasHidden?[{opacity:0,translate:drop,scale:small,borderRadius:'50%'},{...rest,translate:'0 3px',scale:'1.015 .97',offset:.78},rest]:[from,rest]):[from,{opacity:0,translate:drop,scale:small,borderRadius:'50%'}];
   const animation=node.animate(frames,{duration,easing:'cubic-bezier(.22,.75,.24,1)',fill:'both'});motions.set(id,animation);
@@ -157,11 +161,18 @@
    x=Math.max(-g.spaceLeft+12,Math.min(g.spaceRight-width-12,x));y=Math.max(-g.spaceAbove+12,Math.min(g.spaceBelow-height-12,y));
    add(id,Math.round(x),Math.round(y),width,height);
   };
-  const below=size*.34+12;
-  if(!$('quick-actions').hidden)bounded('quick-actions',146,54,-73,below);
+  const below=size*.34+12,above=aboveAvatar(g,size);
+  root.dataset.above=String(above);
+  const groupTop=Math.max(-g.spaceAbove+12,Math.min(g.spaceBelow-132,above?-below-120:below));
+  if(!$('quick-actions').hidden)bounded('quick-actions',146,54,-73,above?groupTop+66:groupTop);
   if(active()){
-   bounded('quick-compose',320,56,-160,below+64);
-   if(!$('quick-reply').hidden){const width=Math.round(260*(Axx.interfaceTheme?.widgetScale||1)),height=Math.max(96,Math.min(160,$('quick-reply-text').scrollHeight+64));bounded('quick-reply',width,height,-width/2,-size*.34-height-16);}
+   bounded('quick-compose',320,56,-160,above?groupTop:groupTop+64);
+   if(!$('quick-reply').hidden){
+    const width=Math.round(260*(Axx.interfaceTheme?.widgetScale||1)),height=Math.max(96,Math.min(160,$('quick-reply-text').scrollHeight+64));
+    let x=-width/2,y=above?below:-below-height-4,placement=above?'below':'above';
+    if((above?g.spaceBelow:g.spaceAbove)<below+height+12){placement=g.spaceLeft>=g.spaceRight?'left':'right';x=placement==='left'?-below-width:below;y=-height/2;}
+    $('quick-reply').dataset.placement=placement;bounded('quick-reply',width,height,x,y);
+   }
   }
  }
  $('quick-write').onclick=write;$('quick-pen').onclick=magic;$('quick-talk').onclick=talk;$('quick-close').onclick=()=>close();$('quick-stop').onclick=stop;

@@ -23,10 +23,10 @@ const {chromium}=require(process.env.USERPROFILE+'/.cache/codex-runtimes/codex-p
    c.app=Axx.app;
    c.openChat=new Function('Axx','node','return ({'+open+'}).openChat')(Axx,id=>document.getElementById(id));
    const g={workWidth:1000,workHeight:800,spaceLeft:500,spaceRight:500,spaceAbove:350,spaceBelow:450};
-   const layout=()=>{if(!Axx.quickReply)return;Axx.quickReply.layout(g,240,(id,x,y,width,height)=>Object.assign(document.getElementById(id).style,{left:x+500+'px',top:y+350+'px',width:width+'px',height:height+'px'}));};
-   Axx.resident={drag:null,fold(){Axx.flow.nav.step=0;document.getElementById('panel').hidden=true;},schedule(){queueMicrotask(layout);}};
+   const layout=()=>{if(!Axx.quickReply)return;Axx.quickReply.layout(g,240,(id,x,y,width,height)=>Object.assign(document.getElementById(id).style,{left:x+500+'px',top:y+g.spaceAbove+'px',width:width+'px',height:height+'px'}));};
+   Axx.resident={drag:null,geometry:g,size:240,fold(){Axx.flow.nav.step=0;document.getElementById('panel').hidden=true;},schedule(){queueMicrotask(layout);}};
    Axx.resident.tap=new Function('Axx','return ({'+tap+'}).tap')(Axx);
-   window.layout=layout;window.localStorageSnapshot='shape-preserved';
+   window.layout=layout;window.quickGeometry=g;window.localStorageSnapshot='shape-preserved';
   },{open:source.slice(start,end),tap:source.slice(tapStart,tapEnd)});
   await p.addScriptTag({path:'1.AXX/scripts/quick-reply.js'});
   await p.addScriptTag({path:'1.AXX/scripts/interface-theme.js'});
@@ -66,6 +66,15 @@ const {chromium}=require(process.env.USERPROFILE+'/.cache/codex-runtimes/codex-p
   await p.waitForFunction(()=>!document.getElementById('quick-compose').getAnimations().length);await p.evaluate(()=>Axx.quickReply.close());await p.waitForFunction(()=>document.getElementById('quick-actions').hidden);
   await p.emulateMedia({reducedMotion:'no-preference'});await p.hover('#avatar');await p.waitForFunction(()=>document.getElementById('quick-actions').getAnimations().length>0);assert.notEqual(await p.locator('#quick-actions').evaluate(el=>getComputedStyle(el).translate),'none');
   await p.mouse.move(20,20);await p.waitForTimeout(380);await p.hover('#avatar');await p.waitForTimeout(650);assert.equal(await p.locator('#quick-actions').isVisible(),true);assert.equal(await p.locator('#quick-actions').getAttribute('inert'),null);
+  await p.emulateMedia({reducedMotion:'reduce'});
+  await p.setViewportSize({width:1000,height:816});
+  for(const [above,below] of [[616,200],[100,716],[400,416]]){
+   await p.evaluate(({above,below})=>{Object.assign(quickGeometry,{workHeight:above+below,spaceAbove:above,spaceBelow:below});Axx.quickReply.write();Axx.companion.data.messages.push({id:'edge-'+above,role:'assistant',text:'Respuesta en el borde',status:'complete'});Axx.quickReply.refresh();layout();},{above,below});await p.waitForFunction(()=>!document.getElementById('quick-compose').getAnimations().length);
+   const bounds=await p.locator('#quick-actions,#quick-compose,#quick-reply').evaluateAll(nodes=>nodes.map(n=>{const r=n.getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height};}));
+   assert.ok(bounds.every(r=>r.x>=0&&r.y>=0&&r.x+r.width<=1000&&r.y+r.height<=816),'Edge widgets must remain on screen');
+   for(let i=0;i<bounds.length;i++)for(let j=i+1;j<bounds.length;j++){const a=bounds[i],b=bounds[j];assert.ok(a.x+a.width<=b.x||b.x+b.width<=a.x||a.y+a.height<=b.y||b.y+b.height<=a.y,'Edge widgets must not overlap');}
+   await p.evaluate(()=>Axx.quickReply.close());
+  }
   assert.deepEqual(errors,[]);console.log('QUICK_REPLY_HOVER_COMPOSER_VOICE_STATE_RESPONSE_CANCEL_SCOPE_PASS');
  }finally{await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});
