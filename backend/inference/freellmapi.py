@@ -767,7 +767,7 @@ class FreeLLMAPIService:
                        FREEAPI_CONFIG_JSON=json.dumps({'admin': {'email': 'axx@localhost.invalid', 'password': secure['password']}}))
             self.process, self.job = spawn_managed_process([str(node), str(entry)], cwd=str(source), env=env,
                                                           stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            deadline = time.monotonic() + 20
+            deadline = time.monotonic() + 40
             while time.monotonic() < deadline and self.process.poll() is None:
                 try:
                     auth = _request(self.state['base_url'], '/api/auth/login', body={'email': 'axx@localhost.invalid',
@@ -780,7 +780,7 @@ class FreeLLMAPIService:
                 except (ValueError, KeyError):
                     time.sleep(.2)
             self.close()
-            raise ValueError('El gateway administrado no quedó disponible en veinte segundos.')
+            raise ValueError('El gateway administrado no quedó disponible en cuarenta segundos.')
 
     def reconnect(self):
         return self.start() if self.state.get('enabled') else self.status()

@@ -318,6 +318,65 @@ class GatewayTests(unittest.TestCase):
         provision.assert_not_called()
         start.assert_not_called()
 
+    @unittest.skipUnless(os.name == 'nt', 'Windows managed startup')
+    def test_managed_cold_start_authenticates_after_twenty_seconds_and_stops_at_forty(self):
+        source = self.root / 'owned-node'
+        entry = source / 'server/dist/index.js'
+        entry.parent.mkdir(parents=True)
+        entry.write_text('// Never executed: process creation is mocked.')
+        node = source / 'node.exe'
+        node.touch()
+        marker = self.root / 'managed-install.json'
+        marker.write_text(json.dumps({'commit': gateway.COMMIT, 'source_dir': str(source),
+                                      'node_executable': str(node)}))
+
+        class Running:
+            stopped = False
+            def poll(self): return 0 if self.stopped else None
+            def wait(self, timeout=None): return self.poll()
+
+        for available_after in (25, None):
+            with self.subTest(available_after=available_after):
+                clock = [0.0]
+                process = Running()
+                service = gateway.FreeLLMAPIService(self.root / ('late' if available_after else 'expired'))
+                def request(base, path, key='', body=None, method=None, timeout=5):
+                    if path == '/api/auth/login':
+                        if available_after is None or clock[0] < available_after:
+                            raise ValueError('Owned gateway is not ready')
+                        return {'token': 'dashboard-secret'}
+                    if path == '/api/settings/api-key':
+                        self.assertEqual(key, 'dashboard-secret')
+                        return {'apiKey': 'api-secret'}
+                    return self.request(base, path, key, body, method, timeout)
+                with patch.object(gateway, 'installation_path', return_value=marker), \
+                        patch.object(gateway, 'spawn_managed_process', return_value=(process, None)) as spawn, \
+                        patch.object(gateway, 'terminate_process_tree', side_effect=lambda p, _: setattr(p, 'stopped', True)), \
+                        patch.object(gateway, '_request', side_effect=request), \
+                        patch.object(gateway, 'configure_gateway_credentials') as persist, \
+                        patch.object(gateway.time, 'monotonic', side_effect=lambda: clock[0]), \
+                        patch.object(gateway.time, 'sleep', side_effect=lambda delay: clock.__setitem__(0, clock[0]+delay)):
+                    try:
+                        if available_after:
+                            result = service.start()
+                            self.assertTrue(result['connected'])
+                            self.assertGreater(clock[0], 20)
+                            self.assertLess(clock[0], 40)
+                            self.assertEqual((service.dashboard, service.api_key), ('dashboard-secret', 'api-secret'))
+                            persist.assert_called_once()
+                        else:
+                            with self.assertRaisesRegex(ValueError, 'cuarenta segundos'):
+                                service.start()
+                            self.assertGreaterEqual(clock[0], 40)
+                            self.assertLess(clock[0], 40.21)
+                            self.assertTrue(process.stopped)
+                            self.assertIsNone(service.process)
+                            self.assertEqual((service.dashboard, service.api_key), ('', ''))
+                            persist.assert_not_called()
+                        spawn.assert_called_once()
+                    finally:
+                        service.close()
+
 
 @unittest.skipUnless(os.name == 'nt' and gateway.installation_path().is_file(), 'Optional installed Windows gateway smoke')
 class NativeGatewayTests(unittest.TestCase):
