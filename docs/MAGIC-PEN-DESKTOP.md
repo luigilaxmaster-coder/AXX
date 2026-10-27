@@ -44,6 +44,10 @@ ruta necesita la capacidad `vision`; si no está configurada, se muestra el moti
 y no se cambia silenciosamente a otra conexión. La autorización de cuota y las
 restricciones del router siguen vigentes (`allow_paid: false`).
 
+La lista de modelos para visión ofrece **Usar en visión**: esta elección queda
+guardada aparte y conserva el modelo de texto del chat. Una selección de texto
+no basta para habilitar el análisis de imágenes.
+
 Para esta entrega se comprobó la ruta existente `axxx3` / `gemma4:31b` con una
 imagen de prueba sin datos personales. Se añadió únicamente `vision` a las
 capacidades declaradas de esa conexión después de consultar la

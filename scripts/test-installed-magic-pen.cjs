@@ -25,6 +25,12 @@ const { chromium } = require(process.env.USERPROFILE + '/.cache/codex-runtimes/c
     prior = await page.evaluate(() => ({ theme: Axx.interfaceTheme.value, view: Axx.companion.dock.selected, preferences: localStorage.getItem('axx.magicpen.prefs'), question: document.getElementById('mp-question').value }));
     await page.evaluate(() => Axx.chatWorkspace.flush());
     receipt.runtime = JSON.parse(fs.readFileSync(process.env.LOCALAPPDATA + '/Axx/logs/native-runtime.json', 'utf8'));
+    receipt.nativeBridge = await page.evaluate(async () => ({
+      version: Axx.VERSION,
+      backendInstance: (await Axx.nativeInvoke('native_status')).backendInstance
+    }));
+    assert.equal(receipt.nativeBridge.version, require('../package.json').version);
+    assert.equal(receipt.nativeBridge.backendInstance, receipt.runtime.backendInstance, 'The diagnostic WebView and installed runtime must identify the same backend');
     const desktop = await page.evaluate(async () => (await Axx.nativeInvoke('native_status')).desktop);
     const origin = { x: Math.round(desktop.screenX - desktop.anchorX * desktop.scaleFactor), y: Math.round(desktop.screenY - desktop.anchorY * desktop.scaleFactor) };
     fixture = await chromium.launch({ channel: 'chrome', headless: false, args: ['--window-position=' + (origin.x + 580) + ',70', '--window-size=940,720'] });
@@ -80,6 +86,15 @@ finally:u.SetThreadDpiAwarenessContext(old)
     const opened = await page.evaluate(() => ({ source: Axx.magicPen.doc?.source, status: document.getElementById('mp-status').textContent }));
     assert(opened.source, 'Native desktop capture failed: ' + opened.status);
     assert.equal(await page.evaluate(() => Axx.magicPen.hasVision()), true, 'Configure an explicit available vision route before native acceptance');
+    receipt.appearance = await page.evaluate(() => ({
+      summaryFont: getComputedStyle(document.getElementById('mp-summary-text')).fontSize,
+      metadataInHistory: !!document.getElementById('mp-meta').closest('.mp-save-section'),
+      status: document.getElementById('mp-status').textContent
+    }));
+    assert.equal(receipt.appearance.summaryFont, '17px', 'Installed WebView must load the refined typography');
+    assert.equal(receipt.appearance.metadataInHistory, true, 'Capture metadata belongs in the secondary history disclosure');
+    assert.doesNotMatch(receipt.appearance.status, /Backend is starting/, 'A successful fresh open must clear the previous startup error');
+    receipt.checks.push('Installed assets show the refined typography, compact metadata hierarchy and fresh ready status');
     await page.locator('#mp-more-toggle').focus();
     await page.keyboard.press('Enter');
     await page.waitForFunction(() => document.getElementById('mp-more-tools').open);
