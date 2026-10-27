@@ -24,10 +24,11 @@ BLOCKED_PROCESSES={'cmd.exe','powershell.exe','pwsh.exe','windowsterminal.exe','
 def predicate(observed, expected):
     rows=[row for row in observed.get('controls',[]) if not row.get('offscreen')]
     found=[row for row in rows if row.get('name')==expected['name']]
-    if 'value' in expected:found=[row for row in found if row.get('value')==expected['value']]
+    if 'value' in expected:found=[row for row in found if not row.get('value_truncated') and row.get('value')==expected['value']]
     if expected.get('focused'):
         found=[row for row in found if row.get('control_id')==observed.get('focused_control_id')]
-    if observed.get('truncated'):return False
+    focused_complete=observed.get('focused_only') is True and expected.get('focused') is True and any(row.get('control_id')==observed.get('focused_control_id') for row in rows)
+    if observed.get('truncated') and not focused_complete:return False
     return len(found)==1 if expected.get('present',True) else not found
 
 
@@ -212,7 +213,9 @@ class ComputerUseTool:
             grant['phase']='acting'
             with owner.automation(event) as control:
                 uia.focus_window(grant['window_id'],grant['pid'],control=control)
-                if 'x' in args and not args.get('control_id'):
+                if args['action'] in ('type_text','hotkey'):
+                    fresh=uia.inspect_focused_control(grant['window_id'],grant['pid'],cancelled=control)
+                elif 'x' in args and not args.get('control_id'):
                     shot,_=service._observe(grant,control,overview=old.get('overview',False));fresh=shot['observed']
                 else:fresh=uia.read_window_content(grant['window_id'],grant['pid'],old['observed']['window_title'],cancelled=control,full_window=True,timeout=5)
                 if expected and not visual:
@@ -234,7 +237,7 @@ class ComputerUseTool:
                             raise ValueError('Punto fuera de la imagen autorizada.')
                         if not vision.same_target(old,shot,args[x],args[y]):raise ValueError('Cambió la zona del gesto; observa otra vez antes de usar coordenadas.')
                         payload[x]=round(box['x']+args[x]*box['width']/old['width']);payload[y]=round(box['y']+args[y]*box['height']/old['height'])
-                if args['action']=='type_text' and not any(r['control_id']==fresh.get('focused_control_id') and r.get('enabled')
+                if args['action']=='type_text' and not any(r['control_id']==fresh.get('focused_control_id') and r.get('enabled') and not r.get('offscreen')
                         and r.get('control_type') in ('ControlType.Edit','ControlType.Document','ControlType.ComboBox')
                         and r.get('read_only') is False for r in fresh['controls']):
                     raise ValueError('No se identificó un campo de escritura permitido y enfocado.')
@@ -255,7 +258,8 @@ class ComputerUseTool:
                         if vision.region(old,expected['region_changed'])!=vision.region(after,expected['region_changed']):
                             return ToolResult(True,output={'dispatched':True,'expected':expected,'goal_verified':False,'next':'Observa la nueva imagen para comprobar el objetivo; solo se confirmó un cambio en la región.'},evidence={'verification':'computer_region_changed'})
                     else:
-                        after=uia.read_window_content(grant['window_id'],grant['pid'],rows[0]['title'],cancelled=control,full_window=True,timeout=3)
+                        after=(uia.inspect_focused_control(grant['window_id'],grant['pid'],cancelled=control) if expected.get('focused') else
+                               uia.read_window_content(grant['window_id'],grant['pid'],rows[0]['title'],cancelled=control,full_window=True,timeout=3))
                         if predicate(after,expected):return ToolResult(True,output={'dispatched':True,'expected':expected},evidence={'verification':'computer_expected_control'})
                     control.wait(.15)
                 raise uia.UncertainEffect('Entrada entregada; no se verificó el resultado esperado. Observa y revisa antes de continuar.')

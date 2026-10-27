@@ -373,6 +373,11 @@ def inspect_controls(window_id, expected_pid, cancelled=None):
                  'pid': _positive_int(expected_pid, 'pid')}, cancelled=cancelled)
 
 
+def inspect_focused_control(window_id, expected_pid, cancelled=None):
+    return _uia({'operation':'focused_edit','window_id':_positive_int(window_id,'window_id'),
+                 'pid':_positive_int(expected_pid,'pid')},cancelled=cancelled,timeout=3)
+
+
 def capture_window(window_id, expected_pid, process_started, cancelled=None):
     return _uia({'operation':'capture','window_id':_positive_int(window_id,'window_id'),
         'pid':_positive_int(expected_pid,'pid'),'expected_process_started':process_started},cancelled=cancelled)
@@ -535,7 +540,7 @@ def _uia(payload, cancelled=None, timeout=None):
     env['AXX_UIA_WORKER'] = str(script.resolve())
     started_at = time.time()
     started_monotonic = time.monotonic()
-    observing = payload['operation'] in ('inspect', 'inspect_browser', 'read_content', 'scrape_app', 'locate_edit')
+    observing = payload['operation'] in ('inspect', 'inspect_browser', 'read_content', 'scrape_app', 'locate_edit','focused_edit')
     geometry = observe_geometry(payload['window_id']) if observing else None
     try:
         process = subprocess.Popen([str(executable), '-NoLogo', '-NoProfile', '-NonInteractive', '-MTA',

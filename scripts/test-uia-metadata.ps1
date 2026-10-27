@@ -5,6 +5,10 @@ $source = Get-Content -LiteralPath (Join-Path $PSScriptRoot '../backend/actions/
 $tokens=$null; $parseErrors=$null
 [System.Management.Automation.Language.Parser]::ParseInput($source,[ref]$tokens,[ref]$parseErrors) | Out-Null
 if ($parseErrors.Count) { throw 'UIA worker syntax failed' }
+$syntax=[System.Management.Automation.Language.Parser]::ParseInput($source,[ref]$tokens,[ref]$parseErrors)
+$readonlyFunction=$syntax.Find({param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Get-ControlReadOnly'},$true)
+if (-not $readonlyFunction) { throw 'Shared read-only check missing' }
+. ([scriptblock]::Create($readonlyFunction.Extent.Text))
 $start=$source.IndexOf('        $metadata = ')
 $end=$source.IndexOf('        $answer = [ordered]', $start)
 if ($start -lt 0 -or $end -le $start) { throw 'Metadata loop not found' }

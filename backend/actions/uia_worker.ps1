@@ -10,7 +10,7 @@ try {
     Add-Type -AssemblyName UIAutomationClient
     Add-Type -AssemblyName UIAutomationTypes
     $request = [Console]::In.ReadToEnd() | ConvertFrom-Json -ErrorAction Stop
-    if ($null -eq $request -or $request.operation -notin @('capture', 'inspect', 'inspect_browser', 'read_content', 'locate_edit', 'set_value', 'invoke', 'check_value', 'locate_folder', 'scrape_app', 'set_state', 'read_grid', 'read_value')) {
+    if ($null -eq $request -or $request.operation -notin @('focused_edit', 'capture', 'inspect', 'inspect_browser', 'read_content', 'locate_edit', 'set_value', 'invoke', 'check_value', 'locate_folder', 'scrape_app', 'set_state', 'read_grid', 'read_value')) {
         throw 'Operación UI Automation desconocida.'
     }
     if ($request.operation -eq 'locate_folder') {
@@ -104,6 +104,19 @@ try {
         return $state
     }
 
+    function Get-ControlReadOnly($item,$hasValuePattern,$valuePattern,$controlType,$supportedPatterns) {
+                    if ($hasValuePattern) { [bool]$valuePattern.Current.IsReadOnly }
+                    elseif ($controlType -in @('ControlType.Edit','ControlType.Document') -and $supportedPatterns -contains 'Text') {
+                        try {
+                            $editableText=$null
+                            if ($item.TryGetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern,[ref]$editableText)) {
+                                $readOnly=$editableText.DocumentRange.GetAttributeValue([System.Windows.Automation.TextPattern]::IsReadOnlyAttribute)
+                                if ($readOnly -is [bool]) { $readOnly } else { $true }
+                            } else { $true }
+                        } catch { $true }
+                    } else { $true }
+    }
+
     function Assert-StateTarget($element, [bool]$requireFocus=$true) {
         if (-not $request.expected_tick_deadline -or [AxxUiNative]::GetTickCount64() -ge [UInt64]$request.expected_tick_deadline) { throw 'STALE_OBSERVATION: la observación caducó antes de verificar el estado.' }
         if ($root.Current.Name -cne $request.expected_title -or $element.Current.Name -cne $request.expected_name -or
@@ -132,6 +145,36 @@ try {
         }
         [Console]::Out.Write((@{success=$true;window_title=[string]$root.Current.Name;controls=@($found);
             process_started=$processStarted;truncated=($edits.Count -gt 64);verification='visible_edit_controls_observed'} | ConvertTo-Json -Depth 4 -Compress))
+        exit 0
+    }
+
+    if ($request.operation -eq 'focused_edit') {
+        $focused=[System.Windows.Automation.AutomationElement]::FocusedElement
+        if ($null -eq $focused) { throw 'No se pudo identificar el foco de la aplicación.' }
+        $rootId=$root.GetRuntimeId() -join ','; $parent=$focused; $inside=$false
+        for ($depth=0; $depth -lt 64 -and $null -ne $parent; $depth++) {
+            if (($parent.GetRuntimeId() -join ',') -ceq $rootId) { $inside=$true; break }
+            $parent=[System.Windows.Automation.TreeWalker]::RawViewWalker.GetParent($parent)
+        }
+        if (-not $inside) { throw 'El foco pertenece a otra ventana.' }
+        $info=$focused.Current
+        if ($info.IsPassword) { throw 'No se escriben controles protegidos.' }
+        $controlType=$info.ControlType.ProgrammaticName
+        $valuePattern=$null
+        $hasValuePattern=$focused.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern,[ref]$valuePattern)
+        $patterns=Get-SupportedPatterns $focused
+        $readonly=Get-ControlReadOnly $focused $hasValuePattern $valuePattern $controlType $patterns
+        $value=$null; $valueTruncated=$false
+        if ($controlType -in @('ControlType.Edit','ControlType.Document','ControlType.ComboBox') -and $readonly -eq $false) {
+            if ($hasValuePattern) { $value=[string]$valuePattern.Current.Value; $valueTruncated=$value.Length -gt 512; $value=$value.Substring(0,[Math]::Min(512,$value.Length)) }
+        }
+        $id=Get-ControlToken $focused ([long]$request.window_id) ([int]$request.pid)
+        $name=[string]$info.Name; $name=$name.Substring(0,[Math]::Min(200,$name.Length))
+        $entry=@{control_id=$id;name=$name;value=$value;value_truncated=$valueTruncated;control_type=$controlType;read_only=[bool]$readonly;
+            enabled=[bool]$info.IsEnabled;offscreen=[bool]$info.IsOffscreen;patterns=$patterns}
+        [Console]::Out.Write((@{success=$true;window_id=[long]$request.window_id;pid=[int]$request.pid;
+            window_title=[string]$root.Current.Name;process_started=$processStarted;focused_control_id=$id;
+            controls=@($entry);truncated=$true;focused_only=$true;verification='uia_focused_control_observed'} | ConvertTo-Json -Depth 6 -Compress))
         exit 0
     }
 
@@ -231,18 +274,7 @@ try {
                 supports_invoke_pattern = [bool]$hasInvokePattern
                 patterns = $supportedPatterns
                 state = (Get-PatternState $item $supportedPatterns)
-                read_only = $(
-                    if ($hasValuePattern) { [bool]$valuePattern.Current.IsReadOnly }
-                    elseif ($controlType -in @('ControlType.Edit','ControlType.Document') -and $supportedPatterns -contains 'Text') {
-                        try {
-                            $editableText=$null
-                            if ($item.TryGetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern,[ref]$editableText)) {
-                                $readOnly=$editableText.DocumentRange.GetAttributeValue([System.Windows.Automation.TextPattern]::IsReadOnlyAttribute)
-                                if ($readOnly -is [bool]) { $readOnly } else { $true }
-                            } else { $true }
-                        } catch { $true }
-                    } else { $true }
-                )
+                read_only = (Get-ControlReadOnly $item $hasValuePattern $valuePattern $controlType $supportedPatterns)
                 text = $text
                 value = $value
                 bounds = [ordered]@{ x = (Convert-BoundedCoordinate $rect.X); y = (Convert-BoundedCoordinate $rect.Y);

@@ -2,6 +2,7 @@
 from contextlib import nullcontext
 import unittest
 import io
+import copy
 import threading
 import time
 from unittest.mock import patch
@@ -43,6 +44,40 @@ class DesktopComputerTests(unittest.TestCase):
         for args in ({'window_id':11,'pid':21},{'window_id':True,'pid':20}):
             with self.assertRaises(ValueError):self.service._target(self.grant,args)
         self.assertEqual(self.grant['window_id'],10)
+
+    def test_typing_verifies_focused_field_without_walking_the_application(self):
+        before=copy.deepcopy(self.observed);before.update(focused_control_id='editor',focused_only=True,truncated=True)
+        before['controls']=[{'control_id':'editor','name':'Editor','value':'','enabled':True,'offscreen':False,'control_type':'ControlType.Document','read_only':False}]
+        after=copy.deepcopy(before);after['controls'][0]['value']='hey'
+        prepared=self.admit(action='type_text',control_id=None,text='hey',expected={'name':'Editor','value':'hey','focused':True})
+        control=type('Control',(),{'is_set':lambda _:False,'wait':lambda _,seconds:False})();self.executor.input_control.automation=lambda event:nullcontext(control)
+        with patch.object(cu.uia,'read_window_content',side_effect=AssertionError('Must not traverse whole app')) as tree,patch.object(cu.uia,'inspect_focused_control',side_effect=[before,after]) as focused,patch.object(cu,'execute_action',return_value={'success':True}) as action:
+            result=cu.TOOLS['computer_use_act'].execute_with_runtime(prepared['inputs'],self.executor.workspace_root,self.cancelled,self.executor)
+        self.assertTrue(result.success,result.error);tree.assert_not_called();self.assertEqual(focused.call_count,2);self.assertEqual(action.call_args.args[0]['text'],'hey')
+
+    def test_readonly_or_unknown_focused_field_never_receives_text(self):
+        for readonly,offscreen in ((True,False),(None,False),(False,True)):
+            self.service.admissions.clear()
+            focused=copy.deepcopy(self.observed);focused['focused_control_id']='editor'
+            focused['controls']=[{'control_id':'editor','name':'Editor','enabled':True,'offscreen':offscreen,'control_type':'ControlType.Document','read_only':readonly}]
+            prepared=self.admit(action='type_text',control_id=None,text='hey',expected={'name':'Done'})
+            with patch.object(cu.uia,'inspect_focused_control',return_value=focused),patch.object(cu,'execute_action') as action:
+                result=cu.TOOLS['computer_use_act'].execute_with_runtime(prepared['inputs'],self.executor.workspace_root,self.cancelled,self.executor)
+            self.assertFalse(result.success);action.assert_not_called()
+
+    def test_partial_focused_probe_cannot_claim_global_presence_or_absence(self):
+        observed={'truncated':True,'focused_only':True,'focused_control_id':'editor','controls':[{'control_id':'editor','name':'Editor','value':'hey'}]}
+        self.assertTrue(cu.predicate(observed,{'name':'Editor','value':'hey','focused':True}))
+        observed['controls'][0]['value_truncated']=True;self.assertFalse(cu.predicate(observed,{'name':'Editor','value':'hey','focused':True}));observed['controls'][0]['value_truncated']=False
+        self.assertFalse(cu.predicate(observed,{'name':'Editor'}));self.assertFalse(cu.predicate(observed,{'name':'Elsewhere','present':False}))
+        observed['focused_only']=False;self.assertFalse(cu.predicate(observed,{'name':'Elsewhere','present':False,'focused':True}))
+
+    def test_focused_probe_validates_identity_and_has_short_deadline(self):
+        with patch.object(cu.uia,'_uia',return_value={}) as call:
+            cu.uia.inspect_focused_control(10,20)
+            self.assertEqual(call.call_args.args[0]['operation'],'focused_edit');self.assertEqual(call.call_args.kwargs['timeout'],3)
+            for a,b in ((True,20),(10,False),(0,20)):
+                with self.assertRaises(ValueError):cu.uia.inspect_focused_control(a,b)
 
     def test_unrelated_animation_is_allowed_but_changed_target_and_resize_are_rejected(self):
         image=Image.new('RGB',(300,200),'white');old=shot(image,self.observed,{'x':10,'y':10,'width':300,'height':200})

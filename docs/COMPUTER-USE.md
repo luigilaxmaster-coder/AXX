@@ -46,6 +46,10 @@ inventa un árbol. Escribir todavía exige un campo editable identificado y enfo
 una caja vista en una imagen no autoriza escribir en un campo protegido.
 Los editores ricos que solo exponen TextPattern se consideran editables únicamente
 si IsReadOnly devuelve false; estados mixtos, ausentes o fallos conservan el bloqueo.
+La escritura y los atajos consultan directamente el control enfocado, con un
+presupuesto de tres segundos y ascendencia comprobada a la ventana destino. No
+necesitan recorrer toda la página. Un resultado de foco parcial solo acredita
+condiciones que indiquen focused:true; no prueba ausencia global de controles.
 
 Antes de usar coordenadas se comprueban las zonas de origen/destino, el proceso,
 foco, geometría y topología. Una animación lejana no invalida toda la pantalla;
@@ -96,6 +100,9 @@ Las capturas claro/oscuro de build/computer-use-ui son fixtures de interfaz.
 No acreditan instalación, cambio físico entre apps ni escritura real. La revisión
 conjunta y la entrega nativa siguen pendientes; no se cambió la versión desktop
 ni se ocupó el target que está reservado por la otra entrega.
+La pasada posterior añadió cuatro casos de foco y pasó los 40 casos de Computer Use
+y observación. Los valores de foco truncados no certifican igualdad de contenido;
+campos de solo lectura, desconocidos o fuera de pantalla no reciben texto.
 
 
 ---
