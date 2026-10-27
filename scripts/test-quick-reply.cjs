@@ -80,6 +80,7 @@ const {chromium}=require(process.env.USERPROFILE+'/.cache/codex-runtimes/codex-p
    await p.evaluate(()=>Axx.quickReply.close());
   }
   assert.equal(await p.evaluate(()=>{Axx.nativeVoice.activeCapture={owner:{state:'listening'}};Axx.companion.dictating=true;Axx.quickReply.close();const retained=Axx.companion.dictating;Axx.nativeVoice.activeCapture=null;Axx.companion.dictating=false;return retained;}),true,'Closing an inactive quick capture must preserve another voice owner');
+  await p.evaluate(()=>{window.revokedComputer=0;Axx.computerUse={stop:async()=>revokedComputer++};Axx.quickReply.write();Axx.quickReply.talk();Axx.quickReply.write();});assert.equal(await p.evaluate(()=>revokedComputer),0,'Changing input mode must preserve the Computer Use grant');await p.click('#quick-close');assert.equal(await p.evaluate(()=>revokedComputer),1,'Closing the active quick task must revoke Computer Use');
   assert.deepEqual(errors,[]);console.log('QUICK_REPLY_HOVER_COMPOSER_VOICE_STATE_RESPONSE_CANCEL_SCOPE_PASS');
  }finally{await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});

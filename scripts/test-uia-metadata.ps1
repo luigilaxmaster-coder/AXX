@@ -40,3 +40,23 @@ if ($script:cachedReads -ne 2 -or $items.Count -ne 1 -or $items[0].name -ne 'App
     throw 'Metadata batching or protected-control exclusion failed'
 }
 'UIA_BATCHED_METADATA_PASSWORD_EXCLUSION_PASS'
+
+# Rich editors can expose TextPattern without ValuePattern. Unknown stays read-only.
+foreach ($readonlyState in @($false,$true,'unknown','unavailable')) {
+    $script:readOnlyFixture=$readonlyState
+    $textRange=[pscustomobject]@{}
+    $textRange | Add-Member ScriptMethod GetAttributeValue { param($attribute);if($script:readOnlyFixture -eq 'unavailable'){throw 'Provider unavailable'};return $script:readOnlyFixture }
+    $script:textFixture=[pscustomobject]@{DocumentRange=$textRange}
+    $element=$script:fixtures[0];$element.Cached.ControlType=[System.Windows.Automation.ControlType]::Document
+    $element | Add-Member ScriptMethod TryGetCurrentPattern {
+        param($pattern,[ref]$result)
+        if ($pattern -eq [System.Windows.Automation.TextPattern]::Pattern) { $result.Value=$script:textFixture; return $true }
+        return $false
+    } -Force
+    function Get-SupportedPatterns { return @('Text') }
+    $script:fixtures=@($element);$items=[System.Collections.Generic.List[object]]::new();$count=1;$protected=$true
+    & ([scriptblock]::Create($source.Substring($start,$end-$start)))
+    $expectedReadOnly=$readonlyState -ne $false
+    if ($items.Count -ne 1 -or $items[0].read_only -ne $expectedReadOnly) { throw 'TextPattern editable/readonly/unknown contract failed' }
+}
+'UIA_TEXT_PATTERN_EDITABLE_READONLY_UNKNOWN_PASS'

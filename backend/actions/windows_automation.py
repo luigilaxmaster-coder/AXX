@@ -225,8 +225,9 @@ def _windows_api():
     return user, kernel
 
 
-def list_windows():
+def list_windows(*, include_untitled=False):
     """Return visible top-level windows with ephemeral HWND/PID identity."""
+    if type(include_untitled) is not bool:raise ValueError('Alcance de ventanas inválido.')
     user, kernel = _windows_api()
     foreground = int(user.GetForegroundWindow() or 0)
     rows = []
@@ -236,7 +237,7 @@ def list_windows():
         if not user.IsWindowVisible(hwnd):
             return True
         title_len = min(max(user.GetWindowTextLengthW(hwnd), 0), 2048)
-        if title_len == 0:
+        if title_len == 0 and not include_untitled:
             return True
         title = ctypes.create_unicode_buffer(title_len + 1)
         user.GetWindowTextW(hwnd, title, len(title))
@@ -401,14 +402,15 @@ def find_control(window_id, expected_pid, name, cancelled=None):
             'verification': 'semantic_control_selection', 'effect_executed': False}
 
 
-def read_window_content(window_id, expected_pid, expected_title, cancelled=None, *, full_window=False):
+def read_window_content(window_id, expected_pid, expected_title, cancelled=None, *, full_window=False, timeout=None):
     if not isinstance(expected_title, str) or not 1 <= len(expected_title) <= 2048:
         raise ValueError('Indica el título observado de la ventana.')
     if type(full_window) is not bool:raise ValueError('Alcance de ventana inválido.')
     payload={'operation': 'read_content', 'window_id': _positive_int(window_id, 'window_id'),
              'pid': _positive_int(expected_pid, 'pid'), 'expected_title': expected_title}
     if full_window:payload['include_browser_chrome']=True
-    result = _uia(payload, cancelled=cancelled)
+    if timeout is not None and (type(timeout) not in (int,float) or not 0.25<=timeout<=15):raise ValueError('Tiempo de lectura inválido.')
+    result = _uia(payload, cancelled=cancelled, timeout=timeout)
     return summarize_window_content(result)
 
 

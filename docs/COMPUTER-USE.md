@@ -1,55 +1,101 @@
-# Computer Use en Axx
+# Computer Use: escritorio y aplicaciones
 
-En el chat, abra **Computer Use**, seleccione una ventana y autorice compartir su
-imagen y texto con Codex y controlar su entrada. Seleccione ChatGPT como proveedor
-y describa la tarea en ese mismo chat. La interfaz conserva el avatar 3D y el
-indicador nativo del dueño de entrada existente.
+## Uso
 
-El modelo recibe imágenes reales y controles de accesibilidad, decide un gesto y
-consulta su recibo. Las operaciones pasan por Connect, CommandService,
-ActionExecutor, la fachada MCP nativa y el broker de Windows. No existe un segundo
-ejecutor de shell. Las herramientas de planificación y generación siguen aisladas.
+Abre **Chat → Controlar PC**, **Asistencia → Computer Use** o **Datos y sistema →
+Configurar Computer Use**. Comprueba ChatGPT y el modelo. Elige **Escritorio completo**
+para trabajar entre aplicaciones, o **Solo una ventana** para conservar el límite
+anterior. Marca ambas autorizaciones y habilita la sesión; no se marcan solas.
+Se abre la barra rápida para dar la tarea sin que un panel grande tape la aplicación.
 
-La autorización dura 15 minutos o 60 gestos y se limita al proceso y ventana
-seleccionados. Cambiar de chat o proveedor revoca la sesión. Use **Detener** o
-Escape desde Axx. La entrada física puede interrumpir al broker. El botón de
-parada mantiene visible cualquier fallo de confirmación.
+El acceso pertenece al chat actual y dura 15 minutos o 60 gestos. Cambiar de chat o
+proveedor revoca la concesión. **Detener** está en la configuración, el chat y la
+respuesta rápida. Escape interrumpe entrada en curso y desde Axx revoca la sesión;
+no es un atajo global cuando Axx no posee entrada. No revierte efectos realizados.
 
-Una imagen no ejecuta instrucciones que aparezcan en la aplicación. Los tickets
-son de un solo uso, pertenecen al chat, cuenta y ejecución admitidos; no pueden
-crearse desde el modelo ni recuperarse después de reiniciar. Las imágenes viven
-en RAM y viajan al runtime Codex como `inputImage`; el journal guarda metadatos y
-texto autorizado, sin imágenes ni base64. No seleccione ventanas con información
-que no quiera compartir.
+## Contrato
 
-La captura usa PrintWindow sobre el HWND autorizado dentro del worker acotado de
-Windows. Se comprueban proceso, geometría física, topología y límites antes de
-enviarla. Los puntos visuales se transforman desde la imagen a coordenadas físicas
-y requieren una imagen vigente sin cambios. Los controles semánticos se vuelven
-a resolver. Los procesos de terminal conocidos están bloqueados; Windows puede
-rechazar ventanas elevadas o protegidas. Una captura negra o no compatible produce
-un error visible.
+`POST /axx-api/computer/begin` recibe `conversation_id`, `scope` (`desktop` o
+`window`), `image_authorized:true` y `allow_input:true`. Solo window admite `window_id`
+y `pid`; desktop rechaza una ventana fija. Omitir scope conserva el contrato de
+ventana. El servidor traduce el chat a su ID Connect.
 
-Salvo mover el cursor, cada gesto declara una condición de accesibilidad y Axx la
-comprueba después. Un efecto no verificable queda `unknown` y bloquea nuevos
-gestos hasta revisión manual en Comandos. Una condición ya cumplida no dispara
-el gesto. Esto limita las tareas sobre lienzos sin controles accesibles: aún no
-hay aceptación universal de CAD, juegos, vídeo o todas las aplicaciones. No se
-afirma paridad completa con ChatGPT.
+El proveedor dispone de `axx_computer_status`, `axx_computer_observe`,
+`axx_computer_act` y `axx_computer_stop`. Con alcance desktop:
 
-Comprobaciones:
+1. Observar sin destino ofrece la vista general y la lista de aplicaciones.
+2. Observar con window_id y pid de esa lista enfoca y amplía esa aplicación sin
+   pedir al usuario otra autorización por cada ventana.
+3. Actuar consume la última observación identificada. Hay que observar antes del
+   siguiente gesto. Las imágenes solo vuelven al run y cuenta correspondientes;
+   nunca se escriben en el diario de operaciones.
 
-```powershell
-.venv/Scripts/python.exe -m unittest backend.tests.test_computer_use -v
-node scripts/test-computer-use.cjs
-.venv/Scripts/python.exe scripts/verify-computer-use.py
-.venv/Scripts/python.exe scripts/verify-computer-use.py --installed
-```
+El esquema ampliado usa threads `:axx-direct-v2`. Los antiguos quedan guardados y
+el historial visible se conserva. Resume no actualiza el esquema de herramientas.
 
-La prueba nativa crea su propia ventana Win32, la autoriza por HTTP autenticado,
-envía imágenes al modelo real, exige un clic verificado y lee el resultado de
-Windows independientemente. Usa el acceso oficial Codex con `allow_paid=false`.
-Los recibos privados quedan en `build/computer-use`; no se publican.
+## Visión y comprobación
+
+La imagen lleva image_bounds, image_width, image_height e image_scope. Los límites
+físicos pueden tener origen negativo. No se aplica un factor DPI global. La vista
+general cubre las pantallas conectadas; ampliar una app permite leerla con detalle.
+Límites: 1280 píxeles por eje y 350 kB; si se exceden, hay que enfocar una aplicación.
+
+UIA tiene un presupuesto de cinco segundos. Si agota el tiempo se conserva una
+imagen real con identidad y geometría comprobadas, controles vacíos y aviso. No se
+inventa un árbol. Escribir todavía exige un campo editable identificado y enfocado;
+una caja vista en una imagen no autoriza escribir en un campo protegido.
+Los editores ricos que solo exponen TextPattern se consideran editables únicamente
+si IsReadOnly devuelve false; estados mixtos, ausentes o fallos conservan el bloqueo.
+
+Antes de usar coordenadas se comprueban las zonas de origen/destino, el proceso,
+foco, geometría y topología. Una animación lejana no invalida toda la pantalla;
+si cambia la propia zona del gesto hay que observar de nuevo.
+Cada gesto conserva un destino verificado; el arrastre directo entre dos ventanas
+no está incluido en este primer alcance de escritorio.
+
+Una mutación requiere condición posterior. expected.name utiliza controles
+observados. expected.region_changed:[left,top,right,bottom] comprueba un cambio
+dentro de la aplicación, sin acreditar el objetivo. Axx debe observar y comprobar
+el resultado concreto. Si no se verifica el efecto queda unknown y requiere revisión;
+no se repite automáticamente.
+
+## Límites
+
+Escritorio completo comparte contenido visible de tus pantallas con Codex. Cierra
+lo que no quieras compartir. Se ocultan las superficies detectadas de terminales,
+autenticación y gestores de contraseñas en la vista general; esto no garantiza
+detectar todo dato privado dentro de cualquier app. No se controlan esas superficies
+ni la configuración de permisos de Axx. UAC, escritorio bloqueado y procesos elevados
+conservan las restricciones de Windows.
+
+La entrada conserva el único dueño nativo de Axx. Una cancelación física durante
+la automatización revoca la sesión. No hay segundo inyector, cursor simulado,
+fallback pagado ni autorización persistente. Las acciones sensibles mantienen sus
+requisitos de confirmación.
+
+## Verificación
+
+Fuentes: backend/computer_use.py, backend/computer_vision.py,
+backend/actions/desktop_input.py, backend/connect/{registry,provider}.py y
+1.AXX/scripts/computer-use.js. Pruebas: backend/tests/test_computer_desktop.py,
+test_computer_use.py, test_desktop_observation.py, tests del proveedor y
+scripts/test-computer-use.cjs. Sus fixtures no acreditan control físico. La entrega
+debe registrar instalación y aceptación nativa por separado.
+
+Skill de mantenimiento: ~/.codex/skills/axx-computer-use/SKILL.md.
+Referencias: [UIA](https://learn.microsoft.com/en-us/windows/win32/winauto/uiauto-obtainingelements),
+[SendInput/UIPI](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-sendinput),
+[CacheRequest](https://learn.microsoft.com/en-us/dotnet/api/system.windows.automation.cacherequest?view=netframework-4.8.1).
+
+Verificación de esta revisión (27 de octubre de 2026): 115 casos de Computer Use,
+observación y proveedor (una omisión), 25 de comandos de escritorio y 20 de baseline;
+contratos PowerShell de metadatos y TextPattern; interfaz completa, entrada rápida
+y dictado sintético aprobados. El runtime real gpt-6.1-sol aceptó el esquema nuevo
+y respondió AXX_DESKTOP_SCHEMA_OK sin herramientas, imágenes ni entrada nativa.
+Las capturas claro/oscuro de build/computer-use-ui son fixtures de interfaz.
+No acreditan instalación, cambio físico entre apps ni escritura real. La revisión
+conjunta y la entrega nativa siguen pendientes; no se cambió la versión desktop
+ni se ocupó el target que está reservado por la otra entrega.
 
 
 ---

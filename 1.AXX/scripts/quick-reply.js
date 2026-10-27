@@ -96,6 +96,7 @@
  }
  function stop(){
   revision++;capture.stop();c.stopSpeech();
+  void Axx.computerUse?.stop?.()?.catch(error=>Axx.app.toast(error.message));
   if(owned){c.cancelRequest();if(Axx.commandLibrary?.busy||Axx.commandLibrary?.operation)void Axx.commandLibrary.cancel();}
   owned=false;c._forceVoiceReplyOnce=false;notice='Detenido. Los efectos ya realizados se conservan.';phase='idle';refresh();
  }
@@ -109,7 +110,7 @@
  function begin(kind){
   if(!Axx.chatWorkspace.ready||!Axx.chatWorkspace.active?.id){Axx.app.toast('Axx todavía está cargando el historial. Inténtalo en un momento.');return false;}
   if(c.pending||c.connecting||c.externalBusy||Axx.commandLibrary?.busy||Axx.symbiosis?.liveBusy){Axx.app.toast('Espera a que termine la tarea actual.');return false;}
-  if(active())close();
+  if(active()){close(false);c.stopSpeech();}
   Axx.nativeVoice.activeCapture?.stop();
   Axx.liveConversation?.stop();r.fold();mode=kind;origin=Axx.chatWorkspace.active?.id;before=c.data.messages.at(-1)?.id;lastText='';notice='';phase='idle';renderState=null;scheduleRefresh();
   $('quick-input').value='';reveal('quick-compose',true);reveal('quick-reply',false);hovered=true;refresh();changed();

@@ -231,7 +231,18 @@ try {
                 supports_invoke_pattern = [bool]$hasInvokePattern
                 patterns = $supportedPatterns
                 state = (Get-PatternState $item $supportedPatterns)
-                read_only = $(if ($hasValuePattern) { [bool]$valuePattern.Current.IsReadOnly } else { $true })
+                read_only = $(
+                    if ($hasValuePattern) { [bool]$valuePattern.Current.IsReadOnly }
+                    elseif ($controlType -in @('ControlType.Edit','ControlType.Document') -and $supportedPatterns -contains 'Text') {
+                        try {
+                            $editableText=$null
+                            if ($item.TryGetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern,[ref]$editableText)) {
+                                $readOnly=$editableText.DocumentRange.GetAttributeValue([System.Windows.Automation.TextPattern]::IsReadOnlyAttribute)
+                                if ($readOnly -is [bool]) { $readOnly } else { $true }
+                            } else { $true }
+                        } catch { $true }
+                    } else { $true }
+                )
                 text = $text
                 value = $value
                 bounds = [ordered]@{ x = (Convert-BoundedCoordinate $rect.X); y = (Convert-BoundedCoordinate $rect.Y);

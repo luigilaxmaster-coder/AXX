@@ -245,6 +245,13 @@ class ProviderTests(unittest.TestCase):
         self.assertFalse(any(method == 'thread/resume' for method, _ in self.provider.rpc_calls))
         old = self.provider.db.execute('SELECT thread_id FROM connect_conversations WHERE conversation_id=?', ('axx-main',)).fetchone()
         self.assertEqual(old['thread_id'], 'legacy-flat-tools')
+    def test_old_window_only_schema_is_preserved_and_new_desktop_schema_starts_fresh(self):
+        with self.provider.db:
+            self.provider.db.execute('INSERT INTO connect_conversations VALUES (?,?,?,?)',
+                                     ('axx-main:axx-direct-v1','window-only-thread','gpt-6.1-sol',time.time()))
+        self.start();self.wait_started()
+        self.assertFalse(any(method=='thread/resume' for method,_ in self.provider.rpc_calls))
+        self.assertEqual(self.provider.db.execute('SELECT thread_id FROM connect_conversations WHERE conversation_id=?',('axx-main:axx-direct-v1',)).fetchone()['thread_id'],'window-only-thread')
 
     def test_restart_marks_unfinished_unknown_and_preserves_idempotence(self):
         self.start(); self.wait_started()

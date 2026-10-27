@@ -714,11 +714,12 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                         self.commands.details(command_id)
                 self._send_json(200, self.chats.mutate(path.rsplit('/', 1)[-1], body))
             elif path in ('/axx-api/computer/begin','/axx-api/computer/stop'):
-                allowed={'conversation_id','window_id','pid','image_authorized','allow_input'} if path.endswith('/begin') else {'conversation_id'}
-                if set(body)!=allowed:raise ValueError('Autorización de computer use inválida.')
+                allowed={'conversation_id','window_id','pid','scope','image_authorized','allow_input'} if path.endswith('/begin') else {'conversation_id'}
+                required={'conversation_id','image_authorized','allow_input'} if path.endswith('/begin') else {'conversation_id'}
+                if set(body)-allowed or not required<=set(body):raise ValueError('Autorización de computer use inválida.')
                 chat=self.chats.get(body['conversation_id'])
                 if path.endswith('/begin'):
-                    result=self.computer_use.begin(chat['connect_id'],body['window_id'],body['pid'],image_authorized=body['image_authorized'],allow_input=body['allow_input'])
+                    result=self.computer_use.begin(chat['connect_id'],body.get('window_id'),body.get('pid'),scope=body.get('scope','window'),image_authorized=body['image_authorized'],allow_input=body['allow_input'])
                 else:result=self.computer_use.end(chat['connect_id'])
                 self._send_json(200,result)
             elif path.startswith('/axx-api/commands/'):

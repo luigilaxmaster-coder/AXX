@@ -1,5 +1,6 @@
 """Scope, idempotency, image isolation and real journal policy for visual tools."""
 import copy
+import hashlib
 from contextlib import nullcontext
 import json
 import io
@@ -32,6 +33,7 @@ class ComputerUseTests(unittest.TestCase):
                       patch.object(cu.uia,'process_started',return_value='birth'),
                       patch.object(cu.uia,'list_windows',return_value=[{'window_id':10,'pid':20,'title':'Fixture'}]),
                       patch.object(cu.uia,'focus_window')]
+        self.patches.extend([patch.object(cu.vision,'_interactive_session'),patch.object(cu.uia,'_windows_api',return_value=(None,None))])
         for item in self.patches:item.start()
         self.service.begin('chat-one',10,20,image_authorized=True,allow_input=True)
         self.grant=self.service.grants['chat-one']
@@ -155,7 +157,7 @@ class ComputerUseTests(unittest.TestCase):
         with patch.object(cu.uia,'read_window_content',return_value=self.observed),patch.object(cu.uia,'capture_window',return_value=captured),patch.object(cu.uia,'observe_geometry',return_value=geometry):
             shot,result=self.service._observe(self.grant,threading.Event())
             self.assertEqual((shot['width'],shot['height']),(300,200));self.assertNotIn('jpeg',result)
-            self.assertEqual(result['image_sha256'],cu.hashlib.sha256(buffer.getvalue()).hexdigest())
+            self.assertEqual(result['image_sha256'],hashlib.sha256(buffer.getvalue()).hexdigest())
             captured['window_bounds']['width']=301
             with self.assertRaisesRegex(ValueError,'geometría'):self.service._observe(self.grant,threading.Event())
 
@@ -175,6 +177,10 @@ class ComputerUseTests(unittest.TestCase):
             with self.assertRaises(urllib.error.HTTPError):request('begin',body,False)
             self.assertTrue(request('begin',body)['active'])
             self.assertIn(chats.get(chat)['connect_id'],self.service.grants)
+            self.assertFalse(request('stop',{'conversation_id':chat})['active'])
+            desktop={'conversation_id':chat,'scope':'desktop','image_authorized':True,'allow_input':True}
+            result=request('begin',desktop);self.assertTrue(result['active']);self.assertEqual(result['scope'],'desktop');self.assertIsNone(result['window_id'])
+            with self.assertRaises(urllib.error.HTTPError):request('begin',dict(desktop,window_id=10,pid=20))
             self.assertFalse(request('stop',{'conversation_id':chat})['active'])
         finally:server.shutdown();server.server_close();thread.join(2);chats.close()
 
