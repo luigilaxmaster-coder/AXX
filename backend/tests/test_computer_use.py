@@ -115,6 +115,17 @@ class ComputerUseTests(unittest.TestCase):
             with patch.object(self.service,'_observe',return_value=(shot,{})):
                 result,action=self.execute(control_id=None,x=x,y=5)
             self.assertFalse(result.success);action.assert_not_called()
+    def test_observation_failure_is_visible_and_success_clears_it(self):
+        prepared=self.admit('observe')
+        with patch.object(self.service,'_observe',side_effect=ValueError('UI Automation excedió el límite')):
+            result=cu.TOOLS['computer_use_observe'].execute_with_runtime(prepared['inputs'],self.executor.workspace_root,self.cancelled,self.executor)
+        self.assertFalse(result.success);self.assertFalse(result.evidence['effect_uncertain'])
+        self.assertEqual(self.service.status('chat-one')['last_error'],'UI Automation excedió el límite')
+        self.commands.cancel_events['next-observe']=self.cancelled
+        prepared=self.admit('observe',operation_id='next-observe')
+        with patch.object(self.service,'_observe',return_value=(self.shot,{'observation_id':'snapshot'})):
+            result=cu.TOOLS['computer_use_observe'].execute_with_runtime(prepared['inputs'],self.executor.workspace_root,self.cancelled,self.executor)
+        self.assertTrue(result.success);self.assertIsNone(self.service.status('chat-one')['last_error'])
     def test_uncertain_delivery_blocks_followup(self):
         prepared=self.admit();control=SimpleNamespace(is_set=lambda:False,wait=lambda seconds:False)
         self.executor.input_control=SimpleNamespace(automation=lambda event:nullcontext(control))

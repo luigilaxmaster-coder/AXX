@@ -68,7 +68,7 @@ class ComputerUse:
         with self.lock:
             self.grants[conversation_id]={'id':uuid.uuid4().hex,'conversation_id':conversation_id,
                 'window_id':window_id,'pid':pid,'title':matches[0]['title'],'birth':uia.process_started(pid),
-                'cancelled':threading.Event(),'deadline':time.monotonic()+900,'actions':0,'shot':None,'blocked':None}
+                'cancelled':threading.Event(),'deadline':time.monotonic()+900,'actions':0,'shot':None,'blocked':None,'last_error':None}
         return self.status(conversation_id)
     def end(self,conversation_id):
         grant=self.grants.get(conversation_id)
@@ -83,7 +83,7 @@ class ComputerUse:
             grant=self.grants.get(conversation_id)
             if not grant:return {'active':False}
             if grant['cancelled'].is_set() or time.monotonic()>=grant['deadline']:return self.end(conversation_id)
-            return {'active':True,**{k:grant[k] for k in ('id','window_id','pid','title','actions','blocked')}}
+            return {'active':True,**{k:grant[k] for k in ('id','window_id','pid','title','actions','blocked','last_error')}}
     def _grant(self,conversation_id):
         grant=self.grants.get(conversation_id)
         if not grant or grant['cancelled'].is_set() or time.monotonic()>=grant['deadline']:
@@ -172,6 +172,7 @@ class ComputerUseTool:
         try:
             if not service:raise ValueError('Computer use no está conectado.')
             entry,grant,event=service.claim(inputs['ticket'],self.kind,cancelled)
+            grant['last_error']=None
             owner=getattr(runtime,'input_control',None)
             if owner is None:raise ValueError('El dueño de entrada de Windows no está disponible.')
             if self.kind=='observe':
@@ -233,6 +234,7 @@ class ComputerUseTool:
                 raise uia.UncertainEffect('Entrada entregada; no se verificó el resultado esperado. Observa y revisa antes de continuar.')
         except Exception as exc:
             uncertain=dispatched or isinstance(exc,uia.UncertainEffect)
+            if grant:grant['last_error']=str(exc)[:500]
             if uncertain and grant:grant['blocked']=entry['operation_id']
             return ToolResult(False,error=str(exc)[:500],evidence={'effect_uncertain':uncertain,'reconciliation_required':uncertain,
                 'reconciliation_target':{'window_id':grant['window_id'],'pid':grant['pid']} if grant else None})
