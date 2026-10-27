@@ -51,15 +51,28 @@
  <section id="quick-reply" aria-label="Respuesta rápida de Axx" hidden><div id="quick-reply-head"><strong>Axx</strong><span id="quick-phase"></span></div><p id="quick-reply-text" aria-live="polite"></p><div class="quick-footer"><button id="quick-full" type="button" aria-label="Abrir chat" title="Abrir chat">${chat}</button><button id="quick-approval" type="button" aria-label="Revisar acción" title="Revisar acción" hidden>${icon('<path d="m9 12 2 2 4-4M9 3H5v18h14V3h-4M9 2h6v4H9z"/>')}</button><button id="quick-replay" type="button" aria-label="Leer respuesta de nuevo" title="Escuchar">${icon('<path d="M11 4 5 9H2v6h3l6 5zM15 8a6 6 0 0 1 0 8M18 5a10 10 0 0 1 0 14"/>')}</button><button id="quick-stop" type="button" aria-label="Detener" title="Detener">${icon('<rect x="6" y="6" width="12" height="12" rx="2"/>')}</button></div></section>`;
  document.body.append(root);
  const motions=new Map();
+ const bars=[...$('quick-level').children];
+ let meterFrame=null,lastMeter=null,poll=null,renderState=null;
  let mode=null,origin=null,owned=false,revision=0,hovered=false,hideTimer=null,before=null,lastText='',notice='',phase='idle',layoutKey='';
  const active=()=>mode!==null;
  const sameChat=()=>origin===Axx.chatWorkspace.active?.id;
  const capture={state:'idle',onState(){
-   c.dictating=capture.state==='listening';c.dictationStarting=capture.state==='starting';c.refreshVoiceState();
-   if(c.dictationStarting)Axx.app.machine?.setConversation('thinking');refresh();
+   const other=Axx.nativeVoice.activeCapture;
+   if(!(capture.state==='idle'&&other&&other.owner!==capture)){
+    c.dictating=capture.state==='listening';c.dictationStarting=capture.state==='starting';c.refreshVoiceState();
+    if(c.dictationStarting||capture.state==='stopping')Axx.app.machine?.setConversation('thinking');
+   }
+   cancelAnimationFrame(meterFrame);meterFrame=null;paintMeter();refresh();
  },onFinal(text){if(active()&&sameChat())void send(text,'voice');},onInterim(text){if(text)notice=text;refresh();},
  onError(text){notice=text;phase='error';refresh();}};
  Axx.nativeVoice.attach(capture);
+ function paintMeter(){
+  const listening=active()&&capture.state==='listening'&&!document.hidden,input=Axx.nativeVoice.inputLevel;
+  const level=listening&&input?.owner===capture&&input.rms>0?Math.round(Math.max(0,Math.min(1,(20*Math.log10(input.rms)+60)/40))*100)/100:0;
+  if(level!==lastMeter){lastMeter=level;bars.forEach((bar,i)=>bar.style.setProperty('--bar',(4+28*level*(1-Math.abs(3-i)*.17))+'px'));}
+  meterFrame=listening?requestAnimationFrame(paintMeter):null;
+ }
+ function scheduleRefresh(){if(poll===null&&active())poll=setTimeout(()=>{poll=null;refresh();scheduleRefresh();},120);}
  function changed(){r.schedule();void Axx.app.updateHitMap();}
  function aboveAvatar(g,size){return g?g.spaceBelow<size*.34+144&&g.spaceAbove>g.spaceBelow:root.dataset.above==='true';}
  function reveal(id,on){
@@ -79,7 +92,7 @@
  function hover(value){
   clearTimeout(hideTimer);
   if(value){if(!hovered){hovered=true;if(!Axx.flow.nav.step&&$('panel').hidden&&!Axx.magicPen?.isOpen())reveal('quick-actions',true);changed();}}
-  else hideTimer=setTimeout(()=>{hovered=false;changed();},320);
+  else hideTimer=setTimeout(()=>{hovered=$('avatar').matches(':hover')||[...root.querySelectorAll('#quick-actions,#quick-compose,#quick-reply')].some(n=>!n.hidden&&!n.inert&&(n.matches(':hover')||document.hasFocus()&&n.matches(':focus-within')));changed();},320);
  }
  function stop(){
   revision++;capture.stop();c.stopSpeech();
@@ -88,6 +101,7 @@
  }
  function close(cancel=true){
   const wasActive=active();mode=null;origin=null;hovered=false;clearTimeout(hideTimer);
+  clearTimeout(poll);poll=null;renderState=null;
   if(cancel&&wasActive)stop();else capture.stop();
   for(const id of ['quick-compose','quick-reply','quick-actions'])reveal(id,false);changed();
   if(wasActive&&$('panel').hidden)void Axx.app.bridge.action('close_panel').catch(error=>Axx.app.toast(error.message));
@@ -97,7 +111,7 @@
   if(c.pending||c.connecting||c.externalBusy||Axx.commandLibrary?.busy||Axx.symbiosis?.liveBusy){Axx.app.toast('Espera a que termine la tarea actual.');return false;}
   if(active())close();
   Axx.nativeVoice.activeCapture?.stop();
-  Axx.liveConversation?.stop();r.fold();mode=kind;origin=Axx.chatWorkspace.active?.id;before=c.data.messages.at(-1)?.id;lastText='';notice='';phase='idle';
+  Axx.liveConversation?.stop();r.fold();mode=kind;origin=Axx.chatWorkspace.active?.id;before=c.data.messages.at(-1)?.id;lastText='';notice='';phase='idle';renderState=null;scheduleRefresh();
   $('quick-input').value='';reveal('quick-compose',true);reveal('quick-reply',false);hovered=true;refresh();changed();
   // The resident window is normally non-focusable; the small input needs the same native focus lease as panels.
   void Axx.app.bridge.action('open_panel').then(()=>{if(mode==='write'&&sameChat())$('quick-input').focus({preventScroll:true});}).catch(error=>{if(active()){notice=error.message;phase='error';refresh();}});return true;
@@ -129,7 +143,7 @@
   if(!active())return;
   if(!sameChat()){close();return;}
   const listening=capture.state==='listening',starting=capture.state==='starting',transcribing=capture.state==='stopping';
-  const reader=Axx.symbiosis?.reader,speaking=reader?.state==='speaking';
+  const reader=Axx.symbiosis?.reader,speaking=reader?.state==='speaking',speechActive=['starting','speaking','paused'].includes(reader?.state);
   const last=c.data.messages.at(-1);
   if(last?.role==='assistant'&&last.id!==before){
    lastText=last.text||'';phase=last.status==='error'?'error':last.status==='pending'&&owned?'thinking':'ready';
@@ -137,8 +151,10 @@
   }
   if(speaking)phase='speaking';
   if(phase==='error'&&notice)reveal('quick-reply',true);
+  const next=[capture.state,reader?.state,lastText,last?.status,notice,phase,owned,!!Axx.commandLibrary?.operation];
+  if(renderState&&next.every((value,i)=>value===renderState[i]))return;renderState=next;
   const text=lastText||notice||'Preparando respuesta…';if($('quick-reply').dataset.quickVisible==='true'&&$('quick-reply-text').textContent!==text)$('quick-reply-text').textContent=text;
-  $('quick-reply').dataset.phase=phase;$('quick-phase').textContent=speaking?'Hablando':phase==='thinking'?'Pensando…':phase==='error'?'Revisar':'Respuesta';
+  $('quick-reply').dataset.phase=phase;$('quick-phase').textContent=speaking?'Hablando':reader?.state==='paused'?'Voz en pausa':reader?.state==='starting'?'Preparando voz…':phase==='thinking'?'Pensando…':phase==='error'?'Revisar':'Respuesta';
   $('quick-compose').dataset.phase=listening?'listening':starting||transcribing?'preparing':'idle';
   const message=listening?'Te escucho · pausa para enviar':starting?'Preparando micrófono…':transcribing?'Transcribiendo…':owned?'Preparando respuesta…':notice||'Intro para enviar · Esc para cerrar';
   if($('quick-state').textContent!==message)$('quick-state').textContent=message;
@@ -147,9 +163,7 @@
   $('quick-send').setAttribute('aria-label',listening?'Terminar grabación':'Enviar mensaje rápido');
   if($('quick-send').dataset.listening!==String(listening)){$('quick-send').dataset.listening=String(listening);$('quick-send').innerHTML=listening?icon('<path d="m5 12 4 4L19 6"/>'):icon('<path d="M12 20V4m-6 6 6-6 6 6"/>');}
   $('quick-approval').hidden=!Axx.commandLibrary?.operation;
-  $('quick-replay').disabled=!lastText||owned;$('quick-stop').disabled=!owned&&!speaking&&!listening&&!starting&&!transcribing;
-  const input=Axx.nativeVoice.inputLevel,level=listening&&input?.owner===capture&&input.rms>0?Math.max(0,Math.min(1,(20*Math.log10(input.rms)+60)/40)):0;
-  [...$('quick-level').children].forEach((bar,i)=>bar.style.setProperty('--bar',(4+28*level*(1-Math.abs(3-i)*.17))+'px'));
+  $('quick-replay').disabled=!lastText||owned||speechActive;$('quick-stop').disabled=!owned&&!speechActive&&!listening&&!starting&&!transcribing;
   const key=[listening,starting,transcribing,$('quick-reply').hidden,Math.min(160,$('quick-reply-text').scrollHeight+64)].join('/');
   if(key!==layoutKey){layoutKey=key;changed();}
  }
@@ -162,7 +176,7 @@
    add(id,Math.round(x),Math.round(y),width,height);
   };
   const below=size*.34+12,above=aboveAvatar(g,size);
-  root.dataset.above=String(above);
+  if(root.dataset.above!==String(above))root.dataset.above=String(above);
   const groupTop=Math.max(-g.spaceAbove+12,Math.min(g.spaceBelow-132,above?-below-120:below));
   if(!$('quick-actions').hidden)bounded('quick-actions',146,54,-73,above?groupTop+66:groupTop);
   if(active()){
@@ -171,7 +185,7 @@
     const width=Math.round(260*(Axx.interfaceTheme?.widgetScale||1)),height=Math.max(96,Math.min(160,$('quick-reply-text').scrollHeight+64));
     let x=-width/2,y=above?below:-below-height-4,placement=above?'below':'above';
     if((above?g.spaceBelow:g.spaceAbove)<below+height+12){placement=g.spaceLeft>=g.spaceRight?'left':'right';x=placement==='left'?-below-width:below;y=-height/2;}
-    $('quick-reply').dataset.placement=placement;bounded('quick-reply',width,height,x,y);
+    if($('quick-reply').dataset.placement!==placement)$('quick-reply').dataset.placement=placement;bounded('quick-reply',width,height,x,y);
    }
   }
  }
@@ -190,8 +204,8 @@
  document.addEventListener('keydown',event=>{if(event.key==='Escape'&&active()){event.preventDefault();close();}});
  const render=c.renderChat.bind(c);c.renderChat=function(...args){const result=render(...args);refresh();return result;};
  const status=c.sayStatus.bind(c);c.sayStatus=function(...args){const result=status(...args);refresh();return result;};
- const poll=setInterval(()=>{if(active())refresh();},120);
- window.addEventListener('pagehide',()=>{close();clearInterval(poll);});
+ const resize=new ResizeObserver(()=>{if(active())changed();});resize.observe($('quick-reply-text'));
+ window.addEventListener('pagehide',()=>{close();resize.disconnect();});
  document.addEventListener('visibilitychange',()=>{if(document.hidden&&active())close();});
  Axx.quickReply={get active(){return active();},get microphoneLevel(){const n=Axx.nativeVoice.inputLevel;return capture.state==='listening'&&n?.owner===capture?Math.max(0,Math.min(1,n.rms*12)):null;},capture,write,talk,send,show,close,refresh,layout};
 })(window.Axx);
