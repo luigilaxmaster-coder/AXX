@@ -160,15 +160,7 @@ def main():
     sys.path.insert(0, str(model_root.parent))
     started = time.monotonic()
     runtime = create_runtime(model_root, output_root.parent / 'reference-cache')
-    voices = {}
-    for name in PERSONAL_VOICES:
-        target = personal_samples / f'{name}.wav'
-        if not target.is_file():
-            fallback = model_root.parent / 'samples' / f'{name}.wav'
-            if fallback.is_file():
-                target = fallback
-        voices[f'moss:{name}'] = target
-    voices.update({f'moss:{name}': model_root.parent / 'samples' / f'{name}.wav' for name in FALLBACK_VOICES})
+    voices = {f'moss:{name}': name for name in (*PERSONAL_VOICES, *FALLBACK_VOICES)}
     output_root.mkdir(parents=True, exist_ok=True)
     requests, events, event_lock = queue.Queue(maxsize=2), {}, threading.Lock()
 
@@ -202,7 +194,12 @@ def main():
         output = output_root / f'{request_id}.wav'
         started = time.monotonic()
         try:
-            voice = voices[request['voice']]
+            name = voices[request['voice']]
+            voice = model_root.parent / 'samples' / f'{name}.wav'
+            personal = personal_samples / f'{name}.wav'
+            # Match the service's current reference instead of its startup path.
+            if name in PERSONAL_VOICES and personal.is_file():
+                voice = personal
             if request.get('prepare'):
                 codes = runtime.encode_reference_audio(voice)
                 # Ready means the actual prefill, frame and PCM decoder have

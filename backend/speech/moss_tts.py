@@ -325,6 +325,9 @@ class MossSpeechService:
                 elif response.get('ok') is True:
                     with self._lock:
                         self._prepared.add(request['voice'])
+                    # A reference can be replaced while ONNX loads/generates.
+                    if cache_path is not None and cache_path != self._cache_path(request):
+                        cache_path = None
                     if pcm and audio_format:
                         buffer = io.BytesIO()
                         with wave.open(buffer, 'wb') as audio:

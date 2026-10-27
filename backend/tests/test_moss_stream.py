@@ -2,6 +2,7 @@ import base64
 import io
 import queue
 from pathlib import Path
+import sys
 import tempfile
 import threading
 import time
@@ -152,6 +153,74 @@ class MossStreamTests(unittest.TestCase):
         worker = (SimpleNamespace(stdin=io.BytesIO(), poll=lambda: None), None, responses)
         with patch.object(self.service, '_ensure_worker', return_value=worker):
             with self.assertRaises(SpeechError): list(self.service._request(request))
+        self.assertFalse(self.service._cache_path(request).exists())
+
+    def test_running_worker_switches_to_new_personal_reference_before_caching(self):
+        self.enable_cache()
+        self.voices.stop()
+        service = self.service
+        service.python = Path(sys.executable)
+        service.samples = service.root / 'samples'
+        for folder in (service.samples, service.personal_samples,
+                       service.models / 'MOSS-TTS-Nano-100M-ONNX',
+                       service.models / 'MOSS-Audio-Tokenizer-Nano-ONNX'):
+            folder.mkdir(parents=True, exist_ok=True)
+        service.script = service.root / 'fixture_worker.py'
+        service.script.with_name('speech_text.py').write_text('# cache fingerprint fixture')
+        # Exercise the real worker protocol/resolution with deterministic WAVs;
+        # only the expensive neural runtime is replaced.
+        service.script.write_text(f'''
+import sys, wave
+from types import SimpleNamespace
+sys.path.insert(0, {str(Path(__file__).resolve().parents[2])!r})
+from backend.speech import moss_worker as worker
+class Runtime:
+    rng = SimpleNamespace(bit_generator=SimpleNamespace(state={{}}))
+    def encode_reference_audio(self, path): return path
+    def synthesize_single_chunk(self, **kwargs): self.emit_pcm(b'', 24000, 1)
+    def synthesize(self, *, prompt_audio_path, output_audio_path, **kwargs):
+        output_audio_path.write_bytes(prompt_audio_path.read_bytes())
+        if self.emit_pcm:
+            with wave.open(str(prompt_audio_path), 'rb') as audio:
+                self.emit_pcm(audio.readframes(audio.getnframes()), audio.getframerate(), audio.getnchannels())
+worker.create_runtime = lambda *_: Runtime()
+worker.main()
+''', encoding='utf-8')
+        def sample(path, value):
+            with wave.open(str(path), 'wb') as output:
+                output.setnchannels(1); output.setsampwidth(2); output.setframerate(24000)
+                output.writeframes(bytes((value, 0)) * 240)
+            return path.read_bytes()
+        reference_a = sample(service.samples / 'axx-alba.wav', 1)
+        with service._busy:
+            list(service._request({'id': 'prepareA', 'voice': self.body['voice'], 'prepare': True}))
+        self.assertEqual(base64.b64decode(service.synthesize(self.body)['audio_base64']), reference_a)
+        running = service._worker[0]
+        reference_b = sample(service.personal_samples / 'axx-alba.wav', 2)
+        self.assertEqual(base64.b64decode(service.synthesize(self.body)['audio_base64']), reference_b)
+        self.assertIs(service._worker[0], running, 'Reference changes must not reload ONNX')
+        service._stop_worker()
+        restarted = MossSpeechService(Path(self.temp.name))
+        self.addCleanup(restarted.close)
+        for name in ('root', 'models', 'samples', 'python', 'script'):
+            setattr(restarted, name, getattr(service, name))
+        with patch.object(restarted, '_ensure_worker', side_effect=AssertionError('Expected persistent B cache')):
+            self.assertEqual(base64.b64decode(restarted.synthesize(self.body)['audio_base64']), reference_b)
+
+    def test_reference_changed_during_generation_is_not_cached(self):
+        reference = self.enable_cache()
+        request = {**self.body, 'id': 'changing', 'stream': True}
+        original_key = self.service._cache_path(request)
+        responses = queue.Queue()
+        def send(*_):
+            reference.write_bytes(b'changed-during-generation')
+            responses.put({**self.event(), 'id': request['id']})
+            responses.put({'id': request['id'], 'ok': True})
+        worker = (SimpleNamespace(stdin=io.BytesIO(), poll=lambda: None), None, responses)
+        with patch.object(self.service, '_ensure_worker', return_value=worker), patch.object(self.service, '_send', side_effect=send):
+            self.assertTrue(list(self.service._request(request)))
+        self.assertNotEqual(original_key, self.service._cache_path(request))
+        self.assertFalse(original_key.exists())
         self.assertFalse(self.service._cache_path(request).exists())
 
     def test_cache_rejects_truncated_wav_and_stays_bounded(self):
