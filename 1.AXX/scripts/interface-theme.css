@@ -163,6 +163,13 @@ body.native.axx-resident[data-ui-theme] #panel[data-view=chat] :is(.message-body
 body.native.axx-resident[data-ui-theme] #panel :is(.composer-icon svg,.axx-theme-toggle svg){color:var(--accent)!important}
 body.native.axx-resident[data-ui-theme] #panel #axx-interface-theme{align-items:flex-start}
 .axx-theme-editor{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;width:100%;margin-top:16px;padding-top:16px;border-top:1px solid var(--line)}
+.axx-widget-editor{grid-column:1/-1;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;min-width:0;border:1px solid var(--line);border-radius:12px;padding:16px;margin:0}.axx-widget-editor legend{padding:0 6px}.axx-widget-editor>p{grid-column:1/-1;margin:0}.axx-widget-editor label{display:grid;gap:8px}.axx-widget-editor input{min-width:0;width:100%}.axx-widget-editor output{color:var(--secondary);font-size:11px}
+body.native.axx-resident[data-ui-theme] :is(#mp-desktop #mp-widget,#mp-desktop #mp-toolbar,#reader-mini){background:color-mix(in srgb,var(--surface) var(--widget-opacity,96%),transparent)!important}
+body.axx-resident :is(#flow-fan>[data-quick],#flow-pill,#flow-all):not([data-resident-placed]){visibility:hidden!important}
+body.axx-resident #flow-fan>[data-quick]{width:76px!important;height:76px!important}
+body.axx-resident #flow-fan>[data-quick] svg{width:26px!important;height:26px!important}
+body.axx-resident #a11-activities{bottom:auto!important}body.axx-resident[data-flow-step="2"] #a11-activities{display:none!important}
+@media(max-width:600px){.axx-widget-editor{grid-template-columns:1fr}}
 .axx-theme-editor label{display:flex;flex-direction:column;gap:8px;margin:0;line-height:1.5;min-width:0}
 .axx-theme-editor input[type=color]{width:100%;height:44px;border:1px solid var(--line);border-radius:8px;padding:4px;background:var(--field);cursor:pointer}
 .axx-theme-editor :is(select,button){min-width:0;max-width:100%}

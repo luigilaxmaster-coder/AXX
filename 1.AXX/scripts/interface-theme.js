@@ -9,6 +9,7 @@
  const rgb=c=>[1,3,5].map(i=>parseInt(c.slice(i,i+2),16));
  const mix=(a,b,t)=>'#'+rgb(a).map((v,i)=>Math.round(v*(1-t)+rgb(b)[i]*t).toString(16).padStart(2,'0')).join('');
  const luminance=c=>rgb(c).map(v=>{v/=255;return v<=.04045?v/12.92:((v+.055)/1.055)**2.4}).reduce((sum,v,i)=>sum+v*[.2126,.7152,.0722][i],0);
+ const bounded=(key,fallback,min,max)=>Number.isFinite(preferences[key])?Math.max(min,Math.min(max,preferences[key])):fallback;
  function customize(){
   const dark=current==='dark',p=preferences[current]||{},defaults=dark?{background:'#202023',text:'#ededf1',icons:'#64afff'}:{background:'#ffffff',text:'#29292f',icons:'#005fc7'};
   const colors=Object.fromEntries(Object.entries(defaults).map(([k,v])=>[k,hex.test(p[k])?p[k]:v]));
@@ -16,11 +17,14 @@
   if(hex.test(p.background)||hex.test(p.text))for(const [k,v] of Object.entries({surface:colors.background,'surface-subtle':mix(colors.background,colors.text,.035),'surface-raised':mix(colors.background,colors.text,.065),field:mix(colors.background,colors.text,.025),line:colors.text+'22',ink:colors.text,secondary:mix(colors.text,colors.background,.2),quiet:mix(colors.text,colors.background,.25)}))root.setProperty('--'+k,v);
   if(hex.test(p.icons))root.setProperty('--accent',p.icons);
   root.setProperty('--interface-font',fonts[preferences.font]||fonts.system);root.setProperty('--interface-scale',preferences.size==='large'?'1.15':'1');
+  root.setProperty('--widget-opacity',bounded('opacity',96,40,100)+'%');
+  for(const [id,k,fallback,min,max] of [['axx-widget-opacity','opacity',96,40,100],['axx-widget-size','widgetSize',100,75,125],['axx-widget-motion','motion',520,200,800]]){const input=document.getElementById(id);if(input){input.value=bounded(k,fallback,min,max);document.getElementById(id+'-value').textContent=input.value+(k==='motion'?' ms':'%');}}
   for(const k of Object.keys(colors)){const input=document.getElementById('axx-color-'+k);if(input)input.value=colors[k];}
   const font=document.getElementById('axx-interface-font'),size=document.getElementById('axx-interface-size');if(font)font.value=fonts[preferences.font]?preferences.font:'system';if(size)size.value=preferences.size==='large'?'large':'normal';
   const a=luminance(colors.background),b=luminance(colors.text),contrast=(Math.max(a,b)+.05)/(Math.min(a,b)+.05),notice=document.getElementById('axx-theme-contrast');
   const iconLuminance=luminance(colors.icons),iconContrast=(Math.max(a,iconLuminance)+.05)/(Math.min(a,iconLuminance)+.05);
   if(notice)notice.textContent=contrast<4.5?'Contraste bajo ('+contrast.toFixed(1)+':1). Cambia el color de texto o fondo para leer mejor.':iconContrast<3?'Los iconos tienen poco contraste ('+iconContrast.toFixed(1)+':1). Elige un color más visible sobre este fondo.':'Tu combinación se guarda para el tema '+(dark?'oscuro':'claro')+'.';
+  Axx.resident?.schedule();
  }
  function savePreferences(){try{localStorage.setItem(prefsKey,JSON.stringify(preferences));}catch{}customize();}
  function apply(theme){if(!valid.has(theme))return;current=theme;document.body.dataset.uiTheme=theme;
@@ -36,11 +40,14 @@
  const card=document.createElement('section');card.id='axx-interface-theme';card.className='setup-card';card.innerHTML='<div class="axx-theme-copy"><strong>Apariencia de la interfaz</strong><p>Elige cómo se ven las ventanas y herramientas.</p></div><div class="axx-theme-choices" role="group" aria-label="Tema de la interfaz"><button type="button" data-axx-theme="light"><span class="axx-theme-sample light" aria-hidden="true"></span>Claro</button><button type="button" data-axx-theme="dark"><span class="axx-theme-sample dark" aria-hidden="true"></span>Oscuro</button></div>';
  card.querySelectorAll('button').forEach(b=>b.onclick=()=>apply(b.dataset.axxTheme));document.getElementById('view-settings')?.prepend(card);
  const editor=document.createElement('div');editor.className='axx-theme-editor';editor.innerHTML='<label>Fondo<input id="axx-color-background" type="color"></label><label>Texto<input id="axx-color-text" type="color"></label><label>Iconos y acentos<input id="axx-color-icons" type="color"></label><label>Tipografía<select id="axx-interface-font"><option value="system">Sistema</option><option value="rounded">Redondeada</option><option value="serif">Clásica</option></select></label><label>Tamaño<select id="axx-interface-size"><option value="normal">Normal</option><option value="large">Amplio</option></select></label><div class="axx-color-presets" role="group" aria-label="Colores de iconos"></div><button id="axx-theme-reset" type="button">Restablecer este tema</button><p id="axx-theme-contrast" role="status" aria-live="polite"></p>';card.append(editor);
+ const widgets=document.createElement('fieldset');widgets.className='axx-widget-editor';widgets.innerHTML='<legend>Widgets y acciones rápidas</legend><p>Comparten los colores y la tipografía de esta interfaz.</p><label>Opacidad <output id="axx-widget-opacity-value"></output><input id="axx-widget-opacity" type="range" min="40" max="100" step="1"></label><label>Tamaño de respuesta <output id="axx-widget-size-value"></output><input id="axx-widget-size" type="range" min="75" max="125" step="5"></label><label>Duración de transición <output id="axx-widget-motion-value"></output><input id="axx-widget-motion" type="range" min="200" max="800" step="20"></label><button id="axx-widgets-reset" type="button">Restablecer widgets</button>';editor.append(widgets);
+ for(const [id,k] of [['axx-widget-opacity','opacity'],['axx-widget-size','widgetSize'],['axx-widget-motion','motion']])document.getElementById(id).oninput=e=>{preferences[k]=Number(e.target.value);savePreferences();};
+ document.getElementById('axx-widgets-reset').onclick=()=>{for(const k of ['opacity','widgetSize','motion'])delete preferences[k];savePreferences();};
  for(const k of ['background','text','icons'])document.getElementById('axx-color-'+k).oninput=e=>{preferences[current]={...preferences[current],[k]:e.target.value};savePreferences();};
  for(const [id,k] of [['axx-interface-font','font'],['axx-interface-size','size']])document.getElementById(id).onchange=e=>{preferences[k]=e.target.value;savePreferences();};
  for(const [name,color] of [['Azul','#005fc7'],['Índigo','#6450c8'],['Violeta','#914ab1'],['Rosa','#ae3769'],['Coral','#b34f39'],['Verde','#287355'],['Grafito','#54545c']]){const b=document.createElement('button');b.type='button';b.setAttribute('aria-label','Iconos '+name);b.title=name;b.style.setProperty('--swatch',color);b.onclick=()=>{preferences[current]={...preferences[current],icons:color};savePreferences();};editor.querySelector('.axx-color-presets').append(b);}
  document.getElementById('axx-theme-reset').onclick=()=>{delete preferences[current];delete preferences.font;delete preferences.size;savePreferences();};
  window.addEventListener('storage',e=>{if(e.key===key&&valid.has(e.newValue))apply(e.newValue);});
- Axx.interfaceTheme={apply,get value(){return current;}};apply(current);
+ Axx.interfaceTheme={apply,get value(){return current;},get widgetScale(){return bounded('widgetSize',100,75,125)/100;},get motionDuration(){return bounded('motion',520,200,800);}};apply(current);
  const help=document.querySelector('#view-help .help-copy');if(help){for(const p of help.children)if(p.textContent.startsWith('Datos:'))p.innerHTML='<strong>Datos:</strong> los chats, borradores y contexto de grupo se guardan localmente hasta 90 días. Las notas y demás herramientas conservan su almacenamiento habitual. Exporta las conversaciones que quieras guardar fuera de Axx.';}
 })(window.Axx);

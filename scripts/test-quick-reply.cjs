@@ -5,7 +5,7 @@ const {chromium}=require(process.env.USERPROFILE+'/.cache/codex-runtimes/codex-p
  const browser=await chromium.launch({headless:true,executablePath:process.env.AXX_TEST_CHROMIUM||path.join(process.env.LOCALAPPDATA,'ms-playwright/chromium_headless_shell-1248/chrome-headless-shell-win64/chrome-headless-shell.exe')});
  try{
   const p=await browser.newPage({viewport:{width:1000,height:800}}),errors=[];p.on('pageerror',e=>errors.push(e.message));
-  await p.setContent('<canvas id="avatar" tabindex="0" style="position:fixed;left:450px;top:300px;width:100px;height:100px"></canvas><section id="panel" hidden></section>');
+  await p.route('http://127.0.0.1:14173/**',route=>route.fulfill({contentType:'text/html',body:'<body class="native axx-resident"><canvas id="avatar" tabindex="0" style="position:fixed;left:450px;top:300px;width:100px;height:100px"></canvas><section id="panel" hidden></section><section id="view-settings"></section><section id="view-help"><div class="help-copy"></div></section></body>'}));await p.goto('http://127.0.0.1:14173/');
   const source=fs.readFileSync('1.AXX/Axx.html','utf8');const start=source.indexOf('        openChat(reposition = true) {'),end=source.indexOf('        openFamily(',start);
   const tapStart=source.indexOf('        tap() { Axx.quickReply?.close();'),tapEnd=source.indexOf('        summon(',tapStart);
   assert.ok(start>0&&end>start&&tapStart>0&&tapEnd>tapStart);
@@ -29,14 +29,21 @@ const {chromium}=require(process.env.USERPROFILE+'/.cache/codex-runtimes/codex-p
    window.layout=layout;window.localStorageSnapshot='shape-preserved';
   },{open:source.slice(start,end),tap:source.slice(tapStart,tapEnd)});
   await p.addScriptTag({path:'1.AXX/scripts/quick-reply.js'});
+  await p.addScriptTag({path:'1.AXX/scripts/interface-theme.js'});
+  await p.addStyleTag({path:'1.AXX/scripts/interface-theme.css'});
   assert.equal(await p.evaluate(()=>captures),0);
   await p.focus('#avatar');await p.keyboard.press('Tab');assert.equal(await p.evaluate(()=>document.activeElement.id),'quick-write');await p.keyboard.press('ArrowRight');assert.equal(await p.evaluate(()=>document.activeElement.id),'quick-pen');await p.keyboard.press('ArrowRight');assert.equal(await p.evaluate(()=>document.activeElement.id),'quick-talk');await p.keyboard.press('ArrowRight');assert.equal(await p.evaluate(()=>document.activeElement.id),'quick-write');await p.keyboard.press('End');assert.equal(await p.evaluate(()=>document.activeElement.id),'quick-talk');
   await p.hover('#avatar');await p.waitForFunction(()=>!document.getElementById('quick-actions').hidden);assert.equal(await p.locator('#quick-actions button').count(),3);
   await p.click('#quick-write');assert.equal(await p.evaluate(()=>fullChat),0);
-  assert.ok((await p.locator('#quick-compose').boundingBox()).y>400);assert.ok((await p.locator('#quick-compose').boundingBox()).height<=76);assert.ok(await p.evaluate(()=>focusActions.includes('open_panel')));
+  assert.ok((await p.locator('#quick-compose').boundingBox()).y>400);assert.ok((await p.locator('#quick-compose').boundingBox()).height<=56);assert.ok(await p.evaluate(()=>focusActions.includes('open_panel')));
+  assert.equal(await p.locator('#quick-input').getAttribute('placeholder'),null);assert.equal(await p.locator('#quick-state').evaluate(el=>getComputedStyle(el).clipPath),'inset(50%)');
   await p.fill('#quick-input','Una pregunta');await p.press('#quick-input','Enter');await p.waitForFunction(()=>sent.length===1);
   assert.equal(await p.evaluate(()=>fullChat),0);assert.equal(await p.locator('#quick-reply').isVisible(),true);
   await p.evaluate(()=>releaseResponse());await p.waitForFunction(()=>document.getElementById('quick-reply-text').textContent==='Respuesta comprobada');
+  await p.waitForFunction(()=>!document.getElementById('quick-reply').getAnimations().length);const replySize=await p.locator('#quick-reply').boundingBox();assert.equal(replySize.width,260);assert.ok(replySize.height<=160);
+  await p.evaluate(()=>{const change=(id,value,event='input')=>{const input=document.getElementById(id);input.value=value;input.dispatchEvent(new Event(event));};change('axx-widget-opacity','55');change('axx-widget-size','125');change('axx-widget-motion','700');change('axx-interface-font','serif','change');change('axx-color-background','#272035');});
+  await p.waitForFunction(()=>document.getElementById('quick-reply').offsetWidth===325);assert.equal(await p.locator('#quick-root').evaluate(el=>getComputedStyle(el).fontFamily),'Georgia, serif');assert.equal(await p.evaluate(()=>Axx.interfaceTheme.motionDuration),700);assert.equal(await p.evaluate(()=>JSON.parse(localStorage.getItem('axx.interface.customization')).opacity),55);assert.match(await p.locator('#quick-compose').evaluate(el=>getComputedStyle(el).backgroundColor),/0.55/);
+  await p.evaluate(()=>document.getElementById('axx-widgets-reset').click());await p.waitForFunction(()=>document.getElementById('quick-reply').offsetWidth===260);
   await p.click('#quick-replay');assert.equal(await p.evaluate(()=>spoken),'Respuesta comprobada');await p.click('#quick-stop');assert.equal(await p.evaluate(()=>Axx.symbiosis.reader.state),'idle');
   await p.click('#quick-talk');assert.equal(await p.evaluate(()=>captures),1);assert.equal(await p.evaluate(()=>bodyPhase),'idle');
   await p.evaluate(()=>{const q=Axx.quickReply.capture;q.state='listening';Axx.nativeVoice.inputLevel={owner:q,rms:.04};q.onState();});
@@ -54,6 +61,9 @@ const {chromium}=require(process.env.USERPROFILE+'/.cache/codex-runtimes/codex-p
   await p.evaluate(()=>{Axx.resident.fold();Axx.quickReply.write();});await p.keyboard.press('Escape');assert.equal(await p.evaluate(()=>Axx.quickReply.active),false);
   assert.equal(await p.evaluate(()=>focusActions.at(-1)),'close_panel');
   await p.emulateMedia({reducedMotion:'reduce'});await p.evaluate(()=>Axx.quickReply.write());assert.equal(await p.locator('#quick-compose').evaluate(el=>getComputedStyle(el).animationName),'none');
+  await p.waitForFunction(()=>!document.getElementById('quick-compose').getAnimations().length);await p.evaluate(()=>Axx.quickReply.close());await p.waitForFunction(()=>document.getElementById('quick-actions').hidden);
+  await p.emulateMedia({reducedMotion:'no-preference'});await p.hover('#avatar');await p.waitForFunction(()=>document.getElementById('quick-actions').getAnimations().length>0);assert.notEqual(await p.locator('#quick-actions').evaluate(el=>getComputedStyle(el).translate),'none');
+  await p.mouse.move(20,20);await p.waitForTimeout(380);await p.hover('#avatar');await p.waitForTimeout(650);assert.equal(await p.locator('#quick-actions').isVisible(),true);assert.equal(await p.locator('#quick-actions').getAttribute('inert'),null);
   assert.deepEqual(errors,[]);console.log('QUICK_REPLY_HOVER_COMPOSER_VOICE_STATE_RESPONSE_CANCEL_SCOPE_PASS');
  }finally{await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});

@@ -1793,7 +1793,7 @@ body.axx-resident :is(.panel-head,.flow-library-head,.organic-satellite-head,.v1
 <script>"use strict";
 var Axx;
 (function (Axx) {
-    Axx.VERSION = '0.22.7';
+    Axx.VERSION = '0.22.8';
     function newId() {
         if (typeof crypto.randomUUID === 'function')
             return crypto.randomUUID();
@@ -7631,9 +7631,9 @@ var Axx;
                 }
                 const mask = this.renderer.hitMask(), stageRect = this.renderer.canvas.getBoundingClientRect();
                 const sig = Math.round(stageRect.x) + ',' + Math.round(stageRect.y) + ',' + Math.round(stageRect.width) + ',' + Math.round(stageRect.height) + '|' + regions.map(r => Math.round(r.x) + ':' + Math.round(r.y) + ':' + Math.round(r.width) + ':' + Math.round(r.height)).join(';') + '|' + mask.bits.join('');
-                if (sig !== this.lastHitSignature || !window.__contractHit?.regions) {
-                    this.lastHitSignature = sig;
+                if (sig !== this.lastHitSignature) {
                     await this.bridge.hit(mask, stageRect, regions);
+                    this.lastHitSignature = sig;
                 }
                 if (this.diagnosticMode) this.updateDiagnostics(regions);
             }
@@ -14006,7 +14006,7 @@ var Axx;
         }
         activities() {
             const list = [];
-            if (this.music.tracks.length || this.remoteMusic?.state.connected)
+            if ((this.music.tracks.length && !this.music.audio.paused) || this.remoteMusic?.state.playing)
                 list.push('music');
             if (this.screen.active || this.screen.blob)
                 list.push('screen');
@@ -14495,7 +14495,7 @@ var Axx;
             }
             this.orbitWasOpen = true;
             this.layout();
-            if (!this.reduced) {
+            if (!this.reduced && !Axx.resident) {
                 this.entering = true;
                 const rev = this.entryRevision;
                 buttons.forEach((b, i) => {
@@ -19035,7 +19035,7 @@ var Axx;
                 else if (event.target.closest('button,summary')) queueMicrotask(() => this.schedule());
             });
             document.addEventListener('input', () => this.schedule());
-            window.addEventListener('resize', () => this.schedule());
+            window.addEventListener('resize', () => { this.geometry = null; this.schedule(); });
             window.addEventListener('keydown', event => {
                 if (event.key === 'Escape') {
                     const menu = document.getElementById('chat20-menu');
@@ -19198,8 +19198,8 @@ var Axx;
             document.body.style.setProperty('--resident-size', this.size + 'px');
         }
         tap() { Axx.quickReply?.close(); if(Axx.flow.nav.step!==2)Axx.flow.fold(); Axx.flow.tap(); const isOpen = (Axx.flow.nav.step !== 0); this.invoked = isOpen; document.body.classList.toggle('resident-invoked', isOpen); this.schedule(); }
-        summon(follow = true) { this.invoked = true; document.body.classList.add('resident-invoked'); Axx.home18.wake(); Axx.companion.data.prefs.follow = follow; Axx.flow.compactTools(); this.activity(); this.schedule(); }
-        home(move = false) { this.fold(); Axx.companion.data.prefs.follow = false; this.activity(); if (move) void Axx.app.bridge.action('recenter'); }
+        summon(follow = true) { this.geometry = null; this.invoked = true; document.body.classList.add('resident-invoked'); Axx.home18.wake(); Axx.companion.data.prefs.follow = follow; Axx.flow.compactTools(); this.activity(); this.schedule(); }
+        home(move = false) { this.geometry = null; this.fold(); Axx.companion.data.prefs.follow = false; this.activity(); if (move) void Axx.app.bridge.action('recenter'); }
         fold(render = true) {
             this.invoked = false; document.body.classList.remove('resident-invoked');
             Axx.companion.closeSurface(); Axx.flow.fold();
@@ -19373,7 +19373,14 @@ var Axx;
                 drag.moved = true; this.suppressClickUntil = performance.now() + 1200;
                 Axx.companion.data.prefs.follow = false; this.activity();
                 const margin = 12;
+                const previous = this.anchor;
                 this.anchor = { x: Axx.clamp(drag.anchor.x + event.clientX - drag.x, margin, innerWidth - margin), y: Axx.clamp(drag.anchor.y + event.clientY - drag.y, margin, innerHeight - margin) };
+                for (const box of this.boxes) {
+                    const n = document.getElementById(box.id);
+                    if (!n || n.hidden || !n.matches('#quick-actions,#quick-compose,#quick-reply,#flow-pill,#flow-all,#flow-fan>[data-quick],#a11-mini-controls')) continue;
+                    n.style.setProperty('left', (parseFloat(n.style.left) + this.anchor.x - previous.x) + 'px', 'important');
+                    n.style.setProperty('top', (parseFloat(n.style.top) + this.anchor.y - previous.y) + 'px', 'important');
+                }
                 this.paintBody();
             }, true);
             document.addEventListener('pointerup', event => {
@@ -19426,10 +19433,10 @@ var Axx;
             this.layoutBusy = true;
             try {
                 const revision = this.layoutRevision;
-                const state = await Axx.app.bridge.status();
+                const state = this.geometry ? null : await Axx.app.bridge.status();
                 // A reply started before a gesture must never repaint its old position.
                 if (revision !== this.layoutRevision || this.panelDrag || this.panelResize || this.drag || this.bodyMovePending) { this.layoutAgain = true; return; }
-                this.geometry = state.desktop || this.geometry || { workWidth: screen.availWidth || 1280, workHeight: screen.availHeight || 900, spaceLeft: 800, spaceRight: 300, spaceAbove: 500, spaceBelow: 300 };
+                this.geometry = state?.desktop || this.geometry || { workWidth: screen.availWidth || 1280, workHeight: screen.availHeight || 900, spaceLeft: 800, spaceRight: 300, spaceAbove: 500, spaceBelow: 300 };
                 const g = this.geometry, size = this.size, half = size / 2, margin = 72;
                 const boxes = [{ id: 'stage', x: -half, y: -half, width: size, height: size }];
                 if (Axx.reach?.sequence?.active || this.visible('reach-delivery') || this.visible('reach-progress')) {
@@ -19505,6 +19512,7 @@ var Axx;
                 }
                 for (const [index, surface] of surfaces.entries()) { if (!surface.el.id) surface.el.id = 'resident-surface-' + index; panelBox(surface.el.id, 420, 530); }
                 if (Axx.actions.selected && opened) add('a11-mini-controls', -130, size * .30 + 46, 260, 46);
+                if (opened && step !== 2 && this.visible('a11-activities')) add('a11-activities', -120, size * .34 + 164, 240, 40);
                 // Keep the transparent work area stable across tool navigation; resizing it exposes mismatched native/DOM frames.
                 const width = Math.min(g.workWidth || 1920, 4096), height = Math.min(g.workHeight || 1080, 4096);
                 const minX = -Axx.clamp(g.spaceLeft ?? width / 2, 12, width - 12), minY = -Axx.clamp(g.spaceAbove ?? height / 2, 12, height - 12);
@@ -19516,6 +19524,11 @@ var Axx;
                     Object.assign(n.style, { left: (box.x - minX) + 'px', top: (box.y - minY) + 'px', width: box.width + 'px', height: box.height + 'px', maxHeight: box.height + 'px', minWidth: '0', minHeight: '0', transform: 'none' });
                     for (const [property, value] of Object.entries({ left: (box.x - minX) + 'px', top: (box.y - minY) + 'px', width: box.width + 'px', height: box.height + 'px', 'max-height': box.height + 'px', transform: 'none' })) n.style.setProperty(property, value, 'important');
                     if (n.matches('[data-quick]')) n.style.setProperty('--orbit-icon', '60px');
+                    if (!n.dataset.residentPlaced && n.matches('#flow-fan>[data-quick]') && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+                        const node = n.querySelector('.orbit-node') || n;
+                        node.animate([{opacity:0,translate:(-box.x-box.width/2)+'px '+(-box.y-box.height/2)+'px',scale:'.25'},{opacity:1,translate:'0 0',scale:'1'}],{duration:Axx.interfaceTheme?.motionDuration||520,easing:'cubic-bezier(.22,.75,.24,1)',fill:'backwards'});
+                    }
+                    n.dataset.residentPlaced = 'true';
                 }
                 this.ensureResizeHandles();
                 // The orbit is transparent between buttons; the catalog is an interactive surface.
@@ -19549,11 +19562,11 @@ var Axx;
         interactiveRegions() {
             const regions = [];
             for (const n of document.querySelectorAll('#quick-actions,#quick-compose,#quick-reply,#mp-canvas,#mp-toolbar,#mp-widget,#panel,#dock-shell,#flow-sheet,#flow-pill,#flow-fan>button,#flow-all,#reach-tray,#reach-preview,#ink-review,#v13-dock,#v13-settings,#v13-pad,#reader-mini,.organic-satellite,dialog[open],button,input,textarea,select,summary,.resident-resize-handle')) {
-                if (n.id === 'a11-main-button' || n.hidden || !n.getClientRects().length) continue;
+                if (n.id === 'a11-main-button' || n.hidden || n.closest('[inert]') || !n.getClientRects().length) continue;
                 // These bounded surfaces already own their input. Descendant
                 // rectangles can extend outside their scroll clip and must not
                 // intercept the desktop through invisible controls.
-                if (n.parentElement?.closest('#mp-widget,#mp-toolbar')) continue;
+                if (n.parentElement?.closest('#mp-widget,#mp-toolbar,#quick-actions,#quick-compose,#quick-reply')) continue;
                 const style = getComputedStyle(n); if (style.visibility === 'hidden' || style.pointerEvents === 'none' || Number(style.opacity) === 0) continue;
                 const r = n.getBoundingClientRect();
                 if (r.width > 0 && r.height > 0 && r.right > 0 && r.bottom > 0 && r.x < innerWidth && r.y < innerHeight) regions.push({ x: r.x, y: r.y, width: r.width, height: r.height });

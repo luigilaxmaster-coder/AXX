@@ -162,7 +162,7 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
     for(let trial=0;trial<5;trial++){
       await page.evaluate(n=>{fixtureInput=n===0?'startup-noise':'noise';traceVad=true;vadTrace=[];},trial);await page.locator('#chat-live-toggle').click();await page.waitForTimeout(2000);
       noiseTraces.push(await page.evaluate(()=>vadTrace));assert.equal(await page.evaluate(()=>Axx.symbiosis.dictation.state),'listening');assert.equal(await page.evaluate(()=>Axx.nativeVoice.inputLevel.heard_speech),false,'Steady background noise must not count as voice: '+JSON.stringify(noiseTraces.at(-1)));await page.evaluate(()=>traceVad=false);
-      await page.waitForFunction(()=>document.getElementById('chat-live-level').value>0);assert(await page.locator('#chat-live-level').evaluate(el=>el.value>0),'Meter must reveal that the selected input carries a signal');await page.locator('#chat-live-toggle').click();
+      const signal=await page.waitForFunction(()=>document.getElementById('chat-live-level').value||false);assert(await signal.jsonValue()>0,'Meter must reveal that the selected input carries a signal');await page.locator('#chat-live-toggle').click();
     }
     const tracesPath=path.resolve(__dirname,'../../build/chat-'+require('../../package.json').version+'/vad-noise-traces.json');fs.mkdirSync(path.dirname(tracesPath),{recursive:true});fs.writeFileSync(tracesPath,JSON.stringify(noiseTraces,null,2));
     await page.evaluate(()=>{fixtureInput='silence';});await page.locator('#chat-live-toggle').click();await page.waitForFunction(()=>Axx.nativeVoice.inputLevel?.phase==='calibrating');
@@ -226,10 +226,10 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
     assert.equal(await page.evaluate(()=>document.getElementById('panel').hidden),true);
     assert.equal(await page.evaluate(()=>Axx.quickReply.capture.state),'idle');
     assert.equal(await page.evaluate(()=>fixtureTracks.every(t=>t.readyState==='ended')),true);
-    const quick=await page.locator('#quick-compose').boundingBox();assert.ok(quick.width<=320&&quick.height<=76);
+    await page.waitForFunction(()=>!document.getElementById('quick-compose').getAnimations().length);const quick=await page.locator('#quick-compose').boundingBox();assert.ok(quick.width<=320&&quick.height<=56);
     await page.evaluate(()=>Axx.quickReply.close());
     assert.deepEqual(errors,[]);
-    const output=path.resolve(__dirname,'../../build/quick-reply-0.22.7');fs.mkdirSync(output,{recursive:true});
+    const output=path.resolve(__dirname,'../../build/quick-reply-'+require('../../package.json').version);fs.mkdirSync(output,{recursive:true});
     await page.screenshot({path:path.join(output,'dictation.png')});
     console.log('PASS: dictation geometry/owner/draft, live blur retention, quiet and short utterance VAD, steady-noise rejection, visible input meter, unavailable exact device, cancellation barriers, single command shortcut and always-active rearm');
   }finally{await browser.close();await new Promise(r=>server.close(r));}
