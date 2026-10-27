@@ -2,6 +2,24 @@
 
 Este registro describe los archivos presentes. Una imagen de interfaz no acredita por sí sola una acción nativa, conectividad ni aceptación física.
 
+## Nuevas capturas del candidato Windows 0.22.12
+
+Capturadas el 27 de octubre de 2026 desde el WebView del EXE instalado, durante
+la aceptación de Magic Pen. Se copiaron sin retoques y conservando sus hashes.
+No son capturas de escritorio completo: la transparencia del WebView se representa
+en negro. El diseño de Magic Pen continúa en 0.22.14, cuya aceptación visual
+permanece pendiente por interrupción de la sesión de Computer Use.
+
+| Archivo | Alcance |
+| --- | --- |
+| [magic-pen-native-response-0.22.12.png](magic-pen-native-response-0.22.12.png) | Resumen del proveedor real sobre la selección de una ventana descartable con el texto público MAGIC PEN 4279 y una forma azul. La imagen muestra sólo el WebView. |
+| [magic-pen-native-toolbar-0.22.12.png](magic-pen-native-toolbar-0.22.12.png) | Barra compacta instalada, con seis controles. |
+| [magic-pen-native-tools-0.22.12.png](magic-pen-native-tools-0.22.12.png) | Menú secundario del mismo candidato. |
+
+No se publica la vista del historial: contiene una captura del entorno personal.
+Las imágenes seleccionadas no incluyen conversaciones, rutas, credenciales ni
+voces personales. No acreditan reproducción acústica ni el nuevo alcance de PC.
+
 ## Galería de presentación en Chromium
 
 Capturada el 22 de octubre de 2026 desde la revisión `9a9d05d`.

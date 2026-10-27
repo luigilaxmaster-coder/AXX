@@ -87,3 +87,16 @@ that all four voice controls agree, exercises synthesis and a cached response, r
 playback evidence under `build/chat-<version>/installed-speech.json`, and restores
 the prior reader selection. Installed acceptance and release publication must
 be reported separately from the source/backend checks above.
+
+## Installed HTTP verification, 0.22.14
+
+The installed packaged backend listed `moss:axx-sam` as **Xxx default** and
+completed two real PCM streams on 2026-10-27. Both decoded as stereo PCM16 at
+48 kHz, lasted 4.4 seconds and had identical PCM hashes. The first request
+returned uncached audio; the second used `cache_hit:true`.
+
+This check made authenticated HTTP calls to the same backend instance recorded
+by the native host. It did not select a voice in the UI, play Web Audio, use the
+microphone or listen to physical speakers. Those installed UI checks remain
+pending after Computer Use stopped the turn because it could not establish a
+Chrome window's URL. Private evidence: `build/release-0.22.14/installed-xxx-http.json`.

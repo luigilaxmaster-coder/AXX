@@ -24,14 +24,16 @@ Source is **v0.22.14**; the published Windows installer is **v0.22.11**. Deliver
 
 [![Ver la presentación de Axx](docs/images/axx-video-preview.jpg)](https://github.com/luigilaxmaster-coder/AXX/raw/refs/heads/main/docs/media/axx-presentation.mp4)
 
-El vídeo actual es conceptual. Las imágenes siguientes son previsualizaciones de la interfaz, no recibos de acciones ejecutadas. Consulta la [procedencia y los límites de cada medio](docs/images/showcase/README.md).
+El vídeo actual es conceptual; su sustitución por una grabación nativa está pendiente. Las nuevas capturas de Magic Pen proceden del candidato Windows **0.22.12**, con captura e inferencia reales. El fondo transparente del WebView aparece negro. No acreditan aceptación de 0.22.14. [Procedencia y límites](docs/images/showcase/README.md).
 
 <p align="center">
-  <a href="docs/images/showcase/desktop-orbit.png"><img src="docs/images/showcase/desktop-orbit.png" alt="El compañero 3D y los accesos de Axx en el escritorio" width="600" /></a>
+  <a href="docs/images/showcase/magic-pen-native-response-0.22.12.png"><img src="docs/images/showcase/magic-pen-native-response-0.22.12.png" alt="Respuesta visual real de Magic Pen en el candidato Windows 0.22.12" width="760" /></a>
 </p>
 <p align="center">
-  <a href="docs/images/axx-dock.png"><img src="docs/images/axx-dock.png" alt="Vista de conversación de Axx" width="320" /></a>
-  <a href="docs/images/axx-settings.png"><img src="docs/images/axx-settings.png" alt="Vista de herramientas y conexiones de Axx" width="320" /></a>
+  <a href="docs/images/showcase/magic-pen-native-toolbar-0.22.12.png"><img src="docs/images/showcase/magic-pen-native-toolbar-0.22.12.png" alt="Barra mínima instalada de Magic Pen" width="565" /></a>
+</p>
+<p align="center">
+  <a href="docs/images/showcase/magic-pen-native-tools-0.22.12.png"><img src="docs/images/showcase/magic-pen-native-tools-0.22.12.png" alt="Herramientas secundarias de Magic Pen en el candidato instalado" width="260" /></a>
 </p>
 
 ## Cambios y estado de validación
@@ -40,11 +42,12 @@ Una prueba de código, una ejecución instalada y una comprobación física acre
 
 | Funcionalidad | Qué cambió | Validación / estado | Límite actual |
 | --- | --- | --- | --- |
-| [Magic Pen](docs/MAGIC-PEN-DESKTOP.md) | Barra mínima, herramientas agrupadas y respuesta junto al avatar; tinta, cancelación e historial conservados. | 14 grupos de navegador, 12 comprobaciones instaladas y clic nativo Windows: PASS. | Requiere un proveedor con visión; precisión y latencia dependen del modelo. |
-| [Voz MOSS](docs/voice/xxx-default.md) | Reproducción adaptativa y caché local de hasta 64 MiB / 256 frases; referencia por solicitud y elección de voz conservada. | Fuente integrada, P2 de caché corregido, 22 tests y Web Audio: PASS. | Perfil predeterminado y aceptación instalada pendientes. Muestras y pesos privados quedan fuera del repositorio. |
+| [Magic Pen](docs/MAGIC-PEN-DESKTOP.md) | Barra mínima, herramientas agrupadas y respuesta junto al avatar; tinta, cancelación e historial conservados. | 14 grupos de navegador: PASS. El candidato 0.22.12 pasó 12 comprobaciones instaladas y clic nativo Windows. | Aceptación instalada de 0.22.14 pendiente. Requiere un proveedor con visión. |
+| [Voz MOSS](docs/voice/xxx-default.md) | Caché local limitada; referencia por solicitud, cuatro selectores compartidos y botón Usar Xxx default con estado de preparación/error. | 22 tests y contratos de interfaz: PASS. Backend instalado 0.22.14: PCM real de Xxx default y repetición desde caché verificados por HTTP. | Selección persistente y reproducción en la interfaz pendientes. No acredita altavoces físicos. |
 | [Control del PC](docs/COMPUTER-USE.md) | Observaciones ligadas a ventana, proceso y captura; invalidación al cambiar de destino y comparación visual justo antes del gesto. | Fuente integrada y revisión P1 corregida; aceptación instalada en preparación. | La autorización de PC requiere consentimiento humano manual. Un cambio visual no acredita el objetivo. |
+| Gateway administrado | Plazo de primer arranque ampliado a 40 s tras medir 18,5 s hasta autenticación. | 21/21 pruebas del módulo tras la corrección, incluido el gateway Node local. | El plazo no sustituye autenticación ni acredita inferencia remota. |
 | [Taller de capacidades](docs/GENERATED-COMMANDS.md) | Propuestas de flujos y transformaciones puras, con revisión y activación explícitas. | Los contratos distinguen borrador, pruebas, aprobación y ejecución. | Una propuesta o sus pruebas no activan herramientas ni instalan código de sistema. |
-| [Evaluación aislada M11](docs/REVISION-CONJUNTA-20261027.md) | Revisión de un candidato de contratos MCP separado de la aplicación. | 23/23 casos existentes; integridad de sus fuentes y artefactos contrastada. | Sin promoción ni MCP externo; esos resultados no acreditan integración en Axx. |
+| [Investigación aislada](docs/REVISION-CONJUNTA-20261027.md) | Revisión de candidatos del laboratorio M01–M15, separados de la aplicación. | M11: 23/23 casos existentes y manifiestos contrastados. El cierre posterior registra M15 bloqueado y currículo incompleto. | Sin promoción; los resultados del laboratorio no acreditan integración, modelos ni audio reales en Axx. |
 | [Catálogo de aplicaciones](docs/APPLICATION-COMMANDS.md) | 48 perfiles y 160 operaciones descritas, distinguiendo guías y rutas ejecutables. | Alcance documentado por aplicación y acción. | No equivale a 160 integraciones ejecutadas; detectar una app no verifica sus controles. |
 | [Chats](docs/CHAT-WORKSPACE.md) y [modelos](docs/PROVEEDORES-API-LOCAL.md) | Historial, grupos, borradores y contexto explícito; conexión y modelo seleccionables. | Contratos y políticas descritos en las guías. | Configurar o listar un modelo no demuestra inferencia. La selección explícita no cambia de proveedor silenciosamente. |
 | [Android](docs/mobile/README.md) | Conversación y servicios del PC, con permisos separados para control remoto. | Artefactos locales y verificación por función documentados. | Versión independiente; aceptación física actual pendiente. La prueba de Windows no la sustituye. |

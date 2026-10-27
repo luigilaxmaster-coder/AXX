@@ -100,7 +100,7 @@ $runtime = [ordered]@{
     backend=@{pid=$backendProcess.ProcessId;port=$hostEvidence.backendPort;instance_id=$hostEvidence.backendInstance;executable=$backendProcess.ExecutablePath;authenticated_by_native_host=$hostEvidence.backendReady;unauthenticated_http_status=$httpStatus};
     native_surface=$hostEvidence.desktop;native_window_visible=$hostEvidence.windowVisible;
     registry=@{display_version=$registry.DisplayVersion;install_location=$registry.InstallLocation;uninstall=$registry.UninstallString};
-    shortcuts=$links;visual_acceptance='Separate native observation required';recording='DEFERRED_BY_USER'
+    shortcuts=$links;visual_acceptance='Separate native observation required';recording='NOT_VERIFIED'
 }
 $runtime | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $evidencePath 'installed-runtime.json') -Encoding UTF8
 Copy-Item -LiteralPath $evidenceFile -Destination (Join-Path $evidencePath 'installed-native-runtime.json') -Force
