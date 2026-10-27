@@ -59,7 +59,9 @@ no está incluido en este primer alcance de escritorio.
 
 Una mutación requiere condición posterior. expected.name utiliza controles
 observados. expected.region_changed:[left,top,right,bottom] comprueba un cambio
-dentro de la aplicación, sin acreditar el objetivo. Axx debe observar y comprobar
+dentro de la aplicación frente a una captura fresca anterior al gesto; no acredita
+causalidad ni el objetivo. La tarjeta indica «Cambio visual observado» o «Entrada
+entregada; objetivo pendiente». Axx debe observar y comprobar
 el resultado concreto. Si no se verifica el efecto queda unknown y requiere revisión;
 no se repite automáticamente.
 
@@ -103,6 +105,15 @@ ni se ocupó el target que está reservado por la otra entrega.
 La pasada posterior añadió cuatro casos de foco y pasó los 40 casos de Computer Use
 y observación. Los valores de foco truncados no certifican igualdad de contenido;
 campos de solo lectura, desconocidos o fuera de pantalla no reciben texto.
+La revisión independiente detectó y motivó invalidar imágenes antes de observar
+otro destino. Ahora cada acción comprueba HWND, PID e instancia de su imagen y las
+operaciones de la misma concesión se excluyen sin bloquear Detener. Una observación
+fallida de B no deja utilizable la imagen de A. La prueba visual tampoco acepta un
+cambio que ya existía en el baseline anterior a la entrada.
+Regresión de revisión: 37 casos de control/foco aprobados; chat sobre HTTP/SQLite
+aprobado con etiquetas de resultado parcial, comandos normales intactos y tarjeta
+estrecha. Un rechazo conocido antes del despacho no se marca como efecto incierto;
+la entrega parcial o no verificable conserva la revisión obligatoria.
 
 
 ---

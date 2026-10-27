@@ -207,7 +207,9 @@
         box.classList.toggle('cw-compact-result',compact);
         if(compact){
             if(dismissedResult===op.operation_id&&op.operation_id){box.hidden=true;return;}
-            const status=document.createElement('strong');status.textContent=op.state==='cancelled'?'Cancelado':op.postconditions_passed?'Completado':'Resultado recibido';
+            const pendingComputerGoal=op.command_id==='axx.computer.act'&&op.output?.goal_verified===false;
+            const status=document.createElement('strong');status.textContent=op.state==='cancelled'?'Cancelado':pendingComputerGoal?(op.evidence?.verification==='computer_region_changed'?'Cambio visual observado':'Entrada entregada; objetivo pendiente'):op.postconditions_passed?'Completado':'Resultado recibido';
+            if(pendingComputerGoal)status.style.whiteSpace='normal';
             const title=document.createElement('span');title.className='cw-result-title';title.textContent=op.title||lib.commands?.find(c=>c.id===op.command_id)?.title||'Acción';title.title=title.textContent;
             const details=button('Ver detalles',()=>{lib.open();lib.renderOperation(op);});
             const dismiss=button('×',()=>{dismissedResult=op.operation_id;box.hidden=true;});dismiss.setAttribute('aria-label','Ocultar resultado');

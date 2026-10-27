@@ -39,7 +39,7 @@ class ComputerUseTests(unittest.TestCase):
         self.grant=self.service.grants['chat-one']
         row={'control_id':'button','name':'Apply','enabled':True,'offscreen':False,'bounds':{'x':20,'y':20,'width':100,'height':30}}
         self.observed={'controls':[row],'window_title':'Fixture','focused_control_id':'button',
-            'observation':{'observation_id':'snapshot','window_bounds':{'x':10,'y':10,'width':300,'height':200},
+            'observation':{'observation_id':'snapshot','window_id':10,'pid':20,'window_bounds':{'x':10,'y':10,'width':300,'height':200},
                            'monitors':[],'process_started':'birth'}}
         self.shot={'id':'snapshot','at':time.monotonic(),'observed':self.observed,'hash':'frame','jpeg':b'private-image','width':300,'height':200}
         self.grant['shot']=self.shot

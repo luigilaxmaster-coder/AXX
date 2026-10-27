@@ -77,11 +77,11 @@ class ComputerUse:
             if (operation.get('state')=='unknown' and target.get('window_id') and (scope=='desktop' or target.get('window_id')==window_id and target.get('pid')==pid)
                     and not (operation.get('evidence') or {}).get('manual_reviewed')):
                 raise ValueError('Revisa el efecto incierto '+operation['operation_id']+' en Comandos → Actividad antes de volver a autorizar el control.')
-        for current in list(self.grants):self.end(current)
         with self.lock:
+            for current in list(self.grants):self.end(current)
             self.grants[conversation_id]={'id':uuid.uuid4().hex,'conversation_id':conversation_id,
                 'scope':scope,'window_id':window_id,'pid':pid,'title':matches[0]['title'] if scope=='window' else 'Escritorio completo',
-                'birth':uia.process_started(pid) if pid else None,'target_title':None,'phase':'ready',
+                'birth':uia.process_started(pid) if pid else None,'target_title':None,'phase':'ready','work':threading.Lock(),
                 'cancelled':threading.Event(),'deadline':time.monotonic()+900,'actions':0,'shot':None,'blocked':None,'last_error':None}
         return self.status(conversation_id)
     def end(self,conversation_id):
@@ -179,11 +179,15 @@ class ComputerUseTool:
         return bool(valid),'Admisión efímera requerida'
     def execute_with_runtime(self,inputs,workspace,cancelled,runtime):
         from .actions.tools import ToolResult
-        service=getattr(runtime,'computer_use',None);entry=grant=None;dispatched=False
+        service=getattr(runtime,'computer_use',None);entry=grant=None;dispatched=False;working=False
         try:
             if not service:raise ValueError('Computer use no está conectado.')
             entry,grant,event=service.claim(inputs['ticket'],self.kind,cancelled)
+            if not grant['work'].acquire(blocking=False):
+                return ToolResult(False,error='COMPUTER_BUSY: espera el recibo de la operación actual antes de observar o actuar.',evidence={'effect_uncertain':False})
+            working=True
             grant['last_error']=None
+            if self.kind=='observe':grant['shot']=None
             owner=getattr(runtime,'input_control',None)
             if owner is None:raise ValueError('El dueño de entrada de Windows no está disponible.')
             if self.kind=='observe':
@@ -195,6 +199,9 @@ class ComputerUseTool:
                 return ToolResult(True,output=output,evidence={'verification':'computer_window_snapshot','effect_executed':False})
             args=entry['arguments'];old=grant.get('shot')
             if not old or old['id']!=args['observation_id'] or time.monotonic()-old['at']>60:raise ValueError('Observa de nuevo antes de actuar.')
+            identity=old.get('observed',{}).get('observation',{})
+            if any(identity.get(key)!=grant[key] for key in ('window_id','pid')) or identity.get('process_started')!=grant['birth']:
+                raise ValueError('La imagen no corresponde a la aplicación actual; observa de nuevo.')
             expected=args.get('expected')
             visual=isinstance(expected,dict) and set(expected)=={'region_changed'}
             if visual:
@@ -244,8 +251,16 @@ class ComputerUseTool:
                     raise ValueError('No se identificó un campo de escritura permitido y enfocado.')
                 payload.update(window_id=grant['window_id'],pid=grant['pid'],observation_id=fresh['observation']['observation_id'])
                 validate_action(payload)
-                dispatched=True;grant['actions']+=1
+                baseline=None
+                if visual:
+                    baseline=vision.capture(grant,fresh['observation'],control,overview=old.get('overview',False),hidden=service._windows()[1] if old.get('overview') else ())
+                    if (baseline['width'],baseline['height'],baseline['image_bounds'])!=(old['width'],old['height'],old['image_bounds']):
+                        raise ValueError('Cambió la geometría antes del gesto; observa de nuevo.')
+                    for x,y in (('x','y'),('to_x','to_y')):
+                        if x in args and not vision.same_target(old,baseline,args[x],args[y]):raise ValueError('Cambió la zona del gesto antes de enviarlo; observa de nuevo.')
+                grant['actions']+=1
                 result=execute_action(payload,control)
+                dispatched=True
                 grant['shot']=None
                 if args['action']=='move':return ToolResult(**result)
                 grant['phase']='verifying'
@@ -255,8 +270,8 @@ class ComputerUseTool:
                     if len(rows)!=1:break
                     if visual:
                         after=vision.capture(grant,fresh['observation'],control,overview=old.get('overview',False),hidden=service._windows()[1] if old.get('overview') else ())
-                        if ((after['width'],after['height'],after['image_bounds'])!=(old['width'],old['height'],old['image_bounds'])):break
-                        if vision.region(old,expected['region_changed'])!=vision.region(after,expected['region_changed']):
+                        if ((after['width'],after['height'],after['image_bounds'])!=(baseline['width'],baseline['height'],baseline['image_bounds'])):break
+                        if vision.region(baseline,expected['region_changed'])!=vision.region(after,expected['region_changed']):
                             return ToolResult(True,output={'dispatched':True,'expected':expected,'goal_verified':False,'next':'Observa la nueva imagen para comprobar el objetivo; solo se confirmó un cambio en la región.'},evidence={'verification':'computer_region_changed'})
                     else:
                         after=(uia.inspect_focused_control(grant['window_id'],grant['pid'],cancelled=control) if expected.get('focused') else
@@ -272,7 +287,9 @@ class ComputerUseTool:
             return ToolResult(False,error=str(exc)[:500],evidence={'effect_uncertain':uncertain,'reconciliation_required':uncertain,
                 'reconciliation_target':{'window_id':grant['window_id'],'pid':grant['pid']} if grant else None})
         finally:
-            if grant:grant['phase']='blocked' if grant['blocked'] else 'ready'
+            if working:
+                grant['phase']='blocked' if grant['blocked'] else 'ready'
+                grant['work'].release()
     def verify_postconditions(self,inputs,result):
         good=result.success and result.evidence.get('verification') in ('computer_window_snapshot','computer_expected_control','computer_region_changed','cursor_readback')
         return bool(good),'Observación y comprobación posteriores; no acredita el objetivo completo'
