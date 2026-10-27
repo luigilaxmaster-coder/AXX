@@ -52,11 +52,11 @@ const {chromium} = createRequire(path.join(process.env.USERPROFILE,'.cache/codex
         assert.deepEqual(await page.evaluate(()=>starts),['Primera frase.','Segunda frase.']);
         await page.evaluate(()=>{
             Axx.backendRequest=async(method,path,body)=>{
-                if(path.endsWith('/start')){window.poll=0;return {stream_id:'fast'};}
-                await new Promise(r=>setTimeout(r,window.slowdown && window.poll===4?1600:120));
+                if(path.endsWith('/start')){window.poll=0;window.cached=body.text==='Una frase ya guardada.';return {stream_id:'fast'};}
+                await new Promise(r=>setTimeout(r,window.cached?10:window.slowdown && window.poll===4?1600:120));
                 window.poll++;
                 if(window.poll===8)window.fastCompleted=performance.now();
-                return {events:[{seq:window.poll,pcm_base64:btoa('\x01\x01'.repeat(7680)),sample_rate:24000,channels:1,elapsed_ms:window.poll*120}],done:window.poll===8};
+                return {events:[{seq:window.poll,pcm_base64:btoa('\x01\x01'.repeat(7680)),sample_rate:24000,channels:1,elapsed_ms:window.poll*120,cache_hit:window.cached}],done:window.poll===8};
             };
             reader.generation=4;reader.index=0;reader.chunks=['Una frase que empieza antes de terminar la síntesis.'];
             window.ended=false;window.fastCompleted=null;
@@ -70,12 +70,14 @@ const {chromium} = createRequire(path.join(process.env.USERPROFILE,'.cache/codex
         assert.equal(await page.evaluate(()=>fastStream.evidence.streamed_phrases),1);
         await page.evaluate(()=>{
             window.slowdown=true;window.ended=false;reader.generation=5;reader.index=0;
+            reader.chunks.push('Una frase ya guardada.');
             window.recoveryStream=reader.nativeStream=new Axx.CustomSpeechStream(reader,{name:'moss:axx-sam'},5);
             window.recoveryTask=recoveryStream.play();
         });
         await page.waitForFunction(()=>window.ended);
         assert.equal(await page.evaluate(()=>recoveryStream.evidence.rebufferings),1,'A CPU stall must buffer the remaining phrase');
         assert.equal(await page.evaluate(()=>recoveryStream.evidence.underruns),1,'A single stall must not cause repeated chopped playback');
+        assert.equal(await page.evaluate(()=>recoveryStream.evidence.cached_phrases),1,'A stalled phrase must not delay later cache hits');
         console.log('PASS: adaptive early playback, slow CPU phrase buffering, no underruns, ES/EN order, pause/resume and cancellation');
     } finally {await browser.close();}
 })().catch(error=>{console.error(error);process.exitCode=1;});

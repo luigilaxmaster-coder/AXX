@@ -84,7 +84,7 @@
                     await wait(150);
                 }
             }
-            let cursor = 0, bytes = 0, seconds = 0, sent = 0, streaming = false, firstPacket;
+            let cursor = 0, bytes = 0, seconds = 0, sent = 0, streaming = false, rebuffered = false, firstPacket;
             const events = [];
             const expectedSeconds = Number.isFinite(response.estimated_audio_seconds)
                 ? Math.max(1, Math.min(90, response.estimated_audio_seconds)) : Math.max(1, text.length / 7.5) + .5;
@@ -94,7 +94,7 @@
                 if (!this.valid()) return;
                 if (packet.error) throw new Error(packet.error.message || 'No se pudo generar la voz.');
                 if (streaming && sent && this.nextTime < this.context.currentTime && !packet.done) {
-                    streaming = false; this.nextTime = 0;
+                    streaming = false; rebuffered = true; this.nextTime = 0;
                     this.evidence.underruns++; this.evidence.rebufferings++;
                 }
                 for (const event of packet.events) {
@@ -113,7 +113,7 @@
                 const reserve = .6 + Math.max(0, Math.max(1, expectedSeconds - seconds) * (ratio - 1 / speed));
                 // Slow CPUs need enough buffered audio to cover the estimated
                 // remaining synthesis. A later stall falls back to whole phrases.
-                if (!streaming && latest && !this.evidence.underruns &&
+                if (!streaming && latest && !rebuffered &&
                     (latest.cache_hit || (events.length >= 4 && seconds / speed >= Math.max(1, reserve)))) {
                     streaming = true; this.evidence.streamed_phrases++;
                     if (latest.cache_hit) this.evidence.cached_phrases++;
