@@ -1,5 +1,17 @@
 # Change log
 
+## 0.22.14 — 2026-10-27 · Entrega conjunta
+
+| Área | Cambio |
+| --- | --- |
+| Magic Pen | Seis controles principales, menú secundario compacto, material translúcido y respuesta más legible; conserva captura, tinta, historial y cancelación. |
+| Voz local | Búfer adaptativo, caché persistente limitada y referencia resuelta por solicitud; conserva voces y elecciones privadas. |
+| Control del PC | Sesiones de escritorio o ventana, captura ligada al destino, invalidación previa y baseline fresco; un cambio visual no se declara objetivo cumplido. |
+| Documentación | README compacto con tabla de cambios, validación y límites; procedencia explícita para imágenes y video. |
+| Revisión conjunta | Integra correcciones de voz y escritorio; mantiene M11 como laboratorio independiente. |
+
+[Notas y requisitos de esta versión](docs/releases/0.22.14.md) · [Estado de validación](README.md#cambios-y-estado-de-validación).
+
 ## 0.21.4 — 2026-10-24 · Chat workspace, continuous voice and visual consistency
 
 - Persist conversations and drafts locally with 90-day retention, curated groups and explicitly linked thread extracts.

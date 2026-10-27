@@ -100,7 +100,7 @@ captura/inferencia simuladas y no equivale a aceptación de Windows.
 La prueba instalada usa el EXE y el backend empaquetados: abre una ventana
 descartable con contenido conocido, la selecciona, captura mediante IPC nativo y
 pregunta al proveedor real. Los recibos y capturas permanecen privados en
-`build/chat-0.21.4/magic-pen/`. Se comprueban además historial, temas, cancelación
+`build/chat-<version>/magic-pen/`. Se comprueban además historial, temas, cancelación
 y recuperación; los resultados concretos se registran en `CURRENT-DELIVERY.md`.
 
 Las pantallas protegidas o inaccesibles pueden impedir una captura. Una selección
