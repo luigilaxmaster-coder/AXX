@@ -38,6 +38,9 @@
                 marker:'<path d="m14 3 7 7-9 9-7-7zM6 13l-3 6 2 2 6-3M3 22h11"/>',
                 erase:'<path d="m14 3 7 7-11 11H6l-4-4zM7 12l7 7M10 21h11"/>',
                 pointer:'<path d="m5 3 15 10-8 1-3 8z"/>',
+                more:'<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',
+                stop:'<rect x="6" y="6" width="12" height="12" rx="2"/>',
+                done:'<path d="m5 12 4 4L19 6"/>',
                 capture:'<path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/><circle cx="12" cy="12" r="4"/>',
                 undo:'<path d="m7 4-4 4 4 4M3 8h11a6 6 0 0 1 0 12h-3"/>',
                 redo:'<path d="m17 4 4 4-4 4m4-4H10a6 6 0 0 0 0 12h3"/>',
@@ -96,10 +99,26 @@
             this.root=document.createElement('section');this.root.id='mp-desktop';this.root.hidden=true;
             this.view.before(this.root);this.root.append(this.view);this.view.className='';this.view.hidden=false;
             this.toolbar=document.createElement('div');this.toolbar.id='mp-toolbar';this.toolbar.setAttribute('role','toolbar');this.toolbar.setAttribute('aria-label','Magic Pen en el escritorio');
-            this.toolbar.innerHTML='<div class="mp-desktop-title"><div><strong>Magic Pen</strong><span>Selecciona, anota y pregunta</span></div><button id="mp-live" type="button" aria-pressed="false">En directo</button><button id="mp-pause" type="button" hidden>Pausar</button><button id="mp-stop-analysis" type="button" hidden>Detener análisis</button><button id="mp-done" aria-label="Cerrar Magic Pen">Listo · Esc</button></div><p id="mp-live-status" role="status" aria-live="polite">Análisis manual · solo al pulsar Preguntar</p>';
-            this.toolbar.append(this.view.querySelector('.mp-toolstrip'));
-            const interact=document.createElement('button');interact.id='mp-interact';interact.innerHTML=this.icon('pointer');interact.className='mp-icon-button';interact.title='Usar escritorio sin cerrar Magic Pen';interact.setAttribute('aria-label',interact.title);interact.onclick=()=>this.setInput(false);
-            this.toolbar.querySelector('.mp-history-tools').before(interact);
+            this.view.append(this.toolbar);
+            this.toolbar.innerHTML='<div class="mp-toolbar-row"><div class="mp-primary-tools" role="group" aria-label="Herramientas principales"></div><button id="mp-interact" type="button" class="mp-icon-button" title="Usar escritorio sin cerrar Magic Pen" aria-label="Usar escritorio sin cerrar Magic Pen" aria-pressed="false">'+this.icon('pointer')+'</button><details id="mp-more-tools"><summary id="mp-more-toggle" aria-label="Más herramientas" aria-controls="mp-more-panel" aria-expanded="false" title="Más herramientas">'+this.icon('more')+'<span>Más</span></summary><div id="mp-more-panel" role="group" aria-label="Más herramientas de Magic Pen"><section class="mp-more-section" aria-labelledby="mp-selection-label"><span id="mp-selection-label" class="mp-section-label">Selección</span></section><section class="mp-more-section" aria-labelledby="mp-ink-label"><span id="mp-ink-label" class="mp-section-label">Tinta</span><div class="mp-ink-settings"></div></section><section class="mp-more-section" aria-labelledby="mp-analysis-label"><span id="mp-analysis-label" class="mp-section-label">Análisis</span><div class="mp-menu-actions"><button id="mp-live" type="button" aria-pressed="false">En directo</button><button id="mp-pause" type="button" hidden>Pausar</button></div><p id="mp-live-status" role="status" aria-live="polite">Análisis manual · solo al pulsar Preguntar</p></section></div></details><button id="mp-stop-analysis" type="button" aria-label="Detener análisis" title="Detener análisis" hidden>'+this.icon('stop')+'<span>Detener</span></button><button id="mp-done" type="button" aria-label="Cerrar Magic Pen" title="Cerrar Magic Pen · Esc">'+this.icon('done')+'<span>Listo</span></button></div>';
+            for(const [id,label] of [['rect','Seleccionar'],['pen','Dibujar']]){
+                const button=this.view.querySelector('[data-mp-tool="'+id+'"]');button.className='mp-primary-tool';button.setAttribute('aria-label',id==='rect'?'Seleccionar un rectángulo':'Dibujar con pluma');button.insertAdjacentHTML('beforeend','<span>'+label+'</span>');this.toolbar.querySelector('.mp-primary-tools').append(button);
+            }
+            this.toolbar.querySelector('#mp-more-tools').before($('mp-undo'));
+            this.toolbar.querySelector('[aria-labelledby="mp-selection-label"]').append($('mp-select-tools'));
+            this.toolbar.querySelector('[aria-labelledby="mp-ink-label"]>.mp-ink-settings').before($('mp-ink-tools'));
+            this.toolbar.querySelector('.mp-ink-settings').append($('mp-color'),$('mp-width'));
+            $('mp-ink-tools').querySelector('.mp-divider').remove();
+            for(const [id,label] of [['mp-color','Color'],['mp-width','Grosor']]){const field=document.createElement('label');field.textContent=label;$(id).before(field);field.append($(id));}
+            const pointer=document.createElement('button');pointer.className='mp-icon-button';pointer.dataset.mpTool='pointer';pointer.title='Señalar temporalmente';pointer.setAttribute('aria-label',pointer.title);pointer.setAttribute('aria-pressed','false');pointer.innerHTML=this.icon('pointer');$('mp-ink-tools').append(pointer);
+            for(const [id,label] of [['point','Punto'],['lasso','Lazo'],['marker','Marcador'],['erase','Borrar'],['pointer','Señalar']]){const button=this.toolbar.querySelector('[data-mp-tool="'+id+'"]');button.className='mp-secondary-tool';button.insertAdjacentHTML('beforeend','<span>'+label+'</span>');}
+            $('mp-redo').insertAdjacentHTML('beforeend','<span>Rehacer</span>');$('mp-redo').classList.remove('mp-icon-button');this.toolbar.querySelector('.mp-menu-actions').after($('mp-redo'));
+            this.toolbar.querySelector('[aria-labelledby="mp-ink-label"]').append($('mp-tool-hint'));
+            this.view.querySelector('.mp-toolstrip').remove();
+            $('mp-interact').onclick=()=>{this.closeTools();this.setInput(false);};
+            $('mp-more-tools').addEventListener('toggle',()=>{$('mp-more-toggle').setAttribute('aria-expanded',String($('mp-more-tools').open));this.syncInput();});
+            this.toolbar.addEventListener('animationend',()=>this.syncInput());
+            document.addEventListener('pointerdown',e=>{if(this.active&&!$('mp-more-tools').contains(e.target))this.closeTools();},true);
             const all=document.createElement('button');all.id='mp-all';all.textContent='Todo';all.title='Seleccionar toda la pantalla actual';all.onclick=()=>{
                 this.chooseTool('rect');this.setInput(false);
                 this.cancelAnalysis();void this.run(async()=>{if(!await this.capture())return;this.doc.selection={shape:'rect',bounds:[0,0,this.doc.source.width,this.doc.source.height]};this.selectionChanged();this.scheduleAnalysis(0,false);});
@@ -114,8 +133,8 @@
             for(const selector of ['.mp-modebar','.mp-stage','.mp-selection-row'])this.view.querySelector(selector).hidden=true;
             this.canvas.setAttribute('aria-label','Escritorio: selecciona o marca; Escape para salir');
             const option=new Option('Usar escritorio','interact');$('mp-tool').append(option);
-            const reopen=document.createElement('button');reopen.id='mp-show-answer';reopen.type='button';reopen.className='mp-show-answer';reopen.hidden=true;reopen.innerHTML=this.icon('voice')+'<span>Ver explicación</span>';reopen.setAttribute('aria-label','Volver a la explicación');this.toolbar.querySelector('#mp-done').before(reopen);
-            $('mp-done').onclick=()=>this.close();$('mp-hide-answer').onclick=()=>this.hideAnswer();reopen.onclick=()=>this.openAnswer();
+            const reopen=document.createElement('button');reopen.id='mp-show-answer';reopen.type='button';reopen.className='mp-show-answer';reopen.hidden=true;reopen.innerHTML=this.icon('voice')+'<span>Ver explicación</span>';reopen.setAttribute('aria-label','Volver a la explicación');$('mp-more-panel').append(reopen);
+            $('mp-done').onclick=()=>this.close();$('mp-hide-answer').onclick=()=>this.hideAnswer();reopen.onclick=()=>{this.closeTools();this.openAnswer();};
             $('mp-summary-expand').onclick=()=>this.openAnswer();$('mp-summary-listen').onclick=()=>this.readSummary();
             $('mp-live').onclick=()=>{this.live=!this.live;this.livePaused=false;this.cancelAnalysis();this.preferences();this.updateControls();this.status(this.live?'En directo: analiza al terminar una selección o al hacer una pausa en la tinta.':'Modo manual: selecciona y pulsa Preguntar.');};
             $('mp-pause').onclick=()=>{this.livePaused=!this.livePaused;this.cancelAnalysis();this.updateControls();this.status(this.livePaused?'Análisis en directo pausado. Puedes seguir anotando.':'En directo preparado. Haz una nueva selección o marca.');};
@@ -125,9 +144,13 @@
             this.widget.querySelector('details').addEventListener('toggle',()=>this.positionWidget());
             new ResizeObserver(()=>{if(this.active)this.positionWidget();}).observe(this.widget);
         }
+        closeTools(restoreFocus=false){
+            const menu=$('mp-more-tools');if(!menu.open)return;
+            const focused=menu.contains(document.activeElement);menu.open=false;$('mp-more-toggle').setAttribute('aria-expanded','false');
+            if(restoreFocus&&focused)$('mp-more-toggle').focus({preventScroll:true});this.syncInput();
+        }
         chooseTool(tool){
-            this.cancelGesture();$('mp-tool').value=tool;
-            this.view.querySelectorAll('[data-mp-tool]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.mpTool===tool)));
+            this.closeTools(true);this.cancelGesture();$('mp-tool').value=tool;
             $('mp-select-tools').hidden=false;$('mp-ink-tools').hidden=false;
             $('mp-tool-hint').textContent={rect:'Arrastra sobre cualquier aplicación',point:'Toca un detalle',lasso:'Rodea lo que quieras explicar',pen:'Dibuja sobre el escritorio',marker:'Marca lo que quieras explicar',erase:'Toca un trazo para borrarlo',pointer:'Señala sobre el escritorio'}[tool]||'Usa el escritorio';
             if(this.active){
@@ -139,7 +162,9 @@
         }
         setInput(enabled){
             this.inputEnabled=enabled;this.canvas.style.pointerEvents=enabled?'auto':'none';
-            this.canvas.style.cursor=$('mp-tool').value==='erase'?'cell':'crosshair';
+            const tool=$('mp-tool').value,family={point:'rect',lasso:'rect',marker:'pen',erase:'pen',pointer:'pen'}[tool]||tool;
+            this.view.querySelectorAll('[data-mp-tool]').forEach(b=>b.setAttribute('aria-pressed',String(enabled&&b.dataset.mpTool===(b.classList.contains('mp-primary-tool')?family:tool))));
+            this.canvas.style.cursor=tool==='erase'?'cell':'crosshair';
             $('mp-interact').setAttribute('aria-pressed',String(!enabled));this.syncInput();
         }
         syncInput(){if(A.app.ready)void A.app.updateHitMap();A.resident?.schedule();}
@@ -215,7 +240,7 @@
         }
         isOpen(){return this.active;}
         session(active){if(A.isNative())this.sessionChain=this.sessionChain.catch(()=>{}).then(()=>A.nativeInvoke('magic_pen_session',{active})).catch(e=>this.status(String(e)));}
-        suspend(){this.clearSummaryBubble(true);this.cancelAnalysis();this.session(false);this.active=false;this.root.hidden=true;this.state='closed';this.cancelGesture();this.setInput(false);this.voiceOwner.stop?.();++this.generation;this.working=false;this.updateControls();}
+        suspend(){this.closeTools();this.clearSummaryBubble(true);this.cancelAnalysis();this.session(false);this.active=false;this.root.hidden=true;this.state='closed';this.cancelGesture();this.setInput(false);this.voiceOwner.stop?.();++this.generation;this.working=false;this.updateControls();}
         close(){this.state='closing';this.suspend();this.syncInput();}
         invalidateGeometry(){
             // Native move/scale events also invalidate physical coordinates even
@@ -322,6 +347,8 @@
         updateControls(){
             if(!$('mp-live'))return;
             const live=this.live&&!this.livePaused;
+            const more=$('mp-more-toggle'),mode=this.live?(this.livePaused?'en directo pausado':'en directo'):'manual';
+            more.querySelector('span').textContent=this.live?(this.livePaused?'Más · pausado':'Más · directo'):'Más';more.title='Más herramientas · análisis '+mode;more.setAttribute('aria-label',more.title);more.dataset.state=this.live?(this.livePaused?'paused':'live'):'idle';
             $('mp-live').setAttribute('aria-pressed',String(this.live));
             $('mp-pause').hidden=!this.live;$('mp-pause').textContent=this.livePaused?'Reanudar':'Pausar';
             $('mp-stop-analysis').hidden=!this.analysisPending;
@@ -330,7 +357,7 @@
             $('mp-live-status').textContent=this.analysisPending?'Analizando la última región… Puedes seguir marcando.':this.livePaused?'En directo pausado':live?'En directo · al seleccionar o terminar una marca':'Manual · analiza solo al pulsar Preguntar';
             $('mp-live-status').dataset.state=this.analysisPending?'running':live?'live':'idle';
             $('mp-vision-missing').hidden=!this.capabilities||this.hasVision();
-            this.updateMetadata();
+            this.updateMetadata();if(this.active){this.positionWidget();this.syncInput();}
         }
         updateMetadata(){
             const d=this.doc,r=this.route(),q=!this.answerDirty?d?.queries?.findLast(item=>item.revision===d.revision&&item.state==='completed'):null;

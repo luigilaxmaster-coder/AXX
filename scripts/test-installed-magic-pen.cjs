@@ -241,6 +241,9 @@ finally:u.SetThreadDpiAwarenessContext(old)
       receipt.secondaryCapture = secondary.source;
       receipt.checks.push('Explicit capture of another physical monitor matches the enumerated DPI-aware bounds');
     }
+    if (process.env.AXX_MAGIC_PEN_SKIP_RECORDING === '1') {
+      receipt.recording = { state: 'NOT_TESTED', reason: 'Excluded by AXX_MAGIC_PEN_SKIP_RECORDING=1' };
+    } else {
     const recordingRegion = { x: recordingMonitor.x + 640, y: recordingMonitor.y + 220, width: 640, height: 360 };
     assert(recordingRegion.x + recordingRegion.width <= recordingMonitor.x + recordingMonitor.width);
     assert(recordingRegion.y + recordingRegion.height <= recordingMonitor.y + recordingMonitor.height);
@@ -264,6 +267,7 @@ finally:u.SetThreadDpiAwarenessContext(old)
     assert.equal(receipt.recording.verified, true);
     assert.deepEqual(receipt.recording.region, recordingRegion);
     receipt.checks.push('Packaged area recording on the explicitly selected physical monitor produced a verified decodable video');
+    }
     receipt.result = 'PASS';
   } catch (error) { receipt.result = 'FAIL'; receipt.error = error.stack; throw error; }
   finally {

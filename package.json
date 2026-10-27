@@ -1,6 +1,6 @@
 {
   "name": "axx-desktop",
-  "version": "0.22.11",
+  "version": "0.22.12",
   "private": true,
   "description": "Axx Windows desktop distribution",
   "scripts": {
