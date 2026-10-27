@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
@@ -16,13 +17,16 @@ import uuid
 import wave
 
 from backend.inference.process_manager import spawn_managed_process, terminate_process_tree
+from .speech_text import prepare_spoken_text
 from .windows_tts import SpeechError
 
 MAX_AUDIO = 12 * 1024 * 1024
+MAX_CACHE = 64 * 1024 * 1024
 
 
 class MossSpeechService:
     PERSONAL_VOICES = (
+        ('axx-sam', 'Xxx default'),
         ('axx-valeria', 'Axx Valeria · Cálida y Elocuente'),
         ('axx-elena', 'Axx Elena · Cercana y Melódica'),
         ('axx-mateo', 'Axx Mateo · Ágil y Expresivo'),
@@ -53,6 +57,69 @@ class MossSpeechService:
         self._prepared = set()
         self._preparing = None
         self._stream = None
+
+    def _cache_path(self, request):
+        """No text in filenames; invalidate on voice, engine or model changes."""
+        if request.get('prepare'):
+            return None
+        try:
+            voice = self._voice_paths()[request['voice']][0]
+            engine = [self.script, self.script.with_name('speech_text.py'),
+                      self.root / 'onnx_tts_runtime.py', self.root / 'ort_cpu_runtime.py']
+            models = sorted(p for p in self.models.glob('*/*') if p.is_file())
+            # PyInstaller extracts scripts to a new directory on each launch.
+            # Hash their contents so the persistent cache survives a restart.
+            signature = ([(str(p), p.stat().st_size, p.stat().st_mtime_ns) for p in models] +
+                         [(p.name, hashlib.sha256(p.read_bytes()).hexdigest()) for p in engine])
+            spoken, language = prepare_spoken_text(request['text'], request.get('language', 'auto'))
+            key = hashlib.sha256(voice.read_bytes() + json.dumps(
+                [spoken, language, signature], ensure_ascii=True).encode()).hexdigest()
+            return self.data_dir / 'audio-cache' / (key + '.wav')
+        except (OSError, KeyError):
+            return None
+
+    @staticmethod
+    def _read_cache(path):
+        if path is None:
+            return None
+        try:
+            if not 44 < path.stat().st_size <= MAX_AUDIO:
+                return None
+            raw = path.read_bytes()
+            with wave.open(io.BytesIO(raw), 'rb') as audio:
+                rate, channels, frames = audio.getframerate(), audio.getnchannels(), audio.getnframes()
+                if rate not in (24000, 48000) or channels not in (1, 2) or audio.getsampwidth() != 2 or not 0 < frames / rate <= 90:
+                    return None
+                pcm = audio.readframes(frames)
+                if len(pcm) != frames * channels * 2:
+                    return None
+            path.touch()
+            return raw, pcm, rate, channels
+        except (OSError, EOFError, wave.Error):
+            return None
+
+    @staticmethod
+    def _save_cache(path, raw):
+        if path is None or not 44 < len(raw) <= MAX_AUDIO:
+            return
+        temporary = path.with_suffix('.' + uuid.uuid4().hex + '.tmp')
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            temporary.write_bytes(raw)
+            temporary.replace(path)
+            files = sorted(path.parent.glob('*.wav'), key=lambda p: p.stat().st_mtime_ns, reverse=True)
+            used = 0
+            for index, file in enumerate(files):
+                used += file.stat().st_size
+                if index >= 256 or used > MAX_CACHE:
+                    file.unlink(missing_ok=True)
+        except OSError:
+            pass  # A full disk must not stop speech; this cache is expendable.
+        finally:
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                pass
 
     @property
     def available(self):
@@ -200,12 +267,30 @@ class MossSpeechService:
 
     def _request(self, request):
         """Caller owns _busy. Drain cancellation acknowledgement before reuse."""
+        if self._cancelled.is_set():
+            raise SpeechError('CANCELLED', 'Speech was cancelled')
+        cache_path = self._cache_path(request)
+        cached = self._read_cache(cache_path)
+        if cached:
+            raw, pcm, rate, channels = cached
+            if request.get('stream'):
+                chunk_size = rate * channels * 2 // 5
+                for start in range(0, len(pcm), chunk_size):
+                    if self._cancelled.is_set():
+                        raise SpeechError('CANCELLED', 'Speech was cancelled')
+                    yield {'id': request['id'], 'chunk': True, 'pcm_base64': base64.b64encode(pcm[start:start + chunk_size]).decode('ascii'),
+                           'sample_rate': rate, 'channels': channels, 'elapsed_ms': 0, 'cache_hit': True}
+            else:
+                self.output_dir.mkdir(parents=True, exist_ok=True)
+                (self.output_dir / (request['id'] + '.wav')).write_bytes(raw)
+            return
         process, _, responses = self._ensure_worker()
         if self._cancelled.is_set():
             raise SpeechError('CANCELLED', 'Speech was cancelled')
         with self._lock:
             self._request_id = request['id']
         try:
+            pcm, audio_format = bytearray(), None
             self._send(process, request)
             deadline, cancel_sent = time.monotonic() + 120, False
             while True:
@@ -225,12 +310,32 @@ class MossSpeechService:
                     raise SpeechError('PROCESS_FAILURE', 'MOSS worker returned an invalid response')
                 if response.get('chunk'):
                     if not cancel_sent:
+                        current_format = response.get('sample_rate'), response.get('channels')
+                        if audio_format and audio_format != current_format:
+                            raise SpeechError('PROCESS_FAILURE', 'MOSS changed PCM format mid-stream')
                         yield response
+                        # The streaming consumer validates each packet before
+                        # resuming this generator. Cancelled audio is never saved.
+                        pcm.extend(base64.b64decode(response['pcm_base64']))
+                        audio_format = current_format
+                        if len(pcm) > MAX_AUDIO:
+                            raise SpeechError('PROCESS_FAILURE', 'Speech exceeds audio cache limit')
                 elif response.get('cancelled') or self._cancelled.is_set():
                     raise SpeechError('CANCELLED', 'Speech was cancelled')
                 elif response.get('ok') is True:
                     with self._lock:
                         self._prepared.add(request['voice'])
+                    if pcm and audio_format:
+                        buffer = io.BytesIO()
+                        with wave.open(buffer, 'wb') as audio:
+                            audio.setframerate(audio_format[0]); audio.setnchannels(audio_format[1]); audio.setsampwidth(2)
+                            audio.writeframes(pcm)
+                        self._save_cache(cache_path, buffer.getvalue())
+                    elif not request.get('prepare'):
+                        output = self.output_dir / (request['id'] + '.wav')
+                        audio = self._read_cache(output)
+                        if audio:
+                            self._save_cache(cache_path, audio[0])
                     return
                 else:
                     raise SpeechError('PROCESS_FAILURE', 'MOSS could not synthesize the selected voice')
@@ -262,14 +367,20 @@ class MossSpeechService:
             raise SpeechError('INVALID_REQUEST', 'Select an available custom voice')
         voice = body['voice']
         with self._lock:
-            prepared = voice in self._prepared
-        if prepared or not self._busy.acquire(blocking=False):
+            skip = voice in self._prepared or self._preparing is not None or self._closed
+            if not skip:
+                self._preparing = voice
+        if skip:
             return self.status()
-        self._cancelled.clear()
-        with self._lock:
-            self._preparing = voice
         def prepare_voice():
+            acquired = False
             try:
+                # Loading ONNX must not block replay of already cached speech.
+                self._ensure_worker()
+                acquired = self._busy.acquire(blocking=False)
+                if not acquired:
+                    return
+                self._cancelled.clear()
                 for _ in self._request({'id': uuid.uuid4().hex, 'voice': voice, 'prepare': True}):
                     pass
             except (SpeechError, OSError):
@@ -277,7 +388,8 @@ class MossSpeechService:
             finally:
                 with self._lock:
                     self._preparing = None
-                self._busy.release()
+                if acquired:
+                    self._busy.release()
         threading.Thread(target=prepare_voice, daemon=True, name='axx-moss-reference').start()
         return self.status()
 
@@ -328,7 +440,9 @@ class MossSpeechService:
                     self._changed.notify_all()
                 self._busy.release()
         threading.Thread(target=generate, name='axx-moss-stream', daemon=True).start()
-        return {'stream_id': stream['id'], 'engine': 'moss-onnx', 'format': 'pcm_s16le'}
+        spoken, _ = prepare_spoken_text(body['text'], body.get('language', 'auto'))
+        return {'stream_id': stream['id'], 'engine': 'moss-onnx', 'format': 'pcm_s16le',
+                'estimated_audio_seconds': min(90, max(1, len(spoken) / 7.5) + .5)}
 
     def poll_stream(self, body):
         if not isinstance(body, dict) or set(body) != {'stream_id', 'after'} or type(body['after']) is not int or body['after'] < 0:

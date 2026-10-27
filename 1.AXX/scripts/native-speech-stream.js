@@ -1,4 +1,4 @@
-/* Buffer each phrase before playback so a slow CPU cannot split spoken words. */
+/* Start early when PCM arrives faster than playback; buffer slow phrases intact. */
 (function (Axx) {
     if (!Axx) return;
     const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -17,7 +17,8 @@
             this.stopped = false; this.pending = false; this.nextTime = 0;
             this.nextIndex = reader.index; this.started = performance.now(); this.played = false;
             this.evidence = { engine: 'moss-onnx', voice: voice.name, streaming: true,
-                playing_event: false, ended_event: false, chunks: 0, underruns: 0, buffering: 'phrase', phrase_gaps: 0 };
+                playing_event: false, ended_event: false, chunks: 0, underruns: 0, buffering: 'adaptive', phrase_gaps: 0,
+                streamed_phrases: 0, cached_phrases: 0, rebufferings: 0 };
         }
         valid() { return !this.stopped && this.reader.generation === this.generation; }
         async stop() {
@@ -47,7 +48,7 @@
             source.playbackRate.value = speed; source.connect(this.context.destination);
             const now = this.context.currentTime;
             if (this.nextTime && this.nextTime < now) this.evidence.underruns++;
-            const start = Math.max(now + (this.nextTime ? .015 : .28), this.nextTime);
+            const start = Math.max(now + .04, this.nextTime);
             this.nextTime = start + buffer.duration / speed;
             this.sources.add(source); this.evidence.chunks++;
             source.onended = () => { this.sources.delete(source); source.disconnect(); };
@@ -83,26 +84,51 @@
                     await wait(150);
                 }
             }
-            let cursor = 0, bytes = 0;
+            let cursor = 0, bytes = 0, seconds = 0, sent = 0, streaming = false, firstPacket;
             const events = [];
+            const expectedSeconds = Number.isFinite(response.estimated_audio_seconds)
+                ? Math.max(1, Math.min(90, response.estimated_audio_seconds)) : Math.max(1, text.length / 7.5) + .5;
             while (this.valid()) {
                 const packet = await Axx.backendRequest('POST', '/axx-api/speech/stream/poll',
                     { stream_id: response.stream_id, after: cursor });
                 if (!this.valid()) return;
                 if (packet.error) throw new Error(packet.error.message || 'No se pudo generar la voz.');
+                if (streaming && sent && this.nextTime < this.context.currentTime && !packet.done) {
+                    streaming = false; this.nextTime = 0;
+                    this.evidence.underruns++; this.evidence.rebufferings++;
+                }
                 for (const event of packet.events) {
                     if (event.seq !== cursor + 1) throw new Error('Se interrumpió el flujo de voz.');
                     bytes += event.pcm_base64.length;
                     if(bytes>16*1024*1024||events.length>=512)throw new Error('La frase supera el límite de audio.');
                     events.push(event); cursor = event.seq;
+                    seconds += atob(event.pcm_base64).length / (2 * event.channels * event.sample_rate);
+                    if (!firstPacket) firstPacket = { at: performance.now(), elapsed: event.elapsed_ms, seconds };
+                }
+                const latest = events.at(-1), speed = Math.max(.75, Math.min(1.3, Number(this.reader.rate) || 1));
+                const produced = seconds - (firstPacket?.seconds || 0);
+                const elapsed = Math.max(performance.now() - (firstPacket?.at || performance.now()),
+                    (latest?.elapsed_ms || 0) - (firstPacket?.elapsed || 0)) / 1000;
+                const ratio = produced > 0 ? elapsed / produced : Infinity;
+                const reserve = .6 + Math.max(0, Math.max(1, expectedSeconds - seconds) * (ratio - 1 / speed));
+                // Slow CPUs need enough buffered audio to cover the estimated
+                // remaining synthesis. A later stall falls back to whole phrases.
+                if (!streaming && latest && !this.evidence.underruns &&
+                    (latest.cache_hit || (events.length >= 4 && seconds / speed >= Math.max(1, reserve)))) {
+                    streaming = true; this.evidence.streamed_phrases++;
+                    if (latest.cache_hit) this.evidence.cached_phrases++;
+                }
+                if (streaming || packet.done) {
+                    if (!sent && this.nextTime && this.nextTime < this.context.currentTime) {
+                        this.evidence.phrase_gaps++; this.nextTime = 0;
+                    }
+                    while (sent < events.length) this.enqueue(events[sent++], index);
                 }
                 if (packet.done) break;
                 // The backend waits for the next PCM event. Browser background
                 // timer throttling must not delay delivery to the audio clock.
             }
             if(!this.valid())return;
-            if(this.nextTime&&this.nextTime<this.context.currentTime){this.evidence.phrase_gaps++;this.nextTime=0;}
-            for(const event of events)this.enqueue(event,index);
             this.pending = false; this.reader.nativePending = false;
         }
         async play() {
@@ -111,7 +137,12 @@
                 if (this.nextIndex < this.reader.chunks.length && this.nextTime - this.context.currentTime < 8) {
                     const index = this.nextIndex++;
                     const text = this.reader.chunks[index]?.slice(index === this.reader.index ? this.reader.offset : 0);
-                    if (text) await this.phrase(text, index);
+                    let remaining = text || '';
+                    while (remaining && this.valid()) {
+                        const length = Axx.voiceConversation?.phraseLength(remaining, true) || remaining.length;
+                        await this.phrase(remaining.slice(0, length).trim(), index);
+                        remaining = remaining.slice(length).trimStart();
+                    }
                 } else if (!this.sources.size && this.nextIndex >= this.reader.chunks.length && !this.reader.awaitingText) {
                     if (!this.played) throw new Error('El motor no generó audio reproducible.');
                     this.evidence.ended_event = true;

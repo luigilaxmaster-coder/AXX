@@ -1,9 +1,13 @@
 import base64
+import io
+import queue
 from pathlib import Path
 import tempfile
 import threading
 import time
 import unittest
+import wave
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from backend.speech.moss_tts import MossSpeechService
@@ -103,6 +107,95 @@ class MossStreamTests(unittest.TestCase):
             self.assertTrue(self.service.poll_stream({'stream_id': sid, 'after': 8})['done'])
             self.service.start_stream(self.body); self.finish()
             with self.assertRaises(SpeechError): self.service.poll_stream({'stream_id': sid, 'after': 0})
+
+    def enable_cache(self):
+        reference = Path(self.temp.name) / 'reference.wav'
+        reference.write_bytes(b'private-reference')
+        self.service._voice_paths.return_value = {'moss:axx-alba': (reference, 'Axx Alba')}
+        self.service.root = Path(self.temp.name)
+        self.service.models = self.service.root / 'models'
+        (self.service.root / 'onnx_tts_runtime.py').write_text('# engine fixture')
+        (self.service.root / 'ort_cpu_runtime.py').write_text('# engine fixture')
+        return reference
+
+    def test_cached_stream_preserves_pcm_without_loading_model(self):
+        self.enable_cache()
+        request = {**self.body, 'id': 'request1', 'stream': True}
+        responses = queue.Queue()
+        responses.put({**self.event(), 'id': request['id']})
+        responses.put({'id': request['id'], 'ok': True})
+        worker = (SimpleNamespace(stdin=io.BytesIO(), poll=lambda: None), None, responses)
+        with patch.object(self.service, '_ensure_worker', return_value=worker):
+            original = list(self.service._request(request))
+        with patch.object(self.service, '_ensure_worker', side_effect=AssertionError('cache must bypass the model')):
+            replay = list(self.service._request({**request, 'id': 'request2'}))
+            wav = self.service.synthesize(self.body)
+            self.assertFalse(wav['playback_verified'])
+            self.assertEqual(wav['evidence']['frames'], 240)
+        self.assertEqual(b''.join(base64.b64decode(e['pcm_base64']) for e in original),
+                         b''.join(base64.b64decode(e['pcm_base64']) for e in replay))
+        self.assertTrue(all(e['cache_hit'] and e['id'] == 'request2' for e in replay))
+        self.assertEqual(self.service._cache_path({**request, 'language': 'es-DO'}),
+                         self.service._cache_path({**request, 'language': 'es'}))
+        self.assertNotEqual(self.service._cache_path(request), self.service._cache_path({**request, 'text': 'Otra frase.'}))
+        old_path = self.service._cache_path(request)
+        reference = self.service._voice_paths.return_value['moss:axx-alba'][0]
+        reference.write_bytes(b'new-private-voice')
+        self.assertNotEqual(old_path, self.service._cache_path(request))
+
+    def test_cancelled_audio_is_not_cached(self):
+        self.enable_cache()
+        request = {**self.body, 'id': 'cancel', 'stream': True}
+        responses = queue.Queue()
+        responses.put({**self.event(), 'id': 'cancel'})
+        responses.put({'id': 'cancel', 'cancelled': True})
+        worker = (SimpleNamespace(stdin=io.BytesIO(), poll=lambda: None), None, responses)
+        with patch.object(self.service, '_ensure_worker', return_value=worker):
+            with self.assertRaises(SpeechError): list(self.service._request(request))
+        self.assertFalse(self.service._cache_path(request).exists())
+
+    def test_cache_rejects_truncated_wav_and_stays_bounded(self):
+        self.enable_cache()
+        path = self.service._cache_path(self.body)
+        buffer = io.BytesIO()
+        with wave.open(buffer, 'wb') as output:
+            output.setnchannels(1); output.setsampwidth(2); output.setframerate(24000)
+            output.writeframes(b'\x01\x00' * 240)
+        raw = buffer.getvalue()
+        self.service._save_cache(path, raw[:-10])
+        self.assertIsNone(self.service._read_cache(path))
+        self.service._save_cache(path, b'bad-wav-data' * 10)
+        self.assertIsNone(self.service._read_cache(path))
+        with patch('backend.speech.moss_tts.MAX_CACHE', len(raw) * 2):
+            for index in range(5):
+                self.service._save_cache(path.with_name(str(index)+'.wav'), raw)
+        self.assertLessEqual(sum(p.stat().st_size for p in path.parent.glob('*.wav')), len(raw)*2)
+
+    def test_background_model_load_does_not_block_cached_speech(self):
+        self.enable_cache()
+        buffer = io.BytesIO()
+        with wave.open(buffer, 'wb') as output:
+            output.setnchannels(1); output.setsampwidth(2); output.setframerate(24000)
+            output.writeframes(b'\x01\x00' * 240)
+        self.service._save_cache(self.service._cache_path(self.body), buffer.getvalue())
+        entered, release = threading.Event(), threading.Event()
+        def load():
+            entered.set(); release.wait(2)
+            raise SpeechError('CANCELLED', 'fixture loading stopped')
+        with patch.object(self.service, '_ensure_worker', side_effect=load):
+            try:
+                self.service.prepare({'voice': self.body['voice']})
+                self.assertTrue(entered.wait(1))
+                sid = self.service.start_stream(self.body)['stream_id']
+                self.finish()
+                result = self.service.poll_stream({'stream_id': sid, 'after': 0})
+                self.assertIsNone(result['error'])
+                self.assertTrue(result['events'][0]['cache_hit'])
+                self.assertFalse(release.is_set())
+            finally:
+                release.set()
+                deadline = time.monotonic()+2
+                while self.service._preparing and time.monotonic()<deadline: time.sleep(.01)
 
 
 if __name__ == '__main__': unittest.main()

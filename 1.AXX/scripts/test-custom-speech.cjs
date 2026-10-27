@@ -20,9 +20,10 @@ const {chromium} = createRequire(path.join(process.env.USERPROFILE,'.cache/codex
                 }
             }};
             window.starts=[];window.languages=[];window.completedAt=null;
-            window.reader={chunks:['Hola, Axx.','Hello, Axx.'],lang:'es-DO',index:0,offset:0,rate:1,generation:1,state:'starting',onEnded(){window.ended=true;}};
+            window.reader={chunks:['Hola, Axx. Hello, Axx.'],lang:'es-DO',index:0,offset:0,rate:1,generation:1,state:'starting',onEnded(){window.ended=true;}};
         });
         await page.addScriptTag({path:path.join(__dirname,'native-speech-stream.js')});
+        await page.addScriptTag({path:path.join(__dirname,'voice-conversation.js')});
         await page.evaluate(()=>{window.stream=reader.nativeStream=new Axx.CustomSpeechStream(reader,{name:'moss:axx-alba'},1);window.task=stream.play();});
         await page.waitForFunction(()=>Axx.nativeVoice.playback?.playing_event);
         const timing = await page.evaluate(()=>({first:Axx.nativeVoice.playback.first_audio_ms,total:window.completedAt ? window.completedAt-stream.started : Infinity}));
@@ -49,6 +50,32 @@ const {chromium} = createRequire(path.join(process.env.USERPROFILE,'.cache/codex
         await page.evaluate(()=>{reader.awaitingText=false;});
         await page.waitForFunction(()=>window.ended);
         assert.deepEqual(await page.evaluate(()=>starts),['Primera frase.','Segunda frase.']);
-        console.log('PASS: complete phrase buffering without PCM underruns, ES/EN order, pause/resume and cancellation');
+        await page.evaluate(()=>{
+            Axx.backendRequest=async(method,path,body)=>{
+                if(path.endsWith('/start')){window.poll=0;return {stream_id:'fast'};}
+                await new Promise(r=>setTimeout(r,window.slowdown && window.poll===4?1600:120));
+                window.poll++;
+                if(window.poll===8)window.fastCompleted=performance.now();
+                return {events:[{seq:window.poll,pcm_base64:btoa('\x01\x01'.repeat(7680)),sample_rate:24000,channels:1,elapsed_ms:window.poll*120}],done:window.poll===8};
+            };
+            reader.generation=4;reader.index=0;reader.chunks=['Una frase que empieza antes de terminar la síntesis.'];
+            window.ended=false;window.fastCompleted=null;
+            window.fastStream=reader.nativeStream=new Axx.CustomSpeechStream(reader,{name:'moss:axx-sam'},4);
+            window.fastTask=fastStream.play();
+        });
+        await page.waitForFunction(()=>fastStream.played);
+        assert(await page.evaluate(()=>fastCompleted===null),'Fast synthesis must play before its last packet');
+        await page.waitForFunction(()=>window.ended);
+        assert.equal(await page.evaluate(()=>fastStream.evidence.underruns),0);
+        assert.equal(await page.evaluate(()=>fastStream.evidence.streamed_phrases),1);
+        await page.evaluate(()=>{
+            window.slowdown=true;window.ended=false;reader.generation=5;reader.index=0;
+            window.recoveryStream=reader.nativeStream=new Axx.CustomSpeechStream(reader,{name:'moss:axx-sam'},5);
+            window.recoveryTask=recoveryStream.play();
+        });
+        await page.waitForFunction(()=>window.ended);
+        assert.equal(await page.evaluate(()=>recoveryStream.evidence.rebufferings),1,'A CPU stall must buffer the remaining phrase');
+        assert.equal(await page.evaluate(()=>recoveryStream.evidence.underruns),1,'A single stall must not cause repeated chopped playback');
+        console.log('PASS: adaptive early playback, slow CPU phrase buffering, no underruns, ES/EN order, pause/resume and cancellation');
     } finally {await browser.close();}
 })().catch(error=>{console.error(error);process.exitCode=1;});

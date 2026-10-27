@@ -17,6 +17,7 @@ else:
     from speech_text import prepare_spoken_text
 
 PERSONAL_VOICES = (
+    'axx-sam',
     'axx-valeria', 'axx-elena', 'axx-mateo', 'axx-dante',
     'axx-alba', 'axx-nova', 'axx-aura', 'axx-titan'
 )

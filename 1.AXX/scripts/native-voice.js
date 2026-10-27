@@ -42,9 +42,10 @@
             if (Number.isFinite(savedRate) && savedRate >= .75 && savedRate <= 1.3)
                 for (const reader of [Axx.symbiosis?.reader, Axx.voice13?.reader]) if (reader) reader.rate=savedRate;
             const webVoices = (!window.__contractCalls && 'speechSynthesis' in window) ? (window.speechSynthesis.getVoices() || []) : [];
-            const savedURI = (!window.__contractCalls && localStorage.getItem('axx.voice.uri')) || '';
-            const defaultURI = (!window.__contractCalls && state.voices.find(v => v.name === 'moss:axx-valeria')?.name) || '';
-            const effectiveURI = savedURI || defaultURI;
+            const savedURI = window.__contractCalls ? null : localStorage.getItem('axx.voice.uri');
+            const defaultURI = (!window.__contractCalls &&
+                (state.voices.find(v => v.name === 'moss:axx-sam') || state.voices.find(v => v.name === 'moss:axx-valeria'))?.name) || '';
+            const effectiveURI = savedURI ?? defaultURI;
             if (effectiveURI) {
                 if (Axx.symbiosis?.reader && !Axx.symbiosis.reader.voiceURI) Axx.symbiosis.reader.voiceURI = effectiveURI;
                 if (Axx.voice13?.reader && !Axx.voice13.reader.voiceURI) Axx.voice13.reader.voiceURI = effectiveURI;

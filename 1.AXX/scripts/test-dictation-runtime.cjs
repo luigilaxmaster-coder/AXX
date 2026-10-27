@@ -41,7 +41,7 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
           requests.push(args.path);
           if(args.path==='/axx-api/speech/transcribe') {await new Promise(r=>window.releaseTranscript=r);return {text:'Hola desde el dictado'};}
           if(args.path==='/axx-api/speech/cancel'&&holdCancel){await new Promise(resolve=>window.releaseCancel=resolve);return {};}
-          if(args.path==='/axx-api/speech/voices')return {available:true,voices:[]};
+          if(args.path==='/axx-api/speech/voices')return {available:true,voices:window.fixtureVoices||[]};
           if(args.path==='/axx-api/connect/ui/claim')return {tasks:[]};
           if(args.path.includes('/commands/resolve'))return {match:'none'};
           return {};
@@ -50,6 +50,21 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
     });
     await page.goto(`http://127.0.0.1:${server.address().port}`);
     await page.waitForFunction(()=>Axx?.nativeVoice && Axx?.resident?.firstFrame);
+    const voiceDefaults=await page.evaluate(async()=>{
+      const state=Axx.nativeVoice,prepare=state.prepareVoice,results=[];state.prepareVoice=()=>{};
+      const refresh=async saved=>{
+        if(saved===null)localStorage.removeItem('axx.voice.uri');else localStorage.setItem('axx.voice.uri',saved);
+        Axx.symbiosis.reader.voiceURI='';Axx.voice13.reader.voiceURI='';await state.refreshVoices(true);
+        results.push(Axx.symbiosis.reader.voiceURI);
+      };
+      fixtureVoices=[{name:'axx-valeria',enabled:true},{name:'axx-sam',enabled:true}].map(v=>({...v,name:'moss:'+v.name,engine:'moss-onnx'}));
+      await refresh(null);await refresh('moss:axx-valeria');await refresh('');
+      fixtureVoices=fixtureVoices.slice(0,1);await refresh(null);
+      fixtureVoices=[];await refresh('');localStorage.removeItem('axx.voice.uri');state.prepareVoice=prepare;
+      return results;
+    });
+    assert.deepEqual(voiceDefaults.slice(0,4),['moss:axx-sam','moss:axx-valeria','','moss:axx-valeria'],
+      'The private default must fall back when absent and respect explicit Windows/other voice choices');
     await page.evaluate(()=>{Axx.resident.summon(false);Axx.flow.select('dictation');});
     await page.waitForFunction(()=>document.getElementById('v13-dock').getBoundingClientRect().width>0);
     const layout=await page.evaluate(async()=>{
