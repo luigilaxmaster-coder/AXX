@@ -21,6 +21,7 @@ const { chromium } = require(process.env.USERPROFILE + '/.cache/codex-runtimes/c
   try {
     page.setDefaultTimeout(12000);
     await page.waitForFunction(() => Axx.magicPen && Axx.chatWorkspace?.ready);
+    await page.waitForFunction(async () => (await Axx.nativeInvoke('native_status')).backendReady === true, null, { timeout: 100000 });
     prior = await page.evaluate(() => ({ theme: Axx.interfaceTheme.value, view: Axx.companion.dock.selected, preferences: localStorage.getItem('axx.magicpen.prefs'), question: document.getElementById('mp-question').value }));
     await page.evaluate(() => Axx.chatWorkspace.flush());
     receipt.runtime = JSON.parse(fs.readFileSync(process.env.LOCALAPPDATA + '/Axx/logs/native-runtime.json', 'utf8'));
@@ -78,6 +79,7 @@ finally:u.SetThreadDpiAwarenessContext(old)
     await page.waitForFunction(() => Axx.magicPen.active && !Axx.magicPen.working && (Axx.magicPen.doc || Axx.magicPen.state === 'error'));
     const opened = await page.evaluate(() => ({ source: Axx.magicPen.doc?.source, status: document.getElementById('mp-status').textContent }));
     assert(opened.source, 'Native desktop capture failed: ' + opened.status);
+    assert.equal(await page.evaluate(() => Axx.magicPen.hasVision()), true, 'Configure an explicit available vision route before native acceptance');
     await page.locator('#mp-more-toggle').focus();
     await page.keyboard.press('Enter');
     await page.waitForFunction(() => document.getElementById('mp-more-tools').open);
@@ -134,7 +136,7 @@ finally:u.SetThreadDpiAwarenessContext(old)
     assert.equal(await page.locator('#mp-answers').isVisible(), true);
     assert.match(await page.locator('#mp-answers').innerText(), /4279/);
     receipt.checks.push('Concise avatar-origin summary appears for the real selection and expands to the complete provider answer');
-    const prefs = await page.evaluate(() => ({ name: Axx.companion.data.prefs.apiConnection, model: Axx.companion.data.prefs.model }));
+    const prefs = await page.evaluate(() => { const r = Axx.magicPen.route(); return { name: r.provider, model: r.model }; });
     assert.equal(query.provider.name, prefs.name); assert.equal(query.provider.model, prefs.model);
     receipt.checks.push('Real desktop selection recognized known digits and blue rectangle through selected provider');
 

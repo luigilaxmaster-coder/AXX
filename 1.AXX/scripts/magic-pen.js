@@ -112,21 +112,21 @@
             for(const [id,label] of [['mp-color','Color'],['mp-width','Grosor']]){const field=document.createElement('label');field.textContent=label;$(id).before(field);field.append($(id));}
             const pointer=document.createElement('button');pointer.className='mp-icon-button';pointer.dataset.mpTool='pointer';pointer.title='Señalar temporalmente';pointer.setAttribute('aria-label',pointer.title);pointer.setAttribute('aria-pressed','false');pointer.innerHTML=this.icon('pointer');$('mp-ink-tools').append(pointer);
             for(const [id,label] of [['point','Punto'],['lasso','Lazo'],['marker','Marcador'],['erase','Borrar'],['pointer','Señalar']]){const button=this.toolbar.querySelector('[data-mp-tool="'+id+'"]');button.className='mp-secondary-tool';button.insertAdjacentHTML('beforeend','<span>'+label+'</span>');}
-            $('mp-redo').insertAdjacentHTML('beforeend','<span>Rehacer</span>');$('mp-redo').classList.remove('mp-icon-button');this.toolbar.querySelector('.mp-menu-actions').after($('mp-redo'));
+            this.toolbar.querySelector('.mp-ink-settings').append($('mp-redo'));
             this.toolbar.querySelector('[aria-labelledby="mp-ink-label"]').append($('mp-tool-hint'));
             this.view.querySelector('.mp-toolstrip').remove();
             $('mp-interact').onclick=()=>{this.closeTools();this.setInput(false);};
             $('mp-more-tools').addEventListener('toggle',()=>{$('mp-more-toggle').setAttribute('aria-expanded',String($('mp-more-tools').open));this.syncInput();});
             this.toolbar.addEventListener('animationend',()=>this.syncInput());
             document.addEventListener('pointerdown',e=>{if(this.active&&!$('mp-more-tools').contains(e.target))this.closeTools();},true);
-            const all=document.createElement('button');all.id='mp-all';all.textContent='Todo';all.title='Seleccionar toda la pantalla actual';all.onclick=()=>{
+            const all=document.createElement('button');all.id='mp-all';all.innerHTML=this.icon('capture')+'<span>Pantalla</span>';all.title='Seleccionar toda la pantalla actual';all.onclick=()=>{
                 this.chooseTool('rect');this.setInput(false);
                 this.cancelAnalysis();void this.run(async()=>{if(!await this.capture())return;this.doc.selection={shape:'rect',bounds:[0,0,this.doc.source.width,this.doc.source.height]};this.selectionChanged();this.scheduleAnalysis(0,false);});
             };this.toolbar.querySelector('#mp-select-tools').append(all);
             this.widget=document.createElement('aside');this.widget.id='mp-widget';this.widget.setAttribute('aria-label','Explicación de la selección');this.widget.tabIndex=-1;this.widget.hidden=true;
-            this.widget.innerHTML='<div class="mp-widget-head"><span class="mp-head-mark" aria-hidden="true">'+this.icon('pen')+'</span><span class="mp-head-copy"><strong>Magic Pen</strong><span>Sobre tu selección</span></span><button id="mp-hide-answer" aria-label="Ocultar explicación">×</button></div><section id="mp-summary-bubble" class="mp-summary-bubble" hidden><div class="mp-summary-kicker"><span id="mp-summary-label">Lo esencial</span><span id="mp-summary-spinner" class="mp-summary-spinner" hidden aria-hidden="true"></span></div><p id="mp-summary-text" role="status" aria-live="polite"></p><p id="mp-summary-voice-status" role="status" aria-live="polite" hidden></p><div class="mp-summary-actions"><button id="mp-summary-listen" type="button" aria-label="Escuchar resumen" title="Escuchar resumen">'+this.icon('voice')+'<span>Escuchar</span></button><button id="mp-summary-expand" type="button">Ver explicación</button></div></section><figure id="mp-history-preview" hidden><canvas id="mp-preview-canvas" aria-label="Vista previa de la captura guardada"></canvas><figcaption>Captura guardada · no es el escritorio actual</figcaption><button id="mp-back-desktop" type="button">Volver al escritorio</button></figure><div id="mp-vision-missing" hidden><p>El modelo seleccionado no tiene análisis visual disponible.</p><button id="mp-configure" type="button">Ajustes de conexión</button></div>';
-            this.widget.querySelector('.mp-widget-head').after($('mp-meta'));
-            for(const selector of ['.mp-composer','#mp-status','#mp-answers','.mp-save-section','#mp-capability'])this.widget.append(this.view.querySelector(selector));
+            this.widget.innerHTML='<div class="mp-widget-head"><span class="mp-head-mark" aria-hidden="true">'+this.icon('pen')+'</span><span class="mp-head-copy"><strong>Magic Pen</strong></span><span id="mp-summary-spinner" class="mp-summary-spinner" hidden aria-hidden="true"></span><button id="mp-hide-answer" aria-label="Ocultar explicación">×</button></div><section id="mp-summary-bubble" class="mp-summary-bubble" hidden><div class="mp-summary-kicker"><span id="mp-summary-label">Lo esencial</span></div><p id="mp-summary-text" role="status" aria-live="polite"></p><p id="mp-summary-voice-status" role="status" aria-live="polite" hidden></p><div class="mp-summary-actions"><button id="mp-summary-expand" type="button">Ver explicación</button><button id="mp-summary-listen" type="button" aria-label="Escuchar resumen" title="Escuchar resumen">'+this.icon('voice')+'</button></div></section><figure id="mp-history-preview" hidden><canvas id="mp-preview-canvas" aria-label="Vista previa de la captura guardada"></canvas><figcaption>Captura guardada · no es el escritorio actual</figcaption><button id="mp-back-desktop" type="button">Volver al escritorio</button></figure><div id="mp-vision-missing" hidden><p>El modelo seleccionado no tiene análisis visual disponible.</p><button id="mp-configure" type="button">Ajustes de conexión</button></div>';
+            for(const selector of ['#mp-answers','.mp-composer','#mp-status','.mp-save-section'])this.widget.append(this.view.querySelector(selector));
+            const saved=this.widget.querySelector('.mp-save-section');saved.querySelector('summary').after($('mp-meta'));saved.append($('mp-capability'));
             const source=this.view.querySelector('.mp-source-row');this.widget.querySelector('.mp-save-section').append(source);source.hidden=true;
             this.view.append(this.canvas,this.toolbar,this.widget);
             this.widget.addEventListener('animationend',e=>{if(e.target===this.widget&&e.animationName==='mp-bubble-in'&&this.active)this.syncInput();});
@@ -232,11 +232,12 @@
         async refresh(){const data=await api('status');this.capabilities=data.capabilities;$('mp-source').replaceChildren(...data.monitors.map((m,i)=>new Option(`Pantalla ${i+1} · ${m.width} × ${m.height}`,m.id)));$('mp-history').replaceChildren(new Option('Elige una captura',''),...data.history.map(d=>new Option(new Date(d.source.captured_at*1000).toLocaleString()+' · '+d.id.slice(0,6),d.id)));if(!$('mp-directory').value)$('mp-directory').value=data.capabilities.export_directory;$('mp-capability').textContent=(data.capabilities.vision.length?'Visión · '+data.capabilities.vision.map(p=>p.name).join(', '):'Análisis visual no configurado')+' · '+data.capabilities.ocr_message;this.updateControls();return data;}
         open(){
             if(this.active)return;
+            $('mp-status').textContent='Preparando el escritorio…';
             A.flow.cancelReview();A.companion.closeSurface();A.flow.fold();A.companion.enableFollow(false,false);
             this.clearSummaryBubble(true);this.active=true;this.pendingSelection=null;this.root.hidden=false;this.session(true);this.state='opening';this.doc=null;this.image=null;this.viewport=null;this.historyMode=false;this.livePaused=false;this.ctx.clearRect(0,0,this.canvas.width,this.canvas.height);this.renderAnswers();this.updateControls();
             this.chooseTool('rect');
             const session=this.generation,current=()=>this.active&&session===this.generation;
-            this.run(async()=>{await this.refresh();if(!current()||!await this.capture({isCurrent:current}))return;this.widget.hidden=true;this.state='selecting';this.setInput(true);});
+            this.run(async()=>{await this.refresh();if(!current()||!await this.capture({isCurrent:current}))return;$('mp-status').textContent='Selecciona una región o dibuja para empezar.';this.widget.hidden=true;this.state='selecting';this.setInput(true);});
         }
         isOpen(){return this.active;}
         session(active){if(A.isNative())this.sessionChain=this.sessionChain.catch(()=>{}).then(()=>A.nativeInvoke('magic_pen_session',{active})).catch(e=>this.status(String(e)));}
@@ -348,13 +349,13 @@
             if(!$('mp-live'))return;
             const live=this.live&&!this.livePaused;
             const more=$('mp-more-toggle'),mode=this.live?(this.livePaused?'en directo pausado':'en directo'):'manual';
-            more.querySelector('span').textContent=this.live?(this.livePaused?'Más · pausado':'Más · directo'):'Más';more.title='Más herramientas · análisis '+mode;more.setAttribute('aria-label',more.title);more.dataset.state=this.live?(this.livePaused?'paused':'live'):'idle';
+            more.querySelector('span').textContent='Más';more.title='Más herramientas · análisis '+mode;more.setAttribute('aria-label',more.title);more.dataset.state=this.live?(this.livePaused?'paused':'live'):'idle';
             $('mp-live').setAttribute('aria-pressed',String(this.live));
             $('mp-pause').hidden=!this.live;$('mp-pause').textContent=this.livePaused?'Reanudar':'Pausar';
             $('mp-stop-analysis').hidden=!this.analysisPending;
             $('mp-capture').disabled=this.working;$('mp-ask').disabled=this.working;
             $('mp-history-preview').hidden=!this.historyMode;
-            $('mp-live-status').textContent=this.analysisPending?'Analizando la última región… Puedes seguir marcando.':this.livePaused?'En directo pausado':live?'En directo · al seleccionar o terminar una marca':'Manual · analiza solo al pulsar Preguntar';
+            $('mp-live-status').textContent=this.analysisPending?'Analizando · puedes seguir dibujando':this.livePaused?'Directo en pausa':live?'Directo · al seleccionar o dibujar':'Manual · pulsa Preguntar';
             $('mp-live-status').dataset.state=this.analysisPending?'running':live?'live':'idle';
             $('mp-vision-missing').hidden=!this.capabilities||this.hasVision();
             this.updateMetadata();if(this.active){this.positionWidget();this.syncInput();}
