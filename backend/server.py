@@ -329,15 +329,17 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                     if query: raise ValueError('Consulta inválida')
                     result = {'demonstrations': self.demonstration.list()} if action == 'list' else getattr(self.demonstration, action)()
                 self._send_json(200, result)
-            elif path in ('/axx-api/commands', '/axx-api/commands/operations', '/axx-api/commands/details'):
+            elif path in ('/axx-api/commands', '/axx-api/commands/operations', '/axx-api/commands/details', '/axx-api/commands/executable'):
                 if not self.commands:
                     self._unsupported('Command library service is unavailable')
                     return
                 query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query, keep_blank_values=True)
-                allowed = {'q', 'limit', 'offset'} if path == '/axx-api/commands' else {'id'} if path.endswith('/details') else {'operation_id'}
+                allowed = {'q', 'limit', 'offset'} if path == '/axx-api/commands' else {'id'} if path.endswith('/details') else set() if path.endswith('/executable') else {'operation_id'}
                 if set(query) - allowed or any(len(values) != 1 for values in query.values()):
                     raise ValueError('Invalid command query fields')
-                if path == '/axx-api/commands':
+                if path.endswith('/executable'):
+                    self._send_json(200, self.commands.executable_catalog())
+                elif path == '/axx-api/commands':
                     self._send_json(200, self.commands.search(query.get('q', [''])[0],
                         int(query.get('limit', ['30'])[0]), int(query.get('offset', ['0'])[0])))
                 elif path.endswith('/details'):

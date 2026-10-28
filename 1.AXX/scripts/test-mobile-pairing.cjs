@@ -24,7 +24,7 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
   await page.addScriptTag({path:path.join(__dirname,'mobile-gateway.js')});
   await page.click('#axx-mobile-start');
   await page.waitForFunction(()=>!document.getElementById('axx-mobile-error').hidden);
-  await page.evaluate(()=>intervals.find(x=>x.ms===5000).fn());
+  await page.evaluate(()=>intervals.find(x=>x.ms===2000).fn());
   assert.match(await page.textContent('#axx-mobile-error'),/QR renderer unavailable/);
   assert(await page.locator('#axx-mobile-error').isVisible());
   await page.evaluate(()=>window.failStart=false);
@@ -33,6 +33,9 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
   assert(await page.locator('#axx-mobile-pair').isVisible());
   assert(!(await page.locator('#axx-mobile-error').isVisible()));
   assert(await page.evaluate(()=>messages>0),'history sync was attempted but remains unresolved');
+  await page.evaluate(()=>Axx.companion.data.prefs.keepHistory=false);
+  await page.click('#axx-mobile-start');
+  assert(await page.locator('#axx-mobile-pair').isVisible(),'pairing must work when chat history sharing is off');
   await page.evaluate(()=>{Date.now=()=>Number.MAX_SAFE_INTEGER;intervals.find(x=>x.ms===1000&&x.fn.toString().includes('seconds')).fn();});
   assert(!(await page.locator('#axx-mobile-pair').isVisible()));
   assert.match(await page.textContent('#axx-mobile-error'),/caducó/);

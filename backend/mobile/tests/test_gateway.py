@@ -12,6 +12,45 @@ from backend.mobile.gateway import MobileGateway
 
 
 class GatewayTests(unittest.TestCase):
+    def test_tls_rescan_preserves_grants_and_snapshot_reflects_pc_changes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            gateway=MobileGateway(Path(tmp)/'state.db',tmp,lambda *args:{},pc_name='Mi PC',host_resolver=lambda:'127.0.0.1')
+            try:
+                first=gateway.start()
+                context=ssl.create_default_context(cafile=str(gateway._identity[0]))
+                def request(path, body=None, token=None):
+                    headers={'Content-Type':'application/json'}
+                    if token:headers['Authorization']='Bearer '+token
+                    req=urllib.request.Request(first['endpoint']+path,data=json.dumps(body).encode() if body else None,headers=headers)
+                    with urllib.request.urlopen(req,context=context,timeout=3) as response:return json.load(response)
+                device=request('/v1/pair/claim',{'code':first['pairing_code'],'device_name':'Phone'})
+                gateway.store.set_tool_permission(device['device_id'],True)
+                second=gateway.start()
+                renewed=request('/v1/pair/claim',{'code':second['pairing_code'],'device_name':'Phone'},device['credential'])
+                self.assertEqual(renewed['device_id'],device['device_id'])
+                self.assertIn('tools.control',renewed['scopes'])
+                self.assertEqual(len(gateway.store.devices()),1)
+                gateway.appearance={'finish':'prism'}
+                gateway.preferences={'provider':'bridge','provider_name':'configured','model':'chosen','selection_mode':'manual'}
+                snapshot=request('/v1/snapshot',token=device['credential'])['data']
+                self.assertEqual(snapshot['pc_name'],'Mi PC')
+                self.assertEqual(snapshot['appearance'],gateway.appearance)
+                self.assertEqual(snapshot['inference']['model'],'chosen')
+                gateway.share_history=True
+                gateway.shared.merge_messages([{'id':'private','role':'user','text':'Historial privado'}],'desktop','shared',activate=True)
+                self.assertEqual(len(request('/v1/snapshot',token=device['credential'])['data']['messages']),1)
+                gateway.share_history=False
+                self.assertEqual(request('/v1/snapshot',token=device['credential'])['data']['messages'],[])
+                with self.assertRaises(ValueError):
+                    gateway.admit_chat(device['device_id'],{'operation':'chat','text':'hola','conversation_id':'shared','command_id':'blocked-history'})
+                gateway.store.set_tool_permission(device['device_id'],False)
+                self.assertNotIn('tools.control',request('/v1/snapshot',token=device['credential'])['data']['scopes'])
+                gateway.revoke(device['device_id'])
+                with self.assertRaises(urllib.error.HTTPError) as rejected:
+                    request('/v1/snapshot',token=device['credential'])
+                self.assertEqual(rejected.exception.code,403);rejected.exception.close()
+            finally:gateway.close()
+
     def test_always_access_restarts_on_same_port_and_keeps_device_approval(self):
         with tempfile.TemporaryDirectory() as tmp:
             path=Path(tmp)/'state.db'
@@ -79,6 +118,11 @@ class GatewayTests(unittest.TestCase):
     def test_work_requires_pc_grant_and_runs_only_supported_command(self):
         calls=[]
         def backend(method,path,body):
+            if path.endswith('/executable'):
+                return {'commands':[
+                    {'id':'axx.system.telemetry', 'pc_approval_required':False},
+                    {'id':'axx.shell.powershell', 'pc_approval_required':True},
+                    {'id':'axx.generated.test', 'pc_approval_required':False}]}
             calls.append(path)
             if path.endswith('/prepare'):
                 return {'state':'awaiting_approval','operation_id':body['operation_id'],
@@ -113,6 +157,8 @@ class GatewayTests(unittest.TestCase):
                 self.assertEqual(gateway.pending_work()['operations'][0]['inputs'],{'script':'Get-Date'})
                 self.assertEqual(gateway.approve_work({'operation_id':shell['operation_id'],'approved':True})['state'],'succeeded')
                 self.assertEqual(calls.count('/axx-api/commands/execute'),2)
+                dynamic={**command,'command_id':'axx.generated.test','operation_id':str(uuid.uuid4())}
+                self.assertEqual(post(dynamic)['data']['state'],'succeeded')
             finally:gateway.close()
 
     def test_tls_pair_query_revoke_and_stop(self):
@@ -168,6 +214,8 @@ class GatewayTests(unittest.TestCase):
     def test_chat_retry_has_one_backend_call_and_shared_messages(self):
         calls=[]
         def backend(method, path, body):
+            if path.endswith('/resolve'):
+                return {'match':'none'}
             calls.append(body['request_id'])
             return {'request_id':body['request_id'], 'choices':[{'message':{'content':'Respuesta'}}]}
         with tempfile.TemporaryDirectory() as tmp:
@@ -175,6 +223,7 @@ class GatewayTests(unittest.TestCase):
             gateway.preferences={'provider':'bridge','provider_name':'unit-test','model':'test-model'}
             device=gateway.store.consume_pairing(gateway.store.create_pairing(), 'Phone')
             body={'operation':'chat','command_id':'cmd-1','text':'Hola','conversation_id':'test'}
+            gateway.share_history=True
             first=gateway.admit_chat(device['device_id'],body)
             retry=gateway.admit_chat(device['device_id'],body)
             self.assertEqual(first['task_id'], retry['task_id'])
@@ -206,7 +255,8 @@ class GatewayTests(unittest.TestCase):
                 gateway=MobileGateway(Path(tmp)/'state.db',tmp,backend)
                 device=gateway.store.consume_pairing(gateway.store.create_pairing(),'Phone')
                 if permission: gateway.store.set_tool_permission(device['device_id'],True)
-                body={'operation':'chat','command_id':'pc-command','text':'estado del sistema','conversation_id':'mobile-thread'}
+                body={'operation':'chat','command_id':'pc-command','text':'mis aplicaciones','conversation_id':'mobile-thread'}
+                gateway.share_history=True
                 gateway.admit_chat(device['device_id'],body)
                 deadline=time.monotonic()+3
                 while time.monotonic()<deadline:
@@ -241,6 +291,7 @@ class GatewayTests(unittest.TestCase):
                 gateway=MobileGateway(Path(tmp)/'state.db',tmp,backend)
                 gateway.preferences={'provider':'bridge','provider_name':'unit-test','model':'test-model'}
                 device=gateway.store.consume_pairing(gateway.store.create_pairing(),'Phone')
+                gateway.share_history=True
                 gateway.admit_chat(device['device_id'],{'operation':'chat','command_id':'chat-imperative',
                     'text':message,'conversation_id':'mobile-thread'})
                 deadline=time.monotonic()+3
@@ -272,6 +323,7 @@ class GatewayTests(unittest.TestCase):
                 return {'match':'none'}
             gateway=MobileGateway(Path(tmp)/'state.db',tmp,backend)
             device=gateway.store.consume_pairing(gateway.store.create_pairing(),'Phone')
+            gateway.share_history=True
             gateway.admit_chat(device['device_id'],{'operation':'chat','command_id':'no-engine',
                 'text':'escribe un poema','conversation_id':'mobile-thread'})
             deadline=time.monotonic()+3

@@ -130,6 +130,7 @@ class MobileGateway:
         self._claimed = False
         self._pairing_deadline = 0
         self.preferences = None
+        self.share_history = False
         self.appearance = None
         self._avatar_lock = threading.Lock()
         self._avatar_sequence = 0
@@ -164,8 +165,8 @@ class MobileGateway:
             self._avatar_events = deque((event for event in self._avatar_events if event['device_id'] != device_id), maxlen=128)
 
     def work_execute(self, device_id, body):
-        from backend.commands import ADAPTERS, TERMINAL
-        allowed = set(ADAPTERS)
+        from backend.commands import TERMINAL
+        allowed = {item['id']: item for item in self.work_catalog()['commands']}
         if (not isinstance(body, dict) or set(body) != {'command_id', 'inputs', 'operation_id', 'approved'}
                 or body['command_id'] not in allowed or not isinstance(body['inputs'], dict)
                 or type(body['approved']) is not bool):
@@ -184,8 +185,7 @@ class MobileGateway:
         if prepared.get('state') in TERMINAL:
             return prepared
         self.store.record_work(operation_id, device_id, body['command_id'], prepared['inputs'])
-        risk = ADAPTERS[body['command_id']]['risk']
-        if risk not in ('read', 'desktop_open'):
+        if allowed[body['command_id']]['pc_approval_required']:
             return {**prepared, 'state': 'awaiting_pc_approval', 'pc_approval_required': True}
         result = self.backend_call('POST', '/axx-api/commands/execute',
                                    {'operation_id': operation_id, 'approved': True})
@@ -210,11 +210,10 @@ class MobileGateway:
         return result.get('operation')
 
     def work_catalog(self):
-        from backend.commands import ADAPTERS
-        return {'commands': [{'id': key, 'title': value['title'], 'description': value['description'],
-                              'risk': value['risk'], 'parameters': value['parameters'],
-                              'pc_approval_required': value['risk'] not in ('read', 'desktop_open')}
-                             for key, value in ADAPTERS.items()]}
+        result = self.backend_call('GET', '/axx-api/commands/executable', None)
+        if result.get('ok') is False or not isinstance(result.get('commands'), list):
+            raise ValueError('El catálogo ejecutable de la PC no está disponible')
+        return result
 
     def work_resolve(self, body):
         if not isinstance(body, dict) or set(body) != {'text'} or not isinstance(body['text'], str) or not 1 <= len(body['text'].strip()) <= 8000:
@@ -233,7 +232,6 @@ class MobileGateway:
             operation_id = record['operation_id']
             if record['device_id'] not in approved_devices:
                 continue
-            from backend.commands import ADAPTERS
             operation = self.work_operation(operation_id)
             if operation and operation['state'] == 'awaiting_approval':
                 pending.append(record)
@@ -295,6 +293,8 @@ class MobileGateway:
         return f'No se confirmó el efecto en la PC. Estado: {result.get("state", "desconocido")}. Consulta la operación {operation_id} antes de repetir.'
 
     def admit_chat(self, device_id, body):
+        if not self.share_history:
+            raise ValueError('Activa Guardar historial en el chat de la PC para compartirlo. Puedes usar Work con su permiso.')
         if set(body) - {'command_id', 'operation', 'text', 'conversation_id'} or body.get('operation') != 'chat':
             raise ValueError('Unsupported operation')
         if not isinstance(body.get('text'), str) or not 1 <= len(body['text'].strip()) <= 12000:
@@ -310,10 +310,6 @@ class MobileGateway:
         task_id = admission['task_id']
 
         user_text = body['text'].strip()
-        is_potential_cmd = user_text.startswith('/') or any(user_text.lower().startswith(p) for p in (
-            'abre ', 'abrir ', 'estado ', 'iniciar ', 'ejecutar ', 'haz ', 'crea ', 'crear ', 'cerrar ', 'leer ', 'escribe ', 'escribir '
-        ))
-
         preferences = dict(self.preferences or {})
         engine_available = preferences.get('provider') == 'bridge' and (
             preferences.get('selection_mode') == 'automatic_free' or
@@ -321,10 +317,6 @@ class MobileGateway:
         def engine_unavailable():
             self.store.finish_command(task_id, 'failed', {'error':{'code':'ENGINE_NOT_AVAILABLE',
                 'message':'Select a configured API connection in Axx. Mobile Axx Connect queries still require tool isolation verification.'}})
-        if not is_potential_cmd and not engine_available:
-            engine_unavailable()
-            return self.store.command(device_id, command_id)
-
         if not self._chat_slots.acquire(blocking=False):
             self.store.finish_command(task_id, 'failed', {'error':{'code':'BUSY','message':'Axx is busy. Your text is still saved on the phone.'}})
             return self.store.command(device_id, command_id)
@@ -335,12 +327,11 @@ class MobileGateway:
                 snapshot = self.shared.merge_messages([{'id':task_id+':user', 'role':'user', 'text':body['text'], 'at':time.time()*1000}], 'mobile', conversation_id)
 
                 # 1. If this is an explicit or recognizable command for the PC, execute/prepare it directly on the PC
-                if is_potential_cmd:
-                    pc_ans = self._execute_pc_command(device_id, user_text, conversation_id, task_id)
-                    if pc_ans is not None:
-                        self.shared.merge_messages([{'id':task_id+':assistant', 'role':'assistant', 'text':pc_ans, 'at':time.time()*1000}], 'pc', conversation_id)
-                        self.store.finish_command(task_id, 'completed', {'choices': [{'message': {'role': 'assistant', 'content': pc_ans}}]})
-                        return
+                pc_ans = self._execute_pc_command(device_id, user_text, conversation_id, task_id)
+                if pc_ans is not None:
+                    self.shared.merge_messages([{'id':task_id+':assistant', 'role':'assistant', 'text':pc_ans, 'at':time.time()*1000}], 'pc', conversation_id)
+                    self.store.finish_command(task_id, 'completed', {'choices': [{'message': {'role': 'assistant', 'content': pc_ans}}]})
+                    return
 
                 if not engine_available:
                     engine_unavailable()
@@ -513,7 +504,10 @@ class MobileGateway:
                             return
                         if path == '/v1/snapshot':
                             if self._authorize('query'):
-                                self._send(200, {'ok':True, 'data':{**gateway.shared.snapshot(), 'appearance':gateway.appearance}})
+                                device = next(d for d in gateway.store.devices() if d['device_id'] == self.device_id)
+                                snapshot = gateway.shared.snapshot() if gateway.share_history else {'conversation_id':'main','cursor':0,'messages':[]}
+                                self._send(200, {'ok':True, 'data':{**snapshot, 'appearance':gateway.appearance,
+                                    'pc_name':gateway.pc_name, 'scopes':device['scopes'], 'inference':gateway.preferences}})
                             return
                         if path not in routes:
                             self._send(404, {"ok": False, "error": {"code": "NOT_FOUND", "message": "Unknown route"}})
@@ -549,7 +543,11 @@ class MobileGateway:
                             if not self._authorize('tools.control'):return
                             self._send(200, {'ok':True,'data':gateway.work_resolve(body)});return
                         if path == "/v1/pair/claim":
-                            result = gateway.store.consume_pairing(body.get("code"), body.get("device_name", ""))
+                            if gateway.httpd is not self.server:
+                                raise PairingError('Mobile access is off')
+                            authorization = self.headers.get('Authorization', '')
+                            credential = authorization[7:] if authorization.startswith('Bearer ') else None
+                            result = gateway.store.consume_pairing(body.get("code"), body.get("device_name", ""), credential=credential)
                             gateway._last_contact = time.monotonic()
                             gateway._claimed = True
                             gateway._pairing_deadline = 0
@@ -637,7 +635,7 @@ class MobileGateway:
             endpoint = self.status()['endpoint']
             fingerprint = self._identity[2]
             pairing_uri = "axx://pair?" + urllib.parse.urlencode({"endpoint": endpoint, "fingerprint": fingerprint, "code": code})
-            return {"enabled": True, "endpoint": endpoint, "fingerprint": fingerprint,
+            return {**self.status(), "endpoint": endpoint, "fingerprint": fingerprint,
                     "pairing_code": code, "pairing_uri": pairing_uri, "expires_in": 120,
                     "scopes": ["query", "voice"]}
 

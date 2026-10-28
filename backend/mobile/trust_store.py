@@ -110,7 +110,7 @@ class MobileTrustStore:
             self._pairings[_digest(code)] = time.monotonic() + PAIRING_TTL_SECONDS
         return code
 
-    def consume_pairing(self, code, name, now=None):
+    def consume_pairing(self, code, name, now=None, *, credential=None):
         if not isinstance(code, str) or not code or not isinstance(name, str) or not name.strip():
             raise PairingError("Pairing code and device name are required")
         consumed_at = time.time() if now is None else float(now)
@@ -118,7 +118,7 @@ class MobileTrustStore:
             deadline = self._pairings.pop(_digest(code), None)
         if deadline is None or time.monotonic() >= deadline:
             raise PairingError('Pairing code is not active in this desktop session')
-        credential = secrets.token_urlsafe(32)
+        new_credential = secrets.token_urlsafe(32)
         device_id = str(uuid.uuid4())
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
@@ -129,15 +129,25 @@ class MobileTrustStore:
             if row is None or row["consumed_at"] is not None or consumed_at >= row["expires_at"]:
                 db.rollback()
                 raise PairingError("Pairing code is invalid, expired, or already used")
+            if credential is not None:
+                device = db.execute(
+                    "SELECT device_id,scopes_json FROM mobile_devices WHERE credential_hash=? AND revoked_at IS NULL",
+                    (_digest(credential),),
+                ).fetchone()
+                if device is None:
+                    raise PairingError('This phone was revoked; forget the PC before pairing again')
+                device_id, scopes = device['device_id'], device['scopes_json']
+            else:
+                credential, scopes = new_credential, row['scopes_json']
+                db.execute(
+                    "INSERT INTO mobile_devices(device_id,name,credential_hash,scopes_json,created_at) VALUES(?,?,?,?,?)",
+                    (device_id, name.strip()[:80], _digest(credential), scopes, consumed_at),
+                )
             db.execute("UPDATE mobile_pairings SET consumed_at=? WHERE pairing_hash=? AND consumed_at IS NULL",
                        (consumed_at, _digest(code)))
-            db.execute(
-                "INSERT INTO mobile_devices(device_id,name,credential_hash,scopes_json,created_at) VALUES(?,?,?,?,?)",
-                (device_id, name.strip()[:80], _digest(credential), row["scopes_json"], consumed_at),
-            )
             db.commit()
         return {"device_id": device_id, "credential": credential,
-                "scopes": json.loads(row["scopes_json"])}
+                "scopes": json.loads(scopes)}
 
     def invalidate_pairings(self):
         with self._pairing_lock:

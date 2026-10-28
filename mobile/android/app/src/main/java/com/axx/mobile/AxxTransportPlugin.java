@@ -152,7 +152,7 @@ public class AxxTransportPlugin extends Plugin {
             connection.setInstanceFollowRedirects(false);
             boolean control=path.startsWith("/v1/control/") || path.startsWith("/v1/avatar/");
             connection.setConnectTimeout(control?1500:6000);
-            connection.setReadTimeout(control?1500:75000);
+            connection.setReadTimeout(control?1500:method.equals("GET")?8000:75000);
             connection.setRequestMethod(method);
             connection.setRequestProperty("Accept", "application/json");
             if (profile.has("credential")) connection.setRequestProperty("Authorization", "Bearer " + profile.getString("credential"));
@@ -300,6 +300,9 @@ public class AxxTransportPlugin extends Plugin {
         submit(call, () -> {
             Map<String,String> fields = pairingFields(call.getString("uri", ""));
             JSONObject profile = new JSONObject().put("endpoint", fields.get("endpoint")).put("fingerprint", fields.get("fingerprint"));
+            JSONObject previous = loadProfile();
+            if (previous != null && previous.getString("fingerprint").equals(fields.get("fingerprint")))
+                profile.put("credential", previous.getString("credential"));
             JSONObject body = new JSONObject().put("code", fields.get("code")).put("device_name", android.os.Build.MODEL);
             JSONObject claimed = exchange(profile, "/v1/pair/claim", "POST", body);
             for (String field : new String[]{"device_id", "credential", "scopes"}) profile.put(field, claimed.get(field));

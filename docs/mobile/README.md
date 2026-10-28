@@ -4,6 +4,21 @@ Android is a client of the existing Windows Axx instance. It shares the desktop 
 
 ## Latest revision
 
+Windows **0.22.15** and Android **0.2.0-companion / build 21** improve the existing
+companion rather than introduce a separate assistant. The phone follows the PC's
+appearance, active shared conversation, model selection and current grants. Active
+snapshots poll every two seconds while the phone is visible. Commands use the
+desktop's resolver and executor; the searchable executable catalog also includes
+enabled MCP and approved generated capabilities. Disabled and documentary records
+are not advertised as executable. New tools appear on reopening Actions or within
+the ten-second catalog refresh while that pane remains visible.
+
+The interface now uses quieter graphite surfaces, larger type and mint accents.
+Microphone controls are collapsible and open automatically during recording.
+Work output distinguishes approval, execution, verified postconditions and an
+uncertain effect. Polling checks pending operations without resubmitting them.
+Browser tests use declared transport fixtures and do not replace Android acceptance.
+
 - Windows 0.20.21 fixes the missing QR renderer in the packaged backend. Pairing
   errors now stay visible across status refreshes; QR display no longer waits for
   history sync. The build verifies actual SVG generation from the packaged EXE.
@@ -12,13 +27,13 @@ Android is a client of the existing Windows Axx instance. It shares the desktop 
 - Scanning or opening an `axx://pair` link previews the PC address and requires confirmation. External camera links can open Axx Mobile; availability of custom-link actions depends on the camera app.
 - A new QR now keeps the gateway available for its full 120-second validity, even if an earlier device stopped polling. Previously, the old idle timer could close the gateway during the new scan.
 - Desktop pairing shows a countdown and a larger high-contrast QR. Pairing links and device management are collapsible. The desktop context menu opens a new QR directly.
-- The operational mobile UI, native messages and mobile settings cards on the PC are in English. Existing desktop screens and historical specifications retain their original language. The original mobile prototype is preserved but excluded from the operational APK.
+- The redesigned mobile shell is in Spanish; some native transport and legacy input/voice messages remain in English. The original mobile prototype is preserved but excluded from the operational APK.
 
 - Windows input monitoring now wakes immediately on messages and only installs global input hooks during a granted lease. A synthetic local hook-delivery probe improved from 48.8 ms median to 0.07 ms; this is not an end-to-end phone latency measurement.
 
 ## Pair your phone
 
-1. Open the current Axx desktop build. In conversation settings, enable **Keep history** to allow sharing that conversation.
+1. Open the current Axx desktop build. **Guardar historial** is optional for pairing; enable it in the chat to share that conversation. With sharing off, the phone receives no conversation history and uses Actions with its separate Work grant.
 2. Right-click Axx → **Connect phone · QR**, or open Settings → **Connect your phone** → **Show new QR**.
 3. Keep both devices on the same private LAN. On Android, open Axx Mobile → **Pair PC** → **Scan PC QR**.
 4. Allow the camera while using the app. Aim it at the PC QR. Check the displayed PC address, then tap **Connect**.
@@ -28,7 +43,13 @@ If camera access was denied permanently, allow it in Android Settings → Apps �
 
 For expired or already-used codes, generate a new QR on the PC. If the PC cannot be reached, keep Axx open, check the same LAN and Windows Firewall private-network access. Do not disable TLS verification. PC identity is pinned to the QR certificate fingerprint.
 
-The gateway is opt-in and shuts down after phone contact is lost; a fresh unclaimed QR reserves a two-minute pairing window. Restarting the gateway can change its port. This revision requires a new QR after that change; automatic discovery/reconnection across endpoint changes is not yet implemented.
+The gateway is opt-in. Without persistent access it shuts down after phone contact
+is lost; a fresh QR reserves two minutes. Enable **Mantener la conexión disponible
+al reiniciar Axx** on the PC to reconnect after a desktop restart without scanning.
+The saved port and certificate identity persist. A changed LAN address still needs
+a fresh QR. Rescanning the same PC now preserves the authenticated phone's device
+ID and grants; a revoked credential cannot recover them. There is no Internet relay
+or automatic LAN discovery.
 
 ## Remote input and voice
 

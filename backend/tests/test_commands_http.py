@@ -14,6 +14,20 @@ from backend.server import AxxBridgeHandler, ThreadedHTTPServer
 
 
 class CommandsHttpTests(unittest.TestCase):
+    def test_executable_catalog_requires_auth_and_tracks_live_registry(self):
+        self.assertEqual(self.request('commands/executable', auth=False)[0], 401)
+        status, catalog = self.request('commands/executable')
+        self.assertEqual(status, 200)
+        ids = {row['id'] for row in catalog['commands']}
+        expected = {key for key, row in self.commands.commands.items() if row['execution_enabled'] and key in self.commands.adapters}
+        self.assertEqual(ids, expected)
+        self.assertIn('axx.system.telemetry', ids)
+        shell = next(row for row in catalog['commands'] if row['id']=='axx.shell.powershell')
+        self.assertTrue(shell['pc_approval_required'])
+        self.commands.commands['axx.system.telemetry']['execution_enabled'] = False
+        self.assertNotIn('axx.system.telemetry', {row['id'] for row in self.request('commands/executable')[1]['commands']})
+        self.assertEqual(self.executor.list_operations(), [])
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.executor = ActionExecutor(Path(self.tmp.name) / 'state.db', Path(self.tmp.name) / 'artifacts')
