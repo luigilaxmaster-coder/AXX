@@ -14,12 +14,15 @@ const {chromium}=require(process.env.USERPROFILE+'/.cache/codex-runtimes/codex-p
   receipt.selection=await p.evaluate(()=>({stored:localStorage.getItem('axx.voice.uri'),chat:document.getElementById('chat-voice-select')?.value,
     reader:Axx.symbiosis.reader.voiceURI,dictation:Axx.voice13.reader.voiceURI,live:document.getElementById('chat-live-voice')?.value}));
   assert(Object.values(receipt.selection).every(uri=>uri===selected),'Select the voice in the installed app before acceptance; all controls must retain it');
-  for(const name of [selected,selected]){
+  const phrases=[['es','Hola, Señor. Estoy lista para ayudar con sus proyectos.'],['es','Hola, Señor. Estoy lista para ayudar con sus proyectos.']];
+  if(selected==='moss:axx-morcito')phrases.push(['en','Hello, I can help you with your projects.']);
+  for(const [language,text] of phrases){
+   const name=selected;
    assert(voices.some(v=>v.name===name),'Missing local sample: '+name);
-   await p.evaluate(name=>{const r=Axx.symbiosis.reader;r.stop();r.voiceURI=name;r.lang='es';r.rate=1;r.setText('Hola, Señor. Estoy lista para ayudar con sus proyectos.','Aceptación de voz');Axx.nativeVoice.playback=null;r.play();},name);
+   await p.evaluate(({name,language,text})=>{const r=Axx.symbiosis.reader;r.stop();r.voiceURI=name;r.lang=language;r.rate=1;r.setText(text,'Aceptación de voz');Axx.nativeVoice.playback=null;r.play();},{name,language,text});
    await p.waitForFunction(()=>['ended','error'].includes(Axx.symbiosis.reader.state),{},{timeout:180000});
    const result=await p.evaluate(()=>({state:Axx.symbiosis.reader.state,evidence:Axx.nativeVoice.playback}));
-   receipt.samples.push({voice:name,...result});console.log(JSON.stringify(receipt.samples.at(-1)));
+   receipt.samples.push({voice:name,language,...result});console.log(JSON.stringify(receipt.samples.at(-1)));
    assert.equal(result.state,'ended');assert(result.evidence.playing_event&&result.evidence.ended_event);
    if(selected.startsWith('moss:')){assert.equal(result.evidence.underruns,0);assert.equal(result.evidence.buffering,'adaptive');}
    else assert.equal(result.evidence.engine,'piper-onnx');
