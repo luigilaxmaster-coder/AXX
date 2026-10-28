@@ -86,6 +86,7 @@ The debug APK and unsigned Windows installer are local artifacts. Source push do
 
 ## Contracts and evidence
 
+- [Installed companion 0.22.16 / Android 0.2.1 verification](COMPANION-VERIFICATION-20261028-02216.md)
 - [Companion 0.22.15 / Android 0.2.0 verification](COMPANION-VERIFICATION-20261028.md)
 
 - [Pairing correction verification](PAIRING-VERIFICATION.md)
