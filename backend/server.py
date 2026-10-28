@@ -365,6 +365,7 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
             elif path == '/axx-api/speech/status':
                 self._send_json(200, {'tts': {'engine':'windows-sapi','configured':bool(self.speech and self.speech.available)},
                                      'custom': self.speech.moss.status() if self.speech else {'available': False},
+                                     'piper': self.speech.piper.status() if self.speech else {'available': False},
                                      'asr':self.transcription.status() if self.transcription else {'available':False}})
             elif path == '/axx-api/identity':
                 with self.server.action_lock:
@@ -792,7 +793,7 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                 else:
                     action = {'/axx-api/speech/stream/start': self.speech.moss.start_stream,
                               '/axx-api/speech/stream/poll': self.speech.moss.poll_stream,
-                              '/axx-api/speech/prepare': self.speech.moss.prepare}[path]
+                              '/axx-api/speech/prepare': self.speech.piper.prepare if isinstance(body.get('voice'), str) and body['voice'].startswith('piper:') else self.speech.moss.prepare}[path]
                     self._send_json(200, action(body))
             elif path == '/axx-api/speech/synthesize':
                 if not self.speech:

@@ -207,6 +207,19 @@ class DeliveryContractTests(unittest.TestCase):
         self.assertTrue(data['asr']['local_only'])
         self.assertEqual(data['asr']['max_duration_seconds'],60)
 
+    def test_piper_catalog_and_preparation_route(self):
+        voice = {'name': 'piper:es_ES-carlfm-x_low', 'label': 'Piper CarlFM',
+                 'language': 'es-ES', 'enabled': True, 'engine': 'piper-onnx'}
+        with patch.object(self.speech.piper, 'voices', return_value=[voice]), \
+             patch.object(self.speech.piper, 'prepare', return_value={'prepared_voices': [voice['name']]}) as prepare:
+            status, catalog = self.request('/axx-api/speech/voices')
+            self.assertEqual(status, 200)
+            self.assertIn(voice, catalog['voices'])
+            status, result = self.request('/axx-api/speech/prepare', {'voice': voice['name']})
+            self.assertEqual(status, 200)
+            self.assertEqual(result['prepared_voices'], [voice['name']])
+            prepare.assert_called_once_with({'voice': voice['name']})
+
     @unittest.skipUnless(os.name=='nt','Windows SAPI service requires Windows')
     def test_real_windows_speech_wav_and_input_guards(self):
         self.assertEqual(self.request('/axx-api/speech/synthesize',{'text':'x'*1201})[0],400)

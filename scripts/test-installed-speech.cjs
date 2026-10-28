@@ -1,27 +1,30 @@
-// Real installed MOSS model and WebAudio playback; no microphone/acoustic claim.
+// Real installed local model and browser playback; no microphone/acoustic claim.
 const fs=require('fs'),path=require('path'),assert=require('node:assert/strict');
 const {chromium}=require(process.env.USERPROFILE+'/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
 (async()=>{
  const b=await chromium.connectOverCDP('http://127.0.0.1:9224'),p=b.contexts()[0].pages().find(p=>p.url().includes('Axx.html'));
- const receipt={kind:'INSTALLED_SPEECH_PLAYBACK',samples:[],limitations:['Acoustic output and subjective naturalness require listening; WebAudio events only are measured here.']};
+ const receipt={kind:'INSTALLED_SPEECH_PLAYBACK',samples:[],limitations:['Acoustic output and subjective naturalness require listening; browser playback events only are measured here.']};
  let saved;
  try{
   const voices=await p.evaluate(()=>Axx.nativeVoice.refreshVoices());
   saved=await p.evaluate(()=>{const r=Axx.symbiosis.reader;return {voiceURI:r.voiceURI,lang:r.lang,rate:r.rate,text:r.text};});
-  const selected='moss:axx-sam';
-  assert(voices.some(v=>v.name===selected),'Xxx default is missing from the installed voice catalog');
+  const selected=process.env.AXX_SPEECH_VOICE||'moss:axx-sam';
+  assert(['moss:axx-sam','piper:es_ES-carlfm-x_low','piper:es_MX-ald-medium'].includes(selected),'Unsupported test voice');
+  assert(voices.some(v=>v.name===selected),'Selected voice is missing from the installed voice catalog');
   receipt.selection=await p.evaluate(()=>({stored:localStorage.getItem('axx.voice.uri'),chat:document.getElementById('chat-voice-select')?.value,
     reader:Axx.symbiosis.reader.voiceURI,dictation:Axx.voice13.reader.voiceURI,live:document.getElementById('chat-live-voice')?.value}));
-  assert(Object.values(receipt.selection).every(uri=>uri===selected),'Select Xxx default in the installed app before acceptance; all controls must retain it');
+  assert(Object.values(receipt.selection).every(uri=>uri===selected),'Select the voice in the installed app before acceptance; all controls must retain it');
   for(const name of [selected,selected]){
    assert(voices.some(v=>v.name===name),'Missing local sample: '+name);
    await p.evaluate(name=>{const r=Axx.symbiosis.reader;r.stop();r.voiceURI=name;r.lang='es';r.rate=1;r.setText('Hola, Señor. Estoy lista para ayudar con sus proyectos.','Aceptación de voz');Axx.nativeVoice.playback=null;r.play();},name);
    await p.waitForFunction(()=>['ended','error'].includes(Axx.symbiosis.reader.state),{},{timeout:180000});
    const result=await p.evaluate(()=>({state:Axx.symbiosis.reader.state,evidence:Axx.nativeVoice.playback}));
    receipt.samples.push({voice:name,...result});console.log(JSON.stringify(receipt.samples.at(-1)));
-   assert.equal(result.state,'ended');assert(result.evidence.playing_event&&result.evidence.ended_event);assert.equal(result.evidence.underruns,0);assert.equal(result.evidence.buffering,'adaptive');
+   assert.equal(result.state,'ended');assert(result.evidence.playing_event&&result.evidence.ended_event);
+   if(selected.startsWith('moss:')){assert.equal(result.evidence.underruns,0);assert.equal(result.evidence.buffering,'adaptive');}
+   else assert.equal(result.evidence.engine,'piper-onnx');
   }
-  assert(receipt.samples[1].evidence.cached_phrases>0,'Repeated speech must reuse the local audio cache');
+  if(selected.startsWith('moss:'))assert(receipt.samples[1].evidence.cached_phrases>0,'Repeated speech must reuse the local audio cache');
   receipt.result='PASS';
  }catch(e){receipt.result='FAIL';receipt.error=e.stack;throw e;}
  finally{
