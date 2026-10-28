@@ -71,3 +71,10 @@ Physical Android acceptance is deferred: no device was attached. iOS, Internet
 relay and complete phone Magic Pen/file-converter workflows remain outside this
 revision. Published status and the public installer digest are recorded separately
 in `release.json` only after GitHub confirmation.
+
+GitHub confirmed the final installer digest above on the published
+[0.22.16 prerelease](https://github.com/luigilaxmaster-coder/AXX/releases/tag/v0.22.16).
+The release tag resolves to `ff32aef363269d959ff539b2357c2ef694c1dae8`.
+The public download and README were synchronized. A subsequent normal installed
+restart passed with the native surface visible, authenticated backend ready and
+temporary WebView debugging removed. Android remained unattached at final check.
