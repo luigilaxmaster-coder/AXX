@@ -187,6 +187,10 @@ class MobileGateway:
         self.store.record_work(operation_id, device_id, body['command_id'], prepared['inputs'])
         if allowed[body['command_id']]['pc_approval_required']:
             return {**prepared, 'state': 'awaiting_pc_approval', 'pc_approval_required': True}
+        if not any(d['device_id'] == device_id and not d['revoked'] and 'tools.control' in d['scopes']
+                   for d in self.store.devices()):
+            self.backend_call('POST', '/axx-api/commands/cancel', {'operation_id': operation_id})
+            raise ValueError('El permiso Work fue revocado antes de ejecutar')
         result = self.backend_call('POST', '/axx-api/commands/execute',
                                    {'operation_id': operation_id, 'approved': True})
         if result.get('ok') is False:

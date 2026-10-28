@@ -29,6 +29,7 @@
     $('pc-dot').classList.toggle('online', connected);
     $('send').disabled = !connected || !conversationId || conversationId==='main' || !!pending || busy;
     $('recover').hidden = !pending;
+    forgetDelivery.hidden = !pending;
     if (!connected && $('sync-status').dataset.state === 'complete') syncState('offline','Sin conexión · se conserva la última apariencia recibida');
   }
   function pane(name) {
@@ -98,7 +99,8 @@
     try {
       const status = await request('/v1/status');
       if (!status.ready) throw new Error('El motor de Axx no está disponible');
-      await recover();
+      try{await recover();}
+      catch(e){$('command-state').textContent='El envío sigue sin confirmar: '+errorText(e)+'. Revisa la PC antes de repetirlo.';}
       const snapshot = await request('/v1/snapshot'); conversationId = snapshot.conversation_id; renderMessages(snapshot.messages); applyAppearance(snapshot.appearance);
       if(Array.isArray(snapshot.scopes))renderScopes(snapshot.scopes);
       if(snapshot.pc_name)$('pc-name').textContent=snapshot.pc_name;
@@ -172,6 +174,13 @@
     try { const task=await request('/v1/commands',pending); $('command-state').textContent='Task '+task.task_id+' · '+task.state; }
     catch(e){notice('No se confirmó el envío. '+errorText(e)+' Tu borrador sigue guardado.');}
     finally {busy=false; await refresh();}
+  };
+  const forgetDelivery=document.createElement('button');forgetDelivery.type='button';forgetDelivery.id='forget-delivery';forgetDelivery.hidden=!pending;forgetDelivery.textContent='Descartar seguimiento del envío';
+  $('recover').after(forgetDelivery);
+  forgetDelivery.onclick=()=>{
+    if(!window.confirm('Esto solo descarta el seguimiento del teléfono. El envío puede seguir en la PC. Revisa su conversación y actividad antes de repetirlo.'))return;
+    pending=null;localStorage.removeItem('axx.mobile.pending');connection(online,$('connection-state').textContent);
+    $('command-state').textContent='Seguimiento descartado. El borrador se conserva; no se ha reenviado ni cancelado ninguna orden en la PC.';
   };
   $('recover').onclick=()=>refresh(); $('refresh').onclick=()=>paired?refresh():showPair();
   let pendingWork=null;try{pendingWork=JSON.parse(localStorage.getItem('axx.mobile.pendingWork')||'null');}catch{}

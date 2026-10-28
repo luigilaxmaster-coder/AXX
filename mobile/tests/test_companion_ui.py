@@ -11,6 +11,7 @@ window.snapshot={conversation_id:'shared',messages:[],appearance:{settings:{form
 Capacitor.Plugins.AxxTransport.profile=async()=>({paired:true,device_id:'device',endpoint:'https://192.168.0.10:4443',fingerprint:'test',scopes});
 const baseRequest=Capacitor.Plugins.AxxTransport.request;
 Capacitor.Plugins.AxxTransport.request=async args=>{
+ if(args.path.startsWith('/v1/command?'))throw Error('PC error (404)');
  if(args.path==='/v1/snapshot')return {data:{...snapshot,scopes}};
  if(args.path==='/v1/work/catalog')return {data:{commands}};
  if(args.path==='/v1/work/execute'){sent.push(args.body);return {data:receipt};}
@@ -21,6 +22,26 @@ Capacitor.Plugins.AxxTransport.request=async args=>{
 
 
 class CompanionUI(unittest.TestCase):
+    def test_unconfirmed_delivery_does_not_break_reconnection_or_resend(self):
+        with sync_playwright() as p:
+            page=self.open(p)
+            page.evaluate('''()=>{
+              localStorage.setItem('axx.mobile.pending',JSON.stringify({command_id:'unconfirmed',text:'Mi borrador'}));
+              localStorage.setItem('axx.mobile.draft','Mi borrador');
+            }''')
+            page.reload()
+            page.locator('#sync-status[data-state=complete]').wait_for()
+            # The fixture has no command receipt: its pending lookup must not
+            # turn an authenticated snapshot into a disconnected PC.
+            page.wait_for_function('()=>document.querySelector("#command-state").textContent.includes("sin confirmar")')
+            self.assertTrue(page.locator('#pc-dot.online').is_visible())
+            self.assertTrue(page.locator('#send').is_disabled())
+            page.on('dialog',lambda dialog:dialog.accept())
+            page.locator('#forget-delivery').click()
+            self.assertEqual(page.locator('#draft').input_value(),'Mi borrador')
+            self.assertTrue(page.locator('#send').is_enabled())
+            self.assertEqual(page.evaluate('sent.length'),0)
+
     def open(self, playwright, width=390):
         browser=playwright.chromium.launch()
         page=browser.new_page(viewport={'width':width,'height':844},reduced_motion='reduce')

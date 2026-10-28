@@ -12,6 +12,28 @@ from backend.mobile.gateway import MobileGateway
 
 
 class GatewayTests(unittest.TestCase):
+    def test_work_revoked_during_preparation_is_cancelled_without_execution(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            calls=[]
+            def backend(method,path,body):
+                calls.append(path)
+                if path.endswith('/executable'):
+                    return {'commands':[{'id':'axx.system.telemetry','pc_approval_required':False}]}
+                if path.endswith('/prepare'):
+                    gateway.store.set_tool_permission(device['device_id'],False)
+                    return {**body,'state':'prepared'}
+                if path.endswith('/cancel'):return {'state':'cancelled'}
+                raise AssertionError('Unexpected execution: '+path)
+            gateway=MobileGateway(Path(tmp)/'state.db',tmp,backend)
+            try:
+                device=gateway.store.consume_pairing(gateway.store.create_pairing(),'Phone')
+                gateway.store.set_tool_permission(device['device_id'],True)
+                with self.assertRaisesRegex(ValueError,'revocado'):
+                    gateway.work_execute(device['device_id'],{'command_id':'axx.system.telemetry','inputs':{},
+                        'operation_id':str(uuid.uuid4()),'approved':False})
+                self.assertEqual(calls,['/axx-api/commands/executable','/axx-api/commands/prepare','/axx-api/commands/cancel'])
+            finally:gateway.close()
+
     def test_tls_rescan_preserves_grants_and_snapshot_reflects_pc_changes(self):
         with tempfile.TemporaryDirectory() as tmp:
             gateway=MobileGateway(Path(tmp)/'state.db',tmp,lambda *args:{},pc_name='Mi PC',host_resolver=lambda:'127.0.0.1')
