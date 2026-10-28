@@ -4,7 +4,7 @@ Android is a client of the existing Windows Axx instance. It shares the desktop 
 
 ## Latest revision
 
-Windows **0.22.15** and Android **0.2.0-companion / build 21** improve the existing
+Windows **0.22.16** and Android **0.2.1-companion / build 22** improve the existing
 companion rather than introduce a separate assistant. The phone follows the PC's
 appearance, active shared conversation, model selection and current grants. Active
 snapshots poll every two seconds while the phone is visible. Commands use the
@@ -74,6 +74,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-windows.ps1
 ```
 
 Browser tests require Python Playwright and Chromium. The APK is `mobile/android/app/build/outputs/apk/debug/app-debug.apk`. Install with `adb install --no-streaming -r <apk>`; preserve the existing signing certificate and app data. The Windows installer is generated under `src-tauri/target/release/bundle/nsis/`. Before upgrading Windows Axx, close it and run `python scripts/backup-mobile-upgrade.py` to preserve and verify data, WebView storage and the previous installation.
+
+The recovery copy includes credentials, databases, custom voices/models and the
+previous installation. It omits historical backups, downloaded `node_modules`,
+Python bytecode caches and temporary directories inside Axx data. Omitted paths
+are recorded in `excluded-directories.json`; a full profile restoration may need
+to recreate those dependency caches. Updating the installed app does not remove
+the original caches or private voice files.
 
 The debug APK and unsigned Windows installer are local artifacts. Source push does not publish a GitHub release or update the older installer linked in the root README.
 
