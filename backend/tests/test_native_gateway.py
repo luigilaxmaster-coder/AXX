@@ -152,7 +152,7 @@ def configured_bridge(mode='normal', *, wrong_gateway_token=False, wrong_native_
               'gateway_token': 'wrong-token' if wrong_gateway_token else gateway.token}
     bridge = None
     with patch('backend.mcp_host.native_bridge.load_gateway_config', return_value=config), \
-            patch('backend.mcp_host.native_bridge.verify_wsl_network'):
+            patch('backend.mcp_host.native_gateway.verify_wsl_network'):
         try:
             bridge = NativeMcpBridge('unused-owned-fixture')
             yield bridge, gateway

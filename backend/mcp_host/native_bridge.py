@@ -11,7 +11,7 @@ import threading
 import time
 
 from .client_manager import Transport
-from .native_gateway import GATEWAY_TOOL, load_gateway_config, verify_wsl_network
+from .native_gateway import GATEWAY_TOOL, GatewayUnavailable, load_gateway_config, ensure_gateway
 
 
 NATIVE_TOOLS = frozenset({
@@ -38,6 +38,7 @@ class NativeMcpBridge:
         self.closed = False
         self.gateway = None
         self.configuration_error = False
+        self.state_dir = state_dir
         try:
             self.gateway = load_gateway_config(state_dir)
         except (OSError, ValueError, RuntimeError, TypeError, KeyError):
@@ -55,10 +56,10 @@ class NativeMcpBridge:
     def _start(self, cancelled):
         if self.configuration_error:
             raise ValueError('Configuración de gateway inválida; se bloquea la entrada nativa')
-        if self.transport and not self.transport.closed: return
         if self.closed: raise ValueError('Fachada MCP cerrada')
         if self.gateway:
-            verify_wsl_network(self.gateway)
+            ensure_gateway(self.gateway,self.state_dir,cancelled)
+        if self.transport and not self.transport.closed: return
         if self.server is None:
             import uvicorn
             from mcp.server.fastmcp import FastMCP
@@ -186,10 +187,11 @@ class NativeMcpBridge:
             self.state = 'verified' if result.success else 'error'
             return result
         except Exception as exc:
+            was_cancelled = cancelled.is_set()
             cancelled.set()
             self.state = 'error'
-            return ToolResult(False, error='Fallo de transporte MCP nativo: ' + type(exc).__name__,
-                              evidence={'effect_uncertain': bool(item and item['started']), 'cancelled': True,
+            return ToolResult(False, error=str(exc) if isinstance(exc,GatewayUnavailable) else 'La conexión de control del PC falló antes de confirmar el resultado (' + type(exc).__name__ + ').',
+                              evidence={'effect_uncertain': bool(item and item['started']), 'cancelled': was_cancelled,
                                         'native_started': bool(item and item['started']),
                                         'transport': 'anythingmcp_streamable_http' if self.gateway or self.configuration_error else 'mcp_streamable_http',
                                         'native_operation_id': operation_id})
