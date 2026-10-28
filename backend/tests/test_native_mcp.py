@@ -23,6 +23,7 @@ class NativeMcpTests(unittest.TestCase):
             self.assertEqual(result.error,'Pasarela no disponible');self.assertEqual(calls,[])
             self.assertTrue(cancelled.is_set())
             from backend.actions.executor import ActionExecutor
+            from backend.commands import CommandService
             with tempfile.TemporaryDirectory() as folder, ActionExecutor(Path(folder)/'state.db',folder) as executor:
                 executor.native_bridge=bridge
                 executor.dynamic_tools['desktop_list_windows']=SimpleNamespace(parameter_names=set(),
@@ -31,6 +32,14 @@ class NativeMcpTests(unittest.TestCase):
                     receipt=executor.execute_action('desktop_list_windows',{},'offline-ledger')
                 self.assertEqual(receipt['state'],'failed');self.assertEqual(receipt['dispatch_status'],'rejected')
                 self.assertEqual(executor.get_operation('offline-ledger')['state'],'failed')
+                commands=CommandService(executor)
+                try:
+                    prepared=commands.prepare('axx.desktop.list_windows',{})
+                    with patch.object(bridge,'_start',side_effect=GatewayUnavailable('Pasarela no disponible')):
+                        result=commands.execute(prepared['operation_id'])
+                    self.assertEqual(result['state'],'failed')
+                    self.assertEqual(result['error']['message'],'Pasarela no disponible')
+                finally:commands.close()
         finally:bridge.close()
 
     def test_browser_workflows_use_the_same_admitted_native_route(self):
