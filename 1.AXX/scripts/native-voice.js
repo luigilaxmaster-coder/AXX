@@ -11,7 +11,7 @@
     if (privacyDetail?.tagName === 'P') privacyDetail.textContent = 'Dictado local con Whisper. El audio del micrófono no se envía a un proveedor de IA. Termina la captura para colocar la frase reconocida.';
     const cancelWorker = () => state.cancelPromise = Axx.backendRequest('POST', '/axx-api/speech/cancel', {}).catch(() => {});
     const showVoiceStatus = (message, phase = 'idle') => {
-        for (const id of ['native-reader-engine', 'chat-voice-status', 'chat-live-voice-status']) {
+        for (const id of ['native-reader-engine', 'chat-voice-status', 'chat-live-voice-status', 'voice-panel-status']) {
             const info = document.getElementById(id);
             if (info) { info.setAttribute('role', 'status'); info.dataset.phase = phase; info.textContent = message; }
         }
@@ -28,10 +28,10 @@
     }
     state.prepareVoice = voice => {
         const ticket = state.prepareTicket = (state.prepareTicket || 0) + 1;
-        if (!voice?.startsWith('moss:')) { showVoiceStatus('Voz del sistema seleccionada. Pulsa Probar voz para escucharla.'); return; }
+        if (!voice?.startsWith('moss:') && !voice?.startsWith('piper:')) { showVoiceStatus('Voz del sistema seleccionada. Pulsa Probar voz para escucharla.'); return; }
         const selected = state.voices.find(item => item.name === voice);
-        if (!selected) { showVoiceStatus('La voz seleccionada no está disponible. Comprueba MOSS y su muestra local; después pulsa Actualizar voces.', 'error'); return; }
-        const label = (selected.label || selected.name).split(' · ')[0];
+        if (!selected) { showVoiceStatus('La voz seleccionada no está disponible. Revisa su instalación en Voces de Axx y pulsa Actualizar voces.', 'error'); return; }
+        const label = selected.engine === 'piper-onnx' ? (selected.label || selected.name).split(' · ').slice(0, 3).join(' · ') : (selected.label || selected.name).split(' · ')[0];
         showVoiceStatus(label + ' · Preparando el modelo local… La primera carga puede tardar varios segundos.', 'loading');
         void Axx.prepareSpeechAudio?.();
         void (async () => {
@@ -41,7 +41,9 @@
                 if (ready) { showVoiceStatus(label + ' · Lista para hablar. Pulsa Probar voz para escucharla.', 'ready'); return; }
                 await new Promise(resolve => setTimeout(resolve, 500));
                 if (ticket !== state.prepareTicket) return;
-                status = (await Axx.backendRequest('GET', '/axx-api/speech/status')).custom;
+                const report = await Axx.backendRequest('GET', '/axx-api/speech/status');
+                status = voice.startsWith('piper:') ? report.piper : report.custom;
+                if (status?.error) throw new Error(status.error);
                 if (!status?.preparing_voice && !status?.prepared_voices?.includes(voice))
                     status = await Axx.backendRequest('POST', '/axx-api/speech/prepare', { voice });
             }
@@ -71,11 +73,14 @@
             const effectiveURI = savedURI ?? defaultURI;
             for (const reader of [Axx.symbiosis?.reader, Axx.voice13?.reader])
                 if (reader) reader.voiceURI = effectiveURI;
-            for (const [id, reader] of [['reader-voice', Axx.symbiosis?.reader], ['v13-voice', Axx.voice13?.reader], ['chat-voice-select', Axx.symbiosis?.reader], ['chat-live-voice', Axx.symbiosis?.reader]]) {
+            for (const [id, reader] of [['reader-voice', Axx.symbiosis?.reader], ['v13-voice', Axx.voice13?.reader], ['chat-voice-select', Axx.symbiosis?.reader], ['voice-panel-select', Axx.symbiosis?.reader], ['chat-live-voice', Axx.symbiosis?.reader]]) {
                 const select = document.getElementById(id); if (!select) continue;
                 select.replaceChildren(new Option('Voz rápida de Windows · automática', ''));
-                for (const voice of state.voices) select.add(new Option(voice.engine === 'moss-onnx' ? (voice.label || voice.name) : (voice.label || voice.name) + ' · ' + voice.language, voice.engine === 'moss-onnx' ? voice.name : 'sapi:' + voice.name));
+                for (const voice of state.voices) select.add(new Option(voice.engine === 'moss-onnx' || voice.engine === 'piper-onnx' ? (voice.label || voice.name) : (voice.label || voice.name) + ' · ' + voice.language, voice.engine === 'moss-onnx' || voice.engine === 'piper-onnx' ? voice.name : 'sapi:' + voice.name));
                 if (!hasDefault) { const missing = new Option('Xxx default · no disponible', 'moss:axx-sam'); missing.disabled = true; select.add(missing); }
+                for (const [uri, label] of [['piper:es_ES-carlfm-x_low', 'Piper · España · CarlFM · no instalada'], ['piper:es_MX-ald-medium', 'Piper · México · Ald · no instalada']]) {
+                    if (!state.voices.some(v => v.name === uri)) { const missing = new Option(label, uri); missing.disabled = true; select.add(missing); }
+                }
                 for (const wv of webVoices) select.add(new Option(wv.name + ' · ' + wv.lang + ' (Sistema)', 'web:' + wv.voiceURI));
                 const targetVal = reader?.voiceURI || effectiveURI || '';
                 if ([...select.options].some(o => o.value === targetVal)) select.value = targetVal;
@@ -91,9 +96,10 @@
             const host = document.getElementById('view-reader');
             if (host && !document.getElementById('native-reader-engine')) {
                 const info = document.createElement('p'); info.id = 'native-reader-engine'; info.className = 'micro-copy';
-                info.textContent = state.voices.some(v => v.engine === 'moss-onnx') ? 'Voces Axx: audio progresivo en español e inglés. El modelo se prepara al abrir Axx y la voz al seleccionarla; la primera preparación puede tardar.' : 'Lectura local Windows SAPI. Elige una voz instalada.';
+                info.textContent = 'Elige una voz local en Voces de Axx. MOSS y Piper pueden tardar en preparar el modelo la primera vez.';
                 host.prepend(info);
             }
+            Axx.stability20?.updateVoiceCards?.();
             state.prepareVoice(effectiveURI);
             return state.voices;
         }).catch(error => {
@@ -126,7 +132,7 @@
         if (!text) return;
         const generation = this.generation;
         const request = { text, voice: this.nativeVoiceName,
-            rate: Math.max(-5, Math.min(5, Math.round((this.rate - 1) * 5))), volume: 100 };
+            rate: this.nativeVoiceName.startsWith('piper:') ? 0 : Math.max(-5, Math.min(5, Math.round((this.rate - 1) * 5))), volume: 100 };
         const prefetch = { index, generation, promise: Axx.backendRequest('POST', '/axx-api/speech/synthesize', request) };
         this.nativePrefetch = prefetch;
         this.nativePending = true;
@@ -172,12 +178,12 @@
             try {
                 const voices = await state.refreshVoices();
                 if (generation !== this.generation) return;
-                const requested = this.voiceURI?.startsWith('sapi:') ? this.voiceURI.slice(5) : this.voiceURI?.startsWith('moss:') ? this.voiceURI : '';
-                if (requested.startsWith('moss:') && !voices.some(v => v.name === requested))
-                    throw new Error('La voz Axx seleccionada no está disponible. Comprueba su muestra local y vuelve a seleccionarla.');
+                const requested = this.voiceURI?.startsWith('sapi:') ? this.voiceURI.slice(5) : /^(moss|piper):/.test(this.voiceURI || '') ? this.voiceURI : '';
+                if (/^(moss|piper):/.test(requested) && !voices.some(v => v.name === requested))
+                    throw new Error('La voz seleccionada no está disponible. Revisa su instalación en Voces de Axx.');
                 const voice = voices.find(v => v.name === requested)
-                    || voices.find(v => v.engine !== 'moss-onnx' && v.language?.startsWith(this.lang.slice(0, 2)))
-                    || voices.find(v => v.engine !== 'moss-onnx') || voices[0];
+                    || voices.find(v => v.engine !== 'moss-onnx' && v.engine !== 'piper-onnx' && v.language?.startsWith(this.lang.slice(0, 2)))
+                    || voices.find(v => v.engine !== 'moss-onnx' && v.engine !== 'piper-onnx') || voices[0];
                 if (!voice) throw new Error('No hay una voz de Windows habilitada.');
                 if (voice.engine === 'moss-onnx' && Axx.CustomSpeechStream) {
                     await state.cancelPromise;
@@ -188,7 +194,7 @@
                     await stream.play(); return;
                 }
                 this.nativePending = true;
-                const data = carried ? await carried.promise : await Axx.backendRequest('POST', '/axx-api/speech/synthesize', { text, voice: voice.name, rate: Math.max(-5, Math.min(5, Math.round((this.rate - 1) * 5))), volume: 100 });
+                const data = carried ? await carried.promise : await Axx.backendRequest('POST', '/axx-api/speech/synthesize', { text, voice: voice.name, rate: voice.engine === 'piper-onnx' ? 0 : Math.max(-5, Math.min(5, Math.round((this.rate - 1) * 5))), volume: 100 });
                 if (generation !== this.generation) return;
                 this.nativePending = false;
                 if (carried && this.nativePrefetch === carried) this.nativePrefetch = null;
@@ -196,7 +202,7 @@
                 const binary = atob(data.audio_base64), bytes = Uint8Array.from(binary, character => character.charCodeAt(0));
                 const url = URL.createObjectURL(new Blob([bytes], { type: data.mime })); this.nativeAudioUrl = url;
                 const audio = new Audio(url); this.nativeAudio = audio;
-                if (data.engine === 'moss-onnx') audio.playbackRate = Math.max(.75,Math.min(1.3,Number(this.rate)||1));
+                if (data.engine === 'moss-onnx' || data.engine === 'piper-onnx') audio.playbackRate = Math.max(.75,Math.min(1.3,Number(this.rate)||1));
                 const valid = () => generation === this.generation && this.nativeAudio === audio;
                 audio.onplaying = () => { if (!valid()) return; this.state = 'speaking'; this.nativeVoiceName = voice.name; state.playback = { engine: data.engine, voice: data.voice, sha256: data.evidence?.sha256, playing_event: true, ended_event: false, duration_seconds: data.duration_seconds }; this.prefetchNativeNext(); this.onChange?.(); };
                 audio.onended = () => { if (!valid()) return; if (state.playback) state.playback.ended_event = true; this.nativeAudio = null; this.current = null; URL.revokeObjectURL(url); this.nativeAudioUrl = null; this.offset = this.wordOffset = this.wordLength = 0; if (++this.index < this.chunks.length) this.speakCurrent(); else { this.index = Math.max(0, this.chunks.length - 1); this.state = this.awaitingText ? 'waiting' : 'ended'; this.onChange?.(); if (!this.awaitingText) this.onEnded?.(); } };
@@ -206,7 +212,7 @@
                 if (generation !== this.generation) return;
                 this.nativePending = false;
                 this.cancelUtterance();
-                if (!this.voiceURI?.startsWith('moss:') && !window.__contractCalls && 'speechSynthesis' in window) {
+                if (!/^(moss|piper):/.test(this.voiceURI || '') && !window.__contractCalls && 'speechSynthesis' in window) {
                     try { browserSpeak.call(this); return; } catch { }
                 }
                 this.state = 'error'; this.onChange?.(); this.onError?.(error instanceof Error ? error.message : String(error));

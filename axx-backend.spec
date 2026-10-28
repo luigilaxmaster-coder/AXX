@@ -15,6 +15,7 @@ a = Analysis(
            ('scripts/configure-native-gateway.py', 'scripts'),
            ('scripts/anythingmcp-local.py', 'scripts'),
            ('backend/speech/moss_worker.py', 'speech'),
+           ('resources/piper_worker.py', 'speech'),
            ('backend/speech/speech_text.py', 'speech'),
            ('backend/actions/uia_worker.ps1', 'backend/actions'),
            ('backend/actions/uia_observer.ps1', 'backend/actions'),

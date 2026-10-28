@@ -63,13 +63,16 @@ class WindowsSpeechService:
         self._voices_lock = threading.RLock()
         self._cached_voices = None
         from .moss_tts import MossSpeechService
+        from .piper_tts import PiperSpeechService
         self.moss = MossSpeechService(data_dir)
-        self.available = self.available or self.moss.available
+        self.piper = PiperSpeechService(data_dir)
+        self.available = self.available or self.moss.available or self.piper.available
         self.moss.start_warmup()
 
     def close(self):
         self.cancel_active()
         self.moss.close()
+        self.piper.close()
 
     def cancel_active(self):
         with self._lock:
@@ -77,7 +80,7 @@ class WindowsSpeechService:
         for process, job, cancelled in active:
             cancelled.set()
             terminate_process_tree(process, job)
-        return len(active) + self.moss.cancel_active()
+        return len(active) + self.moss.cancel_active() + self.piper.cancel_active()
 
     def _run(self, request):
         if not self.available:
@@ -138,7 +141,7 @@ class WindowsSpeechService:
                 self._active.pop(run_id, None)
 
     def voices(self):
-        moss_voices = self.moss.voices()
+        moss_voices = self.moss.voices() + self.piper.voices()
         if not self.executable.is_file():
             return {'engine': 'local', 'available': bool(moss_voices), 'voices': moss_voices,
                     'external_calls': 0, 'microphone_access': False}
@@ -155,6 +158,8 @@ class WindowsSpeechService:
     def synthesize(self, body):
         if isinstance(body, dict) and isinstance(body.get('voice'), str) and body['voice'].startswith('moss:'):
             return self.moss.synthesize(body)
+        if isinstance(body, dict) and isinstance(body.get('voice'), str) and body['voice'].startswith('piper:'):
+            return self.piper.synthesize(body)
         if set(body) - {'text','voice','rate','volume'}:
             raise SpeechError('INVALID_REQUEST', 'Unsupported speech fields')
         text, voice, rate, volume = body.get('text'), body.get('voice'), body.get('rate',0), body.get('volume',100)
