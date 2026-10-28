@@ -42,9 +42,22 @@ Son capturas de presentación en Chromium aislado. No incluyen códigos de empar
 | [axx-dock.png](../axx-dock.png) | `a97ce1f`, 21 de octubre de 2026 | Imagen histórica de conversación. El método de captura no está documentado aquí; no se presenta como evidencia del ejecutable instalado actual. |
 | [axx-settings.png](../axx-settings.png) | `a97ce1f`, 21 de octubre de 2026 | Imagen histórica de herramientas y conexiones. No demuestra autenticación, inferencia ni operaciones ejecutadas. |
 
-## Vídeo conceptual actual
+## Video actual de presentación
 
-[axx-presentation.mp4](../../media/axx-presentation.mp4) y su [portada](../axx-video-preview.jpg) se incorporaron en `d81e595`, el 21 de octubre de 2026. Es una presentación conceptual con audio: 10 segundos, 1280 × 720. No se usa como aceptación funcional ni como demostración de voz física.
+[axx-presentation.mp4](../../media/axx-presentation.mp4) y su [portada](../axx-video-preview.jpg)
+se renovaron el 27 de octubre de 2026. El video se compone de las tres capturas
+nativas de 0.22.12 descritas arriba: títulos, encuadres y fundidos creados fuera
+de la aplicación, sin nuevas interacciones ni capturas de escritorio. La portada
+es el frame del segundo 2. Los PNG originales permanecen sin retocar.
+
+Se comprobaron los 450 frames decodificados, resolución 1280 × 720, duración
+de 15 segundos y ausencia de audio. SHA-256 del MP4:
+`2169646f59d9b3e55dd34e7f222c14fcc02e03d485aae2ab04346cbbd72f0589`.
+Los títulos indican la versión y el alcance de presentación. No demuestra
+gestos nuevos, latencia de una tarea, reproducción de voz ni aceptación de 0.22.14.
+
+Sustituye al video conceptual de 10 segundos con audio incorporado en `d81e595`
+el 21 de octubre; ese registro histórico no describe el archivo actual.
 
 ## Renovación y validación
 

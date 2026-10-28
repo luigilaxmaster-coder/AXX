@@ -24,7 +24,7 @@ Source is **v0.22.14**; the published Windows installer is **v0.22.11**. Deliver
 
 [![Ver la presentación de Axx](docs/images/axx-video-preview.jpg)](https://github.com/luigilaxmaster-coder/AXX/raw/refs/heads/main/docs/media/axx-presentation.mp4)
 
-El vídeo actual es conceptual; su sustitución por una grabación nativa está pendiente. Las nuevas capturas de Magic Pen proceden del candidato Windows **0.22.12**, con captura e inferencia reales. El fondo transparente del WebView aparece negro. No acreditan aceptación de 0.22.14. [Procedencia y límites](docs/images/showcase/README.md).
+El vídeo nuevo presenta las capturas nativas de Magic Pen del candidato Windows **0.22.12**, con captura e inferencia reales. Dura 15 segundos y no incluye audio ni nuevas acciones grabadas. El fondo transparente del WebView aparece negro. Estos medios no acreditan aceptación de 0.22.14. [Procedencia y límites](docs/images/showcase/README.md).
 
 <p align="center">
   <a href="docs/images/showcase/magic-pen-native-response-0.22.12.png"><img src="docs/images/showcase/magic-pen-native-response-0.22.12.png" alt="Respuesta visual real de Magic Pen en el candidato Windows 0.22.12" width="760" /></a>

@@ -13,7 +13,7 @@ La descarga confirmada de GitHub continúa en 0.22.11, según `release.json`.
 | Xxx default | Catálogo y síntesis HTTP instalada: PASS | PCM real estéreo de 48 kHz, 4,4 s; segunda solicitud usa caché con el mismo hash. Selección persistente, Web Audio instalado y altavoces pendientes. |
 | Magic Pen | Candidato 0.22.12: 12 checks instalados y clics Windows PASS | Fuentes del nuevo diseño conservadas. Aceptación instalada de 0.22.14 pendiente. |
 | Control del PC | Correcciones de identidad, captura fresca y serialización integradas y probadas por contratos | Pendiente concesión humana manual y ensayo real de dos ventanas en 0.22.14. |
-| Fotos y video | Tres capturas nativas nuevas, identificadas como 0.22.12 | Video actual conceptual; grabación nativa nueva pendiente. |
+| Fotos y video | Tres capturas nativas y video nuevo de presentación, identificados como 0.22.12 | Video de 15 s, 450 frames decodificados, sin audio. Grabación de acciones de 0.22.14 pendiente. |
 | Investigación | Laboratorio M01–M15 revisado, sin promoción | Currículo incompleto y M15 bloqueado; no acredita ejecución en Axx. |
 | Publicación | PENDIENTE | No se ha publicado un asset 0.22.14 ni se declara su hash confirmado por GitHub. |
 
