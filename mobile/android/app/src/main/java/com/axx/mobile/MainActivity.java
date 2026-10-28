@@ -14,5 +14,8 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(AxxTransportPlugin.class);
         registerPlugin(AxxVoicePlugin.class);
         super.onCreate(savedInstanceState);
+        // App sizing is independent of Android; the system text option remains available in PC settings.
+        boolean systemText = getSharedPreferences("axx_display", MODE_PRIVATE).getBoolean("system_text", false);
+        getBridge().getWebView().getSettings().setTextZoom(systemText ? Math.round(getResources().getConfiguration().fontScale * 100) : 100);
     }
 }

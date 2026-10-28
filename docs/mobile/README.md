@@ -4,7 +4,12 @@ Android is a client of the existing Windows Axx instance. It shares the desktop 
 
 ## Latest revision
 
-Windows **0.22.16** and Android **0.2.1-companion / build 22** improve the existing
+[Visual redesign and physical checks for 0.2.3](VISUAL-REVISION-20261028-023.md).
+
+[Previous 0.2.2 verification](MINIMAL-UI-20261028-022.md).
+
+
+Android **0.2.3-companion / build 24** improves the existing Windows-linked
 companion rather than introduce a separate assistant. The phone follows the PC's
 appearance, active shared conversation, model selection and current grants. Active
 snapshots poll every two seconds while the phone is visible. Commands use the
@@ -13,7 +18,7 @@ enabled MCP and approved generated capabilities. Disabled and documentary record
 are not advertised as executable. New tools appear on reopening Actions or within
 the ten-second catalog refresh while that pane remains visible.
 
-The interface now uses quieter graphite surfaces, larger type and mint accents.
+The interface uses four focused tabs with light surfaces and a single home entry to chat. Character gestures and remote microphone controls live in a separate sheet. The obsolete prototype stylesheet is excluded from the operational entrypoint. The app defaults to standard text sizing (100%); PC → Tamaño del texto → Del teléfono follows Android accessibility sizing instead. Android system settings are unchanged. Both modes were checked on the physical Samsung, including its 299-point viewport with the keyboard open. Remote input surfaces share the new light design.
 Microphone controls are collapsible and open automatically during recording.
 Work output distinguishes approval, execution, verified postconditions and an
 uncertain effect. Polling checks pending operations without resubmitting them.
@@ -27,7 +32,7 @@ Browser tests use declared transport fixtures and do not replace Android accepta
 - Scanning or opening an `axx://pair` link previews the PC address and requires confirmation. External camera links can open Axx Mobile; availability of custom-link actions depends on the camera app.
 - A new QR now keeps the gateway available for its full 120-second validity, even if an earlier device stopped polling. Previously, the old idle timer could close the gateway during the new scan.
 - Desktop pairing shows a countdown and a larger high-contrast QR. Pairing links and device management are collapsible. The desktop context menu opens a new QR directly.
-- The redesigned mobile shell is in Spanish; some native transport and legacy input/voice messages remain in English. The original mobile prototype is preserved but excluded from the operational APK.
+- The mobile shell and remote input controls are in Spanish; some native transport and legacy voice errors remain in English. The original mobile prototype is preserved but excluded from the operational APK.
 
 - Windows input monitoring now wakes immediately on messages and only installs global input hooks during a granted lease. A synthetic local hook-delivery probe improved from 48.8 ms median to 0.07 ms; this is not an end-to-end phone latency measurement.
 

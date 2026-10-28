@@ -16,7 +16,7 @@
   function syncState(state, text) {
     $('sync-status').hidden = false;
     $('sync-status').dataset.state = state;
-    $('sync-text').textContent = text;
+    $('sync-text').textContent = state==='complete'?'Sincronizado':text;
   }
   const request = async (path, body) => {
     if (!transport) throw new Error('Abre Axx Mobile instalada en Android para conectarte.');
@@ -25,6 +25,7 @@
   };
   function connection(connected, text) {
     online = connected;
+    document.body.dataset.online=String(connected);
     $('connection-state').textContent = text;
     $('pc-dot').classList.toggle('online', connected);
     $('send').disabled = !connected || !conversationId || conversationId==='main' || !!pending || busy;
@@ -39,6 +40,7 @@
     }
     avatar?.setHidden(name !== 'axx');
     if (name === 'axx') avatar?.resize();
+    if (name === 'chat') $('messages').scrollTop=$('messages').scrollHeight;
     if (name === 'work') void refreshWorkCatalog();
     window.scrollTo(0,0);
   }
@@ -64,13 +66,14 @@
   }
   function renderMessages(messages) {
     const key=JSON.stringify(messages);if(key===messageKey)return;messageKey=key;
+    const log=$('messages'),follow=log.scrollHeight-log.scrollTop-log.clientHeight<48;
     const nodes = messages.map(message => {
       const node = document.createElement('div'); node.className = 'message '+message.role;
-      const label = document.createElement('small'); label.textContent = (message.role === 'user' ? 'You' : 'Axx')+' · '+(message.source === 'mobile' ? 'Phone' : 'PC');
+      const label = document.createElement('small'); label.textContent = (message.role === 'user' ? 'Tú' : 'Axx')+' · '+(message.source === 'mobile' ? 'Teléfono' : 'PC');
       node.append(label, document.createTextNode(message.text)); return node;
     });
     if (!nodes.length) { const p = document.createElement('p'); p.textContent = 'Todavía no hay mensajes compartidos.'; nodes.push(p); }
-    $('messages').replaceChildren(...nodes);
+    log.replaceChildren(...nodes);if(follow)log.scrollTop=log.scrollHeight;
   }
   function renderRows(id, items, empty, kind) {
     const nodes = items.map(item => {
@@ -85,7 +88,7 @@
   async function recover() {
     if (!pending) return;
     const task = await request('/v1/command?command_id='+encodeURIComponent(pending.command_id));
-    $('command-state').textContent = 'Task '+task.task_id+' · '+task.state;
+    $('command-state').textContent = chatReceipt(task);
     if (['completed','failed','outcome_unknown'].includes(task.state)) {
       if (task.state !== 'completed') notice(task.result?.error?.message || 'Resultado sin confirmar. Revisa la tarea en la PC antes de repetir.');
       if (task.state === 'completed' && $('draft').value === pending.text) { $('draft').value=''; localStorage.removeItem('axx.mobile.draft'); }
@@ -105,12 +108,12 @@
       if(Array.isArray(snapshot.scopes))renderScopes(snapshot.scopes);
       if(snapshot.pc_name)$('pc-name').textContent=snapshot.pc_name;
       const inference=snapshot.inference;
-      $('model-state').textContent=inference?.selection_mode==='automatic_free'?'Conexión de la PC · Automático gratis':inference?.model?'Modelo de la PC · '+inference.model:'El modelo y la conexión se eligen en tu PC.';
-      $('draft-state').textContent=conversationId==='main'?'Activa Guardar historial en el chat de la PC para compartirlo. Puedes usar Acciones con permiso Work.':'Compartes el chat activo de la PC. Las órdenes conservan sus permisos y aprobaciones.';
+      $('model-state').textContent=inference?.selection_mode==='automatic_free'?'Automático gratis':inference?.model||'Modelo de tu PC';
+      $('draft-state').textContent=conversationId==='main'?'Activa «Guardar historial» en el chat del PC para compartirlo.':'Chat del PC · mismas aprobaciones';
       $('connection-detail').textContent='Última respuesta autenticada · '+new Date().toLocaleTimeString('es',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
       try{const tasks=await request('/v1/tasks');renderRows('tasks',tasks.operations||[],'Todavía no hay operaciones registradas.','task');}
       catch(e){$('tasks').textContent='No se pudo cargar la actividad: '+errorText(e);}
-      connection(true, 'Conectado a tu PC · sincronización activa');
+      connection(true, 'Conectado');
       if(pendingWork)await checkWork(false);
       if(!$('pane-work').hidden && Date.now()-lastCatalogAt>10000)await refreshWorkCatalog();
       if (linking) {
@@ -118,7 +121,7 @@
         syncState('complete', 'Tu Axx está sincronizado'); linking=false;
         $('avatar-state').textContent='El mismo Axx de tu PC';
       }
-      if(snapshot.appearance && !linking)syncState('complete',conversationId==='main'?'Apariencia sincronizada · conversación sin compartir':'Apariencia y conversación recibidas de tu PC');
+      if(snapshot.appearance && !linking)syncState('complete','Sincronizado con tu PC');
       return true;
     } catch(e) { connection(false, 'Sin conexión · '+errorText(e)); if(linking)syncState('error','Sincronización pendiente. Reintentando al recuperar la conexión.');return false; }
     finally { refreshing=false; }
@@ -171,7 +174,7 @@
     event.preventDefault(); const text=$('draft').value.trim(); if(!text || pending || busy || !online)return;
     pending={command_id:crypto.randomUUID(), operation:'chat', text, conversation_id:conversationId}; localStorage.setItem('axx.mobile.pending',JSON.stringify(pending));
     busy=true; connection(online,'Enviando a la PC principal…'); avatar?.setState('thinking'); $('avatar-state').textContent='Axx procesando en PC';
-    try { const task=await request('/v1/commands',pending); $('command-state').textContent='Task '+task.task_id+' · '+task.state; }
+    try { const task=await request('/v1/commands',pending); $('command-state').textContent=chatReceipt(task); }
     catch(e){notice('No se confirmó el envío. '+errorText(e)+' Tu borrador sigue guardado.');}
     finally {busy=false; await refresh();}
   };
@@ -183,6 +186,7 @@
     $('command-state').textContent='Seguimiento descartado. El borrador se conserva; no se ha reenviado ni cancelado ninguna orden en la PC.';
   };
   $('recover').onclick=()=>refresh(); $('refresh').onclick=()=>paired?refresh():showPair();
+  function chatReceipt(task){return ({queued:'Enviado al PC',running:'Axx está respondiendo…',completed:'Respuesta recibida',failed:'No se pudo completar',outcome_unknown:'Entrega sin confirmar. Revisa el PC antes de repetir.'})[task.state]||'Pendiente de confirmar en tu PC';}
   let pendingWork=null;try{pendingWork=JSON.parse(localStorage.getItem('axx.mobile.pendingWork')||'null');}catch{}
   if(!pendingWork||typeof pendingWork.operation_id!=='string'||typeof pendingWork.command_id!=='string')pendingWork=null;
   const forgetWork=document.createElement('button');forgetWork.type='button';forgetWork.textContent='Olvidar seguimiento';forgetWork.disabled=!pendingWork;
@@ -195,7 +199,7 @@
   };
   const workStatus=text=>{$('work-status').textContent=text;};
   const commandCard=document.createElement('section');commandCard.className='live-card';commandCard.id='work-commands-card';
-  commandCard.innerHTML='<h2>Enviar una orden a Axx</h2><p class="hint">Escribe una orden conocida, como «estado del sistema», «abre calculadora», «/powershell Get-Date» o «/cmd dir». Los comandos del sistema necesitan aprobación en la PC.</p><form id="work-text-form"><label for="work-text">Orden</label><textarea id="work-text" rows="3" maxlength="8000" required placeholder="¿Qué quieres que haga Axx en la PC?"></textarea><button type="submit" class="primary">Enviar orden</button></form><details><summary>Todos los comandos ejecutables</summary><p class="hint">Los comandos documentados sin adaptador no se anuncian como ejecutables.</p><form id="work-generic-form"><label for="work-command-select">Comando</label><select id="work-command-select"></select><p id="work-command-description" class="hint"></p><div id="work-command-fields"></div><button type="submit">Preparar comando</button></form></details>';
+  commandCard.innerHTML='<h2>Orden para tu PC</h2><form id="work-text-form"><label for="work-text" class="sr-only">Orden</label><textarea id="work-text" rows="2" maxlength="8000" required placeholder="Ej.: estado del sistema"></textarea><button type="submit" class="primary">Enviar orden</button></form><details><summary>Todas las herramientas</summary><form id="work-generic-form"><label for="work-command-select">Comando</label><select id="work-command-select"></select><p id="work-command-description" class="hint"></p><div id="work-command-fields"></div><button type="submit">Preparar comando</button></form></details>';
   $('pane-work').insertBefore(commandCard,$('pane-work').children[1]||null);
   let workCatalog=[];
   const workSelect=$('work-command-select'),workFields=$('work-command-fields');
@@ -311,7 +315,15 @@
     connection(false,'PC olvidada. Puedes revocar este teléfono en la PC.');$('identity').textContent='Sin PC enlazada';$('pc-name').textContent='Enlazar PC';renderScopes([]);
   }catch(e){notice(errorText(e));}};
   document.querySelectorAll('[data-pane]').forEach(b=>b.onclick=()=>pane(b.dataset.pane));
-  $('open-catalog').onclick=()=>{pane('work');commandCard.querySelector('details').open=true;commandCard.scrollIntoView({block:'start'});}; $('open-tasks').onclick=()=>{pane('work');$('tasks').scrollIntoView({block:'center'});};
+  $('open-chat').onclick=()=>{pane('chat');$('draft').focus();};
+  $('character-options').onclick=()=>{if(!$('character-dialog').open)$('character-dialog').showModal();};
+  $('character-close').onclick=()=>$('character-dialog').close();
+  const textSize=$('text-size');
+  textSize.disabled=!transport?.textSize;
+  if(transport?.textSize){
+    transport.textSize().then(value=>{textSize.value=value.mode;textSize.dataset.confirmed=value.mode;}).catch(e=>notice('No se pudo consultar el tamaño de texto: '+errorText(e)));
+    textSize.onchange=async()=>{textSize.disabled=true;try{const value=await transport.textSize({mode:textSize.value});textSize.value=value.mode;textSize.dataset.confirmed=value.mode;avatar?.resize();}catch(e){textSize.value=textSize.dataset.confirmed||'standard';notice('No se pudo cambiar el texto: '+errorText(e));}finally{textSize.disabled=false;}};
+  }
   let currentDevice=localStorage.getItem('axx.mobile.device')||'';
   function renderScopes(scopes){
     $('scopes').replaceChildren(...[['query','Conversación y estado'],['tools.control','Comandos y herramientas'],['input.control','Ratón, teclado y gestos'],['voice','Micrófono remoto']].map(([scope,label])=>{
@@ -355,6 +367,8 @@
     $('avatar-move').setAttribute('aria-pressed',String(avatarMode==='move'));
     $('axx-avatar-canvas').classList.toggle('interactive',!!avatarMode);
     $('avatar-help').textContent=avatarMode==='rotate'?'Arrastra Axx para girarlo aquí y en la PC.':avatarMode==='move'?'Arrastra Axx para moverlo en la pantalla de la PC.':'Activa Girar o Mover y arrastra Axx con el dedo.';
+    gestureStatus(avatarMode?$('avatar-help').textContent:'');
+    if($('character-dialog').open)$('character-dialog').close();
   }
   $('avatar-interact').onclick=()=>setAvatarMode('rotate');
   $('avatar-move').onclick=()=>setAvatarMode('move');
@@ -385,11 +399,12 @@
     if(interactionUntil>Date.now())return;
     const preference=$('avatar-motion').value;
     const reduced=preference==='paused' || preference==='system' && matchMedia('(prefers-reduced-motion: reduce)').matches;
-    const settings=window.Axx.normalizeSettings({...value.settings, quality:'eco', reducedMotion:reduced || value.settings?.reducedMotion});
+    const still=reduced || value.settings?.reducedMotion || value.settings?.staticMode || value.studio?.living===false;
+    const settings=window.Axx.normalizeSettings({...value.settings, quality:still?'balanced':'eco', reducedMotion:reduced || value.settings?.reducedMotion});
     const state=value.activity?.state;
     if(state && window.Axx.MOTION_PROFILES[state])avatar.setState(pending?'thinking':state);
-    const label=({idle:'Idle',thinking:'Thinking',speaking:'Speaking',listening:'Listening',processing:'Processing'})[avatar.state] || avatar.state;
-    $('avatar-state').textContent=label+' · '+(settings.reducedMotion?'Reduced motion':settings.staticMode || !value.studio?.living?'Still':'Animated');
+    const label=({idle:'Aquí estoy',thinking:'Pensando',speaking:'Hablando',listening:'Escuchando',processing:'Procesando'})[avatar.state] || avatar.state;
+    $('avatar-state').textContent=label;
     $('avatar-pc-state').textContent=value.activity?'PC: '+(({idle:'Idle',thinking:'Thinking',listening:'Listening',speaking:'Speaking',processing:'Processing',approval:'Approval',paused:'Paused',success:'Success',error:'Error',notification:'Notification',focus:'Focus',transform:'Transform',offline:'Offline',cancelled:'Cancelled'})[state] || label)+' · '+(value.activity.moving?'moving':'still'):'';
     const key=JSON.stringify(value)+preference;if(key===appearanceKey){void syncHomeIcon(value);return;}
     if(JSON.stringify(avatar.settings)!==JSON.stringify(settings))avatar.configure(settings);if(avatar.form!==settings.form)avatar.setForm(settings.form);avatar.setStudio(value.studio||{});avatar.setCamera20(Array.isArray(value.camera)?[value.camera[0]%(Math.PI*2),value.camera[1]]:value.camera);avatar.setFinish(value.finish||'obsidian');if(!avatar.hidden)avatar.draw(avatar.lastTime || 0);appearanceKey=key;localStorage.setItem('axx.mobile.appearance',JSON.stringify(value));
