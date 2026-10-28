@@ -371,6 +371,22 @@ const { chromium } = bundledRequire('playwright');
     assert.equal(contextChecks.contexts[0].application,'chrome');
     assert.deepEqual(contextChecks.contexts.slice(1),[{},{}]);
     results.push('Song followups retain the browser and query only in the same chat for ten minutes');
+    const sequence=await page.evaluate(async()=>{
+      const previous=Axx.backendRequest,seen=[];
+      Axx.commandLibrary.operation=null;Axx.commandLibrary.busy=false;
+      Axx.backendRequest=async(method,route,body)=>{
+        seen.push({route,body});
+        if(route==='/axx-api/commands/resolve')return {match:'sequence',steps:[{command_id:'axx.desktop.open_url',inputs:{url:'https://www.youtube.com'}},{command_id:'axx.desktop.search',inputs:{engine:'youtube',query:'Faint'}}]};
+        if(route==='/axx-api/learning/prepare')return {...body,kind:'learned_plan',state:'awaiting_approval',message:'Revisa los dos pasos antes de ejecutar.'};
+        return previous(method,route,body);
+      };
+      try {await Axx.companion.send('abre YouTube y luego busca Faint');return {seen,state:Axx.commandLibrary.operation?.state};}
+      finally{Axx.backendRequest=previous;}
+    });
+    assert.equal(sequence.state,'awaiting_approval');
+    assert.equal(sequence.seen.filter(c=>c.route==='/axx-api/learning/prepare').length,1);
+    assert.equal(sequence.seen.some(c=>/\/(execute|propose)$/.test(c.route)),false);
+    results.push('Explicit sequences use one ordered reviewable plan without calling a model or executing before approval');
     assert.deepEqual(errors, []);
     console.log(JSON.stringify({ kind: 'COMMAND_LIBRARY_UI_IPC_CONTRACT_ONLY', passed: results.length, results, uncaught: errors }, null, 2));
   } finally { await browser.close(); }

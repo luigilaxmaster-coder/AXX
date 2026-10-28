@@ -33,6 +33,18 @@ SEARCH_TARGETS = {'chrome', 'youtube', 'google', 'bing', 'duckduckgo', 'internet
 SEARCH_NAMES = '|'.join(re.escape(name) for name in sorted(SEARCH_TARGETS | TARGETS.keys() | VOICE_TARGETS.keys(), key=len, reverse=True))
 
 
+def command_sequence(text, source):
+    raw=command_text(text,source)
+    if raw.startswith('/') or any(c in raw for c in ('"',"'",'«','»','\n')):
+        return None
+    verbs=r'(?:abre|abrir|inicia|busca|buscar|lee|enfoca|inspecciona|reproduce|cierra)\b'
+    if not re.match(verbs,raw,re.I):return None
+    parts=re.split(r'\s*(?:;|\s+(?:y\s+)?(?:luego|despu[eé]s)\s+)\s*',raw,flags=re.I)
+    if len(parts)==1 and re.match(r'(?:abre|abrir|inicia)\b',raw,re.I):
+        parts=re.split(r'\s+y\s+(?='+verbs+r')',raw,flags=re.I)
+    return parts if len(parts)>1 else None
+
+
 def target_name(value, source):
     key = ' '.join(plain(value).strip(' .!?').split())
     return (VOICE_TARGETS.get(key) if source == 'voice' else None) or TARGETS.get(key) or value

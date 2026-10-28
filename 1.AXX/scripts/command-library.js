@@ -468,6 +468,10 @@
                         Axx.companion.message('user', raw, 'local');
                         await this.planAction(raw); return;
                     }
+                    if (resolved.match === 'sequence') {
+                        Axx.companion.message('user',raw,'local');
+                        await this.planAction(raw,{steps:resolved.steps}); return;
+                    }
                     if (resolved.match === 'unsupported') {
                         Axx.companion.message('user', raw, 'local');
                         Axx.companion.localNotice(resolved.message || 'No encontré una acción ejecutable para esa petición.');
@@ -729,7 +733,9 @@
             Axx.companion.action('thinking');
             const prefs = Axx.companion.data?.prefs || {};
             try {
-                const plan = await this.request('POST', '/axx-api/learning/propose', { text, operation_id:id, context:{...this.actionContext, ...options.context},
+                const plan = options.steps ? await this.request('POST','/axx-api/learning/prepare',{
+                    text,steps:options.steps,operation_id:id,conversation_id:origin,project_id:Axx.skillLibrary?.project() || ''
+                }) : await this.request('POST', '/axx-api/learning/propose', { text, operation_id:id, conversation_id:origin, context:{...this.actionContext, ...options.context},
                     inputs:options.inputs, project_id:Axx.skillLibrary?.project() || '', selection_mode:prefs.selection_mode || 'manual',
                     model:prefs.model || '', provider_name:prefs.provider === 'chatgpt' ? '@codex' : prefs.provider === 'bridge' ? prefs.apiConnection || '' : '' });
                 if (serial !== this.generation) return;
