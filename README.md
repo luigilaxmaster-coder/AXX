@@ -50,7 +50,7 @@ Una prueba de código, una ejecución instalada y una comprobación física acre
 | [Investigación aislada](docs/REVISION-CONJUNTA-20261027.md) | Revisión de candidatos del laboratorio M01–M15, separados de la aplicación. | M11: 23/23 casos existentes y manifiestos contrastados. El cierre posterior registra M15 bloqueado y currículo incompleto. | Sin promoción; los resultados del laboratorio no acreditan integración, modelos ni audio reales en Axx. |
 | [Catálogo de aplicaciones](docs/APPLICATION-COMMANDS.md) | 48 perfiles y 160 operaciones descritas, distinguiendo guías y rutas ejecutables. | Alcance documentado por aplicación y acción. | No equivale a 160 integraciones ejecutadas; detectar una app no verifica sus controles. |
 | [Chats](docs/CHAT-WORKSPACE.md) y [modelos](docs/PROVEEDORES-API-LOCAL.md) | Historial, grupos, borradores y contexto explícito; conexión y modelo seleccionables. | Contratos y políticas descritos en las guías. | Configurar o listar un modelo no demuestra inferencia. La selección explícita no cambia de proveedor silenciosamente. |
-| [Android](docs/mobile/README.md) | Conversación y servicios del PC, con permisos separados para control remoto. | Artefactos locales y verificación por función documentados. | Versión independiente; aceptación física actual pendiente. La prueba de Windows no la sustituye. |
+| [Android](docs/mobile/README.md) | 0.2.0: diseño renovado, reescaneo conservando permisos, sincronización del PC y catálogo ejecutable actual. | APK compilado; 7 pruebas de interfaz y recorrido real del backend empaquetado con QR decodificado por ZXing, TLS y comando verificado. | Instalación y aceptación física Android pendientes. Windows 0.22.15 aún requiere instalación y publicación coordinadas. |
 
 ## Empezar
 
