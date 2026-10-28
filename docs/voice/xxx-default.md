@@ -100,3 +100,12 @@ by the native host. It did not select a voice in the UI, play Web Audio, use the
 microphone or listen to physical speakers. Those installed UI checks remain
 pending after Computer Use stopped the turn because it could not establish a
 Chrome window's URL. Private evidence: `build/release-0.22.14/installed-xxx-http.json`.
+
+## Installed UI verification, 0.22.14
+
+The native Windows button selected Xxx default. After restarting the host,
+localStorage and the chat, reader, dictation and live voice controls all retained
+moss:axx-sam. Two installed Web Audio playbacks completed with playing/ended
+events and zero underruns; the repeated utterance used the audio cache.
+Private receipts: build/release-0.22.14/native-final/voice-persistence.json and
+speech-pass.json. This does not verify acoustic speakers or microphone input.

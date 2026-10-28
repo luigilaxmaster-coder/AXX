@@ -10,8 +10,8 @@ La descarga confirmada de GitHub continúa en 0.22.11, según `release.json`.
 | Datos del usuario | Copia verificada de 647 archivos | CRC y snapshots SQLite comprobados antes de instalar; no se publican. |
 | Backend | 717 pruebas: 703 PASS, 13 omitidas, 1 error de arranque | Tras corregir el plazo, módulo de gateway 21/21 PASS. No se repitió el banco global tras el cambio acotado. |
 | Interfaz | Contratos de Magic Pen, chat, respuesta rápida, dictado y voz: PASS | No equivalen a entrada física ni aceptación del nuevo binario. |
-| Xxx default | Catálogo y síntesis HTTP instalada: PASS | PCM real estéreo de 48 kHz, 4,4 s; segunda solicitud usa caché con el mismo hash. Selección persistente, Web Audio instalado y altavoces pendientes. |
-| Magic Pen | Candidato 0.22.12: 12 checks instalados y clics Windows PASS | Fuentes del nuevo diseño conservadas. Aceptación instalada de 0.22.14 pendiente. |
+| Xxx default | Selección nativa, persistencia tras reinicio y dos reproducciones Web Audio: PASS | Los cuatro selectores conservan Sam; ambas reproducciones terminan sin vaciados del búfer. Altavoces físicos y micrófono pendientes. |
+| Magic Pen | 0.22.14 instalada: 14 checks PASS | Captura e inferencia reales, tinta durante análisis, cancelación, historial, exportación, dos monitores y grabación verificada. |
 | Control del PC | Correcciones de identidad, captura fresca y serialización integradas y probadas por contratos | Pendiente concesión humana manual y ensayo real de dos ventanas en 0.22.14. |
 | Fotos y video | Tres capturas nativas y video nuevo de presentación, identificados como 0.22.12 | Video de 15 s, 450 frames decodificados, sin audio. Grabación de acciones de 0.22.14 pendiente. |
 | Investigación | Laboratorio M01–M15 revisado, sin promoción | Currículo incompleto y M15 bloqueado; no acredita ejecución en Axx. |
@@ -28,12 +28,15 @@ Los recibos privados están en `build/release-0.22.14/`: `installed-files.json`,
 `installed-runtime.json`, `installed-xxx-http.json` y `visual-session-block.json`.
 No se publican audio, muestras, pesos, conversaciones ni credenciales.
 
-## Bloqueo de la aceptación visual
+## Interrupción de la aceptación del PC
 
-Computer Use terminó la sesión al no poder confirmar la URL de una ventana
-Chrome con el documento de demostración propio. Se detuvieron las interacciones
-visuales. La instalación y la prueba HTTP posteriores son verificaciones de
-archivos y servicios; no sustituyen los pasos visuales pendientes.
+La sesión anterior se detuvo por la URL de una ventana Chrome. Al retomar se
+pudo operar Axx y completar voz y Magic Pen. WSL y los contenedores de AnythingMCP
+estaban apagados: se arrancaron sin cambiar credenciales ni desactivar el gateway.
+Después, la tecla Escape física detuvo Computer Use antes de preparar y autorizar
+la sesión de control del PC. Esa prueba y la publicación siguen pendientes.
+AnythingMCP/WSL debe mantenerse activo; su arranque tras reiniciar Windows no es
+automático. Véase [MCP local](docs/MCP-LOCAL.md).
 
 El campo genérico `recording=DEFERRED_BY_USER` del recibo original de instalación
 no representa la petición vigente de video. Se conserva ese recibo sin editar;
