@@ -6,6 +6,8 @@ import threading
 import unittest
 import urllib.error
 import urllib.request
+import ssl
+import uuid
 
 from backend.actions.executor import ActionExecutor
 from backend.commands import CommandService
@@ -14,6 +16,40 @@ from backend.server import AxxBridgeHandler, ThreadedHTTPServer
 
 
 class CommandsHttpTests(unittest.TestCase):
+    def test_mobile_tls_executes_once_and_keeps_file_write_approval_on_pc(self):
+        from backend.mobile.gateway import MobileGateway
+        gateway=MobileGateway.for_backend(self.server,self.executor.db_path,self.tmp.name)
+        self.server.mobile=gateway
+        gateway.host_resolver=lambda:'127.0.0.1'
+        try:
+            pairing=gateway.start()
+            context=ssl.create_default_context(cafile=str(gateway._identity[0]))
+            device=gateway.store.consume_pairing(pairing['pairing_code'],'Integration test')
+            gateway.store.set_tool_permission(device['device_id'],True)
+            def mobile(path,body=None):
+                req=urllib.request.Request(pairing['endpoint']+path,data=json.dumps(body).encode() if body else None,
+                    headers={'Content-Type':'application/json','Authorization':'Bearer '+device['credential']})
+                with urllib.request.urlopen(req,context=context,timeout=10) as response:return json.load(response)['data']
+            resolved=mobile('/v1/work/resolve',{'text':'estado del sistema'})
+            self.assertEqual(resolved['command_id'],'axx.system.telemetry')
+            command={'command_id':resolved['command_id'],'inputs':resolved['inputs'],'operation_id':str(uuid.uuid4()),'approved':False}
+            result=mobile('/v1/work/execute',command)
+            self.assertEqual(result['state'],'succeeded')
+            self.assertTrue(result['postconditions_passed'])
+            self.assertEqual(mobile('/v1/work/execute',command)['operation_id'],result['operation_id'])
+            self.assertEqual(len(self.commands.operations()),1)
+            write={**command,'operation_id':str(uuid.uuid4()),'command_id':'axx.artifact.write','inputs':{'path':'phone-note.txt','content':'Contenido verificado'}}
+            self.assertEqual(mobile('/v1/work/execute',write)['state'],'awaiting_pc_approval')
+            target=self.executor.workspace_root/'phone-note.txt'
+            self.assertFalse(target.exists())
+            status,receipt=self.request('mobile/work/approve',{'operation_id':write['operation_id'],'approved':True})
+            self.assertEqual(status,200)
+            self.assertEqual(receipt['state'],'succeeded')
+            self.assertTrue(receipt['postconditions_passed'])
+            self.assertEqual(target.read_text(encoding='utf-8'),'Contenido verificado')
+        finally:
+            gateway.close()
+
     def test_executable_catalog_requires_auth_and_tracks_live_registry(self):
         self.assertEqual(self.request('commands/executable', auth=False)[0], 401)
         status, catalog = self.request('commands/executable')
