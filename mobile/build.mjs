@@ -5,6 +5,9 @@ await copyFile(new URL('client.html', import.meta.url), new URL('www/index.html'
 for (const name of ['css', 'icons']) await cp(new URL(name, import.meta.url), new URL('www/'+name, import.meta.url), {recursive:true});
 await mkdir(new URL('www/js', import.meta.url), {recursive:true});
 await copyFile(new URL('js/live-client.js', import.meta.url), new URL('www/js/live-client.js', import.meta.url));
+await copyFile(new URL('js/avatar-renderer.js', import.meta.url), new URL('www/js/avatar-renderer.js', import.meta.url));
+await copyFile(new URL('js/display.js', import.meta.url), new URL('www/js/display.js', import.meta.url));
+await copyFile(new URL('js/avatar-customization.js', import.meta.url), new URL('www/js/avatar-customization.js', import.meta.url));
 await copyFile(new URL('js/remote-voice.js', import.meta.url), new URL('www/js/remote-voice.js', import.meta.url));
 await copyFile(new URL('js/remote-control.js', import.meta.url), new URL('www/js/remote-control.js', import.meta.url));
 // Use the exact desktop geometry/material code; no independently maintained mobile avatar.

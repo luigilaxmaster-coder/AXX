@@ -25,6 +25,7 @@
   };
   function connection(connected, text) {
     online = connected;
+    if(!connected)window.dispatchEvent(new Event('axxOffline'));
     document.body.dataset.online=String(connected);
     $('connection-state').textContent = text;
     $('pc-dot').classList.toggle('online', connected);
@@ -114,6 +115,7 @@
       try{const tasks=await request('/v1/tasks');renderRows('tasks',tasks.operations||[],'Todavía no hay operaciones registradas.','task');}
       catch(e){$('tasks').textContent='No se pudo cargar la actividad: '+errorText(e);}
       connection(true, 'Conectado');
+      window.dispatchEvent(new CustomEvent('axxSnapshot',{detail:{appearance:snapshot.appearance,scopes:snapshot.scopes,capabilities:snapshot.capabilities,device_id:currentDevice}}));
       if(pendingWork)await checkWork(false);
       if(!$('pane-work').hidden && Date.now()-lastCatalogAt>10000)await refreshWorkCatalog();
       if (linking) {
@@ -396,21 +398,21 @@
   function applyAppearance(value){
     if(!value || !avatar)return;
     desktopAppearance=value;
-    if(interactionUntil>Date.now())return;
+    const cameraLocked=interactionUntil>Date.now();
     const preference=$('avatar-motion').value;
     const reduced=preference==='paused' || preference==='system' && matchMedia('(prefers-reduced-motion: reduce)').matches;
     const still=reduced || value.settings?.reducedMotion || value.settings?.staticMode || value.studio?.living===false;
-    const settings=window.Axx.normalizeSettings({...value.settings, quality:still?'balanced':'eco', reducedMotion:reduced || value.settings?.reducedMotion});
+    const settings=window.Axx.normalizeSettings({...value.settings, quality:avatar.accelerated?'balanced':still?'balanced':'eco', reducedMotion:reduced || value.settings?.reducedMotion});
     const state=value.activity?.state;
     if(state && window.Axx.MOTION_PROFILES[state])avatar.setState(pending?'thinking':state);
     const label=({idle:'Aquí estoy',thinking:'Pensando',speaking:'Hablando',listening:'Escuchando',processing:'Procesando'})[avatar.state] || avatar.state;
     $('avatar-state').textContent=label;
     $('avatar-pc-state').textContent=value.activity?'PC: '+(({idle:'Idle',thinking:'Thinking',listening:'Listening',speaking:'Speaking',processing:'Processing',approval:'Approval',paused:'Paused',success:'Success',error:'Error',notification:'Notification',focus:'Focus',transform:'Transform',offline:'Offline',cancelled:'Cancelled'})[state] || label)+' · '+(value.activity.moving?'moving':'still'):'';
-    const key=JSON.stringify(value)+preference;if(key===appearanceKey){void syncHomeIcon(value);return;}
-    if(JSON.stringify(avatar.settings)!==JSON.stringify(settings))avatar.configure(settings);if(avatar.form!==settings.form)avatar.setForm(settings.form);avatar.setStudio(value.studio||{});avatar.setCamera20(Array.isArray(value.camera)?[value.camera[0]%(Math.PI*2),value.camera[1]]:value.camera);avatar.setFinish(value.finish||'obsidian');if(!avatar.hidden)avatar.draw(avatar.lastTime || 0);appearanceKey=key;localStorage.setItem('axx.mobile.appearance',JSON.stringify(value));
+    const key=JSON.stringify([settings,value.studio,value.camera,value.finish,preference,cameraLocked]);if(key===appearanceKey){void syncHomeIcon(value);return;}
+    if(JSON.stringify(avatar.settings)!==JSON.stringify(settings))avatar.configure(settings);if(avatar.form!==settings.form)avatar.setForm(settings.form);if(JSON.stringify(avatar.getStudio())!==JSON.stringify(value.studio))avatar.setStudio(value.studio||{});if(!cameraLocked)avatar.setCamera20(Array.isArray(value.camera)?[value.camera[0]%(Math.PI*2),value.camera[1]]:value.camera);if(avatar.finish!==(value.finish||'obsidian'))avatar.setFinish(value.finish||'obsidian');if(!avatar.hidden)avatar.draw(avatar.lastTime || 0);appearanceKey=key;localStorage.setItem('axx.mobile.appearance',JSON.stringify(value));
     void syncHomeIcon(value);
   }
-  try {const settings={...window.Axx.DEFAULT_SETTINGS,quality:'eco',reducedMotion:matchMedia('(prefers-reduced-motion: reduce)').matches};avatar=new window.Axx.SoftwareRenderer($('axx-avatar-canvas'),settings);avatar.startLoop();window.axxMobileRenderer=avatar;} catch(e){notice('La animación no está disponible; puedes seguir usando los controles. '+errorText(e));}
+  try {const settings={...window.Axx.DEFAULT_SETTINGS,quality:'eco',reducedMotion:matchMedia('(prefers-reduced-motion: reduce)').matches};avatar=new window.Axx.MobileRenderer($('axx-avatar-canvas'),settings);avatar.startLoop();window.axxMobileRenderer=avatar;} catch(e){notice('La animación no está disponible; puedes seguir usando los controles. '+errorText(e));}
   try{const cached=JSON.parse(localStorage.getItem('axx.mobile.appearance') || 'null');if(cached)applyAppearance(cached);}catch{}
   window.addEventListener('resize',()=>avatar?.resize());
   document.addEventListener('visibilitychange',()=>{if(document.hidden)avatar?.stop();else{avatar?.startLoop();void refresh();}});

@@ -20,8 +20,10 @@ def backup_files(source, label):
     for directory, names, files in os.walk(source):
         base = Path(directory)
         for name in names[:]:
-            # Historical backups and downloaded npm caches are not user data.
-            if label == 'data' and (name in {'node_modules', '__pycache__', '.tmp'} or base == source and name == 'backups'):
+            # Historical QA copies and downloaded caches are not current user data.
+            plugin_cache = base == source / 'chatgpt' / 'plugins' and name == 'cache'
+            historical = base == source and name in {'backups', 'native-preflight-data', 'resident-candidate-data', 'resident-candidate-data-0.20.3'}
+            if label == 'data' and (name in {'node_modules', '__pycache__', '.tmp'} or historical or plugin_cache):
                 names.remove(name)
                 excluded.append(str(Path(label) / (base / name).relative_to(source)))
         for name in files:

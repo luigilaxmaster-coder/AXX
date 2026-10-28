@@ -202,6 +202,15 @@ public class AxxTransportPlugin extends Plugin {
     }
     private interface CheckedAction { void run() throws Exception; }
 
+    @PluginMethod public void appearance(PluginCall call) {
+        String theme = call.getString("theme");
+        if (!"light".equals(theme) && !"dark".equals(theme)) { call.reject("Invalid theme"); return; }
+        getActivity().runOnUiThread(() -> {
+            getContext().getSharedPreferences("axx_display", Context.MODE_PRIVATE).edit().putString("theme", theme).apply();
+            ((MainActivity)getActivity()).applyAppearance(theme);
+            call.resolve(new JSObject().put("theme", theme));
+        });
+    }
     @PluginMethod public void textSize(PluginCall call) {
         String mode = call.getString("mode");
         if (mode != null && !mode.equals("standard") && !mode.equals("system")) { call.reject("Invalid text size"); return; }

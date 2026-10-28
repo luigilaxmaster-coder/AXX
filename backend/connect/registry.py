@@ -242,7 +242,7 @@ def tool_descriptors(commands=None, *, computer=False):
     # Five protocol tools plus generated precise aliases. All action IDs resolve
     # against the SAME registered adapter and existing execution/approval policy.
     action = obj({'command_id': string(128), 'inputs': {'type': 'object'}, 'operation_id': string(128),
-        'origin': string(enum=['mcp', 'codex-host', 'axx-provider']), 'parent_execution_id': string(128),
+        'origin': string(enum=['mcp', 'codex-host', 'axx-provider', 'mobile']), 'parent_execution_id': string(128),
         'delegation_depth': {'type': 'integer', 'minimum': 0, 'maximum': 1}}, ['command_id', 'inputs', 'operation_id'])
     definitions = [
         ('axx_computer_status','Consulta el alcance autorizado (escritorio completo o ventana) en ESTE chat. No captura imágenes.',obj(),True),
