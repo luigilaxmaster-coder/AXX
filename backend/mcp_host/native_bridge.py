@@ -58,7 +58,9 @@ class NativeMcpBridge:
             raise ValueError('Configuración de gateway inválida; se bloquea la entrada nativa')
         if self.closed: raise ValueError('Fachada MCP cerrada')
         if self.gateway:
-            ensure_gateway(self.gateway,self.state_dir,cancelled)
+            resumed=ensure_gateway(self.gateway,self.state_dir,cancelled)
+            if resumed and self.transport:
+                self.transport.close()
         if self.transport and not self.transport.closed: return
         if self.server is None:
             import uvicorn

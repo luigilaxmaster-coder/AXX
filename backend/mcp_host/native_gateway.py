@@ -24,7 +24,7 @@ def ensure_gateway(config, state_dir, cancelled):
         with socket.create_connection((url.hostname,url.port),timeout=.5): pass
     try:
         available()
-        return
+        return False
     except (OSError, ValueError): pass
     if state_dir is None: raise GatewayUnavailable('La pasarela de control del PC no está disponible.')
     script = Path(getattr(sys,'_MEIPASS',Path(__file__).resolve().parents[2]))/'scripts/anythingmcp-local.py'
@@ -34,6 +34,7 @@ def ensure_gateway(config, state_dir, cancelled):
         spec.loader.exec_module(module)
         module.resume(Path(state_dir)/'anythingmcp',cancelled)
         available()
+        return True
     except (OSError, ValueError, RuntimeError) as exc:
         raise GatewayUnavailable('No se pudo conectar el control del PC. '+str(exc)) from None
 

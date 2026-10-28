@@ -25,7 +25,7 @@ class GatewayRecoveryTests(unittest.TestCase):
         config=dict(NETWORK,gateway_url='http://127.0.0.1:4000/mcp/owned')
         with patch.object(native_gateway,'verify_wsl_network'), patch.object(native_gateway.socket,'create_connection'), \
                 patch.object(native_gateway.importlib.util,'spec_from_file_location') as load:
-            native_gateway.ensure_gateway(config,Path('unused'),None)
+            self.assertFalse(native_gateway.ensure_gateway(config,Path('unused'),None))
             load.assert_not_called()
 
     def test_offline_gateway_resumes_saved_stack_and_revalidates_network(self):
@@ -36,7 +36,7 @@ class GatewayRecoveryTests(unittest.TestCase):
                 patch.object(native_gateway.socket,'create_connection'), \
                 patch.object(native_gateway.importlib.util,'spec_from_file_location',return_value=spec), \
                 patch.object(native_gateway.importlib.util,'module_from_spec',return_value=module):
-            native_gateway.ensure_gateway(config,Path('owned'),None)
+            self.assertTrue(native_gateway.ensure_gateway(config,Path('owned'),None))
             module.resume.assert_called_once_with(Path('owned/anythingmcp'),None)
             self.assertEqual(verify.call_count,2)
 
