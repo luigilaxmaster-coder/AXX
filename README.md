@@ -5,19 +5,19 @@ Una interfaz 3D sobre el escritorio para conversar, seleccionar contenido, usar 
 ## Download Axx for Windows
 
 <!-- release:download:start -->
-**[Download Windows x64 test installer · v0.22.16](https://github.com/luigilaxmaster-coder/AXX/releases/download/v0.22.16/Axx_0.22.16_x64-setup.exe)** · [Release files](https://github.com/luigilaxmaster-coder/AXX/releases/tag/v0.22.16) · [SHA-256](https://github.com/luigilaxmaster-coder/AXX/releases/download/v0.22.16/SHA256SUMS.txt)
+**[Download Windows x64 test installer · v0.22.19](https://github.com/luigilaxmaster-coder/AXX/releases/download/v0.22.19/Axx_0.22.19_x64-setup.exe)** · [Release files](https://github.com/luigilaxmaster-coder/AXX/releases/tag/v0.22.19) · [SHA-256](https://github.com/luigilaxmaster-coder/AXX/releases/download/v0.22.19/SHA256SUMS.txt)
 
 Run the installer and open Axx. Python and Node are not required. Start with **Automático gratis · Sin claves**; Axx checks available free routes, whose availability can change. Personal API keys are optional in Settings. Credentials and conversation history are not included in the installer. Windows may need Internet to install WebView2. The installer is unsigned.
 
 The packaged backend may take longer on its first launch while Windows extracts and scans it. The native host allows up to 90 seconds for backend readiness and reports a startup error if that limit is exceeded.
 
-Source and published Windows installer are both **v0.22.16**. Android APKs remain local test artifacts until separately published. See [mobile setup and validation](docs/mobile/README.md) and the [version and release procedure](docs/RELEASING.md).
+Source and published Windows installer are both **v0.22.19**. Android APKs remain local test artifacts until separately published. See [mobile setup and validation](docs/mobile/README.md) and the [version and release procedure](docs/RELEASING.md).
 <!-- release:download:end -->
 
 ---
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Source%20Version-v0.22.16-informational" alt="Source version 0.22.16" />
+  <img src="https://img.shields.io/badge/Source%20Version-v0.22.19-informational" alt="Source version 0.22.19" />
 </p>
 
 ## Demo y galería
@@ -70,7 +70,7 @@ PowerShell y CMD requieren aprobación y ejecutan con los permisos del usuario d
 <details>
 <summary>Desarrollo y documentación técnica</summary>
 
-> **Axx is under active development.** Source and published Windows installer are both **v0.22.16**. Validation is recorded per feature; a working UI or build does not by itself certify every hardware-dependent behavior.
+> **Axx is under active development.** Source and published Windows installer are both **v0.22.19**. Validation is recorded per feature; a working UI or build does not by itself certify every hardware-dependent behavior.
 
 Para desarrollo se necesitan Node.js, Rust con MSVC y Python, además de las dependencias declaradas por el proyecto. El instalador publicado no requiere instalar Python ni Node.
 

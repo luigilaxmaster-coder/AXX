@@ -119,6 +119,20 @@ class MossStreamTests(unittest.TestCase):
         (self.service.root / 'ort_cpu_runtime.py').write_text('# engine fixture')
         return reference
 
+    def test_axxmorcito_cache_tracks_selected_language_reference(self):
+        spanish = self.enable_cache()
+        english = self.service.personal_samples / 'axx-morcito-en.wav'
+        english.parent.mkdir(parents=True, exist_ok=True)
+        english.write_bytes(b'private-english-reference')
+        self.service._voice_paths.return_value = {'moss:axx-morcito': (spanish, 'Axxmorcito')}
+        request = {'voice': 'moss:axx-morcito', 'text': 'Hello, I can help.', 'language': 'en'}
+        english_key = self.service._cache_path(request)
+        spanish_key = self.service._cache_path({**request, 'language': 'es'})
+        self.assertNotEqual(english_key, spanish_key)
+        english.write_bytes(b'changed-english-reference')
+        self.assertNotEqual(english_key, self.service._cache_path(request))
+        self.assertEqual(spanish_key, self.service._cache_path({**request, 'language': 'es'}))
+
     def test_cached_stream_preserves_pcm_without_loading_model(self):
         self.enable_cache()
         request = {**self.body, 'id': 'request1', 'stream': True}
@@ -143,6 +157,24 @@ class MossStreamTests(unittest.TestCase):
         reference = self.service._voice_paths.return_value['moss:axx-alba'][0]
         reference.write_bytes(b'new-private-voice')
         self.assertNotEqual(old_path, self.service._cache_path(request))
+
+    def test_private_phrase_bank_reuses_only_matching_reference(self):
+        self.enable_cache()
+        reference = self.service._voice_paths.return_value['moss:axx-alba'][0]
+        self.service._voice_paths.return_value = {'moss:axx-morcito': (reference, 'Axxmorcito')}
+        request = {'id': 'bank1', 'text': 'Hola, señor.', 'voice': 'moss:axx-morcito', 'language': 'es', 'stream': True}
+        cache_path = self.service._cache_path(request)
+        bank_path = self.service._phrase_bank_path(request, cache_path)
+        bank_path.parent.mkdir(parents=True)
+        with wave.open(str(bank_path), 'wb') as output:
+            output.setnchannels(1); output.setsampwidth(2); output.setframerate(24000)
+            output.writeframes(b'\x01\x00' * 240)
+        with patch.object(self.service, '_ensure_worker', side_effect=AssertionError('bank must bypass MOSS')):
+            events = list(self.service._request(request))
+        self.assertTrue(events and all(event['cache_hit'] for event in events))
+        self.assertEqual(self.service.status()['phrase_bank_files'], 1)
+        reference.write_bytes(b'changed-reference')
+        self.assertNotEqual(bank_path, self.service._phrase_bank_path(request, self.service._cache_path(request)))
 
     def test_cancelled_audio_is_not_cached(self):
         self.enable_cache()

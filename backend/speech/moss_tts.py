@@ -26,6 +26,7 @@ MAX_CACHE = 64 * 1024 * 1024
 
 class MossSpeechService:
     PERSONAL_VOICES = (
+        ('axx-morcito', 'Axxmorcito'),
         ('axx-sam', 'Xxx default'),
         ('axx-valeria', 'Axx Valeria · Cálida y Elocuente'),
         ('axx-elena', 'Axx Elena · Cercana y Melódica'),
@@ -63,7 +64,12 @@ class MossSpeechService:
         if request.get('prepare'):
             return None
         try:
+            spoken, language = prepare_spoken_text(request['text'], request.get('language', 'auto'))
             voice = self._voice_paths()[request['voice']][0]
+            if request['voice'] == 'moss:axx-morcito' and language == 'en':
+                english = self.personal_samples / 'axx-morcito-en.wav'
+                if english.is_file():
+                    voice = english
             engine = [self.script, self.script.with_name('speech_text.py'),
                       self.root / 'onnx_tts_runtime.py', self.root / 'ort_cpu_runtime.py']
             models = sorted(p for p in self.models.glob('*/*') if p.is_file())
@@ -71,12 +77,16 @@ class MossSpeechService:
             # Hash their contents so the persistent cache survives a restart.
             signature = ([(str(p), p.stat().st_size, p.stat().st_mtime_ns) for p in models] +
                          [(p.name, hashlib.sha256(p.read_bytes()).hexdigest()) for p in engine])
-            spoken, language = prepare_spoken_text(request['text'], request.get('language', 'auto'))
             key = hashlib.sha256(voice.read_bytes() + json.dumps(
                 [spoken, language, signature], ensure_ascii=True).encode()).hexdigest()
             return self.data_dir / 'audio-cache' / (key + '.wav')
         except (OSError, KeyError):
             return None
+
+    def _phrase_bank_path(self, request, cache_path):
+        if request.get('voice') == 'moss:axx-morcito' and cache_path is not None:
+            return self.data_dir / 'phrase-bank' / cache_path.name
+        return None
 
     @staticmethod
     def _read_cache(path):
@@ -151,7 +161,8 @@ class MossSpeechService:
     def status(self):
         with self._lock:
             return {'available': self.available, 'ready': self._ready, 'preparing_voice': self._preparing,
-                    'prepared_voices': sorted(self._prepared), 'streaming': True}
+                    'prepared_voices': sorted(self._prepared), 'streaming': True,
+                    'phrase_bank_files': sum(1 for _ in (self.data_dir / 'phrase-bank').glob('*.wav'))}
 
     def start_warmup(self):
         with self._lock:
@@ -270,7 +281,7 @@ class MossSpeechService:
         if self._cancelled.is_set():
             raise SpeechError('CANCELLED', 'Speech was cancelled')
         cache_path = self._cache_path(request)
-        cached = self._read_cache(cache_path)
+        cached = self._read_cache(self._phrase_bank_path(request, cache_path)) or self._read_cache(cache_path)
         if cached:
             raw, pcm, rate, channels = cached
             if request.get('stream'):
