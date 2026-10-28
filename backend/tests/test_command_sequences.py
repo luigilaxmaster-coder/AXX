@@ -45,8 +45,13 @@ class CommandSequenceTests(unittest.TestCase):
 
     def test_unresolved_step_never_executes_the_resolved_prefix(self):
         result=self.commands.resolve('abre YouTube y luego haz algo inexistente')
-        self.assertEqual(result['match'],'needs_input')
+        self.assertEqual(result['match'],'sequence_request')
         self.assertIn('paso 2',result['message'])
+        self.assertEqual(self.executor.list_operations(),[])
+
+    def test_general_multistep_request_goes_to_planning_without_a_partial_effect(self):
+        result=self.commands.resolve('crea un informe y luego convierte el informe a PDF')
+        self.assertEqual(result['match'],'sequence_request')
         self.assertEqual(self.executor.list_operations(),[])
 
     def test_payload_negation_and_limit(self):

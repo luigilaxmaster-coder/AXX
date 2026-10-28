@@ -13,6 +13,11 @@
         }
         return text.replace(/^(?:quiero|necesito|quisiera|me gustaria)\s+(?=abrir|iniciar|cerrar|buscar|escuchar|reproducir|mover|leer|pulsar)/,'').replace(/[.!?]+$/,'').replace(/\s+por favor$/,'').trim();
     };
+    const sequenceRequest = raw => {
+        const text=requestWords(raw), verbs='(?:abre|abrir|inicia|busca|buscar|lee|enfoca|inspecciona|reproduce|cierra|crea|crear|copia|mueve|renombra|calcula|guarda|borra|elimina|envia|organiza|convierte|descarga|instala)';
+        return !/["'«»\n]/.test(raw) && new RegExp('^'+verbs+'\\b').test(text)
+            && new RegExp('(?:;|\\b(?:y\\s+)?(?:luego|despues))\\s+'+verbs+'\\b').test(text);
+    };
     class CommandLibrary {
         generation = 0; searchGeneration = 0; observationRevision = 0; cancellingGeneration = null; busy = false; operation = null; pendingOperationId = null; commands = []; voiceDraft = null; actionContext = {}; actionContextChat = ''; actionContextAt = 0;
         constructor() {
@@ -363,6 +368,7 @@
             return feature.title + ': ' + (labels[actions.phase(id)] || 'consulta sus controles') + '.';
         }
         hasLocalIntent(raw) {
+            if (sequenceRequest(raw)) return false;
             if (this.internalAction(raw)) return true;
             if (/^(?:(?:en|and)\s+(?:google\s+)?chrome[,.]?\s+(?:busca|bosca)|busca\s+en\s+(?:google\s+)?chrome)\b/i.test(raw.normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim())) return false;
             // Real local intents (notes, timers, tasks) precede the broad desktop verbs.
@@ -390,7 +396,7 @@
             const previous = Axx.companion.send.bind(Axx.companion);
             if (Axx.symbiosis?.voiceCommand) {
                 const voiceCommand = Axx.symbiosis.voiceCommand.bind(Axx.symbiosis);
-                Axx.symbiosis.voiceCommand = text => this.internalAction(text)
+                Axx.symbiosis.voiceCommand = text => !sequenceRequest(text) && this.internalAction(text)
                     ? Axx.companion.send(text, {source:'voice'}) : voiceCommand(text);
             }
             if (Axx.companion.submit) {
@@ -424,7 +430,7 @@
                     catch (error) { this.notice('No se pudo consultar o cambiar el modelo: ' + errorText(error), origin); }
                     Axx.resident?.schedule(); return;
                 }
-                const internal = this.internalAction(raw);
+                const internal = sequenceRequest(raw) ? null : this.internalAction(raw);
                 if (internal) {
                     Axx.companion._forceVoiceReplyOnce = false;
                     Axx.companion.message('user', raw, 'local');
@@ -471,6 +477,10 @@
                     if (resolved.match === 'sequence') {
                         Axx.companion.message('user',raw,'local');
                         await this.planAction(raw,{steps:resolved.steps}); return;
+                    }
+                    if (resolved.match === 'sequence_request') {
+                        Axx.companion.message('user',raw,'local');
+                        await this.planAction(raw); return;
                     }
                     if (resolved.match === 'unsupported') {
                         Axx.companion.message('user', raw, 'local');

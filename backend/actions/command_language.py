@@ -37,7 +37,7 @@ def command_sequence(text, source):
     raw=command_text(text,source)
     if raw.startswith('/') or any(c in raw for c in ('"',"'",'«','»','\n')):
         return None
-    verbs=r'(?:abre|abrir|inicia|busca|buscar|lee|enfoca|inspecciona|reproduce|cierra)\b'
+    verbs=r'(?:abre|abrir|inicia|busca|buscar|lee|enfoca|inspecciona|reproduce|cierra|crea|crear|copia|mueve|renombra|calcula|guarda|borra|elimina|envia|envía|organiza|convierte|descarga|instala)\b'
     if not re.match(verbs,raw,re.I):return None
     parts=re.split(r'\s*(?:;|\s+(?:y\s+)?(?:luego|despu[eé]s)\s+)\s*',raw,flags=re.I)
     if len(parts)==1 and re.match(r'(?:abre|abrir|inicia)\b',raw,re.I):

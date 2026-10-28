@@ -440,7 +440,7 @@ class CommandService:
                 if (resolved.get('match')!='exact' or command_id not in ALLOWED
                         or self.commands[command_id].get('execution_enabled') is not True
                         or any(rule.get('required') and key not in inputs for key,rule in self.commands[command_id]['parameters'].items())):
-                    return {'match':'needs_input','message':f'No pude preparar el paso {index+1}: {part}. No se ejecutó ningún paso.'}
+                    return {'match':'sequence_request','message':f'El paso {index+1} necesita planificación. No se ejecutó ningún paso.'}
                 steps.append({'command_id':command_id,'inputs':inputs})
                 if command_id=='axx.desktop.search':sequence_context.update(inputs)
                 if command_id in ('axx.desktop.open_url','axx.app.browse'):
