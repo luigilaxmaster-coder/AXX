@@ -11,13 +11,13 @@ Run the installer and open Axx. Python and Node are not required. Start with **A
 
 The packaged backend may take longer on its first launch while Windows extracts and scans it. The native host allows up to 90 seconds for backend readiness and reports a startup error if that limit is exceeded.
 
-Source is **v0.22.16**; the published Windows installer is **v0.22.11**. Delivery of the newer source is pending publication. Android APKs remain local test artifacts until separately published. See [mobile setup and validation](docs/mobile/README.md) and the [version and release procedure](docs/RELEASING.md).
+Source is **v0.22.17**; the published Windows installer is **v0.22.11**. Delivery of the newer source is pending publication. Android APKs remain local test artifacts until separately published. See [mobile setup and validation](docs/mobile/README.md) and the [version and release procedure](docs/RELEASING.md).
 <!-- release:download:end -->
 
 ---
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Source%20Version-v0.22.16-informational" alt="Source version 0.22.16" />
+  <img src="https://img.shields.io/badge/Source%20Version-v0.22.17-informational" alt="Source version 0.22.17" />
 </p>
 
 ## Demo y galería
@@ -70,7 +70,7 @@ PowerShell y CMD requieren aprobación y ejecutan con los permisos del usuario d
 <details>
 <summary>Desarrollo y documentación técnica</summary>
 
-> **Axx is under active development.** Source is **v0.22.16**; the published Windows installer is **v0.22.11**. Delivery of the newer source is pending publication. Validation is recorded per feature; a working UI or build does not by itself certify every hardware-dependent behavior.
+> **Axx is under active development.** Source is **v0.22.17**; the published Windows installer is **v0.22.11**. Delivery of the newer source is pending publication. Validation is recorded per feature; a working UI or build does not by itself certify every hardware-dependent behavior.
 
 Para desarrollo se necesitan Node.js, Rust con MSVC y Python, además de las dependencias declaradas por el proyecto. El instalador publicado no requiere instalar Python ni Node.
 
