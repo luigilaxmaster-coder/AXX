@@ -15,6 +15,9 @@ class BackupTests(unittest.TestCase):
         script=Path(__file__).with_name('backup-mobile-upgrade.py')
         with tempfile.TemporaryDirectory() as temp:
             local=Path(temp)
+            sandbox_script=local/'project/scripts/backup-mobile-upgrade.py'
+            sandbox_script.parent.mkdir(parents=True)
+            sandbox_script.write_bytes(script.read_bytes())
             kept=['Axx/providers.json','Axx/credentials/profile.dpapi','Axx/speech/custom/profile.json',
                   'Axx/models/custom/model.bin','com.axx.desktop/profile/preferences.json','Programs/Axx/resources/settings.json']
             skipped=['Axx/gateways/local/node_modules/dependency/index.js','Axx/backups/old/state.json',
@@ -25,7 +28,7 @@ class BackupTests(unittest.TestCase):
                 db.execute('CREATE TABLE preferences(value TEXT)')
                 db.execute("INSERT INTO preferences VALUES('preserved')")
                 db.commit()
-            result=subprocess.run([sys.executable,str(script)],env=dict(os.environ,LOCALAPPDATA=str(local)),capture_output=True,text=True,check=True)
+            result=subprocess.run([sys.executable,str(sandbox_script)],env=dict(os.environ,LOCALAPPDATA=str(local)),capture_output=True,text=True,check=True)
             receipt=json.loads(result.stdout);backup=Path(receipt['backup'])
             for name in kept:
                 label='data' if name.startswith('Axx/') else 'webview' if name.startswith('com.axx.desktop/') else 'installation'
