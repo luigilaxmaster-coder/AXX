@@ -202,6 +202,18 @@ public class AxxTransportPlugin extends Plugin {
     }
     private interface CheckedAction { void run() throws Exception; }
 
+    @PluginMethod public void textSize(PluginCall call) {
+        String mode = call.getString("mode");
+        if (mode != null && !mode.equals("standard") && !mode.equals("system")) { call.reject("Invalid text size"); return; }
+        getActivity().runOnUiThread(() -> {
+            var prefs = getContext().getSharedPreferences("axx_display", Context.MODE_PRIVATE);
+            if (mode != null) prefs.edit().putBoolean("system_text", mode.equals("system")).apply();
+            boolean system = prefs.getBoolean("system_text", false);
+            int zoom = system ? Math.round(getContext().getResources().getConfiguration().fontScale * 100) : 100;
+            bridge.getWebView().getSettings().setTextZoom(zoom);
+            call.resolve(new JSObject().put("mode", system ? "system" : "standard").put("zoom", zoom));
+        });
+    }
     @PluginMethod public void profile(PluginCall call) { submit(call, () -> call.resolve(publicProfile(loadProfile()))); }
 
     static byte[] shortcutPng(String value) {

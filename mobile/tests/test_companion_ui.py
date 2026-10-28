@@ -8,6 +8,8 @@ FIXTURE = NATIVE_FIXTURE + '''
 window.commands=[{id:'axx.generated.example',title:'Ejemplo aprobado',description:'Herramienta de la PC',pc_approval_required:false,
  parameters:{enabled:{type:'boolean',required:true},values:{type:'array',required:true},limit:{type:'integer'}}}];
 window.scopes=['query','tools.control'];window.sent=[];window.receipt={state:'unknown',postconditions_passed:false};
+window.textMode='standard';window.failTextSize=false;
+Capacitor.Plugins.AxxTransport.textSize=async(args={})=>{if(failTextSize)throw Error('No se guardó');if(args.mode)textMode=args.mode;return {mode:textMode};};
 window.snapshot={conversation_id:'shared',messages:[],appearance:{settings:{form:3,palette:1,scale:1},studio:{living:true},camera:[0,0],finish:'prism'},pc_name:'Mi PC',inference:{model:'modelo-PC'}};
 Capacitor.Plugins.AxxTransport.profile=async()=>({paired:true,device_id:'device',endpoint:'https://192.168.0.10:4443',fingerprint:'test',scopes});
 const baseRequest=Capacitor.Plugins.AxxTransport.request;
@@ -23,6 +25,35 @@ Capacitor.Plugins.AxxTransport.request=async args=>{
 
 
 class CompanionUI(unittest.TestCase):
+    def test_text_size_choice_and_failure_keep_the_confirmed_setting(self):
+        with sync_playwright() as p:
+            page=self.open(p,339)
+            page.locator('[data-pane=pc]').click()
+            self.assertEqual(page.locator('#text-size').input_value(),'standard')
+            page.locator('#text-size').select_option('system')
+            page.wait_for_function('()=>textMode==="system"')
+            page.evaluate('failTextSize=true')
+            page.locator('#text-size').select_option('standard')
+            page.wait_for_function('()=>!document.querySelector("#text-size").disabled')
+            self.assertEqual(page.locator('#text-size').input_value(),'system')
+            self.assertIn('No se pudo cambiar',page.locator('#notice').inner_text())
+
+    def test_chat_receipts_use_readable_states_and_preserve_single_delivery(self):
+        with sync_playwright() as p:
+            page=self.open(p)
+            page.evaluate('''()=>{window.chatCount=0;const request=Capacitor.Plugins.AxxTransport.request;
+              Capacitor.Plugins.AxxTransport.request=async args=>{
+                if(args.path==='/v1/commands'){chatCount++;return {data:{task_id:'internal-receipt-id',state:'queued'}};}
+                if(args.path.startsWith('/v1/command?'))return {data:{task_id:'internal-receipt-id',state:'completed'}};
+                return request(args);
+              };}''')
+            page.locator('[data-pane=chat]').click();page.locator('#draft').fill('hola')
+            page.locator('#send').click()
+            page.wait_for_function('()=>document.querySelector("#command-state").textContent==="Respuesta recibida"')
+            self.assertEqual(page.evaluate('chatCount'),1)
+            self.assertNotIn('internal-receipt-id',page.locator('#command-state').inner_text())
+            self.assertEqual(page.locator('#draft').input_value(),'')
+
     def test_phone_layout_large_text_and_keyboard_keep_navigation_and_composer_visible(self):
         with sync_playwright() as p:
             browser=p.chromium.launch()
@@ -105,6 +136,7 @@ class CompanionUI(unittest.TestCase):
             self.assertEqual(page.locator('.permission-row[data-granted=true]').count(),1)
             page.locator('[data-pane=axx]').click()
             page.locator('#open-catalog').click()
+            page.locator('#work-commands-card details summary').click()
             page.locator('#work-command-select option').wait_for(state='attached')
             self.assertEqual(page.locator('#work-command-select').input_value(),'axx.generated.example')
             page.locator('#work-command-filter').fill('sin coincidencia')
@@ -115,6 +147,7 @@ class CompanionUI(unittest.TestCase):
         with sync_playwright() as p:
             page=self.open(p)
             page.locator('#open-catalog').click()
+            page.locator('#work-commands-card details summary').click()
             page.locator('[data-field=enabled]').check()
             page.locator('[data-field=values]').fill('[1,2]')
             page.locator('#work-generic-form button').click()

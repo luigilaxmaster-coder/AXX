@@ -3,6 +3,7 @@
   "appName": "Axx Mobile",
   "webDir": "www",
   "loggingBehavior": "none",
-  "android": {"allowMixedContent": false, "backgroundColor": "#090B10"},
+  "android": {"allowMixedContent": false, "backgroundColor": "#f6f7f9"},
+  "plugins": {"SystemBars": {"style": "LIGHT"}},
   "server": {"androidScheme": "https"}
 }

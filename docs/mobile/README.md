@@ -4,10 +4,12 @@ Android is a client of the existing Windows Axx instance. It shares the desktop 
 
 ## Latest revision
 
-[Minimal mobile UI and physical test scope](MINIMAL-UI-20261028-022.md).
+[Visual redesign and physical checks for 0.2.3](VISUAL-REVISION-20261028-023.md).
+
+[Previous 0.2.2 verification](MINIMAL-UI-20261028-022.md).
 
 
-Android **0.2.2-companion / build 23** improves the existing Windows-linked
+Android **0.2.3-companion / build 24** improves the existing Windows-linked
 companion rather than introduce a separate assistant. The phone follows the PC's
 appearance, active shared conversation, model selection and current grants. Active
 snapshots poll every two seconds while the phone is visible. Commands use the
@@ -16,7 +18,7 @@ enabled MCP and approved generated capabilities. Disabled and documentary record
 are not advertised as executable. New tools appear on reopening Actions or within
 the ten-second catalog refresh while that pane remains visible.
 
-The interface uses four focused tabs: character, shared chat, actions and PC. The home screen has no marketing heading or instruction wall. Advanced gestures, permissions, activity and raw operation receipts expand on demand. The chat owns its viewport and keeps its composer above navigation when the keyboard opens. Android text scaling remains enabled; layout checks include a 339 px screen and 170% text.
+The interface uses four focused tabs with light surfaces and a single home entry to chat. Character gestures and remote microphone controls live in a separate sheet. The obsolete prototype stylesheet is excluded from the operational entrypoint. The app defaults to standard text sizing (100%); PC → Tamaño del texto → Del teléfono follows Android accessibility sizing instead. Android system settings are unchanged. Both modes were checked on the physical Samsung, including its 299-point viewport with the keyboard open. Remote input surfaces share the new light design.
 Microphone controls are collapsible and open automatically during recording.
 Work output distinguishes approval, execution, verified postconditions and an
 uncertain effect. Polling checks pending operations without resubmitting them.
