@@ -50,5 +50,5 @@ class RemoteControlUI(unittest.TestCase):
    page.locator('#control-acquire').click();page.locator('#control-stop').wait_for();page.evaluate('failInput=true')
    page.locator('[data-control-mode=pad]').click();page.locator('#control-right').click();page.wait_for_function('inputPackets.length===3 && !inputActive')
    self.assertTrue(page.locator('#control-stop').is_hidden());self.assertEqual(page.evaluate('inputPackets.length'),3)
-   self.assertIn('It will not be replayed',page.locator('#control-status').inner_text())
+   self.assertIn('No se repetirá',page.locator('#control-status').inner_text())
    browser.close()

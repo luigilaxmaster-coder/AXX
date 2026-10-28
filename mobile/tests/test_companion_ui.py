@@ -1,5 +1,6 @@
 """Browser contracts with an explicit native fixture; no physical phone claim."""
 import unittest
+import re
 from playwright.sync_api import sync_playwright
 from mobile.tests.test_ui import ROOT, NATIVE_FIXTURE, LINK
 
@@ -22,6 +23,43 @@ Capacitor.Plugins.AxxTransport.request=async args=>{
 
 
 class CompanionUI(unittest.TestCase):
+    def test_phone_layout_large_text_and_keyboard_keep_navigation_and_composer_visible(self):
+        with sync_playwright() as p:
+            browser=p.chromium.launch()
+            page=browser.new_page(viewport={'width':339,'height':673},reduced_motion='reduce')
+            def serve(route):
+                path=ROOT/(route.request.url.split('https://axx.test/',1)[1] or 'index.html')
+                if path.suffix=='.css':
+                    # Android WebView textZoom scales explicit px text as well as rem.
+                    css=re.sub(r'(font-size:|font:)([\d.]+)px',lambda m:m[1]+str(float(m[2])*1.7)+'px',path.read_text(encoding='utf-8'))
+                    route.fulfill(body=css,content_type='text/css')
+                else:route.fulfill(path=str(path))
+            page.route('https://axx.test/**',serve);page.add_init_script(FIXTURE);page.goto('https://axx.test/')
+            page.locator('#sync-status[data-state=complete]').wait_for()
+            self.assertFalse(page.locator('.intro').count())
+            self.assertGreaterEqual(page.locator('#axx-avatar-canvas').bounding_box()['height'],160)
+            self.assertLess(page.locator('#open-chat').bounding_box()['y'],600)
+            for name in ['chat','work','pc','axx']:
+                page.locator('[data-pane='+name+']').click()
+                self.assertTrue(page.evaluate('()=>document.documentElement.scrollWidth<=innerWidth && document.documentElement.scrollHeight<=innerHeight'))
+                self.assertGreaterEqual(page.locator('[data-pane='+name+']').bounding_box()['height'],48)
+            page.locator('[data-pane=chat]').click();page.locator('#draft').fill('Borrador conservado')
+            page.set_viewport_size({'width':339,'height':380})
+            send=page.locator('#send').bounding_box();nav=page.locator('.live-nav').bounding_box()
+            self.assertLessEqual(send['y']+send['height'],nav['y']+1)
+            self.assertEqual(page.locator('#draft').input_value(),'Borrador conservado')
+            browser.close()
+
+    def test_pc_palette_finish_and_lighting_change_the_shared_character(self):
+        with sync_playwright() as p:
+            page=self.open(p,339)
+            before=page.locator('#axx-avatar-canvas').evaluate('(c)=>c.toDataURL()')
+            page.evaluate('()=>{snapshot.appearance.settings.palette=2;snapshot.appearance.finish="obsidian";snapshot.appearance.studio.exposure=1.6;}')
+            page.locator('#refresh').click()
+            page.wait_for_function('()=>axxMobileRenderer.settings.palette===2 && axxMobileRenderer.finish==="obsidian"')
+            self.assertEqual(page.evaluate('axxMobileRenderer.getStudio().exposure'),1.6)
+            self.assertNotEqual(before,page.locator('#axx-avatar-canvas').evaluate('(c)=>c.toDataURL()'))
+
     def test_unconfirmed_delivery_does_not_break_reconnection_or_resend(self):
         with sync_playwright() as p:
             page=self.open(p)
@@ -31,6 +69,7 @@ class CompanionUI(unittest.TestCase):
             }''')
             page.reload()
             page.locator('#sync-status[data-state=complete]').wait_for()
+            page.locator('[data-pane=chat]').click()
             # The fixture has no command receipt: its pending lookup must not
             # turn an authenticated snapshot into a disconnected PC.
             page.wait_for_function('()=>document.querySelector("#command-state").textContent.includes("sin confirmar")')
@@ -55,6 +94,7 @@ class CompanionUI(unittest.TestCase):
     def test_live_snapshot_permissions_catalog_and_draft_survive_polling(self):
         with sync_playwright() as p:
             page=self.open(p,339)
+            page.locator('[data-pane=chat]').click()
             page.locator('#draft').fill('Mi borrador')
             page.evaluate("snapshot.messages=[{id:'m1',role:'assistant',text:'Nuevo mensaje del PC',source:'desktop'}];snapshot.appearance.settings.form=19;snapshot.inference.model='nuevo-modelo';scopes=['query'];")
             page.wait_for_function("() => document.querySelector('#model-state').textContent.includes('nuevo-modelo')")
@@ -62,6 +102,7 @@ class CompanionUI(unittest.TestCase):
             self.assertEqual(page.locator('#draft').input_value(),'Mi borrador')
             self.assertEqual(page.evaluate('axxMobileRenderer.form'),19)
             self.assertEqual(page.locator('.permission-row[data-granted=true]').count(),1)
+            page.locator('[data-pane=axx]').click()
             page.locator('#open-catalog').click()
             page.locator('#work-command-select option').wait_for(state='attached')
             self.assertEqual(page.locator('#work-command-select').input_value(),'axx.generated.example')
