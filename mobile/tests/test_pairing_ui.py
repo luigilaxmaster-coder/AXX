@@ -15,7 +15,7 @@ class PairingUI(unittest.TestCase):
 Capacitor.Plugins.AxxTransport.scan=async()=>{scanCalls++;throw Error('Camera access is required');};
 Capacitor.Plugins.AxxTransport.pair=async()=>{pairCalls++;if(pairCalls===1)throw Error('This QR expired. Generate a new QR.');};''')
             page.goto('https://axx.test/')
-            self.assertEqual(page.locator('html').get_attribute('lang'),'en')
+            self.assertEqual(page.locator('html').get_attribute('lang'),'es')
             page.locator('#pc-button').click();page.locator('#scan-qr').click()
             self.assertIn('Camera access',page.locator('#pair-error').inner_text())
             self.assertTrue(page.locator('#scan-qr').is_enabled())

@@ -6,6 +6,7 @@ from pathlib import Path
 from playwright.sync_api import sync_playwright
 
 ROOT = Path(__file__).resolve().parents[1] / 'www'
+LINK='axx://pair?endpoint=https%3A%2F%2F192.168.0.10%3A4443&fingerprint='+'a'*64+'&code='+'b'*32
 NATIVE_FIXTURE = '''window.Capacitor={Plugins:{AxxTransport:{
  profile:async()=>({paired:false}),
  pair:async()=>{},
@@ -33,7 +34,7 @@ class MobileUI(unittest.TestCase):
             page.goto('https://axx.test/')
             page.locator('#pc-button').click()
             page.locator('#pair-manual summary').click()
-            page.locator('#pair-uri').fill('axx://pair?test-fixture')
+            page.locator('#pair-uri').fill(LINK)
             # Profile becomes paired only after confirmation in this isolated fixture.
             page.evaluate("Capacitor.Plugins.AxxTransport.profile=async()=>({paired:true,endpoint:'https://192.168.1.2:443',fingerprint:'test',scopes:['query']})")
             page.locator('#pair-submit').click()
@@ -55,7 +56,7 @@ class MobileUI(unittest.TestCase):
             page.locator('#avatar-interact').click()
             self.assertEqual(page.locator('#avatar-interact').get_attribute('aria-pressed'),'true')
             page.locator('#axx-avatar-canvas').press('Enter')
-            self.assertIn('touch',page.locator('#avatar-state').inner_text())
+            self.assertIn('toque',page.locator('#avatar-state').inner_text())
             page.locator('[data-pane=pc]').click()
             page.locator('#pin-shortcut').click()
             png=base64.b64decode(page.evaluate('testIcon').split(',')[1])

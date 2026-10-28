@@ -30,13 +30,13 @@
     const originalSave=c.save.bind(c);
     c.save=function(){originalSave(); if(enabled) void sync();};
     async function sync(){
-        if(syncing || c.pending || !c.data.prefs.keepHistory) return;
+        if(syncing || c.pending) return;
         syncing=true;
         const conversation_id=c.data.sharedConversationId;
         try {
-            const messages=c.data.messages.filter(m=>['user','assistant','system'].includes(m.role) && m.status!=='pending' && typeof m.text==='string' && m.at>Date.now()-90*86400000).slice(-200);
+            const messages=c.data.prefs.keepHistory?c.data.messages.filter(m=>['user','assistant','system'].includes(m.role) && m.status!=='pending' && typeof m.text==='string' && m.at>Date.now()-90*86400000).slice(-200):[];
             const inference={provider:c.data.prefs.provider||'', provider_name:c.data.prefs.apiConnection||'', model:c.data.prefs.model||'', selection_mode:c.data.prefs.selection_mode||'manual'};
-            const result=await api('POST','messages',{conversation_id,messages,inference,appearance:appearance()});
+            const result=await api('POST','messages',{conversation_id,messages,inference,appearance:appearance(),share_history:!!c.data.prefs.keepHistory});
             if(c.data.sharedConversationId!==conversation_id)return;
             const ids=new Set(c.data.messages.map(m=>m.id));
             const incoming=result.messages.filter(m=>!ids.has(m.id));
@@ -59,7 +59,6 @@
     async function refresh(){try{render(await api('GET','status'));if(enabled)await sync();}catch(e){$('axx-mobile-status').textContent='Mobile access unavailable: '+(e.message||e);}}
     $('axx-mobile-start').onclick=async()=>{
         pairError.hidden=true;pairError.textContent='';hidePair();
-        if(!c.data.prefs.keepHistory){pairError.textContent='Activa Guardar historial en los ajustes de conversación para compartirla con el teléfono.';pairError.hidden=false;return;}
         $('axx-mobile-start').disabled=true;
         try{
             const info=await api('POST','start',{});
@@ -75,5 +74,5 @@
     };
     $('axx-mobile-stop').onclick=async()=>{try{render(await api('POST','stop',{}));}catch(e){$('axx-mobile-status').textContent=e.message||String(e);}};
     $('axx-mobile-always').onchange=async()=>{const checkbox=$('axx-mobile-always');checkbox.disabled=true;try{render(await api('POST','always-access',{enabled:checkbox.checked}));}catch(e){checkbox.checked=!checkbox.checked;$('axx-mobile-status').textContent='No se pudo cambiar el acceso: '+(e.message||e);}finally{checkbox.disabled=false;}};
-    setInterval(()=>void refresh(),5000);setInterval(()=>void syncAppearance(),1000);void refresh();
+    setInterval(()=>void refresh(),2000);setInterval(()=>void syncAppearance(),1000);void refresh();
 })(window.Axx);

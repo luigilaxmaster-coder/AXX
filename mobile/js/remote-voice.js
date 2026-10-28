@@ -9,6 +9,7 @@
   function display(value){
     capture=value;
     const recording=value.state==='recording';
+    if(recording)$('voice-details').open=true;
     $('voice-panel').classList.toggle('recording',recording);
     $('voice-permit').hidden=value.permission==='granted';$('voice-stop').hidden=!recording;
     $('voice-level').hidden=!recording;$('voice-level').value=value.level||0;

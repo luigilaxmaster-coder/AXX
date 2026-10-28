@@ -47,6 +47,21 @@ class MobileTrustStoreTests(unittest.TestCase):
         with self.assertRaises(CommandConflict):
             self.store.admit_command(device["device_id"], "cmd-1", {"text": "adiós"}, task_id="task-3")
 
+    def test_rescan_preserves_authenticated_device_permissions_and_single_use(self):
+        device = self.store.consume_pairing(self.store.create_pairing(), 'Phone')
+        self.store.set_tool_permission(device['device_id'], True)
+        code = self.store.create_pairing()
+        renewed = self.store.consume_pairing(code, 'Phone', credential=device['credential'])
+        self.assertEqual(renewed['device_id'], device['device_id'])
+        self.assertEqual(renewed['credential'], device['credential'])
+        self.assertIn('tools.control', renewed['scopes'])
+        self.assertEqual(len(self.store.devices()), 1)
+        with self.assertRaises(PairingError):
+            self.store.consume_pairing(code, 'Phone', credential=device['credential'])
+        self.store.revoke(device['device_id'])
+        with self.assertRaises(PairingError):
+            self.store.consume_pairing(self.store.create_pairing(), 'Phone', credential=device['credential'])
+
     def test_restart_preserves_command_and_marks_uncertain_effect(self):
         device = self.store.consume_pairing(self.store.create_pairing(), 'Phone')
         admitted = self.store.admit_command(device['device_id'], 'one', {'text':'hi'})

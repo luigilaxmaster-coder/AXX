@@ -11,13 +11,13 @@ Run the installer and open Axx. Python and Node are not required. Start with **A
 
 The packaged backend may take longer on its first launch while Windows extracts and scans it. The native host allows up to 90 seconds for backend readiness and reports a startup error if that limit is exceeded.
 
-Source is **v0.22.15**; the published Windows installer is **v0.22.11**. Delivery of the newer source is pending publication. Android APKs remain local test artifacts until separately published. See [mobile setup and validation](docs/mobile/README.md) and the [version and release procedure](docs/RELEASING.md).
+Source is **v0.22.16**; the published Windows installer is **v0.22.11**. Delivery of the newer source is pending publication. Android APKs remain local test artifacts until separately published. See [mobile setup and validation](docs/mobile/README.md) and the [version and release procedure](docs/RELEASING.md).
 <!-- release:download:end -->
 
 ---
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Source%20Version-v0.22.15-informational" alt="Source version 0.22.15" />
+  <img src="https://img.shields.io/badge/Source%20Version-v0.22.16-informational" alt="Source version 0.22.16" />
 </p>
 
 ## Demo y galería
@@ -50,7 +50,7 @@ Una prueba de código, una ejecución instalada y una comprobación física acre
 | [Investigación aislada](docs/REVISION-CONJUNTA-20261027.md) | Revisión de candidatos del laboratorio M01–M15, separados de la aplicación. | M11: 23/23 casos existentes y manifiestos contrastados. El cierre posterior registra M15 bloqueado y currículo incompleto. | Sin promoción; los resultados del laboratorio no acreditan integración, modelos ni audio reales en Axx. |
 | [Catálogo de aplicaciones](docs/APPLICATION-COMMANDS.md) | 48 perfiles y 160 operaciones descritas, distinguiendo guías y rutas ejecutables. | Alcance documentado por aplicación y acción. | No equivale a 160 integraciones ejecutadas; detectar una app no verifica sus controles. |
 | [Chats](docs/CHAT-WORKSPACE.md) y [modelos](docs/PROVEEDORES-API-LOCAL.md) | Historial, grupos, borradores y contexto explícito; conexión y modelo seleccionables. | Contratos y políticas descritos en las guías. | Configurar o listar un modelo no demuestra inferencia. La selección explícita no cambia de proveedor silenciosamente. |
-| [Android](docs/mobile/README.md) | Conversación y servicios del PC, con permisos separados para control remoto. | Artefactos locales y verificación por función documentados. | Versión independiente; aceptación física actual pendiente. La prueba de Windows no la sustituye. |
+| [Android](docs/mobile/README.md) | 0.2.1: diseño renovado, reescaneo con permisos conservados, sincronización y comandos del PC. | APK compilado; 8 pruebas de UI y 11 comprobaciones contra Windows 0.22.16 instalado, con QR, TLS y comandos verificados. | El cliente de prueba usa un puente de navegador. Instalación, cámara y aceptación física Android siguen pendientes. |
 
 ## Empezar
 
@@ -70,7 +70,7 @@ PowerShell y CMD requieren aprobación y ejecutan con los permisos del usuario d
 <details>
 <summary>Desarrollo y documentación técnica</summary>
 
-> **Axx is under active development.** Source is **v0.22.15**; the published Windows installer is **v0.22.11**. Delivery of the newer source is pending publication. Validation is recorded per feature; a working UI or build does not by itself certify every hardware-dependent behavior.
+> **Axx is under active development.** Source is **v0.22.16**; the published Windows installer is **v0.22.11**. Delivery of the newer source is pending publication. Validation is recorded per feature; a working UI or build does not by itself certify every hardware-dependent behavior.
 
 Para desarrollo se necesitan Node.js, Rust con MSVC y Python, además de las dependencias declaradas por el proyecto. El instalador publicado no requiere instalar Python ni Node.
 
