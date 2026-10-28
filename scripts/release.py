@@ -183,7 +183,8 @@ def validate_receipts(root: Path, build_path: Path, installed_path: Path) -> Pat
             continue
         built = built_root / name
         # Check the exact build bytes first; another checkout may differ only in line endings.
-        if (name.suffix.lower() not in text_sources or not built.is_file() or digest(built) != sha.lower()
+        if ((name.suffix.lower() not in text_sources and 'license-notices' not in name.parts)
+                or not built.is_file() or digest(built) != sha.lower()
                 or (root / name).read_bytes().replace(b'\r\n', b'\n') != built.read_bytes().replace(b'\r\n', b'\n')):
             raise ValueError(f"Source changed since build: {name}")
     item = installers[0]

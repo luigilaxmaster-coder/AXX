@@ -120,6 +120,9 @@ class ReleaseTests(unittest.TestCase):
         source = self.root / 'backend/example.py'
         source.parent.mkdir(parents=True)
         source.write_bytes(b'value = 1\r\n')
+        notice = self.root / 'src-tauri/resources/license-notices/example/LICENSE'
+        notice.parent.mkdir(parents=True)
+        notice.write_bytes(b'License notice\r\n')
         installer, b, i = self.receipt()
         other = tempfile.TemporaryDirectory()
         self.addCleanup(other.cleanup)
@@ -127,8 +130,14 @@ class ReleaseTests(unittest.TestCase):
         shutil.copytree(self.root, checkout, dirs_exist_ok=True)
         copy = checkout / 'backend/example.py'
         copy.write_bytes(b'value = 1\n')
+        copied_notice = checkout / 'src-tauri/resources/license-notices/example/LICENSE'
+        copied_notice.write_bytes(b'License notice\n')
         self.assertEqual(release.validate_receipts(checkout, b, i), installer)
         copy.write_bytes(b'value = 2\n')
+        with self.assertRaisesRegex(ValueError, 'Source changed'):
+            release.validate_receipts(checkout, b, i)
+        copy.write_bytes(b'value = 1\n')
+        copied_notice.write_bytes(b'Changed notice\n')
         with self.assertRaisesRegex(ValueError, 'Source changed'):
             release.validate_receipts(checkout, b, i)
 
