@@ -69,7 +69,7 @@
             const webVoices = (!window.__contractCalls && 'speechSynthesis' in window) ? (window.speechSynthesis.getVoices() || []) : [];
             const savedURI = window.__contractCalls ? null : localStorage.getItem('axx.voice.uri');
             const defaultURI = (!window.__contractCalls &&
-                (state.voices.find(v => v.name === 'moss:axx-sam') || state.voices.find(v => v.name === 'moss:axx-valeria'))?.name) || '';
+                (state.voices.find(v => v.name === 'moss:axx-morcito') || state.voices.find(v => v.name === 'moss:axx-sam') || state.voices.find(v => v.name === 'moss:axx-valeria'))?.name) || '';
             const effectiveURI = savedURI ?? defaultURI;
             for (const reader of [Axx.symbiosis?.reader, Axx.voice13?.reader])
                 if (reader) reader.voiceURI = effectiveURI;
@@ -77,6 +77,7 @@
                 const select = document.getElementById(id); if (!select) continue;
                 select.replaceChildren(new Option('Voz rápida de Windows · automática', ''));
                 for (const voice of state.voices) select.add(new Option(voice.engine === 'moss-onnx' || voice.engine === 'piper-onnx' ? (voice.label || voice.name) : (voice.label || voice.name) + ' · ' + voice.language, voice.engine === 'moss-onnx' || voice.engine === 'piper-onnx' ? voice.name : 'sapi:' + voice.name));
+                if (!state.voices.some(v => v.name === 'moss:axx-morcito')) { const missing = new Option('Axxmorcito · no disponible', 'moss:axx-morcito'); missing.disabled = true; select.add(missing); }
                 if (!hasDefault) { const missing = new Option('Xxx default · no disponible', 'moss:axx-sam'); missing.disabled = true; select.add(missing); }
                 for (const [uri, label] of [['piper:es_ES-carlfm-x_low', 'Piper · España · CarlFM · no instalada'], ['piper:es_MX-ald-medium', 'Piper · México · Ald · no instalada']]) {
                     if (!state.voices.some(v => v.name === uri)) { const missing = new Option(label, uri); missing.disabled = true; select.add(missing); }

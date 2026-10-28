@@ -119,6 +119,20 @@ class MossStreamTests(unittest.TestCase):
         (self.service.root / 'ort_cpu_runtime.py').write_text('# engine fixture')
         return reference
 
+    def test_axxmorcito_cache_tracks_selected_language_reference(self):
+        spanish = self.enable_cache()
+        english = self.service.personal_samples / 'axx-morcito-en.wav'
+        english.parent.mkdir(parents=True, exist_ok=True)
+        english.write_bytes(b'private-english-reference')
+        self.service._voice_paths.return_value = {'moss:axx-morcito': (spanish, 'Axxmorcito')}
+        request = {'voice': 'moss:axx-morcito', 'text': 'Hello, I can help.', 'language': 'en'}
+        english_key = self.service._cache_path(request)
+        spanish_key = self.service._cache_path({**request, 'language': 'es'})
+        self.assertNotEqual(english_key, spanish_key)
+        english.write_bytes(b'changed-english-reference')
+        self.assertNotEqual(english_key, self.service._cache_path(request))
+        self.assertEqual(spanish_key, self.service._cache_path({**request, 'language': 'es'}))
+
     def test_cached_stream_preserves_pcm_without_loading_model(self):
         self.enable_cache()
         request = {**self.body, 'id': 'request1', 'stream': True}

@@ -12,11 +12,12 @@ import threading
 import time
 
 if __package__:
-    from .speech_text import prepare_spoken_text
+    from .speech_text import prepare_spoken_text, resolve_language
 else:
-    from speech_text import prepare_spoken_text
+    from speech_text import prepare_spoken_text, resolve_language
 
 PERSONAL_VOICES = (
+    'axx-morcito',
     'axx-sam',
     'axx-valeria', 'axx-elena', 'axx-mateo', 'axx-dante',
     'axx-alba', 'axx-nova', 'axx-aura', 'axx-titan'
@@ -200,8 +201,14 @@ def main():
             # Match the service's current reference instead of its startup path.
             if name in PERSONAL_VOICES and personal.is_file():
                 voice = personal
+            english = personal_samples / 'axx-morcito-en.wav'
+            if (name == 'axx-morcito' and not request.get('prepare') and english.is_file()
+                    and resolve_language(request.get('text', ''), request.get('language', 'auto')) == 'en'):
+                voice = english
             if request.get('prepare'):
                 codes = runtime.encode_reference_audio(voice)
+                if name == 'axx-morcito' and english.is_file():
+                    runtime.encode_reference_audio(english)
                 # Ready means the actual prefill, frame and PCM decoder have
                 # executed, not merely that their ONNX sessions were allocated.
                 rng_state = runtime.rng.bit_generator.state

@@ -26,6 +26,7 @@ MAX_CACHE = 64 * 1024 * 1024
 
 class MossSpeechService:
     PERSONAL_VOICES = (
+        ('axx-morcito', 'Axxmorcito'),
         ('axx-sam', 'Xxx default'),
         ('axx-valeria', 'Axx Valeria · Cálida y Elocuente'),
         ('axx-elena', 'Axx Elena · Cercana y Melódica'),
@@ -63,7 +64,12 @@ class MossSpeechService:
         if request.get('prepare'):
             return None
         try:
+            spoken, language = prepare_spoken_text(request['text'], request.get('language', 'auto'))
             voice = self._voice_paths()[request['voice']][0]
+            if request['voice'] == 'moss:axx-morcito' and language == 'en':
+                english = self.personal_samples / 'axx-morcito-en.wav'
+                if english.is_file():
+                    voice = english
             engine = [self.script, self.script.with_name('speech_text.py'),
                       self.root / 'onnx_tts_runtime.py', self.root / 'ort_cpu_runtime.py']
             models = sorted(p for p in self.models.glob('*/*') if p.is_file())
@@ -71,7 +77,6 @@ class MossSpeechService:
             # Hash their contents so the persistent cache survives a restart.
             signature = ([(str(p), p.stat().st_size, p.stat().st_mtime_ns) for p in models] +
                          [(p.name, hashlib.sha256(p.read_bytes()).hexdigest()) for p in engine])
-            spoken, language = prepare_spoken_text(request['text'], request.get('language', 'auto'))
             key = hashlib.sha256(voice.read_bytes() + json.dumps(
                 [spoken, language, signature], ensure_ascii=True).encode()).hexdigest()
             return self.data_dir / 'audio-cache' / (key + '.wav')

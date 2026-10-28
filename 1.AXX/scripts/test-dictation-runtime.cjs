@@ -59,13 +59,13 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
         Axx.symbiosis.reader.voiceURI='';Axx.voice13.reader.voiceURI='';await state.refreshVoices(true);
         results.push(Axx.symbiosis.reader.voiceURI);
       };
-      fixtureVoices=[{name:'axx-valeria',enabled:true},{name:'axx-sam',enabled:true}].map(v=>({...v,name:'moss:'+v.name,engine:'moss-onnx'}));
+      fixtureVoices=[{name:'axx-morcito',enabled:true},{name:'axx-sam',enabled:true},{name:'axx-valeria',enabled:true}].map(v=>({...v,name:'moss:'+v.name,engine:'moss-onnx'}));
       await refresh(null);await refresh('moss:axx-valeria');await refresh('');
-      fixtureVoices=fixtureVoices.slice(0,1);await refresh(null);
+      fixtureVoices=fixtureVoices.slice(1);await refresh(null);
       fixtureVoices=[];await refresh('');localStorage.removeItem('axx.voice.uri');state.prepareVoice=prepare;
       return results;
     });
-    assert.deepEqual(voiceDefaults.slice(0,4),['moss:axx-sam','moss:axx-valeria','','moss:axx-valeria'],
+    assert.deepEqual(voiceDefaults.slice(0,4),['moss:axx-morcito','moss:axx-valeria','','moss:axx-sam'],
       'The private default must fall back when absent and respect explicit Windows/other voice choices');
     await page.evaluate(async()=>{
       fixtureVoices=[{name:'moss:axx-sam',label:'Xxx default',engine:'moss-onnx'}, {name:'moss:axx-valeria',label:'Axx Valeria',engine:'moss-onnx'}];
@@ -88,15 +88,34 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
     assert.deepEqual(await page.evaluate(()=>[localStorage.getItem('axx.voice.uri'),Axx.symbiosis.reader.voiceURI,Axx.voice13.reader.voiceURI,document.getElementById('chat-live-voice').value]),Array(4).fill('moss:axx-sam'));
     await page.evaluate(()=>{holdVoicePrepare=false;releaseVoicePrepare();});
     await page.waitForFunction(()=>document.getElementById('chat-voice-status').dataset.phase==='ready');
-    await page.evaluate(async()=>{fixtureVoices.push({name:'piper:es_ES-carlfm-x_low',label:'Piper · España · CarlFM · ligera',language:'es-ES',engine:'piper-onnx'});await Axx.nativeVoice.refreshVoices(true);});
+    await page.evaluate(async()=>{fixtureVoices.push({name:'piper:es_ES-carlfm-x_low',label:'Piper · España · CarlFM · ligera',language:'es-ES',engine:'piper-onnx'}, {name:'moss:axx-morcito',label:'Axxmorcito · Español / English',language:'es / en',engine:'moss-onnx'});await Axx.nativeVoice.refreshVoices(true);});
     const voiceEvidence=path.resolve(__dirname,'../../build/voice-ui-'+require('../../package.json').version);fs.mkdirSync(voiceEvidence,{recursive:true});
     await page.locator('#chat-voice-settings').click();
     assert.equal(await page.locator('#view-voices').isVisible(),true,'The dedicated voice panel must open from chat');
+    assert.equal(await page.locator('#voice-panel-current').evaluate(el=>getComputedStyle(el).color),'rgb(241, 255, 253)','Active voice must remain readable on its dark card');
+    assert.equal(await page.locator('#voice-panel-controls .micro-copy').evaluate(el=>getComputedStyle(el).color),'rgb(181, 202, 218)','Voice model help must remain readable on the dark controls');
+    assert.equal(await page.locator('#chat-voice-speed-value').evaluate(el=>getComputedStyle(el).color),'rgb(180, 236, 225)','Voice speed must remain readable on the dark controls');
     await page.locator('#voice-panel-select').selectOption('piper:es_ES-carlfm-x_low');
     await page.waitForFunction(()=>document.getElementById('voice-panel-status').dataset.phase==='ready');
     assert.deepEqual(await page.evaluate(()=>[localStorage.getItem('axx.voice.uri'),Axx.symbiosis.reader.voiceURI,Axx.voice13.reader.voiceURI,document.getElementById('chat-live-voice').value,document.getElementById('chat-voice-select').value]),Array(5).fill('piper:es_ES-carlfm-x_low'));
     assert.equal(await page.locator('[data-voice-choice="piper:es_ES-carlfm-x_low"]').getAttribute('aria-pressed'),'true');
     assert.equal(await page.locator('[data-voice-choice="piper:es_MX-ald-medium"]').isDisabled(),true,'Missing Piper voice must not be selectable');
+    await page.locator('[data-voice-choice="moss:axx-morcito"]').click();
+    await page.waitForFunction(()=>document.getElementById('voice-panel-status').dataset.phase==='ready');
+    assert.deepEqual(await page.evaluate(()=>[localStorage.getItem('axx.voice.uri'),Axx.symbiosis.reader.voiceURI,Axx.voice13.reader.voiceURI,document.getElementById('chat-live-voice').value]),Array(4).fill('moss:axx-morcito'));
+    assert.equal(await page.locator('[data-voice-choice="moss:axx-morcito"]').getAttribute('aria-pressed'),'true');
+    const spokenLanguages=await page.evaluate(()=>{
+      const companion=Axx.companion, reader=Axx.symbiosis.reader, original=companion.voiceDelegate.read;
+      const savedPreference=companion.data.prefs.voiceLanguage, savedLanguage=reader.lang, result=[];
+      companion.voiceDelegate.read=()=>{};
+      try {
+        companion.data.prefs.voiceLanguage='auto';savedVoiceRead.call(companion,'Hello, I can help you.');result.push(reader.lang);
+        savedVoiceRead.call(companion,'Hola, puedo ayudarte con eso.');result.push(reader.lang);
+        companion.data.prefs.voiceLanguage='en';savedVoiceRead.call(companion,'Hola, puedo ayudarte con eso.');result.push(reader.lang);
+        return result;
+      } finally {companion.voiceDelegate.read=original;companion.data.prefs.voiceLanguage=savedPreference;reader.lang=savedLanguage;}
+    });
+    assert.deepEqual(spokenLanguages,['en-US','es-DO','en-US'],'Axxmorcito must choose the matching reference language for speech');
     await page.locator('#view-voices').screenshot({path:path.join(voiceEvidence,'voices-panel.png')});
     await page.locator('#view-voices').evaluate(element=>element.scrollTop=element.scrollHeight);
     await page.locator('#view-voices').screenshot({path:path.join(voiceEvidence,'voices-panel-bottom.png')});
@@ -108,6 +127,7 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
     await page.evaluate(async()=>{fixtureVoices=fixtureVoices.filter(v=>v.name==='moss:axx-valeria');await Axx.nativeVoice.refreshVoices(true);});
     assert.equal(await page.locator('#chat-voice-default').isDisabled(),true);
     assert.equal(await page.locator('#chat-voice-select').inputValue(),'moss:axx-sam','Missing selected voice must not silently appear as Windows');
+    assert.equal(await page.locator('[data-voice-choice="moss:axx-morcito"]').isDisabled(),true,'Missing Axxmorcito voice must not be selectable');
     assert.equal(await page.locator('#chat-voice-status').getAttribute('data-phase'),'error');
     await page.evaluate(async()=>{failVoiceList=true;await Axx.nativeVoice.refreshVoices(true).catch(()=>{});});
     assert.match(await page.locator('#chat-voice-status').textContent(),/No se pudo consultar/);
@@ -298,6 +318,6 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
     assert.deepEqual(errors,[]);
     const output=path.resolve(__dirname,'../../build/quick-reply-'+require('../../package.json').version);fs.mkdirSync(output,{recursive:true});
     await page.screenshot({path:path.join(output,'dictation.png')});
-    console.log('PASS: shared Xxx default selection, persisted voice, loading/ready/error states, missing voice, dictation geometry/owner/draft, live blur retention, quiet and short utterance VAD, steady-noise rejection, visible input meter, unavailable exact device, cancellation barriers, single command shortcut and always-active rearm');
+    console.log('PASS: shared Axxmorcito/Xxx default selection, persisted voice, loading/ready/error states, missing voice, dictation geometry/owner/draft, live blur retention, quiet and short utterance VAD, steady-noise rejection, visible input meter, unavailable exact device, cancellation barriers, single command shortcut and always-active rearm');
   }finally{await browser?.close();await new Promise(r=>server.close(r));}
 })().catch(e=>{console.error(e);process.exitCode=1;});

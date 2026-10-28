@@ -9,7 +9,7 @@ const {chromium}=require(process.env.USERPROFILE+'/.cache/codex-runtimes/codex-p
   const voices=await p.evaluate(()=>Axx.nativeVoice.refreshVoices());
   saved=await p.evaluate(()=>{const r=Axx.symbiosis.reader;return {voiceURI:r.voiceURI,lang:r.lang,rate:r.rate,text:r.text};});
   const selected=process.env.AXX_SPEECH_VOICE||'moss:axx-sam';
-  assert(['moss:axx-sam','piper:es_ES-carlfm-x_low','piper:es_MX-ald-medium'].includes(selected),'Unsupported test voice');
+  assert(['moss:axx-morcito','moss:axx-sam','piper:es_ES-carlfm-x_low','piper:es_MX-ald-medium'].includes(selected),'Unsupported test voice');
   assert(voices.some(v=>v.name===selected),'Selected voice is missing from the installed voice catalog');
   receipt.selection=await p.evaluate(()=>({stored:localStorage.getItem('axx.voice.uri'),chat:document.getElementById('chat-voice-select')?.value,
     reader:Axx.symbiosis.reader.voiceURI,dictation:Axx.voice13.reader.voiceURI,live:document.getElementById('chat-live-voice')?.value}));
