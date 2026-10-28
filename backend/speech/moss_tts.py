@@ -83,6 +83,11 @@ class MossSpeechService:
         except (OSError, KeyError):
             return None
 
+    def _phrase_bank_path(self, request, cache_path):
+        if request.get('voice') == 'moss:axx-morcito' and cache_path is not None:
+            return self.data_dir / 'phrase-bank' / cache_path.name
+        return None
+
     @staticmethod
     def _read_cache(path):
         if path is None:
@@ -156,7 +161,8 @@ class MossSpeechService:
     def status(self):
         with self._lock:
             return {'available': self.available, 'ready': self._ready, 'preparing_voice': self._preparing,
-                    'prepared_voices': sorted(self._prepared), 'streaming': True}
+                    'prepared_voices': sorted(self._prepared), 'streaming': True,
+                    'phrase_bank_files': sum(1 for _ in (self.data_dir / 'phrase-bank').glob('*.wav'))}
 
     def start_warmup(self):
         with self._lock:
@@ -275,7 +281,7 @@ class MossSpeechService:
         if self._cancelled.is_set():
             raise SpeechError('CANCELLED', 'Speech was cancelled')
         cache_path = self._cache_path(request)
-        cached = self._read_cache(cache_path)
+        cached = self._read_cache(self._phrase_bank_path(request, cache_path)) or self._read_cache(cache_path)
         if cached:
             raw, pcm, rate, channels = cached
             if request.get('stream'):

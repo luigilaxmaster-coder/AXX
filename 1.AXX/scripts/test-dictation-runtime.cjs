@@ -93,7 +93,7 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
     await page.locator('#chat-voice-settings').click();
     assert.equal(await page.locator('#view-voices').isVisible(),true,'The dedicated voice panel must open from chat');
     assert.equal(await page.locator('#voice-panel-current').evaluate(el=>getComputedStyle(el).color),'rgb(241, 255, 253)','Active voice must remain readable on its dark card');
-    assert.equal(await page.locator('#voice-panel-controls .micro-copy').evaluate(el=>getComputedStyle(el).color),'rgb(181, 202, 218)','Voice model help must remain readable on the dark controls');
+    assert.equal(await page.locator('#voice-panel-controls .micro-copy').first().evaluate(el=>getComputedStyle(el).color),'rgb(181, 202, 218)','Voice model help must remain readable on the dark controls');
     assert.equal(await page.locator('#chat-voice-speed-value').evaluate(el=>getComputedStyle(el).color),'rgb(180, 236, 225)','Voice speed must remain readable on the dark controls');
     await page.locator('#voice-panel-select').selectOption('piper:es_ES-carlfm-x_low');
     await page.waitForFunction(()=>document.getElementById('voice-panel-status').dataset.phase==='ready');
@@ -104,6 +104,51 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
     await page.waitForFunction(()=>document.getElementById('voice-panel-status').dataset.phase==='ready');
     assert.deepEqual(await page.evaluate(()=>[localStorage.getItem('axx.voice.uri'),Axx.symbiosis.reader.voiceURI,Axx.voice13.reader.voiceURI,document.getElementById('chat-live-voice').value]),Array(4).fill('moss:axx-morcito'));
     assert.equal(await page.locator('[data-voice-choice="moss:axx-morcito"]').getAttribute('aria-pressed'),'true');
+    assert.equal(await page.locator('#voice-phrases-enabled').isChecked(),true,'Slow spoken turns should use a cached lead by default');
+    await page.locator('#voice-phrases-enabled').uncheck();
+    assert.equal(await page.evaluate(()=>Axx.decodeCompanion(localStorage.getItem('axx.companion.v4')).prefs.voicePhrases),false,'Lead preference must persist');
+    await page.locator('#voice-phrases-enabled').check();
+    await page.locator('#voice-audio-preset').selectOption('warm');
+    assert.equal(await page.evaluate(()=>Axx.voiceAudio.get('moss:axx-morcito').bass),3,'EQ preset must apply to the selected voice');
+    await page.locator('#voice-audio-pitch').fill('1');
+    assert.equal(await page.evaluate(()=>Axx.voiceAudio.get('moss:axx-morcito').pitch),1,'Pitch must persist as a voice setting');
+    assert.equal(await page.evaluate(()=>Axx.voiceAudio.get('piper:es_ES-carlfm-x_low').pitch),0,'One voice must not alter another');
+    await page.locator('#voice-audio-reset').click();
+    assert.equal(await page.evaluate(()=>Axx.voiceAudio.get('moss:axx-morcito').bass),0);
+    const personalitySound=await page.evaluate(()=>{
+      const voice='moss:axx-morcito', prior=Axx.companion.data.prefs.personalityStyle;
+      Axx.companion.data.prefs.personalityStyle='friendly';Axx.voiceAudio.refreshPersonality();
+      const friendly={settings:Axx.voiceAudio.get(voice),speed:Axx.voiceAudio.speed(voice,1)};
+      Axx.voiceAudio.set(voice,{presence:2});
+      Axx.companion.data.prefs.personalityStyle='direct';Axx.voiceAudio.refreshPersonality();
+      const manual={settings:Axx.voiceAudio.get(voice),speed:Axx.voiceAudio.speed(voice,1)};
+      Axx.voiceAudio.reset(voice);Axx.voiceAudio.refreshPersonality();
+      const direct={settings:Axx.voiceAudio.get(voice),speed:Axx.voiceAudio.speed(voice,1)};
+      Axx.companion.data.prefs.personalityStyle='playful';Axx.voiceAudio.refreshPersonality();
+      const playful={settings:Axx.voiceAudio.get(voice),speed:Axx.voiceAudio.speed(voice,1)};
+      const select=document.getElementById('chat-personality-style');select.value='psycho';select.dispatchEvent(new Event('change'));
+      const psycho={settings:Axx.voiceAudio.get(voice),speed:Axx.voiceAudio.speed(voice,1),saved:Axx.decodeCompanion(localStorage.getItem(Axx.companion.key)).prefs.personalityStyle};
+      Axx.companion.data.prefs.personalityStyle=prior;Axx.voiceAudio.refreshPersonality();
+      Axx.companion.save();return {friendly,manual,direct,playful,psycho};
+    });
+    assert.equal(personalitySound.friendly.settings.bass,1);
+    assert.ok(personalitySound.friendly.speed<1);
+    assert.equal(personalitySound.manual.settings.presence,2,'Manual audio must override the personality preset');
+    assert.equal(personalitySound.manual.speed,1);
+    assert.equal(personalitySound.direct.settings.presence,1);
+    assert.ok(personalitySound.direct.speed>1);
+    assert.ok(personalitySound.playful.speed>1);
+    assert.equal(personalitySound.psycho.settings.bass,2);
+    assert.ok(personalitySound.psycho.speed<1);
+    assert.equal(personalitySound.psycho.saved,'psycho');
+    assert.equal(await page.locator('#voice-audio-preset').inputValue(),'auto');
+    const leads=await page.evaluate(()=>[Axx.voiceConversation.leadFor('busca una canción'),Axx.voiceConversation.leadFor('busca una canción'),Axx.voiceConversation.leadFor('analyze this','en')]);
+    assert.notEqual(leads[0],leads[1],'Adjacent leads must rotate');
+    assert.ok(leads[2].startsWith('Let')||leads[2].startsWith('I ')||leads[2].startsWith('One moment'),'English leads must use English');
+    const shortReplies=await page.evaluate(()=>[Axx.voiceConversation.shortReply('¡Hola!'),Axx.voiceConversation.shortReply('¡Hola!'),Axx.voiceConversation.shortReply('Abre Spotify'),Axx.voiceConversation.shortReply('Thanks','en')]);
+    assert.notEqual(shortReplies[0],shortReplies[1],'Short spoken replies must rotate');
+    assert.equal(shortReplies[2],'','Commands must never be answered by canned small talk');
+    assert.equal(shortReplies[3],'','Unknown English expressions still go to the model');
     const spokenLanguages=await page.evaluate(()=>{
       const companion=Axx.companion, reader=Axx.symbiosis.reader, original=companion.voiceDelegate.read;
       const savedPreference=companion.data.prefs.voiceLanguage, savedLanguage=reader.lang, result=[];
@@ -116,6 +161,7 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
       } finally {companion.voiceDelegate.read=original;companion.data.prefs.voiceLanguage=savedPreference;reader.lang=savedLanguage;}
     });
     assert.deepEqual(spokenLanguages,['en-US','es-DO','en-US'],'Axxmorcito must choose the matching reference language for speech');
+    await page.locator('#view-voices').evaluate(element=>element.scrollTop=0);
     await page.locator('#view-voices').screenshot({path:path.join(voiceEvidence,'voices-panel.png')});
     await page.locator('#view-voices').evaluate(element=>element.scrollTop=element.scrollHeight);
     await page.locator('#view-voices').screenshot({path:path.join(voiceEvidence,'voices-panel-bottom.png')});

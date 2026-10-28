@@ -101,6 +101,7 @@
                 host.prepend(info);
             }
             Axx.stability20?.updateVoiceCards?.();
+            Axx.voiceAudio?.refreshPanel?.();
             state.prepareVoice(effectiveURI);
             return state.voices;
         }).catch(error => {
@@ -122,6 +123,7 @@
         this.nativePrefetch = null;
         this.nativeVoiceName = null;
         if (this.nativeAudio) { this.nativeAudio.pause(); this.nativeAudio.removeAttribute('src'); this.nativeAudio.load(); this.nativeAudio = null; }
+        this.nativeAudioChain?.dispose(); this.nativeAudioChain = null;
         if (this.nativeAudioUrl) URL.revokeObjectURL(this.nativeAudioUrl);
         this.nativeAudioUrl = null;
         window.speechSynthesis?.cancel();
@@ -203,11 +205,16 @@
                 const binary = atob(data.audio_base64), bytes = Uint8Array.from(binary, character => character.charCodeAt(0));
                 const url = URL.createObjectURL(new Blob([bytes], { type: data.mime })); this.nativeAudioUrl = url;
                 const audio = new Audio(url); this.nativeAudio = audio;
-                if (data.engine === 'moss-onnx' || data.engine === 'piper-onnx') audio.playbackRate = Math.max(.75,Math.min(1.3,Number(this.rate)||1));
+                if (data.engine === 'moss-onnx' || data.engine === 'piper-onnx') {
+                    audio.preservesPitch = false;
+                    audio.playbackRate = Axx.voiceAudio?.speed(voice.name, this.rate) || Math.max(.75,Math.min(1.3,Number(this.rate)||1));
+                    if (Axx.voiceAudio) this.nativeAudioChain = Axx.voiceAudio.attach(audio, voice.name);
+                }
                 const valid = () => generation === this.generation && this.nativeAudio === audio;
                 audio.onplaying = () => { if (!valid()) return; this.state = 'speaking'; this.nativeVoiceName = voice.name; state.playback = { engine: data.engine, voice: data.voice, sha256: data.evidence?.sha256, playing_event: true, ended_event: false, duration_seconds: data.duration_seconds }; this.prefetchNativeNext(); this.onChange?.(); };
-                audio.onended = () => { if (!valid()) return; if (state.playback) state.playback.ended_event = true; this.nativeAudio = null; this.current = null; URL.revokeObjectURL(url); this.nativeAudioUrl = null; this.offset = this.wordOffset = this.wordLength = 0; if (++this.index < this.chunks.length) this.speakCurrent(); else { this.index = Math.max(0, this.chunks.length - 1); this.state = this.awaitingText ? 'waiting' : 'ended'; this.onChange?.(); if (!this.awaitingText) this.onEnded?.(); } };
+                audio.onended = () => { if (!valid()) return; if (state.playback) state.playback.ended_event = true; this.nativeAudioChain?.dispose(); this.nativeAudioChain = null; this.nativeAudio = null; this.current = null; URL.revokeObjectURL(url); this.nativeAudioUrl = null; this.offset = this.wordOffset = this.wordLength = 0; if (++this.index < this.chunks.length) this.speakCurrent(); else { this.index = Math.max(0, this.chunks.length - 1); this.state = this.awaitingText ? 'waiting' : 'ended'; this.onChange?.(); if (!this.awaitingText) this.onEnded?.(); } };
                 audio.onerror = () => { if (!valid()) return; this.cancelUtterance(); this.state = 'error'; this.onError?.('No se pudo reproducir el WAV de Windows. El texto se conserva.'); this.onChange?.(); };
+                if (this.nativeAudioChain) await this.nativeAudioChain.context.resume();
                 await audio.play();
             } catch (error) {
                 if (generation !== this.generation) return;

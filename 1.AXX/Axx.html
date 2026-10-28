@@ -1809,7 +1809,7 @@ body.axx-resident :is(.panel-head,.flow-library-head,.organic-satellite-head,.v1
 <script>"use strict";
 var Axx;
 (function (Axx) {
-    Axx.VERSION = '0.22.17';
+    Axx.VERSION = '0.22.18';
     function newId() {
         if (typeof crypto.randomUUID === 'function')
             return crypto.randomUUID();
@@ -2236,7 +2236,7 @@ var Axx;
         const v = p[s];
         return [s, { baseForm: Axx.STATE_FORM[s], entryDuration: ['transform', 'thinking'].includes(s) ? .85 : .45, exitDuration: .35, deformationAmplitude: v[1], flowSpeed: v[0], twist: v[2], damping: 16, breathing: s === 'focus' ? .006 : .016, dropletCount: ['idle', 'notification', 'success'].includes(s) ? 3 : 0, lightResponse: s === 'success' ? 1.18 : 1, audioReactivity: ['listening', 'speaking'].includes(s) ? 1 : 0, reducedMotionVariant: s === 'idle' ? 'subtle' : 'still' }];
     }));
-    function emptyCompanion() { return { version: 4, prefs: { follow: false, mode: 'companion', dockPinned: false, sound: 'discreet', volume: .3, mutedAll: false, soundCategories: { ui: true, state: true, notification: true }, voiceRead: false, voiceAutoSend: false, voiceFillers: false, loadingSound: false, keepHistory: true, provider: 'bridge', selection_mode: 'automatic_free', endpoint: 'http://127.0.0.1:11434', model: '', voiceModel: '', visionConnection: '', visionModel: '', personalityStyle: 'natural', personalityNotes: '', voiceLanguage: 'auto' }, messages: [], todos: [], draft: '', noteDraft: { title: '', text: '' } }; }
+    function emptyCompanion() { return { version: 4, prefs: { follow: false, mode: 'companion', dockPinned: false, sound: 'discreet', volume: .3, mutedAll: false, soundCategories: { ui: true, state: true, notification: true }, voiceRead: false, voiceAutoSend: false, voiceFillers: false, voicePhrases: true, loadingSound: false, keepHistory: true, provider: 'bridge', selection_mode: 'automatic_free', endpoint: 'http://127.0.0.1:11434', model: '', voiceModel: '', visionConnection: '', visionModel: '', personalityStyle: 'natural', personalityNotes: '', voiceLanguage: 'auto' }, messages: [], todos: [], draft: '', noteDraft: { title: '', text: '' } }; }
     Axx.emptyCompanion = emptyCompanion;
     function localEndpoint(raw) { const u = new URL(raw); if (!['http:', 'https:'].includes(u.protocol) || !['localhost', '127.0.0.1', '[::1]'].includes(u.hostname) || u.username || u.password || u.search || u.hash || u.pathname !== '/')
         throw new Error('Utiliza solo un servidor local: http://127.0.0.1:11434 o http://localhost:1234.'); return u.origin; }
@@ -2250,7 +2250,7 @@ var Axx;
             if (!x || x.version !== 4)
                 return d;
             const p = x.prefs || {};
-            for (const k of ['follow', 'dockPinned', 'mutedAll', 'voiceRead', 'voiceAutoSend', 'keepHistory'])
+            for (const k of ['follow', 'dockPinned', 'mutedAll', 'voiceRead', 'voiceAutoSend', 'voicePhrases', 'keepHistory'])
                 if (typeof p[k] === 'boolean')
                     d.prefs[k] = p[k];
             if (p.soundCategories && typeof p.soundCategories === 'object')
@@ -2285,7 +2285,7 @@ var Axx;
                 d.prefs.visionConnection = p.visionConnection;
             if (typeof p.visionModel === 'string' && p.visionModel.length <= 200)
                 d.prefs.visionModel = p.visionModel;
-            if (['natural', 'friendly', 'direct', 'formal'].includes(p.personalityStyle))
+            if (['natural', 'friendly', 'direct', 'formal', 'playful', 'psycho'].includes(p.personalityStyle))
                 d.prefs.personalityStyle = p.personalityStyle;
             if (typeof p.personalityNotes === 'string')
                 d.prefs.personalityNotes = p.personalityNotes.slice(0, 500);
@@ -8978,6 +8978,15 @@ var Axx;
                 this.save();
                 return;
             }
+            const shortVoiceReply = (options?.source === 'voice' || Axx.symbiosis?.liveActive) && !this.attachment && !visual
+                ? Axx.voiceConversation.shortReply(raw, this.data.prefs.voiceLanguage === 'auto' && /^(hi|hello|hey)[.!?\s]*$/i.test(raw) ? 'en' : this.data.prefs.voiceLanguage)
+                : '';
+            if (shortVoiceReply) {
+                user.source = 'local';
+                this.message('assistant', shortVoiceReply, 'local');
+                this.renderChat(); this.save(); this.speakReply(shortVoiceReply);
+                return;
+            }
             if (!this.brain.connected) {
                 user.source = 'local';
                 const fallbackText = 'Esta pregunta necesita un modelo de IA. Todavía no hay uno conectado.\n\nAbre «Conectar IA» para usar Ollama, una API local compatible o el servidor de Axx. Mientras tanto, puedo gestionar notas, tareas y temporizadores, calcular, convertir unidades y consultar la hora.';
@@ -9015,7 +9024,7 @@ var Axx;
             this.app.machine.setConversation('thinking');
             this.app.tick();
             this.emit('thinking');
-            const styles = { natural: 'Habla de forma natural y directa, con frases breves y sin fórmulas repetidas.', friendly: 'Sé cálida y concreta, sin repetir saludos ni elogios.', direct: 'Ve al punto y usa solo los detalles necesarios.', formal: 'Sé profesional, clara y breve.' };
+            const styles = { natural: 'Habla de forma natural y directa, con frases breves y sin fórmulas repetidas.', friendly: 'Sé cálida y concreta, sin repetir saludos ni elogios.', direct: 'Ve al punto y usa solo los detalles necesarios.', formal: 'Sé profesional, clara y breve.', playful: 'Sé juguetona, ingeniosa y algo traviesa; sorprende a veces con una imagen absurda pero pertinente. Mantén la respuesta útil y evita chistes repetidos.', psycho: 'Interpreta un personaje de ficción teatral y excéntrico, con humor negro, giros inesperados y lenguaje adulto coloquial si encaja. Mantén la respuesta útil y evita amenazas reales, crueldad gratuita o fingir acciones ejecutadas.' };
             const style = styles[this.data.prefs.personalityStyle] || styles.natural;
             const personal = String(this.data.prefs.personalityNotes || '').slice(0, 500);
             const responseLanguage = this.data.prefs.voiceLanguage === 'en' ? 'Responde en inglés de forma clara y útil.' : this.data.prefs.voiceLanguage === 'es' ? 'Responde en español de forma clara y útil.' : 'Responde en el idioma del último mensaje del usuario, español o inglés, de forma clara y útil.';
@@ -9069,10 +9078,17 @@ var Axx;
                     while (value[liveSpeech.offset] === ' ') liveSpeech.offset++;
                 }
             };
+            const leadTimer = isVoiceTurn && liveSpeech.enabled && this.data.prefs.voicePhrases
+                ? setTimeout(() => {
+                    if (this.pending === ctrl && !liveSpeech.previous && !ctrl.signal.aborted) {
+                        const lead = Axx.voiceConversation.leadFor(raw, this.data.prefs.voiceLanguage);
+                        if (lead) speakPart(lead);
+                    }
+                }, 1200) : null;
             try {
                 const chatPrefs = { ...this.data.prefs, model: effectiveModel, ...(effectiveApiConn ? { apiConnection: effectiveApiConn } : {}), ...(isVoiceTurn ? { max_tokens: 384, voice_turn: true } : {}) };
                 const result = await this.brain.chat(chatPrefs, context, ctrl.signal, text => { if (this.pending !== ctrl)
-                    return; response.text = text; if (this.streamElement)
+                    return; if (text) clearTimeout(leadTimer); response.text = text; if (this.streamElement)
                     this.streamElement.textContent = response.text; receiveSpeech(text); this.sayStatus('Recibiendo respuesta de ' + effectiveModel + '…'); this.scrollChat(); });
                 if (ctrl.signal.aborted)
                     throw new DOMException('Solicitud cancelada', 'AbortError');
@@ -9104,6 +9120,7 @@ var Axx;
                     this.action('cancel');
             }
             finally {
+                clearTimeout(leadTimer);
                 Axx.voiceConversation.finish(this.app.symbiosis?.reader || Axx.symbiosis?.reader);
                 if (this.pending === ctrl)
                     this.pending = null;
@@ -18229,18 +18246,18 @@ var Axx;
             };
             const personalityCard = document.createElement('div');
             personalityCard.className = 'chat20-voice-card';
-            personalityCard.innerHTML = '<label>Personalidad de Axx<select id="chat-personality-style"><option value="natural">Natural</option><option value="friendly">Cercana</option><option value="direct">Directa</option><option value="formal">Formal</option></select></label><label>Cómo quieres que te responda<textarea id="chat-personality-notes" maxlength="500" rows="3" placeholder="Ej.: háblame de tú, con humor suave y respuestas cortas"></textarea></label><p class="micro-copy">Ajusta el estilo de las respuestas nuevas. Los permisos de herramientas y las confirmaciones siguen en la PC.</p>';
+            personalityCard.innerHTML = '<label>Personalidad de Axx<select id="chat-personality-style"><option value="natural">Natural</option><option value="friendly">Cercana</option><option value="direct">Directa</option><option value="formal">Formal</option><option value="playful">Juguetona</option><option value="psycho">Psicópata · ficción +17</option></select></label><label>Cómo quieres que te responda<textarea id="chat-personality-notes" maxlength="500" rows="3" placeholder="Ej.: háblame de tú, con humor suave y respuestas cortas"></textarea></label><p class="micro-copy">Juguetona y Psicópata · ficción +17 pueden sorprenderte con bromas raras mientras el chat esté abierto e inactivo. Solo hablan o escriben: no ejecutan acciones. Tu voz manual tiene prioridad.</p>';
             menu.append(personalityCard);
             const personalityStyle = personalityCard.querySelector('#chat-personality-style');
             const personalityNotes = personalityCard.querySelector('#chat-personality-notes');
             personalityStyle.value = this.companion.data.prefs.personalityStyle || 'natural';
             personalityNotes.value = this.companion.data.prefs.personalityNotes || '';
-            personalityStyle.onchange = () => { this.companion.data.prefs.personalityStyle = personalityStyle.value; this.companion.save(); };
+            personalityStyle.onchange = () => { this.companion.data.prefs.personalityStyle = personalityStyle.value; this.companion.save(); Axx.voiceAudio?.refreshPersonality(); Axx.voiceConversation?.deferSurprise(); };
             personalityNotes.onchange = () => { this.companion.data.prefs.personalityNotes = personalityNotes.value.trim().slice(0,500); this.companion.save(); };
             const activationCard = document.createElement('div');
             activationCard.className = 'chat20-voice-card';
             activationCard.id = 'chat20-activation-card';
-            activationCard.innerHTML = '<strong style="display:block;font-size:12px;letter-spacing:0.04em;text-transform:uppercase;color:#8ec5fc;margin-bottom:4px">Llamar a Axx · Activación</strong><label>Método de llamada<select id="chat-activation-mode"><option value="hotkey">Combinación de teclas</option><option value="always_active">Siempre activo (Hands-free con Axx abierto)</option></select></label><div id="chat-hotkey-wrap"><label>Atajo de teclado<div style="display:flex;gap:6px;align-items:center"><input id="chat-activation-hotkey" readonly style="flex:1;background:#0c1523;color:#e6f0ff;border:1px solid #9cc4ff33;border-radius:10px;padding:6px 8px;font-size:12px;font-weight:600;text-align:center;cursor:pointer" title="Haz clic para grabar combinación" value="Alt+Shift+V"><button id="chat-hotkey-record" type="button" class="chat20-pill-btn" style="min-width:68px;font-size:11px">Grabar</button></div></label><small class="micro-copy" id="chat-hotkey-tip" style="color:#94a8c2;font-size:11px;display:block;margin-top:3px">Presiona el atajo para dictar un comando puntual.</small></div><div id="chat-always-tip" hidden><p class="micro-copy" style="color:#8ec5fc;font-size:11px;margin:2px 0 6px">Siempre activo: Axx escucha de forma continua mientras tengas la aplicación abierta.</p></div><p class="micro-copy">Espera silenciosa: sin música de carga ni frases de relleno.</p><div class="quick-row" style="margin-top:6px"><button id="chat-activation-test" type="button">🎙️ Probar llamada</button><button id="chat-hotkey-reset" type="button" style="font-size:11px">Restablecer atajo</button></div>';
+            activationCard.innerHTML = '<strong style="display:block;font-size:12px;letter-spacing:0.04em;text-transform:uppercase;color:#8ec5fc;margin-bottom:4px">Llamar a Axx · Activación</strong><label>Método de llamada<select id="chat-activation-mode"><option value="hotkey">Combinación de teclas</option><option value="always_active">Siempre activo (Hands-free con Axx abierto)</option></select></label><div id="chat-hotkey-wrap"><label>Atajo de teclado<div style="display:flex;gap:6px;align-items:center"><input id="chat-activation-hotkey" readonly style="flex:1;background:#0c1523;color:#e6f0ff;border:1px solid #9cc4ff33;border-radius:10px;padding:6px 8px;font-size:12px;font-weight:600;text-align:center;cursor:pointer" title="Haz clic para grabar combinación" value="Alt+Shift+V"><button id="chat-hotkey-record" type="button" class="chat20-pill-btn" style="min-width:68px;font-size:11px">Grabar</button></div></label><small class="micro-copy" id="chat-hotkey-tip" style="color:#94a8c2;font-size:11px;display:block;margin-top:3px">Presiona el atajo para dictar un comando puntual.</small></div><div id="chat-always-tip" hidden><p class="micro-copy" style="color:#8ec5fc;font-size:11px;margin:2px 0 6px">Siempre activo: Axx escucha de forma continua mientras tengas la aplicación abierta.</p></div><p class="micro-copy">Sin música de carga. La frase breve de espera se controla en Estudio de voz.</p><div class="quick-row" style="margin-top:6px"><button id="chat-activation-test" type="button">🎙️ Probar llamada</button><button id="chat-hotkey-reset" type="button" style="font-size:11px">Restablecer atajo</button></div>';
             menu.append(activationCard);
             const actMode = activationCard.querySelector('#chat-activation-mode');
             const actHotkeyInp = activationCard.querySelector('#chat-activation-hotkey');
@@ -18318,6 +18335,13 @@ var Axx;
             };
             const panelControls = s20('voice-panel-controls');
             panelControls.append(voiceLanguage.closest('label'), voiceModelLabel, voiceModelStatus, speed.closest('label'));
+            const phrasesToggle = document.createElement('label');
+            phrasesToggle.className = 'voice-phrases-toggle';
+            phrasesToggle.innerHTML = '<input id="voice-phrases-enabled" type="checkbox"><span><strong>Frase breve mientras preparo la respuesta</strong><small>Solo en turnos hablados lentos; la respuesta real llega después. Sin sonido ambiental.</small></span>';
+            const phrasesInput = phrasesToggle.querySelector('input');
+            phrasesInput.checked = this.companion.data.prefs.voicePhrases !== false;
+            phrasesInput.onchange = () => { this.companion.data.prefs.voicePhrases = phrasesInput.checked; this.companion.save(); };
+            panelControls.append(phrasesToggle);
             if (!Axx.isNative?.()) voicePanelSelect.addEventListener('change', () => syncVoiceURI(voicePanelSelect.value, true));
             const refreshVoice = header.querySelector('#chat-voice-refresh');
             s20('voice-panel-refresh').onclick = () => refreshVoice.click();
@@ -19879,5 +19903,5 @@ body[data-media16-source="system"] .m16-cover,body[data-media16-source="system"]
 body[data-media16-source="system"] #view-music .m16-now{padding:12px;margin-top:8px}
 body[data-media16-source="system"] #view-music .m16-transport{margin:8px 0 0}
 body[data-media16-source="system"] #view-music .m16-compact{padding:10px 14px;margin-top:8px}
-</style><script src="scripts/native-speech-stream.js"></script><script src="scripts/native-voice.js"></script><script src="scripts/voice-conversation.js"></script><script src="scripts/command-library.js"></script><script src="scripts/skill-library.js"></script><script src="scripts/window-content.js"></script><script src="scripts/axx-connect.js"></script><script src="scripts/mcp-connections.js"></script><script src="scripts/application-catalog.js"></script><script src="scripts/model-profile.js"></script><script src="scripts/providers.js"></script><script src="scripts/native-music.js"></script><script src="scripts/native-capture.js"></script><script src="scripts/magic-pen.js"></script><script src="scripts/converter.js"></script><script src="scripts/chat-workspace.js"></script><script src="scripts/chat-workspace-design.js"></script><script src="scripts/mobile-gateway.js"></script>
+</style><script src="scripts/voice-audio.js"></script><script src="scripts/native-speech-stream.js"></script><script src="scripts/native-voice.js"></script><script src="scripts/voice-phrases.js"></script><script src="scripts/voice-conversation.js"></script><script src="scripts/command-library.js"></script><script src="scripts/skill-library.js"></script><script src="scripts/window-content.js"></script><script src="scripts/axx-connect.js"></script><script src="scripts/mcp-connections.js"></script><script src="scripts/application-catalog.js"></script><script src="scripts/model-profile.js"></script><script src="scripts/providers.js"></script><script src="scripts/native-music.js"></script><script src="scripts/native-capture.js"></script><script src="scripts/magic-pen.js"></script><script src="scripts/converter.js"></script><script src="scripts/chat-workspace.js"></script><script src="scripts/chat-workspace-design.js"></script><script src="scripts/mobile-gateway.js"></script>
 <script src="scripts/remote-voice.js"></script><script src="scripts/remote-control.js"></script><script src="scripts/mobile-work-approval.js"></script><script src="scripts/avatar-remote.js"></script><link rel="stylesheet" href="scripts/chat-workspace.css"><link rel="stylesheet" href="scripts/interface-theme.css"><script src="scripts/interface-theme.js"></script><script src="scripts/agent-profile.js"></script><script src="scripts/chat-live.js"></script><script src="scripts/capability-workshop.js"></script><script src="scripts/computer-use.js"></script><script src="scripts/quick-reply.js"></script></body></html>
