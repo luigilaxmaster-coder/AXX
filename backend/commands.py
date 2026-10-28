@@ -20,7 +20,7 @@ import unicodedata
 import uuid
 
 from .actions.desktop import APPS, ENGINES, resolve_desktop, validate_inputs as validate_desktop_inputs
-from .actions.command_language import command_text, voice_suggestion
+from .actions.command_language import command_text, command_sequence, voice_suggestion
 from .actions.executor import ActionExecutionError
 from .actions.execution_contract import delivery_policy, resolve_mode
 from .actions.computer_tools import ADAPTERS as COMPUTER_ADAPTERS
@@ -427,6 +427,29 @@ class CommandService:
                     'execution_enabled': self.commands[command_id]['execution_enabled'],
                     'has_recipe_details': self.commands[command_id].get('has_recipe_details', False)}
         canonical = command_text(text, source)
+        parts=command_sequence(text,source)
+        if parts:
+            if len(parts)>8 or any(not part.strip() for part in parts):
+                return {'match':'needs_input','message':'Indica entre dos y ocho pasos completos. No se ejecutó ninguno.'}
+            from .action_learning import ALLOWED
+            from urllib.parse import urlsplit, parse_qs
+            steps=[];sequence_context=dict(context or {})
+            for index,part in enumerate(parts):
+                resolved=self.resolve(part,source,sequence_context,project_id)
+                command_id=resolved.get('command_id');inputs=resolved.get('inputs') or {}
+                if (resolved.get('match')!='exact' or command_id not in ALLOWED
+                        or self.commands[command_id].get('execution_enabled') is not True
+                        or any(rule.get('required') and key not in inputs for key,rule in self.commands[command_id]['parameters'].items())):
+                    return {'match':'sequence_request','message':f'El paso {index+1} necesita planificación. No se ejecutó ningún paso.'}
+                steps.append({'command_id':command_id,'inputs':inputs})
+                if command_id=='axx.desktop.search':sequence_context.update(inputs)
+                if command_id in ('axx.desktop.open_url','axx.app.browse'):
+                    url=urlsplit(inputs['url']);engine={'youtube.com':'youtube','google.com':'google','bing.com':'bing','duckduckgo.com':'duckduckgo'}.get(url.hostname.removeprefix('www.'))
+                    if engine:sequence_context.update(engine=engine,url=inputs['url'])
+                    query=parse_qs(url.query).get('search_query' if engine=='youtube' else 'q')
+                    if query:sequence_context['query']=query[0]
+                    if command_id=='axx.app.browse':sequence_context['application']=inputs['application']
+            return {'match':'sequence','steps':steps,'requires_approval':True}
         def understood(result):
             if normalized(canonical) != normalized(text):
                 result['understanding'] = {'method':'bounded_grammar', 'canonical':canonical,

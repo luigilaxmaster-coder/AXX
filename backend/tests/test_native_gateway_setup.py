@@ -5,6 +5,7 @@ import io
 import json
 import os
 from pathlib import Path
+from types import SimpleNamespace
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -17,6 +18,39 @@ spec = importlib.util.spec_from_file_location('configure_native_gateway',
 setup = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(setup)
 NETWORK = {'listen_host': '172.16.5.1', 'allowed_peer': '172.16.5.10'}
+
+
+class GatewayRecoveryTests(unittest.TestCase):
+    def test_online_gateway_does_not_start_a_service(self):
+        config=dict(NETWORK,gateway_url='http://127.0.0.1:4000/mcp/owned')
+        with patch.object(native_gateway,'verify_wsl_network'), patch.object(native_gateway.socket,'create_connection'), \
+                patch.object(native_gateway.importlib.util,'spec_from_file_location') as load:
+            self.assertFalse(native_gateway.ensure_gateway(config,Path('unused'),None))
+            load.assert_not_called()
+
+    def test_offline_gateway_resumes_saved_stack_and_revalidates_network(self):
+        config=dict(NETWORK,gateway_url='http://127.0.0.1:4000/mcp/owned')
+        from unittest.mock import Mock
+        module=SimpleNamespace(resume=Mock());spec=SimpleNamespace(loader=SimpleNamespace(exec_module=Mock()))
+        with patch.object(native_gateway,'verify_wsl_network',side_effect=[ValueError('offline'),None]) as verify, \
+                patch.object(native_gateway.socket,'create_connection'), \
+                patch.object(native_gateway.importlib.util,'spec_from_file_location',return_value=spec), \
+                patch.object(native_gateway.importlib.util,'module_from_spec',return_value=module):
+            self.assertTrue(native_gateway.ensure_gateway(config,Path('owned'),None))
+            module.resume.assert_called_once_with(Path('owned/anythingmcp'),None)
+            self.assertEqual(verify.call_count,2)
+
+    def test_failed_recovery_never_changes_route_or_ignores_network(self):
+        config=dict(NETWORK,gateway_url='http://127.0.0.1:4000/mcp/owned')
+        from unittest.mock import Mock
+        module=SimpleNamespace(resume=Mock());spec=SimpleNamespace(loader=SimpleNamespace(exec_module=Mock()))
+        with patch.object(native_gateway,'verify_wsl_network',side_effect=ValueError('changed network')), \
+                patch.object(native_gateway.importlib.util,'spec_from_file_location',return_value=spec), \
+                patch.object(native_gateway.importlib.util,'module_from_spec',return_value=module):
+            before=dict(config)
+            with self.assertRaisesRegex(native_gateway.GatewayUnavailable,'changed network'):
+                native_gateway.ensure_gateway(config,Path('owned'),None)
+            self.assertEqual(config,before)
 
 
 class FakeApi:

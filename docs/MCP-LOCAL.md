@@ -26,9 +26,16 @@ fijan por SHA-256 en `scripts/anythingmcp-local.py`. La carpeta privada es
 .venv\Scripts\python.exe scripts/anythingmcp-local.py stop --wsl-distribution Ubuntu-24.04
 ```
 
-`stop` conserva la base de datos. El proceso auxiliar mantiene WSL activo mientras
-se utiliza el gateway; no hay una tarea de arranque al iniciar Windows. Después
-de reiniciar Windows se debe ejecutar `start`.
+`start` guarda la distribución elegida para recuperar la conexión en las siguientes
+sesiones. Si una orden del PC encuentra la pasarela apagada, Axx intenta iniciar
+solo sus contenedores existentes (máximo 35 segundos), sin descargar imágenes,
+crear servicios ni cambiar credenciales. Después comprueba la red y autentica
+la conexión antes de admitir el gesto. No repite gestos ya enviados.
+
+`stop` conserva la base de datos y desactiva esta recuperación hasta el siguiente
+`start`. Las instalaciones antiguas deben ejecutar `start` una vez para guardar
+la distribución; no se deduce ni cambia silenciosamente. Si cambió la red WSL,
+se requiere volver a configurar la ruta. No hay una tarea de arranque de Windows.
 
 1. Abre `http://localhost:3000` y completa el primer administrador.
 2. Configura en AnythingMCP el conector de la aplicación/API y su credencial MCP.

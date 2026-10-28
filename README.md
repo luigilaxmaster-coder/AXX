@@ -11,13 +11,13 @@ Run the installer and open Axx. Python and Node are not required. Start with **A
 
 The packaged backend may take longer on its first launch while Windows extracts and scans it. The native host allows up to 90 seconds for backend readiness and reports a startup error if that limit is exceeded.
 
-Source and published Windows installer are both **v0.22.19**. Android APKs remain local test artifacts until separately published. See [mobile setup and validation](docs/mobile/README.md) and the [version and release procedure](docs/RELEASING.md).
+Source is **v0.22.20**; the published Windows installer is **v0.22.19**. Delivery of the newer source is pending publication. Android APKs remain local test artifacts until separately published. See [mobile setup and validation](docs/mobile/README.md) and the [version and release procedure](docs/RELEASING.md).
 <!-- release:download:end -->
 
 ---
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Source%20Version-v0.22.19-informational" alt="Source version 0.22.19" />
+  <img src="https://img.shields.io/badge/Source%20Version-v0.22.20-informational" alt="Source version 0.22.20" />
 </p>
 
 ## Demo y galería
@@ -42,6 +42,7 @@ Una prueba de código, una ejecución instalada y una comprobación física acre
 
 | Funcionalidad | Qué cambió | Validación / estado | Límite actual |
 | --- | --- | --- | --- |
+| [Comandos del escritorio](docs/releases/0.22.20.md) | Recuperación de la pasarela, errores precisos y secuencias explícitas con pasos revisables. | Pruebas de fuente y reanudación del servicio existente; aceptación instalada pendiente. | Solo reanuda contenedores existentes. Las secuencias requieren aprobación; una red WSL cambiada requiere configurar la ruta. |
 | [Magic Pen](docs/MAGIC-PEN-DESKTOP.md) | Barra mínima, herramientas agrupadas y respuesta junto al avatar; tinta, cancelación e historial conservados. | 0.22.14 instalada: 14 comprobaciones PASS, con captura e inferencia reales, dos monitores, exportación y grabación verificada. | Requiere un proveedor con visión; su precisión depende del modelo. |
 | [Voz MOSS](docs/voice/xxx-default.md) | Caché local limitada; referencia por solicitud, cuatro selectores compartidos y botón Usar Xxx default con estado de preparación/error. | 0.22.14: Xxx default seleccionada con clic Windows, conservada tras reiniciar y dos reproducciones Web Audio completas, sin vaciados del búfer. | No acredita micrófono, altavoces físicos ni calidad subjetiva de pronunciación. |
 | [Control del PC](docs/COMPUTER-USE.md) | Observaciones ligadas a ventana, proceso y captura; invalidación al cambiar de destino y comparación visual justo antes del gesto. | Gateway nativo recuperado; la prueba de sesión PC sigue pendiente tras interrupción con Escape. | Requiere modelo comprobado y consentimiento humano manual. Un cambio visual no acredita el objetivo. |
@@ -70,7 +71,7 @@ PowerShell y CMD requieren aprobación y ejecutan con los permisos del usuario d
 <details>
 <summary>Desarrollo y documentación técnica</summary>
 
-> **Axx is under active development.** Source and published Windows installer are both **v0.22.19**. Validation is recorded per feature; a working UI or build does not by itself certify every hardware-dependent behavior.
+> **Axx is under active development.** Source is **v0.22.20**; the published Windows installer is **v0.22.19**. Delivery of the newer source is pending publication. Validation is recorded per feature; a working UI or build does not by itself certify every hardware-dependent behavior.
 
 Para desarrollo se necesitan Node.js, Rust con MSVC y Python, además de las dependencias declaradas por el proyecto. El instalador publicado no requiere instalar Python ni Node.
 

@@ -10,6 +10,9 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
+import time
+import tempfile
 import urllib.request
 
 
@@ -19,6 +22,7 @@ IMAGES = {
 }
 # Axx admission budget, not an upstream minimum: leave room for two images and the database.
 MIN_FREE = 8 * 1024 ** 3
+RUNTIME_NAME = 'runtime.json'
 
 
 def compose():
@@ -135,13 +139,82 @@ def preflight(folder, distribution=None):
     return {'ready_to_start': not reasons, 'free_bytes': free, 'blockers': reasons}
 
 
+def remember_runtime(folder, distribution, enabled):
+    path = folder/RUNTIME_NAME
+    if path.is_symlink(): raise ValueError('La configuración de inicio no admite enlaces')
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(dir=folder,mode='w',encoding='utf-8',delete=False) as output:
+            temporary = Path(output.name)
+            json.dump({'version': 1, 'distribution': distribution, 'enabled': enabled},output)
+        os.replace(temporary,path)
+    finally:
+        if temporary: temporary.unlink(missing_ok=True)
+
+
+def resume(folder, cancelled=None):
+    """Resume the configured containers only: no provisioning, pulls or secret changes."""
+    from backend.inference.process_manager import spawn_managed_process, terminate_process_tree
+    cancelled = cancelled or threading.Event()
+    if folder.is_symlink() or getattr(folder,'is_junction',lambda:False)():
+        raise ValueError('La carpeta privada no puede ser un enlace')
+    for name in (RUNTIME_NAME, 'compose.json', '.env'):
+        path = folder/name
+        if not path.is_file() or path.is_symlink() or path.stat().st_size > 65536:
+            raise ValueError('Inicia primero la pasarela local con su configuración existente.')
+    saved = json.loads((folder/RUNTIME_NAME).read_text(encoding='utf-8'))
+    if (not isinstance(saved,dict) or set(saved) != {'version','distribution','enabled'} or type(saved['version']) is not int or saved['version'] != 1
+            or saved['enabled'] is not True):
+        raise ValueError('La pasarela está detenida. Iníciala antes de ejecutar comandos del PC.')
+    distribution = saved['distribution']
+    if distribution is not None and (not isinstance(distribution,str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,79}',distribution)):
+        raise ValueError('La distribución guardada no es válida.')
+    if json.loads((folder/'compose.json').read_text(encoding='utf-8')) != compose():
+        raise ValueError('La configuración de la pasarela cambió; revísala antes de reiniciarla.')
+    engine = docker_command(distribution)
+    if not engine: raise ValueError('Docker o WSL no están disponibles para iniciar la pasarela.')
+    deadline = time.monotonic()+35
+    def run(command):
+        if cancelled.is_set(): raise ValueError('Inicio de pasarela cancelado.')
+        process,job = spawn_managed_process(command,stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL)
+        try:
+            while True:
+                if cancelled.is_set(): raise ValueError('Inicio de pasarela cancelado.')
+                if time.monotonic() >= deadline: raise ValueError('La pasarela tardó demasiado en iniciar. Comprueba Docker y vuelve a intentarlo.')
+                try:
+                    output,_ = process.communicate(timeout=.1)
+                    break
+                except subprocess.TimeoutExpired: pass
+            if process.returncode: raise ValueError('No pudo iniciarse la pasarela local. Comprueba Docker y su configuración.')
+            if len(output)>65536: raise ValueError('Respuesta de inicio de pasarela inválida.')
+            return output.decode('utf-8').strip()
+        finally:
+            terminate_process_tree(process,job)
+    location = run(engine[:-1]+['wslpath','-a',str(folder)]) if distribution else str(folder)
+    if not location or '\n' in location or '\r' in location: raise ValueError('Ruta de pasarela inválida.')
+    run(engine+['compose','--project-name','axx-anythingmcp','--env-file',location+'/.env','-f',location+'/compose.json','start'])
+    if cancelled.is_set(): raise ValueError('Inicio de pasarela cancelado.')
+    wsl_keeper(folder,distribution)
+    opener=urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    while not cancelled.is_set() and time.monotonic()<deadline:
+        try:
+            with opener.open('http://127.0.0.1:4000/health',timeout=1) as response:
+                if response.status==200:return
+        except OSError:pass
+        cancelled.wait(.25)
+    raise ValueError('Inicio de pasarela cancelado.' if cancelled.is_set() else 'La pasarela no respondió al iniciar. Comprueba Docker.')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=('prepare', 'status', 'start', 'stop'))
+    parser.add_argument('action', choices=('prepare', 'status', 'start', 'stop', 'resume'))
     parser.add_argument('--directory', type=Path, default=Path(os.environ.get('LOCALAPPDATA', Path.home())) / 'Axx' / 'anythingmcp')
     parser.add_argument('--wsl-distribution', help='Usar el motor Docker de esta distribución WSL existente')
     args = parser.parse_args()
     folder = args.directory.absolute()
+    if args.action == 'resume':
+        resume(folder)
+        print(json.dumps({'resumed': True, 'existing_containers_only': True})); return 0
     if args.action in ('prepare', 'start'): prepare(folder)
     if not folder.exists(): raise ValueError('Ejecuta prepare antes de consultar el estado')
     if args.action == 'start': wsl_keeper(folder, args.wsl_distribution)
@@ -158,12 +231,14 @@ def main():
         command = engine + ['compose', '--env-file', engine_folder + '/.env', '-f', engine_folder + '/compose.json']
         if args.action == 'stop':
             subprocess.run(command + ['stop'], check=True, timeout=60)
+            remember_runtime(folder, args.wsl_distribution, False)
             wsl_keeper(folder, args.wsl_distribution, start=False)
             print(json.dumps({'stopped': True, 'data_preserved': True})); return 0
         subprocess.run(command + ['config', '--quiet'], check=True, timeout=30)
         subprocess.run(command + ['up', '-d', '--quiet-pull', '--wait', '--wait-timeout', '180'], check=True, timeout=240)
         with urllib.request.urlopen('http://127.0.0.1:4000/health', timeout=10) as response:
             report['api_health_http'] = response.status
+        remember_runtime(folder, args.wsl_distribution, True)
         report['mcp_authenticated'] = False
     print(json.dumps(report, ensure_ascii=False, indent=2))
     return 0

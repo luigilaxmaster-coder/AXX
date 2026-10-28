@@ -1,14 +1,42 @@
 """Private gateway configuration; absence selects direct MCP, invalid data never does."""
 import ipaddress
 import json
+import importlib.util
 from pathlib import Path
 import re
 import socket
+import sys
 from urllib.parse import urlsplit
 
 
 CONFIG_NAME = 'native-gateway.dpapi'
 GATEWAY_TOOL = 'axx_windows_native_execute'
+
+
+class GatewayUnavailable(ValueError):
+    """A known prerequisite failed before a native action was admitted."""
+
+
+def ensure_gateway(config, state_dir, cancelled):
+    def available():
+        verify_wsl_network(config)
+        url = urlsplit(config['gateway_url'])
+        with socket.create_connection((url.hostname,url.port),timeout=.5): pass
+    try:
+        available()
+        return False
+    except (OSError, ValueError): pass
+    if state_dir is None: raise GatewayUnavailable('La pasarela de control del PC no está disponible.')
+    script = Path(getattr(sys,'_MEIPASS',Path(__file__).resolve().parents[2]))/'scripts/anythingmcp-local.py'
+    spec = importlib.util.spec_from_file_location('axx_local_gateway',script)
+    module = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(module)
+        module.resume(Path(state_dir)/'anythingmcp',cancelled)
+        available()
+        return True
+    except (OSError, ValueError, RuntimeError) as exc:
+        raise GatewayUnavailable('No se pudo conectar el control del PC. '+str(exc)) from None
 
 
 def checked_gateway_config(value):
