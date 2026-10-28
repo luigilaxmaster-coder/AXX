@@ -1809,7 +1809,7 @@ body.axx-resident :is(.panel-head,.flow-library-head,.organic-satellite-head,.v1
 <script>"use strict";
 var Axx;
 (function (Axx) {
-    Axx.VERSION = '0.22.18';
+    Axx.VERSION = '0.22.19';
     function newId() {
         if (typeof crypto.randomUUID === 'function')
             return crypto.randomUUID();
@@ -18315,7 +18315,7 @@ var Axx;
                     this.companion.syncPreferences();
                     this.companion.save();
                     const english = voiceLanguage.value === 'en' || (voiceLanguage.value === 'auto' && /^moss:axx-(nova|aura|titan)$/.test(uri));
-                    this.companion.read(english ? 'Hello, Principal. This is the Axx voice you selected.' : 'Hola, Principal. Esta es la voz de Axx que elegiste.');
+                    this.companion.read(Axx.voiceConversation.preview(english ? 'en' : 'es'));
                 }
             };
             this.syncVoiceURI = syncVoiceURI;
@@ -18327,7 +18327,7 @@ var Axx;
                 this.companion.save();
                 const uri = header.querySelector('#chat-voice-select').value;
                 const english = voiceLanguage.value === 'en' || (voiceLanguage.value === 'auto' && /^moss:axx-(nova|aura|titan)$/.test(uri));
-                this.companion.read(english ? 'Hello, Principal. I am ready to help you.' : 'Hola, Principal. Estoy listo para ayudarte.');
+                this.companion.read(Axx.voiceConversation.preview(english ? 'en' : 'es'));
             };
             header.querySelector('#chat-voice-refresh').onclick = () => {
                 if (Axx.nativeVoice?.refreshVoices) void Axx.nativeVoice.refreshVoices(true).catch(() => {});

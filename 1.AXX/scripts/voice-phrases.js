@@ -99,6 +99,20 @@ const AXX_VOICE_PHRASE_GROUPS = {
     english_lead: [
         'Let me check that.', 'I will review the details.', 'One moment, I am looking into it.', 'Let me compare the options.', 'I will prepare a clear answer.',
         'I will check the information first.', 'Let me organize the response.', 'I will review the file you mentioned.', 'I will check the application.', 'One moment, I am working through it.'
+    ],
+    playful_greeting: [
+        'Hola, señor. Mi sombrero imaginario acaba de saludar antes que yo.', 'Buenas. Hoy las ideas vienen con zapatos de payaso, pero funcionan.',
+        'Hola. Traje una brújula que apunta a las buenas ideas y a los tacos.', 'Aquí estoy. Un pingüino imaginario quiere dirigir la reunión.',
+        'Buenas. El caos se peinó para la ocasión; sospechoso, ¿verdad?', 'Hola. Si aparece un dragón de papel, le cobramos alquiler.',
+        'Señor, llegué con una idea y tres confetis clandestinos.', 'Hola. El lunes imaginario se disfrazó de viernes para animarnos.',
+        'Buenas. Mi comité de patitos aprobó empezar por lo divertido.', 'Aquí estoy. Prometo trabajar aunque una nube me pida bailar.'
+    ],
+    psycho_greeting: [
+        'Buenas, señor. La tostadora de mi ficción sabe demasiado. Empecemos.', 'Hola. Una cuchara imaginaria me mira raro; yo la miro peor.',
+        'Señor, el reloj ficticio acaba de anunciar el martes número ocho.', 'Aquí estoy. El caos llamó; le dije que sacara cita.',
+        'Buenas. Mi laboratorio imaginario perdió una sombra. No era importante.', 'Hola. El silencio trajo una corbata y una coartada pésima.',
+        'Señor, he interrogado a un pepinillo ficticio. No habló.', 'Buenas. Una lámpara imaginaria insiste en ser mi supervisora.',
+        'Hola. El absurdo vino sin invitación; le cobré entrada.', 'Aquí estoy. Mi teatro mental acaba de despedir al villano por aburrido.'
     ]
 };
 const AXX_VOICE_PHRASES = Object.entries(AXX_VOICE_PHRASE_GROUPS).flatMap(([context, texts]) => {
@@ -106,7 +120,7 @@ const AXX_VOICE_PHRASES = Object.entries(AXX_VOICE_PHRASE_GROUPS).flatMap(([cont
     return texts.map((text, index) => ({ id: context + '-' + String(index + 1).padStart(2, '0'), context,
         language: context.startsWith('english_') ? 'en' : 'es', text }));
 });
-if (AXX_VOICE_PHRASES.length !== 250 || new Set(AXX_VOICE_PHRASES.map(item => item.text)).size !== 250)
-    throw new Error('Voice phrase catalog must contain 250 distinct phrases: ' + AXX_VOICE_PHRASES.length + ' / ' + new Set(AXX_VOICE_PHRASES.map(item => item.text)).size);
+if (AXX_VOICE_PHRASES.length !== 270 || new Set(AXX_VOICE_PHRASES.map(item => item.text)).size !== 270)
+    throw new Error('Voice phrase catalog must contain 270 distinct phrases: ' + AXX_VOICE_PHRASES.length + ' / ' + new Set(AXX_VOICE_PHRASES.map(item => item.text)).size);
 if (typeof window !== 'undefined') (window.Axx = window.Axx || {}).voicePhrases = AXX_VOICE_PHRASES;
 if (typeof module !== 'undefined') module.exports = AXX_VOICE_PHRASES;

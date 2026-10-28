@@ -39,7 +39,7 @@
             companion.renderChat(); companion.save(); companion.speakReply(phrase);
             return true;
         },
-        instructions: 'MODO VOZ: Conversa con naturalidad en el idioma del usuario. Empieza por una respuesta útil y breve; amplía si la petición lo necesita. Usa frases completas, ritmo conversacional y palabras fáciles de escuchar. No leas Markdown, URLs, código ni identificadores técnicos salvo que te los pidan; esos detalles pueden quedar escritos. Evita saludos repetidos, coletillas, anunciar que estás pensando y preguntas de cierre automáticas. No imites emociones ni afirmes acciones sin un recibo del ejecutor. Si te corrigen, incorpora la corrección sin repetir la equivocación. ',
+        instructions: 'MODO VOZ: Conversa con naturalidad en el idioma del usuario. Empieza por una respuesta útil y breve; amplía si la petición lo necesita. Usa frases completas, ritmo conversacional y palabras fáciles de escuchar. Refleja la personalidad elegida en el vocabulario, la cadencia y los remates sin alterar los hechos. No leas Markdown, URLs, código ni identificadores técnicos salvo que te los pidan; esos detalles pueden quedar escritos. Evita saludos repetidos, coletillas, anunciar que estás pensando y preguntas de cierre automáticas. No afirmes emociones reales ni acciones sin un recibo del ejecutor. Si te corrigen, incorpora la corrección sin repetir la equivocación. ',
         phraseLength(text, final = false) {
             const limit = 180;
             for (const match of text.matchAll(/[.!?](?=\s|$)/g)) {
@@ -63,10 +63,24 @@
             this.nextPhrase = { ...this.nextPhrase, [context]: index + 1 };
             return phrase.text;
         },
+        preview(language = 'es') {
+            const style = Axx.companion?.data?.prefs?.personalityStyle || 'natural';
+            if (language === 'en') return ({ playful: 'Hello. My imaginary penguin is running the meeting today.', psycho: 'Hello. The clock in my imaginary theater just announced the eighth Tuesday.' })[style]
+                || 'Hello. This is how my voice sounds with the selected personality.';
+            if (style === 'playful' || style === 'psycho') return this.select(style + '_greeting');
+            return ({ friendly: 'Hola, señor. Qué gusto escucharte; dime qué necesitas.', direct: 'Hola. Dime el objetivo y vamos al grano.', formal: 'Buenas, señor. Estoy disponible para revisar su solicitud.' })[style]
+                || 'Hola, señor. Esta es mi voz natural.';
+        },
         shortReply(text, language = 'es') {
             const words = String(text || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[¿?¡!.,]/g, '').trim();
             if (language === 'en') return /^(hi|hello|hey)$/.test(words) ? this.select('english_greeting') : '';
-            if (/^(hola|buenas|buenos dias|buenas tardes|buenas noches)$/.test(words)) return this.select('greeting');
+            const style = Axx.companion?.data?.prefs?.personalityStyle;
+            if (/^(hola|buenas|buenos dias|buenas tardes|buenas noches)$/.test(words))
+                return this.select(style === 'playful' || style === 'psycho' ? style + '_greeting' : 'greeting');
+            if (/^(gracias|muchas gracias|te lo agradezco)$/.test(words) && style === 'playful') return 'De nada. El comité de patitos también celebra.';
+            if (/^(gracias|muchas gracias|te lo agradezco)$/.test(words) && style === 'psycho') return 'De nada. Mi tostadora imaginaria reclamó el mérito; se lo negué.';
+            if (/^(adios|hasta luego|nos vemos)$/.test(words) && style === 'playful') return 'Hasta luego. Que los dragones de papel te acompañen.';
+            if (/^(adios|hasta luego|nos vemos)$/.test(words) && style === 'psycho') return 'Hasta luego. El martes número ocho vigilará el calendario.';
             if (/^(gracias|muchas gracias|te lo agradezco)$/.test(words)) return this.select('gratitude');
             if (/^(adios|hasta luego|nos vemos)$/.test(words)) return this.select('farewell');
             return '';

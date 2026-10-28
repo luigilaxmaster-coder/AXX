@@ -18,16 +18,16 @@ from backend.speech.moss_tts import MossSpeechService  # noqa: E402
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--limit', type=int, default=250)
+    parser.add_argument('--limit', type=int, default=270)
     args = parser.parse_args()
-    if not 1 <= args.limit <= 250:
-        parser.error('--limit must be between 1 and 250')
+    if not 1 <= args.limit <= 270:
+        parser.error('--limit must be between 1 and 270')
     catalog_path = ROOT / '1.AXX' / 'scripts' / 'voice-phrases.js'
     result = subprocess.run(['node', '-e', 'process.stdout.write(JSON.stringify(require(process.argv[1])))',
                              str(catalog_path)], check=True, capture_output=True, text=True, encoding='utf-8')
     phrases = json.loads(result.stdout)
-    if len(phrases) != 250 or len({item['text'] for item in phrases}) != 250:
-        raise ValueError('Expected 250 distinct catalog phrases')
+    if len(phrases) != 270 or len({item['text'] for item in phrases}) != 270:
+        raise ValueError('Expected 270 distinct catalog phrases')
     data_dir = Path(os.environ.get('LOCALAPPDATA', Path.home() / 'AppData' / 'Local')) / 'Axx'
     service = MossSpeechService(data_dir)
     if not service.available or 'moss:axx-morcito' not in service._voice_paths():
