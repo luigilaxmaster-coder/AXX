@@ -841,13 +841,18 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                 self._send_json(200, {'cancelled': cancelled_count > 0, 'cancelled_operations': cancelled_count,
                                      'anticipation': anticipation})
             elif path == '/axx-api/speech/cancel':
-                if body:
-                    raise ValueError('Speech cancellation accepts no parameters')
                 cancelled_count = 0
-                if self.speech:
-                    cancelled_count += self.speech.cancel_active()
-                if self.transcription:
-                    cancelled_count += self.transcription.cancel_active()
+                if body:
+                    if set(body)!={'request_id'}:raise ValueError('Speech cancellation accepts only request_id or an empty body')
+                    if not self.transcription:
+                        self._unsupported('Local transcription is unavailable')
+                        return
+                    cancelled_count=self.transcription.cancel(body['request_id'])
+                else:
+                    if self.speech:
+                        cancelled_count += self.speech.cancel_active()
+                    if self.transcription:
+                        cancelled_count += self.transcription.cancel_active()
                 self._send_json(200, {'cancelled': cancelled_count > 0, 'cancelled_operations': cancelled_count})
             elif path in ('/axx-api/speech/stream/start', '/axx-api/speech/stream/poll', '/axx-api/speech/prepare'):
                 if not self.speech:

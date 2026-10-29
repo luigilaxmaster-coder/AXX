@@ -1,12 +1,14 @@
 """Local Whisper transcription in a bounded, cancellable CPU worker."""
 from __future__ import annotations
 import base64
+from dataclasses import dataclass, field
 import hashlib
 import importlib.util
 import importlib.abc
 import io
 import json
 import logging
+import math
 import os
 from pathlib import Path
 import queue
@@ -15,6 +17,7 @@ import subprocess
 import sys
 import threading
 import time
+import uuid
 
 from backend.inference.process_manager import spawn_managed_process, terminate_process_tree
 from .windows_tts import SpeechError
@@ -24,10 +27,43 @@ MAX_AUDIO = 1400 * 1024
 MAX_WORKER_REQUEST = ((MAX_AUDIO + 2) // 3) * 4 + 16384
 MAX_SECONDS = 60
 MAX_WORKER_OUTPUT = 256 * 1024
+MAX_REQUEST_IDS = 4096
+AUTO_REQUEST_PREFIX = 'asr-auto-'
 VOICE_CONTEXT = 'Spotify. Google Chrome. YouTube. ChatGPT. Obsidian.'
 LOG = logging.getLogger('axx.offline_asr')
 _WORKER_MODEL = None
 _WORKER_MODEL_PATH = None
+
+
+@dataclass(eq=False)
+class _ASRRequest:
+    request_id: str
+    context_owner: str | None = None
+    deadline_mono: float | None = None
+    cancelled: threading.Event = field(default_factory=threading.Event)
+    process: object = None
+    job: object = None
+    completed: bool = False
+
+
+def _request_id(value):
+    if not isinstance(value, str) or not re.fullmatch(r'[A-Za-z0-9_.:-]{1,128}', value):
+        raise SpeechError('INVALID_REQUEST', 'Invalid transcription request_id')
+    return value
+
+
+def _context_deadline(context_owner, deadline_mono):
+    if context_owner is not None and (not isinstance(context_owner, str) or not re.fullmatch(r'[A-Za-z0-9_.:-]{1,160}', context_owner)):
+        raise SpeechError('INVALID_REQUEST', 'Invalid internal transcription owner')
+    if deadline_mono is None:
+        if context_owner is not None:raise SpeechError('INVALID_REQUEST', 'Context transcription requires its lease deadline')
+        return None
+    if type(deadline_mono) not in (int, float) or not math.isfinite(deadline_mono):
+        raise SpeechError('INVALID_REQUEST', 'Invalid internal transcription deadline')
+    remaining = deadline_mono - time.monotonic()
+    if remaining <= 0:raise SpeechError('DEADLINE_EXCEEDED', 'Transcription lease already expired')
+    if remaining > 60:raise SpeechError('INVALID_REQUEST', 'Transcription lease exceeds its 60-second bound')
+    return float(deadline_mono)
 
 
 class InferenceOnlyImports(importlib.abc.MetaPathFinder):
@@ -179,11 +215,14 @@ class OfflineTranscriptionService:
         self.model_path=model_path()
         self._busy=threading.Lock();self._lock=threading.Lock();self._active=None
         self._io_lock=threading.Lock();self._worker=None;self._closed=False
+        self._requests={};self._used_request_ids=set()
 
     def status(self):
         return {'engine':'faster-whisper','model':self.model_path.name.removeprefix('faster-whisper-') if self.model_path else 'tiny','available':bool(self.model_path and importlib.util.find_spec('faster_whisper')),
                 'device':'cpu','compute_type':'int8','local_only':True,'external_calls':0,'max_duration_seconds':MAX_SECONDS,
-                'input_storage':'process_memory','input_transport':'bounded_worker_pipe'}
+                'input_storage':'process_memory','input_transport':'bounded_worker_pipe',
+                'request_cancel_supported':True,'explicit_request_id_limit':MAX_REQUEST_IDS,
+                'context_deadline_max_seconds':60,'legacy_deadline_seconds':90}
 
     def warm(self):
         if not self.status()['available']: return
@@ -193,20 +232,46 @@ class OfflineTranscriptionService:
         threading.Thread(target=prepare,name='axx-asr-warmup',daemon=True).start()
 
     def close(self):
+        with self._lock:self._closed=True
         self.cancel_active()
         with self._io_lock:
-            self._closed=True
             self._stop_worker()
 
-    def cancel_active(self):
-        with self._lock: active=self._active
-        if not active:return 0
-        process,job,cancelled=active;cancelled.set();terminate_process_tree(process,job)
+    @staticmethod
+    def _cancel_locked(request):
+        if request.completed or request.cancelled.is_set():return 0
+        request.cancelled.set()
+        # The ASR lock also guards completion/worker reuse. Never let the next
+        # request inherit this process while its captured handle is being killed.
+        if request.process is not None:terminate_process_tree(request.process,request.job)
         return 1
 
-    def transcribe(self,body):
+    def cancel(self,request_id,*,context_owner=None):
+        """Cancel a captured ASR request; an optional internal owner must match."""
+        request_id=_request_id(request_id)
+        if context_owner is not None and (not isinstance(context_owner,str) or not re.fullmatch(r'[A-Za-z0-9_.:-]{1,160}',context_owner)):
+            raise SpeechError('INVALID_REQUEST','Invalid internal transcription owner')
+        with self._lock:
+            request=self._requests.get(request_id)
+            if request is None and self._active is not None and self._active.request_id==request_id:request=self._active
+            if request is None or context_owner is not None and request.context_owner!=context_owner:return 0
+            return self._cancel_locked(request)
+
+    def cancel_active(self):
+        with self._lock:
+            requests=list(self._requests.values())
+            if self._active is not None and not any(request is self._active for request in requests):requests.append(self._active)
+            return sum(self._cancel_locked(request) for request in requests)
+
+    def transcribe(self,body,*,context_owner=None,deadline_mono=None):
+        """Use RAM/pipe only; internal callers must derive ownership from a valid lease."""
         started=time.monotonic()
-        if not isinstance(body,dict) or set(body)-{'audio_base64','mime','language','task'}: raise SpeechError('INVALID_REQUEST','Unsupported transcription fields')
+        if not isinstance(body,dict) or set(body)-{'audio_base64','mime','language','task','request_id'}: raise SpeechError('INVALID_REQUEST','Unsupported transcription fields')
+        explicit='request_id' in body
+        request_id=_request_id(body['request_id']) if explicit else AUTO_REQUEST_PREFIX+uuid.uuid4().hex
+        if explicit and request_id.startswith(AUTO_REQUEST_PREFIX):raise SpeechError('INVALID_REQUEST','Transcription request_id uses a reserved namespace')
+        deadline_mono=_context_deadline(context_owner,deadline_mono)
+        if context_owner is not None and not explicit:raise SpeechError('INVALID_REQUEST','Context transcription requires request_id')
         encoded,mime,language,task=body.get('audio_base64'),body.get('mime'),body.get('language'),body.get('task','transcribe')
         if not isinstance(encoded,str) or not 1<=len(encoded)<=((MAX_AUDIO+2)//3)*4:
             raise SpeechError('INVALID_REQUEST','Invalid bounded audio payload')
@@ -227,17 +292,42 @@ class OfflineTranscriptionService:
         if not valid:raise SpeechError('INVALID_REQUEST','Audio signature does not match its MIME type')
         if not self.status()['available']:raise SpeechError('NOT_SUPPORTED','El modelo local de transcripción o su motor no está disponible.')
         if not self._busy.acquire(False):raise SpeechError('BUSY','Local transcription is busy')
+        context=None
         try:
+            with self._lock:
+                if self._closed:raise SpeechError('CANCELLED','Local transcription service is closed')
+                if explicit:
+                    identity=hashlib.sha256(request_id.encode('utf-8')).digest()
+                    if identity in self._used_request_ids:raise SpeechError('REQUEST_ID_REUSED','Transcription request_id has already been used; use a new ID')
+                    if len(self._used_request_ids)>=MAX_REQUEST_IDS:raise SpeechError('REQUEST_ID_LIMIT','Explicit transcription ID capacity reached; restart the service before using new IDs')
+                    self._used_request_ids.add(identity)
+                context=_ASRRequest(request_id,context_owner,deadline_mono)
+                self._requests[request_id]=context
             request={'audio_base64':encoded,'model_path':str(self.model_path),'language':language,'task':task}
-            result=self._execute(request)
+            result=self._execute(request,_context=context,wait_for_io=deadline_mono is None)
+            if context.cancelled.is_set():raise SpeechError('CANCELLED','Local transcription was cancelled')
+            result=dict(result)
+            result['request_id']=request_id
             result['input_sha256']=hashlib.sha256(raw).hexdigest()
             result.setdefault('timings_ms',{})['service_total']=round((time.monotonic()-started)*1000)
+            if context.deadline_mono is not None and time.monotonic()>=context.deadline_mono:
+                raise SpeechError('DEADLINE_EXCEEDED','Transcription lease expired before delivery')
             return result
-        finally:self._busy.release()
+        finally:
+            if context is not None:
+                with self._lock:
+                    context.completed=True
+                    if self._requests.get(request_id) is context:self._requests.pop(request_id,None)
+            self._busy.release()
 
-    def _execute(self,request):
-        with self._io_lock:
+    def _execute(self,request,*,_context=None,wait_for_io=True):
+        context=_context or _ASRRequest(AUTO_REQUEST_PREFIX+uuid.uuid4().hex)
+        if not self._io_lock.acquire(blocking=wait_for_io):raise SpeechError('BUSY','Local transcription worker is busy')
+        try:
             if self._closed:raise SpeechError('CANCELLED','Local transcription service is closed')
+            if context.cancelled.is_set():raise SpeechError('CANCELLED','Local transcription was cancelled before dispatch')
+            if context.deadline_mono is not None and time.monotonic()>=context.deadline_mono:
+                raise SpeechError('DEADLINE_EXCEEDED','Transcription lease already expired')
             if not self._worker or self._worker[0].poll() is not None:
                 self._stop_worker()
                 command=([sys.executable,'--transcribe-worker'] if getattr(sys,'frozen',False)
@@ -259,22 +349,26 @@ class OfflineTranscriptionService:
                 reader.start()
                 self._worker=(process,job,responses,reader)
             process,job,responses,reader=self._worker
-            cancelled=threading.Event();healthy=False
-            with self._lock:self._active=(process,job,cancelled)
+            cancelled=context.cancelled;healthy=False
+            with self._lock:
+                context.process,context.job=process,job
+                if self._closed:cancelled.set()
+                self._active=context
             writer = None
             try:
                 encoded=json.dumps(request,ensure_ascii=False).encode('utf-8')
                 if len(encoded)>=MAX_WORKER_REQUEST:raise SpeechError('INVALID_REQUEST','Transcription worker request exceeds limit')
-                deadline=time.monotonic()+90
+                deadline=context.deadline_mono if context.deadline_mono is not None else time.monotonic()+90
                 write_errors = queue.Queue(maxsize=1)
                 def write_request():
-                    try:process.stdin.write(encoded+b'\n');process.stdin.flush()
+                    try:
+                        if not cancelled.is_set():process.stdin.write(encoded+b'\n');process.stdin.flush()
                     except (OSError,ValueError):write_errors.put(True)
                 writer=threading.Thread(target=write_request,name='axx-asr-input',daemon=True)
                 writer.start()
                 while True:
                     if cancelled.is_set():raise SpeechError('CANCELLED','Local transcription was cancelled')
-                    if time.monotonic()>=deadline:raise SpeechError('DEADLINE_EXCEEDED','Local transcription exceeded its 90-second deadline')
+                    if time.monotonic()>=deadline:raise SpeechError('DEADLINE_EXCEEDED','Local transcription exceeded its request deadline')
                     if not write_errors.empty():raise SpeechError('PROCESS_FAILURE','Local transcription worker input failed')
                     try:line=responses.get(timeout=.025)
                     except queue.Empty:
@@ -283,6 +377,7 @@ class OfflineTranscriptionService:
                             raise SpeechError('PROCESS_FAILURE','Local transcription worker exited without a response')
                         continue
                     if cancelled.is_set():raise SpeechError('CANCELLED','Local transcription was cancelled')
+                    if time.monotonic()>=deadline:raise SpeechError('DEADLINE_EXCEEDED','Local transcription exceeded its request deadline')
                     if not line:raise SpeechError('PROCESS_FAILURE','Local transcription worker returned no response')
                     if len(line)>MAX_WORKER_OUTPUT:raise SpeechError('INVALID_RESPONSE','Transcription output exceeded limit')
                     try:response=json.loads(line)
@@ -297,7 +392,9 @@ class OfflineTranscriptionService:
                         error=response.get('error',{});raise SpeechError(error.get('code','PROCESS_FAILURE'),error.get('message','Transcription failed'))
                     return response['result']
             finally:
-                with self._lock:self._active=None
+                with self._lock:
+                    context.completed=True
+                    if self._active is context:self._active=None
                 if not healthy or cancelled.is_set() or process.poll() is not None:self._stop_worker()
                 if writer:
                     writer.join(1)
@@ -305,6 +402,9 @@ class OfflineTranscriptionService:
                         self._stop_worker()
                         writer.join(1)
                         raise SpeechError('PROCESS_FAILURE','Local transcription worker input did not finish')
+        finally:
+            with self._lock:context.completed=True
+            self._io_lock.release()
 
     def _stop_worker(self):
         if not self._worker:return

@@ -4,6 +4,7 @@ import io
 import json
 import tempfile
 import subprocess
+import queue
 import sys
 import threading
 import time
@@ -11,8 +12,218 @@ from pathlib import Path
 from unittest.mock import patch
 
 from backend.speech.speech_text import prepare_spoken_text, spanish_integer
-from backend.speech.offline_asr import OfflineTranscriptionService, excessive_repetition, model_path, guard_worker_imports, InferenceOnlyImports, worker_main, MAX_AUDIO
+from backend.speech.offline_asr import OfflineTranscriptionService, excessive_repetition, model_path, guard_worker_imports, InferenceOnlyImports, worker_main, MAX_AUDIO, _ASRRequest
 from backend.speech.windows_tts import SpeechError
+
+
+class AttributedTranscriptionTests(unittest.TestCase):
+    def setUp(self):
+        self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup)
+        self.service=OfflineTranscriptionService(self.temp.name);self.service.model_path=Path(self.temp.name)
+        self.addCleanup(self.service.close)
+        self.available=patch.object(self.service,'status',return_value={'available':True})
+        self.available.start();self.addCleanup(self.available.stop)
+
+    @staticmethod
+    def body(request_id='request-a',language='es'):
+        return {'request_id':request_id,'audio_base64':base64.b64encode(b'RIFF0000WAVEdata').decode(),
+                'mime':'audio/wav','language':language,'task':'transcribe'}
+
+    def wait_active(self,request_id):
+        until=time.monotonic()+3
+        while time.monotonic()<until:
+            with self.service._lock:
+                if self.service._active is not None and self.service._active.request_id==request_id:return self.service._active
+            time.sleep(.005)
+        self.fail('Synthetic ASR request was not admitted')
+
+    def test_late_cancel_of_completed_a_does_not_kill_b_in_reused_worker(self):
+        script=("import json,os,sys,time\n"
+                "n=0\n"
+                "for line in sys.stdin.buffer:\n"
+                " request=json.loads(line);n+=1\n"
+                " if request.get('language')=='en':time.sleep(.4)\n"
+                " print(json.dumps({'ok':True,'result':{'text':'synthetic','pid':os.getpid(),'count':n}}),flush=True)\n")
+        def spawn(_command,**kwargs):
+            return subprocess.Popen([sys.executable,'-u','-c',script],creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0),**kwargs),None
+        with patch('backend.speech.offline_asr.spawn_managed_process',side_effect=spawn):
+            first=self.service.transcribe(self.body())
+            results=[]
+            thread=threading.Thread(target=lambda:results.append(self.service.transcribe(self.body('request-b','en'))))
+            thread.start()
+            try:
+                active=self.wait_active('request-b')
+                with patch('backend.speech.offline_asr.terminate_process_tree') as terminate:
+                    self.assertEqual(self.service.cancel('request-a'),0)
+                    self.assertFalse(active.cancelled.is_set())
+                    terminate.assert_not_called()
+                thread.join(3)
+                self.assertFalse(thread.is_alive())
+                self.assertEqual(results[0]['pid'],first['pid'])
+                self.assertEqual(results[0]['count'],2)
+                self.assertEqual(results[0]['request_id'],'request-b')
+            finally:
+                if thread.is_alive():self.service.cancel('request-b');thread.join(3)
+
+    def test_busy_and_foreign_owner_never_preempt_admitted_request(self):
+        entered,release=threading.Event(),threading.Event();errors=[]
+        def execute(request,**kwargs):
+            entered.set()
+            if not release.wait(3):raise AssertionError('Synthetic release timed out')
+            return {'text':'synthetic'}
+        def run():
+            try:self.service.transcribe(self.body(),context_owner='lease-a',deadline_mono=time.monotonic()+5)
+            except SpeechError as exc:errors.append(exc.code)
+        with patch.object(self.service,'_execute',side_effect=execute) as worker:
+            thread=threading.Thread(target=run);thread.start()
+            try:
+                self.assertTrue(entered.wait(2))
+                with self.assertRaises(SpeechError) as caught:self.service.transcribe(self.body('request-b'))
+                self.assertEqual(caught.exception.code,'BUSY')
+                self.assertEqual(self.service.cancel('request-a',context_owner='lease-b'),0)
+                self.assertFalse(self.service._requests['request-a'].cancelled.is_set())
+                self.assertEqual(self.service.cancel('request-a',context_owner='lease-a'),1)
+                self.assertEqual(worker.call_count,1)
+            finally:release.set();thread.join(3)
+        self.assertEqual(errors,['CANCELLED'])
+        self.assertFalse(self.service._requests)
+
+    def test_captured_cancel_finishes_before_waiting_request_can_reuse_worker(self):
+        from backend.inference.process_manager import terminate_process_tree
+        killing,release,waiting=threading.Event(),threading.Event(),threading.Event()
+        children=[];errors=[];results=[];cancelled=[]
+        script=("import json,os,sys,time\nfor line in sys.stdin.buffer:\n"
+                " request=json.loads(line)\n"
+                " if request.get('language')=='es':time.sleep(10)\n"
+                " print(json.dumps({'ok':True,'result':{'pid':os.getpid()}}),flush=True)\n")
+        def spawn(_command,**kwargs):
+            process=subprocess.Popen([sys.executable,'-u','-c',script],creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0),**kwargs)
+            children.append(process);return process,None
+        def terminate(process,job):
+            killing.set()
+            if not release.wait(3):raise AssertionError('Synthetic kill release timed out')
+            terminate_process_tree(process,job)
+        def first():
+            try:self.service.transcribe(self.body())
+            except SpeechError as exc:errors.append(exc.code)
+        def second():
+            waiting.set();results.append(self.service._execute({'language':'en'}))
+        with patch('backend.speech.offline_asr.spawn_managed_process',side_effect=spawn), \
+                patch('backend.speech.offline_asr.terminate_process_tree',side_effect=terminate):
+            a=threading.Thread(target=first);a.start();self.wait_active('request-a')
+            cancel=threading.Thread(target=lambda:cancelled.append(self.service.cancel('request-a')));cancel.start()
+            b=threading.Thread(target=second)
+            try:
+                self.assertTrue(killing.wait(2));b.start();self.assertTrue(waiting.wait(2))
+                acquired=self.service._io_lock.acquire(timeout=.05)
+                if acquired:self.service._io_lock.release()
+                self.assertFalse(acquired)
+                self.assertFalse(results);self.assertEqual(len(children),1)
+                release.set();cancel.join(3);a.join(3);b.join(3)
+                self.assertFalse(any(thread.is_alive() for thread in (a,b,cancel)))
+                self.assertEqual(cancelled,[1]);self.assertEqual(errors,['CANCELLED'])
+                self.assertEqual(len(children),2)
+                self.assertEqual(results[0]['pid'],children[1].pid)
+                self.assertNotEqual(results[0]['pid'],children[0].pid)
+            finally:
+                release.set();cancel.join(3);a.join(3)
+                if b.ident is not None:b.join(3)
+
+    def test_response_arriving_after_lease_is_rejected_before_result_delivery(self):
+        clock=[99.0]
+        original_get=queue.Queue.get
+        def get_response(instance,*args,**kwargs):
+            line=original_get(instance,*args,**kwargs)
+            if isinstance(line,bytes):clock[0]=101.0
+            return line
+        script="import sys\nfor line in sys.stdin.buffer:print('{\"ok\":true,\"result\":{\"text\":\"late\"}}',flush=True)\n"
+        def spawn(_command,**kwargs):
+            return subprocess.Popen([sys.executable,'-u','-c',script],creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0),**kwargs),None
+        context=_ASRRequest('late-context','lease-a',100.0)
+        with patch('backend.speech.offline_asr.spawn_managed_process',side_effect=spawn), \
+                patch('backend.speech.offline_asr.time.monotonic',side_effect=lambda:clock[0]), \
+                patch.object(queue.Queue,'get',new=get_response):
+            with self.assertRaises(SpeechError) as caught:self.service._execute({},_context=context,wait_for_io=False)
+            self.assertEqual(caught.exception.code,'DEADLINE_EXCEEDED')
+        self.assertIsNone(self.service._active);self.assertIsNone(self.service._worker)
+
+    def test_scoped_cancel_unblocks_large_memory_pipe_without_taking_io_lock(self):
+        children=[];errors=[]
+        def spawn(_command,**kwargs):
+            process=subprocess.Popen([sys.executable,'-c','import time;time.sleep(30)'],
+                creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0),**kwargs)
+            children.append(process);return process,None
+        body=self.body('large-request')
+        body['audio_base64']=base64.b64encode(b'RIFF0000WAVE'+b'\0'*(MAX_AUDIO-12)).decode()
+        def run():
+            try:self.service.transcribe(body)
+            except SpeechError as exc:errors.append(exc.code)
+        with patch('backend.speech.offline_asr.spawn_managed_process',side_effect=spawn):
+            thread=threading.Thread(target=run);thread.start()
+            try:
+                self.wait_active('large-request')
+                until=time.monotonic()+2
+                while not any(row.name=='axx-asr-input' and row.is_alive() for row in threading.enumerate()) and time.monotonic()<until:time.sleep(.005)
+                self.assertTrue(self.service._io_lock.locked())
+                self.assertEqual(self.service.cancel('other-request'),0)
+                self.assertEqual(self.service.cancel('large-request'),1)
+                thread.join(3)
+                self.assertFalse(thread.is_alive())
+                self.assertEqual(errors,['CANCELLED'])
+                self.assertTrue(children and all(child.poll() is not None for child in children))
+                self.assertFalse(self.service.data_dir.exists())
+            finally:
+                if thread.is_alive():self.service.cancel_active();thread.join(3)
+
+    def test_context_deadline_is_enforced_and_context_never_waits_for_foreign_io(self):
+        with self.service._io_lock,patch('backend.speech.offline_asr.spawn_managed_process') as spawn:
+            with self.assertRaises(SpeechError) as caught:
+                self.service.transcribe(self.body(),context_owner='lease-a',deadline_mono=time.monotonic()+2)
+            self.assertEqual(caught.exception.code,'BUSY');spawn.assert_not_called()
+        script="import sys,time\nfor line in sys.stdin.buffer:time.sleep(10)\n"
+        children=[]
+        def spawn(_command,**kwargs):
+            process=subprocess.Popen([sys.executable,'-u','-c',script],creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0),**kwargs)
+            children.append(process);return process,None
+        with patch('backend.speech.offline_asr.spawn_managed_process',side_effect=spawn):
+            with self.assertRaises(SpeechError) as caught:
+                self.service.transcribe(self.body('short-lease'),context_owner='lease-a',deadline_mono=time.monotonic()+.1)
+            self.assertEqual(caught.exception.code,'DEADLINE_EXCEEDED')
+        self.assertTrue(children and all(child.poll() is not None for child in children))
+        self.assertIsNone(self.service._active)
+        self.assertFalse(self.service.data_dir.exists())
+
+    def test_internal_owner_deadline_and_json_identity_limits_fail_before_worker(self):
+        with patch.object(self.service,'_execute',return_value={'text':'synthetic'}) as execute:
+            for value in (True,1,None,'../bad','x'*129,'asr-auto-client'):
+                with self.subTest(request_id=value),self.assertRaises(SpeechError):self.service.transcribe(self.body(value))
+            for fields in ({'context_owner':'forged'},{'deadline_mono':time.monotonic()+1}):
+                with self.subTest(fields=fields),self.assertRaises(SpeechError):self.service.transcribe(self.body()|fields)
+            for deadline in (True,float('nan'),time.monotonic()-1,time.monotonic()+61,None):
+                with self.subTest(deadline=deadline),self.assertRaises(SpeechError):
+                    self.service.transcribe(self.body(),context_owner='lease-a',deadline_mono=deadline)
+            with self.assertRaises(SpeechError):self.service.transcribe(self.body(),context_owner=True,deadline_mono=time.monotonic()+1)
+            execute.assert_not_called()
+            legacy=self.body();legacy.pop('request_id')
+            result=self.service.transcribe(legacy)
+            self.assertTrue(result['request_id'].startswith('asr-auto-'))
+            self.assertIsNone(execute.call_args.kwargs['_context'].deadline_mono)
+            self.assertTrue(execute.call_args.kwargs['wait_for_io'])
+
+    def test_used_ids_are_bounded_not_recycled_and_store_no_audio_or_text(self):
+        with patch('backend.speech.offline_asr.MAX_REQUEST_IDS',2),patch.object(self.service,'_execute',return_value={'text':'private synthetic transcript'}):
+            self.service.transcribe(self.body('first'))
+            self.service.transcribe(self.body('second'))
+            with self.assertRaises(SpeechError) as caught:self.service.transcribe(self.body('third'))
+            self.assertEqual(caught.exception.code,'REQUEST_ID_LIMIT')
+            with self.assertRaises(SpeechError) as caught:self.service.transcribe(self.body('first'))
+            self.assertEqual(caught.exception.code,'REQUEST_ID_REUSED')
+            self.assertEqual(len(self.service._used_request_ids),2)
+            self.assertTrue(all(isinstance(value,bytes) and len(value)==32 for value in self.service._used_request_ids))
+            legacy=self.body();legacy.pop('request_id')
+            self.assertIn('request_id',self.service.transcribe(legacy))
+            self.assertFalse(self.service._requests)
+            self.assertFalse(self.service.data_dir.exists())
 
 
 class SpokenTextTests(unittest.TestCase):
