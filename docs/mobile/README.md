@@ -4,6 +4,8 @@ Android is a client of the existing Windows Axx instance. It shares the desktop 
 
 ## Latest revision
 
+[Encrypted file transfers, phone dictation and cross-network setup in 0.2.5](TRANSFER.md). Physical phone and cross-network acceptance for this revision were not performed.
+
 [Themes, GPU and two-way character customization in 0.2.4](PERSONALIZATION-20261028-024.md).
 
 [Previous 0.2.3 physical checks](VISUAL-REVISION-20261028-023.md).
@@ -42,21 +44,20 @@ Browser tests use declared transport fixtures and do not replace Android accepta
 
 1. Open the current Axx desktop build. **Guardar historial** is optional for pairing; enable it in the chat to share that conversation. With sharing off, the phone receives no conversation history and uses Actions with its separate Work grant.
 2. Right-click Axx → **Connect phone · QR**, or open Settings → **Connect your phone** → **Show new QR**.
-3. Keep both devices on the same private LAN. On Android, open Axx Mobile → **Pair PC** → **Scan PC QR**.
+3. In PC Settings choose **Misma red** for LAN, or **Redes distintas · Tailscale** after connecting both devices to the same private Tailscale network. On Android open Axx Mobile → **Pair PC** → **Scan PC QR**.
 4. Allow the camera while using the app. Aim it at the PC QR. Check the displayed PC address, then tap **Connect**.
 5. Wait for **Your Axx is synchronized**. The character and conversation come from this PC.
 
 If camera access was denied permanently, allow it in Android Settings → Apps → Axx Mobile → Permissions. Alternatively, expand **Use a pairing link instead** on the PC and **Paste a pairing link instead** on the phone.
 
-For expired or already-used codes, generate a new QR on the PC. If the PC cannot be reached, keep Axx open, check the same LAN and Windows Firewall private-network access. Do not disable TLS verification. PC identity is pinned to the QR certificate fingerprint.
+For expired or already-used codes, generate a new QR on the PC. If the PC cannot be reached, keep Axx open, check the selected LAN/Tailscale route and Windows Firewall private-network access. Do not disable TLS verification. PC identity is pinned to the QR certificate fingerprint.
 
 The gateway is opt-in. Without persistent access it shuts down after phone contact
 is lost; a fresh QR reserves two minutes. Enable **Mantener la conexión disponible
 al reiniciar Axx** on the PC to reconnect after a desktop restart without scanning.
 The saved port and certificate identity persist. A changed LAN address still needs
 a fresh QR. Rescanning the same PC now preserves the authenticated phone's device
-ID and grants; a revoked credential cannot recover them. There is no Internet relay
-or automatic LAN discovery.
+ID and grants; a revoked credential cannot recover them. Cross-network connectivity uses Tailscale direct/relay networking with the Axx TLS pin intact; it requires Tailscale active on both devices. There is no Axx file mailbox or automatic LAN discovery.
 
 ## Remote input and voice
 

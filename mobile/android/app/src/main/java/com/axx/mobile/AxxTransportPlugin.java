@@ -96,15 +96,16 @@ public class AxxTransportPlugin extends Plugin {
         if (!"https".equals(uri.getScheme()) || host == null || uri.getUserInfo() != null || uri.getQuery() != null || uri.getFragment() != null
             || !(uri.getPath().isEmpty() || uri.getPath().equals("/")) || uri.getPort() < 1 || uri.getPort() > 65535)
             throw new IllegalArgumentException("Invalid PC HTTPS address");
-        if (!host.matches("[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+")) throw new IllegalArgumentException("A local IP address is required");
+        if (!host.matches("[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+")) throw new IllegalArgumentException("A private or Tailscale IPv4 address is required");
         String[] parts = host.split("\\.");
         int[] octets = new int[4];
         for (int i=0;i<4;i++) {
             octets[i] = Integer.parseInt(parts[i]);
             if (octets[i] > 255 || !Integer.toString(octets[i]).equals(parts[i])) throw new IllegalArgumentException("Invalid IP address");
         }
-        if (!(octets[0] == 10 || octets[0] == 192 && octets[1] == 168 || octets[0] == 172 && octets[1] >= 16 && octets[1] <= 31))
-            throw new IllegalArgumentException("Only private LAN networks are supported");
+        if (!(octets[0] == 10 || octets[0] == 192 && octets[1] == 168 || octets[0] == 172 && octets[1] >= 16 && octets[1] <= 31
+                || octets[0] == 100 && octets[1] >= 64 && octets[1] <= 127))
+            throw new IllegalArgumentException("Use a private network or the authenticated Tailscale network");
         return uri;
     }
 
@@ -197,7 +198,7 @@ public class AxxTransportPlugin extends Plugin {
 
     private void submit(PluginCall call, CheckedAction action) {
         ThreadPoolExecutor executor=call.getString("path", "").startsWith("/v1/control/")?inputNetwork:network;
-        try { executor.execute(() -> { try { action.run(); } catch (Exception e) { call.reject(e instanceof javax.net.ssl.SSLException ? "PC identity could not be verified. Generate a new QR on the PC; never bypass certificate checks." : e instanceof java.io.IOException ? "Cannot reach your PC. Keep Axx open, use the same Wi-Fi, and select Show new QR on the PC. Check that Windows Firewall allows Axx on your private network." : e.getMessage() == null ? "Could not connect to the PC" : e.getMessage()); } }); }
+        try { executor.execute(() -> { try { action.run(); } catch (Exception e) { call.reject(e instanceof javax.net.ssl.SSLException ? "PC identity could not be verified. Generate a new QR on the PC; never bypass certificate checks." : e instanceof java.io.IOException ? "Cannot reach your PC. Keep Axx open and connect both devices to the same Wi-Fi or authenticated Tailscale network. Check the QR address and Windows Firewall permissions." : e.getMessage() == null ? "Could not connect to the PC" : e.getMessage()); } }); }
         catch (java.util.concurrent.RejectedExecutionException e) { call.reject("Axx is busy; try again"); }
     }
     private interface CheckedAction { void run() throws Exception; }
@@ -352,10 +353,20 @@ public class AxxTransportPlugin extends Plugin {
         return fields;
     }
 
+    static void checkExpectedIdentity(String device, String fingerprint, String expectedDevice, String expectedFingerprint) {
+        if (expectedDevice == null && expectedFingerprint == null) return;
+        if (expectedDevice == null || expectedFingerprint == null || !expectedDevice.equals(device) || !expectedFingerprint.equals(fingerprint))
+            throw new IllegalStateException("El PC enlazado cambió. La operación se detuvo para proteger el archivo o audio.");
+    }
+
     @PluginMethod public void request(PluginCall call) {
         submit(call, () -> {
             JSONObject profile = loadProfile();
             if (profile == null) throw new IllegalStateException("Pair a PC first");
+            String expectedDevice = call.getString("expected_device_id"), expectedFingerprint = call.getString("expected_fingerprint");
+            if ((call.getData().has("expected_device_id") || call.getData().has("expected_fingerprint")) && (expectedDevice == null || expectedFingerprint == null))
+                throw new IllegalArgumentException("Se requiere la identidad completa del PC esperado");
+            checkExpectedIdentity(profile.getString("device_id"), profile.getString("fingerprint"), expectedDevice, expectedFingerprint);
             String path = call.getString("path", "");
             if (path.startsWith("/v1/pair")) throw new IllegalArgumentException("Use the pairing flow");
             call.resolve(JSObject.fromJSONObject(exchange(profile, path, call.getString("method", "GET"), call.getObject("body"))));

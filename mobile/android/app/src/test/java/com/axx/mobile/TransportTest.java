@@ -36,9 +36,20 @@ public class TransportTest {
     }
     @Test public void onlyExplicitPrivateHttpsEndpointsAreAccepted() throws Exception {
         assertEquals("192.168.0.10", AxxTransportPlugin.validateEndpoint("https://192.168.0.10:4443").getHost());
-        for (String value : new String[]{"http://192.168.0.10:4443", "https://127.0.0.1:4443", "https://8.8.8.8:443", "https://evil.example:443", "https://192.168.0.10:4443/other", "https://user@192.168.0.10:4443", "https://192.168.0.10:4443?redirect=1", "https://192.168.000.10:4443", "https://192.168.0.10:65536"}) {
+        assertEquals("100.64.0.0", AxxTransportPlugin.validateEndpoint("https://100.64.0.0:4443").getHost());
+        assertEquals("100.127.255.255", AxxTransportPlugin.validateEndpoint("https://100.127.255.255:4443").getHost());
+        for (String value : new String[]{"http://192.168.0.10:4443", "https://127.0.0.1:4443", "https://8.8.8.8:443", "https://evil.example:443", "https://192.168.0.10:4443/other", "https://user@192.168.0.10:4443", "https://192.168.0.10:4443?redirect=1", "https://192.168.000.10:4443", "https://192.168.0.10:65536", "https://100.63.255.255:4443", "https://100.128.0.0:4443", "https://100.255.0.1:4443"}) {
             try { AxxTransportPlugin.validateEndpoint(value); fail("Accepted unsafe endpoint: " + value); }
             catch (IllegalArgumentException expected) {}
+        }
+    }
+    @Test public void queuedPrivateOperationsKeepTheirOriginalPcIdentity() {
+        String device = "01234567-89ab-cdef-0123-456789abcdef", pin = "a".repeat(64);
+        AxxTransportPlugin.checkExpectedIdentity(device, pin, device, pin);
+        AxxTransportPlugin.checkExpectedIdentity(device, pin, null, null);
+        for (String[] expected : new String[][]{{"different-device", pin}, {device, "b".repeat(64)}, {device, null}, {null, pin}}) {
+            try { AxxTransportPlugin.checkExpectedIdentity(device, pin, expected[0], expected[1]); fail("Changed or incomplete identity accepted"); }
+            catch (IllegalStateException correct) {}
         }
     }
 }

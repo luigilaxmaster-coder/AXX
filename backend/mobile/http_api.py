@@ -79,7 +79,10 @@ class MobileHTTP:
         elif path == '/axx-api/mobile/network':
             if set(body) != {'mode'} or not self.h.server.host_owned:
                 raise ValueError('Selecciona la red desde Axx en la PC.')
-            result = self.gateway.set_network_mode(body['mode'])
+            try:
+                result = self.gateway.set_network_mode(body['mode'])
+            except RuntimeError as exc:
+                raise ValueError(str(exc)) from exc
             if 'pairing_uri' in result:
                 result['qr_svg_base64'] = pairing_qr_base64(result['pairing_uri'])
         elif path == '/axx-api/mobile/start':
@@ -87,7 +90,10 @@ class MobileHTTP:
                 raise ValueError('Activation does not accept client parameters')
             if not self.h.server.host_owned:
                 raise ValueError('Enable mobile access from desktop Axx')
-            result = self.gateway.start()
+            try:
+                result = self.gateway.start()
+            except RuntimeError as exc:
+                raise ValueError(str(exc)) from exc
             if 'pairing_uri' in result:
                 result['qr_svg_base64'] = pairing_qr_base64(result['pairing_uri'])
         elif path == '/axx-api/mobile/stop':
@@ -95,7 +101,10 @@ class MobileHTTP:
         elif path == '/axx-api/mobile/always-access':
             if set(body) != {'enabled'} or type(body['enabled']) is not bool:
                 raise ValueError('enabled must be a boolean')
-            result = self.gateway.set_always_access(body['enabled'])
+            try:
+                result = self.gateway.set_always_access(body['enabled'])
+            except RuntimeError as exc:
+                raise ValueError(str(exc)) from exc
         elif path == '/axx-api/mobile/work/approve':
             result = self.gateway.approve_work(body)
         elif path == '/axx-api/mobile/revoke':

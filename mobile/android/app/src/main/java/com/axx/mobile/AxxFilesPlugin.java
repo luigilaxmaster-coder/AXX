@@ -46,6 +46,7 @@ public class AxxFilesPlugin extends Plugin {
     private static final String KEY_ALIAS = "axx.mobile.files.v1";
     private final ThreadPoolExecutor worker = new ThreadPoolExecutor(1, 1, 0L, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(16));
     private boolean pickerOpen;
+    private SecretKey storageKey;
 
     @FunctionalInterface private interface Work { void run() throws Exception; }
     private void submit(PluginCall call, Work work) {
@@ -57,7 +58,7 @@ public class AxxFilesPlugin extends Plugin {
         return UUID.fromString(id).toString();
     }
     static String checkedName(String name) {
-        if (name == null || name.isBlank() || name.length() > 180 || name.endsWith(" ") || name.endsWith(".") || name.matches(".*[\\\\/<>:\"|?*\\p{Cntrl}].*")
+        if (name == null || name.trim().isEmpty() || name.length() > 180 || name.endsWith(" ") || name.endsWith(".") || name.matches(".*[\\\\/<>:\"|?*\\p{Cntrl}].*")
                 || name.matches("(?i)(CON|PRN|AUX|NUL|CONIN\\$|CONOUT\\$|COM[1-9¹²³]|LPT[1-9¹²³])(\\..*)?")) throw new IllegalArgumentException("Nombre de archivo no válido");
         return name;
     }
@@ -85,6 +86,7 @@ public class AxxFilesPlugin extends Plugin {
         return file;
     }
     private SecretKey key() throws Exception {
+        if (storageKey != null) return storageKey;
         KeyStore store = KeyStore.getInstance("AndroidKeyStore"); store.load(null);
         if (!store.containsAlias(KEY_ALIAS)) {
             KeyGenerator generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore");
@@ -92,7 +94,8 @@ public class AxxFilesPlugin extends Plugin {
                 .setKeySize(256).setBlockModes(KeyProperties.BLOCK_MODE_GCM).setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE).build());
             generator.generateKey();
         }
-        return (SecretKey) store.getKey(KEY_ALIAS, null);
+        storageKey = (SecretKey) store.getKey(KEY_ALIAS, null);
+        return storageKey;
     }
     private byte[] aad(String id, String part) { return ("axx-files-v1:" + checkedId(id) + ":" + part).getBytes(StandardCharsets.UTF_8); }
     static byte[] seal(SecretKey key, byte[] aad, byte[] clear) throws Exception {

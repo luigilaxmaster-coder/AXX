@@ -1,13 +1,15 @@
 # Axx Transfer
 
 Archivos integra copias entre Axx de Windows y Axx Mobile para Android, utilizando
-el enlace HTTPS autenticado y fijado al certificado del QR existente. Esta entrega
-implementa el recorrido local; no activa infraestructura remota.
+el enlace HTTPS autenticado y fijado al certificado del QR existente. Funciona en
+red local o entre redes distintas mediante una red privada Tailscale existente.
 
 ## Configuración
 
-1. En Windows, abre Ajustes y empareja Axx Mobile con el QR. Ambos equipos deben
-   poder comunicarse en la misma red privada.
+1. En Windows, abre Ajustes y elige **Misma red** o **Redes distintas · Tailscale**.
+   Para la segunda opción, conecta Tailscale en PC y Android a la misma red privada
+   de Tailscale. Genera entonces el QR de Axx y escanéalo desde Axx Mobile. Se
+   conservan identidad y permisos al volver a enlazar el mismo teléfono.
 2. Abre **Archivos** en Windows. Selecciona el teléfono y autoriza por separado
    lectura de carpetas concretas y recepción. El emparejamiento no concede estos
    permisos automáticamente. No selecciones un disco completo.
@@ -44,7 +46,27 @@ de archivo se vuelven a validar al preparar la copia.
   reconocimiento de voz usa el servicio Whisper local existente de Windows.
 
 El cifrado entre estos dos extremos no implica anonimato de red ni protección de
-un dispositivo comprometido. No hay relay ni buzón externo en esta entrega.
+un dispositivo comprometido. Axx no abre puertos públicos ni omite el certificado.
+Tailscale decide entre conexión directa y relay cifrado según la red; requiere su
+cliente conectado en ambos extremos. No hay buzón externo de archivos.
+
+### Redes distintas
+
+La opción Tailscale consulta su cliente local sin iniciar sesión ni modificar su
+configuración. Solo admite una dirección propia activa dentro de `100.64.0.0/10`
+y enlaza el servidor a esa interfaz concreta. Si falta la sesión, cambia la
+dirección o no está disponible, muestra un error y no vuelve silenciosamente a
+la red local. El teléfono mantiene la comprobación del certificado del QR en
+ambos modos. Cambiar de red requiere generar/escanear el QR correspondiente.
+
+La cuenta y reglas de acceso de Tailscale deben permitir que ambos equipos se
+comuniquen. El modo remoto no enciende la PC ni descarga archivos nuevos con Axx
+cerrado. La integración no crea cuentas, servicios de pago ni reglas de firewall.
+Si una regla impide la comunicación, corrige únicamente el acceso necesario a
+la interfaz privada; no desactives el firewall.
+
+Referencias: [conexiones directas y relay](https://tailscale.com/docs/reference/connection-types),
+[direcciones privadas](https://tailscale.com/docs/concepts/tailscale-ip-addresses).
 
 ## Interfaz y recuperación
 
@@ -74,7 +96,7 @@ utilizados en la aceptación.
 
 ## Límites pendientes
 
-Internet con relay, buzón diferido, iOS, tareas Android de segundo plano, selección
+Un relay propio de Axx, buzón diferido, iOS, tareas Android de segundo plano, selección
 real de Explorer, varios PCs, OCR, búsqueda semántica, paquetes CAD y devolución
 automática de revisiones requieren integraciones y aceptación adicionales. Un PC
 apagado no puede ejecutar una búsqueda nueva. No se anuncian esas capacidades
