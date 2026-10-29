@@ -639,6 +639,42 @@ assert.deepEqual(reviewResolution.steps,[{command_id:'axx.desktop.list_windows',
     assert.equal(halo.afterFailure, ''); assert.equal(halo.retries, 2); assert(halo.afterSuccess);
     results.push('Recording halo retries its existing state after capture-affinity contention instead of caching a failed update');
     await page.waitForFunction(() => window.__contractEvents['axx-show']?.length >= 2);
+    const hiddenRaster = await page.evaluate(async () => {
+      const renderer=Axx.app.renderer;
+      const alpha=()=>renderer.ctx.getImageData(0,0,renderer.canvas.width,renderer.canvas.height).data.reduce((n,v,i)=>n+(i%4===3&&v>0?1:0),0);
+      renderer.stop();
+      const identity=JSON.stringify([Axx.app.store.data.settings,renderer.getStudio(),renderer.angle]);
+      const before={pixels:alpha(),mask:renderer.hitMask().bits.filter(Boolean).length};
+      try {
+        Axx.companion.hide();
+        const hidden={pixels:alpha(),raster:renderer.raster.pixels.some((v,i)=>i%4===3&&v>0),mask:renderer.hitMask().bits.filter(Boolean).length,stageHidden:document.getElementById('stage').hidden,quickHidden:document.getElementById('quick-root').hidden,hit:renderer.hitTest(0,0)};
+        renderer.resize();renderer.draw(0);renderer.capturePNG();
+        const afterCalls={pixels:alpha(),mask:renderer.hitMask().bits.filter(Boolean).length};
+        const restore=document.getElementById('restore').getBoundingClientRect(),x=restore.x+restore.width/2,y=restore.y+restore.height/2;
+        const restoreMapped=Axx.resident.interactiveRegions().some(r=>x>=r.x&&x<r.x+r.width&&y>=r.y&&y<r.y+r.height);
+        Axx.app.setVisible(true);
+        return {before,hidden,afterCalls,restoreMapped,restored:{pixels:alpha(),mask:renderer.hitMask().bits.filter(Boolean).length,stageHidden:document.getElementById('stage').hidden},identityPreserved:identity===JSON.stringify([Axx.app.store.data.settings,renderer.getStudio(),renderer.angle])};
+      } finally { Axx.app.setVisible(true);renderer.startLoop(); }
+    });
+    assert(hiddenRaster.before.pixels>100&&hiddenRaster.before.mask>0);
+    assert.deepEqual(hiddenRaster.hidden,{pixels:0,raster:false,mask:0,stageHidden:true,quickHidden:true,hit:false});
+    assert.deepEqual(hiddenRaster.afterCalls,{pixels:0,mask:0});assert.equal(hiddenRaster.restoreMapped,true);
+    assert(hiddenRaster.restored.pixels>100&&hiddenRaster.restored.mask>0);assert.equal(hiddenRaster.restored.stageHidden,false);assert.equal(hiddenRaster.identityPreserved,true);
+    results.push('Hidden resident clears actual canvas/raster and native alpha, retains restore input, and redraws immediately without RAF or identity changes');
+    const glVisibility=await page.evaluate(()=>{
+      const host=document.createElement('div'),canvas=document.createElement('canvas');host.style.cssText='position:fixed;left:20px;top:20px;width:160px;height:160px';canvas.style.cssText='width:160px;height:160px';host.append(canvas);document.body.append(host);
+      if(!canvas.getContext('webgl2',{alpha:true,antialias:true,premultipliedAlpha:true,preserveDrawingBuffer:true,powerPreference:'high-performance'})){host.remove();return {available:false};}
+      const renderer=new Axx.LiquidRenderer(canvas,{...Axx.app.store.data.settings,staticMode:true});
+      const alpha=()=>{const gl=renderer.gl,pixels=new Uint8Array(canvas.width*canvas.height*4);gl.bindFramebuffer(gl.FRAMEBUFFER,null);gl.readPixels(0,0,canvas.width,canvas.height,gl.RGBA,gl.UNSIGNED_BYTE,pixels);return pixels.reduce((n,v,i)=>n+(i%4===3&&v>0?1:0),0);};
+      try{
+        renderer.draw(0);const before={pixels:alpha(),mask:renderer.hitMask().bits.filter(Boolean).length};renderer.setHidden(true);
+        renderer.resize();renderer.draw(1);renderer.capturePNG();
+        const hidden={pixels:alpha(),mask:renderer.hitMask().bits.filter(Boolean).length,hit:renderer.hitTest(80,80)};
+        renderer.setHidden(false);return {available:true,before,hidden,restored:{pixels:alpha(),mask:renderer.hitMask().bits.filter(Boolean).length}};
+      }finally{renderer.stop();host.remove();}
+    });
+    if(glVisibility.available){assert(glVisibility.before.pixels>100&&glVisibility.before.mask>0);assert.deepEqual(glVisibility.hidden,{pixels:0,mask:0,hit:false});assert(glVisibility.restored.pixels>100&&glVisibility.restored.mask>0);results.push('WebGL framebuffer and offscreen hitmask stay empty through hidden draw/resize/capture and redraw immediately on restore');}
+    else console.log('SKIP: WebGL2 unavailable; software renderer visibility validated separately');
     await page.evaluate(() => Axx.companion.hide());
     assert.equal(await page.evaluate(() => document.body.classList.contains('avatar-hidden')), true);
     await page.locator('#restore').click();

@@ -92,6 +92,9 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
   });
   assert.equal(await page.locator('#anticipation-card').isVisible(),true);
   assert.equal(await page.locator('#anticipation-card img').count(),0,'Suggestion text cannot inject markup');
+  const hiddenInitiative=await page.evaluate(()=>{const cancellations=calls.filter(c=>c.route.endsWith('/cancel')).length;Axx.app.machine={visible:false};Axx.anticipation.render();return {hidden:document.getElementById('anticipation-card').hidden,profile:Axx.anticipation.state.profile,paused:Axx.anticipation.state.paused,cancelled:calls.filter(c=>c.route.endsWith('/cancel')).length-cancellations};});
+  assert.deepEqual(hiddenInitiative,{hidden:true,profile:'copiloto',paused:false,cancelled:0},'Hidden presentation cannot pause or cancel background initiatives');
+  await page.evaluate(()=>{Axx.app.machine.visible=true;Axx.anticipation.render();});
   await page.locator('#anticipation-why summary').click();
   const whyHeights=await page.evaluate(()=>{
    const node=document.getElementById('anticipation-card'),why=document.getElementById('anticipation-why'),heights=[];

@@ -4288,7 +4288,7 @@ var Axx;
         resetCamera() { this.setStudio({ autoRotate: false }); this.angle = [-.18, .08]; this.pulse.reset(); this.pointerX.reset(); this.pointerY.reset(); this.pokeTime = -100; this.motion.stopRotation(); }
         poke(x, y) { this.pokeTime = this.time(); this.pointerTarget = [Axx.clamp(x, -1, 1), Axx.clamp(y, -1, 1)]; this.motion.poke(x * this.canvas.width / Math.min(this.canvas.width, this.canvas.height) * 2.02 / this.settings.scale, y * this.canvas.height / Math.min(this.canvas.width, this.canvas.height) * 2.02 / this.settings.scale); this.interact(); }
         hitTest(x, y) {
-            if (this.lost)
+            if (this.isHidden || this.lost)
                 return false;
             const gl = this.gl, r = this.canvas.getBoundingClientRect(), v = new Uint8Array(4);
             const px = Math.floor((x - r.left) / r.width * this.canvas.width), py = Math.floor((r.bottom - y) / r.height * this.canvas.height);
@@ -4333,7 +4333,7 @@ var Axx;
         interact() { this.lastInteraction = performance.now(); if (!this.settings.reducedMotion)
             this.pulse.impulse(3.3); }
         rotate(dx, dy) { this.lastInteraction = performance.now(); this.setStudio({ autoRotate: false }); this.angle[0] += dx; this.angle[1] = Axx.clamp(this.angle[1] + dy, -1.3, 1.3); this.lastRotation = [dx, dy]; }
-        setHidden(hidden) { this.isHidden = hidden; }
+        setHidden(hidden) { this.isHidden = hidden; if (!hidden) this.resize(); this.draw(this.time()); }
         startLoop() {
             if (this.frameHandle)
                 return;
@@ -4379,6 +4379,12 @@ var Axx;
             if (this.lost)
                 return;
             const gl = this.gl;
+            if (this.isHidden) {
+                gl.clearColor(0, 0, 0, 0);
+                gl.bindFramebuffer(gl.FRAMEBUFFER, this.target || null); gl.clear(gl.COLOR_BUFFER_BIT);
+                gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.clear(gl.COLOR_BUFFER_BIT);
+                return;
+            }
             this.allocateTarget();
             gl.bindFramebuffer(gl.FRAMEBUFFER, this.target);
             gl.viewport(0, 0, this.canvas.width, this.canvas.height);
@@ -4409,7 +4415,8 @@ var Axx;
             gl.uniform4f(this.u('uDynamics'), live.phase, live.attention, live.reaction, live.energy);
             this.waveUniform.set(this.motion.waveData());
             gl.uniform4fv(this.u('uWaves[0]'), this.waveUniform);
-            this.weightUniform.set(this.transition.weights);
+            // shortcut: the legacy GL shader has twelve weights; extend it before adding GL forms.
+            this.weightUniform.set(this.transition.weights.slice(0, this.weightUniform.length));
             gl.uniform1fv(this.u('uWeights[0]'), this.weightUniform);
             gl.uniform1i(this.u('uState'), ['idle', 'listening', 'thinking', 'speaking', 'processing', 'approval', 'paused', 'success', 'error', 'notification', 'focus', 'transform', 'offline'].indexOf(this.activeState));
             const moving = this.studio.living && !this.settings.reducedMotion && !this.settings.staticMode;
@@ -4457,6 +4464,7 @@ var Axx;
             const gl = this.gl;
             cols = Math.round(Axx.clamp(cols, 8, 128));
             rows = Math.round(Axx.clamp(rows, 8, 128));
+            if (this.isHidden) { const r = this.canvas.getBoundingClientRect(); return { width: r.width, height: r.height, cols, rows, bits: Array(cols * rows).fill(0) }; }
             if (!this.maskTarget || this.maskSize !== cols * 1000 + rows) {
                 if (this.maskTarget)
                     gl.deleteFramebuffer(this.maskTarget);
@@ -5093,7 +5101,7 @@ var Axx;
         setDrag(dx, dy) { this.stretch = [Axx.clamp(dx, -1, 1), Axx.clamp(dy, -1, 1)]; }
         releaseDrag() { this.stretch = [0, 0]; this.motion.throwRotation(this.lastRotation[0], this.lastRotation[1]); this.lastRotation = [0, 0]; }
         resetCamera() { this.angle = [-.18, .08]; this.studio.autoRotate = false; this.pressure.reset(); this.px.reset(); this.py.reset(); this.motion.stopRotation(); }
-        setHidden(hidden) { this.hidden = hidden; }
+        setHidden(hidden) { this.hidden = hidden; if (!hidden) this.resize(); this.draw(this.lastTime || 0); }
         advanceMotion(dt) {
             dt = Axx.clamp(dt, 0, .08);
             this.gestureElapsed20 += dt;
@@ -5440,6 +5448,11 @@ var Axx;
         }
         draw(timeSeconds) {
             this.lastTime = timeSeconds;
+            if (this.hidden) {
+                this.raster?.clear(); this.image?.data.fill(0);
+                this.ctx?.clearRect(0, 0, this.canvas.width, this.canvas.height);
+                return;
+            }
             if (!this.ctx || !this.image)
                 return;
             const started = performance.now();
@@ -5458,7 +5471,7 @@ var Axx;
         }
         capturePNG() { this.draw(this.lastTime); return this.canvas.toDataURL('image/png'); }
         hitTest(x, y) {
-            if (!this.ctx)
+            if (this.hidden || !this.ctx)
                 return false;
             const r = this.canvas.getBoundingClientRect(), px = Math.floor((x - r.left) / r.width * this.raster.width), py = Math.floor((y - r.top) / r.height * this.raster.height);
             return px >= 0 && py >= 0 && px < this.raster.width && py < this.raster.height && this.raster.pixels[(py * this.raster.width + px) * 4 + 3] > 16;
@@ -5466,6 +5479,7 @@ var Axx;
         hitMask(cols = 64, rows = 64) {
             cols = Math.round(Axx.clamp(cols, 8, 128));
             rows = Math.round(Axx.clamp(rows, 8, 128));
+            if (this.hidden) { const r = this.canvas.getBoundingClientRect(); return { width: r.width, height: r.height, cols, rows, bits: Array(cols * rows).fill(0) }; }
             const bits = [];
             for (let y = 0; y < rows; y++)
                 for (let x = 0; x < cols; x++) {
@@ -7245,14 +7259,14 @@ var Axx;
         closePanel() { if (!this.panelName)
             return; clearTimeout(this.panelFocusTimer); this.panelFocusTimer = null; this.panelFocusAbort?.abort(); this.panelFocusAbort = null; this.panelName = null; el('panel').hidden = true; this.restoreFocus?.focus?.(); if (this.bridge.available && !Axx.quickReply?.active)
             this.bridge.action('close_panel').catch(e => this.toast(this.errorText(e))); this.updateHitMap(); }
-        setVisible(visible) { this.machine.visible = visible; this.renderer.setHidden(!visible); document.body.classList.toggle('avatar-hidden', !visible); el('restore').hidden = visible; if (visible) {
+        setVisible(visible) { this.machine.visible = visible; el('stage').hidden = !visible; this.renderer.setHidden(!visible); document.body.classList.toggle('avatar-hidden', !visible); el('restore').hidden = visible; if (visible) {
             document.body.classList.remove('presentation');
             this.renderer.interact();
         }
         else {
             this.closePanel();
             this.stopAudio();
-        } if (this.bridge.available && visible)
+        } Axx.quickReply?.refresh(); Axx.anticipation?.render(); Axx.resident?.schedule(); void this.updateHitMap(); if (this.bridge.available && visible)
             this.bridge.action('show').catch(e => this.toast(this.errorText(e))); }
         hide() { el('context-menu').hidden = true; this.setVisible(false); if (this.bridge.available)
             this.bridge.action('hide').catch(e => this.toast(this.errorText(e))); }

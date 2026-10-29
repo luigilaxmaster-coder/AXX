@@ -74,6 +74,7 @@
  }
  function scheduleRefresh(){if(poll===null&&active())poll=setTimeout(()=>{poll=null;refresh();scheduleRefresh();},120);}
  function changed(){r.schedule();void Axx.app.updateHitMap();}
+ function syncVisibility(){const hidden=Axx.app.machine?.visible===false;if(root.hidden!==hidden)root.hidden=hidden;return !hidden;}
  function aboveAvatar(g,size){return g?g.spaceBelow<size*.34+144&&g.spaceAbove>g.spaceBelow:root.dataset.above==='true';}
  function reveal(id,on){
   const node=$(id);if(node.dataset.quickVisible===String(on))return;
@@ -90,6 +91,7 @@
  }
  function show(){if(!active())return;reveal('quick-compose',true);refresh();}
  function hover(value){
+  if(!syncVisibility())return;
   clearTimeout(hideTimer);
   if(value){if(!hovered){hovered=true;if(!Axx.flow.nav.step&&$('panel').hidden&&!Axx.magicPen?.isOpen())reveal('quick-actions',true);changed();}}
   else hideTimer=setTimeout(()=>{hovered=$('avatar').matches(':hover')||[...root.querySelectorAll('#quick-actions,#quick-compose,#quick-reply')].some(n=>!n.hidden&&!n.inert&&(n.matches(':hover')||document.hasFocus()&&n.matches(':focus-within')));changed();},320);
@@ -109,6 +111,7 @@
   if(wasActive&&!keepFocus&&$('panel').hidden)void Axx.app.bridge.action('close_panel').catch(error=>Axx.app.toast(error.message));
  }
  function begin(kind){
+  if(!syncVisibility())return false;
   if(!Axx.chatWorkspace.ready||!Axx.chatWorkspace.active?.id){Axx.app.toast('Axx todavía está cargando el historial. Inténtalo en un momento.');return false;}
   if(c.pending||c.connecting||c.externalBusy||Axx.commandLibrary?.busy||Axx.symbiosis?.liveBusy){Axx.app.toast('Espera a que termine la tarea actual.');return false;}
   if(active()){close(false);c.stopSpeech();}
@@ -147,7 +150,7 @@
   }}
  }
  function refresh(){
-  if(!active())return;
+  if(!syncVisibility()||!active())return;
   if(!sameChat()){close();return;}
   const listening=capture.state==='listening',starting=capture.state==='starting',transcribing=capture.state==='stopping';
   const reader=Axx.symbiosis?.reader,speaking=reader?.state==='speaking',speechActive=['starting','speaking','paused'].includes(reader?.state);
@@ -175,6 +178,7 @@
   if(key!==layoutKey){layoutKey=key;changed();}
  }
  function layout(g,size,add){
+  if(!syncVisibility())return;
   const free=!Axx.flow.nav.step&&$('panel').hidden&&!Axx.magicPen?.isOpen();
   reveal('quick-actions',free&&(hovered||active())&&!r.drag);
   const bounded=(id,width,height,x,y)=>{

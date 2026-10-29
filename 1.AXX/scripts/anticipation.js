@@ -174,7 +174,7 @@
   $('anticipation-metrics').textContent=JSON.stringify(snapshot.metrics||{},null,2);
  }
  function renderCard(){
-  if(!snapshot||origin!==task()||snapshot.paused||stopped||document.hidden||busy()){hide();return;}
+  if(!snapshot||origin!==task()||snapshot.paused||stopped||Axx.app.machine?.visible===false||document.hidden||busy()){hide();return;}
   const rows=(snapshot.suggestions||[]).filter(r=>r.task_id===task()&&r.visible===true&&!['DISMISSED','SUPPRESSED','CANCELLED','EXPIRED'].includes(r.state));
   const row=rows.find(r=>['AWAITING_APPROVAL','PREPARED','DETECTED','EXECUTING'].includes(r.state))||rows[0];
   if(!row){hide();return;}
@@ -264,6 +264,6 @@
  const timer=setInterval(()=>void refresh(),3000);
  document.addEventListener('visibilitychange',()=>{if(document.hidden)hide();else void refresh();});
  window.addEventListener('pagehide',()=>{clearInterval(timer);++revision;hide();});
- Axx.anticipation={refresh,layout,cancel:stop,allowSurprises,get state(){return snapshot;},get current(){return current;}};
+ Axx.anticipation={refresh,render:renderCard,layout,cancel:stop,allowSurprises,get state(){return snapshot;},get current(){return current;}};
  void refresh(true);
 })(window.Axx);

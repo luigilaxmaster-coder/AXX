@@ -43,8 +43,12 @@ const {chromium}=require(process.env.USERPROFILE+'/.cache/codex-runtimes/codex-p
   assert.equal(await p.evaluate(()=>document.activeElement.id),'quick-input','Sending must keep the input focused while the response is pending');
   assert.equal(await p.locator('#quick-input').evaluate(el=>el.readOnly),true);
   assert.equal(await p.evaluate(()=>fullChat),0);assert.equal(await p.locator('#quick-reply').isVisible(),true);
-  await p.evaluate(()=>releaseResponse());await p.waitForFunction(()=>document.getElementById('quick-reply-text').textContent==='Respuesta comprobada');
-  assert.equal(await p.evaluate(()=>document.activeElement.id),'quick-input');assert.equal(await p.locator('#quick-input').evaluate(el=>el.readOnly),false);
+  const hiddenTask=await p.evaluate(()=>{const before=stopped;Axx.app.machine={visible:false,setConversation(){}};Axx.quickReply.refresh();layout();return {hidden:document.getElementById('quick-root').hidden,active:Axx.quickReply.active,pending:!!Axx.companion.pending,cancelled:stopped-before};});
+  assert.deepEqual(hiddenTask,{hidden:true,active:true,pending:true,cancelled:0},'Hiding the avatar removes quick surfaces without cancelling their work');
+  await p.evaluate(()=>releaseResponse());await p.waitForFunction(()=>!Axx.companion.pending);
+  assert.equal(await p.locator('#quick-root').isVisible(),false,'A completed background reply must not reopen a hidden surface');
+  await p.evaluate(()=>{Axx.app.machine.visible=true;Axx.quickReply.refresh();layout();});await p.waitForFunction(()=>document.getElementById('quick-reply-text').textContent==='Respuesta comprobada');
+  assert.equal(await p.evaluate(()=>document.activeElement.id),'','Restoring a hidden reply must not steal focus');assert.equal(await p.locator('#quick-input').evaluate(el=>el.readOnly),false);
   await p.waitForFunction(()=>!document.getElementById('quick-reply').getAnimations().length);const replySize=await p.locator('#quick-reply').boundingBox();assert.equal(replySize.width,260);assert.ok(replySize.height<=160);
   await p.evaluate(()=>{const change=(id,value,event='input')=>{const input=document.getElementById(id);input.value=value;input.dispatchEvent(new Event(event));};change('axx-widget-opacity','55');change('axx-widget-size','125');change('axx-widget-motion','700');change('axx-interface-font','serif','change');change('axx-color-background','#272035');});
   await p.waitForFunction(()=>document.getElementById('quick-reply').offsetWidth===325);assert.equal(await p.locator('#quick-root').evaluate(el=>getComputedStyle(el).fontFamily),'Georgia, serif');assert.equal(await p.evaluate(()=>Axx.interfaceTheme.motionDuration),700);assert.equal(await p.evaluate(()=>JSON.parse(localStorage.getItem('axx.interface.customization')).opacity),55);assert.match(await p.locator('#quick-compose').evaluate(el=>getComputedStyle(el).backgroundColor),/0.55/);
