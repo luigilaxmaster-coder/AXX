@@ -160,7 +160,7 @@ ADAPTERS = {
     'axx.system.telemetry': {
         'title': 'Información del sistema', 'tool': 'system_telemetry', 'risk': 'read',
         'description': 'Consulta el sistema y el espacio disponible; verifica la respuesta local.',
-        'aliases': ['estado del sistema', 'información del sistema', 'informacion del sistema'], 'parameters': {}},
+        'aliases': ['estado del sistema', 'información del sistema', 'informacion del sistema', 'consulta el estado del sistema'], 'parameters': {}},
     'axx.process.inspect': {
         'title': 'Estado de un proceso', 'tool': 'process_state_inspector', 'risk': 'read',
         'description': 'Comprueba un PID local. Sin parámetros consulta el proceso de Axx.',

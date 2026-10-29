@@ -43,7 +43,6 @@ class CommandSequenceTests(unittest.TestCase):
             ('primero abre YouTube, busca Faint y abre calculadora', ['abre YouTube','busca Faint','abre calculadora']),
             ('abre YouTube\nbusca Faint', ['abre YouTube','busca Faint']),
             ('abre YouTube y después, busca Faint', ['abre YouTube','busca Faint']),
-            ('lista mis ventanas y consulta el estado del sistema', ['lista mis ventanas','consulta el estado del sistema']),
             ('abre Bloc de notas y escribe: rock y abre Chrome', ['abre Bloc de notas','escribe: rock y abre Chrome']),
             ('busca "rock y abre Chrome" en YouTube y abre calculadora', ['busca "rock y abre Chrome" en YouTube','abre calculadora']),
             ('busca «rock; abre Chrome» en YouTube; abre calculadora', ['busca «rock; abre Chrome» en YouTube','abre calculadora']),
@@ -56,6 +55,22 @@ class CommandSequenceTests(unittest.TestCase):
         for text in ['busca "rock y abre Chrome"','busca «rock; abre Chrome»','no abras Chrome y abre YouTube','escribe: hola y abre Chrome']:
             with self.subTest(protected=text): self.assertIsNone(command_sequence(text,'text'))
         self.assertEqual(self.executor.list_operations(),[])
+
+    def test_read_sequence_resolves_both_steps_without_a_model(self):
+        text = 'lista mis ventanas y consulta el estado del sistema'
+        expected = [
+            {'command_id': 'axx.desktop.list_windows', 'inputs': {}},
+            {'command_id': 'axx.system.telemetry', 'inputs': {}},
+        ]
+        for source in ('text', 'voice'):
+            with self.subTest(source=source):
+                self.assertEqual(command_sequence(text, source),
+                                 ['lista mis ventanas', 'consulta el estado del sistema'])
+                resolved = self.commands.resolve(text, source)
+                self.assertEqual(resolved['match'], 'sequence')
+                self.assertEqual(resolved['steps'], expected)
+                self.assertTrue(resolved['requires_approval'])
+        self.assertEqual(self.executor.list_operations(), [])
 
     def test_search_destination_cannot_absorb_later_browser_clause(self):
         result=self.commands.resolve('busca gatos en YouTube y abre Chrome')
