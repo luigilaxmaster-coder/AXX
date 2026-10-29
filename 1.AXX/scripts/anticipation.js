@@ -3,6 +3,7 @@
  'use strict';
  if (!Axx?.isNative() || !Axx.chatWorkspace || !document.getElementById('view-settings')) return;
  const $ = id => document.getElementById(id), names = {discreto:'Discreto',copiloto:'Copiloto',full:'Full'};
+ const presetModes={discreto:'OFF',copiloto:'SUGGEST',full:'EXECUTE'},modeNames={OFF:'Solo responder',SHADOW:'Evaluar en silencio',SUGGEST:'Sugerir',PREPARE:'Preparar',EXECUTE:'Ejecutar con permiso'};
  const resourceFields=[['max_events_tick','Eventos por ciclo',1,100],['max_entries_scan','Entradas por exploración',1,2000],['max_file_bytes','Tamaño máximo por archivo, bytes',1024,536870912],['max_tick_ms','Tiempo por ciclo, ms',50,5000],['max_cpu_ms_tick','CPU por ciclo, ms',10,1000]];
  const weekdays=['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'];
  const verificationLabels={integrity_only:'Integridad verificada',pdf_structure_and_text_readability:'Inspección PDF completada',media_metadata:'Metadatos comprobados',image_ocr:'Lectura OCR completada'};
@@ -246,9 +247,11 @@
   const key=JSON.stringify([task(),snapshot.profile,snapshot.paused,snapshot.observation_paused,snapshot.profiles,snapshot.sources,snapshot.scopes,snapshot.grants,snapshot.suggestions,snapshot.metrics,snapshot.observation_targets,snapshot.source_runtime,snapshot.source_observations,snapshot.capabilities,mutation]);
   if(!fill&&settingsKey===key)return;settingsKey=key;
   $('anticipation-profile').value=snapshot.profile;
+  for(const option of $('anticipation-profile').options){const mode=snapshot.profiles?.[option.value]?.mode;option.textContent=names[option.value]+(mode&&mode!==presetModes[option.value]?' · Personalizado: '+(modeNames[mode]||mode):'');}
   $('anticipation-pause').textContent=snapshot.paused?'Reanudar iniciativas':'Pausar iniciativas';
   $('anticipation-observation').textContent=snapshot.observation_paused?'Reanudar observación':'Pausar observación';
-  $('anticipation-status').textContent=names[snapshot.profile]+(snapshot.paused?' · Iniciativas pausadas':'')+(snapshot.observation_paused?' · Observación pausada':'')+' · '+(task()?'Chat: '+(Axx.chatWorkspace.active?.title||task()):'Selecciona un chat');
+  const activeMode=snapshot.profiles?.[snapshot.profile]?.mode;
+  $('anticipation-status').textContent=names[snapshot.profile]+(activeMode&&activeMode!==presetModes[snapshot.profile]?' · Personalizado: '+(modeNames[activeMode]||activeMode):'')+(snapshot.paused?' · Iniciativas pausadas':'')+(snapshot.observation_paused?' · Observación pausada':'')+' · '+(task()?'Chat: '+(Axx.chatWorkspace.active?.title||task()):'Selecciona un chat');
   for(const form of $('anticipation-profiles').querySelectorAll('form')){
    if(!fill&&(form.dataset.dirty==='true'||form.contains(document.activeElement)))continue;
    const options=snapshot.profiles?.[form.dataset.profile]||{};
