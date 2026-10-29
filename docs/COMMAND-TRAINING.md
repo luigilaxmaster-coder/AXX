@@ -43,7 +43,11 @@ separadas; una ejecución de CI no acredita el control del escritorio instalado.
 4. Revisar sus dos parámetros, aprobar el plan concreto y comprobar sus recibos
    ordenados. Apertura de enlace, contenido visible y reproducción son resultados
    diferentes.
-5. Mantener la publicación en borrador si falla la instalación o esta aceptación.
+5. Con una conexión ya guardada, pedir crear un archivo nuevo en artifacts con
+   texto exacto y después su SHA256. Revisar los parámetros, ejecutar el plan y
+   comprobar archivo, hash y evaluación final. Usar un nombre nuevo en cada
+   ensayo; no sobrescribir archivos para repetirlo.
+6. Mantener la publicación en borrador si falla la instalación o esta aceptación.
 
 La comprobación del número de pasos detecta omisiones simples; no demuestra por
 sí sola que el modelo entendió todo el objetivo. Se conservan los esquemas,
