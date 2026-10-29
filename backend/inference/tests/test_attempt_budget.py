@@ -132,15 +132,18 @@ class AttemptBudgetTests(unittest.TestCase):
         self.assertEqual(result['upstream_attempts'], 2)
         self.assertEqual(result['attempt_budget_used'], 2)
 
-    def test_unknown_proxy_fanout_cannot_borrow_a_direct_route_attempt_bound(self):
+    def test_generic_proxy_counts_one_observable_dispatch_without_inventing_responder(self):
         self.config['providers'] = [dict(self.provider('proxy'), route_kind='proxy')]
         limited = self.adapter().route(self.request(upstream_attempt_budget=1))
-        self.assertFalse(limited['ok'])
-        self.assertEqual(limited['error']['attempt_budget_used'], 0)
-        self.assertEqual(self.calls, [])
+        self.assertTrue(limited['ok'], limited)
+        self.assertEqual(limited['upstream_attempts'], 1)
+        self.assertEqual(limited['attempt_budget_used'], 1)
+        self.assertEqual(limited['route']['identity'], 'unverified_profile')
+        self.assertIsNone(limited['route']['responder_model'])
+        self.assertEqual([name for name, _ in self.calls], ['proxy'])
         legacy = self.adapter().route(self.request())
         self.assertTrue(legacy['ok'], legacy)
-        self.assertEqual([name for name, _ in self.calls], ['proxy'])
+        self.assertEqual([name for name, _ in self.calls], ['proxy', 'proxy'])
 
     def test_candidate_route_honors_budget_instead_of_using_a_sibling_failover(self):
         self.config['providers'][0] = self.gateway()

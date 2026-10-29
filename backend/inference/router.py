@@ -750,9 +750,6 @@ class Router:
 
             if not p.get('enabled', False) or p.get('candidate_only') is True:
                 continue
-            if ('axx_attempt_budget' in request and p.get('route_kind') == 'proxy'
-                    and p.get('kind') != 'freellmapi'):
-                continue  # An opaque proxy has no verified downstream attempt bound.
             # A new bounded manual request must also constrain proxy fanout.
             # Historical manual requests without this envelope retain their policy.
             bounded_manual_gateway = not automatic and 'axx_attempt_budget' in request and p.get('kind') == 'freellmapi'
