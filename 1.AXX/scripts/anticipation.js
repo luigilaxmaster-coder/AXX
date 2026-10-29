@@ -3,6 +3,9 @@
  'use strict';
  if (!Axx?.isNative() || !Axx.chatWorkspace || !document.getElementById('view-settings')) return;
  const $ = id => document.getElementById(id), names = {discreto:'Discreto',copiloto:'Copiloto',full:'Full'};
+ const resourceFields=[['max_events_tick','Eventos por ciclo',1,100],['max_entries_scan','Entradas por exploración',1,2000],['max_file_bytes','Tamaño máximo por archivo, bytes',1024,536870912],['max_tick_ms','Tiempo por ciclo, ms',50,5000],['max_cpu_ms_tick','CPU por ciclo, ms',10,1000]];
+ const weekdays=['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'];
+ const verificationLabels={integrity_only:'Integridad verificada',pdf_structure_and_text_readability:'Inspección PDF completada',media_metadata:'Metadatos comprobados',image_ocr:'Lectura OCR completada'};
  const states = {DETECTED:'Detectado',PREPARED:'Preparado',AWAITING_APPROVAL:'Requiere aceptación',EXECUTING:'En ejecución',VERIFIED:'Verificado',FAILED:'No verificado',CANCELLED:'Cancelado',EXPIRED:'Caducado',DISMISSED:'Descartado',SUPPRESSED:'No volver a sugerir'};
  const section = document.createElement('section');section.id='anticipation-settings';section.className='setup-card';
  section.innerHTML=`<strong>Presencia y autonomía</strong>
@@ -16,14 +19,24 @@
  <label class="setting">Perfil para este ámbito<select id="anticipation-scope-profile"><option value="discreto">Discreto</option><option value="copiloto">Copiloto</option><option value="full">Full</option></select></label>
  <label><input id="anticipation-scope-task" type="checkbox" checked> Limitar al chat actual</label>
  <label class="setting">Carpeta absoluta, opcional<input id="anticipation-scope-root" maxlength="4096" placeholder="C:\\Proyecto"></label>
+ <label class="setting">Proyecto, opcional<input id="anticipation-scope-project" maxlength="128"></label><label class="setting">ID de aplicación, opcional<input id="anticipation-scope-application" maxlength="128"></label><label class="setting">Dispositivo, opcional<input id="anticipation-scope-device" maxlength="128" placeholder="host"></label>
  <label><input id="anticipation-scope-exclude" type="checkbox"> Excluir este ámbito de las iniciativas</label><button type="submit">Guardar ámbito</button></form><div id="anticipation-scopes"></div></details>
  <details><summary>Permisos de verificación</summary><p>Permite únicamente inspeccionar archivos de ensayo de esta carpeta en el chat actual. No autoriza cambios, envíos ni control del escritorio.</p>
  <form id="anticipation-grant-form"><label class="setting">Carpeta autorizada<input id="anticipation-grant-root" maxlength="4096" required placeholder="C:\\Proyecto\\ensayo"></label>
  <label class="setting">Vigencia<select id="anticipation-grant-expiry"><option value="3600">Una hora</option><option value="86400">Un día</option><option value="persistent">Hasta revocación</option></select></label>
  <label><input id="anticipation-grant-events" type="checkbox"> Observar eventos de archivos generados en este ámbito</label><button type="submit">Autorizar verificación en este chat</button></form><div id="anticipation-grants"></div></details>
  <details><summary>Observación y memoria</summary><p id="anticipation-sources"></p><label><input id="anticipation-events" type="checkbox"> Procesar eventos autorizados de Axx</label>
+ <label><input id="anticipation-folders" type="checkbox"> Habilitar observación de carpetas seleccionadas</label><label><input id="anticipation-applications" type="checkbox"> Habilitar observación de aplicaciones seleccionadas</label>
+ <details><summary>Fuentes locales de este chat</summary><p>La fuente debe estar habilitada y tener un ámbito autorizado. Observar, conservar metadatos y enviar contenido son decisiones separadas.</p>
+ <form id="anticipation-target-form"><label class="setting">Fuente<select id="anticipation-target-source"><option value="folder">Carpeta</option><option value="application">Aplicación</option></select></label>
+ <label class="setting" id="anticipation-target-folder">Carpeta absoluta<input id="anticipation-target-root" maxlength="4096" required></label><label class="setting" id="anticipation-target-app" hidden>Proceso exacto<input id="anticipation-target-process" maxlength="80" placeholder="programa.exe" disabled></label>
+ <label class="setting">Proyecto, opcional<input id="anticipation-target-project" maxlength="128"></label><label class="setting">ID de aplicación, opcional<input id="anticipation-target-application" maxlength="128"></label><label class="setting">Dispositivo<input id="anticipation-target-device" maxlength="128" value="host" required></label>
+ <label class="setting">Vigencia<select id="anticipation-target-expiry"><option value="3600">Una hora</option><option value="86400">Un día</option><option value="persistent">Hasta revocación</option></select></label>
+ <label><input id="anticipation-target-observe" type="checkbox" checked> Observar dentro de este ámbito</label><label><input id="anticipation-target-retain" type="checkbox"> Conservar metadatos de los cambios</label><label><input type="checkbox" disabled> Enviar a proveedores (no disponible)</label><button type="submit">Guardar fuente en este chat</button></form>
+ <div id="anticipation-targets"></div><p id="anticipation-source-runtime" role="status"></p><div id="anticipation-source-observations"></div></details>
  <p>Pantalla, micrófono y portapapeles no están disponibles como fuentes de anticipación en esta entrega. Las autorizaciones de voz y Computer Use se administran por separado.</p>
  <p>Los eventos se procesan localmente. Activar Full no autoriza capturas ni el envío de contenido a proveedores.</p>
+ <details><summary>Alcance de los verificadores</summary><div id="anticipation-verifiers"></div><p>Un hash comprueba integridad. No acredita contenido, apariencia ni cumplimiento del objetivo.</p></details>
  <button id="anticipation-forget" type="button">Borrar memoria de anticipación de este chat</button><div id="anticipation-history"></div><pre id="anticipation-metrics" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre></details>`;
  $('view-settings').prepend(section);
  for (const [id,name] of Object.entries(names)) {
@@ -32,7 +45,12 @@
    <label class="setting">Interrupciones<select name="interruptions"><option value="silent">Silencioso</option><option value="cards">Tarjetas</option><option value="voice">Voz</option><option value="cards_voice">Tarjetas y voz</option></select></label>
    <label class="setting">Pausa entre propuestas, segundos<input name="cooldown_seconds" type="number" min="0" max="86400" required></label>
    <label class="setting">Máximo de interrupciones por hora<input name="max_interruptions_hour" type="number" min="0" max="60" required></label>
-   <label class="setting">Retención, días<input name="retention_days" type="number" min="1" max="365" required></label><button type="submit">Guardar ${name}</button></form>`;
+   <label class="setting">Retención, días<input name="retention_days" type="number" min="1" max="365" required></label>
+   <details><summary>Frecuencia, horario y recursos</summary><label class="setting">Intervalo de observación, segundos<input name="cadence_seconds" type="number" min="5" max="3600" required></label>
+   <label><input name="schedule_enabled" type="checkbox"> Usar un horario</label><div data-schedule><label class="setting">Zona horaria IANA<input name="schedule_timezone" maxlength="80" required></label><label class="setting">Desde<input name="schedule_start" type="time" required></label><label class="setting">Hasta<input name="schedule_end" type="time" required></label>
+   <fieldset><legend>Días</legend>${weekdays.map((day,i)=>`<label><input type="checkbox" name="schedule_days" value="${i}">${day}</label>`).join('')}</fieldset></div>
+   ${resourceFields.map(([key,label,min,max])=>`<label class="setting">${label}<input name="resource_${key}" type="number" min="${min}" max="${max}" required></label>`).join('')}</details>
+   <button type="submit">Guardar ${name}</button></form>`;
   $('anticipation-profiles').append(details);
  }
  const card=document.createElement('section');card.id='anticipation-card';card.hidden=true;card.setAttribute('aria-label','Propuesta de Axx');
@@ -46,6 +64,8 @@
  let snapshot=null,origin=null,revision=0,loading=false,mutation=false,current=null,stopped=false,settingsKey='',missionRevision=0,missionsLoading=false,missionKey='';
  const spoken=new Set(),acknowledged=new Set();
  const task=()=>Axx.chatWorkspace.active?.id||null;
+ const project=()=>Axx.skillLibrary?.project()||Axx.companion.data?.prefs?.skillProject||'';
+ function syncSchedule(form){for(const input of form.querySelectorAll('[data-schedule] input'))input.disabled=!form.elements.schedule_enabled.checked;}
  const api=async(action,body,method='POST')=>{
   const value=await Axx.backendRequest(method,'/axx-api/anticipation/'+action,body);
   if(!value||typeof value!=='object'||value.error)throw Error(value?.error?.message||'No se pudo consultar la anticipación.');
@@ -83,6 +103,10 @@
    for(const file of row.result.output?.files||[])if(file.sha256)refs.push('SHA-256 observado: '+file.sha256+(file.path?' · '+file.path:''));
    if(row.result.output?.sha256)refs.push('SHA-256 observado: '+row.result.output.sha256);
   }
+  const scope=row.verification_scope||row.result?.verification_scope||row.plan?.verification_scope;
+  if(scope)add('Alcance',verificationLabels[scope]||scope);
+  if(row.semantic_verified===false||row.result?.semantic_verified===false)add('Límite','El significado del contenido y la apariencia no constan verificados.');
+  if(row.verifier_reason)add('Verificador',row.verifier_reason);
   add('Observado',refs.length?refs.join('\n'):'Esta propuesta no adjunta referencias de observación.');
   const methods={registered_generated_artifact_rule:'Se propone comprobar el archivo mediante la regla registrada de archivo generado.',verified_checkpoint:'Se propone preparar la continuación desde un punto de recuperación verificado.',repeated_verified_skill:'Se propone preparar una habilidad a partir de ejecuciones verificadas anteriores.'};
   add('Inferido',methods[assessment.likelihood?.method]||(assessment.likelihood?.method?'Método registrado: '+assessment.likelihood.method:'No se adjuntó el motivo de esta propuesta.'));
@@ -107,40 +131,76 @@
  }
  async function loadMissions(){
   if(!$('anticipation-mission').open||missionsLoading)return;
-  const selected=task(),project=Axx.skillLibrary?.project()||Axx.companion.data?.prefs?.skillProject||'',token=++missionRevision;
+  const selected=task(),currentProject=project(),token=++missionRevision;
   if(!selected){$('anticipation-missions').replaceChildren();$('anticipation-mission-status').textContent='Selecciona un chat.';return;}
   missionsLoading=true;
   try{
-   const result=await Axx.backendRequest('GET','/axx-api/learning/plans?project_id='+encodeURIComponent(project));
-   if(token!==missionRevision||selected!==task()||project!==(Axx.skillLibrary?.project()||Axx.companion.data?.prefs?.skillProject||''))return;
+   const result=await Axx.backendRequest('GET','/axx-api/learning/plans?project_id='+encodeURIComponent(currentProject));
+   if(token!==missionRevision||selected!==task()||currentProject!==project())return;
    if(result?.error||!Array.isArray(result?.plans))throw Error(result?.error?.message||'No se pudo consultar la misión.');
-   const plans=result.plans.filter(p=>p.conversation_id===selected&&p.mission?.scope?.task_id===selected),host=$('anticipation-missions'),key=JSON.stringify([selected,project,plans]);
+   const plans=result.plans.filter(p=>p.conversation_id===selected&&p.mission?.scope?.task_id===selected),host=$('anticipation-missions'),key=JSON.stringify([selected,currentProject,result.plans]);
    if(missionKey===key)return;missionKey=key;
-   const expanded=new Set([...host.querySelectorAll('details[open]')].map(n=>n.dataset.missionId));host.replaceChildren();
-   $('anticipation-mission-status').textContent=plans.length?plans.length+' planes de este chat · Proyecto: '+(project||'Personal'):'Este chat todavía no tiene un plan de misión persistente.';
+   const expanded=new Set([...host.querySelectorAll('details[open]')].map(n=>n.dataset.missionId));
+   const drafts=new Map([...host.querySelectorAll('[data-dependency-id]')].map(form=>[form.dataset.dependencyId,{open:form.parentElement.open,dirty:form.dataset.dirty==='true',selected:[...form.querySelector('select').selectedOptions].map(o=>o.value)}]));host.replaceChildren();
+   $('anticipation-mission-status').textContent=plans.length?plans.length+' planes de este chat · Proyecto: '+(currentProject||'Personal'):'Este chat todavía no tiene un plan de misión persistente.';
    for(const plan of plans){
     const mission=plan.mission,article=document.createElement('article'),title=document.createElement('strong'),progress=document.createElement('p');
-    const labels={awaiting_approval:'Pendiente de aprobación',running:'En curso',paused:'En pausa',pausing:'Pausa solicitada',cancelled:'Cancelada',unknown:'Pendiente de reconciliación',expired:'Requiere revisión',blocked:'Bloqueada',needs_input:'Necesita datos',interrupted:'Interrumpida',waiting_capacity:'Espera un modelo apto',waiting_capability:'Espera una capacidad'};
+    const labels={awaiting_approval:'Pendiente de aprobación',running:'En curso',paused:'En pausa',pausing:'Pausa solicitada',cancelled:'Cancelada',unknown:'Pendiente de reconciliación',expired:'Requiere revisión',blocked:'Bloqueada',needs_input:'Necesita datos',interrupted:'Interrumpida',waiting_capacity:'Espera un modelo apto',waiting_capability:'Espera una capacidad',waiting_dependency:'Espera otra misión verificada'};
     title.textContent=mission.objective||plan.request||'Misión';
     progress.textContent=(mission.completed===true?'Completada y verificada':mission.state==='succeeded'?'Resultado recibido; objetivo pendiente':labels[mission.state]||mission.state)+' · '+(mission.verified_steps||[]).length+'/'+(plan.steps||[]).length+' pasos verificados';
     const details=document.createElement('details'),summary=document.createElement('summary'),list=document.createElement('dl');summary.textContent='Objetivo, límites y evidencia';
     const add=(label,value)=>{if(value===undefined||value===null)return;const name=document.createElement('dt'),text=document.createElement('dd');name.textContent=label;text.textContent=typeof value==='string'?value:JSON.stringify(value,null,2);list.append(name,text);};
-    add('Entregables',mission.deliverables);add('Destino',mission.destination);add('Condiciones de éxito',mission.success_conditions);add('Recursos',mission.scope.resources);add('Dependencias',mission.dependencies);add('Pasos pendientes',(mission.pending_steps||[]).map(index=>index+1));add('Bloqueos',mission.blockers);
+    add('Entregables',mission.deliverables);add('Destino',mission.destination);add('Condiciones de éxito',mission.success_conditions);add('Recursos',mission.scope.resources);add('Misiones requeridas',mission.mission_dependencies);add('Pasos pendientes',(mission.pending_steps||[]).map(index=>index+1));add('Bloqueos',mission.blockers);
     add('Permiso',mission.permission?.exact_plan_approved?'Versión exacta del plan aprobada.':'Esta versión del plan no consta aprobada.');
     if(mission.permission?.automatic_future_plans_authorized===false)add('Iniciativas futuras','Este plan no concede permiso para futuros planes autónomos.');
     const budget=mission.budget;
     if(budget)add('Presupuesto','Límite de pasos: '+budget.step_limit+'\nConsultas al modelo: '+budget.model_calls_used+'/'+budget.model_call_limit+'\nConsultas restantes: '+budget.model_calls_remaining);
     add('Condición de parada',mission.stop_condition==='verified_goal_or_cancellation'?'Resultado verificado o cancelación.':mission.stop_condition);add('Revisión',mission.revision);
     add('Utilidad',mission.user_confirmed_usefulness===true?'Confirmada por ti; no sustituye las verificaciones de ejecución.':'Sin confirmación de utilidad.');
-    details.className='anticipation-evidence';details.dataset.missionId=mission.mission_id;details.open=expanded.has(mission.mission_id);details.append(summary,list);
+    const dependencies=document.createElement('details'),dependencySummary=document.createElement('summary'),form=document.createElement('form'),label=document.createElement('label'),select=document.createElement('select');dependencySummary.textContent='Esperar otras misiones de este proyecto';select.multiple=true;select.size=4;select.setAttribute('aria-label','Misiones requeridas');
+    const draft=drafts.get(plan.operation_id),linked=new Set(draft?.dirty?draft.selected:(mission.mission_dependencies||[]).map(d=>d.operation_id));
+    for(const other of result.plans){
+     if(other.operation_id===plan.operation_id||(other.project_id??other.mission?.scope?.project_id??'')!==currentProject)continue;
+     const option=document.createElement('option');option.value=other.operation_id;option.textContent=(other.mission?.objective||other.request||other.operation_id)+' · '+(other.mission?.completed===true?'Verificada':'Pendiente');option.selected=linked.has(other.operation_id);select.append(option);
+    }
+    label.textContent='Selecciona hasta 16 misiones que deben completarse antes. Guardar los enlaces no aprueba su ejecución.';label.className='setting';label.append(select);const save=document.createElement('button');save.type='submit';save.textContent='Guardar dependencias';form.append(label,save);form.dataset.dependencyId=plan.operation_id;form.dataset.dirty=String(!!draft?.dirty);dependencies.open=!!draft?.open;select.onchange=()=>{form.dataset.dirty='true';};
+    form.onsubmit=e=>{e.preventDefault();void run(async()=>{const selected=[...select.selectedOptions].map(o=>o.value);if(selected.length>16)throw Error('Selecciona hasta 16 misiones requeridas.');const result=await Axx.backendRequest('POST','/axx-api/learning/dependencies',{operation_id:plan.operation_id,dependencies:selected,plan_hash:plan.plan_hash||mission.plan_hash});if(!result||result.error)throw Error(result?.error?.message||'No se pudieron guardar las dependencias.');form.dataset.dirty='false';missionKey='';});};
+    dependencies.append(dependencySummary,form);details.append(dependencies);
+    details.className='anticipation-evidence';details.dataset.missionId=mission.mission_id;details.open=expanded.has(mission.mission_id);details.prepend(summary,list);
     const review=button('Revisar plan',()=>reviewPlan({learning_plan_id:plan.operation_id,task_id:selected}));review.disabled=false;article.append(title,progress,details,review);host.append(article);
    }
   }catch(e){if(token===missionRevision)$('anticipation-mission-status').textContent=e.message||String(e);}
   finally{if(token===missionRevision)missionsLoading=false;}
  }
+ function renderSources(){
+  for(const source of ['folders','applications'])$('anticipation-'+source).checked=snapshot.sources?.[source]===true;
+  const targets=snapshot.observation_targets||[],host=$('anticipation-targets'),key=JSON.stringify([task(),targets,mutation]);
+  if(host.dataset.renderKey!==key){
+   host.dataset.renderKey=key;host.replaceChildren();
+   for(const target of targets.filter(t=>t.task_id===task())){
+    const article=document.createElement('article'),description=document.createElement('p');description.textContent=(target.source==='folder'?'Carpeta: '+target.root:'Aplicación: '+target.process_name)+' · Proyecto: '+(target.project_id||'Personal')+' · Dispositivo: '+target.device_id;
+    const observe=document.createElement('input'),retain=document.createElement('input'),observeLabel=document.createElement('label'),retainLabel=document.createElement('label');observe.type=retain.type='checkbox';observe.checked=target.observe;retain.checked=target.retain;
+    observeLabel.append(observe,document.createTextNode(' Observar'));retainLabel.append(retain,document.createTextNode(' Conservar metadatos'));
+    const update=()=>void run(()=>configure({observation_targets:targets.map(t=>t.id===target.id?{...t,observe:observe.checked,retain:retain.checked}:t)}));observe.onchange=retain.onchange=update;
+    const expiry=document.createElement('p');expiry.textContent='Vigencia: '+(target.expires_at===null?'Hasta revocación':new Date(target.expires_at*1000).toLocaleString())+' · Envío a proveedores deshabilitado';
+    article.append(description,observeLabel,retainLabel,expiry,button('Quitar fuente',()=>configure({observation_targets:targets.filter(t=>t.id!==target.id)})));host.append(article);
+   }
+  }
+  const runtime=(snapshot.source_runtime||[]).filter(r=>targets.some(t=>t.id===r.id&&t.task_id===task()));
+  $('anticipation-source-runtime').style.whiteSpace='pre-line';$('anticipation-source-runtime').textContent=runtime.length?runtime.map(r=>r.id+' · '+(r.error?'Error: '+r.error:r.active?'Observación activa':'Sin observación activa')+' · Lecturas: '+r.samples+' · Cambios: '+r.events+(r.truncated?' · Exploración parcial':'')).join('\n'):'Sin lecturas de fuentes locales registradas en este chat.';
+  const observations=$('anticipation-source-observations');observations.replaceChildren();
+  for(const item of snapshot.source_observations||[]){
+   if(item.task_id!==task())continue;
+   const p=document.createElement('p');p.textContent=new Date(item.observed_at*1000).toLocaleString()+' · '+item.type+' · '+JSON.stringify(item.resource)+' · '+(item.retained?'Metadatos conservados':'Metadatos transitorios');p.style.overflowWrap='anywhere';observations.append(p);
+  }
+  const verifiers=$('anticipation-verifiers');verifiers.replaceChildren();
+  for(const [format,verifier] of Object.entries(snapshot.capabilities?.verifiers||{})){
+   const p=document.createElement('p');p.textContent=format.toUpperCase()+' · '+(verifier.available?'Disponible':'No disponible')+' · '+(verifier.verification_scope==='integrity_only'?'Solo integridad por hash':verifier.verification_scope)+(verifier.reason?' · '+verifier.reason:'');verifiers.append(p);
+  }
+ }
  function renderSettings(fill=false){
   if(!snapshot)return;
-  const key=JSON.stringify([task(),snapshot.profile,snapshot.paused,snapshot.observation_paused,snapshot.profiles,snapshot.sources,snapshot.scopes,snapshot.grants,snapshot.suggestions,snapshot.metrics,mutation]);
+  const key=JSON.stringify([task(),snapshot.profile,snapshot.paused,snapshot.observation_paused,snapshot.profiles,snapshot.sources,snapshot.scopes,snapshot.grants,snapshot.suggestions,snapshot.metrics,snapshot.observation_targets,snapshot.source_runtime,snapshot.source_observations,snapshot.capabilities,mutation]);
   if(!fill&&settingsKey===key)return;settingsKey=key;
   $('anticipation-profile').value=snapshot.profile;
   $('anticipation-pause').textContent=snapshot.paused?'Reanudar iniciativas':'Pausar iniciativas';
@@ -148,14 +208,21 @@
   $('anticipation-status').textContent=names[snapshot.profile]+(snapshot.paused?' · Iniciativas pausadas':'')+(snapshot.observation_paused?' · Observación pausada':'')+' · '+(task()?'Chat: '+(Axx.chatWorkspace.active?.title||task()):'Selecciona un chat');
   for(const form of $('anticipation-profiles').querySelectorAll('form')){
    if(!fill&&(form.dataset.dirty==='true'||form.contains(document.activeElement)))continue;
-   for(const [key,value] of Object.entries(snapshot.profiles?.[form.dataset.profile]||{}))if(form.elements.namedItem(key))form.elements.namedItem(key).value=value;
+   const options=snapshot.profiles?.[form.dataset.profile]||{};
+   for(const [key,value] of Object.entries(options))if(form.elements.namedItem(key))form.elements.namedItem(key).value=value;
+   for(const [key] of resourceFields)form.elements.namedItem('resource_'+key).value=options.resources?.[key]??'';
+   form.elements.schedule_enabled.checked=!!options.schedule;
+   form.elements.schedule_timezone.value=options.schedule?.timezone||Intl.DateTimeFormat().resolvedOptions().timeZone;
+   form.elements.schedule_start.value=options.schedule?.start||'09:00';form.elements.schedule_end.value=options.schedule?.end||'18:00';
+   for(const day of form.querySelectorAll('[name=schedule_days]'))day.checked=(options.schedule?.days||[0,1,2,3,4,5,6]).includes(Number(day.value));syncSchedule(form);
    form.dataset.dirty='false';
   }
   $('anticipation-events').checked=snapshot.sources?.events===true;
-  $('anticipation-sources').textContent='Fuentes activas: '+(snapshot.observation_paused?'ninguna (pausa global)':snapshot.sources?.events?'eventos autorizados':'ninguna')+'.';
+  $('anticipation-sources').textContent='Fuentes habilitadas: '+(['events','folders','applications'].filter(key=>snapshot.sources?.[key]).map(key=>({events:'eventos autorizados',folders:'carpetas seleccionadas',applications:'aplicaciones seleccionadas'})[key]).join(', ')||'ninguna')+(snapshot.observation_paused?' · Observación pausada.':'.');
+  renderSources();
   const scopes=$('anticipation-scopes');scopes.replaceChildren();
   for(const [i,scope] of (snapshot.scopes||[]).entries()){
-   const p=document.createElement('p');p.textContent=(scope.exclude?'Excluido':names[scope.profile]||scope.profile)+' · '+(scope.task_id||'Todos los chats')+' · '+(scope.root||'Todos los recursos');
+   const p=document.createElement('p');p.textContent=(scope.exclude?'Excluido':names[scope.profile]||scope.profile)+' · '+(scope.task_id||'Todos los chats')+' · '+(scope.root||'Todos los recursos')+(scope.project_id?' · Proyecto: '+scope.project_id:'')+(scope.application_id?' · Aplicación: '+scope.application_id:'')+(scope.device_id?' · Dispositivo: '+scope.device_id:'');
    p.append(button('Quitar ámbito',()=>configure({scopes:snapshot.scopes.filter((_,j)=>i!==j)})));scopes.append(p);
   }
   const grants=$('anticipation-grants');grants.replaceChildren();
@@ -181,10 +248,11 @@
   const prefs=row.policy||preferences();
   if(['OFF','SHADOW'].includes(prefs.mode)||prefs.interruptions==='silent'){hide();return;}
   const verified=row.state==='VERIFIED'&&row.result?.state==='succeeded'&&row.result?.postconditions_passed===true;
-  const phase=stale(row)?'Desactualizado':row.state==='VERIFIED'&&!verified?'Resultado recibido; falta evidencia':states[row.state]||row.state;
+  const scope=row.verification_scope||row.result?.verification_scope||row.plan?.verification_scope;
+  const phase=stale(row)?'Desactualizado':row.state==='VERIFIED'&&!verified?'Resultado recibido; falta evidencia':verified?(verificationLabels[scope]||'Verificado'):states[row.state]||row.state;
   const message=row.state==='VERIFIED'&&!verified?'No se recibió evidencia de verificación.':row.message;
   const text=(row.title||'Verificar archivo')+(message?'\n'+message:'')+(row.plan?.inputs?.path?'\n'+row.plan.inputs.path:'');
-  const key=[row.suggestion_id,row.state,row.plan_hash,row.preparation_complete,text,phase,mutation,JSON.stringify([row.assessment,row.provenance,row.evidence,row.feedback,row.plan,row.accepted_hash,row.grant_id,row.expires_at,row.result?.output])].join('/');current=row;
+  const key=[row.suggestion_id,row.state,row.plan_hash,row.preparation_complete,text,phase,mutation,JSON.stringify([row.assessment,row.provenance,row.evidence,row.feedback,row.plan,row.accepted_hash,row.grant_id,row.expires_at,row.result?.output,row.verification_scope,row.semantic_verified,row.verifier_reason])].join('/');current=row;
   if(card.dataset.renderKey!==key){
    const expanded=card.dataset.suggestionId===row.suggestion_id&&$('anticipation-why')?.open;
    card.dataset.renderKey=key;card.dataset.suggestionId=row.suggestion_id;$('anticipation-phase').textContent=phase;$('anticipation-text').textContent=text;
@@ -214,7 +282,7 @@
   lib.renderOperation(plan);Axx.companion.openChat();
  }
  async function refresh(fill=false){
-  const selected=task();if(selected!==origin){origin=selected;snapshot=null;hide();$('anticipation-grants').replaceChildren();$('anticipation-history').replaceChildren();$('anticipation-missions').replaceChildren();$('anticipation-mission-status').textContent='';++missionRevision;missionsLoading=false;missionKey='';$('anticipation-status').textContent='Cargando el ámbito de este chat…';++revision;loading=false;}
+  const selected=task();if(selected!==origin){origin=selected;snapshot=null;hide();for(const id of ['anticipation-grants','anticipation-history','anticipation-missions','anticipation-targets','anticipation-source-observations'])$(id).replaceChildren();$('anticipation-targets').dataset.renderKey='';$('anticipation-source-runtime').textContent='';$('anticipation-mission-status').textContent='';++missionRevision;missionsLoading=false;missionKey='';$('anticipation-status').textContent='Cargando el ámbito de este chat…';++revision;loading=false;}
   if(loading&&!fill)return;
   const token=++revision;loading=true;
   try{
@@ -239,16 +307,27 @@
  $('anticipation-pause').onclick=()=>void run(()=>configure({paused:!snapshot?.paused}));
  $('anticipation-observation').onclick=()=>void run(()=>configure({observation_paused:!snapshot?.observation_paused}));
  $('anticipation-events').onchange=()=>void run(()=>configure({sources:{events:$('anticipation-events').checked}}));
+ for(const source of ['folders','applications'])$('anticipation-'+source).onchange=()=>void run(()=>configure({sources:{[source]:$('anticipation-'+source).checked}}));
+ $('anticipation-target-source').onchange=()=>{const application=$('anticipation-target-source').value==='application';$('anticipation-target-folder').hidden=application;$('anticipation-target-app').hidden=!application;$('anticipation-target-root').disabled=application;$('anticipation-target-root').required=!application;$('anticipation-target-process').disabled=!application;$('anticipation-target-process').required=application;};
+ $('anticipation-target-form').onsubmit=e=>{e.preventDefault();void run(async()=>{
+  if(!task())throw Error('Selecciona el chat que autoriza esta fuente.');
+  const source=$('anticipation-target-source').value,expiry=$('anticipation-target-expiry').value,targets=snapshot?.observation_targets||[];
+  if(targets.length>=32)throw Error('Se permiten hasta 32 fuentes seleccionadas.');
+  const target={id:Axx.newId(),source,task_id:task(),project_id:$('anticipation-target-project').value.trim(),application_id:$('anticipation-target-application').value.trim(),device_id:$('anticipation-target-device').value.trim(),observe:$('anticipation-target-observe').checked,retain:$('anticipation-target-retain').checked,send_to_provider:false,expires_at:expiry==='persistent'?null:Date.now()/1000+Number(expiry),...(source==='folder'?{root:$('anticipation-target-root').value.trim()}:{process_name:$('anticipation-target-process').value.trim()})};
+  if(source==='application'&&!/^[A-Za-z0-9_. -]{1,76}\.exe$/i.test(target.process_name))throw Error('Indica el nombre exacto de un proceso .exe.');
+  await configure({observation_targets:[...targets,target]});
+ });};
  $('anticipation-mission').addEventListener('toggle',()=>{if($('anticipation-mission').open)void loadMissions();});
  for(const form of $('anticipation-profiles').querySelectorAll('form')){
   form.oninput=()=>{form.dataset.dirty='true';};
-  form.onsubmit=e=>{e.preventDefault();const settings=Object.fromEntries(new FormData(form));for(const key of ['cooldown_seconds','max_interruptions_hour','retention_days'])settings[key]=Number(settings[key]);void run(()=>configure({profiles:{[form.dataset.profile]:settings}}));};
+  form.elements.schedule_enabled.onchange=()=>syncSchedule(form);
+  form.onsubmit=e=>{e.preventDefault();void run(async()=>{const settings={mode:form.elements.mode.value,interruptions:form.elements.interruptions.value,resources:{},schedule:null};for(const key of ['cooldown_seconds','max_interruptions_hour','retention_days','cadence_seconds'])settings[key]=Number(form.elements.namedItem(key).value);for(const [key] of resourceFields)settings.resources[key]=Number(form.elements.namedItem('resource_'+key).value);if(form.elements.schedule_enabled.checked){const days=[...form.querySelectorAll('[name=schedule_days]:checked')].map(day=>Number(day.value));if(!days.length)throw Error('Selecciona al menos un día del horario.');settings.schedule={timezone:form.elements.schedule_timezone.value.trim(),days,start:form.elements.schedule_start.value,end:form.elements.schedule_end.value};}await configure({profiles:{[form.dataset.profile]:settings}});form.dataset.dirty='false';});};
  }
  $('anticipation-scope-form').onsubmit=e=>{e.preventDefault();void run(async()=>{
-  const scoped=$('anticipation-scope-task').checked,root=$('anticipation-scope-root').value.trim();
+  const scoped=$('anticipation-scope-task').checked,root=$('anticipation-scope-root').value.trim(),context={};for(const [key,id] of [['project_id','project'],['application_id','application'],['device_id','device']]){const value=$('anticipation-scope-'+id).value.trim();if(value)context[key]=value;}
   if(scoped&&!task())throw Error('Selecciona un chat para guardar su ámbito.');
-  if(!scoped&&!root)throw Error('Indica una carpeta o limita el ámbito al chat actual.');
-  const scope={...(scoped?{task_id:task()}:{}),...(root?{root}:{}),profile:$('anticipation-scope-profile').value,exclude:$('anticipation-scope-exclude').checked};
+  if(!scoped&&!root&&!Object.keys(context).length)throw Error('Indica una carpeta, proyecto, aplicación o dispositivo, o limita el ámbito al chat actual.');
+  const scope={...(scoped?{task_id:task()}:{}),...(root?{root}:{}),...context,profile:$('anticipation-scope-profile').value,exclude:$('anticipation-scope-exclude').checked};
   await configure({scopes:[...(snapshot?.scopes||[]),scope]});
  });};
  $('anticipation-grant-form').onsubmit=e=>{e.preventDefault();void run(async()=>{

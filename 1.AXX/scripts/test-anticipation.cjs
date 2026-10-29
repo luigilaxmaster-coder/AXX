@@ -8,13 +8,14 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
   const page=await browser.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));
   await page.setContent('<section id="view-settings"></section><main id="panel" hidden></main>');
   await page.evaluate(()=>{
-   const prefs=(mode,interruptions)=>({mode,interruptions,cooldown_seconds:60,max_interruptions_hour:3,retention_days:30});
-   window.calls=[];window.spoken=[];window.events={};window.missionPlans=[];window.missionProject='Proyecto A';window.data={profile:'discreto',paused:false,observation_paused:false,profiles:{discreto:prefs('OFF','silent'),copiloto:prefs('SUGGEST','cards'),full:prefs('EXECUTE','cards')},scopes:[],sources:{events:false,screen:false,microphone:false,clipboard:false},suggestions:[],grants:[],metrics:{proposed:0,shown:0},capabilities:{verify_artifact:true}};
+   const prefs=(mode,interruptions)=>({mode,interruptions,cooldown_seconds:60,max_interruptions_hour:3,retention_days:30,cadence_seconds:30,schedule:null,resources:{max_events_tick:25,max_entries_scan:500,max_file_bytes:41943040,max_tick_ms:1000,max_cpu_ms_tick:250}});
+   window.calls=[];window.spoken=[];window.events={};window.missionPlans=[];window.missionProject='Proyecto A';window.data={profile:'discreto',paused:false,observation_paused:false,profiles:{discreto:prefs('OFF','silent'),copiloto:prefs('SUGGEST','cards'),full:prefs('EXECUTE','cards')},scopes:[],sources:{events:false,folders:false,applications:false,screen:false,microphone:false,clipboard:false},observation_targets:[],source_runtime:[],source_observations:[],suggestions:[],grants:[],metrics:{proposed:0,shown:0},capabilities:{verify_artifact:true,verifiers:{hash:{available:true,verification_scope:'integrity_only',semantic_verified:false},docx:{available:true,verification_scope:'integrity_only',semantic_verified:false,reason:'Sin inspector del formato'},pdf:{available:false,verification_scope:'pdf_structure_and_text_readability',reason:'Dependencia local ausente'}}}};
    let serial=0;
-   window.Axx={isNative:()=>true,chatWorkspace:{active:{id:'task-a',title:'Proyecto A'},busy:false},skillLibrary:{project:()=>window.missionProject},resident:{schedule(){},drag:null},app:{updateHitMap(){},bridge:{listen:async(id,fn)=>{events[id]=fn;}}},companion:{renderChat(){},openChat(){window.openedChat=true;},speakReply:text=>spoken.push(text)},commandLibrary:{busy:false,operation:null,renderOperation(plan){window.reviewedPlan=plan;}},
+   window.Axx={isNative:()=>true,newId:()=> 'fixture-'+(++serial),chatWorkspace:{active:{id:'task-a',title:'Proyecto A'},busy:false},skillLibrary:{project:()=>window.missionProject},resident:{schedule(){},drag:null},app:{updateHitMap(){},bridge:{listen:async(id,fn)=>{events[id]=fn;}}},companion:{renderChat(){},openChat(){window.openedChat=true;},speakReply:text=>spoken.push(text)},commandLibrary:{busy:false,operation:null,renderOperation(plan){window.reviewedPlan=plan;}},
     backendRequest:async(method,route,body)=>{
      calls.push({method,route,body:structuredClone(body)});const action=route.split('/').at(-1);
      if(route.startsWith('/axx-api/learning/plans?'))return {plans:structuredClone(window.missionPlans)};
+     if(route==='/axx-api/learning/dependencies'){if(window.dependencyError)return {error:{message:'El plan cambió; vuelve a revisarlo.'}};const plan=missionPlans.find(p=>p.operation_id===body.operation_id);plan.mission.mission_dependencies=body.dependencies.map(operation_id=>({operation_id,goal_revision:1,steps_hash:'fixture-steps'}));plan.mission.state='awaiting_approval';return structuredClone(plan);}
      if(route==='/axx-api/learning/plan?id=prepared-fixture')return {kind:'learned_plan',operation_id:'prepared-fixture',conversation_id:'task-a',state:'awaiting_approval',steps:[]};
      if(action==='status'){
       const value=structuredClone(data);value.suggestions=value.suggestions.filter(s=>s.task_id===body.task_id);value.grants=value.grants.filter(g=>g.task_id===body.task_id);
@@ -58,6 +59,41 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
   await page.evaluate(()=>{const form=document.querySelector('form[data-profile="full"]');form.elements.interruptions.value='silent';form.requestSubmit();});
   await page.waitForFunction(()=>Axx.anticipation.state.profiles.full.interruptions==='silent');
   assert.equal(await page.evaluate(()=>Axx.anticipation.state.profiles.full.mode),'EXECUTE','Quiet interruptions do not reduce Full autonomy');
+  await page.evaluate(()=>{const form=document.querySelector('form[data-profile="full"]');form.elements.cadence_seconds.value='7';form.elements.resource_max_events_tick.value='4';form.elements.resource_max_entries_scan.value='120';form.elements.resource_max_file_bytes.value='1048576';form.elements.resource_max_tick_ms.value='500';form.elements.resource_max_cpu_ms_tick.value='80';form.elements.schedule_enabled.checked=true;form.elements.schedule_enabled.dispatchEvent(new Event('change'));form.elements.schedule_timezone.value='America/Santo_Domingo';form.elements.schedule_start.value='21:00';form.elements.schedule_end.value='06:00';for(const day of form.querySelectorAll('[name=schedule_days]'))day.checked=['0','4'].includes(day.value);form.requestSubmit();});
+  await page.waitForFunction(()=>Axx.anticipation.state.profiles.full.cadence_seconds===7);
+  assert.deepEqual(await page.evaluate(()=>calls.filter(c=>c.route.endsWith('/configure')&&c.body.profiles).at(-1).body.profiles.full),{mode:'EXECUTE',interruptions:'silent',cooldown_seconds:60,max_interruptions_hour:3,retention_days:30,cadence_seconds:7,resources:{max_events_tick:4,max_entries_scan:120,max_file_bytes:1048576,max_tick_ms:500,max_cpu_ms_tick:80},schedule:{timezone:'America/Santo_Domingo',days:[0,4],start:'21:00',end:'06:00'}},'Profile saves canonical nested limits and Monday-zero overnight schedule');
+  await page.evaluate(()=>{const form=document.querySelector('form[data-profile="full"]');form.elements.schedule_enabled.checked=false;form.elements.schedule_enabled.dispatchEvent(new Event('change'));form.requestSubmit();});
+  await page.waitForFunction(()=>Axx.anticipation.state.profiles.full.schedule===null);
+  assert.equal(await page.locator('form[data-profile="full"] [name=schedule_timezone]').isDisabled(),true,'Disabled scheduling sends null and has no active required fields');
+  await page.evaluate(()=>{document.getElementById('anticipation-scope-task').checked=false;document.getElementById('anticipation-scope-project').value='project-a';document.getElementById('anticipation-scope-application').value='editor.exe';document.getElementById('anticipation-scope-device').value='host';document.getElementById('anticipation-scope-form').requestSubmit();});
+  await page.waitForFunction(()=>Axx.anticipation.state.scopes.length===1);
+  assert.deepEqual(await page.evaluate(()=>Axx.anticipation.state.scopes[0]),{project_id:'project-a',application_id:'editor.exe',device_id:'host',profile:'discreto',exclude:false});
+  await page.evaluate(()=>{document.getElementById('anticipation-target-root').value='C:\\ensayo';document.getElementById('anticipation-target-project').value='project-a';document.getElementById('anticipation-target-expiry').value='persistent';document.getElementById('anticipation-target-form').requestSubmit();});
+  await page.waitForFunction(()=>Axx.anticipation.state.observation_targets.length===1);
+  const folder=await page.evaluate(()=>Axx.anticipation.state.observation_targets[0]);
+  assert.deepEqual(folder,{id:folder.id,source:'folder',task_id:'task-a',project_id:'project-a',application_id:'',device_id:'host',observe:true,retain:false,send_to_provider:false,expires_at:null,root:'C:\\ensayo'});
+  assert.equal(await page.evaluate(()=>Axx.anticipation.state.sources.folders),false,'Selecting a target cannot silently enable its source');
+  await page.evaluate(()=>{document.getElementById('anticipation-folders').checked=true;document.getElementById('anticipation-folders').dispatchEvent(new Event('change'));});
+  await page.waitForFunction(()=>Axx.anticipation.state.sources.folders===true);
+  assert.match(await page.locator('#anticipation-source-runtime').textContent(),/Sin lecturas/,'Enabled is not reported as observed');
+  await page.evaluate(()=>{document.getElementById('anticipation-target-source').value='application';document.getElementById('anticipation-target-source').dispatchEvent(new Event('change'));document.getElementById('anticipation-target-process').value='editor.exe';document.getElementById('anticipation-target-retain').checked=true;document.getElementById('anticipation-target-form').requestSubmit();});
+  await page.waitForFunction(()=>Axx.anticipation.state.observation_targets.length===2);
+  assert.equal(await page.locator('#anticipation-target-root').isDisabled(),true);
+  assert.equal(await page.evaluate(()=>Object.hasOwn(Axx.anticipation.state.observation_targets[1],'root')),false,'Application targets never include disabled folder data');
+  assert.deepEqual(await page.evaluate(()=>{const target=Axx.anticipation.state.observation_targets[1];return [target.process_name,target.retain,target.send_to_provider,target.task_id];}),['editor.exe',true,false,'task-a']);
+  await page.evaluate(()=>{const id=data.observation_targets[0].id;data.source_runtime=[{id,source:'folder',active:true,samples:4,events:1,truncated:true,error:null},{id:'foreign',active:true,samples:12345,events:1}];data.source_observations=[{task_id:'task-a',observed_at:Date.now()/1000,type:'file.modified',resource:{path:'C:\\ensayo\\<img src=x>.txt',size:8},retained:false},{task_id:'task-b',observed_at:Date.now()/1000,type:'application.opened',resource:{process_name:'private.exe'},retained:true}];return Axx.anticipation.refresh();});
+  assert.match(await page.locator('#anticipation-source-runtime').textContent(),/Observación activa · Lecturas: 4 · Cambios: 1 · Exploración parcial/);
+  assert.doesNotMatch(await page.locator('#anticipation-source-runtime').textContent(),/12345/);
+  assert.doesNotMatch(await page.locator('#anticipation-source-observations').textContent(),/private.exe/);
+  assert.equal(await page.locator('#anticipation-source-observations img').count(),0);
+  assert.match(await page.locator('#anticipation-verifiers').textContent(),/DOCX · Disponible · Solo integridad por hash · Sin inspector/);
+  assert.match(await page.locator('#anticipation-verifiers').textContent(),/PDF · No disponible/);
+  await page.evaluate(()=>document.querySelector('#anticipation-targets article input').click());
+  await page.waitForFunction(()=>Axx.anticipation.state.observation_targets[0].observe===false);
+  assert.equal(await page.evaluate(()=>Axx.anticipation.state.observation_targets[0].retain),false,'Observe and retain remain independent');
+  await page.evaluate(()=>document.querySelector('#anticipation-targets article button').click());
+  await page.waitForFunction(()=>Axx.anticipation.state.observation_targets.length===1);
+  assert.equal(await page.evaluate(()=>calls.some(c=>c.route.includes('/artifact')||c.route.includes('/file.delete'))),false,'Removing a source only changes config');
   await page.evaluate(()=>{
    document.getElementById('anticipation-grant-root').value='C:\\ensayo';document.getElementById('anticipation-grant-expiry').value='persistent';document.getElementById('anticipation-grant-events').checked=true;
    document.getElementById('anticipation-grant-form').requestSubmit();
@@ -68,7 +104,7 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
   await page.waitForFunction(()=>Axx.anticipation.state.grants[0].revoked);
   await page.evaluate(()=>{
    const mission={mission_id:'prepared-fixture',objective:'Preparar <img src=x> paquete',scope:{project_id:'Proyecto A',task_id:'task-a',resources:['ensayo.txt']},state:'succeeded',plan_hash:'mission-a',revision:1,deliverables:['paquete.zip'],destination:'C:\\ensayo',success_conditions:['Archivo legible'],dependencies:{},verified_steps:[0],pending_steps:[1],blockers:[],permission:{exact_plan_approved:true,automatic_future_plans_authorized:false},budget:{step_limit:8,model_call_limit:2,model_calls_used:1,model_calls_remaining:1},stop_condition:'verified_goal_or_cancellation',completed:false,user_confirmed_usefulness:true};
-   missionPlans=[{operation_id:'prepared-fixture',conversation_id:'task-a',steps:[{},{}],mission},{operation_id:'another-task',conversation_id:'task-b',steps:[],mission:{...mission,objective:'Contenido privado del otro chat',scope:{...mission.scope,task_id:'task-b'}}}];
+   missionPlans=[{operation_id:'prepared-fixture',conversation_id:'task-a',steps:[{},{}],mission},{operation_id:'another-task',conversation_id:'task-b',steps:[],mission:{...mission,objective:'Contenido privado del otro chat',scope:{...mission.scope,task_id:'task-b'}}},{operation_id:'foreign-project',project_id:'Otro proyecto',conversation_id:'task-z',steps:[],mission:{...mission,objective:'Fuera de este proyecto',scope:{...mission.scope,task_id:'task-z',project_id:'Otro proyecto'}}}];
   });
   await page.locator('#anticipation-mission>summary').click();
   await page.waitForFunction(()=>document.querySelectorAll('#anticipation-missions article').length===1);
@@ -81,6 +117,19 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
   assert.equal(await page.locator('#anticipation-missions article>details').evaluate(node=>node.open),true,'Status refresh preserves expanded mission details');
   assert.match(await page.locator('#anticipation-missions').innerText(),/no concede permiso para futuros planes autónomos/);
   assert.match(await page.locator('#anticipation-missions').innerText(),/no sustituye las verificaciones de ejecución/);
+  assert.deepEqual(await page.locator('#anticipation-missions select option').evaluateAll(options=>options.map(o=>o.value)),['another-task'],'Dependency choices allow explicit same-project cross-chat selection only');
+  await page.evaluate(()=>{const form=document.querySelector('[data-dependency-id="prepared-fixture"]');form.parentElement.open=true;form.querySelector('select').value='another-task';form.querySelector('select').dispatchEvent(new Event('change'));missionPlans[1].mission.revision=2;return Axx.anticipation.refresh();});
+  await page.waitForFunction(()=>document.querySelector('[data-dependency-id="prepared-fixture"] select')?.value==='another-task');
+  assert.equal(await page.locator('[data-dependency-id="prepared-fixture"]').evaluate(form=>form.parentElement.open),true,'Polling changed peer receipts preserves the dependency draft');
+  await page.evaluate(()=>{window.dependencyError=true;document.querySelector('[data-dependency-id="prepared-fixture"]').requestSubmit();});
+  await page.waitForFunction(()=>document.getElementById('anticipation-status').textContent.includes('El plan cambió'));
+  assert.equal(await page.locator('[data-dependency-id="prepared-fixture"] select').inputValue(),'another-task','A rejected hash cannot erase the pending selection');
+  await page.evaluate(()=>{window.dependencyError=false;document.querySelector('[data-dependency-id="prepared-fixture"]').requestSubmit();});
+  await page.waitForFunction(()=>document.getElementById('anticipation-missions').textContent.includes('fixture-steps'));
+  assert.deepEqual(await page.evaluate(()=>calls.filter(c=>c.route==='/axx-api/learning/dependencies').at(-1).body),{operation_id:'prepared-fixture',dependencies:['another-task'],plan_hash:'mission-a'},'Mission links bind the exact current plan and explicit IDs without executing');
+  assert.match(await page.locator('#anticipation-missions').innerText(),/Pendiente de aprobación/,'Saving links retains the approval boundary');
+  await page.evaluate(()=>{missionPlans[0].mission.state='waiting_dependency';return Axx.anticipation.refresh();});
+  await page.waitForFunction(()=>document.getElementById('anticipation-missions').textContent.includes('Espera otra misión verificada'));
   await page.locator('#anticipation-missions button').filter({hasText:'Revisar plan'}).click();
   await page.waitForFunction(()=>window.reviewedPlan?.operation_id==='prepared-fixture');
   await page.evaluate(()=>{missionPlans[0].mission.completed=true;missionPlans[0].mission.verified_steps=[0,1];missionPlans[0].mission.pending_steps=[];return Axx.anticipation.refresh();});
@@ -88,7 +137,7 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
   assert.equal(await page.locator('#anticipation-missions article>details').evaluate(node=>node.open),true,'Changed mission receipts preserve the user expansion');
   await page.evaluate(()=>{
    data.profile='copiloto';data.sources.events=true;
-   data.suggestions=[{suggestion_id:'suggestion-a',task_id:'task-a',routine_id:'verify_artifact',plan_hash:'exact-hash-a',title:'Verificar <img src=x>',state:'AWAITING_APPROVAL',visible:true,plan:{command_id:'axx.artifact.verify',inputs:{path:'ensayo.txt'},source_operation_id:'writer-a',expected_sha256:'a'.repeat(64)},initiative_chain:{root_event_id:'artifact-a',depth:1,budget:1,stop_condition:'verification_terminal'},assessment:{likelihood:{score:1,method:'registered_generated_artifact_rule'}},provenance:{actor:'axx',origin:'direct_instruction',causation_id:'writer-a',human_preference_evidence:false}}];return Axx.anticipation.refresh(true);
+   data.suggestions=[{suggestion_id:'suggestion-a',task_id:'task-a',routine_id:'verify_artifact',plan_hash:'exact-hash-a',verification_scope:'integrity_only',semantic_verified:false,verifier_reason:'Sin inspector del formato',title:'Verificar <img src=x>',state:'AWAITING_APPROVAL',visible:true,plan:{command_id:'axx.artifact.verify',inputs:{path:'ensayo.txt'},source_operation_id:'writer-a',expected_sha256:'a'.repeat(64)},initiative_chain:{root_event_id:'artifact-a',depth:1,budget:1,stop_condition:'verification_terminal'},assessment:{likelihood:{score:1,method:'registered_generated_artifact_rule'}},provenance:{actor:'axx',origin:'direct_instruction',causation_id:'writer-a',human_preference_evidence:false}}];return Axx.anticipation.refresh(true);
   });
   assert.equal(await page.locator('#anticipation-card').isVisible(),true);
   assert.equal(await page.locator('#anticipation-card img').count(),0,'Suggestion text cannot inject markup');
@@ -107,7 +156,8 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
   await page.locator('#anticipation-actions button').filter({hasText:/^Verificar$/}).click();
   await page.waitForFunction(()=>Axx.anticipation.state.suggestions[0].state==='VERIFIED');
   assert.deepEqual(await page.evaluate(()=>calls.find(c=>c.route.endsWith('/accept')).body),{suggestion_id:'suggestion-a',plan_hash:'exact-hash-a'});
-  assert.equal(await page.locator('#anticipation-phase').innerText(),'Verificado');
+  assert.equal(await page.locator('#anticipation-phase').innerText(),'Integridad verificada');
+  assert.match(await page.locator('#anticipation-why').innerText(),/apariencia no constan verificados[\s\S]*Sin inspector del formato/,'A hash receipt cannot imply semantic or visual success');
   assert.match(await page.locator('#anticipation-why').innerText(),/Aceptaste esta versión exacta[\s\S]*Sin confirmación de utilidad/);
   await page.locator('#anticipation-why button').filter({hasText:'Me resultó útil'}).click();
   await page.waitForFunction(()=>Axx.anticipation.state.suggestions[0].feedback.usefulness==='confirmed');
@@ -143,6 +193,8 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
   await page.evaluate(()=>{Axx.chatWorkspace.active={id:'task-b',title:'Proyecto B'};Axx.companion.renderChat();});
   assert.equal(await page.locator('#anticipation-card').isVisible(),false,'Chat changes hide the prior task synchronously');
   assert.doesNotMatch(await page.locator('#anticipation-missions').innerText(),/Preparar <img src=x> paquete/,'Chat changes clear prior mission details synchronously');
+  assert.equal(await page.locator('#anticipation-targets').innerText(),'','Chat changes clear source authorizations synchronously');
+  assert.equal(await page.locator('#anticipation-source-observations').innerText(),'','Chat changes clear local observations synchronously');
   await page.waitForFunction(()=>Axx.anticipation.state&&Axx.anticipation.state.suggestions.length===0);
   assert.equal(await page.locator('#anticipation-grants').innerText(),'');
   await page.evaluate(()=>{window.delayStatus=true;return void Axx.anticipation.refresh();});
@@ -175,6 +227,6 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
   assert.equal(await page.evaluate(()=>calls.filter(c=>c.route.endsWith('/commands/execute')||c.route.endsWith('/learning/execute')).length),0,'Preparing and reviewing never execute the proposed effects');
   assert.deepEqual(errors,[]);
   const html=fs.readFileSync(path.join(__dirname,'../Axx.html'),'utf8');assert.match(html,/scripts\/anticipation\.js/);assert.match(html,/Axx\.anticipation\?\.layout\(g,size,add\)/);
-  console.log('PASS: profiles, grants, exact acceptance, strict receipts, causal Why evidence, utility/correction, stale refusal, project-scoped missions, safe plan review, task races, busy deferral, Esc and suppression (controlled IPC)');
+  console.log('PASS: nested profile cadence/schedule/limits, scoped source consent and observations, format verification scope, exact mission dependencies, grants, strict receipts, causal Why evidence, task races, busy deferral, Esc and suppression (controlled IPC)');
  }finally{await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});
