@@ -12,6 +12,30 @@ from backend.mobile.gateway import MobileGateway
 
 
 class GatewayTests(unittest.TestCase):
+    def test_phone_voice_action_requires_pairing_and_uses_bound_device(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            gateway=MobileGateway(Path(tmp)/'state.db',tmp,lambda *args:{},host_resolver=lambda:'127.0.0.1')
+            try:
+                info=gateway.start();device=gateway.store.consume_pairing(info['pairing_code'],'Phone')
+                gateway.voice.poll(device['device_id'],{'visible':True,'permission':'granted','capture':{'state':'idle'}})
+                context=ssl.create_default_context(cafile=str(gateway._identity[0]))
+                def post(body,token=None):
+                    headers={'Content-Type':'application/json'}
+                    if token:headers['Authorization']='Bearer '+token
+                    req=urllib.request.Request(info['endpoint']+'/v1/voice/action',data=json.dumps(body).encode(),headers=headers)
+                    with urllib.request.urlopen(req,context=context,timeout=3) as response:return json.load(response)
+                start={'action':'start','mode':'confirm','max_seconds':20}
+                with self.assertRaises(urllib.error.HTTPError) as denied:
+                    post(start)
+                self.assertEqual(denied.exception.code,403);denied.exception.close()
+                first=post(start,device['credential'])['data']
+                self.assertEqual(post(start,device['credential'])['data']['session_id'],first['session_id'])
+                self.assertEqual(post({'action':'stop','session_id':first['session_id']},device['credential'])['data']['state'],'stopping')
+                with self.assertRaises(urllib.error.HTTPError) as forged:
+                    post({**start,'device_id':'another-device'},device['credential'])
+                self.assertEqual(forged.exception.code,400);forged.exception.close()
+            finally:gateway.close()
+
     def test_work_revoked_during_preparation_is_cancelled_without_execution(self):
         with tempfile.TemporaryDirectory() as tmp:
             calls=[]

@@ -6,6 +6,10 @@ Estado: implementación inicial; aceptación física completa todavía pendiente
 
 `Ctrl+Alt+Shift+V` usa `RegisterHotKey` en Windows, sin interceptar el ratón ni adquirir un lease de entrada. El evento `axx-remote-voice-toggle` llega al coordinador del escritorio. Primera pulsación: sesión nueva con UUID. Segunda: solicitud de parada de esa sesión.
 
+El teléfono también puede iniciar y detener su propia sesión desde Axx Mobile: dos toques rápidos en «Hablar a la PC» por defecto. En los ajustes del personaje → Micrófono del teléfono se configuran uno, dos o tres toques, un atajo de teclado físico del teléfono (`Alt+V` o `Ctrl+Shift+V`), modo de revisión o envío automático y duración máxima. El atajo del teléfono solo actúa con la app visible, no dentro de campos de texto. Estos ajustes se guardan localmente en el teléfono. El PC no necesita micrófono; sí debe mantener Axx y el gateway móvil activos.
+
+Al tocar, el teléfono informa su estado nativo al PC antes de solicitar `start`; la orden de parada incluye el ID de la sesión. Las solicitudes repetidas de inicio/parada no invierten el estado ni cambian de dispositivo. Si el permiso de micrófono no está concedido, Android lo solicita desde el gesto. La captura nunca comienza con la app oculta o el teléfono bloqueado. La transcripción sigue el mismo flujo de revisión y permisos del atajo del PC.
+
 Android consulta por el transporte HTTPS autenticado las órdenes de la sesión. Solo inicia MediaRecorder si Axx Mobile está visible, la pantalla está desbloqueada y RECORD_AUDIO ya fue concedido mediante el diálogo de Android. El indicador muestra captura y nivel real. No hay servicio de grabación en segundo plano.
 
 El audio AAC/MP4 se guarda temporalmente en el almacenamiento privado del teléfono. Se envía por el mismo transporte con pin del certificado y permiso `voice`. Se conserva hasta que el PC confirme una transcripción persistida o la cancelación. Hay una sola captura retenida. El límite configurable es de 5–55 segundos y 1.4 MiB; se detiene tras 8 segundos sin contacto autenticado, al salir de la app, bloquearse o perder permiso.
@@ -43,6 +47,7 @@ Estados alternativos: `empty`, `failed`, `cancelled`, `interrupted`, `outcome_un
 | Teléfono, alcance voice | POST `/v1/voice/poll` | Presencia, permiso, acuse de captura y orden vigente |
 | Teléfono, alcance voice | POST `/v1/voice/audio` | Audio final vinculado a sesión/dispositivo |
 | Teléfono, alcance voice | POST `/v1/voice/cancel` | Cancelar su propia sesión |
+| Teléfono, alcance voice | POST `/v1/voice/action` | Iniciar o detener su sesión, vinculada al dispositivo autenticado |
 
 ## Aceptación que debe registrarse
 
@@ -54,4 +59,4 @@ Estados alternativos: `empty`, `failed`, `cancelled`, `interrupted`, `outcome_un
 6. Confirmación de texto y permisos de manos libres.
 7. Independencia de voz y trackpad: la arquitectura está separada; la prueba conjunta requiere el trackpad de MO-4, todavía pendiente.
 
-Tests con backend de prueba no acreditan reconocimiento físico. El atajo inicial es fijo; el tiempo y modo se configuran desde los ajustes de Axx.
+Tests con backend de prueba no acreditan reconocimiento físico. El atajo de PC sigue fijo; el gesto y atajo de teclado del teléfono son configurables.

@@ -98,6 +98,30 @@ class RemoteVoice:
             self.session={**body,'session_id':str(uuid.uuid4()),'state':'requested','text':'','confirmed_text':'','audio_hash':None,'result':None}
             self.deadline=self.clock()+body['max_seconds'];self._save();return dict(self.session)
 
+    def phone_action(self, device_id, body):
+        if not isinstance(body,dict) or body.get('action') not in ('start','stop'):
+            raise ValueError('Choose a remote microphone action')
+        with self.lock:
+            self._check_deadline()
+            if body['action']=='start':
+                if set(body)!={'action','mode','max_seconds'}:
+                    raise ValueError('Choose the capture mode and limit')
+                s=self.session
+                if s and s['state'] in {'requested','recording'} and s['device_id']==device_id:
+                    if (s['mode'],s['max_seconds'])!=(body['mode'],body['max_seconds']):
+                        raise ValueError('Finish the current voice session before changing settings')
+                    return dict(s)
+                if s and s['state'] in {'requested','recording'}:
+                    raise ValueError('Another phone is using the remote microphone')
+                return self.toggle({'device_id':device_id,'mode':body['mode'],
+                    'max_seconds':body['max_seconds'],'conversation_id':self.shared.snapshot()['conversation_id']})
+            if set(body)!={'action','session_id'} or not isinstance(body['session_id'],str):
+                raise ValueError('A voice session is required to stop capture')
+            s=self._require(body['session_id'],device_id)
+            if s['state'] in {'requested','recording'}:
+                s['state']='stopping';self._save()
+            return dict(s)
+
     def audio(self, device_id, body):
         if set(body)!={'session_id','audio_base64','mime'} or body['mime']!='audio/mp4' or not isinstance(body['audio_base64'],str) or len(body['audio_base64'])>1900000:
             raise ValueError('Audio is invalid or too large')

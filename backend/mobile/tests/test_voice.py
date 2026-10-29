@@ -80,3 +80,24 @@ class RemoteVoiceTests(unittest.TestCase):
         self.store.revoke(self.device)
         self.voice.confirm(sid,'hola')
         with self.assertRaises(ValueError):self.voice.claim(sid,self.body['conversation_id'])
+
+    def test_phone_start_and_stop_are_session_bound_and_idempotent(self):
+        request={'action':'start','mode':'confirm','max_seconds':20}
+        first=self.voice.phone_action(self.device,request)
+        self.assertEqual(self.voice.phone_action(self.device,request)['session_id'],first['session_id'])
+        with self.assertRaises(ValueError):self.voice.phone_action('another-device',request)
+        self.assertEqual(self.voice.status()['session']['state'],'requested')
+        self.assertEqual(first['conversation_id'],self.shared.snapshot()['conversation_id'])
+        self.voice.poll(self.device,{**self.poll,'capture':{'state':'recording','session_id':first['session_id']}})
+        stop={'action':'stop','session_id':first['session_id']}
+        self.assertEqual(self.voice.phone_action(self.device,stop)['state'],'stopping')
+        self.assertEqual(self.voice.phone_action(self.device,stop)['state'],'stopping')
+        with self.assertRaises(ValueError):self.voice.phone_action('another-device',stop)
+        with self.assertRaises(ValueError):self.voice.phone_action(self.device,{**request,'device_id':'another-device'})
+        self.voice.poll(self.device,{**self.poll,'capture':{'state':'stopped','session_id':first['session_id'],'reason':'user_stop'}})
+        self.assertEqual(self.voice.status()['session']['state'],'awaiting_audio')
+
+    def test_phone_handsfree_still_requires_pc_tool_permission(self):
+        with self.assertRaises(ValueError):self.voice.phone_action(self.device,{'action':'start','mode':'handsfree','max_seconds':20})
+        self.store.set_tool_permission(self.device,True)
+        self.assertEqual(self.voice.phone_action(self.device,{'action':'start','mode':'handsfree','max_seconds':20})['state'],'requested')

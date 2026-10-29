@@ -674,10 +674,11 @@ class MobileGateway:
                             result = gateway.admit_chat(self.device_id, body)
                             self._send(202, {'ok':True, 'data':result})
                             return
-                        if path in ('/v1/voice/poll','/v1/voice/audio','/v1/voice/cancel'):
+                        if path in ('/v1/voice/poll','/v1/voice/audio','/v1/voice/cancel','/v1/voice/action'):
                             if not self._authorize('voice'):return
                             if path.endswith('/poll'):result=gateway.voice.poll(self.device_id,body)
                             elif path.endswith('/audio'):result=gateway.voice.audio(self.device_id,body)
+                            elif path.endswith('/action'):result=gateway.voice.phone_action(self.device_id,body)
                             else:
                                 if set(body)!={'session_id'}:raise ValueError('session_id required')
                                 result=gateway.voice.cancel(body['session_id'],self.device_id)
