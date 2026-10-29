@@ -311,12 +311,17 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                 elif action == 'get': result = self.workshop.get(query.get('id', [None])[0])
                 else: result = self.workshop.export(query.get('id', [None])[0], int(query['revision'][0]) if 'revision' in query else None)
                 self._send_json(200, result)
-            elif path in ('/axx-api/learning/actions', '/axx-api/learning/plan', '/axx-api/learning/plans', '/axx-api/learning/context'):
+            elif path in ('/axx-api/learning/actions', '/axx-api/learning/plan', '/axx-api/learning/plans', '/axx-api/learning/context', '/axx-api/learning/lessons'):
                 if not self.learning:
                     self._unsupported('Aprendizaje de acciones no disponible')
                     return
                 query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query, keep_blank_values=True)
-                if path.endswith('/actions'):
+                if path.endswith('/lessons'):
+                    if set(query) - {'project_id', 'task_id', 'query', 'command_id', 'limit'} or any(len(v) != 1 for v in query.values()):
+                        raise ValueError('Consulta de lecciones inválida')
+                    self._send_json(200, {'lessons': self.learning.skills.lessons(query.get('query', [''])[0], query.get('command_id', [''])[0],
+                        int(query.get('limit', ['3'])[0]), project_id=query.get('project_id', [''])[0], task_id=query.get('task_id', [None])[0])})
+                elif path.endswith('/actions'):
                     if set(query) - {'project_id'} or any(len(v) != 1 for v in query.values()): raise ValueError('Proyecto inválido')
                     self._send_json(200, {'actions': self.learning.list_actions(query.get('project_id', [None])[0])})
                 elif path.endswith('/context') or path.endswith('/plans'):
@@ -699,9 +704,24 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                           'repair': {'operation_id', 'text', 'inputs', 'model', 'provider_name', 'selection_mode','goal_spec','goal_revision'},
                           'context': {'project_id', 'changes'}, 'compose': {'text', 'parts', 'operation_id', 'project_id'},
                           'remember': {'operation_id'}}
+                fields['dependencies'] = {'operation_id', 'dependencies', 'plan_hash'}
+                fields['execute-authorized'] = {'operation_id', 'grant_id', 'plan_hash'}
+                fields['forget-context'] = {'project_id', 'source_id', 'session_id', 'forget'}
+                fields['lesson'] = {'operation_id', 'hypothesis', 'user_correction', 'verification_operation_id', 'project_id', 'task_id', 'context_dependencies', 'allow_provider'}
+                fields['forget-lesson'] = {'id'}
                 fields['bind-capability']={'operation_id','id','revision','digest','goal_revision'}
                 if action not in fields or set(body) - fields[action]: raise ValueError('Campos de aprendizaje inválidos')
-                if action == 'remember':
+                if action == 'execute-authorized':
+                    result = self.learning.execute_with_grant(body.get('operation_id'), body.get('grant_id'), body.get('plan_hash'))
+                elif action == 'lesson':
+                    result = self.learning.skills.record_lesson(body)
+                elif action == 'forget-lesson':
+                    result = self.learning.skills.forget_lesson(body.get('id'))
+                elif action == 'forget-context':
+                    result = self.learning.invalidate_context(body.get('project_id', ''), {key: value for key, value in body.items() if key != 'project_id'})
+                elif action == 'dependencies':
+                    result = self.learning.link_dependencies(body.get('operation_id'), body.get('dependencies'), body.get('plan_hash'))
+                elif action == 'remember':
                     result = self.learning.remember(body.get('operation_id'))
                 elif action == 'bind-capability':
                     result=self.learning.bind_capability(body.get('operation_id'),body.get('id'),body.get('revision'),body.get('digest'),body.get('goal_revision'))
@@ -1204,6 +1224,7 @@ def run_server(host='127.0.0.1', port=4173, config_path='providers.json', state_
         commands.learning = learning
         anticipation = AnticipationService(commands)
         commands.dispatch_guard = anticipation.dispatch_guard
+        executor.result_filter = anticipation.filter_result
         learning.anticipation = anticipation
         # Reverse shutdown stops the resident loop before closing its policy store.
         services.extend((anticipation, learning))

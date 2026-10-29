@@ -36,6 +36,7 @@ class ActionExecutor:
         self.workspace_root.mkdir(parents=True, exist_ok=True)
         self.lock = threading.RLock()
         self.input_control = None
+        self.result_filter = None
         self.dynamic_tools = {}
         self.native_bridge = None
         self.capture_service = None
@@ -139,6 +140,17 @@ class ActionExecutor:
                 'evidence': json.loads(row[5]) if row[5] else {}, 'duration_ms': row[6], 'delivery_mode': row[7],
                 'effect_status': 'unknown', 'dispatch_status': 'unknown'}
 
+    def _filter_result(self, op_id, result):
+        if self.result_filter:
+            try:
+                result['output'], result['evidence'], result['error'] = self.result_filter(
+                    op_id, result.get('output'), result.get('evidence', {}), result.get('error'))
+            except Exception as exc:
+                LOG.error('Result retention filter failed (%s); raw output was discarded', type(exc).__name__)
+                result.update(state='unknown', postconditions_passed=False, output={}, evidence={'privacy_redacted': True},
+                              error='PRIVACY_FILTER_FAILED: resultado retenido sin contenido; requiere reconciliación.', effect_status='unknown')
+        return result
+
     def _execute_action(self, tool_name: str, inputs: dict, operation_id: str | None = None, cancel_event=None,
                         *, allow_parallel_read=False, delivery_mode=None) -> dict:
         """Executes a registered tool with full pre- and post-condition verification."""
@@ -209,7 +221,7 @@ class ActionExecutor:
         # 1. Verify Preconditions
         pre_ok, pre_msg = tool.verify_preconditions(inputs)
         if not pre_ok:
-            return {
+            return self._filter_result(op_id, {
                 'operation_id': op_id,
                 'tool_name': tool_name,
                 'state': 'failed',
@@ -218,7 +230,7 @@ class ActionExecutor:
                 'error': f"Precondition failed: {pre_msg}",
                 'duration_ms': 0.0,
                 'evidence': {}
-            }
+            })
 
         # 2. Record operation state 'prepared'
         with self.db:
@@ -271,6 +283,7 @@ class ActionExecutor:
                 'duration_ms': round(duration_ms, 2), 'evidence': {}
             }
             result.update(delivery_mode=delivery_mode, dispatch_status='unknown', effect_status='unknown')
+            result = self._filter_result(op_id, result)
             with self.db:
                 self.db.execute(
                     '''UPDATE operations SET state='unknown', result_json=?, duration_ms=?, updated_at=?
@@ -313,10 +326,12 @@ class ActionExecutor:
                                 else 'unknown' if final_state == 'unknown' else 'rejected'),
             'effect_status': 'confirmed' if final_state == 'succeeded' else 'partial' if tool_res.evidence.get('partial_effect') else 'unknown' if final_state == 'unknown' else 'not_observed',
         }
+        result = self._filter_result(op_id, result)
+        final_state = result['state']
         # State and complete receipt must commit together, including across a power loss.
         with self.db:
             self.db.execute('''UPDATE operations SET state=?,result_json=?,evidence_json=?,duration_ms=?,updated_at=?
                                WHERE operation_id=?''',
-                            (final_state, json.dumps(result), json.dumps(tool_res.evidence or {}), duration_ms,
+                            (final_state, json.dumps(result), json.dumps(result['evidence'] or {}), duration_ms,
                              dt.datetime.now(dt.timezone.utc).isoformat(), op_id))
         return result

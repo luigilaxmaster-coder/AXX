@@ -51,6 +51,57 @@ class SkillsHttpTests(unittest.TestCase):
         except urllib.error.HTTPError as error:
             with error: return error.code, json.loads(error.read())
 
+    def test_context_forget_is_authenticated_scoped_and_does_not_clear_commands(self):
+        changes = {'current_file': 'project-file.txt', 'context_meta': {'current_file': {
+            'kind': 'observed', 'source_id': 'trial-source', 'session_id': 'trial-session'}}}
+        self.assertEqual(self.request('learning/context', {'project_id': 'project-a', 'changes': changes})[0], 200)
+        self.assertEqual(self.request('learning/forget-context', {'project_id': 'project-a', 'source_id': 'trial-source', 'forget': True}, auth=False)[0], 401)
+        self.assertEqual(self.learning.context('project-a')['current_file'], 'project-file.txt')
+        code, forgotten = self.request('learning/forget-context', {'project_id': 'project-a', 'source_id': 'trial-source', 'forget': True})
+        self.assertEqual(code, 200, forgotten)
+        self.assertNotIn('current_file', forgotten)
+        self.assertEqual(self.executor.list_operations(), [])
+        self.assertEqual(self.request('learning/forget-context', {'project_id': 'project-a', 'source_id': 'trial-source', 'delete_grants': True})[0], 400)
+
+    def test_dependency_api_requires_exact_review_and_waits_without_dispatch(self):
+        def prepare(name):
+            return self.request('learning/prepare', {'text': 'Crear ' + name, 'project_id': 'a', 'steps': [
+                {'command_id': 'axx.artifact.write', 'inputs': {'path': name + '.txt', 'content': name}}]})[1]
+        source, target = prepare('source'), prepare('target')
+        body = {'operation_id': target['operation_id'], 'dependencies': [source['operation_id']], 'plan_hash': target['plan_hash']}
+        self.assertEqual(self.request('learning/dependencies', body | {'plan_hash': 'stale'})[0], 400)
+        code, linked = self.request('learning/dependencies', body)
+        self.assertEqual(code, 200, linked)
+        self.assertEqual(linked['mission']['mission_dependencies'][0]['operation_id'], source['operation_id'])
+        code, waiting = self.request('learning/execute', {'operation_id': target['operation_id'], 'approved': True})
+        self.assertEqual(waiting['state'], 'waiting_dependency', waiting)
+        self.assertEqual(self.executor.list_operations(), [])
+
+    def test_incident_routes_use_real_receipts_and_keep_hypothesis_unconfirmed(self):
+        path = self.executor.workspace_root / 'incident.txt'
+        path.write_text('trial')
+        failed = self.commands.prepare('axx.file.sha256', {'path':str(path)}, conversation_id='trial-chat')
+        path.unlink()
+        failed = self.commands.execute(failed['operation_id'], True)
+        self.assertEqual(failed['state'], 'failed')
+        path.write_text('trial')
+        success = self.commands.prepare('axx.file.sha256', {'path':str(path)}, conversation_id='trial-chat')
+        success = self.commands.execute(success['operation_id'], True)
+        self.assertEqual(success['state'], 'succeeded')
+        body = {'operation_id':failed['operation_id'], 'hypothesis':'El archivo dejó de existir',
+                'user_correction':'Restauré el archivo de ensayo', 'verification_operation_id':success['operation_id'], 'task_id':'trial-chat'}
+        self.assertEqual(self.request('learning/lesson', body, auth=False)[0], 401)
+        code, lesson = self.request('learning/lesson', body)
+        self.assertEqual(code, 200, lesson)
+        self.assertFalse(lesson['cause_confirmed'])
+        self.assertEqual(lesson['verification']['status'], 'verified_test')
+        listed = self.request('learning/lessons?task_id=trial-chat')[1]['lessons']
+        self.assertEqual(len(listed), 1)
+        self.assertEqual(self.request('learning/lessons?task_id=other-chat')[1]['lessons'], [])
+        self.assertEqual(self.request('learning/forget-lesson', {'id':lesson['id']})[0], 200)
+        self.assertEqual(self.request('learning/lessons?task_id=trial-chat')[1]['lessons'], [])
+        self.assertEqual(self.commands.get(success['operation_id'])['state'], 'succeeded')
+
     def test_parameterized_skill_context_and_resume_cross_http_without_duplicate_effects(self):
         code, plan = self.request('learning/propose', {'text':'crear informe', 'operation_id':'first', 'project_id':'office', 'selection_mode':'automatic_free'})
         self.assertEqual(code, 200, plan); self.assertEqual(self.model.envelope['selection_mode'], 'automatic_free')

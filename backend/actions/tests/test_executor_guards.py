@@ -83,6 +83,45 @@ class ExecutorGuardTests(unittest.TestCase):
         self.assertEqual(result['state'], 'unknown')
         self.assertEqual(self.executor.get_operation('interrupted')['state'], 'unknown')
 
+    def test_retention_filter_runs_after_verification_before_any_result_commit(self):
+        tool = get_tool('file_artifact_writer')
+        original = tool.execute_in_workspace
+        def with_transient_text(inputs, workspace):
+            result = original(inputs, workspace)
+            result.output['transient_text'] = 'private-observation'
+            result.evidence['transient_text'] = 'private-observation'
+            return result
+        self.executor.result_filter = lambda key, output, evidence, error: (
+            {name: value for name, value in output.items() if name != 'transient_text'},
+            {name: value for name, value in evidence.items() if name != 'transient_text'}, error)
+        with patch.object(tool, 'execute_in_workspace', side_effect=with_transient_text):
+            result = self.executor.execute_action('file_artifact_writer', {'path': 'retained.txt', 'content': 'approved'}, 'filtered')
+        self.assertEqual(result['state'], 'succeeded', result)
+        row = self.executor.db.execute('SELECT result_json,evidence_json FROM operations WHERE operation_id=?', ('filtered',)).fetchone()
+        self.assertNotIn('private-observation', ''.join(row))
+        self.assertEqual((self.executor.workspace_root / 'retained.txt').read_text(), 'approved')
+
+    def test_failed_filter_discards_raw_output_and_never_repeats_effect(self):
+        def broken(*args): raise ValueError('invalid retention policy')
+        self.executor.result_filter = broken
+        args = {'path': 'filtered-failure.txt', 'content': 'preserved'}
+        result = self.executor.execute_action('file_artifact_writer', args, 'filter-failure')
+        self.assertEqual(result['state'], 'unknown')
+        self.assertEqual(result['output'], {})
+        self.assertFalse(result['postconditions_passed'])
+        self.assertEqual((self.executor.workspace_root / 'filtered-failure.txt').read_text(), 'preserved')
+        self.assertTrue(self.executor.execute_action('file_artifact_writer', args, 'filter-failure')['replayed'])
+
+    def test_interrupted_tool_diagnostics_are_filtered_before_early_commit(self):
+        tool = get_tool('file_artifact_writer')
+        self.executor.result_filter = lambda key, output, evidence, error: (output, evidence, 'INSPECTION_FAILED' if error else None)
+        with patch.object(tool, 'execute_in_workspace', side_effect=ValueError('private-document-fragment')):
+            result = self.executor.execute_action('file_artifact_writer', {'path':'exception.txt','content':'approved'}, 'private-error')
+        self.assertEqual(result['state'], 'unknown')
+        self.assertEqual(result['error'], 'INSPECTION_FAILED')
+        stored = self.executor.db.execute('SELECT result_json FROM operations WHERE operation_id=?', ('private-error',)).fetchone()[0]
+        self.assertNotIn('private-document-fragment', stored)
+
 
 if __name__ == '__main__':
     unittest.main()

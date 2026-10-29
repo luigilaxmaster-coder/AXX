@@ -223,6 +223,8 @@ class CommandService:
         self.adapters = dict(ADAPTERS)
         self.learning = None
         self.dispatch_guard = None
+        self.mission_guard = None
+        self.change_revision = 0
         self.lock = threading.RLock()
         self.execution_gate = threading.Lock()
         self.parallel_operations = set()
@@ -602,6 +604,7 @@ class CommandService:
         self.db.execute('UPDATE command_runs SET state=?,result_json=? WHERE operation_id=?',
                         (result['state'], json.dumps(result, ensure_ascii=False), result['operation_id']))
         self.db.commit()
+        self.change_revision += 1
         return result
 
     def get(self, operation_id):
@@ -614,6 +617,25 @@ class CommandService:
     def operations(self):
         with self.lock:
             return [self._recovery_view(json.loads(row[0])) for row in self.db.execute('SELECT result_json FROM command_runs ORDER BY created_at DESC LIMIT 50')]
+
+    def _guard_learning_command(self, command):
+        if not command['operation_id'].startswith('learn-'): return
+        if not self.db.execute("SELECT 1 FROM sqlite_master WHERE name='learning_plans'").fetchone(): return
+        row = self.db.execute("""SELECT payload FROM learning_plans WHERE EXISTS
+            (SELECT 1 FROM json_each(json_extract(payload,'$.step_records')) r
+             WHERE json_extract(r.value,'$.operation_id')=?) LIMIT 1""", (command['operation_id'],)).fetchone()
+        if not row: return
+        plan = json.loads(row[0])
+        index = next(i for i, record in enumerate(plan['step_records']) if record['operation_id'] == command['operation_id'])
+        step, record = plan['steps'][index], plan['step_records'][index]
+        if (plan['state'] != 'running' or not plan.get('approved_hash') or plan['approved_hash'] != plan.get('plan_hash')
+                or record.get('state') != 'running'):
+            raise ValueError('El paso pertenece a un plan que todavía no autoriza su despacho.')
+        expected = self._validate_inputs(step['command_id'], record.get('resolved_inputs', step['inputs']), require_new=False)
+        if (command['command_id'] != step['command_id'] or command['inputs'] != expected or command.get('source') != 'text'
+                or command.get('conversation_id') != plan.get('conversation_id')
+                or command.get('delivery_mode') != resolve_mode(self.adapters[step['command_id']]['tool'], step.get('delivery_mode'))):
+            raise ValueError('El comando no coincide con el paso y el ámbito exactos aprobados.')
 
     def prepare(self, command_id, inputs, source='text', operation_id=None, *, conversation_id=None, command_mode=None, delivery_mode=None):
         if command_mode not in (None, 'ask', 'auto_safe'):
@@ -752,9 +774,18 @@ class CommandService:
                         current = self.get(operation_id)
                         if current['cancel_requested']:
                             return self._save(current | {'state': 'cancelled', 'error': {'code': 'CANCELLED', 'message': 'Cancelado antes de ejecutar.'}})
+                        try:
+                            self._guard_learning_command(current)
+                        except ValueError as exc:
+                            raise ActionExecutionError(str(exc)) from exc
                         if self.dispatch_guard:
                             try:
                                 self.dispatch_guard(operation_id)
+                            except ValueError as exc:
+                                raise ActionExecutionError(str(exc)) from exc
+                        if self.mission_guard:
+                            try:
+                                self.mission_guard(operation_id)
                             except ValueError as exc:
                                 raise ActionExecutionError(str(exc)) from exc
                     args = (self.adapters[result['command_id']]['tool'], result['inputs'], action_id)
