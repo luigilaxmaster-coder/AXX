@@ -6964,9 +6964,14 @@ var Axx;
             el('autostart').title = 'El inicio con Windows aún no está implementado.';
             const nativeNotification = document.getElementById('notify-permission');
             if (nativeNotification) { nativeNotification.disabled = true; nativeNotification.title = 'Avisos dentro de Axx; integración de notificaciones Windows pendiente.'; }
-            if (status.shortcutError) {
-                this.toast(status.shortcutError, 12000);
-                el('native-warning').textContent = status.shortcutError;
+            if (status.restoreShortcutAvailable === false) {
+                el('restore').querySelector('kbd').textContent = 'Alt + Mayús + A';
+                el('summon-key').lastElementChild.textContent = 'Alt + Mayús + A';
+            }
+            const shortcutWarnings = [status.shortcutError, status.restoreShortcutError].filter(Boolean);
+            if (shortcutWarnings.length) {
+                this.toast(shortcutWarnings.join(' '), 12000);
+                el('native-warning').textContent = shortcutWarnings.join(' ');
             }
             await this.bridge.listen('axx-show', () => { this.setVisible(true); this.renderer.interact(); });
             await this.bridge.listen('axx-hide', () => this.setVisible(false));

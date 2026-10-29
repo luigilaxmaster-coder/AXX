@@ -103,6 +103,8 @@ pub struct HostState {
     backend: Mutex<Option<BackendConnection>>,
     backend_error: Mutex<Option<String>>,
     shortcut_error: Mutex<Option<String>>,
+    restore_shortcut_error: Mutex<Option<String>>,
+    restore_shortcut_available: AtomicBool,
     remote_voice_shortcut_error: Mutex<Option<String>>,
     active_requests: Mutex<HashSet<String>>,
     realtime_cancellations: Mutex<HashMap<String, Arc<AtomicBool>>>,
@@ -136,6 +138,8 @@ pub struct NativeStatusResponse {
     pub native: bool,
     pub shortcut: String,
     pub shortcut_error: Option<String>,
+    pub restore_shortcut_error: Option<String>,
+    pub restore_shortcut_available: bool,
     pub remote_voice_shortcut: String,
     pub remote_voice_shortcut_error: Option<String>,
     pub always_on_top: bool,
@@ -183,6 +187,8 @@ fn native_status(app: AppHandle, state: State<HostState>) -> NativeStatusRespons
         native: true,
         shortcut: "Alt+Shift+A".into(),
         shortcut_error: state.shortcut_error.lock().unwrap().clone(),
+        restore_shortcut_error: state.restore_shortcut_error.lock().unwrap().clone(),
+        restore_shortcut_available: state.restore_shortcut_available.load(Ordering::Relaxed),
         remote_voice_shortcut: "Ctrl+Alt+Shift+V".into(),
         remote_voice_shortcut_error: state.remote_voice_shortcut_error.lock().unwrap().clone(),
         always_on_top: app
@@ -1065,12 +1071,20 @@ fn start_global_hotkey_thread(app: AppHandle) {
                     std::io::Error::last_os_error()
                 );
             }
+            if RegisterHotKey(std::ptr::null_mut(), 1003, MOD_CONTROL | MOD_ALT | MOD_NOREPEAT, 0x20) == 0 {
+                *app.state::<HostState>().restore_shortcut_error.lock().unwrap() = Some(format!("Ctrl+Alt+Espacio no disponible: {}. Use Alt+Mayús+A o la bandeja de Axx.", std::io::Error::last_os_error()));
+            } else {
+                app.state::<HostState>().restore_shortcut_available.store(true, Ordering::Relaxed);
+            }
             if RegisterHotKey(std::ptr::null_mut(), 1002, MOD_CONTROL | MOD_ALT | MOD_SHIFT | MOD_NOREPEAT, 0x56) == 0 {
                 *app.state::<HostState>().remote_voice_shortcut_error.lock().unwrap() = Some(format!("Ctrl+Alt+Shift+V unavailable: {}", std::io::Error::last_os_error()));
             }
             let mut last = Instant::now() - Duration::from_secs(10);
             let mut msg: MSG = std::mem::zeroed();
             while GetMessageW(&mut msg, std::ptr::null_mut(), 0, 0) > 0 {
+                if msg.message == WM_HOTKEY && msg.wParam == 1003 {
+                    let _ = resident::summon(&app, false);
+                }
                 if msg.message == WM_HOTKEY && msg.wParam == 1002 {
                     let _ = app.emit("axx-remote-voice-toggle", ());
                 }
@@ -1087,6 +1101,7 @@ fn start_global_hotkey_thread(app: AppHandle) {
             }
             UnregisterHotKey(std::ptr::null_mut(), 1001);
             UnregisterHotKey(std::ptr::null_mut(), 1002);
+            UnregisterHotKey(std::ptr::null_mut(), 1003);
             if !hook.is_null() {
                 UnhookWindowsHookEx(hook);
             }

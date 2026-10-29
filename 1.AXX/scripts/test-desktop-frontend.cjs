@@ -64,7 +64,7 @@ assert.deepEqual(reviewResolution.steps,[{command_id:'axx.desktop.list_windows',
       window.__TAURI__ = { core: { invoke: async (name, args) => {
         window.__contractCalls.push({ name, args });
         const desktop = { workWidth: 1920, workHeight: 1040, spaceLeft: 1660, spaceRight: 260, spaceAbove: 800, spaceBelow: 240 };
-        if (name === 'native_status') return { native: true, backendReady: !window.__contractSuppressBackend, backendError: null, shortcut: 'Alt+Shift+A', alwaysOnTop: true, timer: null, dataDirectory: 'CONTRACT_TEST_ONLY', desktop };
+        if (name === 'native_status') return { native: true, backendReady: !window.__contractSuppressBackend, backendError: null, shortcut: 'Alt+Shift+A', restoreShortcutAvailable: !localStorage.getItem('contract.restore-conflict'), restoreShortcutError: localStorage.getItem('contract.restore-conflict') ? 'Ctrl+Alt+Espacio no disponible' : null, alwaysOnTop: true, timer: null, dataDirectory: 'CONTRACT_TEST_ONLY', desktop };
         if (name === 'desktop_layout') { await new Promise(resolve => setTimeout(resolve, 45)); window.__contractLayout = args; return { ...desktop, ...args }; }
         if (name === 'capture_halo' && window.__contractFailHalo) { window.__contractFailHalo = false; throw Error('Capture affinity busy'); }
         if (name !== 'backend_request') return null;
@@ -123,7 +123,7 @@ assert.deepEqual(reviewResolution.steps,[{command_id:'axx.desktop.list_windows',
           return { request_id: body.request_id, choices: [{ message: { content: 'Contract fixture response' }, finish_reason: 'stop' }], axx_router: { provider: 'contract-fixture', model: body.model, elapsed_ms: 17 } };
         }
         throw new Error('Unsupported contract fixture route: ' + path);
-      } }, event: { listen: async (name, fn) => { window.__contractEvents[name] = fn; return () => {}; } } };
+      } }, event: { listen: async (name, fn) => { (window.__contractEvents[name] ||= []).push(fn); return () => {}; } } };
     });
     await page.goto(`http://127.0.0.1:${server.address().port}`);
     await page.waitForFunction(() => window.Axx?.desktop?.ready && Axx.chatWorkspace?.ready && !window.Axx.companion.connecting);
@@ -638,6 +638,20 @@ assert.deepEqual(reviewResolution.steps,[{command_id:'axx.desktop.list_windows',
     });
     assert.equal(halo.afterFailure, ''); assert.equal(halo.retries, 2); assert(halo.afterSuccess);
     results.push('Recording halo retries its existing state after capture-affinity contention instead of caching a failed update');
+    await page.waitForFunction(() => window.__contractEvents['axx-show']?.length >= 2);
+    await page.evaluate(() => Axx.companion.hide());
+    assert.equal(await page.evaluate(() => document.body.classList.contains('avatar-hidden')), true);
+    await page.evaluate(() => window.__contractEvents['axx-show'].forEach(fn => fn({payload:{follow:false}})));
+    assert.equal(await page.evaluate(() => document.body.classList.contains('avatar-hidden')), false);
+    assert.equal(await page.locator('#restore').isHidden(), true);
+    results.push('A native summon event restores the hidden avatar');
+    await page.evaluate(() => localStorage.setItem('contract.restore-conflict', '1'));
+    await page.reload();
+    await page.waitForFunction(() => window.Axx?.desktop?.ready && Axx.chatWorkspace?.ready);
+    assert.equal(await page.locator('#restore kbd').textContent(), 'Alt + Mayús + A');
+    assert.match(await page.locator('#native-warning').textContent(), /Ctrl\+Alt\+Espacio no disponible/);
+    await page.evaluate(() => localStorage.removeItem('contract.restore-conflict'));
+    results.push('A conflicting global restore shortcut displays the available fallback');
     await page.addInitScript(() => { window.requestAnimationFrame = () => 1; window.__contractSuppressBackend = true; });
     await page.reload();
     // RAF is deliberately suspended above, so the observer must use an independent clock.
