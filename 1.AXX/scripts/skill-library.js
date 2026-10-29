@@ -26,6 +26,12 @@
       <label class="setting">Fuente o sesión registrada<select id="skills-context-origin"></select></label><button id="skills-invalidate-context" type="button">Marcar origen como desactualizado</button><button id="skills-forget-context" type="button">Olvidar este origen</button>
       <p>Olvidar elimina el contexto de ese origen y sus derivados. Los archivos, permisos y el historial de ejecución se conservan. Marcar como desactualizado conserva el dato y bloquea su reutilización automática.</p></details>
     </details>
+    <details id="skills-lessons"><summary>Incidentes y correcciones de este chat</summary><p>Una hipótesis describe una posible causa. Una prueba posterior con recibo verificado no demuestra esa causa ni concede permisos.</p>
+      <form id="skills-lessons-search"><label class="setting">Buscar referencias<input name="query" class="field" maxlength="1000" type="search"></label><label class="setting">ID de comando, opcional<input name="command_id" class="field" maxlength="128"></label><button type="submit">Consultar hasta tres referencias</button></form>
+      <div id="skills-lessons-list"></div><p id="skills-lessons-status" role="status"></p>
+      <details><summary>Registrar un incidente observado</summary><p>Usa el ID de un comando fallido del historial. La biblioteca comprobará su recibo antes de guardar esta referencia.</p>
+        <form id="skills-lesson-form"><label class="setting">ID del comando fallido<input name="operation_id" class="field" maxlength="128" required></label><label class="setting">Hipótesis sin confirmar<textarea name="hypothesis" class="field" maxlength="1000" required></textarea></label><label class="setting">Corrección que propones, opcional<textarea name="user_correction" class="field" maxlength="1000"></textarea></label><label class="setting">ID de prueba posterior, opcional<input name="verification_operation_id" class="field" maxlength="128"></label><button type="submit">Guardar referencia de incidente</button></form>
+      </details></details>
     <details><summary>Combinar habilidades</summary><p>Añade las habilidades en el orden de la tarea. Las lecturas independientes pueden ejecutarse de dos en dos; los cambios en archivos y aplicaciones conservan un solo ejecutor.</p>
       <div id="skills-parts"></div><label class="setting">Objetivo<input id="skills-objective" class="field" maxlength="2000"></label>
       <button id="skills-compose" type="button">Preparar tarea combinada</button><button id="skills-clear-parts" type="button">Vaciar selección</button>
@@ -42,10 +48,12 @@
     <details open><summary>Tareas e historial</summary><button id="skills-tasks-refresh" type="button">Actualizar tareas</button><div id="skills-tasks"></div></details>
     <p id="skills-status" role="status"></p>`;
   $('command-library').before(section);
-  let skills = [], parts = [], windows = [], demo = null, polling = null, refreshRevision=0, tasksRevision=0, contextBusy=false;
+  let skills = [], parts = [], windows = [], demo = null, polling = null, refreshRevision=0, tasksRevision=0, contextBusy=false, lessonRevision=0, lessonScope='', lessonBusy=false;
   const contextInputs={current_folder:'skills-folder',current_file:'skills-file',current_application:'skills-app'},contextDirty=new Set();
   const project = () => $('skills-project').value.trim();
   $('skills-project').value = Axx.companion.data.prefs.skillProject || '';
+  const task=()=>Axx.chatWorkspace?.active?.id||null,scope=()=>JSON.stringify([project(),task()]);
+  function syncLessonScope(){const selected=scope();if(selected===lessonScope)return;lessonScope=selected;++lessonRevision;$('skills-lessons-list').replaceChildren();$('skills-lesson-form').reset();delete $('skills-lesson-form').dataset.scope;delete $('skills-lesson-form').dataset.humanCorrection;$('skills-lessons-search').reset();$('skills-lessons-status').textContent='';}
   function adopt(plan) {
     commands.lastOperation = plan; commands.operation = ['awaiting_approval', 'running'].includes(plan.state) ? plan : null;
     commands.busy = false; commands.renderOperation(plan); commands.status(plan.message || states[plan.state] || plan.state);
@@ -64,8 +72,9 @@
     const selected=project(),token=++refreshRevision;
     const [result,context] = await Promise.all([api('GET','learning/actions?project_id='+encodeURIComponent(selected)),api('GET','learning/context?project_id='+encodeURIComponent(selected))]);
     if(token!==refreshRevision||selected!==project())return;
-    skills = result.actions || []; renderList();renderContext(context);
+    skills = result.actions || []; renderList();renderContext(context);syncLessonScope();
     await tasks();
+    if($('skills-lessons').open)await loadLessons();
   }
   function renderContext(context){
     for(const [field,id] of Object.entries(contextInputs))if(!contextDirty.has(field))$(id).value=context[field]||'';
@@ -97,6 +106,34 @@
     renderContext(context);$('skills-status').textContent=(forget?'Contexto olvidado':'Contexto marcado como desactualizado')+' · '+(context.invalidated||[]).length+' referencias invalidadas. Los permisos y el historial de ejecución se conservan.';
   }
   const contextAction=action=>run(async()=>{if(contextBusy)return;contextBusy=true;$('skills-save-context').disabled=$('skills-invalidate-context').disabled=$('skills-forget-context').disabled=true;try{await action();}finally{contextBusy=false;$('skills-save-context').disabled=false;$('skills-invalidate-context').disabled=$('skills-forget-context').disabled=!$('skills-context-origin').options.length;}});
+  async function loadLessons(){
+    syncLessonScope();const selected=scope(),currentTask=task(),currentProject=project(),token=++lessonRevision;if(!currentTask){$('skills-lessons-status').textContent='Selecciona un chat para consultar sus referencias.';return;}
+    const query=$('skills-lessons-search').elements,params=new URLSearchParams({project_id:currentProject,task_id:currentTask,query:query.query.value.trim(),command_id:query.command_id.value.trim(),limit:'3'});let result;try{result=await api('GET','learning/lessons?'+params);}catch(error){if(token!==lessonRevision||selected!==scope())return;throw error;}
+    if(token!==lessonRevision||selected!==scope())return;if(!Array.isArray(result.lessons))throw Error('La biblioteca no devolvió referencias válidas.');
+    const root=$('skills-lessons-list');root.replaceChildren();
+    for(const lesson of result.lessons){
+      if(lesson.task_id!==currentTask||lesson.project_id!==''&&lesson.project_id!==currentProject)continue;
+      const row=element('article');row.className='setup-card';row.append(element('strong',lesson.command_id+' · '+(lesson.status==='stale'?'Referencia desactualizada':'Referencia de incidente')),element('p','Síntoma observado: '+lesson.symptom+' · '+lesson.error_code));
+      const details=element('details'),list=element('dl');details.append(element('summary','Hipótesis, corrección y evidencia'));
+      const add=(label,value)=>{if(value===undefined||value===null)return;list.append(element('dt',label),element('dd',String(value)));};
+      add('Hipótesis sin confirmar',lesson.hypothesis);if(lesson.user_correction)add(lesson.correction_provenance==='confirmed_user'?'Corrección que escribiste':'Corrección registrada',lesson.user_correction);
+      if(lesson.verification?.status==='verified_test')add('Prueba con recibo verificado',lesson.verification.operation_id+'. Esta prueba no confirma la causa del fallo.');
+      else add('Prueba posterior','No hay una prueba verificada adjunta.');
+      add('Operación de origen',lesson.source_operation_id);add('SHA-256 del recibo de origen',lesson.source_receipt_sha256);
+      if(lesson.verification?.receipt_sha256)add('SHA-256 del recibo de prueba',lesson.verification.receipt_sha256);
+      if(lesson.environment_scope==='registered_command_at_recording_not_historical_app_version')add('Entorno','Corresponde al comando registrado al guardar la referencia; no certifica la versión histórica de la aplicación.');
+      if(lesson.environment_matches===false||lesson.context_matches===false)add('Desactualizado','El entorno o el contexto ya no coincide con el de esta referencia.');
+      if(lesson.permissions_granted===false)add('Permisos','Esta referencia no concede permisos.');if(lesson.preference_inferred===false)add('Preferencias','El incidente no acredita una preferencia del usuario.');
+      list.style.overflowWrap='anywhere';details.append(list);row.append(details,button('Olvidar esta referencia',()=>lessonAction(async()=>{const result=await api('POST','learning/forget-lesson',{id:lesson.id});if(selected!==scope())return;await loadLessons();$('skills-lessons-status').textContent=(result.forgotten?'Referencia olvidada.':'La referencia ya no estaba guardada.')+(result.command_journal_preserved===true?' El historial de ejecución se conserva.':'');})));root.append(row);
+    }
+    $('skills-lessons-status').textContent=root.children.length?root.children.length+' referencias de este chat.':'No hay referencias que coincidan en este chat.';
+  }
+  const lessonAction=action=>run(async()=>{if(lessonBusy)return;lessonBusy=true;$('skills-lesson-form').querySelector('button').disabled=true;try{await action();}finally{lessonBusy=false;$('skills-lesson-form').querySelector('button').disabled=false;}});
+  async function recordLesson(){
+    const form=$('skills-lesson-form'),selected=scope(),currentTask=task();if(!currentTask)throw Error('Selecciona el chat de este incidente.');if(form.dataset.scope!==selected)throw Error('El chat o proyecto cambió. Revisa y vuelve a escribir la referencia antes de guardarla.');
+    const fields=form.elements,body={operation_id:fields.operation_id.value.trim(),hypothesis:fields.hypothesis.value.trim(),project_id:project(),task_id:currentTask};if(fields.user_correction.value.trim()){if(form.dataset.humanCorrection!==fields.user_correction.value)throw Error('La corrección debe escribirla el usuario; el texto automático no se registrará como confirmado.');body.user_correction=fields.user_correction.value.trim();}if(fields.verification_operation_id.value.trim())body.verification_operation_id=fields.verification_operation_id.value.trim();
+    try{await api('POST','learning/lesson',body);}catch(error){if(selected!==scope())return;throw error;}if(selected!==scope())return;await loadLessons();$('skills-lessons-status').textContent='Referencia guardada. La hipótesis sigue sin confirmar.';
+  }
   function renderList() {
     const query = $('skills-search').value.toLocaleLowerCase(), list = $('skills-list'); list.replaceChildren();
     for (const skill of skills.filter(s => (!$('skills-favorites').checked || s.favorite) && [s.title, s.trigger, ...(s.examples || [])].join(' ').toLocaleLowerCase().includes(query))) {
@@ -182,9 +219,12 @@
   }
   async function stopDemo(cancel=false) { showDemo(await api('POST','demonstration/stop',{id:demo?.id,cancel})); }
   $('skills-refresh').onclick=()=>run(refresh); $('skills-search').oninput=$('skills-favorites').onchange=renderList;
-  $('skills-project').onchange=()=>run(async()=>{if(commands.busy||commands.operation){$('skills-project').value=Axx.companion.data.prefs.skillProject||'';throw new Error('Termina o cancela la acción activa antes de cambiar de proyecto.');}Axx.companion.data.prefs.skillProject=project();Axx.companion.save();commands.learningQuestion=null;commands.actionContext={};parts=[];renderParts();$('skills-editor').replaceChildren();contextDirty.clear();for(const id of Object.values(contextInputs))$(id).value='';$('skills-context-evidence').replaceChildren();$('skills-context-origin').replaceChildren();$('skills-context-status').textContent='Consultando contexto del proyecto…';++refreshRevision;++tasksRevision;await refresh();});
+  $('skills-project').onchange=()=>run(async()=>{if(commands.busy||commands.operation){$('skills-project').value=Axx.companion.data.prefs.skillProject||'';throw new Error('Termina o cancela la acción activa antes de cambiar de proyecto.');}Axx.companion.data.prefs.skillProject=project();Axx.companion.save();commands.learningQuestion=null;commands.actionContext={};parts=[];renderParts();$('skills-editor').replaceChildren();contextDirty.clear();for(const id of Object.values(contextInputs))$(id).value='';$('skills-context-evidence').replaceChildren();$('skills-context-origin').replaceChildren();$('skills-context-status').textContent='Consultando contexto del proyecto…';syncLessonScope();++refreshRevision;++tasksRevision;await refresh();});
   for(const [field,id] of Object.entries(contextInputs))$(id).oninput=event=>{if(event.isTrusted){contextDirty.add(field);$('skills-context-status').textContent='Hay campos editados sin guardar.';}};
   $('skills-save-context').onclick=()=>contextAction(saveContext);$('skills-invalidate-context').onclick=()=>contextAction(()=>invalidateContext(false));$('skills-forget-context').onclick=()=>contextAction(()=>invalidateContext(true));
+  $('skills-lessons').addEventListener('toggle',()=>{if($('skills-lessons').open)void run(loadLessons);});$('skills-lessons-search').onsubmit=event=>{event.preventDefault();void run(loadLessons);};
+  $('skills-lesson-form').oninput=event=>{if(event.isTrusted){$('skills-lesson-form').dataset.scope=scope();if(event.target.name==='user_correction')$('skills-lesson-form').dataset.humanCorrection=event.target.value;}};$('skills-lesson-form').onsubmit=event=>{event.preventDefault();void lessonAction(recordLesson);};
+  const renderChat=Axx.companion.renderChat?.bind(Axx.companion);if(renderChat)Axx.companion.renderChat=(...args)=>{const result=renderChat(...args);syncLessonScope();return result;};
   $('skills-tasks-refresh').onclick=()=>run(tasks);
   $('skills-clear-parts').onclick=()=>{parts=[];renderParts();};
   $('skills-compose').onclick=()=>run(()=>planRequest('compose',{text:$('skills-objective').value,parts,operation_id:Axx.newId(),project_id:project()}));
