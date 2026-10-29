@@ -37,7 +37,7 @@ def command_sequence(text, source):
     raw = command_carrier(text)
     if raw.startswith('/'):
         return None
-    forms = set(FORM) | {'encuentra','encontrar','localiza','lista','muestra','consulta','pausa','reanuda','inspecciona','crea','crear','copia','renombra','calcula','guarda','borra','elimina','envia','organiza','convierte','descarga','instala'}
+    forms = set(FORM) | {'pon','ponme','poner','observa','encuentra','encontrar','localiza','lista','muestra','consulta','pausa','reanuda','inspecciona','crea','crear','copia','renombra','calcula','guarda','borra','elimina','envia','organiza','convierte','descarga','instala'}
     head = re.match(r'\w+', raw)
     leading_search = re.match(r'^(?:en|and)\s+(?:'+SEARCH_NAMES+r')[.,:]?\s+(?:busca|buscar|buscame|búscame|encuentra|encontrar|localiza)\b',raw,re.I)
     if not head or not leading_search and plain(head[0]) not in forms | (set(VOICE_VERBS) if source == 'voice' else set()): return None

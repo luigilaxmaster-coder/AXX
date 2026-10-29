@@ -68,7 +68,7 @@ class GoalCycleTests(unittest.TestCase):
         self.assertEqual(resumed['goal_spec'],waiting['goal_spec'])
         self.assertEqual(resumed['conversation_id'],'task-chat')
         self.assertEqual(resumed['state'],'awaiting_approval',resumed)
-        self.assertIn(active['generated_command_id'],self.model.calls[-1]['messages'][0]['content'])
+        self.assertIn(active['generated_command_id'],self.model.calls[-1]['messages'][1]['content'])
         with self.assertRaises(ApprovalRequired):self.learning.execute(resumed['operation_id'])
         done=self.learning.execute(resumed['operation_id'],approved=True)
         self.assertEqual(done['state'],'succeeded',done)

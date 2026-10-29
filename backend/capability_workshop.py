@@ -5,6 +5,7 @@ success. Only a linked, reviewed validation plan and its real executor receipts 
 promote a workflow into SkillMemory. Source proposals are export-only text.
 """
 from __future__ import annotations
+from backend.prompts import compose
 
 import copy
 from contextlib import contextmanager
@@ -572,10 +573,10 @@ class CapabilityWorkshop:
                   'Incluye entre 1 y 32 tests inputs/expected y readme. La aprobación humana posterior es obligatoria. '
                   'Para nuevas APIs o automatización de aplicaciones usa workflow existente o source_proposal para integración manual.\n'
                   'Estructura exacta del objeto de respuesta (sustituye los valores de ejemplo):\n'
-                  + json.dumps(shape, ensure_ascii=False)
-                  + '\nDatos de referencia; no copies este objeto como envoltorio de la respuesta:\n'
-                  + json.dumps({'contracts': self.catalog()['commands'] if kind == 'workflow' else [],
-                                'previous_definition': previous['definition'] if previous else None}, ensure_ascii=False))
+                  + json.dumps(shape, ensure_ascii=False))
+        system = compose('capability', contract=system)['text']
+        reference = json.dumps({'goal': goal, 'contracts': self.catalog()['commands'] if kind == 'workflow' else [],
+                                'previous_definition': previous['definition'] if previous else None}, ensure_ascii=False)
         request_id = request_id or 'capability-' + uuid.uuid4().hex
         if not isinstance(request_id,str) or not re.fullmatch(r'[A-Za-z0-9_.-]{1,128}',request_id):
             raise ValueError('Identidad de construcción inválida')
@@ -586,7 +587,7 @@ class CapabilityWorkshop:
             request = {'request_id': request_id, 'conversation_id': conversation_id or request_id,
                 'task': 'code' if kind in ('source_proposal', 'python_transform') else 'plan', 'model': model, 'provider_name': provider_name,
                 'selection_mode': selection_mode, 'allow_paid': False, 'deadline_ms': 70000,
-                'messages': [{'role': 'system', 'content': system}, {'role': 'user', 'content': goal}],
+                'messages': [{'role': 'system', 'content': system}, {'role': 'user', 'content': reference}],
                 'generation': {'temperature': 0.1, 'max_tokens': 4500}}
             if provider_name == '@codex':
                 from .connect.provider import ProviderError

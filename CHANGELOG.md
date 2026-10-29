@@ -1,5 +1,15 @@
 # Change log
 
+## 0.22.24 — 2026-10-29 · Instrucciones por función
+
+- Centraliza módulos de comportamiento con versión, presupuesto y modos separados.
+- Mantiene referencias fuera de las instrucciones privilegiadas, contratos JSON,
+  selección manual, permisos, memoria y recibos del ejecutor.
+- Conserva las peticiones completas de Connect y las cláusulas de órdenes visuales.
+- Añade regresiones de contratos e instrumentación sin texto privado.
+
+[Notas y validación](docs/releases/0.22.24.md) · [Integración técnica](docs/PROMPT-CONTRACTS.md).
+
 ## 0.22.14 — 2026-10-27 · Entrega conjunta
 
 | Área | Cambio |

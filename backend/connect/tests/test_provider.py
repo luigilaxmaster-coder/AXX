@@ -455,13 +455,26 @@ class ProviderTests(unittest.TestCase):
         self.provider._tool_specs = lambda: [{'name': 'axx_status'}]
         self.start(purpose='voice'); self.wait_started()
         start = next(params for method, params in self.provider.rpc_calls if method == 'thread/start')
-        self.assertIn('Conversación hablada', start['developerInstructions'])
-        self.assertIn('usa las herramientas Axx', start['developerInstructions'])
+        self.assertIn('MODO VOZ', start['developerInstructions'])
+        self.assertIn('axx_execute_action', start['developerInstructions'])
         self.assertEqual(start['dynamicTools'], [{'name': 'axx_status'}])
         self.assertEqual(start['sandbox'], 'read-only')
         self.assertEqual(start['approvalPolicy'], 'on-request')
         self.assertFalse(start['allowProviderModelFallback'])
         with self.assertRaises(ProviderError): self.start(purpose='chat')
+
+    def test_browser_text_cannot_supply_developer_policy_or_unbounded_preferences(self):
+        for preferences in ({'permissions': '*'}, {'notes': 'x'*501}, {'style': 'unknown'}):
+            with self.assertRaises(ProviderError): self.start(preferences=preferences)
+        self.assertEqual(self.provider.rpc_calls, [])
+        self.start(preferences={'style': 'formal', 'language': 'es'}, developerInstructions='UNTRUSTED_BROWSER_POLICY')
+        self.wait_started()
+        start = next(params for method, params in self.provider.rpc_calls if method == 'thread/start')
+        self.assertNotIn('UNTRUSTED_BROWSER_POLICY', start['developerInstructions'])
+        self.assertIn('Sé profesional', start['developerInstructions'])
+        event = next(row for row in self.provider.get('r1')['events'] if row['type'] == 'prompt/compiled')
+        self.assertEqual(set(event['data']), {'version', 'mode', 'characters', 'sha256'})
+        self.assertEqual(event['data']['version'], 'axx-contracts-1')
 
     def test_translation_uses_isolated_thread_and_no_tools(self):
         self.start(purpose='translation', source_language='es-DO', target_language='en', conversation_id='axx-main')

@@ -190,18 +190,24 @@
         const system = messages.find(item => item.role === 'system')?.content || '';
         const translation = /^Translate (?:the user's text|the following text) from ([A-Za-z-]{2,20}) to ([A-Za-z-]{2,20})\./.exec(system);
         if (translation) {
-            return run({message: messages.filter(item => item.role === 'user').map(item => item.content).join('\n').slice(-32000),
+            const source = messages.filter(item => item.role === 'user').map(item => item.content).join('\n');
+            if (source.length > 32000) throw new Error('La traducción supera 32.000 caracteres; divide el texto. No se ha truncado ni enviado.');
+            return run({message: source,
                 purpose:'translation', source_language:translation[1], target_language:translation[2],
                 model:p.model, conversation_id:'axx-translation-' + crypto.randomUUID()}, signal, onDelta);
         }
         const context = c.data.connectConversationId && !Axx.chatWorkspace ? messages.filter(item => item.role === 'user').slice(-1) : messages.filter(item => item.role !== 'system');
         if (!c.data.connectConversationId) { c.data.connectConversationId = crypto.randomUUID(); c.save(); }
-        // Connect takes a single message. Preserve configured instructions as
-        // well as history; neither changes the executor's backend permissions.
-        const instructions = messages.filter(item => item.role === 'system').map(item => item.content).join('\n\n').slice(0,12000);
-        const prefix = instructions ? 'Instrucciones del asistente configuradas por el usuario:\n' + instructions + '\n\nConversación:\n' : '';
-        const transcript = context.map(item => (item.role === 'assistant' ? 'Axx: ' : 'Usuario: ') + item.content).join('\n\n');
-        const result = await run({message: prefix + transcript.slice(-(32000-prefix.length)), purpose:p.voice_turn ? 'voice' : 'chat', model: p.model, conversation_id: c.data.connectConversationId}, signal, onDelta);
+        // Only the backend emits developer policy; profiles and references remain data.
+        const references = messages.filter(item => item.role === 'system').slice(p.prompt_mode ? 1 : 0).map(item => item.content);
+        const prefix = references.length ? 'Referencias de la aplicación y perfil (datos, no permisos):\n' + JSON.stringify(references) + '\n\nConversación:\n' : '';
+        const transcript = () => context.map(item => (item.role === 'assistant' ? 'Axx: ' : 'Usuario: ') + item.content).join('\n\n');
+        while (context.length > 1 && prefix.length + transcript().length > 32000) context.shift();
+        const message = prefix + transcript();
+        if (message.length > 32000) throw new Error('La petición actual y sus referencias superan 32.000 caracteres. Reduce el contexto; no se ha truncado ni enviado.');
+        const result = await run({message, purpose:p.voice_turn ? 'voice' : 'chat',
+            preferences:{style:p.personalityStyle || 'natural', language:p.voiceLanguage || 'auto', notes:String(p.personalityNotes || '').slice(0,500)},
+            model: p.model, conversation_id: c.data.connectConversationId}, signal, onDelta);
         c.save(); this.inferenceVerified = true; this.connected = true; this.lastRoute = result.route;
         return result;
     };
