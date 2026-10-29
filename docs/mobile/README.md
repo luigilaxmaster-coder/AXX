@@ -4,7 +4,7 @@ Android is a client of the existing Windows Axx instance. It shares the desktop 
 
 ## Latest revision
 
-[Encrypted file transfers, phone dictation and cross-network setup in 0.2.5](TRANSFER.md). Physical phone and cross-network acceptance for this revision were not performed.
+[Encrypted file transfers, phone dictation and cross-network setup in 0.2.5](TRANSFER.md). [Physical phone-to-PC acceptance on 29 October 2026](TRANSFER-ACCEPTANCE-20261029.md) verified a 1,049,652-byte copy from Samsung SM_A217M to Windows over Wi-Fi, including saving from Axx to Downloads and matching SHA-256. Cross-network, voice and background acceptance remain pending.
 
 [Themes, GPU and two-way character customization in 0.2.4](PERSONALIZATION-20261028-024.md).
 
@@ -106,4 +106,4 @@ The debug APK and unsigned Windows installer are local artifacts. Source push do
 - [Integration map](INTEGRACION.md)
 - [M01–M34 / V01–V72 traceability](TRAZABILIDAD.md)
 
-The full MO-1–MO-7 acceptance plan is not complete. Physical multi-monitor/DPI, all input gestures and interruption cases, spoken command-to-result, file/media flows, mobile Magic Pen/converter control and administrative flows remain open. iOS and MO-8 Internet access are outside this execution; API 37 acceptance remains pending by platform. No simulated test is described as physical Android acceptance.
+The full MO-1–MO-7 acceptance plan is not complete. Physical multi-monitor/DPI, all input gestures and interruption cases, spoken command-to-result, remaining file/media flows, mobile Magic Pen/converter control and administrative flows remain open. iOS and MO-8 Internet acceptance remain open; API 37 acceptance remains pending by platform. No simulated test is described as physical Android acceptance.
