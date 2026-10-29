@@ -92,7 +92,7 @@ class ActionLearningTests(unittest.TestCase):
         self.assertEqual(plan['steps'][0]['inputs']['path'],'training.txt')
         self.assertEqual(plan['model_calls_used'],2)
         prompt=requests[0]['messages'][0]['content']
-        contract=json.JSONDecoder().raw_decode(prompt[prompt.index('{"capabilities":'):])[0]
+        contract=json.loads(requests[0]['messages'][1]['content'])
         command=next(c for c in contract['capabilities'] if c['command_id']=='axx.artifact.write')
         self.assertIn('relativa',command['parameters']['path']['description'])
         self.assertEqual(command['parameters']['path']['maxLength'],240)

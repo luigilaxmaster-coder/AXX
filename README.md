@@ -10,15 +10,15 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Source%20Version-v0.22.23-informational" alt="Source version 0.22.23" />
+  <img src="https://img.shields.io/badge/Source%20Version-v0.22.24-informational" alt="Source version 0.22.24" />
   <a href="https://github.com/luigilaxmaster-coder/AXX/actions/workflows/version-consistency.yml">Integración continua</a> ·
-  <a href="docs/releases/0.22.23.md">Notas de la versión</a> ·
+  <a href="docs/releases/0.22.24.md">Notas de la versión</a> ·
   <a href="docs/COMMAND-TRAINING.md">Práctica y aceptación</a>
 </p>
 
 [Empezar](#empezar) · [Funciones](#funciones) · [Modelos](#modelos) · [Magic Pen](#magic-pen) · [Control del PC](#control-del-pc) · [Arquitectura](#arquitectura) · [Validación](#pruebas-y-estado) · [Desarrollo](#desarrollo)
 
-> **Axx is under active development.** Source and published Windows installer are both **v0.22.23**. Validation is recorded per feature; a working UI or build does not by itself certify every hardware-dependent behavior.
+> **Axx is under active development.** Source is **v0.22.24**; the published Windows installer is **v0.22.23**. Delivery of the newer source is pending publication. Validation is recorded per feature; a working UI or build does not by itself certify every hardware-dependent behavior.
 
 ## Download Axx for Windows
 
@@ -29,7 +29,7 @@ Run the installer and open Axx. Python and Node are not required. Start with **A
 
 The packaged backend may take longer on its first launch while Windows extracts and scans it. The native host allows up to 90 seconds for backend readiness and reports a startup error if that limit is exceeded.
 
-Source and published Windows installer are both **v0.22.23**. Android APKs remain local test artifacts until separately published. See [mobile setup and validation](docs/mobile/README.md) and the [version and release procedure](docs/RELEASING.md).
+Source is **v0.22.24**; the published Windows installer is **v0.22.23**. Delivery of the newer source is pending publication. Android APKs remain local test artifacts until separately published. See [mobile setup and validation](docs/mobile/README.md) and the [version and release procedure](docs/RELEASING.md).
 <!-- release:download:end -->
 
 ---
@@ -163,6 +163,8 @@ La distribución utiliza **Tauri 2 / Rust / WebView2**, interfaz HTML/CSS/JavaSc
 
 Una operación tiene ID, entradas, estado y evidencia. Se distinguen preparación, aprobación, entrega, efecto observado y objetivo comprobado. Un resultado incierto no se repite automáticamente. Las secuencias se detienen cuando un paso falla; cancelar no revierte efectos consumados. [Arquitectura de ejecución](docs/UNIFIED-EXECUTION.md).
 
+Las instrucciones se componen en el backend por función, con versión y presupuesto. Conversación, voz, traducción, planificación y percepción conservan contratos separados; las referencias no conceden permisos. [Integración y evaluación de 28 escenarios](docs/PROMPT-CONTRACTS.md).
+
 ### Taller de capacidades
 
 El taller puede proponer flujos y transformaciones puras, validarlas y mantener versiones. **Borrador, pruebas, aprobación y activación son estados diferentes**. Las pruebas de una propuesta no conceden por sí solas autoridad para ejecutarla. Las integraciones sin interfaz comprobada permanecen como propuestas o investigación.
@@ -185,7 +187,7 @@ El escaneo óptico del QR, la entrada física remota y el audio mantienen acepta
 | **Secuencias · 0.22.23** | Desde la barra: abrir YouTube y buscar Faint; crear un archivo nuevo, calcular su SHA256 y comprobar el contenido final. Pasos ordenados y recibos verificados. | Buscar no acredita reproducción. Las acciones conservan su revisión. |
 | **Modelo/API · 0.22.23** | La selección guardada sobrevivió a la reinstalación y preparó el plan de archivo con dos inferencias. Respuesta API sintética comprobada durante la aceptación. | La ruta configurada no certifica la identidad interna de los pesos del proveedor ni todos sus modelos. |
 | **Planificación/Codex · 0.22.22** | Preparación real de planes API y Codex, reconexión y recuperación del gateway documentadas. | No equivale a ejecutar cualquier plan de cualquier modelo. |
-| **Regresión automática** | 74 casos en la batería de CI; tres pruebas nativas se omiten en Linux y se comprobaron por separado en Windows. Biblioteca de UI: 33 grupos; escenarios de la barra; Rust: 18 aprobadas y un helper omitido. | CI no reemplaza la aceptación del EXE instalado. |
+| **Regresión automática** | 83 casos en la batería de CI; tres pruebas nativas se omiten en Linux y se comprobaron por separado en Windows. Biblioteca de UI: 33 grupos; escenarios de la barra; Rust: 18 aprobadas y un helper omitido. | CI no reemplaza la aceptación del EXE instalado. |
 | **Instalación · 0.22.23** | Binarios, registro, atajos, 36 avisos de licencia, backend autenticado y cuatro archivos privados de configuración con hashes conservados. GitHub confirmó el hash del instalador publicado. | Un proceso arrancado no demuestra una acción realizada. |
 | **Magic Pen · 0.22.14** | 14 comprobaciones con captura e inferencia reales, dos monitores, exportación y grabación verificadas. | No acredita precisión ilimitada de visión ni una repetición física de cada caso en 0.22.23. |
 | **Voz MOSS · 0.22.14** | Voz predeterminada seleccionada, conservada al reiniciar y dos reproducciones Web Audio completas sin vaciados del búfer. | Micrófono, altavoces físicos y calidad subjetiva de pronunciación conservan comprobación separada. |
@@ -247,7 +249,8 @@ Para inspeccionar únicamente el frontend, ejecuta `node scripts/server20.mjs` d
 ```powershell
 python scripts/release.py check
 python -m unittest discover -s scripts -p test_release.py -v
-python -m unittest backend.tests.test_command_language backend.tests.test_command_sequences backend.tests.test_action_learning backend.tests.test_goal_cycle backend.tests.test_command_library backend.tests.test_provider_settings -q
+python -m unittest backend.tests.test_prompts backend.tests.test_command_language backend.tests.test_command_sequences backend.tests.test_action_learning backend.tests.test_goal_cycle backend.tests.test_command_library backend.tests.test_provider_settings -q
+node scripts/test-prompt-contracts.cjs
 node scripts/test-quick-reply.cjs
 node 1.AXX/scripts/test-command-library.cjs
 cargo test --manifest-path src-tauri/Cargo.toml --lib
@@ -274,6 +277,7 @@ No sobrescribir un asset publicado con bytes diferentes. Un push de código no a
 | Visión y escritorio | [Magic Pen](docs/MAGIC-PEN-DESKTOP.md) · [Computer Use](docs/COMPUTER-USE.md) · [Expansiones](docs/COMPUTER-USE-EXPANSION.md) |
 | Aplicaciones y archivos | [Perfiles](docs/APPLICATION-COMMANDS.md) · [Control de aplicaciones](docs/CONTROL-DE-APLICACIONES.md) · [Convertidor/PDF](docs/CONVERTIDOR-Y-PDF.md) |
 | Modelos e integraciones | [Proveedores](docs/PROVEEDORES-API-LOCAL.md) · [MCP local](docs/MCP-LOCAL.md) · [Extensiones](docs/COMMAND-EXTENSIONS.md) |
+| Instrucciones por función | [Compositor, contratos y evaluación](docs/PROMPT-CONTRACTS.md) |
 | Aprendizaje y ejecución | [Entrenamientos](docs/COMMAND-TRAINING.md) · [Ejecución unificada](docs/UNIFIED-EXECUTION.md) · [Taller](docs/GENERATED-COMMANDS.md) · [Auto-mejora](docs/SELF-IMPROVEMENT.md) · [ECC](docs/ECC-WORKFLOW.md) |
 | Android | [Instalación, enlace y contratos](docs/mobile/README.md) |
 | Identidad y movimiento | [Implementación visual](1.AXX/IMPLEMENTACION.md) · [Tentáculos](docs/TENTACLE-RENDERING.md) |

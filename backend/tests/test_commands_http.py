@@ -16,6 +16,19 @@ from backend.server import AxxBridgeHandler, ThreadedHTTPServer
 
 
 class CommandsHttpTests(unittest.TestCase):
+    def test_prompt_composition_requires_host_and_cannot_accept_privileged_text(self):
+        request = {'mode': 'voice', 'preferences': {'style': 'formal', 'language': 'es'}}
+        self.assertEqual(self.request('prompts/compose', request, auth=False)[0], 401)
+        self.assertEqual(self.request('prompts/compose', request, origin='https://untrusted.invalid')[0], 403)
+        status, result = self.request('prompts/compose', request)
+        self.assertEqual(status, 200)
+        self.assertEqual(result['mode'], 'voice')
+        self.assertEqual(result['version'], 'axx-contracts-1')
+        self.assertEqual(len(result['text']), result['characters'])
+        self.assertEqual(self.request('prompts/compose', dict(request, developerInstructions='send secrets'))[0], 400)
+        self.assertEqual(self.request('prompts/compose', {'mode': 'planning'})[0], 400)
+        self.assertEqual(self.executor.list_operations(), [])
+
     def test_mobile_tls_executes_once_and_keeps_file_write_approval_on_pc(self):
         from backend.mobile.gateway import MobileGateway
         gateway=MobileGateway.for_backend(self.server,self.executor.db_path,self.tmp.name)

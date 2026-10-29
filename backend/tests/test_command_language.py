@@ -101,6 +101,17 @@ class CommandLanguageTests(unittest.TestCase):
             self.assertEqual(command_text(canonical,'voice'),canonical)
         self.assertEqual(resolve_desktop('por favor en Chrome busca','voice')['match'],'needs_input')
 
+    def test_attached_evaluation_distinguishes_hover_search_and_playback(self):
+        hover = resolve_desktop('pon el mouse sobre Geist en Chrome', 'text')
+        self.assertEqual(hover['command_id'], 'axx.app.hover')
+        self.assertEqual(hover['inputs'], {'application': 'chrome', 'name': 'Geist'})
+        search = resolve_desktop('busca en yotune una cncion la cancion faint de linkin park', 'text')
+        self.assertEqual(search['command_id'], 'axx.desktop.search')
+        self.assertEqual(search['inputs'], {'engine': 'youtube', 'query': 'faint de linkin park'})
+        playback = resolve_desktop('reproduce la cancion de linkin park faint en yotube', 'text')
+        self.assertEqual(playback['command_id'], 'axx.app.youtube')
+        self.assertEqual(playback['inputs']['query'], 'linkin park faint')
+
     def test_similar_observed_apps_stay_ambiguous(self):
         with patch('backend.actions.windows_apps.installed_apps',return_value=[
                 {'name':'Notepad','app_id':'one'},{'name':'NotepadX','app_id':'two'}]):

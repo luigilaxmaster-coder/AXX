@@ -230,6 +230,16 @@ class MagicPenTests(unittest.TestCase):
                            'selection': {'shape': 'rect', 'bounds': [5, 5, 60, 60]}, 'strokes': []})
         return self.service.adapter
 
+    def test_perception_uses_shared_policy_without_action_or_translation_contract(self):
+        adapter = self.setup_analysis()
+        result = self.wait_query(self.service.start(self.request()))
+        self.assertEqual(result['state'], 'completed')
+        instructions = adapter.calls[0]['messages'][0]['content']
+        self.assertIn('AXX_PROMPT axx-contracts-1 mode=perception', instructions)
+        self.assertIn('no ejecutes acciones', instructions)
+        self.assertNotIn('axx_execute_action', instructions)
+        self.assertNotIn('Return only the translation', instructions)
+
     def request(self, **kw):
         return {'id': self.doc['id'], 'revision': 2, 'question': '¿Qué aparece?',
                 'provider': 'fixture', 'model': 'visual-model', 'selection_mode': 'manual',

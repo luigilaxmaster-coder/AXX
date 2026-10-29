@@ -26,6 +26,7 @@ root_dir = Path(__file__).resolve().parent.parent
 if str(root_dir) not in sys.path:
     sys.path.insert(0, str(root_dir))
 from backend.inference.router import parse_strict_json
+from backend.prompts import public_compose
 from backend.inference.adapter import InferenceAdapter, worker_main
 from backend.inference import provider_settings
 from backend.inference.freellmapi import FreeLLMAPIService
@@ -444,6 +445,9 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
             return
         path = urllib.parse.urlsplit(self.path).path
         try:
+            if path == '/axx-api/prompts/compose':
+                self._send_json(200, public_compose(body))
+                return
             if MobileHTTP(self).post(path, body):
                 return
             if ConnectHTTP(self).post(path, body):

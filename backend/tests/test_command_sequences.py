@@ -63,6 +63,20 @@ class CommandSequenceTests(unittest.TestCase):
         self.assertEqual(result['steps'][0], {'command_id':'axx.desktop.search','inputs':{'engine':'youtube','query':'gatos'}})
         self.assertEqual(len(result['steps']),2)
 
+    def test_visual_reference_and_playback_cannot_absorb_later_clauses(self):
+        for text, parts in (
+            ('pon el mouse sobre Geist en Chrome y busca Faint en YouTube',
+             ['pon el mouse sobre Geist en Chrome', 'busca Faint en YouTube']),
+            ('abre YouTube y pon la canción Faint de Linkin Park',
+             ['abre YouTube', 'pon la canción Faint de Linkin Park']),
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(command_sequence(text, 'text'), parts)
+                resolved = self.commands.resolve(text)
+                self.assertIn(resolved['match'], ('sequence', 'sequence_request'))
+                self.assertNotEqual(resolved.get('command_id'), 'axx.desktop.search')
+        self.assertEqual(self.executor.list_operations(), [])
+
     def test_failed_middle_step_stops_later_effects_and_is_not_replayed(self):
         model=Mock();learning=ActionLearning(self.commands,model)
         try:

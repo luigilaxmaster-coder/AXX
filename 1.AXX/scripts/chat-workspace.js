@@ -195,6 +195,7 @@
         }
         return brainChat(p,messages,signal,onDelta);
     };
+    Axx.promptContracts?.instrument();
     const originalSend=c.send.bind(c);
     c.send=async function(...args){ if(!ready){error(Error('El historial todavía se está cargando.'));return;} expireLocal();return originalSend(...args); };
     const lib=Axx.commandLibrary;

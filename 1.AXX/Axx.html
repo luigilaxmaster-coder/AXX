@@ -1809,7 +1809,7 @@ body.axx-resident :is(.panel-head,.flow-library-head,.organic-satellite-head,.v1
 <script>"use strict";
 var Axx;
 (function (Axx) {
-    Axx.VERSION = '0.22.23';
+    Axx.VERSION = '0.22.24';
     function newId() {
         if (typeof crypto.randomUUID === 'function')
             return crypto.randomUUID();
@@ -6709,6 +6709,7 @@ var Axx;
                 throw new Error('Conecta y verifica el proveedor antes de enviar una pregunta.');
             if (signal.aborted)
                 throw new DOMException('Solicitud cancelada', 'AbortError');
+            messages = await Axx.promptContracts.prepare(p, messages, signal);
             const ctrl = new AbortController(), cancel = () => ctrl.abort(), timeout = setTimeout(() => ctrl.abort(), 180000);
             signal.addEventListener('abort', cancel, { once: true });
             try {
@@ -9097,7 +9098,7 @@ var Axx;
                     }
                 }, 1200) : null;
             try {
-                const chatPrefs = { ...this.data.prefs, model: effectiveModel, ...(effectiveApiConn ? { apiConnection: effectiveApiConn } : {}), ...(isVoiceTurn ? { max_tokens: 384, voice_turn: true } : {}) };
+                const chatPrefs = { ...this.data.prefs, prompt_mode: isVoiceTurn ? 'voice' : 'conversation', model: effectiveModel, ...(effectiveApiConn ? { apiConnection: effectiveApiConn } : {}), ...(isVoiceTurn ? { max_tokens: 384, voice_turn: true } : {}) };
                 const result = await this.brain.chat(chatPrefs, context, ctrl.signal, text => { if (this.pending !== ctrl)
                     return; if (text) clearTimeout(leadTimer); response.text = text; if (this.streamElement)
                     this.streamElement.textContent = response.text; receiveSpeech(text); this.sayStatus('Recibiendo respuesta de ' + effectiveModel + '…'); this.scrollChat(); });
@@ -19913,5 +19914,5 @@ body[data-media16-source="system"] .m16-cover,body[data-media16-source="system"]
 body[data-media16-source="system"] #view-music .m16-now{padding:12px;margin-top:8px}
 body[data-media16-source="system"] #view-music .m16-transport{margin:8px 0 0}
 body[data-media16-source="system"] #view-music .m16-compact{padding:10px 14px;margin-top:8px}
-</style><script src="scripts/voice-audio.js"></script><script src="scripts/native-speech-stream.js"></script><script src="scripts/native-voice.js"></script><script src="scripts/voice-phrases.js"></script><script src="scripts/voice-conversation.js"></script><script src="scripts/command-library.js"></script><script src="scripts/skill-library.js"></script><script src="scripts/window-content.js"></script><script src="scripts/axx-connect.js"></script><script src="scripts/mcp-connections.js"></script><script src="scripts/application-catalog.js"></script><script src="scripts/model-profile.js"></script><script src="scripts/providers.js"></script><script src="scripts/native-music.js"></script><script src="scripts/native-capture.js"></script><script src="scripts/magic-pen.js"></script><script src="scripts/converter.js"></script><script src="scripts/chat-workspace.js"></script><script src="scripts/chat-workspace-design.js"></script><script src="scripts/mobile-gateway.js"></script>
+</style><script src="scripts/voice-audio.js"></script><script src="scripts/native-speech-stream.js"></script><script src="scripts/native-voice.js"></script><script src="scripts/voice-phrases.js"></script><script src="scripts/voice-conversation.js"></script><script src="scripts/command-library.js"></script><script src="scripts/skill-library.js"></script><script src="scripts/window-content.js"></script><script src="scripts/prompt-contracts.js"></script><script src="scripts/axx-connect.js"></script><script src="scripts/mcp-connections.js"></script><script src="scripts/application-catalog.js"></script><script src="scripts/model-profile.js"></script><script src="scripts/providers.js"></script><script src="scripts/native-music.js"></script><script src="scripts/native-capture.js"></script><script src="scripts/magic-pen.js"></script><script src="scripts/converter.js"></script><script src="scripts/chat-workspace.js"></script><script src="scripts/chat-workspace-design.js"></script><script src="scripts/mobile-gateway.js"></script>
 <script src="scripts/remote-voice.js"></script><script src="scripts/remote-control.js"></script><script src="scripts/mobile-work-approval.js"></script><script src="scripts/avatar-remote.js"></script><link rel="stylesheet" href="scripts/chat-workspace.css"><link rel="stylesheet" href="scripts/interface-theme.css"><script src="scripts/interface-theme.js"></script><script src="scripts/agent-profile.js"></script><script src="scripts/chat-live.js"></script><script src="scripts/capability-workshop.js"></script><script src="scripts/computer-use.js"></script><script src="scripts/quick-reply.js"></script></body></html>
