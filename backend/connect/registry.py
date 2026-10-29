@@ -28,7 +28,7 @@ def string(maximum=4000, enum=None):
 LOCAL_ACTIONS = ['timer', 'pause', 'resume', 'cancel', 'note', 'todo', 'completeTodo',
                  'notes', 'searchNotes', 'todos', 'calculate', 'convert', 'analyze',
                  'time', 'date', 'summon', 'follow', 'stay', 'hide', 'help', 'greet']
-PANEL_IDS = ['commands', 'applications', 'agent', 'stopwatch', 'textstudio', 'images', 'reach', 'chat', 'timer', 'notes', 'todos',
+PANEL_IDS = ['transfer', 'commands', 'applications', 'agent', 'stopwatch', 'textstudio', 'images', 'reach', 'chat', 'timer', 'notes', 'todos',
              'calculator', 'files', 'focus', 'appearance', 'studio', 'lab', 'audio', 'sound',
              'ai', 'settings', 'mcp', 'inbox', 'help', 'dictation', 'reader', 'translation',
              'transcript', 'morphui', 'roadmap', 'organic', 'music', 'screen', 'layout11']
