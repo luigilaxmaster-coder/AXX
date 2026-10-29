@@ -29,8 +29,8 @@
     <details id="skills-lessons"><summary>Incidentes y correcciones de este chat</summary><p>Una hipótesis describe una posible causa. Una prueba posterior con recibo verificado no demuestra esa causa ni concede permisos.</p>
       <form id="skills-lessons-search"><label class="setting">Buscar referencias<input name="query" class="field" maxlength="1000" type="search"></label><label class="setting">ID de comando, opcional<input name="command_id" class="field" maxlength="128"></label><button type="submit">Consultar hasta tres referencias</button></form>
       <div id="skills-lessons-list"></div><p id="skills-lessons-status" role="status"></p>
-      <details><summary>Registrar un incidente observado</summary><p>Usa el ID de un comando fallido del historial. La biblioteca comprobará su recibo antes de guardar esta referencia.</p>
-        <form id="skills-lesson-form"><label class="setting">ID del comando fallido<input name="operation_id" class="field" maxlength="128" required></label><label class="setting">Hipótesis sin confirmar<textarea name="hypothesis" class="field" maxlength="1000" required></textarea></label><label class="setting">Corrección que propones, opcional<textarea name="user_correction" class="field" maxlength="1000"></textarea></label><label class="setting">ID de prueba posterior, opcional<input name="verification_operation_id" class="field" maxlength="128"></label><button type="submit">Guardar referencia de incidente</button></form>
+      <details><summary>Registrar un incidente observado</summary><p>Selecciona un recibo ya cargado o indica el ID de una operación fallida. La biblioteca comprobará el recibo antes de guardar esta referencia.</p>
+        <form id="skills-lesson-form"><label class="setting">Fallo ya cargado en este chat<select name="failed_receipt"><option value="">Escribir ID manualmente</option></select></label><label class="setting">ID de la operación fallida<input name="operation_id" class="field" maxlength="128" required></label><label class="setting">Hipótesis sin confirmar<textarea name="hypothesis" class="field" maxlength="1000" required></textarea></label><label class="setting">Corrección que propones, opcional<textarea name="user_correction" class="field" maxlength="1000"></textarea></label><label class="setting">Prueba ya cargada del mismo comando<select name="verified_receipt"><option value="">Sin selección</option></select></label><label class="setting">ID de la operación de prueba, opcional<input name="verification_operation_id" class="field" maxlength="128"></label><label><input name="allow_provider" type="checkbox"> Permitir usar esta ficha con el modelo configurado</label><p>Puede enviar esta ficha al proveedor. Guardarla u observar no autoriza ese envío.</p><button type="submit">Guardar referencia de incidente</button></form>
       </details></details>
     <details><summary>Combinar habilidades</summary><p>Añade las habilidades en el orden de la tarea. Las lecturas independientes pueden ejecutarse de dos en dos; los cambios en archivos y aplicaciones conservan un solo ejecutor.</p>
       <div id="skills-parts"></div><label class="setting">Objetivo<input id="skills-objective" class="field" maxlength="2000"></label>
@@ -48,12 +48,26 @@
     <details open><summary>Tareas e historial</summary><button id="skills-tasks-refresh" type="button">Actualizar tareas</button><div id="skills-tasks"></div></details>
     <p id="skills-status" role="status"></p>`;
   $('command-library').before(section);
-  let skills = [], parts = [], windows = [], demo = null, polling = null, refreshRevision=0, tasksRevision=0, contextBusy=false, lessonRevision=0, lessonScope='', lessonBusy=false;
+  let skills = [], parts = [], windows = [], demo = null, polling = null, refreshRevision=0, tasksRevision=0, contextBusy=false, lessonRevision=0, lessonScope='', lessonBusy=false, taskPlans=[],taskPlansProject='';
   const contextInputs={current_folder:'skills-folder',current_file:'skills-file',current_application:'skills-app'},contextDirty=new Set();
   const project = () => $('skills-project').value.trim();
   $('skills-project').value = Axx.companion.data.prefs.skillProject || '';
   const task=()=>Axx.chatWorkspace?.active?.id||null,scope=()=>JSON.stringify([project(),task()]);
-  function syncLessonScope(){const selected=scope();if(selected===lessonScope)return;lessonScope=selected;++lessonRevision;$('skills-lessons-list').replaceChildren();$('skills-lesson-form').reset();delete $('skills-lesson-form').dataset.scope;delete $('skills-lesson-form').dataset.humanCorrection;$('skills-lessons-search').reset();$('skills-lessons-status').textContent='';}
+  function syncLessonScope(){const selected=scope();if(selected===lessonScope)return;lessonScope=selected;++lessonRevision;$('skills-lessons-list').replaceChildren();$('skills-lesson-form').reset();for(const key of ['scope','humanCorrection','providerConsent'])delete $('skills-lesson-form').dataset[key];$('skills-lessons-search').reset();$('skills-lessons-status').textContent='';renderLessonReceipts();}
+  function lessonReceipts(){
+    const receipts=new Map(),plans=taskPlansProject===project()?taskPlans:[],last=commands.lastOperation;
+    const add=(record,conversation,command)=>{const result=record.result||record;if(conversation!==task()||!record.operation_id||!command||record.state!==result.state||!['failed','succeeded'].includes(result.state)||result.state==='failed'&&!result.error||result.state==='succeeded'&&result.postconditions_passed!==true)return;receipts.set(record.operation_id,{id:record.operation_id,command,state:result.state,error:result.error});};
+    for(const plan of [...plans,...(last?.kind==='learned_plan'?[last]:[])])if(plan.conversation_id===task()&&(plan.project_id??project())===project())for(const [index,record] of (plan.step_records||[]).entries())add(record,plan.conversation_id,record.result?.command_id||record.command_id||plan.steps?.[index]?.command_id);
+    if(last?.kind!=='learned_plan')add(last||{},last?.conversation_id,last?.command_id);
+    return receipts;
+  }
+  function renderLessonReceipts(){
+    const fields=$('skills-lesson-form').elements,receipts=lessonReceipts(),key=JSON.stringify([scope(),fields.operation_id.value,[...receipts.values()]]),failed=fields.failed_receipt,verified=fields.verified_receipt;if(failed.dataset.key===key)return;failed.dataset.key=key;
+    const chosenFailure=fields.operation_id.value,chosenVerification=fields.verification_operation_id.value;failed.replaceChildren(new Option('Escribir ID manualmente',''));verified.replaceChildren(new Option('Sin selección',''));
+    const command=receipts.get(chosenFailure)?.command;
+    for(const receipt of receipts.values())if(receipt.state==='failed'){const option=new Option(receipt.command+' · '+(receipt.error?.message||receipt.error?.code||receipt.error||'Fallo registrado')+' · '+receipt.id,receipt.id);failed.add(option);}else if(command&&receipt.command===command)verified.add(new Option(receipt.command+' · Recibo con postcondiciones · '+receipt.id,receipt.id));
+    if([...failed.options].some(option=>option.value===chosenFailure))failed.value=chosenFailure;if([...verified.options].some(option=>option.value===chosenVerification))verified.value=chosenVerification;
+  }
   function adopt(plan) {
     commands.lastOperation = plan; commands.operation = ['awaiting_approval', 'running'].includes(plan.state) ? plan : null;
     commands.busy = false; commands.renderOperation(plan); commands.status(plan.message || states[plan.state] || plan.state);
@@ -107,7 +121,7 @@
   }
   const contextAction=action=>run(async()=>{if(contextBusy)return;contextBusy=true;$('skills-save-context').disabled=$('skills-invalidate-context').disabled=$('skills-forget-context').disabled=true;try{await action();}finally{contextBusy=false;$('skills-save-context').disabled=false;$('skills-invalidate-context').disabled=$('skills-forget-context').disabled=!$('skills-context-origin').options.length;}});
   async function loadLessons(){
-    syncLessonScope();const selected=scope(),currentTask=task(),currentProject=project(),token=++lessonRevision;if(!currentTask){$('skills-lessons-status').textContent='Selecciona un chat para consultar sus referencias.';return;}
+    syncLessonScope();renderLessonReceipts();const selected=scope(),currentTask=task(),currentProject=project(),token=++lessonRevision;if(!currentTask){$('skills-lessons-status').textContent='Selecciona un chat para consultar sus referencias.';return;}
     const query=$('skills-lessons-search').elements,params=new URLSearchParams({project_id:currentProject,task_id:currentTask,query:query.query.value.trim(),command_id:query.command_id.value.trim(),limit:'3'});let result;try{result=await api('GET','learning/lessons?'+params);}catch(error){if(token!==lessonRevision||selected!==scope())return;throw error;}
     if(token!==lessonRevision||selected!==scope())return;if(!Array.isArray(result.lessons))throw Error('La biblioteca no devolvió referencias válidas.');
     const root=$('skills-lessons-list');root.replaceChildren();
@@ -124,6 +138,7 @@
       if(lesson.environment_scope==='registered_command_at_recording_not_historical_app_version')add('Entorno','Corresponde al comando registrado al guardar la referencia; no certifica la versión histórica de la aplicación.');
       if(lesson.environment_matches===false||lesson.context_matches===false)add('Desactualizado','El entorno o el contexto ya no coincide con el de esta referencia.');
       if(lesson.permissions_granted===false)add('Permisos','Esta referencia no concede permisos.');if(lesson.preference_inferred===false)add('Preferencias','El incidente no acredita una preferencia del usuario.');
+      add('Uso con el modelo',lesson.allow_provider===true?'Autorizado por ti; esta ficha puede enviarse al proveedor configurado.':'Uso local; no hay permiso de envío al modelo.');
       list.style.overflowWrap='anywhere';details.append(list);row.append(details,button('Olvidar esta referencia',()=>lessonAction(async()=>{const result=await api('POST','learning/forget-lesson',{id:lesson.id});if(selected!==scope())return;await loadLessons();$('skills-lessons-status').textContent=(result.forgotten?'Referencia olvidada.':'La referencia ya no estaba guardada.')+(result.command_journal_preserved===true?' El historial de ejecución se conserva.':'');})));root.append(row);
     }
     $('skills-lessons-status').textContent=root.children.length?root.children.length+' referencias de este chat.':'No hay referencias que coincidan en este chat.';
@@ -131,7 +146,7 @@
   const lessonAction=action=>run(async()=>{if(lessonBusy)return;lessonBusy=true;$('skills-lesson-form').querySelector('button').disabled=true;try{await action();}finally{lessonBusy=false;$('skills-lesson-form').querySelector('button').disabled=false;}});
   async function recordLesson(){
     const form=$('skills-lesson-form'),selected=scope(),currentTask=task();if(!currentTask)throw Error('Selecciona el chat de este incidente.');if(form.dataset.scope!==selected)throw Error('El chat o proyecto cambió. Revisa y vuelve a escribir la referencia antes de guardarla.');
-    const fields=form.elements,body={operation_id:fields.operation_id.value.trim(),hypothesis:fields.hypothesis.value.trim(),project_id:project(),task_id:currentTask};if(fields.user_correction.value.trim()){if(form.dataset.humanCorrection!==fields.user_correction.value)throw Error('La corrección debe escribirla el usuario; el texto automático no se registrará como confirmado.');body.user_correction=fields.user_correction.value.trim();}if(fields.verification_operation_id.value.trim())body.verification_operation_id=fields.verification_operation_id.value.trim();
+    const fields=form.elements,body={operation_id:fields.operation_id.value.trim(),hypothesis:fields.hypothesis.value.trim(),project_id:project(),task_id:currentTask,allow_provider:fields.allow_provider.checked&&form.dataset.providerConsent==='true'};if(fields.user_correction.value.trim()){if(form.dataset.humanCorrection!==fields.user_correction.value)throw Error('La corrección debe escribirla el usuario; el texto automático no se registrará como confirmado.');body.user_correction=fields.user_correction.value.trim();}if(fields.verification_operation_id.value.trim())body.verification_operation_id=fields.verification_operation_id.value.trim();
     try{await api('POST','learning/lesson',body);}catch(error){if(selected!==scope())return;throw error;}if(selected!==scope())return;await loadLessons();$('skills-lessons-status').textContent='Referencia guardada. La hipótesis sigue sin confirmar.';
   }
   function renderList() {
@@ -194,6 +209,7 @@
   }
   async function tasks() {
     const selected=project(),token=++tasksRevision,result=await api('GET','learning/plans?project_id='+encodeURIComponent(selected));if(token!==tasksRevision||selected!==project())return;const root=$('skills-tasks'); root.replaceChildren();
+    taskPlans=result.plans||[];taskPlansProject=selected;renderLessonReceipts();
     for(const plan of result.plans || []) {
       const row=element('article'); row.className='setup-card';
       row.append(element('strong',plan.title||plan.text||plan.operation_id),element('p',`${states[plan.state]||plan.state} · ${(plan.step_records||[]).filter(s=>s.state==='succeeded').length}/${plan.steps?.length||0} pasos · ${plan.model_calls_used||0} llamadas al modelo`));
@@ -223,7 +239,9 @@
   for(const [field,id] of Object.entries(contextInputs))$(id).oninput=event=>{if(event.isTrusted){contextDirty.add(field);$('skills-context-status').textContent='Hay campos editados sin guardar.';}};
   $('skills-save-context').onclick=()=>contextAction(saveContext);$('skills-invalidate-context').onclick=()=>contextAction(()=>invalidateContext(false));$('skills-forget-context').onclick=()=>contextAction(()=>invalidateContext(true));
   $('skills-lessons').addEventListener('toggle',()=>{if($('skills-lessons').open)void run(loadLessons);});$('skills-lessons-search').onsubmit=event=>{event.preventDefault();void run(loadLessons);};
-  $('skills-lesson-form').oninput=event=>{if(event.isTrusted){$('skills-lesson-form').dataset.scope=scope();if(event.target.name==='user_correction')$('skills-lesson-form').dataset.humanCorrection=event.target.value;}};$('skills-lesson-form').onsubmit=event=>{event.preventDefault();void lessonAction(recordLesson);};
+  $('skills-lesson-form').oninput=event=>{if(event.isTrusted){const form=$('skills-lesson-form');form.dataset.scope=scope();if(event.target.name==='user_correction')form.dataset.humanCorrection=event.target.value;if(event.target.name==='allow_provider')form.dataset.providerConsent=String(event.target.checked);if(event.target.name==='operation_id'){form.elements.allow_provider.checked=false;delete form.dataset.providerConsent;renderLessonReceipts();}}};$('skills-lesson-form').onsubmit=event=>{event.preventDefault();void lessonAction(recordLesson);};
+  $('skills-lesson-form').elements.failed_receipt.onchange=event=>{const form=$('skills-lesson-form');if(!event.isTrusted)return;form.dataset.scope=scope();form.elements.operation_id.value=event.target.value;form.elements.verification_operation_id.value='';form.elements.allow_provider.checked=false;delete form.dataset.providerConsent;renderLessonReceipts();};
+  $('skills-lesson-form').elements.verified_receipt.onchange=event=>{if(event.isTrusted){$('skills-lesson-form').dataset.scope=scope();$('skills-lesson-form').elements.verification_operation_id.value=event.target.value;}};
   const renderChat=Axx.companion.renderChat?.bind(Axx.companion);if(renderChat)Axx.companion.renderChat=(...args)=>{const result=renderChat(...args);syncLessonScope();return result;};
   $('skills-tasks-refresh').onclick=()=>run(tasks);
   $('skills-clear-parts').onclick=()=>{parts=[];renderParts();};
