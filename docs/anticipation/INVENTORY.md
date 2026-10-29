@@ -6,6 +6,7 @@ Fecha: 29 de octubre de 2026. Este inventario describe las fuentes inspeccionada
 
 - `work_id`: `anticipation-contextual-20261029`; integración y entrega: agente raíz de este chat.
 - Worktree: `C:\Users\luigi\.codex\worktrees\anticipation-contextual\axx2`; rama `codex/anticipation-contextual`.
+- Integración final: `C:\Users\luigi\.codex\worktrees\anticipation-profiles\axx2`, rama `codex/anticipation-profiles`. Se trasladaron commits propios al worktree gestionado, incluidos los fixes de visibilidad coordinados; no se copiaron cambios locales ajenos.
 - Commit base: `2d1f668fb2753d14c7d454141b351b767532ed43`, procedente de `codex/mobile-companion-20261028`. El worktree nuevo comenzó limpio.
 - El checkout original `C:\Users\luigi\Desktop\axx2` tenía cambios previos de Telegram, empaquetado, servidor, Android y evidencia. No se incorporan ni se revierten desde este trabajo.
 - Propietarios: raíz, `backend/server.py`, `backend/commands.py`, `backend/action_learning.py`, transporte HTTP/aceptación instalada e integración/entrega; trabajador backend, `backend/anticipation.py` y `backend/tests/test_anticipation.py`; trabajador UI, `1.AXX/scripts/anticipation.js`, su inclusión y pruebas, integración de voz/sorpresas; trabajador de gates, estos dos documentos y revisión independiente. Nadie más cambia versiones, construye, instala ni publica.

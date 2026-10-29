@@ -93,6 +93,12 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
   assert.equal(await page.locator('#anticipation-card').isVisible(),true);
   assert.equal(await page.locator('#anticipation-card img').count(),0,'Suggestion text cannot inject markup');
   await page.locator('#anticipation-why summary').click();
+  const whyHeights=await page.evaluate(()=>{
+   const node=document.getElementById('anticipation-card'),why=document.getElementById('anticipation-why'),heights=[];
+   for(const open of [false,true,false]){why.open=open;Axx.anticipation.layout({workWidth:1280,workHeight:960,spaceLeft:640,spaceRight:640,spaceAbove:480,spaceBelow:480},180,(id,x,y,w,h)=>{node.style.setProperty('height',h+'px','important');node.style.setProperty('max-height',h+'px','important');heights.push(h);});}
+   why.open=true;return heights;
+  });
+  assert(whyHeights[1]>whyHeights[0]);assert.equal(whyHeights[2],whyHeights[0],'Collapsing Why returns the resident card to its compact height');
   assert.match(await page.locator('#anticipation-why').innerText(),/Observado[\s\S]*artifact-a[\s\S]*Inferido[\s\S]*regla registrada[\s\S]*Actor: Axx[\s\S]*Origen: Orden directa[\s\S]*Causa: writer-a/);
   assert.equal(await page.locator('#anticipation-why dt').filter({hasText:/^Confirmado por ti$/}).count(),0,'An inference or Axx event is not user confirmation');
   await page.locator('#anticipation-actions button').filter({hasText:/^Verificar$/}).click();

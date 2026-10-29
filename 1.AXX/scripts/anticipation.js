@@ -227,7 +227,9 @@
  async function stop(id){stopped=true;hide();++revision;loading=false;await api('cancel',id?{suggestion_id:id}:{});await refresh();}
  function layout(g,size,add){
   renderCard();if(card.hidden)return;
-  const width=Math.min(Math.round(280*(Axx.interfaceTheme?.widgetScale||1)),g.workWidth-24),height=Math.min(card.scrollHeight||180,g.workHeight-24);
+  const width=Math.min(Math.round(280*(Axx.interfaceTheme?.widgetScale||1)),g.workWidth-24);
+  card.style.setProperty('width',width+'px','important');card.style.removeProperty('height');card.style.removeProperty('max-height');
+  const height=Math.min(Math.ceil(card.getBoundingClientRect().height),g.workHeight-24);
   const gap=size*.34+14,above=g.spaceAbove>=gap+height||g.spaceAbove>g.spaceBelow;
   const x=Math.max(-g.spaceLeft+12,Math.min(g.spaceRight-width-12,-width/2));
   const y=Math.max(-g.spaceAbove+12,Math.min(g.spaceBelow-height-12,above?-gap-height:gap));
