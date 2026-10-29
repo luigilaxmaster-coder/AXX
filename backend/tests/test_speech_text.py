@@ -1,4 +1,7 @@
 import unittest
+import base64
+import io
+import json
 import tempfile
 import subprocess
 import sys
@@ -8,11 +11,50 @@ from pathlib import Path
 from unittest.mock import patch
 
 from backend.speech.speech_text import prepare_spoken_text, spanish_integer
-from backend.speech.offline_asr import OfflineTranscriptionService, excessive_repetition, model_path, guard_worker_imports, InferenceOnlyImports
+from backend.speech.offline_asr import OfflineTranscriptionService, excessive_repetition, model_path, guard_worker_imports, InferenceOnlyImports, worker_main
 from backend.speech.windows_tts import SpeechError
 
 
 class SpokenTextTests(unittest.TestCase):
+    def test_mime_case_is_normalized_and_service_timing_is_reported(self):
+        with tempfile.TemporaryDirectory() as directory:
+            service = OfflineTranscriptionService(directory)
+            service.model_path = Path(directory)
+            try:
+                with patch.object(service, 'status', return_value={'available': True}), \
+                        patch.object(service, '_execute', return_value={'text': 'hola'}) as execute:
+                    result = service.transcribe({'audio_base64': base64.b64encode(b'RIFF0000WAVEdata').decode(),
+                                                 'mime': 'Audio/WAV; codecs=pcm', 'language': 'es'})
+                    self.assertEqual(result['text'], 'hola'); self.assertGreaterEqual(result['timings_ms']['service_total'], 0)
+                    self.assertEqual(execute.call_count, 1)
+                for body in ([], None, 'audio'):
+                    with self.assertRaises(SpeechError): service.transcribe(body)
+            finally: service.close()
+
+    def test_silence_does_not_load_model(self):
+        try:
+            import av
+            import numpy
+        except ImportError:
+            self.skipTest('Native audio decoder is not installed')
+        import wave
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'silence.wav'
+            with wave.open(str(path), 'wb') as stream:
+                stream.setparams((1, 2, 16000, 0, 'NONE', 'not compressed'))
+                stream.writeframes(b'\0\0' * 16000)
+            output = io.BytesIO()
+            with patch('backend.speech.offline_asr._load_worker_model') as load, \
+                    patch.object(sys, 'stdout', type('Output', (), {'buffer': output})()), \
+                    patch.object(sys, 'meta_path', list(sys.meta_path)):
+                code = worker_main(json.dumps({'audio_path': str(path), 'model_path': 'unused',
+                                               'language': 'es', 'task': 'transcribe'}).encode())
+            result = json.loads(output.getvalue())
+            self.assertEqual(code, 0, result); load.assert_not_called()
+            self.assertTrue(result['result']['silence_detected']); self.assertEqual(result['result']['text'], '')
+            self.assertEqual(result['result']['timings_ms']['model_load'], 0)
+            self.assertEqual(result['result']['timings_ms']['inference'], 0)
+
     def test_persistent_worker_installs_only_one_import_guard(self):
         with patch.object(sys,'meta_path',list(sys.meta_path)):
             guard_worker_imports()

@@ -330,15 +330,23 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
     assert.equal(await page.locator('#chat-live-toggle').innerText(),'Voz en vivo');
     const failedReply=await page.evaluate(async()=>{
       const sym=Axx.symbiosis, companion=Axx.companion;
-      const previousSend=companion.send, previousListen=sym.startListening;
+      const previousSend=companion.send, previousListen=sym.startListening,previousRecognition=Axx.nativeVoice.lastRecognition,previousReader=sym.reader.state;
       let restarted=0;
       companion.send=async()=>{companion.data.messages.push({id:'controlled-voice-error',role:'assistant',status:'error',source:'model',text:'Modelo no disponible'});};
       sym.startListening=()=>{restarted++;};
       sym.liveActive=true;sym.liveText='hola';
-      try {await sym.sendLive();return {active:sym.liveActive,restarted};}
-      finally {sym.liveActive=false;companion.data.messages.pop();companion.send=previousSend;sym.startListening=previousListen;}
+      Axx.nativeVoice.lastRecognition={duration_ms:1234,speech_end_at_ms:performance.now()-1500};
+      try {
+        await sym.sendLive();sym.reader.state='speaking';await new Promise(r=>setTimeout(r,250));
+        const metrics=document.getElementById('chat-live-metrics').textContent;
+        Axx.nativeVoice.lastRecognition={duration_ms:99000,speech_end_at_ms:performance.now()};
+        await new Promise(r=>setTimeout(r,250));
+        return {active:sym.liveActive,restarted,metrics,after:document.getElementById('chat-live-metrics').textContent};
+      }
+      finally {sym.liveActive=false;sym.reader.state=previousReader;Axx.nativeVoice.lastRecognition=previousRecognition;companion.data.messages.pop();companion.send=previousSend;sym.startListening=previousListen;}
     });
-    assert.deepEqual(failedReply,{active:true,restarted:1},'A model error must keep live voice ready for the next utterance');
+    assert.equal(failedReply.active,true);assert.equal(failedReply.restarted,1,'A model error must keep live voice ready for the next utterance');
+    assert.match(failedReply.metrics,/transcripción 1.2 s/);assert.equal(failedReply.metrics,failedReply.after,'A later recognition must not overwrite the completed turn latency');
     await page.evaluate(()=>{fixtureInput='quiet-voice';window.oldLiveFinal=Axx.symbiosis.dictation.onFinal;window.oldLiveEnded=Axx.symbiosis.dictation.onEnded;Axx.symbiosis.dictation.onFinal=()=>{};Axx.symbiosis.dictation.onEnded=()=>{Axx.symbiosis.liveActive=false;};window.releaseTranscript=null;});
     await page.locator('#chat-live-toggle').click();await page.waitForFunction(()=>typeof releaseTranscript==='function',null,{timeout:7000});
     assert.equal(await page.evaluate(()=>Axx.symbiosis.dictation.state),'stopping','Quiet RMS below the old .024 threshold must finish after a pause');

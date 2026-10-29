@@ -321,7 +321,8 @@
                 const data = await Axx.backendRequest('POST', '/axx-api/speech/transcribe', { audio_base64: audio, mime: blob.type, language, task: 'transcribe' });
                 if (id !== this.generation) return;
                 this.pending = false;
-                state.lastRecognition={duration_ms:Math.round(performance.now()-began),speech_end_at_ms:this.lastVoiceAt || null};
+                state.lastRecognition={duration_ms:Math.round(performance.now()-began),speech_end_at_ms:this.lastVoiceAt || null,
+                    completed_at_ms:performance.now(),timings_ms:data.timings_ms ? {...data.timings_ms} : null};
                 if (typeof data.text !== 'string' || !data.text.trim()) throw new Error('No se reconoció una frase. El destino no se ha modificado.');
                 this.owner.onFinal?.(data.text);
                 // A voice command may transfer the microphone to another session.

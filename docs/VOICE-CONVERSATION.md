@@ -78,6 +78,14 @@ p95 sobre el mismo conjunto de frases y condiciones. Una animación o un sonido
 de espera no cuenta como respuesta útil. Los dos segundos siguen siendo una
 meta pendiente de aceptación física.
 
+El transcriptor informa `timings_ms` de importación, decodificación, carga del
+modelo, inferencia, total del worker y `service_total` (incluye espera y transporte
+local). El silencio y el audio inválido se descartan antes de cargar un modelo
+frío; se conserva el modelo local instalado, CPU int8 y búsqueda de cinco haces.
+La interfaz conserva una copia de la medición al enviar cada turno: una grabación
+posterior no debe modificar la latencia mostrada del turno anterior. Son mediciones
+de software; no certifican el instante de sonido audible en el altavoz.
+
 ## Comprobaciones reproducibles
 
 ```powershell

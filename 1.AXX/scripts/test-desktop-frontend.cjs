@@ -50,6 +50,7 @@ assert(!html.includes("const apiBase ="), 'Production must not hardcode a develo
         if (name === 'capture_halo' && window.__contractFailHalo) { window.__contractFailHalo = false; throw Error('Capture affinity busy'); }
         if (name !== 'backend_request') return null;
         const { method, path, body } = args;
+        if (path === '/axx-api/prompts/compose') return {version:'contract-fixture',mode:body.mode,text:'Controlled prompt contract: '+body.mode};
         if (path === '/axx-api/chat/migrate') return { id: window.__contractConversation.id };
         if (path === '/axx-api/chat/conversations') return { conversations: [window.__contractConversation], groups: [], default_mode: 'ask' };
         if (path.startsWith('/axx-api/chat/conversations?id=')) return structuredClone(window.__contractConversation);
@@ -256,7 +257,7 @@ assert(!html.includes("const apiBase ="), 'Production must not hardcode a develo
       assert.equal(turn.requests[0].provider_name, 'contract-fixture');
       assert.equal(turn.requests[0].stream, false);
       assert.equal(turn.requests[0].max_tokens === 384, voice, name + ' must apply voice brevity only to an explicit voice turn');
-      assert.equal(turn.requests[0].messages.some(message => message.role === 'system' && message.content.includes('MODO VOZ:')), voice);
+      assert.equal(turn.requests[0].messages[0].content, 'Controlled prompt contract: '+(voice?'voice':'conversation'));
       assert(turn.messages.some(message => message.role === 'user' && message.text === turn.text));
       assert(turn.messages.some(message => message.role === 'assistant' && message.text === 'Contract fixture response' && message.model === model && message.status === 'complete'), name + ' must finish with the actual model response');
       assert.equal(turn.pending, false);
@@ -264,7 +265,7 @@ assert(!html.includes("const apiBase ="), 'Production must not hardcode a develo
       assert.equal(turn.connection, conversationTurns.baseConnection);
     }
     assert.equal(conversationTurns.speechDelta, 0, 'The model send contract must not play physical audio');
-    assert.match(conversationTurns.text.requests[0].messages[0].content, /aplicaciones registradas por Windows/);
+    assert.equal(conversationTurns.text.requests[0].messages[0].role, 'system');
     results.push('Actual companion.send supports text without options and explicit voice through all wrappers, returns model responses, and preserves the text model after a verified voice model turn');
     for (const name of ['unknownVoiceModel']) {
       const turn = conversationTurns[name];
@@ -571,6 +572,7 @@ assert(!html.includes("const apiBase ="), 'Production must not hardcode a develo
       });
       assert.deepEqual(asr.finals, ['Texto del contrato de ASR']); assert.equal(asr.calls.length, 1); assert.equal(asr.calls[0].args.body.language, 'es'); assert.equal(asr.before, asr.after);
       assert(asr.recognition.duration_ms >= 0 && asr.recognition.speech_end_at_ms > 0);
+      assert(asr.recognition.completed_at_ms > asr.recognition.speech_end_at_ms);
       results.push('ASR transport contract normalizes locale, emits confirmed text and never sends the chat automatically');
     }
     const halo = await page.evaluate(async () => {

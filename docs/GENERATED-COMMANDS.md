@@ -18,6 +18,15 @@ Las llamadas de generación usan el modelo/proveedor seleccionado con
 son datos enviados al modelo. Las instrucciones de un documento o la respuesta del
 modelo no pueden conceder permisos ni aprobar una versión.
 
+El taller permite hasta dos respuestas del modelo dentro de un plazo compartido
+de 70 segundos. Si el JSON o su contrato son inválidos, devuelve el error del
+validador y solicita una sola corrección con la misma selección de proveedor y
+modelo. No reintenta errores de conexión, cancelación, autenticación ni solicitudes
+de aclaración. Solo guarda la propuesta que supera la validación estática; registra
+`generation_attempts` sin guardar credenciales. Las pruebas de código siguen siendo
+un paso separado y no conceden aprobación. El ciclo de objetivos limita esta
+generación a una llamada para conservar su presupuesto global existente.
+
 Cuando el motor seleccionado es ChatGPT/Codex, el taller usa `@codex` y el modelo
 explícito mediante el proveedor ya conectado. Cada propuesta abre una conversación
 independiente con `purpose=capability`, sin herramientas dinámicas; las solicitudes

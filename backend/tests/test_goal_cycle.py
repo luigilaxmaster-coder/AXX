@@ -146,6 +146,7 @@ class GoalCycleTests(unittest.TestCase):
             first=self.propose();second=self.learning.resume(first['operation_id'])
             third=self.learning.resume(first['operation_id'])
         self.assertEqual(generate.call_count,2)
+        self.assertTrue(all(call.kwargs['max_attempts'] == 1 for call in generate.call_args_list))
         self.assertEqual(second['goal_spec'],first['goal_spec'])
         self.assertEqual(third['capability_build']['attempt'],2)
         self.assertEqual(self.commands.operations(),[])

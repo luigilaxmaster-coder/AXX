@@ -236,6 +236,59 @@ class CapabilityWorkshopTests(unittest.TestCase):
                 with self.assertRaises(ValueError): self.workshop.generate('prueba')
         self.assertEqual(self.workshop.list(), []); self.assertEqual(self.commands.operations(), [])
 
+    def test_invalid_proposal_is_corrected_once_with_same_route_and_shared_deadline(self):
+        answers = [{'ok': True, 'message': {'content': '{bad json'}},
+                   {'ok': True, 'message': {'content': json.dumps(definition())}}]
+        with patch.object(self.model, 'route', side_effect=answers) as route:
+            item = self.workshop.generate('Consulta estado', model='chosen', provider_name='local')
+        first, second = [call.args[0] for call in route.call_args_list]
+        self.assertNotEqual(first['request_id'], second['request_id'])
+        self.assertLessEqual(second['deadline_ms'], first['deadline_ms'])
+        self.assertEqual(second['model'], 'chosen'); self.assertEqual(second['provider_name'], 'local')
+        self.assertEqual(second['conversation_id'], first['conversation_id'])
+        self.assertFalse(second['allow_paid'])
+        feedback = json.loads(second['messages'][1]['content'])
+        self.assertEqual(feedback['invalid_proposal'], '{bad json'); self.assertTrue(feedback['validation_error'])
+        self.assertEqual(item['provenance']['generation_attempts'], 2)
+        self.assertEqual(item['provenance']['generation_request_id'], second['request_id'])
+        self.assertEqual(item['state'], 'draft'); self.assertIsNone(item['approval'])
+        self.assertEqual(len(self.workshop.list()), 1); self.assertEqual(self.commands.operations(), [])
+        self.assertEqual(self.workshop.requests, set())
+
+    def test_codex_correction_uses_unique_request_without_adapter_fallback(self):
+        from unittest.mock import Mock
+        provider = Mock()
+        provider.generate_capability.side_effect = [
+            {'ok': True, 'message': {'content': 'invalid'}},
+            {'ok': True, 'message': {'content': json.dumps(definition())}}]
+        self.workshop.provider = provider
+        item = self.workshop.generate('Consulta estado', model='chosen', provider_name='@codex')
+        calls = [call.args[0] for call in provider.generate_capability.call_args_list]
+        self.assertEqual(len(calls), 2); self.assertNotEqual(calls[0]['request_id'], calls[1]['request_id'])
+        self.assertTrue(all(call['model'] == 'chosen' and call['provider_name'] == '@codex' for call in calls))
+        self.assertEqual(self.model.calls, []); self.assertIsNone(item['approval'])
+
+    def test_generation_does_not_retry_errors_clarifications_or_single_attempt_budget(self):
+        for response, options in [
+            ({'ok': False, 'error': {'code': 'CANCELLED'}}, {}),
+            ({'ok': True, 'message': {'content': '{"needs_input":"Indica el archivo"}'}}, {}),
+            ({'ok': True, 'message': {'content': '{"unavailable":"No hay contrato"}'}}, {}),
+            ({'ok': True, 'message': {'content': 'invalid'}}, {'max_attempts': 1}),
+        ]:
+            with self.subTest(response=response), patch.object(self.model, 'route', return_value=response) as route:
+                with self.assertRaises(ValueError): self.workshop.generate('Consulta estado', **options)
+                self.assertEqual(route.call_count, 1)
+        self.assertEqual(self.workshop.list(), [])
+
+    def test_generation_discards_response_after_shared_deadline(self):
+        with patch('backend.capability_workshop.time.monotonic', return_value=1) as clock:
+            def late(request):
+                clock.return_value = 72
+                return {'ok': True, 'message': {'content': json.dumps(definition())}}
+            with patch.object(self.model, 'route', side_effect=late):
+                with self.assertRaisesRegex(ValueError, 'agotó su plazo'): self.workshop.generate('Consulta estado')
+        self.assertEqual(self.workshop.list(), [])
+
     def test_exact_shape_wrapper_normalizes_then_preserves_strict_definition_gates(self):
         self.model.answer = {'shape': definition()}
         item = self.workshop.generate('Consulta el estado local')

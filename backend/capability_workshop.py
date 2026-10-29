@@ -102,7 +102,8 @@ class CapabilityWorkshop:
                     'requires_approval': value.get('requires_approval', value['risk'] != 'read')}
                 for key, value in WORKFLOW_COMMANDS.items()],
                 'limits': {'steps': 8, 'parameters': 32, 'definition_chars': MAX_DEFINITION,
-                           'source_chars': 40000, 'inferences_per_request': 1},
+                           'source_chars': 40000, 'inferences_per_request': 2, 'generation_deadline_ms': 70000,
+                           'goal_cycle_inferences_per_request': 1},
                 'policy': {'model_output_is_data': True, 'runtime_evidence_required': True,
                            'source_proposals_executable': False, 'allow_paid': False,
                            'approval_grants_permissions': False},
@@ -525,10 +526,13 @@ class CapabilityWorkshop:
                 self.requests.discard(request_id); self.request_backends.pop(request_id, None); self.idle.notify_all()
 
     def generate(self, goal, model='', provider_name='', selection_mode='manual', kind='workflow', project_id='',
-                 capability_id=None, revision=None, digest=None, conversation_id=None, request_id=None):
+                 capability_id=None, revision=None, digest=None, conversation_id=None, request_id=None,
+                 max_attempts=2):
         _text(goal, 'Objetivo', 4000)
         _text(model, 'Modelo', 200, empty=True); _text(provider_name, 'Proveedor', 200, empty=True)
         project_key(project_id)
+        if type(max_attempts) is not int or max_attempts not in (1, 2):
+            raise ValueError('La generación permite uno o dos intentos')
         if selection_mode not in ('manual', 'automatic_free') or kind not in ('workflow', 'python_transform', 'source_proposal'):
             raise ValueError('Modo de selección o tipo de propuesta inválido')
         if conversation_id is not None:
@@ -583,43 +587,61 @@ class CapabilityWorkshop:
         backend = self.provider if provider_name == '@codex' else self.adapter
         if provider_name == '@codex' and (backend is None or not model):
             raise ValueError('Selecciona un modelo del motor Codex conectado; no se usará otro proveedor como alternativa')
-        with self._inference(request_id, backend):
-            request = {'request_id': request_id, 'conversation_id': conversation_id or request_id,
-                'task': 'code' if kind in ('source_proposal', 'python_transform') else 'plan', 'model': model, 'provider_name': provider_name,
-                'selection_mode': selection_mode, 'allow_paid': False, 'deadline_ms': 70000,
-                'messages': [{'role': 'system', 'content': system}, {'role': 'user', 'content': reference}],
-                'generation': {'temperature': 0.1, 'max_tokens': 4500}}
-            if provider_name == '@codex':
-                from .connect.provider import ProviderError
-                try: response = backend.generate_capability(request)
-                except ProviderError as exc: raise ValueError(str(exc)) from exc
-            else: response = backend.route(request)
-            with self.lock: self._open()
-            if not isinstance(response, dict) or response.get('ok') is not True:
-                raise ValueError('No se generó la propuesta; revisa el proveedor seleccionado')
-            message = response.get('message', {})
-            raw = message.get('content') if isinstance(message, dict) else None
-            _text(raw, 'Respuesta del modelo', MAX_DEFINITION)
-            data = parse_command_json(re.sub(r'^```(?:json)?\s*|\s*```$', '', raw.strip()))
-            # One observed format variation only; never discard sibling metadata or
-            # unwrap recursively. The inner definition still passes every strict gate.
-            if isinstance(data, dict) and set(data) == {'shape'} and isinstance(data['shape'], dict):
-                data = data['shape']
-            if isinstance(data, dict) and set(data) in ({'needs_input'}, {'unavailable'}):
-                raise ValueError(_text(next(iter(data.values())), 'Aclaración', 2000))
-            if not isinstance(data, dict) or data.get('kind') != kind: raise ValueError('El modelo cambió el tipo de propuesta solicitado')
-            result = (self.revise(capability_id, revision, digest, data) if capability_id
-                      else self.create(data, project_id))
-            with self.lock, self.db:
-                item, _ = self._load(result['id'])
-                # Persist allowlisted metadata, never opaque provider config or tokens.
-                route = response.get('route', {})
-                route = route if isinstance(route, dict) else {}
-                item['provenance'].update(source='model_proposal', request_id=request_id,
-                    selected_model=model, selected_provider=provider_name, selection_mode=selection_mode,
-                    route={key: str(route[key])[:200] for key in ('model', 'provider_name') if key in route})
-                self._save(item); self._event(item['id'], item['revision'], 'model_proposed')
-            return self.get(result['id'])
+        deadline = time.monotonic() + 70
+        for attempt in range(max_attempts):
+            attempt_id = request_id if attempt == 0 else 'capability-repair-' + uuid.uuid4().hex
+            with self._inference(attempt_id, backend):
+                remaining = int((deadline - time.monotonic()) * 1000)
+                if remaining < 1: raise ValueError('La generación agotó su plazo; no se guardó la propuesta')
+                request = {'request_id': attempt_id, 'conversation_id': conversation_id or request_id,
+                    'task': 'code' if kind in ('source_proposal', 'python_transform') else 'plan', 'model': model, 'provider_name': provider_name,
+                    'selection_mode': selection_mode, 'allow_paid': False, 'deadline_ms': remaining,
+                    'messages': [{'role': 'system', 'content': system}, {'role': 'user', 'content': reference}],
+                    'generation': {'temperature': 0.1, 'max_tokens': 4500}}
+                if provider_name == '@codex':
+                    from .connect.provider import ProviderError
+                    try: response = backend.generate_capability(request)
+                    except ProviderError as exc: raise ValueError(str(exc)) from exc
+                else: response = backend.route(request)
+                with self.lock: self._open()
+                if time.monotonic() >= deadline: raise ValueError('La generación agotó su plazo; no se guardó la propuesta')
+                if not isinstance(response, dict) or response.get('ok') is not True:
+                    raise ValueError('No se generó la propuesta; revisa el proveedor seleccionado')
+                message = response.get('message', {})
+                raw = message.get('content') if isinstance(message, dict) else None
+                _text(raw, 'Respuesta del modelo', MAX_DEFINITION)
+                data = None
+                try:
+                    data = parse_command_json(re.sub(r'^```(?:json)?\s*|\s*```$', '', raw.strip()))
+                    # Only the observed single wrapper; sibling metadata remains invalid.
+                    if isinstance(data, dict) and set(data) == {'shape'} and isinstance(data['shape'], dict):
+                        data = data['shape']
+                    if isinstance(data, dict) and set(data) in ({'needs_input'}, {'unavailable'}):
+                        raise ValueError(_text(next(iter(data.values())), 'Aclaración', 2000))
+                    if not isinstance(data, dict) or data.get('kind') != kind:
+                        raise ValueError('El modelo cambió el tipo de propuesta solicitado')
+                    self._definition(data)
+                except ValueError as exc:
+                    if (attempt + 1 >= max_attempts or
+                            isinstance(data, dict) and set(data) in ({'needs_input'}, {'unavailable'})):
+                        raise
+                    reference = json.dumps({'goal_reference': reference, 'invalid_proposal': raw,
+                        'validation_error': str(exc)[:2000],
+                        'instruction': 'Corrige el objeto según el contrato original. Conserva el objetivo. No ejecutes ni apruebes nada.'}, ensure_ascii=False)
+                    continue
+                result = (self.revise(capability_id, revision, digest, data) if capability_id
+                          else self.create(data, project_id))
+                with self.lock, self.db:
+                    item, _ = self._load(result['id'])
+                    # Persist allowlisted metadata, never opaque provider config or tokens.
+                    route = response.get('route', {})
+                    route = route if isinstance(route, dict) else {}
+                    item['provenance'].update(source='model_proposal', request_id=request_id,
+                        generation_attempts=attempt + 1, generation_request_id=attempt_id,
+                        selected_model=model, selected_provider=provider_name, selection_mode=selection_mode,
+                        route={key: str(route[key])[:200] for key in ('model', 'provider_name') if key in route})
+                    self._save(item); self._event(item['id'], item['revision'], 'model_proposed')
+                return self.get(result['id'])
 
     def export(self, key, revision=None):
         with self.lock:

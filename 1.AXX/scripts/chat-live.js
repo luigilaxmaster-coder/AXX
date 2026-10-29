@@ -2,7 +2,7 @@
 (function(Axx){
  'use strict';if(!Axx?.isNative()||!Axx.symbiosis||Axx.liveConversation)return;
  const s=Axx.symbiosis,c=Axx.companion,$=id=>document.getElementById(id);
- let revision=0,starting=false,lastError='',turnStarted=0,firstAudio=0;
+ let revision=0,starting=false,lastError='',turnStarted=0,firstAudio=0,turnRecognition=null;
  let pauseMs=900;try{const saved=Number(localStorage.getItem('axx.live.pause'));if([700,900,1500].includes(saved))pauseMs=saved;}catch{}
  const toggle=document.createElement('button');toggle.id='chat-live-toggle';toggle.type='button';toggle.className='chat-live-launch';toggle.innerHTML='<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 10v4m4-7v10m4-13v16m4-13v10m4-7v4"/></svg><span>Voz en vivo</span>';toggle.title='Hablar con Axx: escucha, responde y vuelve a escuchar';toggle.setAttribute('aria-label','Voz en vivo: conversar con Axx');toggle.setAttribute('aria-expanded','false');toggle.setAttribute('aria-controls','chat-live');document.querySelector('#chat-form .composer-bottom > div')?.append(toggle);
  const card=document.createElement('section');card.id='chat-live';card.hidden=true;card.setAttribute('aria-label','Conversación por voz');
@@ -92,12 +92,13 @@
   $('chat-live-input-label').textContent=level?.device||'Entrada de micrófono';
   $('chat-live-input-state').textContent=!listen?(preparing?'Comprobando…':'Apagado'):level?.phase==='calibrating'?'Ajustando nivel…':level?.phase==='voice'?'Voz detectada':level?.phase==='noise'?'Mucho ruido de fondo':level?.heard_speech?'Esperando tu pausa…':'Habla y revisa que suba el nivel';
   inputMonitor.title=level?`RMS ${level.rms.toFixed(4)} · umbral ${level.threshold.toFixed(4)} · ruido ${level.noise_floor.toFixed(4)}`:'';
-  const recognized=Axx.nativeVoice.lastRecognition,fromVoice=recognized?.speech_end_at_ms ? firstAudio+turnStarted-recognized.speech_end_at_ms : 0;
+  const recognized=turnRecognition,fromVoice=recognized?.speech_end_at_ms ? firstAudio+turnStarted-recognized.speech_end_at_ms : 0;
   $('chat-live-metrics').textContent=firstAudio?(fromVoice>0?'Fin de voz → audio: '+(fromVoice/1000).toFixed(1)+' s aprox.':'Texto reconocido → audio: '+(firstAudio/1000).toFixed(1)+' s')+(recognized?' · transcripción '+(recognized.duration_ms/1000).toFixed(1)+' s':''):'Modelo: '+(c.data.prefs.voiceModel||c.data.prefs.model||'sin seleccionar');
  }
  const send=s.sendLive.bind(s);s.sendLive=function(){
   if(!s.liveActive||s.liveBusy||!s.liveText.trim())return Promise.resolve();
   turnStarted=performance.now();firstAudio=0;lastError='';
+  turnRecognition=Axx.nativeVoice.lastRecognition ? {...Axx.nativeVoice.lastRecognition} : null;
   const task=send().catch(e=>{s.stopListening();lastError=e.message||String(e);}).finally(render);s.liveTask=task;return task;
  };
  const dictError=s.dictation.onError;s.dictation.onError=message=>{if(s.liveActive)lastError=message;dictError?.(message);render();};

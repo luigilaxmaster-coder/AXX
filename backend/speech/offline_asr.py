@@ -1,4 +1,4 @@
-"""Local tiny Whisper transcription in a bounded, cancellable CPU worker."""
+"""Local Whisper transcription in a bounded, cancellable CPU worker."""
 from __future__ import annotations
 import base64
 import hashlib
@@ -65,9 +65,17 @@ def model_path():
     required = ('model.bin','tokenizer.json','config.json','vocabulary.txt')
     return next((p.resolve() for p in candidates if all((p/f).is_file() for f in required)),None)
 
+def _load_worker_model(requested_model):
+    global _WORKER_MODEL, _WORKER_MODEL_PATH
+    from faster_whisper import WhisperModel
+    if _WORKER_MODEL is None or _WORKER_MODEL_PATH != requested_model:
+        _WORKER_MODEL = WhisperModel(requested_model,device='cpu',compute_type='int8',cpu_threads=2,num_workers=1,local_files_only=True)
+        _WORKER_MODEL_PATH = requested_model
+    return _WORKER_MODEL
+
+
 def worker_main(raw=None):
     """Only this isolated process imports the native ASR libraries/model."""
-    global _WORKER_MODEL, _WORKER_MODEL_PATH
     started=time.monotonic()
     try:
         if raw is None: raw = sys.stdin.buffer.read(16385)
@@ -79,14 +87,10 @@ def worker_main(raw=None):
         guard_worker_imports()
         import av
         import numpy as np
-        from faster_whisper import WhisperModel
         imported=time.monotonic()
         requested_model = request['model_path']
-        if _WORKER_MODEL is None or _WORKER_MODEL_PATH != requested_model:
-            _WORKER_MODEL = WhisperModel(requested_model,device='cpu',compute_type='int8',cpu_threads=2,num_workers=1,local_files_only=True)
-            _WORKER_MODEL_PATH = requested_model
-        loaded=time.monotonic()
         if request.get('warmup'):
+            _load_worker_model(requested_model)
             sys.stdout.buffer.write(json.dumps({'ok':True,'result':{'ready':True,'model':Path(requested_model).name}}).encode('utf-8')+b'\n')
             sys.stdout.buffer.flush()
             return 0
@@ -111,11 +115,15 @@ def worker_main(raw=None):
         if not samples: raise SpeechError('INVALID_REQUEST','Input contains no decoded audio samples')
         audio=np.concatenate(pieces)
         decoded=time.monotonic()
+        load_ms=inference_ms=0
         if float(np.sqrt(np.mean(np.square(audio))))<.0001:
             result={'text':'','segments':[],'language':request.get('language'),'language_probability':None,
                     'audio_duration_seconds':round(samples/16000,3),'silence_detected':True}
         else:
-            model=_WORKER_MODEL
+            # Reject silence and invalid audio before spending memory/time on a cold model.
+            model=_load_worker_model(requested_model)
+            loaded=time.monotonic()
+            load_ms=round((loaded-decoded)*1000)
             generated,info=model.transcribe(audio,language=request.get('language'),task=request['task'],
                 beam_size=5,temperature=0,condition_on_previous_text=False,vad_filter=False,max_new_tokens=128,
                 initial_prompt=VOICE_CONTEXT if request.get('language') == 'es' and request['task'] == 'transcribe' else None)
@@ -128,14 +136,13 @@ def worker_main(raw=None):
                     'audio_duration_seconds':round(samples/16000,3),'silence_detected':False}
             if excessive_repetition(result['text']):
                 raise SpeechError('INVALID_RESPONSE','El dictado repitió palabras varias veces. Repite la orden antes de ejecutar una acción.')
+            inference_ms=round((time.monotonic()-loaded)*1000)
         result.update({'engine':'faster-whisper','model':Path(request['model_path']).name.removeprefix('faster-whisper-'),'device':'cpu','compute_type':'int8',
                        'task':request['task'],'translation_target':'en' if request['task']=='translate' else None,
                        'external_calls':0,'automatic_actions':False})
-        result['timings_ms']={'imports':round((imported-started)*1000), 'decode':round((decoded-loaded)*1000),
+        result['timings_ms']={'imports':round((imported-started)*1000), 'decode':round((decoded-imported)*1000),
+                              'model_load':load_ms,'inference':inference_ms,
                               'worker_total':round((time.monotonic()-started)*1000)}
-        result['timings_ms']['model_load']=round((loaded-imported)*1000)
-        if not result['silence_detected']:
-            result['timings_ms']['inference']=round((time.monotonic()-decoded)*1000)
         response,code={'ok':True,'result':result},0
     except Exception as exc:
         response,code={'ok':False,'error':{'code':getattr(exc,'code','PROCESS_FAILURE'),'message':str(exc)[:400]}},1
@@ -184,12 +191,14 @@ class OfflineTranscriptionService:
         return 1
 
     def transcribe(self,body):
-        if set(body)-{'audio_base64','mime','language','task'}: raise SpeechError('INVALID_REQUEST','Unsupported transcription fields')
+        started=time.monotonic()
+        if not isinstance(body,dict) or set(body)-{'audio_base64','mime','language','task'}: raise SpeechError('INVALID_REQUEST','Unsupported transcription fields')
         encoded,mime,language,task=body.get('audio_base64'),body.get('mime'),body.get('language'),body.get('task','transcribe')
         if not isinstance(encoded,str) or not 1<=len(encoded)<=((MAX_AUDIO+2)//3)*4:
             raise SpeechError('INVALID_REQUEST','Invalid bounded audio payload')
         if not isinstance(mime,str) or mime.split(';')[0].lower() not in ('audio/webm','audio/ogg','audio/wav','audio/x-wav','audio/mp4'):
             raise SpeechError('INVALID_REQUEST','Unsupported audio MIME type')
+        mime=mime.split(';')[0].lower()
         if language in ('auto',''):language=None
         if language is not None and (not isinstance(language,str) or not re.fullmatch('[a-z]{2,3}',language)):
             raise SpeechError('INVALID_REQUEST','Invalid transcription language')
@@ -211,6 +220,7 @@ class OfflineTranscriptionService:
                 request={'audio_path':str(audio_path),'model_path':str(self.model_path),'language':language,'task':task}
                 result=self._execute(request)
                 result['input_sha256']=hashlib.sha256(raw).hexdigest()
+                result.setdefault('timings_ms',{})['service_total']=round((time.monotonic()-started)*1000)
                 return result
         finally:self._busy.release()
 

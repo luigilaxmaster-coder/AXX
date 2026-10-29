@@ -715,7 +715,7 @@ class ActionLearning:
             generation_goal=request['goal']
             if plan.get('capability_build_history'):
                 generation_goal+='\nEl candidato anterior fue rechazado: '+str(plan['capability_build_history'][-1].get('error',''))[:800]+'. Corrige únicamente ese fallo sin cambiar el contrato.'
-            item = self.workshop.generate(generation_goal,kind=request['kind'],project_id=plan['project_id'],
+            item = self.workshop.generate(generation_goal,kind=request['kind'],project_id=plan['project_id'],max_attempts=1,
                 conversation_id=plan.get('conversation_id'),request_id=build_id,**plan['planning_settings'])
             plan['capability_build'].update(id=item['id'],revision=item['revision'],digest=item['digest'],status='review_required')
             self._save(plan)
