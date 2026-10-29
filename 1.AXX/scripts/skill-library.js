@@ -22,6 +22,9 @@
       <label class="setting">Documento actual<input id="skills-file" class="field"></label>
       <label class="setting">Aplicación actual<input id="skills-app" class="field"></label>
       <button id="skills-save-context" type="button">Guardar contexto</button>
+      <p id="skills-context-status" role="status"></p><details><summary>Procedencia y vigencia del contexto guardado</summary><div id="skills-context-evidence"></div>
+      <label class="setting">Fuente o sesión registrada<select id="skills-context-origin"></select></label><button id="skills-invalidate-context" type="button">Marcar origen como desactualizado</button><button id="skills-forget-context" type="button">Olvidar este origen</button>
+      <p>Olvidar elimina el contexto de ese origen y sus derivados. Los archivos, permisos y el historial de ejecución se conservan. Marcar como desactualizado conserva el dato y bloquea su reutilización automática.</p></details>
     </details>
     <details><summary>Combinar habilidades</summary><p>Añade las habilidades en el orden de la tarea. Las lecturas independientes pueden ejecutarse de dos en dos; los cambios en archivos y aplicaciones conservan un solo ejecutor.</p>
       <div id="skills-parts"></div><label class="setting">Objetivo<input id="skills-objective" class="field" maxlength="2000"></label>
@@ -39,7 +42,8 @@
     <details open><summary>Tareas e historial</summary><button id="skills-tasks-refresh" type="button">Actualizar tareas</button><div id="skills-tasks"></div></details>
     <p id="skills-status" role="status"></p>`;
   $('command-library').before(section);
-  let skills = [], parts = [], windows = [], demo = null, polling = null;
+  let skills = [], parts = [], windows = [], demo = null, polling = null, refreshRevision=0, tasksRevision=0, contextBusy=false;
+  const contextInputs={current_folder:'skills-folder',current_file:'skills-file',current_application:'skills-app'},contextDirty=new Set();
   const project = () => $('skills-project').value.trim();
   $('skills-project').value = Axx.companion.data.prefs.skillProject || '';
   function adopt(plan) {
@@ -57,12 +61,42 @@
   }
   const prefs = () => {const p=Axx.companion.data.prefs;return {model:p.model || '',provider_name:p.provider==='chatgpt'?'@codex':p.provider==='bridge'?p.apiConnection || '':'',selection_mode:p.selection_mode || 'manual'};};
   async function refresh() {
-    const result = await api('GET', 'learning/actions?project_id=' + encodeURIComponent(project()));
-    skills = result.actions || []; renderList();
-    const context = await api('GET', 'learning/context?project_id=' + encodeURIComponent(project()));
-    $('skills-folder').value = context.current_folder || ''; $('skills-file').value = context.current_file || ''; $('skills-app').value = context.current_application || '';
+    const selected=project(),token=++refreshRevision;
+    const [result,context] = await Promise.all([api('GET','learning/actions?project_id='+encodeURIComponent(selected)),api('GET','learning/context?project_id='+encodeURIComponent(selected))]);
+    if(token!==refreshRevision||selected!==project())return;
+    skills = result.actions || []; renderList();renderContext(context);
     await tasks();
   }
+  function renderContext(context){
+    for(const [field,id] of Object.entries(contextInputs))if(!contextDirty.has(field))$(id).value=context[field]||'';
+    const root=$('skills-context-evidence'),origin=$('skills-context-origin'),previous=origin.value;root.replaceChildren();origin.replaceChildren();
+    const kinds={observed:'Observado',inferred:'Inferido',confirmed_user:'Confirmado por ti'},labels={...Object.fromEntries(Object.entries(contextInputs).map(([field,id])=>[field,$(id).parentElement.firstChild.textContent])),current_project:'Proyecto',aliases:'Alias',defaults:'Valores predeterminados',last_inputs:'Últimas entradas'};
+    const origins=new Map();
+    for(const [field,meta] of Object.entries(context.context_meta||{})){
+      const row=element('p',(labels[field]||field)+' · '+(kinds[meta.kind]||'Procedencia no registrada')+' · '+(meta.status==='stale'?'Desactualizado':meta.status==='active'?'Activo':'Estado no registrado')+' · Revisión: '+meta.revision+' · Actualidad: '+({fresh:'reciente',stale:'desactualizada',unknown:'desconocida'}[meta.freshness]||'no registrada')+(meta.origin?' · Origen: '+meta.origin:'')+(meta.observed_at?' · Registrado: '+new Date(meta.observed_at*1000).toLocaleString():'')+(meta.expires_at?' · Caduca: '+new Date(meta.expires_at*1000).toLocaleString():''));row.style.overflowWrap='anywhere';root.append(row);
+      for(const [key,label] of [['source_id','Fuente'],['session_id','Sesión']])if(meta[key]){const value=JSON.stringify({[key]:meta[key]});origins.set(value,label+': '+meta[key]);}
+    }
+    for(const [value,text] of origins)origin.add(new Option(text,value));if(origins.has(previous))origin.value=previous;
+    if(!root.children.length)root.textContent='No hay procedencia de campos registrada.';
+    $('skills-invalidate-context').disabled=$('skills-forget-context').disabled=contextBusy||!origins.size;
+    $('skills-context-status').textContent='Contexto guardado · Revisión: '+(context.context_revision??'No registrada')+(contextDirty.size?' · Hay campos editados sin guardar.':'');
+  }
+  async function saveContext(){
+    const selected=project(),changes={};for(const field of contextDirty)changes[field]=$(contextInputs[field]).value;
+    if(!Object.keys(changes).length){$('skills-status').textContent='No hay campos editados para guardar.';return;}
+    const source_id=Axx.newId(),session_id=Axx.chatWorkspace?.active?.id,context_meta={};
+    for(const field of Object.keys(changes))context_meta[field]={kind:'confirmed_user',origin:'user_settings',source_id,...(session_id?{session_id,task_id:session_id}:{}),observed_at:Date.now()/1000};
+    const context=await api('POST','learning/context',{project_id:selected,changes:{...changes,context_meta}});
+    if(selected!==project())return;
+    for(const [field,value] of Object.entries(changes))if($(contextInputs[field]).value===value)contextDirty.delete(field);
+    renderContext(context);$('skills-status').textContent='Contexto guardado. Solo los campos editados se registraron como confirmados por ti.';
+  }
+  async function invalidateContext(forget){
+    const selected=project(),value=$('skills-context-origin').value;if(!value)throw Error('Selecciona una fuente o sesión registrada.');
+    const context=await api('POST','learning/forget-context',{project_id:selected,...JSON.parse(value),forget});if(selected!==project())return;
+    renderContext(context);$('skills-status').textContent=(forget?'Contexto olvidado':'Contexto marcado como desactualizado')+' · '+(context.invalidated||[]).length+' referencias invalidadas. Los permisos y el historial de ejecución se conservan.';
+  }
+  const contextAction=action=>run(async()=>{if(contextBusy)return;contextBusy=true;$('skills-save-context').disabled=$('skills-invalidate-context').disabled=$('skills-forget-context').disabled=true;try{await action();}finally{contextBusy=false;$('skills-save-context').disabled=false;$('skills-invalidate-context').disabled=$('skills-forget-context').disabled=!$('skills-context-origin').options.length;}});
   function renderList() {
     const query = $('skills-search').value.toLocaleLowerCase(), list = $('skills-list'); list.replaceChildren();
     for (const skill of skills.filter(s => (!$('skills-favorites').checked || s.favorite) && [s.title, s.trigger, ...(s.examples || [])].join(' ').toLocaleLowerCase().includes(query))) {
@@ -122,7 +156,7 @@
     }));
   }
   async function tasks() {
-    const result=await api('GET','learning/plans?project_id='+encodeURIComponent(project())), root=$('skills-tasks'); root.replaceChildren();
+    const selected=project(),token=++tasksRevision,result=await api('GET','learning/plans?project_id='+encodeURIComponent(selected));if(token!==tasksRevision||selected!==project())return;const root=$('skills-tasks'); root.replaceChildren();
     for(const plan of result.plans || []) {
       const row=element('article'); row.className='setup-card';
       row.append(element('strong',plan.title||plan.text||plan.operation_id),element('p',`${states[plan.state]||plan.state} · ${(plan.step_records||[]).filter(s=>s.state==='succeeded').length}/${plan.steps?.length||0} pasos · ${plan.model_calls_used||0} llamadas al modelo`));
@@ -148,8 +182,9 @@
   }
   async function stopDemo(cancel=false) { showDemo(await api('POST','demonstration/stop',{id:demo?.id,cancel})); }
   $('skills-refresh').onclick=()=>run(refresh); $('skills-search').oninput=$('skills-favorites').onchange=renderList;
-  $('skills-project').onchange=()=>run(async()=>{if(commands.busy||commands.operation){$('skills-project').value=Axx.companion.data.prefs.skillProject||'';throw new Error('Termina o cancela la acción activa antes de cambiar de proyecto.');}Axx.companion.data.prefs.skillProject=project();Axx.companion.save();commands.learningQuestion=null;commands.actionContext={};parts=[];renderParts();$('skills-editor').replaceChildren();await refresh();});
-  $('skills-save-context').onclick=()=>run(async()=>{await api('POST','learning/context',{project_id:project(),changes:{current_folder:$('skills-folder').value,current_file:$('skills-file').value,current_application:$('skills-app').value,current_project:project()}});$('skills-status').textContent='Contexto guardado.';});
+  $('skills-project').onchange=()=>run(async()=>{if(commands.busy||commands.operation){$('skills-project').value=Axx.companion.data.prefs.skillProject||'';throw new Error('Termina o cancela la acción activa antes de cambiar de proyecto.');}Axx.companion.data.prefs.skillProject=project();Axx.companion.save();commands.learningQuestion=null;commands.actionContext={};parts=[];renderParts();$('skills-editor').replaceChildren();contextDirty.clear();for(const id of Object.values(contextInputs))$(id).value='';$('skills-context-evidence').replaceChildren();$('skills-context-origin').replaceChildren();$('skills-context-status').textContent='Consultando contexto del proyecto…';++refreshRevision;++tasksRevision;await refresh();});
+  for(const [field,id] of Object.entries(contextInputs))$(id).oninput=event=>{if(event.isTrusted){contextDirty.add(field);$('skills-context-status').textContent='Hay campos editados sin guardar.';}};
+  $('skills-save-context').onclick=()=>contextAction(saveContext);$('skills-invalidate-context').onclick=()=>contextAction(()=>invalidateContext(false));$('skills-forget-context').onclick=()=>contextAction(()=>invalidateContext(true));
   $('skills-tasks-refresh').onclick=()=>run(tasks);
   $('skills-clear-parts').onclick=()=>{parts=[];renderParts();};
   $('skills-compose').onclick=()=>run(()=>planRequest('compose',{text:$('skills-objective').value,parts,operation_id:Axx.newId(),project_id:project()}));
