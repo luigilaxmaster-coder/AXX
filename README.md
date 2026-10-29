@@ -173,9 +173,9 @@ El taller puede proponer flujos y transformaciones puras, validarlas y mantener 
 
 ## Android
 
-Android mantiene su versión independiente: **0.2.4**. El enlace permite compartir apariencia y trabajar con las funciones móviles habilitadas, sin conceder automáticamente acceso a mouse, teclado, audio o tareas del PC.
+Android mantiene su versión independiente: **0.2.5**. El enlace permite compartir apariencia y trabajar con las funciones móviles habilitadas, sin conceder automáticamente acceso a mouse, teclado, audio o tareas del PC. Esta revisión añade Transfer; su APK está compilado, con instalación y validación física pendientes.
 
-La validación registrada en Samsung A21s incluye sincronización de apariencia en ambos sentidos, conservación del enlace y borrador, texto al 100/170 %, teclado de 299 puntos y una consulta ejecutada en Windows. La escena medida obtuvo una mediana de 50 FPS; no es una garantía para otros teléfonos o escenas. Se registraron 17 pruebas UI y 59 de servicio.
+La validación de **0.2.4** registrada en Samsung A21s incluye sincronización de apariencia en ambos sentidos, conservación del enlace y borrador, texto al 100/170 %, teclado de 299 puntos y una consulta ejecutada en Windows. La escena medida obtuvo una mediana de 50 FPS; no es una garantía para otros teléfonos o escenas. Se registraron 17 pruebas UI y 59 de servicio.
 
 El escaneo óptico del QR, la entrada física remota y el audio mantienen aceptación separada. Los APK siguen siendo artefactos locales de prueba hasta su publicación independiente. [Emparejar, compilar y verificar Android](docs/mobile/README.md).
 

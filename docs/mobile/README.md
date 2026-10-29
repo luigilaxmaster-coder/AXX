@@ -13,7 +13,9 @@ Android is a client of the existing Windows Axx instance. It shares the desktop 
 [Previous 0.2.2 verification](MINIMAL-UI-20261028-022.md).
 
 
-Android **0.2.4-companion / build 25** improves the existing Windows-linked
+### Existing companion behavior and 0.2.4 validation
+
+Android **0.2.4-companion / build 25** improved the existing Windows-linked
 companion rather than introduce a separate assistant. The phone follows the PC's
 appearance, active shared conversation, model selection and current grants. Active
 snapshots poll every two seconds while the phone is visible. Commands use the
