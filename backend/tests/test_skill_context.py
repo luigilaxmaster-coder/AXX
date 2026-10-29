@@ -307,10 +307,11 @@ class SkillContextTests(unittest.TestCase):
     def test_health_resolves_real_prefix_bindings_before_quarantine_and_revalidation(self):
         self.skill()
         raw = json.loads(self.db.execute('SELECT payload FROM skill_versions WHERE id=?', ('skill.hash',)).fetchone()[0])
-        raw.update(id='skill.chain', templates=[{'command_id': 'axx.artifact.write', 'inputs': {'path': 'chain.txt', 'content': 'chain trial'}},
+        raw.update(id='skill.chain', templates=[{'command_id': 'axx.artifact.write', 'inputs': {'path': r'nested\chain.txt', 'content': 'chain trial'}},
             {'command_id': 'axx.file.sha256', 'inputs': {}, 'bindings': {'path': {'step': 0, 'path': ['output', 'path']}}}],
             environment=get_action_env_fingerprint(['axx.artifact.write', 'axx.file.sha256']))
         self.memory.insert(raw)
+        immutable = self.db.execute('SELECT payload FROM skill_versions WHERE id=?', ('skill.chain',)).fetchone()[0]
         def run(fail=False):
             writer = self.commands.prepare('axx.artifact.write', raw['templates'][0]['inputs'])
             written = self.commands.execute(writer['operation_id'], approved=True)
@@ -321,12 +322,18 @@ class SkillContextTests(unittest.TestCase):
             return [written, read]
         failed = run(fail=True)
         self.assertEqual(failed[0]['state'], 'succeeded')
+        self.assertEqual(failed[0]['inputs']['path'], 'nested/chain.txt')
         self.assertEqual(failed[1]['state'], 'failed')
         self.memory.record('skill.chain', 1, 'failed-chain', {'effect_verified': False, 'results': failed})
         self.assertTrue(self.memory.get('skill.chain')['quarantined'])
         corrected = run()
+        forged = copy.deepcopy(corrected)
+        forged[0]['inputs']['path'] = r'nested\chain.txt'
+        self.memory.record('skill.chain', 1, 'forged-writer-receipt', {'effect_verified': True, 'results': forged, 'revalidation': True})
+        self.assertTrue(self.memory.get('skill.chain')['quarantined'], 'Evidence must still exactly match the actual stored receipt')
         self.memory.record('skill.chain', 1, 'corrected-chain', {'effect_verified': True, 'results': corrected, 'revalidation': True})
         self.assertEqual(self.memory.get('skill.chain')['status'], 'verified')
+        self.assertEqual(self.db.execute('SELECT payload FROM skill_versions WHERE id=?', ('skill.chain',)).fetchone()[0], immutable)
 
     def test_provider_consent_is_explicit_strict_and_does_not_disable_local_retrieval(self):
         failure = self.hash(fail=True)

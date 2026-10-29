@@ -4,6 +4,7 @@ from contextlib import nullcontext
 import hashlib
 import json
 import math
+from pathlib import PureWindowsPath
 import re
 import time
 import unicodedata
@@ -254,6 +255,21 @@ class SkillMemory:
             self.db.execute('INSERT INTO skill_evidence VALUES (?,?,?,?) ON CONFLICT(id,version,operation_id) DO UPDATE SET payload=excluded.payload',
                             (key, version, operation_id, json.dumps(evidence, ensure_ascii=False)))
 
+    @staticmethod
+    def _receipt_inputs(command_id, inputs):
+        if command_id != 'axx.artifact.write': return inputs
+        # Match CommandService's relative writer representation without rewriting
+        # the immutable template or rechecking a file that may no longer exist.
+        raw = inputs.get('path')
+        if not isinstance(raw, str): raise ValueError('Ruta de escritura inválida')
+        parts = raw.replace('\\', '/').split('/')
+        reserved = {'CON', 'PRN', 'AUX', 'NUL', *(f'COM{i}' for i in range(1, 10)), *(f'LPT{i}' for i in range(1, 10))}
+        if PureWindowsPath(raw).is_absolute() or PureWindowsPath(raw).drive or any(
+                not part or part in ('.', '..') or part.endswith((' ', '.')) or part.split('.')[0].upper() in reserved
+                or re.search(r'[<>:"|?*\x00-\x1f]', part) for part in parts):
+            raise ValueError('Ruta de escritura relativa inválida')
+        return inputs | {'path': '/'.join(parts)}
+
     def _observed_receipts(self, skill, evidence):
         from ..actions.plan_contract import resolve_inputs
         results = evidence.get('results')
@@ -268,7 +284,9 @@ class SkillMemory:
             row = self.db.execute('SELECT state,result_json,created_at FROM command_runs WHERE operation_id=?', (result['operation_id'],)).fetchone()
             if not row: return None
             stored = json.loads(row[1])
-            try: expected_inputs = resolve_inputs(step, [{'state': receipt['state'], 'result': receipt} for receipt, _ in receipts])
+            try:
+                expected_inputs = self._receipt_inputs(step['command_id'], resolve_inputs(step,
+                    [{'state': receipt['state'], 'result': receipt} for receipt, _ in receipts]))
             except (ValueError, TypeError, KeyError): return None
             if (row[0] != stored.get('state') or stored.get('command_id') != step['command_id']
                     or stored.get('inputs') != expected_inputs
