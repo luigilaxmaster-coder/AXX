@@ -65,6 +65,8 @@ class MobileHTTP:
             result = self.gateway.transfers.search(body['device_id'], {k: v for k, v in body.items() if k != 'device_id'})
         elif path == '/axx-api/mobile/files/export':
             result = self.gateway.transfers.export(body)
+        elif path == '/axx-api/mobile/files/save':
+            result = self.gateway.transfers.save_downloads(body)
         elif path == '/axx-api/mobile/files/remove':
             result = self.gateway.transfers.remove(body)
         elif path in ('/axx-api/mobile/transfers/create', '/axx-api/mobile/transfers/chunk',

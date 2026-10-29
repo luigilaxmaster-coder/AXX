@@ -121,6 +121,32 @@ class TransferTests(unittest.TestCase):
         receipt = self.files.action('receipt', self.device, {'transfer_id': transfer_id, 'size': len(content), 'sha256': record['sha256']})
         self.assertEqual(receipt['state'], 'completed')
 
+    def test_save_received_to_downloads_preserves_existing_file(self):
+        self.grant()
+        downloads = self.root / 'Downloads'
+        downloads.mkdir()
+        original = downloads / 'archivo.txt'
+        original.write_bytes(b'keep existing')
+        transfer_id, _ = self.upload(b'from phone')
+        with patch('backend.mobile.transfer._downloads_directory', return_value=downloads):
+            result = self.files.save_downloads({'transfer_id': transfer_id})
+        self.assertEqual(Path(result['path']).name, 'archivo (2).txt')
+        self.assertEqual(Path(result['path']).read_bytes(), b'from phone')
+        self.assertEqual(original.read_bytes(), b'keep existing')
+        self.assertTrue(self.files.get(transfer_id)['stored'])
+
+    def test_save_downloads_rejects_unverified_or_removed_copies(self):
+        self.grant()
+        transfer_id, _ = self.upload(b'pending', finish=False)
+        with self.assertRaises(ValueError):
+            self.files.save_downloads({'transfer_id': transfer_id})
+        finished, _ = self.upload(b'finished')
+        self.files.remove({'transfer_id': finished})
+        with self.assertRaises(ValueError):
+            self.files.save_downloads({'transfer_id': finished})
+        with self.assertRaises(ValueError):
+            self.files.save_downloads({'transfer_id': finished, 'destination': str(self.root)})
+
     def test_changed_source_foreign_ref_and_traversal_are_denied(self):
         self.grant()
         source = self.shared / 'file.txt'

@@ -24,6 +24,12 @@ Los originales se conservan. La búsqueda devuelve archivos de las carpetas
 autorizadas y solicita una elección cuando hay varios resultados. Las referencias
 de archivo se vuelven a validar al preparar la copia.
 
+En Windows, **Herramientas → Archivos → Recibidos del teléfono** reúne las copias
+verificadas de todos los teléfonos. **Guardar en Descargas** utiliza la carpeta
+Descargas configurada en Windows; si el nombre ya existe, crea una copia numerada
+sin reemplazarlo. Los envíos incompletos siguen en Actividad hasta verificarse.
+**Enviar al teléfono** y los permisos conservan su apartado independiente.
+
 ## Contrato y protección
 
 - Un transporte: HTTPS entre el Android emparejado y la PC. La huella del

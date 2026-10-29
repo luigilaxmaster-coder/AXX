@@ -25,6 +25,13 @@ MAX_STAGED = 10 * 1024**3
 TERMINAL = {'completed', 'cancelled', 'failed'}
 
 
+def _downloads_directory():
+    if os.name == 'nt':
+        from win32com.shell import shell, shellcon
+        return Path(shell.SHGetKnownFolderPath(shellcon.FOLDERID_Downloads, 0, None))
+    return Path.home() / 'Downloads'
+
+
 def _uuid(value):
     try:
         if str(uuid.UUID(value)) != value:
@@ -505,6 +512,26 @@ class FileTransfer:
             else:
                 raise ValueError('Acción desconocida.')
             return self._public(self._load(item['transfer_id'], device_id))
+
+    def save_downloads(self, body):
+        if not isinstance(body, dict) or set(body) != {'transfer_id'}:
+            raise ValueError('Selecciona un archivo recibido.')
+        with self.lock:
+            item = self._load(body['transfer_id'])
+            if item['state'] != 'completed' or item['direction'] != 'to_pc' or not item.get('stored', True):
+                raise ValueError('El archivo todavía no está recibido y verificado.')
+            directory = _path(str(_downloads_directory()))
+            name = Path(_name(item['name']))
+            for number in range(1, 1001):
+                filename = name.name if number == 1 else f'{name.stem} ({number}){name.suffix}'
+                destination = directory / filename
+                if destination.exists():
+                    continue
+                try:
+                    return self.export({'transfer_id': item['transfer_id'], 'destination': str(destination)})
+                except FileExistsError:
+                    continue
+            raise ValueError('Hay demasiados archivos con ese nombre en Descargas. Usa Guardar como.')
 
     def export(self, body):
         if not isinstance(body, dict) or set(body) != {'transfer_id', 'destination'}:
