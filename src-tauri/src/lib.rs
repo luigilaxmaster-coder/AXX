@@ -96,6 +96,7 @@ pub struct HostState {
     active_operations: std::sync::atomic::AtomicUsize,
     pub timer_task: Mutex<Option<Value>>,
     pub is_ignoring_cursor: Mutex<bool>,
+    mouse_hook_ready: AtomicBool,
     pub interactive_regions: Mutex<Vec<Rect>>,
     avatar_mask: Mutex<Option<PixelMask>>,
     pub backend_child: Mutex<Option<Child>>,
@@ -197,7 +198,7 @@ pub fn write_runtime_snapshot(app: &AppHandle) {
         "backendReady":backend.is_some(),"backendPort":backend.as_ref().map(|b|b.port),
         "backendInstance":backend.as_ref().map(|b|b.instance_id.as_str()),
         "dataDirectory":data_directory.display().to_string(),"windowVisible":visible,"windowPosition":window_position,
-        "desktop":desktop
+        "desktop":desktop,"mouseHookReady":state.mouse_hook_ready.load(Ordering::Relaxed)
     });
     let result = (|| -> Result<(), Box<dyn std::error::Error>> {
         let dir = data_directory.join("logs");
@@ -926,13 +927,7 @@ fn start_cursor_hit_test_loop(app: AppHandle) {
             use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON};
             let lbutton_down = unsafe { GetAsyncKeyState(VK_LBUTTON as i32) } < 0;
             let mut current = state.is_ignoring_cursor.lock().unwrap();
-            let ignore = if inside {
-                false
-            } else if lbutton_down && !*current {
-                false
-            } else {
-                (!regions_empty || mask_present) && !inside
-            };
+            let ignore = ignore_pointer(inside, !regions_empty || mask_present, lbutton_down, *current);
 
             if *current != ignore && window.set_ignore_cursor_events(ignore).is_ok() {
                 *current = ignore;
@@ -944,6 +939,49 @@ fn start_cursor_hit_test_loop(app: AppHandle) {
 
 #[cfg(windows)]
 static KEYBOARD_APP: std::sync::OnceLock<AppHandle> = std::sync::OnceLock::new();
+
+fn ignore_pointer(inside: bool, mapped: bool, dragging: bool, was_ignored: bool) -> bool {
+    mapped && !inside && !(dragging && !was_ignored)
+}
+
+#[cfg(windows)]
+unsafe extern "system" fn mouse_hook(code: i32, wparam: usize, lparam: isize) -> isize {
+    use windows_sys::Win32::{Foundation::POINT, Graphics::Gdi::ScreenToClient, UI::{HiDpi::GetDpiForWindow, WindowsAndMessaging::*}};
+    if code >= 0 && matches!(wparam as u32, WM_LBUTTONDOWN | WM_LBUTTONUP) {
+        if let Some(app) = KEYBOARD_APP.get() {
+            if let Some(window) = app.get_webview_window("main") {
+                if let Ok(hwnd) = window.hwnd() {
+                    if unsafe { IsWindowVisible(hwnd.0 as _) } != 0 {
+                        let event = unsafe { &*(lparam as *const MSLLHOOKSTRUCT) };
+                        let mut point = POINT { x:event.pt.x, y:event.pt.y };
+                        let dpi = unsafe { GetDpiForWindow(hwnd.0 as _) };
+                        if dpi > 0 && unsafe { ScreenToClient(hwnd.0 as _, &mut point) } != 0 {
+                            let state = app.state::<HostState>();
+                            // Never wait on another worker in a low-level input callback.
+                            if let (Ok(regions), Ok(mask), Ok(mut ignored)) = (state.interactive_regions.try_lock(), state.avatar_mask.try_lock(), state.is_ignoring_cursor.try_lock()) {
+                                let x = point.x as f64 * 96.0 / dpi as f64;
+                                let y = point.y as f64 * 96.0 / dpi as f64;
+                                let inside = regions.iter().any(|r| r.contains(x,y)) || mask.as_ref().is_some_and(|m| m.contains(x,y));
+                                let ignore = ignore_pointer(inside, !regions.is_empty() || mask.is_some(), wparam as u32 == WM_LBUTTONUP, *ignored);
+                                let style = unsafe { GetWindowLongPtrW(hwnd.0 as _, GWL_EXSTYLE) };
+                                if *ignored != ignore || (style & WS_EX_TRANSPARENT as isize != 0) != ignore {
+                                    if window.set_ignore_cursor_events(ignore).is_ok() {
+                                        // Tao queues its style change. Apply the same input bit before Windows routes this click.
+                                        let next = if ignore { style | (WS_EX_TRANSPARENT | WS_EX_LAYERED) as isize } else { style & !(WS_EX_TRANSPARENT as isize) };
+                                        unsafe { SetWindowLongPtrW(hwnd.0 as _, GWL_EXSTYLE, next); }
+                                        *ignored = unsafe { GetWindowLongPtrW(hwnd.0 as _, GWL_EXSTYLE) } & WS_EX_TRANSPARENT as isize != 0;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // Observe routing only: never swallow, replay or redirect the user's click.
+    unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) }
+}
 #[cfg(windows)]
 unsafe extern "system" fn keyboard_hook(code: i32, wparam: usize, lparam: isize) -> isize {
     use windows_sys::Win32::UI::WindowsAndMessaging::*;
@@ -976,6 +1014,10 @@ fn start_global_hotkey_thread(app: AppHandle) {
         unsafe {
             let hook =
                 SetWindowsHookExW(WH_KEYBOARD_LL, Some(keyboard_hook), std::ptr::null_mut(), 0);
+            let mouse = SetWindowsHookExW(WH_MOUSE_LL, Some(mouse_hook), std::ptr::null_mut(), 0);
+            app.state::<HostState>().mouse_hook_ready.store(!mouse.is_null(), Ordering::Relaxed);
+            if mouse.is_null() { log::warn!("Synchronous pointer routing unavailable: {}", std::io::Error::last_os_error()); }
+            write_runtime_snapshot(&app);
             if RegisterHotKey(
                 std::ptr::null_mut(),
                 1001,
@@ -1019,6 +1061,7 @@ fn start_global_hotkey_thread(app: AppHandle) {
             if !hook.is_null() {
                 UnhookWindowsHookEx(hook);
             }
+            if !mouse.is_null() { UnhookWindowsHookEx(mouse); }
         }
     });
 }
@@ -1259,6 +1302,15 @@ mod tests {
             .valid()
         );
         assert!(!Rect { height: -1.0, ..r }.valid());
+    }
+    #[test]
+    fn pointer_routing_accepts_first_click_and_preserves_drag_release() {
+        let r = Rect { x:710.0,y:490.0,width:320.0,height:56.0 };
+        assert!(!ignore_pointer(r.contains(967.0,516.0),true,false,true));
+        assert!(ignore_pointer(false,true,false,false), "A new click outside Axx must pass through");
+        assert!(!ignore_pointer(false,true,true,false), "A drag started inside must receive its release");
+        assert!(ignore_pointer(false,true,true,true), "Do not acquire a drag started in another app");
+        assert!(!ignore_pointer(false,false,false,true));
     }
     #[test]
     fn local_proxy_rejects_path_escape_and_non_api_routes() {

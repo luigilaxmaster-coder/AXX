@@ -390,9 +390,15 @@ const { chromium } = bundledRequire('playwright');
     const generalSequence=await page.evaluate(async()=>{
       const previous=Axx.backendRequest,calls=[];Axx.commandLibrary.operation=null;Axx.commandLibrary.busy=false;
       Axx.backendRequest=async(method,route,body)=>{calls.push(route);if(route==='/axx-api/commands/resolve')return {match:'sequence_request'};if(route==='/axx-api/learning/propose')return {...body,kind:'learned_plan',state:'awaiting_approval',message:'Revisa el plan.'};return previous(method,route,body);};
-      try{await Axx.companion.send('calcula 2+2 y luego abre YouTube');return calls;}finally{Axx.backendRequest=previous;}
+      try{
+        for(const text of ['calcula 2+2 y luego abre YouTube','calcula 2+2 y abre YouTube','primero calcula 2+2, abre YouTube','calcula "2 y abre Chrome" y abre YouTube','calcula 2+2\nabre YouTube']){
+          Axx.commandLibrary.operation=null;Axx.commandLibrary.busy=false;await Axx.companion.send(text);
+        }
+        return calls;
+      }finally{Axx.backendRequest=previous;}
     });
     assert(generalSequence.includes('/axx-api/learning/propose'));assert(!generalSequence.includes('/axx-api/commands/execute'));
+    assert.equal(generalSequence.filter(route=>route==='/axx-api/learning/propose').length,5);
     results.push('A local first clause cannot swallow the remaining sequence; unresolved sequences use the general planner');
     const routing=await page.evaluate(async()=>{
       const previous=Axx.backendRequest,calls=[],c=Axx.companion,data=c.data;

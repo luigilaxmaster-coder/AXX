@@ -50,6 +50,34 @@ class ActionLearningTests(unittest.TestCase):
         self.assertEqual(requests[0]['conversation_id'],'api-plan')
         self.assertEqual(self.executor.list_operations(),[])
 
+    def test_model_receives_ordered_clauses_and_cannot_drop_the_suffix(self):
+        seen=[];original=self.model.route
+        def capture(request):
+            seen.append(request);return original(request)
+        self.model.route=capture
+        plan=self.learning.propose('abre YouTube y busca Faint y abre calculadora')
+        self.assertEqual(plan['state'],'needs_input')
+        user=json.loads(seen[0]['messages'][-1]['content'])
+        self.assertEqual(user['requested_steps'],['abre YouTube','busca Faint','abre calculadora'])
+        self.assertEqual(self.model.calls,2)
+        self.assertEqual(self.executor.list_operations(),[])
+
+    def test_model_can_correct_an_incomplete_plan_once_before_review(self):
+        requests=[]
+        def answer(request):
+            requests.append(request)
+            steps=[{'command_id':'axx.desktop.open_url','inputs':{'url':'https://www.youtube.com/'}}]
+            if len(requests)==2: steps.append({'command_id':'axx.desktop.search','inputs':{'engine':'youtube','query':'Faint'}})
+            return {'ok':True,'message':{'content':json.dumps({'title':'Abrir y buscar','steps':steps})}}
+        self.model.route=answer
+        plan=self.learning.propose('abre YouTube y busca Faint')
+        self.assertEqual(plan['state'],'awaiting_approval')
+        self.assertEqual(len(plan['steps']),2)
+        self.assertEqual(plan['model_calls_used'],2)
+        self.assertEqual([r['provider_name'] for r in requests],['',''])
+        self.assertTrue(all(r['allow_paid'] is False for r in requests))
+        self.assertEqual(self.executor.list_operations(),[])
+
     def test_model_plan_writes_real_file_hashes_it_and_learns_only_after_execution(self):
         self.model.answer = {'title': 'Crear y comprobar saludo', 'steps': [
             {'command_id': 'axx.artifact.write', 'inputs': {'path': 'saludo.txt', 'content': 'hola real'}},

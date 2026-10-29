@@ -7,17 +7,23 @@
     const requestWords = raw => {
         let text = String(raw).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/^[¡¿\s]+/,'');
         for (let i=0;i<6;i++) {
-            const next = text.replace(/^(?:(?:(?:oye|hola|hey|ok|ey|escucha)[,\s]+)?axx\b[\s,.:!-]*|(?:oye|hola|hey)[,\s]+|por favor[,\s]+|(?:(?:me|nos)\s+)?(?:puedes|podrias|podias)[,:\s]+|(?:quiero|necesito|quisiera|me gustaria)\s+que\s+(?:me\s+)?|pero\s+)/,'').replace(/^[¿¡ ,]+/,'');
+            const next = text.replace(/^(?:(?:(?:oye|hola|hey|ok|ey|escucha)[,\s]+)?axx\b[\s,.:!-]*|(?:oye|hola|hey)[,\s]+|por favor[,\s]+|(?:(?:me|nos)\s+)?(?:puedes|podrias|podias)[,:\s]+|(?:quiero|necesito|quisiera|me gustaria)\s+que\s+(?:me\s+)?|primero[,\s]+|pero\s+)/,'').replace(/^[¿¡ ,]+/,'');
             if (next === text) break;
             text = next;
         }
         return text.replace(/^(?:quiero|necesito|quisiera|me gustaria)\s+(?=abrir|iniciar|cerrar|buscar|escuchar|reproducir|mover|leer|pulsar)/,'').replace(/[.!?]+$/,'').replace(/\s+por favor$/,'').trim();
     };
     const sequenceRequest = raw => {
-        const text=requestWords(raw), verbs='(?:abre|abrir|inicia|busca|buscar|lee|enfoca|inspecciona|reproduce|cierra|crea|crear|copia|mueve|renombra|calcula|guarda|borra|elimina|envia|organiza|convierte|descarga|instala)';
-        return !/["'«»\n]/.test(raw) && new RegExp('^'+verbs+'\\b').test(text)
-            && (new RegExp('(?:;|\\b(?:y\\s+)?(?:luego|despues))\\s+'+verbs+'\\b').test(text)
-                || /^(?:abre|abrir|inicia)\b/.test(text) && new RegExp('\\s+y\\s+'+verbs+'\\b').test(text));
+        const text=requestWords(raw), verbs='(?:abre|abrir|abrirme|abreme|abras|abrirnos|lanza|lanzar|arranca|inicia|iniciar|busca|buscar|buscarme|buscame|busques|encuentra|encontrar|localiza|lee|leer|leeme|leas|enfoca|enfocar|enfoques|pulsa|pulsar|pulses|lista|muestra|consulta|pausa|reanuda|inspecciona|reproduce|reproducir|reproduceme|reproduzcas|escucha|escuchar|cierra|cerrar|cerrarme|cierrame|cierres|crea|crear|copia|mueve|mover|moverme|mueveme|muevas|coloca|colocar|colocame|renombra|calcula|guarda|borra|elimina|envia|organiza|convierte|descarga|instala)';
+        if(!new RegExp('^'+verbs+'\\b').test(text)&&!/^en\s+(?:youtube|you tube|google|chrome|bing|duckduckgo|internet|spotify)[.,:]?\s+(?:busca|buscar|buscame|encuentra|encontrar|localiza)\b/.test(text))return false;
+        let quote=null,escaped=false;
+        const chars=[...text],masked=chars.map((char,index)=>{
+            if(quote){if(char===quote&&!escaped)quote=null;escaped=char==='\\'&&!escaped;return ' ';}
+            if(['"','«','“'].includes(char)||char==="'"&&(index===0||!/[\p{L}\p{N}]/u.test(chars[index-1]))){quote=({'«':'»','“':'”'})[char]||char;escaped=false;return ' ';}
+            return char;
+        }).join('');
+        const nextVerbs=verbs.slice(0,-1)+'|escribe|pega|teclea)';
+        return new RegExp('(?:;|\\n|\\b(?:y\\s+)?(?:luego|despues)\\b|,\\s*(?:y\\s+)?(?='+nextVerbs+'\\b)|\\s+y\\s+(?='+nextVerbs+'\\b))').test(masked);
     };
     class CommandLibrary {
         generation = 0; searchGeneration = 0; observationRevision = 0; cancellingGeneration = null; busy = false; operation = null; pendingOperationId = null; commands = []; voiceDraft = null; actionContext = {}; actionContextChat = ''; actionContextAt = 0;

@@ -6,6 +6,7 @@ from unittest.mock import Mock
 from backend.actions.executor import ActionExecutor
 from backend.commands import CommandService
 from backend.action_learning import ActionLearning
+from backend.actions.command_language import command_sequence
 
 
 class CommandSequenceTests(unittest.TestCase):
@@ -30,6 +31,52 @@ class CommandSequenceTests(unittest.TestCase):
         result=self.commands.resolve('abre calculadora y abre YouTube')
         self.assertEqual(result['match'],'sequence')
         self.assertEqual([s['command_id'] for s in result['steps']],['axx.desktop.open_app','axx.desktop.open_url'])
+
+    def test_training_matrix_preserves_clauses_quotes_and_order(self):
+        scenarios = [
+            ('busca gatos en YouTube y abre Chrome', ['busca gatos en YouTube','abre Chrome']),
+            ('en YouTube busca gatos y abre Chrome', ['en YouTube busca gatos','abre Chrome']),
+            ('encuentra gatos en YouTube y abre Chrome', ['encuentra gatos en YouTube','abre Chrome']),
+            ('cierra Spotify y abre YouTube', ['cierra Spotify','abre YouTube']),
+            ('calcula 2+2 y abre YouTube', ['calcula 2+2','abre YouTube']),
+            ('primero abre YouTube, busca Faint y abre calculadora', ['abre YouTube','busca Faint','abre calculadora']),
+            ('abre YouTube\nbusca Faint', ['abre YouTube','busca Faint']),
+            ('abre YouTube y después, busca Faint', ['abre YouTube','busca Faint']),
+            ('lista mis ventanas y consulta el estado del sistema', ['lista mis ventanas','consulta el estado del sistema']),
+            ('abre Bloc de notas y escribe: rock y abre Chrome', ['abre Bloc de notas','escribe: rock y abre Chrome']),
+            ('busca "rock y abre Chrome" en YouTube y abre calculadora', ['busca "rock y abre Chrome" en YouTube','abre calculadora']),
+            ('busca «rock; abre Chrome» en YouTube; abre calculadora', ['busca «rock; abre Chrome» en YouTube','abre calculadora']),
+            ("busca Linkin Park's Faint en YouTube y abre calculadora", ["busca Linkin Park's Faint en YouTube",'abre calculadora']),
+        ]
+        for text, parts in scenarios:
+            with self.subTest(text=text):
+                self.assertEqual(command_sequence(text,'text'),parts)
+                self.assertIn(self.commands.resolve(text)['match'], ('sequence','sequence_request'))
+        for text in ['busca "rock y abre Chrome"','busca «rock; abre Chrome»','no abras Chrome y abre YouTube','escribe: hola y abre Chrome']:
+            with self.subTest(protected=text): self.assertIsNone(command_sequence(text,'text'))
+        self.assertEqual(self.executor.list_operations(),[])
+
+    def test_search_destination_cannot_absorb_later_browser_clause(self):
+        result=self.commands.resolve('busca gatos en YouTube y abre Chrome')
+        self.assertEqual(result['match'],'sequence')
+        self.assertEqual(result['steps'][0], {'command_id':'axx.desktop.search','inputs':{'engine':'youtube','query':'gatos'}})
+        self.assertEqual(len(result['steps']),2)
+
+    def test_failed_middle_step_stops_later_effects_and_is_not_replayed(self):
+        model=Mock();learning=ActionLearning(self.commands,model)
+        try:
+            plan=learning.prepare_steps('crear, comprobar y continuar',[
+                {'command_id':'axx.artifact.write','inputs':{'path':'first.txt','content':'verified first'}},
+                {'command_id':'axx.file.sha256','inputs':{'path':str(self.executor.workspace_root/'missing.txt')}},
+                {'command_id':'axx.artifact.write','inputs':{'path':'must-not-exist.txt','content':'NO'}}])
+            result=learning.execute(plan['operation_id'],True)
+            self.assertNotEqual(result['state'],'succeeded')
+            self.assertTrue((self.executor.workspace_root/'first.txt').is_file())
+            self.assertFalse((self.executor.workspace_root/'must-not-exist.txt').exists())
+            count=len(self.executor.list_operations())
+            learning.execute(plan['operation_id'],True)
+            self.assertEqual(len(self.executor.list_operations()),count)
+        finally: learning.close()
 
     def test_sequence_uses_existing_review_and_dependency_contract_without_a_model(self):
         model=Mock();learning=ActionLearning(self.commands,model)

@@ -81,6 +81,17 @@ const {chromium}=require(process.env.USERPROFILE+'/.cache/codex-runtimes/codex-p
   }
   assert.equal(await p.evaluate(()=>{Axx.nativeVoice.activeCapture={owner:{state:'listening'}};Axx.companion.dictating=true;Axx.quickReply.close();const retained=Axx.companion.dictating;Axx.nativeVoice.activeCapture=null;Axx.companion.dictating=false;return retained;}),true,'Closing an inactive quick capture must preserve another voice owner');
   await p.evaluate(()=>{window.revokedComputer=0;Axx.computerUse={stop:async()=>revokedComputer++};Axx.quickReply.write();Axx.quickReply.talk();Axx.quickReply.write();});assert.equal(await p.evaluate(()=>revokedComputer),0,'Changing input mode must preserve the Computer Use grant');await p.click('#quick-close');assert.equal(await p.evaluate(()=>revokedComputer),1,'Closing the active quick task must revoke Computer Use');
+  await p.evaluate(()=>{Axx.quickReply.write();Axx.commandLibrary.operation={operation_id:'pending-review',state:'awaiting_approval'};});
+  const sentBeforeClick=await p.evaluate(()=>sent.length);
+  await p.fill('#quick-input','Orden pendiente');await p.click('#quick-send');
+  await p.waitForFunction(()=>document.getElementById('quick-reply-text').textContent.includes('Hay una tarea pendiente'));
+  assert.equal(await p.locator('#quick-reply').isVisible(),true,'A blocked click must explain itself in the visible widget');
+  assert.equal(await p.locator('#quick-approval').isVisible(),true);assert.equal(await p.evaluate(()=>sent.length),sentBeforeClick);
+  assert.equal(await p.locator('#quick-input').inputValue(),'Orden pendiente');
+  await p.evaluate(()=>Axx.commandLibrary.operation=null);await p.click('#quick-send');
+  await p.waitForFunction(n=>sent.length===n+1,sentBeforeClick);await p.evaluate(()=>releaseResponse());
+  await p.waitForFunction(()=>!Axx.companion.pending);await p.waitForTimeout(200);
+  assert.equal(await p.evaluate(()=>sent.length),sentBeforeClick+1,'Click must dispatch once through the existing form, without duplicate execution');
   assert.deepEqual(errors,[]);console.log('QUICK_REPLY_HOVER_COMPOSER_VOICE_STATE_RESPONSE_CANCEL_SCOPE_PASS');
  }finally{await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});

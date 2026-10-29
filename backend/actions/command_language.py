@@ -28,21 +28,39 @@ VOICE_TARGETS = {'yotube': 'youtube', 'yutube': 'youtube', 'yu tube': 'youtube',
 CARRIER = re.compile(
     r'^(?:(?:(?:oye|hola|hey|ok|ey|escucha)[,\s]+)?axx\b[\s,.:!-]*|(?:oye|hola|hey)[,\s]+|'
     r'por\s+favor[,\s]+|(?:(?:me|nos)\s+)?(?:puedes|podr[ií]as|pod[ií]as)[,:\s]+|'
-    r'(?:quiero|necesito|quisiera|me\s+gustar[ií]a)\s+que\s+(?:me\s+)?|pero\s+)', re.I)
+    r'(?:quiero|necesito|quisiera|me\s+gustar[ií]a)\s+que\s+(?:me\s+)?|primero[,\s]+|pero\s+)', re.I)
 SEARCH_TARGETS = {'chrome', 'youtube', 'google', 'bing', 'duckduckgo', 'internet', 'spotify'}
 SEARCH_NAMES = '|'.join(re.escape(name) for name in sorted(SEARCH_TARGETS | TARGETS.keys() | VOICE_TARGETS.keys(), key=len, reverse=True))
 
 
 def command_sequence(text, source):
-    raw=command_text(text,source)
-    if raw.startswith('/') or any(c in raw for c in ('"',"'",'«','»','\n')):
+    raw = command_carrier(text)
+    if raw.startswith('/'):
         return None
-    verbs=r'(?:abre|abrir|inicia|busca|buscar|lee|enfoca|inspecciona|reproduce|cierra|crea|crear|copia|mueve|renombra|calcula|guarda|borra|elimina|envia|envía|organiza|convierte|descarga|instala)\b'
-    if not re.match(verbs,raw,re.I):return None
-    parts=re.split(r'\s*(?:;|\s+(?:y\s+)?(?:luego|despu[eé]s)\s+)\s*',raw,flags=re.I)
-    if len(parts)==1 and re.match(r'(?:abre|abrir|inicia)\b',raw,re.I):
-        parts=re.split(r'\s+y\s+(?='+verbs+r')',raw,flags=re.I)
-    return parts if len(parts)>1 else None
+    forms = set(FORM) | {'encuentra','encontrar','localiza','lista','muestra','consulta','pausa','reanuda','inspecciona','crea','crear','copia','renombra','calcula','guarda','borra','elimina','envia','organiza','convierte','descarga','instala'}
+    head = re.match(r'\w+', raw)
+    leading_search = re.match(r'^(?:en|and)\s+(?:'+SEARCH_NAMES+r')[.,:]?\s+(?:busca|buscar|buscame|búscame|encuentra|encontrar|localiza)\b',raw,re.I)
+    if not head or not leading_search and plain(head[0]) not in forms | (set(VOICE_VERBS) if source == 'voice' else set()): return None
+    # Mask quoted payloads before finding separators; preserve original offsets and text.
+    masked = list(raw); quote = None; escaped = False
+    for index, char in enumerate(raw):
+        if quote:
+            masked[index] = ' '
+            if char == quote and not escaped: quote = None
+            escaped = char == '\\' and not escaped
+        elif char in ('"', '«', '“') or char == "'" and (index == 0 or not raw[index-1].isalnum()):
+            quote = {'«':'»','“':'”'}.get(char,char); masked[index] = ' '; escaped = False
+    verbs = r'(?:' + '|'.join(sorted(forms | {'envía','escribe','pega','teclea'}, key=len, reverse=True)) + r')\b'
+    separator = r'\s*(?:;|\n+|\s+(?:y\s+)?(?:luego|despu[eé]s)\s*,?\s+|,\s*(?:y\s+)?(?='+verbs+r')|\s+y\s+(?='+verbs+r'))\s*'
+    cuts = list(re.finditer(separator, ''.join(masked), re.I))
+    if not cuts: return None
+    starts = [0] + [cut.end() for cut in cuts]
+    ends = [cut.start() for cut in cuts] + [len(raw)]
+    for index, start in enumerate(starts):
+        if re.match(r'(?:escribe|pega|teclea)\b',raw[start:],re.I):
+            # Free-form typing owns its entire remaining payload, including command-like words.
+            return [raw[a:b].strip() for a,b in zip(starts[:index],ends[:index])] + [raw[start:].strip()]
+    return [raw[start:end].strip() for start,end in zip(starts,ends)]
 
 
 def target_name(value, source):
@@ -50,8 +68,8 @@ def target_name(value, source):
     return (VOICE_TARGETS.get(key) if source == 'voice' else None) or TARGETS.get(key) or value
 
 
-def command_text(text, source):
-    """Return canonical command syntax while keeping every argument literal."""
+def command_carrier(text):
+    """Strip only the request prefix, before interpreting any argument slots."""
     raw = text.strip()
     if raw.startswith('/') or re.match(r'^ejecuta\s+en\s+(?:cmd|powershell):', raw, re.I):
         return raw
@@ -66,6 +84,14 @@ def command_text(text, source):
     desire = re.match(r'^(?:quiero|necesito|quisiera|me gustar[ií]a)\s+(\w+)\b', raw, re.I)
     if desire and plain(desire[1]) in FORM:
         raw = raw[desire.start(1):]
+    return raw
+
+
+def command_text(text, source):
+    """Return canonical command syntax while keeping every argument literal."""
+    raw = command_carrier(text)
+    if raw.startswith('/') or re.match(r'^(?:escribe|pega|teclea|ejecuta\s+en\s+(?:cmd|powershell):)\b', raw, re.I):
+        return raw
     # Only an explicit imperative carrier is removed. Negation, quotes and
     # informational requests keep their leading words and cannot match a verb.
     def verb(word):

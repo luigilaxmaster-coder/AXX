@@ -131,7 +131,9 @@
  async function send(raw,source='text'){
   raw=String(raw||'').trim();
   if(!raw||!active()||!sameChat()||owned)return;
-  if(!Axx.chatWorkspace.ready||c.pending||c.externalBusy||Axx.commandLibrary?.busy||Axx.commandLibrary?.operation){notice='Hay una tarea pendiente. Revisa su resultado antes de enviar otra.';refresh();return;}
+  if(!Axx.chatWorkspace.ready||c.pending||c.externalBusy||Axx.commandLibrary?.busy||Axx.commandLibrary?.operation){
+   before=c.data.messages.at(-1)?.id;lastText='';phase='blocked';notice='Hay una tarea pendiente. Revisa su resultado antes de enviar otra.';reveal('quick-reply',true);refresh();return;
+  }
   capture.stop();c.stopSpeech();const serial=++revision;owned=true;before=c.data.messages.at(-1)?.id;lastText='';phase='thinking';notice='Preparando respuesta…';
   $('quick-input').value='';reveal('quick-reply',true);c._forceVoiceReplyOnce=true;refresh();
   try{await c.send(raw,{source});}
@@ -151,11 +153,11 @@
    reveal('quick-reply',true);
   }
   if(speaking)phase='speaking';
-  if(phase==='error'&&notice)reveal('quick-reply',true);
+  if(['error','blocked'].includes(phase)&&notice)reveal('quick-reply',true);
   const next=[capture.state,reader?.state,lastText,last?.status,notice,phase,owned,!!Axx.commandLibrary?.operation];
   if(renderState&&next.every((value,i)=>value===renderState[i]))return;renderState=next;
-  const text=lastText||notice||'Preparando respuesta…';if($('quick-reply').dataset.quickVisible==='true'&&$('quick-reply-text').textContent!==text)$('quick-reply-text').textContent=text;
-  $('quick-reply').dataset.phase=phase;$('quick-phase').textContent=speaking?'Hablando':reader?.state==='paused'?'Voz en pausa':reader?.state==='starting'?'Preparando voz…':phase==='thinking'?'Pensando…':phase==='error'?'Revisar':'Respuesta';
+  const text=(['error','blocked'].includes(phase)&&notice?notice:lastText||notice)||'Preparando respuesta…';if($('quick-reply').dataset.quickVisible==='true'&&$('quick-reply-text').textContent!==text)$('quick-reply-text').textContent=text;
+  $('quick-reply').dataset.phase=phase;$('quick-phase').textContent=speaking?'Hablando':reader?.state==='paused'?'Voz en pausa':reader?.state==='starting'?'Preparando voz…':phase==='thinking'?'Pensando…':['error','blocked'].includes(phase)?'Revisar':'Respuesta';
   $('quick-compose').dataset.phase=listening?'listening':starting||transcribing?'preparing':'idle';
   const message=listening?'Te escucho · pausa para enviar':starting?'Preparando micrófono…':transcribing?'Transcribiendo…':owned?'Preparando respuesta…':notice||'Intro para enviar · Esc para cerrar';
   if($('quick-state').textContent!==message)$('quick-state').textContent=message;
