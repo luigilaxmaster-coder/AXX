@@ -108,6 +108,7 @@ class CommandLibraryTests(unittest.TestCase):
                 self.assertEqual(next_operation['state'],'awaiting_approval')
                 self.service.cancel(next_operation['operation_id'])
 
+    @unittest.skipUnless(os.name == 'nt','Requires the Windows UIA adapter')
     def test_window_read_reaches_executor_only_after_approval_and_replays_receipt(self):
         inputs = {'window_id': '0x1234', 'pid': 10, 'expected_title': 'Example Domains'}
         pending = self.prepare('axx.desktop.window.read', inputs)

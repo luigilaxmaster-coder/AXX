@@ -30,6 +30,10 @@ cargo test --manifest-path src-tauri/Cargo.toml --lib
 Los tests de Python usan archivos temporales. Las pruebas de navegador usan
 contratos controlados y no accionan las aplicaciones del usuario. Los resultados
 de Windows se guardan aparte en los recibos privados de `build/release-*`.
+La integración continua ejecuta las regresiones de lenguaje, secuencias,
+aprendizaje, contratos finales y proveedores en cada push y pull request.
+Las pruebas nativas y de la barra con navegador siguen siendo verificaciones
+separadas; una ejecución de CI no acredita el control del escritorio instalado.
 
 ## Aceptación instalada
 

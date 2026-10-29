@@ -1,7 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from backend.actions.executor import ActionExecutor
 from backend.commands import CommandService
@@ -32,7 +32,8 @@ class CommandSequenceTests(unittest.TestCase):
         self.assertEqual(result['match'],'sequence')
         self.assertEqual([s['command_id'] for s in result['steps']],['axx.desktop.open_app','axx.desktop.open_url'])
 
-    def test_training_matrix_preserves_clauses_quotes_and_order(self):
+    @patch('backend.actions.windows_automation.list_windows',return_value=[])
+    def test_training_matrix_preserves_clauses_quotes_and_order(self, _windows):
         scenarios = [
             ('busca gatos en YouTube y abre Chrome', ['busca gatos en YouTube','abre Chrome']),
             ('en YouTube busca gatos y abre Chrome', ['en YouTube busca gatos','abre Chrome']),

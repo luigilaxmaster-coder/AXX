@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 import tempfile
 import threading
@@ -212,6 +213,7 @@ class ActionLearningTests(unittest.TestCase):
         self.assertEqual(self.executor.list_operations(), [])
         self.assertEqual(self.learning.list_actions(), [])
 
+    @unittest.skipUnless(os.name == 'nt','Executes the Windows command interpreter')
     def test_model_generated_cmd_requires_explicit_terminal_request_and_fresh_approval(self):
         self.model.answer = {'title': 'Ver estado', 'steps': [{'command_id': 'axx.shell.cmd',
                              'inputs': {'script': 'echo AXX_MODEL_CMD_OK'}}]}
