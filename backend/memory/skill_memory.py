@@ -6,6 +6,7 @@ import json
 import math
 import re
 import time
+import unicodedata
 
 from .procedural_memory import get_action_env_fingerprint
 
@@ -32,6 +33,10 @@ def read_context_state(db, project_id=''):
     view = SkillMemory.__new__(SkillMemory)
     view.db, view.lock = db, nullcontext()
     return view.context(project_id)
+
+
+def lesson_search_text(value):
+    return ''.join(char for char in unicodedata.normalize('NFKD', value.casefold()) if not unicodedata.combining(char))
 
 
 class NeedsInput(ValueError):
@@ -126,6 +131,8 @@ class SkillMemory:
             db.execute('CREATE TABLE IF NOT EXISTS skill_versions (id TEXT, version INTEGER, payload TEXT NOT NULL, PRIMARY KEY(id,version))')
             db.execute('CREATE TABLE IF NOT EXISTS skill_evidence (id TEXT, version INTEGER, operation_id TEXT, payload TEXT NOT NULL, PRIMARY KEY(id,version,operation_id))')
             db.execute('CREATE TABLE IF NOT EXISTS skill_context (project_id TEXT PRIMARY KEY, payload TEXT NOT NULL)')
+            db.execute('CREATE TABLE IF NOT EXISTS skill_lessons (id TEXT PRIMARY KEY, command_id TEXT NOT NULL, project_id TEXT NOT NULL, created_at REAL NOT NULL, search_text TEXT NOT NULL, payload TEXT NOT NULL)')
+            db.execute('CREATE INDEX IF NOT EXISTS skill_lessons_scope ON skill_lessons(project_id,command_id,created_at)')
             db.execute("CREATE VIRTUAL TABLE IF NOT EXISTS skill_search USING fts5(id UNINDEXED, project_id UNINDEXED, text, tokenize='unicode61 remove_diacritics 2')")
             self._migrate()
             db.execute('DELETE FROM skill_search')
@@ -248,6 +255,7 @@ class SkillMemory:
                             (key, version, operation_id, json.dumps(evidence, ensure_ascii=False)))
 
     def _observed_receipts(self, skill, evidence):
+        from ..actions.plan_contract import resolve_inputs
         results = evidence.get('results')
         if not isinstance(results, list) or not results or len(results) > len(skill['templates']): return None
         try: steps, _ = bind(skill, evidence.get('inputs', {}), {})
@@ -260,8 +268,10 @@ class SkillMemory:
             row = self.db.execute('SELECT state,result_json,created_at FROM command_runs WHERE operation_id=?', (result['operation_id'],)).fetchone()
             if not row: return None
             stored = json.loads(row[1])
+            try: expected_inputs = resolve_inputs(step, [{'state': receipt['state'], 'result': receipt} for receipt, _ in receipts])
+            except (ValueError, TypeError, KeyError): return None
             if (row[0] != stored.get('state') or stored.get('command_id') != step['command_id']
-                    or stored.get('inputs') != step['inputs']
+                    or stored.get('inputs') != expected_inputs
                     or any(result.get(name) != stored.get(name) for name in ('state', 'postconditions_passed', 'command_id', 'inputs', 'output', 'error'))):
                 return None
             receipts.append((stored, row[2]))
@@ -414,3 +424,117 @@ class SkillMemory:
             self.db.execute('INSERT INTO skill_context VALUES (?,?) ON CONFLICT(project_id) DO UPDATE SET payload=excluded.payload',
                             (project_id, json.dumps(context, ensure_ascii=False)))
         return self.context(project_id) | {'invalidated': invalidated}
+
+    def _lesson_receipt(self, operation_id, state):
+        if not isinstance(operation_id, str) or not re.fullmatch(r'[A-Za-z0-9_.-]{1,128}', operation_id):
+            raise ValueError('Selecciona una operación real del diario')
+        row = self.db.execute('SELECT state,result_json,created_at FROM command_runs WHERE operation_id=?', (operation_id,)).fetchone()
+        if not row: raise ValueError('La operación no existe en el diario')
+        receipt = json.loads(row[1])
+        if row[0] != state or receipt.get('state') != state:
+            raise ValueError('La operación no tiene el resultado observado requerido')
+        if state == 'failed' and not receipt.get('error'):
+            raise ValueError('Falta el error observado de la operación')
+        if state == 'succeeded':
+            action = self.db.execute('SELECT state,result_json FROM operations WHERE operation_id=?', (receipt.get('action_operation_id'),)).fetchone()
+            actual = json.loads(action[1]) if action and action[1] else {}
+            if (receipt.get('postconditions_passed') is not True or not receipt.get('evidence')
+                    or not action or action[0] != 'succeeded' or actual.get('postconditions_passed') is not True
+                    or actual.get('output') != receipt.get('output')):
+                raise ValueError('La prueba necesita postcondiciones comprobadas por el ejecutor')
+        parent = None
+        tables = {row[0] for row in self.db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        if 'learning_plans' in tables:
+            found = self.db.execute("""SELECT payload FROM learning_plans WHERE EXISTS
+                (SELECT 1 FROM json_each(json_extract(payload,'$.step_records')) r
+                 WHERE json_extract(r.value,'$.operation_id')=?) LIMIT 1""", (operation_id,)).fetchone()
+            if found: parent = json.loads(found[0])
+        return receipt, row[2], parent
+
+    def record_lesson(self, body):
+        body = bounded_object(body, 8000)
+        if set(body) - {'operation_id', 'hypothesis', 'user_correction', 'verification_operation_id', 'project_id', 'task_id', 'context_dependencies'}:
+            raise ValueError('Campo de incidente desconocido')
+        hypothesis, correction = body.get('hypothesis'), body.get('user_correction', '')
+        if not isinstance(hypothesis, str) or not 1 <= len(hypothesis.strip()) <= 1000:
+            raise ValueError('Describe una hipótesis explícita de hasta mil caracteres')
+        if not isinstance(correction, str) or len(correction) > 1000:
+            raise ValueError('Corrección humana inválida')
+        with self.lock, self.db:
+            failure, failure_at, parent = self._lesson_receipt(body.get('operation_id'), 'failed')
+            project = project_key(body.get('project_id', parent.get('project_id', '') if parent else ''))
+            if parent and parent.get('project_id', '') != project:
+                raise ValueError('La operación pertenece a otro proyecto')
+            task = body.get('task_id', failure.get('conversation_id'))
+            if task is not None and (not isinstance(task, str) or not 1 <= len(task) <= 160):
+                raise ValueError('Tarea inválida')
+            if failure.get('conversation_id') not in (None, task):
+                raise ValueError('La operación pertenece a otra tarea')
+            dependencies = self._dependencies(body.get('context_dependencies', []))
+            if self._invalid_dependencies(dependencies, project, task):
+                raise ValueError('El contexto del incidente cambió; conserva el recibo y revisa sus referencias')
+            command = failure['command_id']
+            environment = get_action_env_fingerprint([command])
+            verification = None
+            if body.get('verification_operation_id') is not None:
+                trial, trial_at, trial_parent = self._lesson_receipt(body['verification_operation_id'], 'succeeded')
+                if (trial['command_id'] != command or trial_at <= failure_at
+                        or trial.get('conversation_id') != failure.get('conversation_id')
+                        or trial_parent and trial_parent.get('project_id', '') != project):
+                    raise ValueError('La prueba debe ser posterior, del mismo comando y ámbito')
+                verification = {'operation_id': trial['operation_id'], 'receipt_sha256': value_hash(trial),
+                                'status': 'verified_test', 'proves_cause': False}
+            error = failure['error']
+            symptom = error.get('message', error.get('code', 'Fallo registrado')) if isinstance(error, dict) else str(error)
+            item = {'id': 'lesson.' + value_hash(body)[:32], 'command_id': command, 'project_id': project, 'task_id': task,
+                'source_operation_id': failure['operation_id'], 'source_receipt_sha256': value_hash(failure),
+                'symptom': symptom[:300], 'error_code': str(error.get('code', 'COMMAND_FAILED'))[:80] if isinstance(error, dict) else 'COMMAND_FAILED',
+                'hypothesis': hypothesis.strip(), 'cause_confirmed': False, 'cause_status': 'unconfirmed_hypothesis',
+                'user_correction': correction, 'correction_provenance': 'confirmed_user' if correction else None,
+                'verification': verification, 'created_at': time.time(), 'context_dependencies': dependencies,
+                'command_environment': environment, 'environment_scope': 'registered_command_at_recording_not_historical_app_version',
+                'provenance': {'source': 'manual_incident', 'source_plan_id': parent['operation_id'] if parent else None,
+                    'scope_source': 'journal' if parent else 'user_selection'},
+                'permissions_granted': False, 'preference_inferred': False}
+            payload = json.dumps(item, ensure_ascii=False, allow_nan=False)
+            if len(payload) > 3000: raise ValueError('Acorta la ficha: el incidente excede tres mil caracteres')
+            existing = self.db.execute('SELECT payload FROM skill_lessons WHERE id=?', (item['id'],)).fetchone()
+            if existing: return json.loads(existing[0])
+            if self.db.execute('SELECT COUNT(*) FROM skill_lessons').fetchone()[0] >= 1000:
+                raise ValueError('La biblioteca de incidentes está llena; olvida fichas antes de añadir otras')
+            text = lesson_search_text(' '.join((command, project, task or '', item['symptom'], item['error_code'], hypothesis, correction)))
+            self.db.execute('INSERT INTO skill_lessons VALUES (?,?,?,?,?,?)', (item['id'], command, project, item['created_at'], text, payload))
+        return item
+
+    def lessons(self, query='', command_id='', limit=3, *, project_id='', task_id=None):
+        project_key(project_id)
+        if (not isinstance(query, str) or len(query) > 1000 or not isinstance(command_id, str) or len(command_id) > 128
+                or type(limit) is not int or not 1 <= limit <= 3
+                or task_id is not None and (not isinstance(task_id, str) or not 1 <= len(task_id) <= 160)):
+            raise ValueError('Consulta de incidentes inválida')
+        terms = list(dict.fromkeys(re.findall(r'[^\W_]+', lesson_search_text(query))))[:8]
+        where, parameters = ['project_id IN (?,?)'], ['', project_id]
+        if command_id: where.append('command_id=?'); parameters.append(command_id)
+        if task_id is not None: where.append("json_extract(payload,'$.task_id')=?"); parameters.append(task_id)
+        for term in terms:
+            where.append('search_text LIKE ? ESCAPE \'\\\'')
+            parameters.append('%' + term.replace('\\', '\\\\').replace('_', '\\_').replace('%', '\\%') + '%')
+        with self.lock:
+            rows = self.db.execute('SELECT payload FROM skill_lessons WHERE ' + ' AND '.join(where) + ' ORDER BY created_at DESC LIMIT ?', (*parameters, limit)).fetchall()
+            result = []
+            for row in rows:
+                item = json.loads(row[0])
+                try: current = get_action_env_fingerprint([item['command_id']])
+                except (ValueError, KeyError, TypeError): current = None
+                item['environment_matches'] = current is not None and current == item['command_environment']
+                item['context_matches'] = not self._invalid_dependencies(item['context_dependencies'], project_id, task_id)
+                item['status'] = 'reference' if item['environment_matches'] and item['context_matches'] else 'stale'
+                if len(json.dumps(item, ensure_ascii=False)) <= 3500: result.append(item)
+            return result
+
+    def forget_lesson(self, lesson_id):
+        if not isinstance(lesson_id, str) or not re.fullmatch(r'lesson\.[a-f0-9]{32}', lesson_id):
+            raise ValueError('Identificador de incidente inválido')
+        with self.lock, self.db:
+            removed = self.db.execute('DELETE FROM skill_lessons WHERE id=?', (lesson_id,)).rowcount
+        return {'lesson_id': lesson_id, 'forgotten': bool(removed), 'command_journal_preserved': True}

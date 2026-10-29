@@ -216,6 +216,118 @@ class SkillContextTests(unittest.TestCase):
         self.assertEqual(resolved['context_meta']['current_file']['status'], 'stale')
         self.assertEqual(self.db.execute('SELECT payload FROM skill_context WHERE project_id=?', ('a',)).fetchone()[0], raw)
 
+    def test_real_incident_preserves_hypothesis_and_verified_test_as_different_claims(self):
+        failure = self.hash(fail=True)
+        self.file.write_text('correction trial', encoding='utf-8')
+        trial = self.hash()
+        body = {'operation_id': failure['operation_id'], 'hypothesis': 'La exportación pudo terminar antes de tiempo.',
+            'user_correction': 'Comprobar la existencia antes de calcular el hash.',
+            'verification_operation_id': trial['operation_id'], 'project_id': 'a'}
+        item = self.memory.record_lesson(body)
+        self.assertEqual(item['verification']['status'], 'verified_test')
+        self.assertFalse(item['verification']['proves_cause'])
+        self.assertFalse(item['cause_confirmed'])
+        self.assertEqual(item['correction_provenance'], 'confirmed_user')
+        self.assertFalse(item['permissions_granted'])
+        self.assertFalse(item['preference_inferred'])
+        self.assertEqual(self.memory.record_lesson(body)['id'], item['id'])
+        selected = self.memory.lessons('exportacion', 'axx.file.sha256', project_id='a')
+        self.assertEqual(len(selected), 1)
+        self.assertEqual(selected[0]['status'], 'reference')
+        self.assertNotIn('inputs', selected[0])
+        self.assertNotIn('output', selected[0])
+
+    def test_incident_rejects_unrelated_or_old_test_and_invented_receipts(self):
+        earlier = self.hash()
+        failure = self.hash(fail=True)
+        command = self.commands.prepare('axx.system.telemetry', {})
+        foreign = self.commands.execute(command['operation_id'], approved=True)
+        base = {'operation_id': failure['operation_id'], 'hypothesis': 'Hipótesis sin causa confirmada.'}
+        for extra in ({'verification_operation_id': foreign['operation_id']}, {'verification_operation_id': earlier['operation_id']},
+                      {'operation_id': 'missing'}, {'operation_id': earlier['operation_id']}, {'cause_confirmed': True},
+                      {'permissions_granted': True}, {'hypothesis': ''}):
+            with self.subTest(extra=extra), self.assertRaises(ValueError): self.memory.record_lesson(base | extra)
+        self.assertEqual(self.memory.lessons(), [])
+
+    def test_incidents_are_bounded_project_scoped_persistent_and_do_not_promote_skills(self):
+        self.skill()
+        for index in range(4):
+            failure = self.hash(fail=True)
+            self.memory.record_lesson({'operation_id': failure['operation_id'], 'hypothesis': 'Exportación local ' + str(index), 'project_id': 'a'})
+            self.file.write_text('next isolated trial', encoding='utf-8')
+        self.assertEqual(self.memory.lessons(project_id='b'), [])
+        self.assertEqual(self.memory.lessons('irrelevante', project_id='a'), [])
+        selected = self.memory.lessons('exportacion', 'axx.file.sha256', project_id='a')
+        self.assertEqual(len(selected), 3)
+        self.assertTrue(all(len(json.dumps(item, ensure_ascii=False)) <= 3500 for item in selected))
+        self.assertEqual(self.memory.get('skill.hash')['status'], 'candidate')
+        self.db.close()
+        self.db = sqlite3.connect(self.root / 'state.db', check_same_thread=False)
+        self.memory = SkillMemory(self.db, self.lock)
+        self.assertEqual(len(self.memory.lessons(project_id='a')), 3)
+        for invalid in ({'limit': 4}, {'limit': True}, {'query': []}, {'command_id': 'x' * 129}):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError): self.memory.lessons(**invalid)
+
+    def test_incident_compatibility_tracks_current_command_and_context_without_claiming_app_version(self):
+        context = self.memory.update_context('a', {'current_file': str(self.file), 'context_meta': {'current_file': {'source_id': 'scan'}}})
+        failure = self.hash(fail=True)
+        item = self.memory.record_lesson({'operation_id': failure['operation_id'], 'hypothesis': 'Archivo ausente.', 'project_id': 'a',
+            'context_dependencies': [{'project_id': 'a', 'field': 'current_file', 'revision': context['context_revision']}]})
+        self.assertEqual(item['environment_scope'], 'registered_command_at_recording_not_historical_app_version')
+        tool = get_tool('file_inspection')
+        with patch.object(tool, 'version', tool.version + '-test'):
+            stale = self.memory.lessons(command_id='axx.file.sha256', project_id='a')[0]
+            self.assertFalse(stale['environment_matches'])
+            self.assertEqual(stale['status'], 'stale')
+        self.memory.invalidate_context('a', {'source_id': 'scan'})
+        self.assertFalse(self.memory.lessons(project_id='a')[0]['context_matches'])
+
+    def test_forget_incident_removes_its_search_data_and_keeps_command_journal(self):
+        failure = self.hash(fail=True)
+        item = self.memory.record_lesson({'operation_id': failure['operation_id'], 'hypothesis': 'Private trial hypothesis.'})
+        count = len(self.commands.operations())
+        self.assertTrue(self.memory.forget_lesson(item['id'])['forgotten'])
+        self.assertEqual(self.memory.lessons('Private'), [])
+        self.assertEqual(self.db.execute('SELECT COUNT(*) FROM skill_lessons').fetchone()[0], 0)
+        self.assertEqual(len(self.commands.operations()), count)
+        self.assertFalse(self.memory.forget_lesson(item['id'])['forgotten'])
+
+    def test_task_filter_precedes_the_three_incident_limit(self):
+        for index in range(4):
+            task = 'first-task' if index == 0 else 'other-task'
+            command = self.commands.prepare('axx.file.sha256', {'path': str(self.file)}, conversation_id=task)
+            self.file.unlink()
+            failure = self.commands.execute(command['operation_id'], approved=True)
+            self.memory.record_lesson({'operation_id': failure['operation_id'], 'hypothesis': 'Ensayo ' + str(index), 'project_id': 'a', 'task_id': task})
+            self.file.write_text('next trial', encoding='utf-8')
+        records = self.memory.lessons(project_id='a', task_id='first-task')
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]['task_id'], 'first-task')
+
+    def test_health_resolves_real_prefix_bindings_before_quarantine_and_revalidation(self):
+        self.skill()
+        raw = json.loads(self.db.execute('SELECT payload FROM skill_versions WHERE id=?', ('skill.hash',)).fetchone()[0])
+        raw.update(id='skill.chain', templates=[{'command_id': 'axx.artifact.write', 'inputs': {'path': 'chain.txt', 'content': 'chain trial'}},
+            {'command_id': 'axx.file.sha256', 'inputs': {}, 'bindings': {'path': {'step': 0, 'path': ['output', 'path']}}}],
+            environment=get_action_env_fingerprint(['axx.artifact.write', 'axx.file.sha256']))
+        self.memory.insert(raw)
+        def run(fail=False):
+            writer = self.commands.prepare('axx.artifact.write', raw['templates'][0]['inputs'])
+            written = self.commands.execute(writer['operation_id'], approved=True)
+            target = Path(written['output']['path'])
+            reader = self.commands.prepare('axx.file.sha256', {'path': str(target)})
+            if fail: target.unlink()
+            read = self.commands.execute(reader['operation_id'], approved=True)
+            return [written, read]
+        failed = run(fail=True)
+        self.assertEqual(failed[0]['state'], 'succeeded')
+        self.assertEqual(failed[1]['state'], 'failed')
+        self.memory.record('skill.chain', 1, 'failed-chain', {'effect_verified': False, 'results': failed})
+        self.assertTrue(self.memory.get('skill.chain')['quarantined'])
+        corrected = run()
+        self.memory.record('skill.chain', 1, 'corrected-chain', {'effect_verified': True, 'results': corrected, 'revalidation': True})
+        self.assertEqual(self.memory.get('skill.chain')['status'], 'verified')
+
 
 if __name__ == '__main__':
     unittest.main()
