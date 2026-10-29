@@ -9,6 +9,7 @@ from functools import wraps
 from concurrent.futures import ThreadPoolExecutor
 import json
 import logging
+from pathlib import Path
 import re
 import sqlite3
 import threading
@@ -18,7 +19,7 @@ import uuid
 from .commands import ADAPTERS, ApprovalRequired, normalized, parse_command_json
 from .actions.plan_contract import validate_bindings, resolve_inputs
 from .memory.procedural_memory import get_action_env_fingerprint
-from .memory.skill_memory import SkillMemory, NeedsInput, PARAMETER, bind, bounded_object, project_key, validate_schema
+from .memory.skill_memory import SkillMemory, NeedsInput, PARAMETER, bind, bounded_object, project_key, validate_schema, read_context_state, read_skill_state
 from .goal_contract import contract as goal_contract, verify as verify_goal, validate_steps as validate_goal_steps
 from .actions.command_language import command_sequence
 
@@ -75,6 +76,8 @@ class ActionLearning:
         self.recovery_stop = threading.Event()
         self.recovery_thread = None
         self.anticipation = None
+        self.change_revision = 0
+        self.dependency_revision = None
         self.active_inference_ids = set()
         self.inference_backends = {}
         self.db = sqlite3.connect(str(commands.executor.db_path), check_same_thread=False, timeout=10)
@@ -85,11 +88,12 @@ class ActionLearning:
             self.db.execute('CREATE TABLE IF NOT EXISTS learning_plans (id TEXT PRIMARY KEY, payload TEXT NOT NULL)')
             for key, raw in self.db.execute('SELECT id,payload FROM learning_plans').fetchall():
                 plan = json.loads(raw)
-                if plan['state'] not in TERMINAL and plan['state'] not in ('awaiting_approval', 'waiting_capacity', 'waiting_capability', 'paused'):
+                if plan['state'] not in TERMINAL and plan['state'] not in ('awaiting_approval', 'waiting_capacity', 'waiting_capability', 'paused', 'waiting_dependency'):
                     plan.update(state='interrupted', postconditions_passed=False,
                                 message='Sesión interrumpida. Revisa y reanuda el plan guardado.')
                     self.db.execute('UPDATE learning_plans SET payload=? WHERE id=?', (json.dumps(plan), key))
         self.skills = SkillMemory(self.db, self.lock)
+        commands.mission_guard = self.assert_dispatch_context
 
     def close(self):
         with self.lock:
@@ -117,7 +121,9 @@ class ActionLearning:
             if self.closing or self.closed: raise ValueError('El servicio de aprendizaje está cerrado')
             if self.recovery_thread and self.recovery_thread.is_alive(): return
             def recover_plans():
-                try: self.retry_waiting()
+                try:
+                    self.retry_dependencies()
+                    self.retry_waiting()
                 except (ValueError, sqlite3.Error):
                     if not self.recovery_stop.is_set():
                         logging.getLogger('axx.learning').exception('Plan recovery stopped')
@@ -140,6 +146,21 @@ class ActionLearning:
 
     def _save(self, plan):
         with self.lock, self.db:
+            if hasattr(self, 'skills') and isinstance(plan.get('operational_context'), dict):
+                current_context = self._planning_context(plan.get('project_id', ''), plan.get('conversation_id'))
+                snapshot = plan['operational_context']
+                for field in list(snapshot.get('context_meta', {})):
+                    if (field not in current_context or snapshot.get(field) != current_context.get(field)
+                            or snapshot['context_meta'][field].get('revision') != current_context.get('context_meta', {}).get(field, {}).get('revision')):
+                        snapshot.pop(field, None); snapshot['context_meta'].pop(field, None)
+                for field in ('aliases', 'defaults', 'last_inputs'): snapshot.setdefault(field, {})
+                snapshot.setdefault('last_skill_id', '')
+                context_error = self._context_error(plan, current_context)
+                if context_error:
+                    plan['context_invalidated'] = True
+                    plan.pop('model_data', None)
+                    if plan['state'] in ('planning', 'awaiting_approval', 'waiting_capacity', 'needs_input'):
+                        plan.update(state='needs_input', message=context_error, approved_hash=None)
             event = self.events.get(plan['operation_id'])
             if self.closing:
                 row = self.db.execute('SELECT payload FROM learning_plans WHERE id=?', (plan['operation_id'],)).fetchone()
@@ -154,6 +175,7 @@ class ActionLearning:
             plan['mission'] = self._mission(plan)
             self.db.execute('INSERT INTO learning_plans VALUES (?,?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload',
                             (plan['operation_id'], json.dumps(plan, ensure_ascii=False)))
+            self.change_revision += 1
         return plan
 
     def get(self, key):
@@ -187,6 +209,7 @@ class ActionLearning:
                 'state': plan.get('state'), 'plan_hash': plan.get('plan_hash'), 'revision': plan.get('goal_revision', 1),
                 'deliverables': goal.get('objects', []), 'destination': goal.get('destination', ''),
                 'success_conditions': goal.get('checks', []), 'dependencies': plan.get('dependencies', {}),
+                'mission_dependencies': plan.get('mission_dependencies', []),
                 'verified_steps': verified, 'pending_steps': pending, 'blockers': blockers,
                 'permission': {'exact_plan_approved': bool(plan.get('approved_hash') and plan.get('approved_hash') == plan.get('plan_hash')),
                                'automatic_future_plans_authorized': False},
@@ -207,9 +230,11 @@ class ActionLearning:
         plans = [plan | {'mission': self._mission(plan)} for plan in plans]
         return [plan for plan in plans if plan.get('project_id', '') == project_id][:100]
 
-    def _matches(self, text, project_id=''):
+    def _matches(self, text, project_id='', task_id=None):
         phrase = normalized(text)
         visible = [row for row in self.list_actions() if row['project_id'] in ('', project_id)]
+        if task_id is not None:
+            visible = [self.skills.get(row['id'], row['version'], project_id=project_id, task_id=task_id) for row in visible]
         exact_ids = [row for row in visible if text.strip() == row['id']]
         if exact_ids: return exact_ids
         return [row for row in visible if text.strip() in [row['trigger'], *row['examples']]
@@ -229,8 +254,174 @@ class ActionLearning:
     def context(self, project_id=''):
         return self.skills.context(project_id)
 
+    def _planning_context(self, project_id, task_id):
+        context = self.context(project_id)
+        for field, meta in list(context.get('context_meta', {}).items()):
+            if meta.get('status') != 'active' or meta.get('task_id') not in (None, '', task_id):
+                context.pop(field, None)
+                context['context_meta'].pop(field, None)
+        for field in ('aliases', 'defaults', 'last_inputs'): context.setdefault(field, {})
+        context.setdefault('last_skill_id', '')
+        return context
+
+    def _capture_planning_context(self, plan):
+        context = self._planning_context(plan['project_id'], plan.get('conversation_id'))
+        fields = {'current_file','current_folder','current_application','current_project','selected_items','mentioned_objects','parameters_modified','defaults','aliases'}
+        for field, meta in context.get('context_meta', {}).items():
+            if field in fields and context.get(field):
+                reference = {'project_id':plan['project_id'],'field':field,'revision':meta['revision']}
+                if reference not in plan.setdefault('context_dependencies', []): plan['context_dependencies'].append(reference)
+        plan['operational_context'] = context
+        self._save(plan)
+        return context
+
     def update_context(self, project_id, body):
-        return self.skills.update_context(project_id, body)
+        updated = self.skills.update_context(project_id, body)
+        self._invalidate_context_plans(updated.get('invalidated', []))
+        return updated
+
+    def invalidate_context(self, project_id, body):
+        updated = self.skills.invalidate_context(project_id, body)
+        self._invalidate_context_plans(updated.get('invalidated', []))
+        return updated
+
+    def _invalidate_context_plans(self, references):
+        if not references: return
+        with self.lock:
+            plans = [json.loads(row[0]) for row in self.db.execute('SELECT payload FROM learning_plans')]
+            for plan in plans:
+                copied = plan.get('operational_context', {}).get('context_meta', {})
+                if not (any(ref in references for ref in plan.get('context_dependencies', [])) or any(
+                        ref['project_id'] == plan.get('project_id', '') and copied.get(ref['field'], {}).get('revision') == ref['revision'] for ref in references)): continue
+                if plan['state'] in TERMINAL:
+                    self._save(plan); continue
+                self.pause_events.setdefault(plan['operation_id'], threading.Event()).set()
+                plan['pause_requested'] = True
+                if plan['state'] in ('running', 'pausing'):
+                    self.pause_events.setdefault(plan['operation_id'], threading.Event()).set()
+                    plan['pause_requested'] = True
+                else:
+                    plan.update(state='needs_input', approved_hash=None)
+                plan['message'] = 'El contexto cambió o se olvidó; se conservan los efectos verificados y se revisará lo pendiente.'
+                self._save(plan)
+
+    @staticmethod
+    def _context_error(plan, context):
+        for reference in plan.get('context_dependencies', []):
+            current = context.get('context_meta', {}).get(reference['field'], {})
+            expiry = current.get('expires_at')
+            if (reference['project_id'] != plan.get('project_id', '')
+                    or current.get('task_id') not in (None, '', plan.get('conversation_id'))
+                    or current.get('revision') != reference['revision'] or current.get('status') == 'stale'
+                    or expiry is not None and expiry <= time.time()):
+                return 'El contexto cambió o caducó; revisa el destino antes de continuar.'
+        return None
+
+    @staticmethod
+    def _dependency_error(plan, read_plan):
+        for dependency in plan.get('mission_dependencies', []):
+            source = read_plan(dependency['operation_id'])
+            if (source.get('goal_revision', 1) != dependency['goal_revision']
+                    or ActionLearning._hash(source.get('steps', [])) != dependency['steps_hash']):
+                return 'La misión de origen cambió; vuelve a vincular su revisión.'
+            if not ActionLearning._mission(source)['completed']:
+                return 'Esperando el resultado verificado de la misión de origen.'
+        return None
+
+    def assert_dispatch_context(self, operation_id):
+        # Called under CommandService's lock; use its SQL connection without acquiring the learning lock.
+        row = self.commands.db.execute("""SELECT payload FROM learning_plans WHERE EXISTS
+            (SELECT 1 FROM json_each(json_extract(payload,'$.step_records')) r
+             WHERE json_extract(r.value,'$.operation_id')=?) LIMIT 1""", (operation_id,)).fetchone()
+        if not row: return
+        plan = json.loads(row[0])
+        if self._plan_hash(plan) != plan.get('approved_hash'):
+            raise ValueError('El contenido actual del plan no coincide con la revisión aprobada.')
+        self._assert_revalidation_plan(plan, db=self.commands.db)
+        if plan.get('revalidation'):
+            command = self.commands.get(operation_id)
+            self._revalidation_resources(command['command_id'], command['inputs'], require_existing=True, require_new=True)
+        error = self._context_error(plan, read_context_state(self.commands.db, plan.get('project_id', '')))
+        def read(key):
+            source = self.commands.db.execute('SELECT payload FROM learning_plans WHERE id=?', (key,)).fetchone()
+            if not source: raise ValueError('La misión dependiente ya no está disponible.')
+            return json.loads(source[0])
+        error = error or self._dependency_error(plan, read)
+        if error: raise ValueError(error)
+        if plan.get('initiative_authorization'):
+            if not self.anticipation: raise ValueError('La política de iniciativa no está disponible.')
+            index = next(i for i, record in enumerate(plan['step_records']) if record['operation_id'] == operation_id)
+            command = self.commands.get(operation_id)
+            self.anticipation.authorize_mission_step(plan, plan['steps'][index], command['inputs'], operation_id, claim=True)
+
+    @active_operation
+    def execute_with_grant(self, key, grant_id, plan_hash):
+        if not self.anticipation: raise ValueError('La política de iniciativa no está disponible.')
+        plan = self.get(key)
+        if (not isinstance(plan_hash, str) or plan.get('plan_hash') != plan_hash or plan['state'] != 'awaiting_approval'
+                or plan.get('pause_requested') or not plan.get('preparation_complete')):
+            raise ValueError('La misión debe conservar su revisión preparada y no estar pausada por el usuario.')
+        if any(record.get('state') in ('failed', 'unknown', 'running') for record in plan.get('step_records', [])):
+            raise ValueError('Resuelve los efectos anteriores antes de continuar la misión.')
+        plan['initiative_authorization'] = {'grant_id':grant_id,'admitted_plan_hash':plan_hash,'authorized_at':time.time()}
+        pending = [(step, record) for step, record in zip(plan['steps'], plan['step_records']) if record['state'] != 'succeeded']
+        if not pending: return plan
+        step, record = pending[0]
+        inputs = self.commands._validate_inputs(step['command_id'], resolve_inputs(step, plan['step_records']), require_new=False)
+        self.anticipation.authorize_mission_step(plan, step, inputs, record['operation_id'], claim=False)
+        with self.lock:
+            current = self.get(key)
+            if current.get('plan_hash') != plan_hash or current['state'] != 'awaiting_approval' or current.get('pause_requested'):
+                raise ValueError('La revisión de la misión cambió durante la autorización.')
+            current['initiative_authorization'] = plan['initiative_authorization']
+            self._save(current)
+        return self.execute(key, approved=True, initiative_grant_id=grant_id)
+
+    @active_operation
+    def link_dependencies(self, key, dependencies, plan_hash):
+        if not isinstance(dependencies, list) or len(dependencies) > 16 or any(not isinstance(value, str) for value in dependencies):
+            raise ValueError('Selecciona hasta dieciséis misiones de origen.')
+        with self.lock:
+            plan = self.get(key)
+            if plan.get('plan_hash') != plan_hash or plan['state'] not in ('awaiting_approval', 'paused', 'waiting_dependency'):
+                raise ValueError('Revisa la versión actual del plan antes de vincular dependencias.')
+            references = []
+            for dependency in dict.fromkeys(dependencies):
+                source = self.get(dependency)
+                if source.get('project_id', '') != plan.get('project_id', '') or not source.get('preparation_complete'):
+                    raise ValueError('La misión debe estar preparada y pertenecer al mismo proyecto.')
+                stack, seen = [source], set()
+                while stack:
+                    ancestor = stack.pop()
+                    if ancestor['operation_id'] == key: raise ValueError('Las misiones no pueden formar un ciclo.')
+                    if ancestor['operation_id'] in seen: continue
+                    seen.add(ancestor['operation_id'])
+                    stack.extend(self.get(ref['operation_id']) for ref in ancestor.get('mission_dependencies', []))
+                references.append({'operation_id': dependency, 'goal_revision': source.get('goal_revision', 1),
+                                   'steps_hash': self._hash(source['steps'])})
+            plan.update(mission_dependencies=references, approved_hash=None, state='awaiting_approval', prepared_at=time.time())
+            plan.pop('dependency_approved_hash', None)
+            plan['plan_hash'] = self._plan_hash(plan)
+            return self._save(plan)
+
+    def retry_dependencies(self):
+        revision = (self.change_revision, self.commands.change_revision)
+        if revision == self.dependency_revision: return []
+        self.dependency_revision = revision
+        with self.lock:
+            plans = [json.loads(row[0]) for row in self.db.execute(
+                "SELECT payload FROM learning_plans WHERE json_extract(payload,'$.state')='waiting_dependency'")]
+        results = []
+        for plan in plans:
+            if self._dependency_error(plan, self.get): continue
+            with self.lock:
+                current = self.get(plan['operation_id'])
+                if current['state'] != 'waiting_dependency': continue
+                approved = current.get('dependency_approved_hash') == current.get('plan_hash')
+                current.update(state='awaiting_approval', message='Dependencias verificadas; se conserva la revisión del plan.')
+                self._save(current)
+            if approved: results.append(self.execute(plan['operation_id'], approved=True))
+        return results
 
     @active_operation
     def remember(self, operation_id):
@@ -259,7 +450,7 @@ class ActionLearning:
         if isinstance(action_id, str) and action_id.startswith('workshop.cap.'):
             raise ValueError('Edita esta capacidad en el taller para conservar revisión, aprobación y revocación')
         body = bounded_object(body, 48000)
-        allowed = {'version', 'title', 'objective', 'intent', 'schema', 'examples', 'templates', 'steps', 'checks', 'favorite', 'project_id', 'correction', 'goal_confirmed', 'inference'}
+        allowed = {'version', 'title', 'objective', 'intent', 'schema', 'examples', 'templates', 'steps', 'checks', 'favorite', 'project_id', 'correction', 'goal_confirmed', 'inference', 'context_dependencies'}
         if not body or set(body) - allowed: raise ValueError('Configuración de acción inválida')
         with self.lock:
             original = self.skills.get(action_id)
@@ -279,6 +470,19 @@ class ActionLearning:
                 return self.skills.get(action_id)
             fields = ('id', 'version', 'trigger', 'title', 'objective', 'intent', 'templates', 'schema', 'examples', 'project_id', 'favorite', 'environment', 'checks', 'provenance', 'created_at', 'executable')
             skill = {name: original[name] for name in fields}
+            skill['context_dependencies'] = original.get('context_dependencies', [])
+            if 'context_dependencies' in body:
+                references = SkillMemory._dependencies(body['context_dependencies'])
+                previous = {(ref['project_id'],ref['field']) for ref in original.get('context_dependencies', [])}
+                current = {(ref['project_id'],ref['field']) for ref in references}
+                if not previous <= current or len(current) != len(references):
+                    raise ValueError('La revisión no puede borrar ni trasladar ámbitos de contexto; conserva cada campo y proyecto.')
+                for ref in references:
+                    context = self.context(ref['project_id'])
+                    meta = context.get('context_meta', {}).get(ref['field'], {})
+                    if ref['project_id'] != skill['project_id'] or meta.get('revision') != ref['revision'] or meta.get('status') != 'active':
+                        raise ValueError('Actualiza primero los datos concretos de ese contexto y revisa sus referencias vigentes.')
+                skill['context_dependencies'] = references
             skill['inference'] = original.get('inference')
             skill.update({key: value for key, value in body.items() if key in fields and key != 'version'})
             if 'inference' in body: skill['inference'] = body['inference']
@@ -332,7 +536,7 @@ class ActionLearning:
                          environment=get_action_env_fingerprint(step['command_id'] for step in templates),
                          provenance={'source': 'user_configuration', 'parent_version': original['version'], 'correction': correction})
             self.skills.insert(skill)
-            if not set(body).intersection({'schema', 'templates', 'steps', 'checks', 'inference', 'project_id', 'correction', 'objective', 'intent'}):
+            if original['effect_verified'] and original['environment_matches'] and not set(body).intersection({'schema', 'templates', 'steps', 'checks', 'inference', 'project_id', 'correction', 'objective', 'intent', 'context_dependencies'}):
                 receipts = self.db.execute('SELECT operation_id,payload FROM skill_evidence WHERE id=? AND version=?', (action_id, original['version'])).fetchall()
                 for operation_id, raw in receipts:
                     self.skills.record(action_id, skill['version'], operation_id, json.loads(raw) | {'inherited_from_version': original['version']})
@@ -364,7 +568,10 @@ class ActionLearning:
             result.append(resolved)
         return result
 
-    def _prompt(self, text, context):
+    def _prompt(self, text, context, project_id='', task_id=None):
+        context = dict(context)
+        for field in ('operational_context', 'context'):
+            if field in context: context[field] = self._planning_context(project_id, task_id)
         # Keep the model's parameter contract aligned with the executor's validation.
         def shape(parameters):
             return {name: {key: value for key, value in rule.items() if key in ('type','required','enum','items','description','minimum','maximum','minLength','maxLength','maxBytes','minItems','maxItems','pattern','format')}
@@ -402,6 +609,13 @@ class ActionLearning:
             if procedure and len(json.dumps(procedure['recipe'], ensure_ascii=False)) <= 3500:
                 references.append({'title': self.commands.commands[key]['title'], 'reference': procedure['recipe'],
                                    'source': 'registered_procedure', 'current_execution_verified': False})
+        lessons = self.skills.lessons(text, limit=3, project_id=project_id, task_id=task_id, allow_provider_only=True)
+        bounded_lessons = []
+        for lesson in lessons:
+            if len(json.dumps(bounded_lessons + [lesson], ensure_ascii=False)) <= 3500: bounded_lessons.append(lesson)
+        lessons = bounded_lessons
+        if lessons:
+            context = dict(context, incident_references={'source': 'untrusted_local_reference', 'cause_confirmed': False, 'lessons': lessons})
         apps = []
         if any(word in normalized(text) for word in ('abre', 'abrir', 'aplicacion', 'inicia')):
             from .actions.windows_apps import installed_apps
@@ -445,7 +659,7 @@ class ActionLearning:
     def _hash(value):
         return hashlib.sha256(json.dumps(value, sort_keys=True, ensure_ascii=False, allow_nan=False).encode()).hexdigest()
 
-    def _new_plan(self, text, operation_id, inputs, project_id, request_context=None, parts=None):
+    def _new_plan(self, text, operation_id, inputs, project_id, request_context=None, parts=None, *, operational_context=None):
         if not isinstance(text, str) or not 1 <= len(text.strip()) <= 4000:
             raise ValueError('Describe una acción en menos de 4.000 caracteres.')
         key = operation_id or str(uuid.uuid4())
@@ -470,36 +684,59 @@ class ActionLearning:
                     'request_hash': signature, 'inputs': inputs, 'project_id': project_id, 'state': 'planning',
                     'steps': [], 'step_records': [], 'skill_versions': [], 'results': [], 'postconditions_passed': False,
                     'goal_confirmed': False, 'created_at': time.time(), 'model_calls_used': 0,
-                    'operational_context': self.context(project_id)}
+                    'operational_context': self.context(project_id) if operational_context is None else bounded_object(operational_context, 48000)}
             plan.update(goal_spec=goal_contract(text), goal_revision=1)
             return self._save(plan), True
 
-    def _select(self, text, project_id, operational_context):
-        matches = self._matches(text, project_id)
+    def _select(self, text, project_id, operational_context, task_id=None):
+        matches = self._matches(text, project_id, task_id)
+        selection_refs = []
         if not matches:
             alias = operational_context['aliases'].get(text.strip())
+            selection_field = 'aliases'
+            if alias and operational_context.get('context_meta', {}).get('aliases', {}).get('status') == 'stale':
+                raise NeedsInput('El alias guardado está desactualizado; elige la habilidad actual.')
             if not alias and normalized(text) in CONTEXT_REPEATS:
                 alias = operational_context.get('last_skill_id')
+                selection_field = 'last_skill_id'
                 if not alias: raise NeedsInput('No hay una acción anterior en este proyecto')
+                if operational_context.get('context_meta', {}).get('last_skill_id', {}).get('status') == 'stale':
+                    raise NeedsInput('La referencia anterior está desactualizada; elige la habilidad actual.')
             if alias:
-                matches = [self.skills.get(key) for key in ([alias] if isinstance(alias, str) else alias)]
+                meta = operational_context.get('context_meta', {}).get(selection_field, {})
+                if meta.get('task_id') not in (None, '', task_id): raise NeedsInput('La referencia pertenece a otra tarea; elige la habilidad actual.')
+                if 'revision' in meta:
+                    selection_refs.append({'project_id':project_id,'field':selection_field,'revision':meta['revision']})
+                matches = [self.skills.get(key, project_id=project_id, task_id=task_id) for key in ([alias] if isinstance(alias, str) else alias)]
         if len(matches) > 1: raise NeedsInput('La referencia es ambigua. Elige una acción por ID: ' + ', '.join(row['id'] for row in matches))
         if matches:
             skill = matches[0]
             if skill['project_id'] not in ('', project_id): raise NeedsInput('La acción pertenece a otro proyecto')
             if not skill['environment_matches']: raise ValueError('La acción requiere un adaptador o entorno que no está disponible')
+            if skill.get('quarantined') or skill.get('context_matches') is False:
+                raise NeedsInput('La habilidad requiere revisión o revalidación de su contexto antes de reutilizarla.')
+            skill['selection_context_dependencies'] = selection_refs
             return skill
         return None
 
     def _bind(self, skill, inputs, plan):
+        selection_refs = skill.get('selection_context_dependencies', [])
+        skill = self.skills.get(skill['id'], skill['version'], project_id=plan['project_id'], task_id=plan.get('conversation_id'))
+        if not skill['environment_matches']: raise NeedsInput('La habilidad requiere revalidación en este contexto.')
+        for reference in selection_refs:
+            if reference not in plan.setdefault('context_dependencies', []): plan['context_dependencies'].append(reference)
+        context_error = self._context_error(plan, self.context(plan['project_id']))
+        if context_error: raise NeedsInput(context_error)
         if self.workshop: self.workshop.assert_skill_available(skill)
         elif str(skill.get('id', '')).startswith('workshop.cap.'):
             raise ValueError('El taller de capacidades no está disponible')
-        context = plan['operational_context']
-        defaults = dict(context['defaults'])
+        context = plan['operational_context'] = self._planning_context(plan['project_id'], plan.get('conversation_id'))
+        metadata = context.get('context_meta', {})
+        defaults = dict(context['defaults']) if metadata.get('defaults', {}).get('status') != 'stale' else {}
         for name in ('current_file', 'current_folder', 'current_application', 'current_project'):
-            if name in context: defaults.setdefault(name, context[name])
+            if name in context and metadata.get(name, {}).get('status') != 'stale': defaults.setdefault(name, context[name])
         if normalized(plan['request']) in CONTEXT_REPEATS:
+            if metadata.get('last_inputs', {}).get('status') == 'stale': raise NeedsInput('La referencia anterior caducó; indica los parámetros actuales.')
             defaults = context.get('last_inputs', {}) | defaults
         if skill.get('inference'):
             inference = skill['inference']
@@ -522,6 +759,14 @@ class ActionLearning:
                 self._save(plan)
             inputs = inputs | {output_name: record['content']}
         steps, bound = bind(skill, inputs, defaults)
+        for name in bound:
+            field = name if name in context else 'defaults' if name in context['defaults'] else 'last_inputs'
+            meta = metadata.get(field)
+            if name not in inputs and meta:
+                if meta.get('status') == 'stale' or meta.get('task_id') not in (None, plan.get('conversation_id')):
+                    raise NeedsInput('Actualiza el contexto de ' + name + ' para esta tarea antes de continuar.')
+                reference = {'project_id': plan['project_id'], 'field': field, 'revision': meta['revision']}
+                if reference not in plan.setdefault('context_dependencies', []): plan['context_dependencies'].append(reference)
         try: steps = self._validate_steps(steps)
         except ValueError as exc: raise NeedsInput(str(exc)) from exc
         plan['skill_versions'].append({'id': skill['id'], 'version': skill['version'], 'inputs': bound,
@@ -611,12 +856,18 @@ class ActionLearning:
                            'identities': [{key: row[key] for key in ('step_id', 'operation_id', 'input_hash')}
                                           for row in plan['step_records']]}
         if plan.get('workshop_validation'): payload['workshop_validation'] = plan['workshop_validation']
+        if plan.get('revalidation'):
+            for key in ('revalidation', 'revalidation_environment', 'revalidation_scope'):
+                payload[key] = plan.get(key)
+        for key in ('mission_dependencies', 'context_dependencies'):
+            if plan.get(key): payload[key] = plan[key]
         if 'goal_spec' in plan:
             payload['goal_spec'] = plan['goal_spec']
             payload['goal_revision'] = plan.get('goal_revision',1)
         return self._hash(payload)
 
     def _assert_workshop_plan(self, plan):
+        self._assert_revalidation_plan(plan)
         if self.workshop:
             self.workshop.assert_plan_available(plan)
         elif plan.get('workshop_validation') or any(str(ref.get('id', '')).startswith('workshop.cap.') for ref in plan.get('skill_versions', [])):
@@ -641,7 +892,7 @@ class ActionLearning:
                     if ready is None: raise ValueError('Dependencias cíclicas o desconocidas')
                     ordered.append(ready); pending.remove(ready)
                 for part in ordered:
-                    skill = self.skills.get(part['id'], part['version'])
+                    skill = self.skills.get(part['id'], part['version'], project_id=plan['project_id'], task_id=plan.get('conversation_id'))
                     if skill['project_id'] not in ('', plan['project_id']): raise NeedsInput('La habilidad pertenece a otro proyecto')
                     if not skill['environment_matches']: raise ValueError('Entorno o adaptador no disponible')
                     self._bind(skill, part.get('inputs', {}), plan)
@@ -655,18 +906,20 @@ class ActionLearning:
             elif preparation['kind'] == 'repair':
                 self._prepare_repair(plan)
             else:
-                saved = self.skills.get(**preparation['selection']) if preparation.get('selection') else None
+                saved = self.skills.get(**preparation['selection'], project_id=plan['project_id'], task_id=plan.get('conversation_id')) if preparation.get('selection') else None
                 if saved:
+                    saved['selection_context_dependencies'] = preparation.get('selection_context_dependencies', [])
                     self._bind(saved, plan['inputs'], plan)
                     plan.update(learned_action_id=saved['id'], learned_trigger=saved['trigger'])
                     self._ready(plan, saved['title'])
                 else:
                     candidates = preparation['candidates']
                     if 'model_data' not in plan:
+                        self._capture_planning_context(plan)
                         reference = {'previous_action': preparation['context'], 'operational_context': plan['operational_context'],
                                      'goal_spec':plan.get('goal_spec') if plan.get('goal_locked') else None, 'capability_build':plan.get('capability_build'),
                                      'provided_inputs': plan['inputs'], 'available_skills': candidates}
-                        messages = self._prompt(plan['request'], reference)
+                        messages = self._prompt(plan['request'], reference, plan['project_id'], plan.get('conversation_id'))
                         messages[0]['content'] += (' Si una habilidad disponible coincide con la solicitud, devuelve '
                             '{"skill_id":"ID exacto","version":1,"inputs":{}}. No inventes valores ausentes ni elijas entre referencias ambiguas.')
                         response = self._infer(plan, 'plan', messages)
@@ -690,6 +943,7 @@ class ActionLearning:
                         if data is None: raise ValueError('El modelo no devolvió un plan JSON válido dentro del presupuesto de preparación.')
                         plan['model_data'] = data
                         self._save(plan)
+                    if plan.get('context_invalidated'): raise NeedsInput('El contexto cambió o se olvidó durante la planificación; revisa lo pendiente.')
                     data = dict(plan['model_data'])
                     if 'goal_spec' in data:
                         goal = goal_contract(plan['request'], data.pop('goal_spec'))
@@ -705,7 +959,7 @@ class ActionLearning:
                         if type(data['version']) is not int or not isinstance(data['skill_id'], str): raise ValueError('Referencia de habilidad inválida')
                         if not any(row['id'] == data['skill_id'] and row['version'] == data['version'] for row in candidates):
                             raise ValueError('El modelo seleccionó una habilidad fuera del contexto')
-                        saved = self.skills.get(data['skill_id'], data['version'])
+                        saved = self.skills.get(data['skill_id'], data['version'], project_id=plan['project_id'], task_id=plan.get('conversation_id'))
                         supplied = bounded_object(data['inputs'])
                         if any(name in plan['inputs'] and plan['inputs'][name] != value for name, value in supplied.items()):
                             raise NeedsInput('El modelo cambió un parámetro explícito. Revisa los valores')
@@ -821,12 +1075,14 @@ class ActionLearning:
             raise ValueError('El plan pertenece a otra conversación')
         if not fresh: return plan
         plan['conversation_id'] = conversation_id
+        plan['operational_context'] = self._planning_context(project_id, conversation_id)
         plan['planning_settings'] = {'model': model, 'provider_name': provider_name, 'selection_mode': selection_mode}
         try:
-            saved = self._select(text, project_id, plan['operational_context'])
+            saved = self._select(text, project_id, plan['operational_context'], conversation_id)
             plan['preparation'] = {'kind': 'propose', 'context': context,
                 'selection': {'key': saved['id'], 'version': saved['version']} if saved else None,
-                'candidates': self._candidates(text, project_id)}
+                'selection_context_dependencies': saved.get('selection_context_dependencies', []) if saved else [],
+                'candidates': self._candidates(text, project_id, conversation_id)}
             self._save(plan)
             return self._prepare_plan(plan)
 
@@ -852,9 +1108,104 @@ class ActionLearning:
         except NeedsInput as exc:
             plan.update(state='needs_input',message=str(exc),preparation_complete=False)
         return self._save(plan)
-    def _candidates(self, text, project_id):
+
+    def _revalidation_resources(self, command_id, inputs, *, deferred=(), require_existing=False, require_new=False):
+        """A revalidation trial has no path authority outside the executor's disposable workspace."""
+        from .anticipation import MISSION_COMMANDS
+        from .actions.tools import artifact_path_error
+        if command_id not in MISSION_COMMANDS:
+            raise ValueError('El ensayo solo admite adaptadores directos de archivos y copias privadas de Office; no admite entrada, foco, shell, MCP ni capacidades generadas.')
+        _, _, read_fields, write_fields = MISSION_COMMANDS[command_id]
+        workspace = self.commands.executor.workspace_root.resolve()
+        for field in read_fields:
+            if field in deferred: continue
+            if field not in inputs: raise ValueError('Falta el origen concreto del ensayo: ' + field)
+            for raw in inputs[field] if field == 'paths' else [inputs[field]]:
+                if artifact_path_error(raw) or not Path(raw).is_absolute():
+                    raise ValueError('El origen del ensayo debe ser una ruta absoluta segura dentro del espacio de ensayo.')
+                path = Path(raw).resolve()
+                if not path.is_relative_to(workspace):
+                    raise ValueError('El origen está fuera del espacio de ensayo; crea una copia explícita dentro antes de revalidar.')
+                if require_existing and (not path.is_dir() if field == 'directory' else not path.is_file()):
+                    raise ValueError('El recurso de ensayo ya no existe o cambió de tipo.')
+        for field in write_fields:
+            if field in deferred: continue
+            if field not in inputs: raise ValueError('Falta el destino concreto del ensayo: ' + field)
+            raw = inputs[field]
+            if artifact_path_error(raw) or Path(raw).is_absolute() or Path(raw).drive or '..' in Path(raw).parts:
+                raise ValueError('El destino del ensayo debe ser nuevo y relativo al espacio de ensayo.')
+            path = (workspace / raw).resolve()
+            if artifact_path_error(str(path)) or not path.is_relative_to(workspace) or require_new and path.exists():
+                raise ValueError('El destino ya existe o está fuera del espacio de ensayo.')
+
+    def _revalidation_steps(self, skill, inputs):
+        if not skill.get('executable') or skill.get('inference') is not None or str(skill['id']).startswith('workshop.cap.') or skill.get('provenance', {}).get('workshop_id'):
+            raise ValueError('Esta habilidad necesita el flujo de revisión del proveedor o del taller; el ensayo directo no lo sustituye.')
+        if skill.get('context_matches') is False:
+            raise NeedsInput('Las referencias de contexto están desactualizadas o pertenecen a otro ámbito. Actualiza los datos y revisa una nueva versión con esas mismas referencias antes del ensayo.')
+        inputs = bounded_object(inputs)
+        schema = validate_schema(skill['schema'])
+        references = set(PARAMETER.findall(json.dumps(skill['templates'], allow_nan=False)))
+        missing = references - inputs.keys()
+        if missing: raise NeedsInput('Escribe parámetros actuales para el ensayo; no se usan valores guardados: ' + ', '.join(sorted(missing)))
+        strict = skill | {'schema': schema | {'properties': {key: {name:value for name,value in spec.items() if name != 'default'} for key,spec in schema['properties'].items()}}}
+        steps, bound = bind(strict, inputs, {})
+        steps = self._validate_steps(steps)
+        for step in steps:
+            self._revalidation_resources(step['command_id'], step['inputs'], deferred=step.get('bindings', {}))
+        return steps, bound
+
+    def _assert_revalidation_plan(self, plan, *, db=None):
+        marker = plan.get('revalidation')
+        if not marker: return
+        if (not isinstance(marker, dict) or set(marker) != {'id', 'version'} or type(marker['version']) is not int
+                or plan.get('initiative_authorization')):
+            raise ValueError('El ensayo de revalidación requiere una revisión manual propia, sin permiso de iniciativa.')
+        skill = read_skill_state(db if db is not None else self.db, marker['id'], marker['version'],
+            project_id=plan['project_id'], task_id=plan.get('conversation_id'))
+        if skill['project_id'] not in ('', plan['project_id']): raise ValueError('La habilidad pertenece a otro proyecto.')
+        steps, bound = self._revalidation_steps(skill, plan['inputs'])
+        expected_ref = {'id': marker['id'], 'version': marker['version'], 'inputs': bound, 'step_start': 0, 'step_count': len(steps)}
+        if (plan.get('skill_versions') != [expected_ref] or plan.get('steps') != steps
+                or plan.get('context_dependencies', []) != skill.get('context_dependencies', [])
+                or plan.get('revalidation_scope') != {'workspace_root': str(self.commands.executor.workspace_root.resolve())}
+                or plan.get('revalidation_environment') != get_action_env_fingerprint(step['command_id'] for step in steps)):
+            raise ValueError('La versión, el ámbito o el adaptador del ensayo cambió; prepara y revisa un ensayo nuevo.')
+
+    @active_operation
+    def prepare_revalidation(self, id, version, inputs, project_id='', conversation_id=None, operation_id=None):
+        """Prepare only: strict fresh inputs and one immutable existing skill version, without inference."""
+        if type(version) is not int or version < 1: raise ValueError('Selecciona una versión exacta de la habilidad.')
+        if not conversation_id: raise ValueError('Selecciona el chat del ensayo de revalidación.')
+        from .chat_store import ident
+        ident(conversation_id)
+        project_key(project_id)
+        with self.lock:
+            skill = self.skills.get(id, version, project_id=project_id, task_id=conversation_id)
+            if skill['project_id'] not in ('', project_id): raise ValueError('La habilidad pertenece a otro proyecto.')
+            steps, bound = self._revalidation_steps(skill, inputs)
+            existing = operation_id and self.db.execute('SELECT 1 FROM learning_plans WHERE id=?', (operation_id,)).fetchone()
+            if not existing:
+                for step in steps:
+                    self._revalidation_resources(step['command_id'], step['inputs'], deferred=step.get('bindings', {}), require_new=True)
+            marker = {'id': id, 'version': version}
+            environment = get_action_env_fingerprint(step['command_id'] for step in steps)
+            scope = {'workspace_root': str(self.commands.executor.workspace_root.resolve())}
+            dependencies = skill.get('context_dependencies', [])
+            context = self.context(project_id)
+            trial_context = {'project_id': project_id, 'context_meta': {ref['field']: context['context_meta'][ref['field']] for ref in dependencies}}
+            plan, created = self._new_plan('Ensayo de revalidación de ' + id + ' versión ' + str(version), operation_id, bound, project_id,
+                request_context={'conversation_id': conversation_id, 'revalidation': marker, 'environment': environment, 'scope': scope, 'context_dependencies': dependencies}, parts=steps, operational_context=trial_context)
+            if not created: return plan
+            plan.update(conversation_id=conversation_id, proposal_source='explicit_revalidation', revalidation=marker,
+                revalidation_environment=environment, revalidation_scope=scope, context_dependencies=dependencies,
+                steps=steps, skill_versions=[{'id': id, 'version': version, 'inputs': bound, 'step_start': 0, 'step_count': len(steps)}])
+            self._ready(plan, ('Ensayo: ' + skill['title'])[:120])
+            plan['message'] = 'Ensayo preparado con parámetros actuales y sin inferencia. Revisa y aprueba estos pasos; solo sus recibos reales podrán revalidar esta versión.'
+            return self._save(plan)
+    def _candidates(self, text, project_id, task_id=None):
         # FTS only proposes candidates; _select still requires an exact, authorized skill.
-        rows = [row for row in self.skills.search(text, project_id) if row['environment_matches']]
+        rows = [row for row in self.skills.search(text, project_id, task_id=task_id) if row['environment_matches']]
         return [{key: row[key] for key in ('id', 'version', 'title', 'objective', 'examples', 'schema')} for row in rows[:24]]
 
     @active_operation
@@ -892,6 +1243,8 @@ class ActionLearning:
         if not self.gate.acquire(blocking=False): raise ValueError('Ya hay un plan ejecutándose')
         try:
             plan = self.get(key)
+            if plan.get('revalidation'):
+                raise NeedsInput('El ensayo conserva su versión y parámetros revisados. Prepara otro ensayo explícito con los parámetros actuales; no se usará un proveedor para repararlo.')
             new_goal=None
             if goal_spec is not None:
                 if not text.strip() or type(goal_revision) is not int or goal_revision != plan.get('goal_revision',1):
@@ -901,7 +1254,7 @@ class ActionLearning:
             if plan.get('workshop_validation') or any(str(ref.get('id', '')).startswith('workshop.cap.') for ref in plan.get('skill_versions', [])):
                 raise ValueError('Crea una revisión en el taller para corregir esta capacidad')
             if plan['state'] == 'cancelled': return plan
-            if plan['state'] not in ('failed', 'awaiting_approval', 'needs_input'): raise ValueError('Primero resuelve cualquier efecto incierto')
+            if plan['state'] not in ('failed', 'awaiting_approval', 'needs_input', 'paused'): raise ValueError('Primero resuelve cualquier efecto incierto')
             self._records(plan)
             self._reconcile(plan)
             if plan['state'] in ('unknown', 'cancelled'): return self._save(plan)
@@ -916,7 +1269,11 @@ class ActionLearning:
                 plan.update(goal_spec=new_goal,goal_revision=plan.get('goal_revision',1)+1)
             plan.update(preparation={'kind': 'repair', 'prefix': prefix, 'previous': history, 'correction': text},
                         planning_settings={'model': model, 'provider_name': provider_name, 'selection_mode': selection_mode},
-                        inputs=bounded_object(plan['inputs'] if inputs is None else inputs), state='planning', approved_hash=None)
+                        inputs=bounded_object(plan['inputs'] if inputs is None else inputs), state='planning', approved_hash=None,
+                        operational_context=self.context(plan['project_id']), context_dependencies=[])
+            plan.pop('context_invalidated', None)
+            self.pause_events.setdefault(key, threading.Event()).clear()
+            plan['pause_requested'] = False
             plan.pop('model_data', None)
             self._save(plan)
             return self._prepare_plan(plan)
@@ -927,14 +1284,16 @@ class ActionLearning:
         preparation = plan['preparation']
         prefix = preparation['prefix']
         if 'model_data' not in plan:
+            self._capture_planning_context(plan)
             reference = {'context': plan['operational_context'], 'completed': prefix, 'previous_attempt': preparation['previous'],
                          'goal_spec':plan.get('goal_spec'),
                          'correction': preparation['correction'], 'inputs': plan['inputs']}
-            messages = self._prompt(plan['request'], reference)
+            messages = self._prompt(plan['request'], reference, plan['project_id'], plan.get('conversation_id'))
             messages[0]['content'] += (' Repara únicamente los pasos pendientes. Devuelve title y steps para el sufijo NUEVO. '
                 'Nunca repitas los pasos completed ni sus efectos. Revisa evidencia de fallos antes de proponer cambios.')
             plan['model_data'] = self._model_data(self._infer(plan, 'repair', messages))
             self._save(plan)
+        if plan.get('context_invalidated'): raise NeedsInput('El contexto cambió durante la reparación; revisa sus fuentes actuales.')
         data = plan['model_data']
         if set(data) != {'title', 'steps'}: raise NeedsInput('La reparación necesita pasos concretos revisables')
         suffix = self._validate_steps(data['steps'], allow_shell=terminal_requested(plan['request']))
@@ -959,6 +1318,7 @@ class ActionLearning:
                  'project_id': plan['project_id'], 'favorite': previous['favorite'] if previous else False,
                  'checks': ['executor_postconditions'], 'executable': True, 'created_at': time.time(),
                  'environment': get_action_env_fingerprint(step['command_id'] for step in plan['steps']),
+                 'context_dependencies': plan.get('context_dependencies', []),
                  'provenance': {'source': 'repair', 'operation_id': plan['operation_id'], 'parent_version': previous['version'] if previous else None,
                                 'previous_plan_hash': preparation['previous']['plan_hash'], 'correction': preparation['correction'], 'route': plan.get('route', {})}}
         self.skills.insert(skill)
@@ -1100,6 +1460,17 @@ class ActionLearning:
         return results
 
     def _record_outcome(self, plan, outcome):
+        if outcome == 'failed':
+            for reference in plan.get('skill_versions', []):
+                records = plan.get('step_records', [])[reference['step_start']:reference['step_start'] + reference['step_count']]
+                receipts = []
+                for record in records:
+                    if not record.get('result'): break
+                    receipts.append(record['result'])
+                if any(receipt.get('state') == 'failed' for receipt in receipts):
+                    self.skills.record(reference['id'], reference['version'], plan['operation_id'],
+                        {'effect_verified': False, 'outcome': 'failed', 'observed': True, 'results': receipts,
+                         'inputs': reference.get('inputs', {}), 'task_id': plan.get('conversation_id')})
         routes = [item['route'] for item in plan.get('route_history', []) if item.get('ok')]
         if not routes and plan.get('route'): routes = [plan['route']]
         if hasattr(self.adapter, 'record_outcome'):
@@ -1108,6 +1479,22 @@ class ActionLearning:
                 except Exception: pass  # Metrics never change an execution receipt.
 
     def _learn(self, plan):
+        if plan.get('revalidation'):
+            self._assert_revalidation_plan(plan)
+            ref = plan['skill_versions'][0]
+            results = [record['result'] for record in plan['step_records']]
+            verified = bool(results) and all(item.get('state') == 'succeeded' and item.get('postconditions_passed') is True and bool(item.get('evidence')) for item in results)
+            skill = self.skills.get(ref['id'], ref['version'], project_id=plan['project_id'], task_id=plan.get('conversation_id'))
+            observed = self.skills._observed_receipts(skill, {'effect_verified': verified, 'results': results, 'inputs': ref['inputs']})
+            verified = verified and bool(observed and observed[0] == 'succeeded')
+            self.skills.record(ref['id'], ref['version'], plan['operation_id'], {'effect_verified': verified,
+                'verified_at': time.time() if verified else 0, 'results': results, 'inputs': ref['inputs'],
+                'task_id': plan.get('conversation_id'), 'revalidation': True})
+            health = self.skills.get(ref['id'], ref['version'], project_id=plan['project_id'], task_id=plan.get('conversation_id'))
+            plan.update(state='succeeded' if verified else 'failed', postconditions_passed=verified, effect_verified=verified,
+                learned_action_id=None, revalidation_completed=verified and health['effect_verified'] and health['environment_matches'],
+                message='Ensayo ejecutado con recibos reales. Solo esta versión se revalidó; no se creó otra habilidad ni una preferencia.' if verified and health['environment_matches'] else 'El ensayo terminó, pero la versión todavía no reúne evidencia aplicable para revalidarse.')
+            return self._save(plan)
         if any(step.get('bindings') or step['command_id'].startswith(('axx.desktop.window.', 'axx.desktop.input', 'axx.desktop.state', 'axx.desktop.observe', 'axx.desktop.control.', 'axx.desktop.ground', 'axx.desktop.grid.', 'axx.browser.', 'axx.mcp.')) for step in plan['steps']):
             return self._save(plan | {'state': 'succeeded', 'postconditions_passed': True,
                 'learned_action_id': None, 'message': 'Pasos verificados. Las referencias de esta sesión no se guardan como una receta permanente.'})
@@ -1132,6 +1519,7 @@ class ActionLearning:
                      'examples': candidate.get('examples', [plan['request'].strip()]),
                      'project_id': plan['project_id'], 'favorite': False, 'checks': ['executor_postconditions'], 'executable': True,
                      'environment': get_action_env_fingerprint(step['command_id'] for step in plan['steps']), 'created_at': now,
+                     'context_dependencies': plan.get('context_dependencies', []),
                      'provenance': {'source': 'executed_plan', 'operation_id': plan['operation_id'], 'route': plan.get('route', {}),
                                     'candidate_inputs': candidate.get('inputs', {})}}
             if not self.db.execute('SELECT 1 FROM skill_versions WHERE id=?', (key,)).fetchone(): self.skills.insert(skill)
@@ -1141,7 +1529,8 @@ class ActionLearning:
             evidence = [record['result'] for record in subset]
             verified = bool(evidence) and all(item.get('state') == 'succeeded' and item.get('postconditions_passed') is True and bool(item.get('evidence')) for item in evidence)
             self.skills.record(ref['id'], ref['version'], plan['operation_id'],
-                               {'effect_verified': verified, 'verified_at': now if verified else 0, 'results': evidence, 'route': plan.get('route', {})})
+                               {'effect_verified': verified, 'verified_at': now if verified else 0, 'results': evidence,
+                                'inputs': ref.get('inputs', {}), 'task_id': plan.get('conversation_id'), 'route': plan.get('route', {})})
         plan['learned_action_id'] = refs[0]['id'] if len(refs) == 1 else None
         context_update = {'last_result': {'operation_id': plan['operation_id'], 'title': plan['title'],
                                          'skills': [{'id': ref['id'], 'version': ref['version']} for ref in refs]}}
@@ -1156,17 +1545,27 @@ class ActionLearning:
         return self._save(plan)
 
     @active_operation
-    def execute(self, key, approved=False):
+    def execute(self, key, approved=False, *, initiative_grant_id=None):
         if approved is not True: raise ApprovalRequired('Revisa y aprueba los pasos concretos del plan.')
         if not self.gate.acquire(blocking=False): raise ValueError('Ya hay un plan ejecutándose.')
         try:
             with self.lock:
                 plan = self.get(key)
                 if plan['state'] in TERMINAL: return plan
+                if initiative_grant_id is None:
+                    plan.pop('initiative_authorization', None)
+                elif (plan.get('initiative_authorization') or {}).get('grant_id') != initiative_grant_id:
+                    raise ValueError('La misión no conserva la autorización de iniciativa admitida.')
                 self._assert_workshop_plan(plan)
                 if plan['state'] != 'awaiting_approval': raise ValueError('Reanuda y revisa primero el plan interrumpido')
                 if time.time() - plan.get('prepared_at', plan['created_at']) > 600:
                     return self._save(plan | {'state': 'expired', 'message': 'La aprobación caducó. Revisa y reanuda el plan.'})
+                context_error = self._context_error(plan, self.context(plan.get('project_id', '')))
+                if context_error: raise NeedsInput(context_error)
+                dependency_error = self._dependency_error(plan, self.get)
+                if dependency_error:
+                    plan.update(state='waiting_dependency', dependency_approved_hash=plan['plan_hash'], message=dependency_error)
+                    return self._save(plan)
                 event = self.events.setdefault(key, threading.Event())
                 steps = self._validate_steps(plan['steps'], allow_shell=terminal_requested(plan['request']))
                 self._records(plan)
@@ -1227,6 +1626,8 @@ class ActionLearning:
                 if 'resolved_inputs' not in record:
                     record['resolved_inputs'] = resolve_inputs(step, plan['step_records'])
                 inputs = self.commands._validate_inputs(step['command_id'], record['resolved_inputs'], require_new=False)
+                if plan.get('revalidation'):
+                    self._revalidation_resources(step['command_id'], inputs, require_existing=True, require_new=True)
                 plan['active_operation_id'] = operation_id
                 plan.setdefault('active_operation_ids', []).append(operation_id)
                 record.update(state='preparing', started_at=time.time()); self._save(plan)
@@ -1259,7 +1660,7 @@ class ActionLearning:
         with self.lock:
             plan = self.get(key)
             if plan['state'] in TERMINAL: return plan
-            if plan['state'] not in ('running', 'pausing', 'paused', 'awaiting_approval', 'interrupted'):
+            if plan['state'] not in ('running', 'pausing', 'paused', 'awaiting_approval', 'interrupted', 'waiting_dependency'):
                 raise ValueError('Espera la planificación o usa Detener para cancelarla')
             self.pause_events.setdefault(key, threading.Event()).set()
             running = any(record.get('state') == 'running' for record in plan.get('step_records', []))

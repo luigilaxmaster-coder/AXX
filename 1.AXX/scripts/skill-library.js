@@ -48,12 +48,12 @@
     <details open><summary>Tareas e historial</summary><button id="skills-tasks-refresh" type="button">Actualizar tareas</button><div id="skills-tasks"></div></details>
     <p id="skills-status" role="status"></p>`;
   $('command-library').before(section);
-  let skills = [], parts = [], windows = [], demo = null, polling = null, refreshRevision=0, tasksRevision=0, contextBusy=false, lessonRevision=0, lessonScope='', lessonBusy=false, taskPlans=[],taskPlansProject='';
+  let skills = [], parts = [], windows = [], demo = null, polling = null, refreshRevision=0, tasksRevision=0, contextBusy=false, lessonRevision=0, lessonScope='', lessonBusy=false, taskPlans=[],taskPlansProject='',currentContext=null,currentContextProject='',editorState=null;
   const contextInputs={current_folder:'skills-folder',current_file:'skills-file',current_application:'skills-app'},contextDirty=new Set();
   const project = () => $('skills-project').value.trim();
   $('skills-project').value = Axx.companion.data.prefs.skillProject || '';
   const task=()=>Axx.chatWorkspace?.active?.id||null,scope=()=>JSON.stringify([project(),task()]);
-  function syncLessonScope(){const selected=scope();if(selected===lessonScope)return;lessonScope=selected;++lessonRevision;$('skills-lessons-list').replaceChildren();$('skills-lesson-form').reset();for(const key of ['scope','humanCorrection','providerConsent'])delete $('skills-lesson-form').dataset[key];$('skills-lessons-search').reset();$('skills-lessons-status').textContent='';renderLessonReceipts();}
+  function syncLessonScope(){const selected=scope();if(selected===lessonScope)return;lessonScope=selected;++lessonRevision;if(editorState&&editorState.scope!==selected){editorState=null;$('skills-editor').replaceChildren();}$('skills-lessons-list').replaceChildren();$('skills-lesson-form').reset();for(const key of ['scope','humanCorrection','providerConsent'])delete $('skills-lesson-form').dataset[key];$('skills-lessons-search').reset();$('skills-lessons-status').textContent='';renderLessonReceipts();}
   function lessonReceipts(){
     const receipts=new Map(),plans=taskPlansProject===project()?taskPlans:[],last=commands.lastOperation;
     const add=(record,conversation,command)=>{const result=record.result||record;if(conversation!==task()||!record.operation_id||!command||record.state!==result.state||!['failed','succeeded'].includes(result.state)||result.state==='failed'&&!result.error||result.state==='succeeded'&&result.postconditions_passed!==true)return;receipts.set(record.operation_id,{id:record.operation_id,command,state:result.state,error:result.error});};
@@ -76,9 +76,10 @@
   async function planRequest(action, body) {
     if (commands.busy || commands.operation) throw new Error('Revisa o cancela la acción pendiente antes de preparar otra.');
     commands.busy = true; const serial = ++commands.generation;
-    commands.operation=commands.lastOperation={kind:'learned_plan',operation_id:body.operation_id,state:'planning',steps:[]};
+    commands.operation=commands.lastOperation={kind:'learned_plan',operation_id:body.operation_id,state:'planning',steps:[],...(body.conversation_id?{conversation_id:body.conversation_id}:{})};
     commands.renderOperation(commands.operation);
     try { const plan = await api('POST', 'learning/' + action, body); if (serial === commands.generation) adopt(plan); }
+    catch(error){if(action==='revalidate'&&serial===commands.generation){commands.lastOperation={kind:'learned_plan',operation_id:body.operation_id,conversation_id:body.conversation_id,state:'unknown',steps:[],revalidation:{id:body.id,version:body.version},message:'No se confirmó la preparación de este ensayo. Su ID se conserva para consultar el resultado.'};commands.operation=null;commands.renderOperation(commands.lastOperation);}throw error;}
     finally { if (serial === commands.generation) commands.busy = false; }
   }
   const prefs = () => {const p=Axx.companion.data.prefs;return {model:p.model || '',provider_name:p.provider==='chatgpt'?'@codex':p.provider==='bridge'?p.apiConnection || '':'',selection_mode:p.selection_mode || 'manual'};};
@@ -91,6 +92,7 @@
     if($('skills-lessons').open)await loadLessons();
   }
   function renderContext(context){
+    currentContext=context;currentContextProject=project();
     for(const [field,id] of Object.entries(contextInputs))if(!contextDirty.has(field))$(id).value=context[field]||'';
     const root=$('skills-context-evidence'),origin=$('skills-context-origin'),previous=origin.value;root.replaceChildren();origin.replaceChildren();
     const kinds={observed:'Observado',inferred:'Inferido',confirmed_user:'Confirmado por ti'},labels={...Object.fromEntries(Object.entries(contextInputs).map(([field,id])=>[field,$(id).parentElement.firstChild.textContent])),current_project:'Proyecto',aliases:'Alias',defaults:'Valores predeterminados',last_inputs:'Últimas entradas'};
@@ -103,6 +105,7 @@
     if(!root.children.length)root.textContent='No hay procedencia de campos registrada.';
     $('skills-invalidate-context').disabled=$('skills-forget-context').disabled=contextBusy||!origins.size;
     $('skills-context-status').textContent='Contexto guardado · Revisión: '+(context.context_revision??'No registrada')+(contextDirty.size?' · Hay campos editados sin guardar.':'');
+    editorState?.refresh();
   }
   async function saveContext(){
     const selected=project(),changes={};for(const field of contextDirty)changes[field]=$(contextInputs[field]).value;
@@ -160,6 +163,7 @@
       list.append(card);
     }
     if (!list.children.length) list.textContent = 'No hay habilidades que coincidan. Usa /aprende en el chat o enseña una demostración.';
+    editorState?.refresh();
   }
   function edit(skill) {
     const root = $('skills-editor'); root.replaceChildren(element('strong', skill.title));
@@ -178,7 +182,7 @@
     }
     const values = () => { if (!form.reportValidity()) throw new Error('Completa las entradas requeridas.'); return Object.fromEntries([...inputs].filter(([, {field,spec}]) => spec.type === 'boolean' || field.value !== '').map(([name,{field,spec}]) => [name, spec.enum ? JSON.parse(field.value) : spec.type === 'boolean' ? field.checked : ['number','integer'].includes(spec.type) ? Number(field.value) : field.value])); };
     form.onsubmit = event => { event.preventDefault(); run(() => commands.planAction(skill.id,{inputs:values()})); };
-    const submit = element('button', skill.executable ? 'Revisar y ejecutar' : 'Adaptador pendiente'); submit.type = 'submit'; submit.disabled = !skill.executable;
+    const submit = element('button', skill.executable ? 'Revisar y ejecutar' : 'Adaptador pendiente'); submit.type = 'submit'; submit.disabled = !skill.executable||skill.environment_matches===false||skill.quarantined||skill.context_matches===false;
     form.append(submit, button('Añadir a tarea combinada', () => { parts.push({id:skill.id,version:skill.version,inputs:values(),part_id:'part'+parts.length,depends_on:parts.length?[parts.at(-1).part_id]:[]}); renderParts(); })); root.append(form);
     const details = element('details'); details.append(element('summary','Modificar habilidad'));
     const title = element('input'); title.className='field'; title.value=skill.title; title.setAttribute('aria-label','Nombre de la habilidad');
@@ -192,10 +196,25 @@
     schema.setAttribute('aria-label','Esquema de entradas'); templates.setAttribute('aria-label','Pasos de la habilidad');
     inference.className='field';inference.rows=4;inference.value=JSON.stringify(skill.inference||null,null,2);inference.setAttribute('aria-label','Etapa de contenido nuevo');
     advanced.append(schema,templates,element('p','Contenido nuevo opcional: tarea (writing, translation, code o parameters), prompt y output_parameter. Usa null para una habilidad determinista.'),inference); details.append(advanced);
+    const selectedScope=scope(),references=skill.context_dependencies||[],refsDetail=element('details'),refsPreview=element('pre'),refsStatus=element('p'),refsLabel=element('label'),refsCheckbox=element('input');refsCheckbox.type='checkbox';refsCheckbox.id='skills-refresh-context-refs';refsLabel.append(refsCheckbox,document.createTextNode(' Actualizar referencias con el contexto actual'));refsDetail.append(element('summary','Referencias de contexto de esta versión'),refsLabel,refsStatus,refsPreview);refsPreview.style.cssText='white-space:pre-wrap;overflow-wrap:anywhere;max-height:180px;overflow:auto';details.append(refsDetail);
+    function refreshedReferences(){
+      if(selectedScope!==scope()||currentContextProject!==project()||!currentContext)return {error:'Selecciona esta habilidad y consulta el contexto del proyecto actual.'};
+      const next=[],preview=[];
+      for(const ref of references){const meta=currentContext.context_meta?.[ref.field];if(ref.project_id!==project()||!meta||meta.status!=='active'||meta.task_id!==task()||meta.expires_at!=null&&meta.expires_at*1000<=Date.now()||!Object.hasOwn(currentContext,ref.field))return {error:'Actualiza explícitamente '+ref.field+' en el contexto de este chat y proyecto. No se eliminará ni trasladará su referencia.'};next.push({...ref,revision:meta.revision});preview.push({field:ref.field,project_id:ref.project_id,revision_anterior:ref.revision,revision_actual:meta.revision,valor_actual:currentContext[ref.field]});}
+      return {next,preview,key:JSON.stringify([skill.id,skill.version,selectedScope,currentContext.context_revision,next])};
+    }
+    refsCheckbox.onchange=event=>{if(event.isTrusted&&refsCheckbox.checked){const current=refreshedReferences();if(!current.error)refsCheckbox.dataset.approved=current.key;}else delete refsCheckbox.dataset.approved;};
+    refsDetail.addEventListener('toggle',()=>{if(refsDetail.open)void run(async()=>{const selected=scope(),context=await api('GET','learning/context?project_id='+encodeURIComponent(project()));if(selected===scope()&&editorState?.id===skill.id&&editorState.version===skill.version)renderContext(context);});});
+    const trialDetail=element('details'),trialForm=element('form'),trialFields=new Map(),trialStatus=element('p'),trialButton=element('button','Preparar ensayo');trialDetail.id='skills-revalidation';trialButton.id='skills-prepare-revalidation';trialButton.type='submit';trialDetail.append(element('summary','Ensayo explícito de revalidación'),element('p','Escribe parámetros actuales. No se usan valores predeterminados ni se consulta al proveedor. Solo admite archivos del espacio de ensayo y copias nuevas; revisa el plan antes de aprobarlo.'),trialStatus);
+    for(const [name,spec] of Object.entries(skill.schema?.properties||{})){const label=element('label',spec.description||name),field=element(spec.enum||spec.type==='boolean'?'select':'input');label.className='setting';field.className='field';field.name=name;if(spec.enum||spec.type==='boolean'){field.add(new Option('Selecciona un valor',''));for(const value of spec.enum||[true,false])field.add(new Option(String(value),JSON.stringify(value)));}else{field.type=['integer','number'].includes(spec.type)?'number':'text';if(spec.type==='number')field.step='any';}field.required=skill.schema.required?.includes(name)||JSON.stringify(skill.templates).includes('{{'+name+'}}');label.append(field);trialForm.append(label);trialFields.set(name,{field,spec});}
+    trialForm.append(trialButton);trialDetail.append(trialForm);root.append(trialDetail);
+    const direct=new Set(['axx.file.sha256','axx.file.compare','axx.file.find','axx.artifact.pdf','axx.artifact.media','axx.artifact.ocr','axx.artifact.write','axx.file.bundle','axx.office.excel.csv','axx.office.word.pdf','axx.office.powerpoint.pdf']);
+    editorState={scope:selectedScope,id:skill.id,version:skill.version,refresh(){const consistent=selectedScope===scope()&&skills.find(row=>row.id===skill.id)?.version===skill.version,current=refreshedReferences();refsCheckbox.disabled=!consistent||!references.length||!!current.error;if(refsCheckbox.dataset.key!==current.key){refsCheckbox.checked=false;delete refsCheckbox.dataset.approved;refsCheckbox.dataset.key=current.key||'';}refsStatus.textContent=!consistent?'La selección cambió; vuelve a abrir esta versión.':current.error||(!references.length?'Esta versión no conserva referencias de contexto.':'Guardar crea una versión nueva y conserva los mismos campos y proyectos.');refsPreview.textContent=current.preview?JSON.stringify(current.preview,null,2):'';const contextValid=currentContextProject===project()&&references.every(ref=>{const meta=currentContext?.context_meta?.[ref.field];return ref.project_id===project()&&meta?.revision===ref.revision&&meta.status==='active'&&[null,undefined,'',task()].includes(meta.task_id)&&!(meta.expires_at!=null&&meta.expires_at*1000<=Date.now());});const supported=skill.executable&&skill.inference==null&&!skill.id.startsWith('workshop.cap.')&&!skill.provenance?.workshop_id&&skill.templates.every(step=>direct.has(step.command_id));trialButton.disabled=!consistent||!task()||!supported||!contextValid;const workspace=Axx.anticipation?.state?.capabilities?.mission_steps?.workspace_root;trialStatus.textContent=!consistent?'La versión o el chat cambió; vuelve a seleccionar la habilidad.':!supported?'Este ensayo no admite inferencia, controles del escritorio, shell, MCP ni promociones del taller.':!contextValid?'Revisa primero las referencias actuales y guarda una versión nueva.':workspace?'Ámbito de ensayo: '+workspace:'El plan mostrará la raíz real del espacio de ensayo antes de aprobar.';}};editorState.refresh();
+    trialForm.onsubmit=event=>{event.preventDefault();void run(async()=>{editorState?.refresh();if(trialButton.disabled||selectedScope!==scope())throw Error('Selecciona una versión y un ámbito coherentes para este ensayo.');if(!trialForm.reportValidity())throw Error('Escribe todos los parámetros actuales del ensayo.');const inputs=Object.fromEntries([...trialFields].filter(([,entry])=>entry.field.value!=='').map(([name,{field,spec}])=>[name,spec.enum||spec.type==='boolean'?JSON.parse(field.value):['number','integer'].includes(spec.type)?Number(field.value):field.value]));await planRequest('revalidate',{id:skill.id,version:skill.version,inputs,project_id:project(),conversation_id:task(),operation_id:Axx.newId()});});};
     details.append(button('Guardar cambios',async()=>{
-      await api('POST','learning/configure',{id:skill.id,changes:{version:skill.version,title:title.value,examples:examples.value.split('\n').map(s=>s.trim()).filter(Boolean),schema:JSON.parse(schema.value),templates:JSON.parse(templates.value),inference:JSON.parse(inference.value)}});
-      if(alias.value.trim()){const context=await api('GET','learning/context?project_id='+encodeURIComponent(project()));await api('POST','learning/context',{project_id:project(),changes:{aliases:{...context.aliases,[alias.value.trim()]:skill.id}}});}
-      root.replaceChildren(); await refresh();
+      if(selectedScope!==scope()||skills.find(row=>row.id===skill.id)?.version!==skill.version)throw Error('La selección o versión cambió. Vuelve a revisar esta habilidad.');const changes={version:skill.version,title:title.value,examples:examples.value.split('\n').map(s=>s.trim()).filter(Boolean),schema:JSON.parse(schema.value),templates:JSON.parse(templates.value),inference:JSON.parse(inference.value)};const updateRefs=refsCheckbox.checked;if(updateRefs){const approved=refsCheckbox.dataset.approved;if(!approved||approved!==refreshedReferences().key)throw Error('Confirma explícitamente las referencias actuales antes de guardarlas.');const latest=await api('GET','learning/context?project_id='+encodeURIComponent(project()));if(selectedScope!==scope())throw Error('El ámbito cambió antes de guardar.');renderContext(latest);const current=refreshedReferences();if(current.error||current.key!==approved||!refsCheckbox.checked||refsCheckbox.dataset.approved!==approved)throw Error('Las referencias cambiaron; revisa de nuevo sus valores y revisiones.');changes.context_dependencies=current.next;}await api('POST','learning/configure',{id:skill.id,changes});if(selectedScope!==scope())return;
+      if(alias.value.trim()){const context=await api('GET','learning/context?project_id='+encodeURIComponent(project()));if(selectedScope!==scope())return;await api('POST','learning/context',{project_id:project(),changes:{aliases:{...context.aliases,[alias.value.trim()]:skill.id}}});}
+      editorState=null;root.replaceChildren(); await refresh();if(updateRefs&&selectedScope===scope()){const updated=skills.find(row=>row.id===skill.id);if(updated)edit(updated);$('skills-status').textContent='Referencias guardadas en una versión nueva. Escribe los parámetros actuales y prepara su ensayo.';}
     }));
     if(skill.effect_verified) for(const [text,confirmed] of [['El resultado cumplió el objetivo',true],['El resultado necesita corrección',false]]) details.append(button(text,async()=>{await api('POST','learning/configure',{id:skill.id,changes:{version:skill.version,goal_confirmed:confirmed}});await refresh();}));
     root.append(details); root.scrollIntoView({block:'nearest'});
@@ -235,7 +254,7 @@
   }
   async function stopDemo(cancel=false) { showDemo(await api('POST','demonstration/stop',{id:demo?.id,cancel})); }
   $('skills-refresh').onclick=()=>run(refresh); $('skills-search').oninput=$('skills-favorites').onchange=renderList;
-  $('skills-project').onchange=()=>run(async()=>{if(commands.busy||commands.operation){$('skills-project').value=Axx.companion.data.prefs.skillProject||'';throw new Error('Termina o cancela la acción activa antes de cambiar de proyecto.');}Axx.companion.data.prefs.skillProject=project();Axx.companion.save();commands.learningQuestion=null;commands.actionContext={};parts=[];renderParts();$('skills-editor').replaceChildren();contextDirty.clear();for(const id of Object.values(contextInputs))$(id).value='';$('skills-context-evidence').replaceChildren();$('skills-context-origin').replaceChildren();$('skills-context-status').textContent='Consultando contexto del proyecto…';syncLessonScope();++refreshRevision;++tasksRevision;await refresh();});
+  $('skills-project').onchange=()=>run(async()=>{if(commands.busy||commands.operation){$('skills-project').value=Axx.companion.data.prefs.skillProject||'';throw new Error('Termina o cancela la acción activa antes de cambiar de proyecto.');}Axx.companion.data.prefs.skillProject=project();Axx.companion.save();commands.learningQuestion=null;commands.actionContext={};parts=[];renderParts();editorState=null;$('skills-editor').replaceChildren();contextDirty.clear();for(const id of Object.values(contextInputs))$(id).value='';$('skills-context-evidence').replaceChildren();$('skills-context-origin').replaceChildren();$('skills-context-status').textContent='Consultando contexto del proyecto…';syncLessonScope();++refreshRevision;++tasksRevision;await refresh();});
   for(const [field,id] of Object.entries(contextInputs))$(id).oninput=event=>{if(event.isTrusted){contextDirty.add(field);$('skills-context-status').textContent='Hay campos editados sin guardar.';}};
   $('skills-save-context').onclick=()=>contextAction(saveContext);$('skills-invalidate-context').onclick=()=>contextAction(()=>invalidateContext(false));$('skills-forget-context').onclick=()=>contextAction(()=>invalidateContext(true));
   $('skills-lessons').addEventListener('toggle',()=>{if($('skills-lessons').open)void run(loadLessons);});$('skills-lessons-search').onsubmit=event=>{event.preventDefault();void run(loadLessons);};
