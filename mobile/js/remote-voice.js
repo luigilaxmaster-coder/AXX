@@ -7,6 +7,7 @@
   const request=async(path,body)=>(await transport.request({path:'/v1/voice/'+path,method:'POST',body})).data;
   const labels={requested:'Tu PC solicita el micrófono…',recording:'Escuchando · micrófono activo',stopping:'Deteniendo grabación…',awaiting_audio:'Enviando audio al PC…',transcribing:'Transcribiendo en tu PC…',review:'Revisa y confirma el texto en el PC',ready:'Texto confirmado · esperando a Axx',dispatching:'Orden enviada · Axx está procesando',completed:'Respuesta recibida',empty:'No se reconoció voz',failed:'No se pudo completar',interrupted:'Interrumpido · revisa el PC',outcome_unknown:'Resultado sin confirmar · no se repetirá',cancelled:'Sesión cancelada'};
   function display(value){
+    if(window.axxFileDictationActive)return;
     capture=value;
     const recording=value.state==='recording';
     if(recording){$('voice-details').open=true;if(!$('character-dialog').open)$('character-dialog').showModal();}
@@ -25,12 +26,13 @@
     catch(e){$('voice-status').textContent='Cancelación sin confirmar: '+e.message;}
   };
   async function poll(){
-    if(polling || document.hidden)return;polling=true;
+    if(polling || document.hidden || window.axxFileDictationActive)return;polling=true;
     try{
       const local=await voice.status();display(local);
       const profile=await transport.profile();if(!profile.paired)return;
       const report=startError || {state:local.state,session_id:local.session_id,reason:local.reason};
       const response=await request('poll',{visible:local.visible,permission:local.permission,capture:report});
+      if(window.axxFileDictationActive)return;
       await voice.heartbeat();session=response.session;
       if(!session)return;
       if(local.state!=='recording')$('voice-status').textContent=(labels[session.state]||session.state)+(session.error?' · '+session.error:'');

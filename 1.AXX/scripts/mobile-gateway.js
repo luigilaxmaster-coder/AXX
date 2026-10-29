@@ -7,6 +7,9 @@
     const card = document.createElement('section'); card.className = 'setup-card'; card.id = 'axx-mobile';
     card.innerHTML = '<strong>Conectar teléfono</strong><p id="axx-mobile-status" role="status">Acceso móvil apagado</p><p class="micro-copy">1. Escanea el QR con Axx Mobile. 2. Confirma Connect en el teléfono. 3. Aprueba el control del teléfono abajo.</p><div class="quick-row"><button id="axx-mobile-start">Mostrar QR nuevo</button><button id="axx-mobile-stop">Apagar acceso</button></div><label class="axx-mobile-always"><input id="axx-mobile-always" type="checkbox"> Mantener la conexión disponible al reiniciar Axx</label><p class="micro-copy">Solo los teléfonos emparejados pueden conectarse. Puedes revocar cada teléfono.</p><div id="axx-mobile-pair" hidden><img id="axx-mobile-qr" width="320" height="320" alt="QR de emparejamiento de Axx de un solo uso" style="display:block;background:white;padding:12px;width:320px;max-width:100%;height:auto;margin:12px auto"><p id="axx-mobile-expiry" role="status"></p><details><summary>Usar enlace de emparejamiento</summary><label>Pega este enlace en Axx Mobile<textarea id="axx-mobile-uri" readonly rows="3" style="width:100%"></textarea></label><p id="axx-mobile-fingerprint" class="micro-copy" style="overflow-wrap:anywhere"></p></details><p class="micro-copy">El QR caduca a los dos minutos. Ratón, teclado y movimiento del avatar requieren aprobación desde esta PC.</p></div><details><summary>Teléfonos emparejados</summary><div id="axx-mobile-devices"></div></details>';
     ($('view-settings') || document.body).prepend(card);
+    const network=document.createElement('div');
+    network.innerHTML='<label for="axx-mobile-network">Conexión del teléfono</label><select id="axx-mobile-network"><option value="lan">Misma red · Wi-Fi o cable</option><option value="tailscale">Redes distintas · Tailscale</option></select><p id="axx-mobile-network-status" class="micro-copy" role="status"></p><p class="micro-copy">Para redes distintas, conecta Tailscale en esta PC y en Android con la misma cuenta. Después genera el QR de Axx. No necesitas abrir puertos públicos.</p>';
+    $('axx-mobile-status').before(network);
     const pairError=document.createElement('p');pairError.id='axx-mobile-error';pairError.setAttribute('role','alert');pairError.hidden=true;
     pairError.style.cssText='color:#ffd1c9;padding:12px;border:1px solid #e8a09580;border-radius:10px';
     $('axx-mobile-status').after(pairError);
@@ -47,6 +50,8 @@
     function hidePair(){clearInterval(expiry);$('axx-mobile-pair').hidden=true;$('axx-mobile-uri').value='';$('axx-mobile-qr').removeAttribute('src');}
     function render(info){
         enabled=info.enabled;
+        $('axx-mobile-network').value=info.network_mode||'lan';
+        $('axx-mobile-network-status').textContent=info.network_message||'';
         $('axx-mobile-always').checked=!!info.always_on;
         $('axx-mobile-status').textContent=enabled?'Conexión activa · '+info.endpoint:'Acceso móvil apagado';
         const nodes=(info.devices||[]).map(device=>{
@@ -73,6 +78,12 @@
         finally{$('axx-mobile-start').disabled=false;}
     };
     $('axx-mobile-stop').onclick=async()=>{try{render(await api('POST','stop',{}));}catch(e){$('axx-mobile-status').textContent=e.message||String(e);}};
+    $('axx-mobile-network').onchange=async()=>{
+        const selector=$('axx-mobile-network');selector.disabled=true;hidePair();pairError.hidden=true;
+        try{render(await api('POST','network',{mode:selector.value}));$('axx-mobile-start').click();}
+        catch(e){pairError.textContent=e.message||String(e);pairError.hidden=false;await refresh();}
+        finally{selector.disabled=false;}
+    };
     $('axx-mobile-always').onchange=async()=>{const checkbox=$('axx-mobile-always');checkbox.disabled=true;try{render(await api('POST','always-access',{enabled:checkbox.checked}));}catch(e){checkbox.checked=!checkbox.checked;$('axx-mobile-status').textContent='No se pudo cambiar el acceso: '+(e.message||e);}finally{checkbox.disabled=false;}};
     setInterval(()=>void refresh(),2000);setInterval(()=>void syncAppearance(),1000);void refresh();
 })(window.Axx);

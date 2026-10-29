@@ -27,6 +27,13 @@ class MobileHTTP:
             self.h._send_json(503, {'error': {'code':'MOBILE_UNAVAILABLE'}})
         elif path == '/axx-api/mobile/status':
             self.h._send_json(200, self.gateway.status())
+        elif path == '/axx-api/mobile/files/status':
+            self.h._send_json(200, self.gateway.transfers.status())
+        elif path == '/axx-api/mobile/transfers':
+            query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.h.path).query)
+            if set(query) != {'transfer_id'} or len(query['transfer_id']) != 1:
+                raise ValueError('transfer_id required')
+            self.h._send_json(200, self.gateway.transfers.get(query['transfer_id'][0]))
         elif path == '/axx-api/mobile/snapshot':
             self.h._send_json(200, self.gateway.shared.snapshot())
         elif path == '/axx-api/mobile/voice/status':
@@ -50,7 +57,32 @@ class MobileHTTP:
         if not self.gateway:
             self.h._send_json(503, {'error': {'code':'MOBILE_UNAVAILABLE'}})
             return True
-        if path == '/axx-api/mobile/start':
+        if path == '/axx-api/mobile/files/permissions':
+            result = self.gateway.transfers.configure(body)
+        elif path == '/axx-api/mobile/files/search':
+            if 'device_id' not in body:
+                raise ValueError('device_id required')
+            result = self.gateway.transfers.search(body['device_id'], {k: v for k, v in body.items() if k != 'device_id'})
+        elif path == '/axx-api/mobile/files/export':
+            result = self.gateway.transfers.export(body)
+        elif path == '/axx-api/mobile/files/remove':
+            result = self.gateway.transfers.remove(body)
+        elif path in ('/axx-api/mobile/transfers/create', '/axx-api/mobile/transfers/chunk',
+                      '/axx-api/mobile/transfers/pause', '/axx-api/mobile/transfers/resume',
+                      '/axx-api/mobile/transfers/cancel', '/axx-api/mobile/transfers/finish', '/axx-api/mobile/transfers/receipt'):
+            action = path.rsplit('/', 1)[1]
+            payload = {k: v for k, v in body.items() if k != 'device_id'}
+            device_id = body.get('device_id') if action == 'create' else self.gateway.transfers._load(body.get('transfer_id'))['device_id']
+            result = (self.gateway.transfers.create(device_id, payload) if action == 'create'
+                      else self.gateway.transfers.chunk(device_id, payload) if action == 'chunk'
+                      else self.gateway.transfers.action(action, device_id, payload))
+        elif path == '/axx-api/mobile/network':
+            if set(body) != {'mode'} or not self.h.server.host_owned:
+                raise ValueError('Selecciona la red desde Axx en la PC.')
+            result = self.gateway.set_network_mode(body['mode'])
+            if 'pairing_uri' in result:
+                result['qr_svg_base64'] = pairing_qr_base64(result['pairing_uri'])
+        elif path == '/axx-api/mobile/start':
             if body:
                 raise ValueError('Activation does not accept client parameters')
             if not self.h.server.host_owned:

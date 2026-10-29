@@ -174,6 +174,7 @@
   };
   $('chat-form').onsubmit=async event=>{
     event.preventDefault(); const text=$('draft').value.trim(); if(!text || pending || busy || !online)return;
+    if(window.AxxTransfer?.handleText(text)){$('draft').value='';localStorage.removeItem('axx.mobile.draft');return;}
     pending={command_id:crypto.randomUUID(), operation:'chat', text, conversation_id:conversationId}; localStorage.setItem('axx.mobile.pending',JSON.stringify(pending));
     busy=true; connection(online,'Enviando a la PC principal…'); avatar?.setState('thinking'); $('avatar-state').textContent='Axx procesando en PC';
     try { const task=await request('/v1/commands',pending); $('command-state').textContent=chatReceipt(task); }
@@ -272,6 +273,7 @@
   $('work-health').onclick=()=>void runWork('axx.system.telemetry',{});
   $('work-text-form').onsubmit=async e=>{
     e.preventDefault();const text=$('work-text').value.trim();if(!text)return;
+    if(window.AxxTransfer?.handleText(text))return;
     try{
       const resolved=await request('/v1/work/resolve',{text});
       if(resolved.match!=='exact'||!resolved.command_id){workStatus(resolved.message||'No reconozco esa orden. Elige un comando en la lista.');return;}

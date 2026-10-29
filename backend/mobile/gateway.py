@@ -109,7 +109,7 @@ class BoundedHTTPServer(ThreadingHTTPServer):
 class MobileGateway:
     """Opt-in TLS gateway over Axx's existing private backend services."""
 
-    def __init__(self, state_path, data_dir, backend_call, pc_name=None, host_resolver=lan_address):
+    def __init__(self, state_path, data_dir, backend_call, pc_name=None, host_resolver=lan_address, tailscale_probe=None):
         self.store = MobileTrustStore(state_path)
         self.store.recover_commands()
         self.shared = SharedState(state_path)
@@ -118,9 +118,15 @@ class MobileGateway:
         from .control import RemoteControl
         self.control = RemoteControl(self.store)
         self.data_dir = Path(data_dir) / "mobile"
+        from .transfer import FileTransfer
+        self.transfers = FileTransfer(self.store, self.data_dir)
+        from .dictation import MobileDictation
+        self.dictation = MobileDictation(self.store, backend_call)
         self.backend_call = backend_call
         self.pc_name = pc_name or socket.gethostname()
         self.host_resolver = host_resolver
+        from .network import MobileNetwork, tailscale_status
+        self.network = MobileNetwork(host_resolver, tailscale_probe or tailscale_status)
         self.httpd = None
         self.thread = None
         self._lock = threading.RLock()
@@ -438,19 +444,35 @@ class MobileGateway:
 
     def status(self):
         with self._lock:
-            always_on = self.store.access_settings()['always_on']
+            settings = self.store.access_settings()
+            always_on = settings['always_on']
+            network = self.network.status(settings['network_mode'])
+            network_fields = {'network_mode': settings['network_mode'], 'network': network,
+                              'network_ready': network['ready'], 'network_message': network['message'],
+                              'remote_ready': settings['network_mode'] == 'tailscale' and network['ready']}
             if not self.httpd:
-                return {"enabled": False, "always_on": always_on, "devices": self.store.devices()}
+                return {"enabled": False, "always_on": always_on, "devices": self.store.devices(), **network_fields}
             return {"enabled": True, "endpoint": f"https://{self.httpd.server_address[0]}:{self.httpd.server_port}",
-                    "fingerprint": self._identity[2], "always_on": always_on, "devices": self.store.devices()}
+                    "fingerprint": self._identity[2], "always_on": always_on, "devices": self.store.devices(), **network_fields}
+
+    def set_network_mode(self, mode):
+        self.network.validate_mode(mode)
+        if mode != self.store.access_settings()['network_mode']:
+            self.stop()
+            self.store.set_network_mode(mode)
+        return self.start()
 
     def start(self, create_pairing=True):
         with self._lock:
-            if self.httpd:
-                return self.pairing() if create_pairing else self.status()
-            host = self.host_resolver()
-            cert, key, fingerprint = _identity_files(self.data_dir, host)
             settings = self.store.access_settings()
+            if self.httpd:
+                if settings['network_mode'] == 'tailscale':
+                    address = self.network.resolve('tailscale')
+                    if address != self.httpd.server_address[0]:
+                        raise RuntimeError('La dirección de Tailscale cambió. Apaga el acceso y genera un QR nuevo.')
+                return self.pairing() if create_pairing else self.status()
+            host = self.network.resolve(settings['network_mode'])
+            cert, key, fingerprint = _identity_files(self.data_dir, host)
             gateway = self
 
             class Handler(BaseHTTPRequestHandler):
@@ -523,6 +545,19 @@ class MobileGateway:
                             "/v1/tasks": ("/axx-api/commands/operations", "query"),
                         }
                         path = urllib.parse.urlsplit(self.path).path
+                        if path == '/v1/files/status':
+                            if self._authorize('query'):
+                                self._send(200, {'ok': True, 'data': gateway.transfers.status(self.device_id)})
+                            return
+                        if path in ('/v1/transfers', '/v1/files/dictation'):
+                            if not self._authorize('voice' if path.endswith('/dictation') else 'query'): return
+                            query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+                            key = 'request_id' if path.endswith('/dictation') else 'transfer_id'
+                            if set(query) != {key} or len(query[key]) != 1:
+                                raise ValueError(key + ' required')
+                            result = (gateway.dictation.status(self.device_id, query[key][0]) if key == 'request_id'
+                                      else gateway.transfers.get(query[key][0], self.device_id))
+                            self._send(200, {'ok': True, 'data': result}); return
                         if path == '/v1/control/status':
                             if self._authorize('query'):
                                 self._send(200, {'ok':True,'data':gateway.control.status(self.device_id)})
@@ -575,6 +610,8 @@ class MobileGateway:
                         if path == "/v1/catalog":
                             data = {"tools": data.get("tools", [])} if isinstance(data, dict) else {"tools": []}
                         self._send(200, {"ok": True, "data": data})
+                    except (ValueError, TypeError) as exc:
+                        self._send(400, {'ok': False, 'error': {'code': 'INVALID_REQUEST', 'message': str(exc)}})
                     except Exception:
                         LOG.exception("Mobile GET failed")
                         self._send(502, {"ok": False, "error": {"code": "BACKEND_UNAVAILABLE",
@@ -584,6 +621,22 @@ class MobileGateway:
                     try:
                         path = urllib.parse.urlsplit(self.path).path
                         body = self._body()
+                        if path == '/v1/files/dictation':
+                            if self._authorize('voice'):
+                                self._send(200, {'ok': True, 'data': gateway.dictation.submit(self.device_id, body)})
+                            return
+                        if path == '/v1/files/search':
+                            if self._authorize('files.read'):
+                                self._send(200, {'ok': True, 'data': gateway.transfers.search(self.device_id, body)})
+                            return
+                        if path in ('/v1/transfers/create', '/v1/transfers/chunk', '/v1/transfers/pause',
+                                    '/v1/transfers/resume', '/v1/transfers/cancel', '/v1/transfers/finish', '/v1/transfers/receipt'):
+                            if not self._authorize('query'): return
+                            action = path.rsplit('/', 1)[1]
+                            result = (gateway.transfers.create(self.device_id, body) if action == 'create'
+                                      else gateway.transfers.chunk(self.device_id, body) if action == 'chunk'
+                                      else gateway.transfers.action(action, self.device_id, body))
+                            self._send(200, {'ok': True, 'data': result}); return
                         if path in ('/v1/control/acquire','/v1/control/renew','/v1/control/events','/v1/control/release'):
                             operation=path.rsplit('/',1)[1]
                             if not self._authorize('query' if operation=='release' else 'input.control'):return
@@ -709,6 +762,7 @@ class MobileGateway:
     def close(self):
         self.stop()
         self.control.close()
+        self.transfers.close()
 
     def revoke(self, device_id):
         self.control.disconnect(device_id)

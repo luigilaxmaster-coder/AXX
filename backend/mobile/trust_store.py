@@ -155,13 +155,20 @@ class MobileTrustStore:
 
     def access_settings(self):
         with self._connect() as db:
-            rows = db.execute("SELECT key,value FROM mobile_access_settings WHERE key IN ('always_on','port')").fetchall()
+            rows = db.execute("SELECT key,value FROM mobile_access_settings WHERE key IN ('always_on','port','network_mode')").fetchall()
         values = {row['key']: row['value'] for row in rows}
         try:
             port = int(values.get('port', '0'))
         except ValueError:
             port = 0
-        return {'always_on': values.get('always_on') == '1', 'port': port if 0 <= port <= 65535 else 0}
+        return {'always_on': values.get('always_on') == '1', 'port': port if 0 <= port <= 65535 else 0,
+                'network_mode': values.get('network_mode') if values.get('network_mode') in ('lan', 'tailscale') else 'lan'}
+
+    def set_network_mode(self, mode):
+        from .network import MobileNetwork
+        MobileNetwork.validate_mode(mode)
+        with self._connect() as db:
+            db.execute("INSERT OR REPLACE INTO mobile_access_settings(key,value) VALUES('network_mode',?)", (mode,))
 
     def set_access_settings(self, *, always_on, port=None):
         if type(always_on) is not bool or (port is not None and (type(port) is not int or not 1 <= port <= 65535)):
@@ -199,6 +206,23 @@ class MobileTrustStore:
 
     def set_input_permission(self, device_id, enabled):
         return self._set_permission(device_id,enabled,'input.control')
+
+    def set_file_permissions(self, device_id, read, write, config_payload=None):
+        if not isinstance(device_id, str) or type(read) is not bool or type(write) is not bool:
+            raise ValueError('Invalid file permissions')
+        with self._connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            row = db.execute('SELECT scopes_json FROM mobile_devices WHERE device_id=? AND revoked_at IS NULL', (device_id,)).fetchone()
+            if not row:
+                raise ValueError('Dispositivo no autorizado')
+            scopes = set(json.loads(row['scopes_json'])) - {'files.read', 'files.write'}
+            scopes.update(scope for scope, enabled in (('files.read', read), ('files.write', write)) if enabled)
+            db.execute('UPDATE mobile_devices SET scopes_json=? WHERE device_id=?', (json.dumps(sorted(scopes)), device_id))
+            if config_payload is not None:
+                db.execute('INSERT OR REPLACE INTO mobile_file_config VALUES(?,?)', (device_id, config_payload))
+                db.execute('DELETE FROM mobile_file_refs WHERE device_id=?', (device_id,))
+            db.commit()
+        return sorted(scopes)
 
     def _set_permission(self, device_id, enabled, scope):
         if not isinstance(device_id,str) or type(enabled) is not bool:raise ValueError('Invalid device permission')

@@ -17,6 +17,7 @@ public class MainActivity extends BridgeActivity {
     @Override public void onCreate(Bundle savedInstanceState) {
         registerPlugin(AxxTransportPlugin.class);
         registerPlugin(AxxVoicePlugin.class);
+        registerPlugin(AxxFilesPlugin.class);
         super.onCreate(savedInstanceState);
         // App sizing is independent of Android; the system text option remains available in PC settings.
         boolean systemText = getSharedPreferences("axx_display", MODE_PRIVATE).getBoolean("system_text", false);
