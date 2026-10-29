@@ -1,0 +1,22 @@
+{
+  "id": "axx-approved-20261029",
+  "approved_on": "2026-10-29",
+  "approved_runtime": {
+    "desktop": "0.22.25",
+    "android": "0.2.5",
+    "android_code": 26
+  },
+  "approval": "Preserve current design; changing protected hashes requires explicit user design approval and regression evidence.",
+  "protected": {
+    "1.AXX/Axx.html#inline-styles": "bc43214d0d212d5ed6b87ad05642156182393d3e5964d30d02d82986133e7aa1",
+    "mobile/client.html#home": "a169345946c4012860e7e14dc804d5474cf1420e63b864159415f544d0d93eb4",
+    "mobile/css/live-client.css": "a9d9b8e5174809b02b0dfce361c15e95a991d7ba145764e9716a231cabc26f73",
+    "mobile/css/remote-control.css": "f0dfc5ab87abab55f3af202faae238a7e50602d20f3efe9c7ee9f33d53303eac",
+    "mobile/js/display.js": "92164b6865dd0fcf0649d54e1e4f028f575276375c8ba3a39fe4ae9bc03f8abc",
+    "mobile/js/avatar-renderer.js": "8e25ed3565ec2f0047136aa9cedce9dbcf9640cf003ece1c71fee6c1273fee54",
+    "mobile/android/app/src/main/res/values/styles.xml": "510791b095e832d9da1e96cbf10eaac56a663ef8d12dacb9d849c34325ae2a34",
+    "1.AXX/scripts/chat-workspace.css": "b390739c2df337bd10ccd47bc6451a11cb92d601ea6502e3c2c7fc5c924b7649",
+    "1.AXX/scripts/interface-theme.css": "0c95c98eeaaee6e90cd742e9f6075e597716fadbf5d8b5489b51afd93a950c4b",
+    "1.AXX/scripts/transfer.css": "d256ae41b6b54db420b2927a760ed976623f9f60a4acb5115f2ee2a43f96335c"
+  }
+}

@@ -13,6 +13,7 @@ import subprocess
 import sys
 import tomllib
 from pathlib import Path
+from companion_contract import validate_receipt as validate_companion_receipt
 
 ROOT = Path(__file__).resolve().parents[1]
 REPO = "luigilaxmaster-coder/AXX"
@@ -219,10 +220,11 @@ def verify_asset(asset, path: Path):
 def publish(args):
     current = check(ROOT)
     installer = validate_receipts(ROOT, args.build_result.resolve(), args.install_result.resolve())
+    validate_companion_receipt(ROOT, args.companion_result.resolve())
     if not args.notes.is_file() or not args.notes.read_text(encoding="utf-8").strip():
         raise ValueError("A nonempty release notes file is required")
     if args.dry_run:
-        print(f"PASS: v{current} build, source hashes and installed runtime match. No publication performed.")
+        print(f"PASS: v{current} build, installed runtime and desktop/mobile compatibility receipts match. No publication performed.")
         return
     if run("git", "status", "--porcelain"):
         raise ValueError("Commit source and release tooling before publishing; working tree must be clean")
@@ -289,6 +291,7 @@ def main():
     upload = commands.add_parser("publish")
     upload.add_argument("--build-result", type=Path, required=True)
     upload.add_argument("--install-result", type=Path, required=True)
+    upload.add_argument("--companion-result", type=Path, required=True)
     upload.add_argument("--notes", type=Path, required=True)
     upload.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()

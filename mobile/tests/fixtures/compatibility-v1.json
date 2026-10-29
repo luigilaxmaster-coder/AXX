@@ -1,0 +1,17 @@
+{
+  "legacy_core": {
+    "conversation_id": "contract-only", "cursor": 0, "messages": [],
+    "appearance": {"settings": {"form": 3, "palette": 1, "scale": 1}, "studio": {"living": false}, "camera": [0, 0], "finish": "prism"},
+    "pc_name": "Contract PC", "scopes": ["query"], "inference": {}
+  },
+  "customization": {
+    "conversation_id": "contract-only", "cursor": 0, "messages": [],
+    "appearance": {"settings": {"form": 8, "palette": 2, "scale": 1}, "studio": {"living": false}, "camera": [0, 0], "finish": "obsidian", "activity": {"state": "idle", "moving": false}},
+    "pc_name": "Contract PC", "scopes": ["query", "input.control"], "inference": {}, "capabilities": {"avatar_customization": true}
+  },
+  "additive_future": {
+    "conversation_id": "contract-only", "cursor": 0, "messages": [],
+    "appearance": {"settings": {"form": 3, "palette": 4, "scale": 1, "future_optional": true}, "studio": {"living": false}, "camera": [0, 0], "finish": "prism"},
+    "pc_name": "Contract PC", "scopes": ["query"], "inference": {}, "capabilities": {"future_optional": true}, "future_optional": {"enabled": true}
+  }
+}

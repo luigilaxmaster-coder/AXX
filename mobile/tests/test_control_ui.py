@@ -1,5 +1,7 @@
 """Isolated UI contracts; not a substitute for physical Android acceptance."""
 import unittest
+import tempfile
+from pathlib import Path
 from playwright.sync_api import sync_playwright
 from mobile.tests.test_ui import ROOT,NATIVE_FIXTURE
 
@@ -24,7 +26,7 @@ class RemoteControlUI(unittest.TestCase):
     if name=='css/live-client.css':route.fulfill(body=path.read_text(encoding='utf-8')+'\nhtml,body{font-size:23.8px}',content_type='text/css')
     else:route.fulfill(path=str(path))
    page.route('https://axx.test/**',serve);page.add_init_script(NATIVE_FIXTURE+CONTROL_FIXTURE);page.goto('https://axx.test/')
-   out=ROOT.parent.parent/'evidence/mobile-20261022/pairing-fix';out.mkdir(parents=True,exist_ok=True)
+   out=Path(self.enterContext(tempfile.TemporaryDirectory(prefix='axx-mobile-ui-')))
    page.locator('#pc-button').click();page.screenshot(path=str(out/'pairing-preview.png'));page.locator('#pair-close').click()
    page.locator('[data-pane=pc]').click();page.locator('#control-open-pad').click()
    page.screenshot(path=str(out/'trackpad-preview.png'));pad=page.locator('#control-pad').bounding_box()

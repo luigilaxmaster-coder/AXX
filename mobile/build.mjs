@@ -22,3 +22,10 @@ const renderer = desktop.slice(start + '<script>'.length, end + '})(Axx || (Axx 
 if (renderer.includes('new Axx.App(') || !renderer.includes('class SoftwareRenderer')) throw new Error('Invalid desktop renderer extraction');
 await writeFile(new URL('www/js/desktop-avatar.js', import.meta.url), renderer);
 await writeFile(new URL('www/renderer-source.json', import.meta.url), JSON.stringify({source:'1.AXX/Axx.html',sha256:createHash('sha256').update(renderer).digest('hex')},null,2));
+const contract = await readFile(new URL('companion-contract.json', import.meta.url), 'utf8');
+await writeFile(new URL('www/companion-build.json', import.meta.url), JSON.stringify({
+  versions: {desktop:JSON.parse(await readFile(new URL('../package.json', import.meta.url),'utf8')).version,android:JSON.parse(await readFile(new URL('package.json', import.meta.url),'utf8')).version,android_code:Number((await readFile(new URL('android/app/build.gradle',import.meta.url),'utf8')).match(/\bversionCode\s+(\d+)\b/)[1])},
+  protocol:JSON.parse(contract).id,
+  contract_sha256:createHash('sha256').update(contract.replace(/\r\n/g,'\n')).digest('hex'),
+  renderer_sha256:createHash('sha256').update(renderer).digest('hex')
+},null,2));

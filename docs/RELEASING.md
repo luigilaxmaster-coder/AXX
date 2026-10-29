@@ -24,6 +24,16 @@ required setup and outstanding hardware checks.
 Run the relevant tests and native visual/function checks for the changed features.
 Close the installed Axx before running the installation step.
 
+Every desktop release also follows the [permanent companion protocol](mobile/COMPATIBILITY-PROTOCOL.md), even when the Android version is unchanged. On the final integrated source, install the test requirements and Chromium once, then run the paired gate:
+
+```powershell
+python -m pip install -r requirements-companion-tests.txt
+python -m playwright install chromium
+python scripts/validate_companion.py --output build/companion-validation.json
+```
+
+The gate rebuilds web assets, checks the protected design and shared renderer, and runs service/TLS/browser/screen contracts. It does not build or install an APK and does not certify physical phones. Android binary/signature, upgrade-with-data and hardware receipts remain separate. Re-run the gate after any tested source changes; copied receipts work from a clean publication checkout only when its canonical inputs and both application versions match.
+
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-windows.ps1 -EvidenceDirectory build/release-current
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-verified-windows.ps1 -BuildResult build/release-current/build-result.json -EvidenceDirectory build/release-current
@@ -39,8 +49,8 @@ Review and commit the intended source changes, then `git push origin main`.
 The GitHub CLI must already be authenticated with release write access.
 
 ```powershell
-python scripts/release.py publish --build-result build/release-current/build-result.json --install-result build/release-current/installed-runtime.json --notes docs/releases/0.20.19.md --dry-run
-python scripts/release.py publish --build-result build/release-current/build-result.json --install-result build/release-current/installed-runtime.json --notes docs/releases/0.20.19.md
+python scripts/release.py publish --build-result build/release-current/build-result.json --install-result build/release-current/installed-runtime.json --companion-result build/companion-validation.json --notes docs/releases/0.20.19.md --dry-run
+python scripts/release.py publish --build-result build/release-current/build-result.json --install-result build/release-current/installed-runtime.json --companion-result build/companion-validation.json --notes docs/releases/0.20.19.md
 ```
 
 Publication requires clean, synchronized `main`, matching versions, unchanged
