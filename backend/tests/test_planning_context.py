@@ -5,6 +5,7 @@ from pathlib import Path
 import tempfile
 import threading
 import time
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -12,7 +13,7 @@ from backend.action_learning import ActionLearning
 from backend.actions.executor import ActionExecutor
 from backend.commands import CommandService
 from backend.memory.procedural_memory import get_action_env_fingerprint
-from backend.memory.skill_memory import validate_schema
+from backend.memory.skill_memory import validate_schema, NeedsInput
 
 
 class LocalModel:
@@ -53,6 +54,34 @@ class PlanningContextTests(unittest.TestCase):
     def payload(self, context, *, task='task-b', text='context reference'):
         messages = self.learning._prompt(text, context, 'project-a', task)
         return json.loads(messages[-1]['content'])
+
+    def test_remote_observation_gate_blocks_source_echo_before_dispatch_or_persistence(self):
+        ref={'target_id':'clipboard-a','consent_digest':'digest','observation_id':'observation-a','generation':1}
+        observation={'source':'clipboard','target_id':'clipboard-a','observation_id':'observation-a',
+            'observed_at':time.time(),'expires_at':time.time()+60,'context_state':'observed','untrusted':True,
+            'metadata':{'characters':27},'content':{'text':'PRIVATE_OBSERVATION_SENTINEL'}}
+        self.learning.anticipation=SimpleNamespace(provider_context_for_task=lambda *args,**kwargs:{'refs':[ref],'observations':[observation]})
+        plan,_=self.learning._new_plan('Preparar un archivo de ensayo','observation-trial',{},'project-a')
+        plan['planning_settings']={'provider_name':'','model':'','selection_mode':'manual'}
+        with self.assertRaisesRegex(NeedsInput,'desactivado'):
+            self.learning._infer(plan,'plan',self.learning._prompt(plan['request'],{},'project-a'))
+        self.assertEqual(self.model.calls,[])
+        stored=''.join(row[0] for row in self.learning.db.execute('SELECT payload FROM learning_plans'))
+        self.assertNotIn('PRIVATE_OBSERVATION_SENTINEL',stored)
+
+    def test_typed_catalog_and_bounded_observation_fit_conservative_request_budget(self):
+        ref={'target_id':'clipboard-a','consent_digest':'digest','observation_id':'observation-a','generation':1}
+        self.learning.anticipation=SimpleNamespace(provider_context_for_task=lambda *args,**kwargs:{'refs':[ref],
+            'observations':[{'source':'clipboard','target_id':'clipboard-a','observation_id':'observation-a',
+                'metadata':{'characters':5000},'content':{'text':'😀'*5000}}]})
+        plan,_=self.learning._new_plan('Preparar un archivo de ensayo','bounded-observation',{},'project-a')
+        messages=self.learning._prompt(plan['request'],{},'project-a')
+        with patch('backend.action_learning.SOURCE_PLANNING_READY',True):
+            messages,images,refs=self.learning._source_prompt(plan,messages)
+        self.assertEqual(refs,[ref]);self.assertEqual(images,[])
+        data=json.loads(messages[1]['content'])['observed_context']['observations'][0]
+        self.assertTrue(data['text_truncated']);self.assertLessEqual(len(data['text'].encode()),1000)
+        self.assertLess(len(json.dumps({'messages':messages,'tools':None},ensure_ascii=False).encode())+1024+2048,32768)
 
     def hash_receipt(self, *, task='task-a', fail=False):
         if not self.file.exists(): self.file.write_text('Synthetic local fixture.', encoding='utf-8')
