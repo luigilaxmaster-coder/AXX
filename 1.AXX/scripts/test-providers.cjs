@@ -13,7 +13,7 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
     page.setDefaultTimeout(20000);
     page.on('pageerror',e=>errors.push(e.message));
     await page.addInitScript(()=>{
-      window.testProviders=[];window.savedCalls=[];window.candidateCalls=[];window.modelCommandRequests=[];
+      window.testProviders=[];window.savedCalls=[];window.candidateCalls=[];window.modelCommandRequests=[];window.probeCalls=[];
       window.__TAURI__={core:{invoke:async(name,args)=>{
         const desktop={workWidth:1920,workHeight:1080,spaceLeft:1000,spaceRight:920,spaceAbove:540,spaceBelow:540};
         if(name==='native_status')return {native:true,backendReady:false,shortcut:'Alt+Shift+A',desktop};
@@ -29,6 +29,7 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
           if(args.path==='/axx-api/model-candidates/apply'){window.candidateCalls.push({apply:args.body});return {applied:true};}
           if(args.path==='/axx-api/providers')return {providers:window.testProviders};
           if(args.path==='/axx-api/providers/discover')return {models:window.testModels || ['fixture-model','second-model']};
+          if(args.path==='/axx-api/chat'){window.probeCalls.push(args.body);return {choices:[{message:{content:'AXX_API_OK'}}],axx_router:{provider:window.wrongProbeRoute?'other':args.body.provider_name,configured_model:args.body.model}};}
           if(args.path==='/axx-api/providers/save'){
             window.savedCalls.push(args.body);
             window.testProviders=[{...args.body,kind:args.body.provider,has_key:!!args.body.api_key}];
@@ -72,7 +73,7 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
     await page.locator('#panel').screenshot({path:'build/model-quick-start/chatgpt-dark.png'});
     await page.locator('#tab-mode-api').click();
     await page.locator('#panel').screenshot({path:'build/model-quick-start/other-dark.png'});
-    await page.locator('#provider-advanced > summary').click();
+    assert.equal(await page.locator('#provider-advanced').evaluate(el=>el.open),true);
     await page.locator('#provider-kind').selectOption('groq');
     assert.equal(await page.locator('#provider-url').inputValue(),'https://api.groq.com/openai/v1');
     await page.locator('#provider-name').fill('My Groq');
@@ -90,6 +91,41 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
     assert.equal(await page.evaluate(()=>Axx.companion.data.prefs.model),'fixture-model');
     assert.equal(await page.evaluate(()=>Axx.companion.data.prefs.apiConnection),'My Groq');
     assert.equal(await page.evaluate(()=>JSON.stringify({...localStorage}).includes('FIXTURE-ONLY-KEY')),false);
+    await page.locator('#provider-probe').click();
+    await page.waitForFunction(()=>document.getElementById('provider-probe-result').textContent.includes('Respuesta recibida'));
+    assert.equal(await page.locator('#provider-active-state').textContent(),'Respuesta comprobada');
+    assert.deepEqual(await page.evaluate(()=>probeCalls.at(-1).messages),[{role:'user',content:'Responde exactamente AXX_API_OK.'}]);
+    assert.equal(await page.evaluate(()=>probeCalls.at(-1).provider_name),'My Groq');
+    await page.evaluate(()=>{window.wrongProbeRoute=true;});
+    await page.locator('#provider-probe').click();
+    await page.waitForFunction(()=>document.getElementById('provider-probe-result').textContent.includes('no confirmó'));
+    assert.equal(await page.evaluate(()=>Axx.companion.brain.inferenceVerified),false);
+    await page.evaluate(()=>{window.wrongProbeRoute=false;});
+    const reconnected=await page.evaluate(async()=>{
+      const c=Axx.companion,chat=c.brain.chat;c.brain.reset();c.data.prefs.voiceRead=false;
+      c.brain.chat=async()=>({text:'Respuesta tras reconectar',reason:'stop'});
+      try{await Axx.Companion.prototype.send.call(c,'Explica una idea breve.');return {connected:c.brain.connected,last:c.data.messages.at(-1).text};}
+      finally{c.brain.chat=chat;}
+    });
+    assert.equal(reconnected.connected,true);assert.equal(reconnected.last,'Respuesta tras reconectar');
+    const cancelled=await page.evaluate(async()=>{
+      const c=Axx.companion,connect=c.brain.connect,chat=c.brain.chat;let generated=false;
+      c.brain.reset();
+      c.brain.connect=async(p,signal)=>new Promise((resolve,reject)=>signal.addEventListener('abort',()=>reject(new DOMException('Cancelado','AbortError')),{once:true}));
+      c.brain.chat=async()=>{generated=true;return {text:'late'};};
+      try{const pending=Axx.Companion.prototype.send.call(c,'Explica otra idea breve.');await new Promise(r=>setTimeout(r,10));c.cancelRequest();await pending;return generated;}
+      finally{c.brain.connect=connect;c.brain.chat=chat;}
+    });
+    assert.equal(cancelled,false);
+    const clarification=await page.evaluate(async()=>{
+      const c=Axx.companion,original=Axx.backendRequest,prefs={...c.data.prefs};let captured;
+      c.data.prefs.provider='chatgpt';c.data.prefs.apiConnection='old-api';
+      Axx.commandLibrary.operation=null;
+      Axx.backendRequest=async(method,route,body)=>{if(route==='/axx-api/learning/repair'){captured=body;return {operation_id:body.operation_id,state:'failed',steps:[],message:'Fixture only'};}return original(method,route,body);};
+      try{await Axx.skillLibrary.continueTask('clarification-test','Usa esos datos');return captured;}
+      finally{Axx.backendRequest=original;Object.assign(c.data.prefs,prefs);}
+    });
+    assert.equal(clarification.provider_name,'@codex');
     await page.locator('#provider-saved').selectOption('My Groq');
     assert.equal(await page.locator('#provider-model').inputValue(),'fixture-model');
     await page.locator('#provider-enabled').uncheck();
@@ -165,7 +201,7 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
     assert.equal(await page.evaluate(()=>Axx.companion.data.prefs.selection_mode),'automatic_free');
     await page.evaluate(()=>Axx.flow.select('ai'));
     await page.locator('#tab-mode-api').click();
-    await page.locator('#provider-advanced > summary').click();
+    assert.equal(await page.locator('#provider-advanced').evaluate(el=>el.open),true);
     assert.deepEqual(errors,[]);
     await page.locator('#provider-kind').selectOption('ollama');
     await page.locator('#provider-name').fill('Ollama en mi equipo');

@@ -37,6 +37,19 @@ class ActionLearningTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.learning.propose('prepara un diagnóstico', operation_id='chat-plan', conversation_id='chat-b')
 
+    def test_api_plan_without_chat_uses_valid_stable_inference_identity(self):
+        original=self.model.route;requests=[]
+        def checked(request):
+            requests.append(request)
+            self.assertIsInstance(request['conversation_id'],str)
+            self.assertTrue(1<=len(request['conversation_id'])<=128)
+            return original(request)
+        self.model.route=checked
+        plan=self.learning.propose('prepara un diagnóstico',operation_id='api-plan')
+        self.assertEqual(plan['state'],'awaiting_approval')
+        self.assertEqual(requests[0]['conversation_id'],'api-plan')
+        self.assertEqual(self.executor.list_operations(),[])
+
     def test_model_plan_writes_real_file_hashes_it_and_learns_only_after_execution(self):
         self.model.answer = {'title': 'Crear y comprobar saludo', 'steps': [
             {'command_id': 'axx.artifact.write', 'inputs': {'path': 'saludo.txt', 'content': 'hola real'}},

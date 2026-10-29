@@ -1662,7 +1662,7 @@ body.axx-resident :is(.panel-head,.flow-library-head,.organic-satellite-head,.v1
 <div class="ai-mode-selector" role="tablist" aria-label="Modalidad de modelo">
   <button class="ai-mode-btn active" id="tab-mode-local" role="tab" aria-selected="true" aria-controls="subpanel-local" type="button" data-ai-mode="local"><strong>💻 En mi equipo</strong><small>Ollama · sin clave de API</small></button>
   <button class="ai-mode-btn" id="tab-mode-chatgpt" role="tab" aria-selected="false" aria-controls="subpanel-chatgpt" type="button" data-ai-mode="chatgpt"><strong>✦ ChatGPT</strong><small>Mi suscripción · iniciar sesión</small></button>
-  <button class="ai-mode-btn" id="tab-mode-api" role="tab" aria-selected="false" aria-controls="subpanel-api" type="button" data-ai-mode="api"><strong>⚙ Otros modelos</strong><small>API · ajustes avanzados</small></button>
+  <button class="ai-mode-btn" id="tab-mode-api" role="tab" aria-selected="false" aria-controls="subpanel-api" type="button" data-ai-mode="api"><strong>⚙ Por API</strong><small>Conexiones y modelos</small></button>
 </div>
 
 <select id="ai-provider" hidden=""><option value="ollama">Ollama</option><option value="compat">Compat</option><option value="bridge">Bridge</option><option value="chatgpt">ChatGPT</option><option value="none">None</option></select>
@@ -1809,7 +1809,7 @@ body.axx-resident :is(.panel-head,.flow-library-head,.organic-satellite-head,.v1
 <script>"use strict";
 var Axx;
 (function (Axx) {
-    Axx.VERSION = '0.22.21';
+    Axx.VERSION = '0.22.22';
     function newId() {
         if (typeof crypto.randomUUID === 'function')
             return crypto.randomUUID();
@@ -8884,7 +8884,7 @@ var Axx;
         scrollChat() { const log = node('chat-log'); if (this.stickChat20)
             log.scrollTop = log.scrollHeight; const jump = document.getElementById('chat-jump-latest'); if (jump) jump.hidden = this.stickChat20 || log.scrollHeight - log.clientHeight - log.scrollTop < 60; }
         setChatScroll20(stick) { this.stickChat20 = stick; const jump = document.getElementById('chat-jump-latest'); if (jump) jump.hidden = stick; }
-        async submit() { if (this.externalBusy) {
+        async submit() { if (this.externalBusy || this.connecting) {
             this.app.toast('Espera el resultado de la acción; tu borrador se conserva.');
             return;
         } const input = node('chat-input'), text = input.value.trim(); if (!text || this.pending)
@@ -8897,7 +8897,7 @@ var Axx;
             this.save(); await this.send(text); }
         async send(raw, options = {}) {
             raw = raw.trim();
-            if (!raw || this.pending)
+            if (!raw || this.pending || this.connecting)
                 return;
             if (this.externalBusy) {
                 this.app.toast('Hay una acción en curso. Espera su resultado.');
@@ -8987,9 +8987,16 @@ var Axx;
                 this.renderChat(); this.save(); this.speakReply(shortVoiceReply);
                 return;
             }
+            if (!this.brain.connected && this.data.prefs.provider !== 'none') {
+                const origin = Axx.chatWorkspace?.active?.id;
+                await this.connect();
+                if (origin !== Axx.chatWorkspace?.active?.id) return;
+            }
             if (!this.brain.connected) {
                 user.source = 'local';
-                const fallbackText = 'Esta pregunta necesita un modelo de IA. Todavía no hay uno conectado.\n\nAbre «Conectar IA» para usar Ollama, una API local compatible o el servidor de Axx. Mientras tanto, puedo gestionar notas, tareas y temporizadores, calcular, convertir unidades y consultar la hora.';
+                const fallbackText = this.data.prefs.provider !== 'none' && node('ai-status').classList.contains('error')
+                    ? 'No se pudo conectar al modelo seleccionado. ' + node('ai-status').textContent
+                    : 'Esta pregunta necesita un modelo de IA. Todavía no hay uno conectado.\n\nAbre «Conectar IA» para usar Ollama, una API local compatible o el servidor de Axx. Mientras tanto, puedo gestionar notas, tareas y temporizadores, calcular, convertir unidades y consultar la hora.';
                 this.message('assistant', fallbackText, 'local');
                 this.renderChat();
                 this.save();
@@ -9242,7 +9249,7 @@ var Axx;
             list.append(p);
         } node('todo-summary').textContent = this.data.todos.filter(t => !t.done).length + ' pendientes · ' + this.data.todos.filter(t => t.done).length + ' completadas'; node('pending-count').textContent = String(this.data.todos.filter(t => !t.done).length); }
         setBusy(v) { node('chat-send').disabled = v; node('chat-send').hidden = v; node('chat-stop').hidden = !v; node('chat-input').disabled = false; node('chat-mic').disabled = v; node('ai-test').disabled = v; }
-        cancelRequest() { this.pending?.abort(); this.restoreConversation(); }
+        cancelRequest() { this.connecting?.abort(); this.pending?.abort(); this.restoreConversation(); }
         restoreConversation() { const audio = this.app.snapshot().audio; this.app.machine.setConversation(this.voiceDelegate?.state() || (this.dictating ? 'listening' : this.speaking ? 'speaking' : this.pending && !this.pending.signal.aborted ? 'thinking' : audio === 'mic' ? 'listening' : audio === 'file' ? 'speaking' : 'idle')); this.app.tick(); }
         async connect() {
             if (this.connecting)
@@ -19744,8 +19751,7 @@ var Axx;
                         await this.restoreIdentity();
                         await this.refresh();
                         const prefs = Axx.companion.data.prefs;
-                        if (prefs.provider === 'none') prefs.provider = 'bridge';
-                        if (prefs.provider === 'bridge') {
+                        if (prefs.provider !== 'none') {
                             Axx.companion.syncPreferences();
                             await Axx.companion.connect();
                         }

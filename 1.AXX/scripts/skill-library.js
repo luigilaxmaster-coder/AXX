@@ -55,7 +55,7 @@
     try { const plan = await api('POST', 'learning/' + action, body); if (serial === commands.generation) adopt(plan); }
     finally { if (serial === commands.generation) commands.busy = false; }
   }
-  const prefs = () => ({model:Axx.companion.data.prefs.model || '', provider_name:Axx.companion.data.prefs.apiConnection || '', selection_mode:Axx.companion.data.prefs.selection_mode || 'manual'});
+  const prefs = () => {const p=Axx.companion.data.prefs;return {model:p.model || '',provider_name:p.provider==='chatgpt'?'@codex':p.provider==='bridge'?p.apiConnection || '':'',selection_mode:p.selection_mode || 'manual'};};
   async function refresh() {
     const result = await api('GET', 'learning/actions?project_id=' + encodeURIComponent(project()));
     skills = result.actions || []; renderList();
