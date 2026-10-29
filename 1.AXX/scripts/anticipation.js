@@ -22,10 +22,16 @@
  <label class="setting">Carpeta absoluta, opcional<input id="anticipation-scope-root" maxlength="4096" placeholder="C:\\Proyecto"></label>
  <label class="setting">Proyecto, opcional<input id="anticipation-scope-project" maxlength="128"></label><label class="setting">ID de aplicación, opcional<input id="anticipation-scope-application" maxlength="128"></label><label class="setting">Dispositivo, opcional<input id="anticipation-scope-device" maxlength="128" placeholder="host"></label>
  <label><input id="anticipation-scope-exclude" type="checkbox"> Excluir este ámbito de las iniciativas</label><button type="submit">Guardar ámbito</button></form><div id="anticipation-scopes"></div></details>
- <details><summary>Permisos de verificación</summary><p>Permite únicamente inspeccionar archivos de ensayo de esta carpeta en el chat actual. No autoriza cambios, envíos ni control del escritorio.</p>
- <form id="anticipation-grant-form"><label class="setting">Carpeta autorizada<input id="anticipation-grant-root" maxlength="4096" required placeholder="C:\\Proyecto\\ensayo"></label>
+ <details><summary>Permisos para Full</summary><details><summary>Verificación de archivos</summary><p>Permite comprobar archivos de esta carpeta en el chat actual. Las carpetas externas requieren una fuente autorizada para observar y conservar metadatos. No autoriza cambios, envíos ni control del escritorio.</p>
+ <form id="anticipation-grant-form"><label class="setting">Ámbito<select id="anticipation-grant-source"><option value="">Carpeta del espacio de ensayo</option></select></label><label class="setting">Carpeta autorizada<input id="anticipation-grant-root" maxlength="4096" required placeholder="C:\\Proyecto\\ensayo"></label>
  <label class="setting">Vigencia<select id="anticipation-grant-expiry"><option value="3600">Una hora</option><option value="86400">Un día</option><option value="persistent">Hasta revocación</option></select></label>
- <label><input id="anticipation-grant-events" type="checkbox"> Observar eventos de archivos generados en este ámbito</label><button type="submit">Autorizar verificación en este chat</button></form><div id="anticipation-grants"></div></details>
+ <label><input id="anticipation-grant-events" type="checkbox"> Permitir verificación automática de eventos ya autorizados en este ámbito</label><p id="anticipation-grant-source-status"></p><button type="submit">Autorizar verificación en este chat</button></form></details>
+ <details id="anticipation-mission-permission"><summary>Acciones acotadas de misión</summary><p id="anticipation-mission-permission-status" role="status"></p><p>Elige acciones concretas. Las escrituras crean archivos nuevos en el espacio de ensayo; las lecturas adicionales requieren raíces explícitas. Cada plan se revalida dentro de este permiso.</p>
+ <form id="anticipation-mission-grant-form"><label class="setting">Carpeta de destino dentro del espacio de ensayo<input id="anticipation-mission-grant-root" maxlength="4096" required></label><label class="setting">Carpetas adicionales de solo lectura, una por línea<textarea id="anticipation-mission-read-roots" maxlength="8192"></textarea></label>
+ <div id="anticipation-mission-commands"></div><label class="setting">Alcance temporal<select id="anticipation-mission-lifetime"></select></label><label class="setting">Vigencia máxima<select id="anticipation-mission-expiry"><option value="3600">Una hora</option><option value="86400">Un día</option><option value="persistent">Hasta finalizar el alcance o revocarlo</option></select></label>
+ <div id="anticipation-mission-plan-scope" hidden><label class="setting">Misión de este chat<select id="anticipation-mission-grant-plan"><option value="">Selecciona una misión</option></select></label><p id="anticipation-mission-plan-hash"></p><button id="anticipation-mission-review" type="button">Revisar plan de esta misión</button></div>
+ <details><summary>Restricciones exactas de parámetros</summary><p>Opcional: objeto JSON por ID de comando y parámetros concretos. Los valores deben coincidir exactamente; no admite patrones ni esquemas.</p><label class="setting">Valores permitidos<textarea id="anticipation-mission-constraints" maxlength="12000" placeholder="{}"></textarea></label><pre id="anticipation-mission-parameters" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre></details>
+ <p>No autoriza cambiar el foco, enviar entradas, ejecutar shell/MCP, enviar contenido ni borrar archivos. No autoriza consultas al modelo.</p><button id="anticipation-mission-authorize" type="submit">Autorizar estas acciones en este chat</button></form></details><div id="anticipation-grants"></div></details>
  <details><summary>Observación y memoria</summary><p id="anticipation-sources"></p><label><input id="anticipation-events" type="checkbox"> Procesar eventos autorizados de Axx</label>
  <label><input id="anticipation-folders" type="checkbox"> Habilitar observación de carpetas seleccionadas</label><label><input id="anticipation-applications" type="checkbox"> Habilitar observación de aplicaciones seleccionadas</label>
  <details><summary>Fuentes locales de este chat</summary><p>La fuente debe estar habilitada y tener un ámbito autorizado. Observar, conservar metadatos y enviar contenido son decisiones separadas.</p>
@@ -62,7 +68,8 @@
  #anticipation-card summary{cursor:pointer;min-height:44px;align-content:center}#anticipation-card summary:focus-visible{outline:2px solid var(--accent,#95c9fc);outline-offset:2px}.anticipation-evidence dl{margin:0;overflow-wrap:anywhere}.anticipation-evidence dt{font-weight:600;margin-top:8px}.anticipation-evidence dd{margin:2px 0 8px;white-space:pre-wrap}#anticipation-card .anticipation-evidence-body{max-height:190px;overflow:auto;font-size:12px}
  </style><small id="anticipation-phase"></small><p id="anticipation-text" role="status" aria-live="polite"></p><div id="anticipation-actions" class="anticipation-actions"></div>`;
  document.body.append(card);
- let snapshot=null,origin=null,revision=0,loading=false,mutation=false,current=null,stopped=false,settingsKey='',missionRevision=0,missionsLoading=false,missionKey='';
+ let snapshot=null,origin=null,revision=0,loading=false,mutation=false,current=null,stopped=false,settingsKey='',missionRevision=0,missionsLoading=false,missionKey='',missionPlans=[],missionProject='';
+ const lifetimes={one_action:'Una acción permitida',session:'Esta sesión de Axx',mission:'Esta misión exacta',until_revoked:'Hasta revocación'};
  const spoken=new Set(),acknowledged=new Set();
  const task=()=>Axx.chatWorkspace.active?.id||null;
  const project=()=>Axx.skillLibrary?.project()||Axx.companion.data?.prefs?.skillProject||'';
@@ -131,7 +138,7 @@
   details.addEventListener('toggle',changed);return details;
  }
  async function loadMissions(){
-  if(!$('anticipation-mission').open||missionsLoading)return;
+  if(!($('anticipation-mission').open||$('anticipation-mission-permission').open)||missionsLoading)return;
   const selected=task(),currentProject=project(),token=++missionRevision;
   if(!selected){$('anticipation-missions').replaceChildren();$('anticipation-mission-status').textContent='Selecciona un chat.';return;}
   missionsLoading=true;
@@ -139,7 +146,7 @@
    const result=await Axx.backendRequest('GET','/axx-api/learning/plans?project_id='+encodeURIComponent(currentProject));
    if(token!==missionRevision||selected!==task()||currentProject!==project())return;
    if(result?.error||!Array.isArray(result?.plans))throw Error(result?.error?.message||'No se pudo consultar la misión.');
-   const plans=result.plans.filter(p=>p.conversation_id===selected&&p.mission?.scope?.task_id===selected),host=$('anticipation-missions'),key=JSON.stringify([selected,currentProject,result.plans]);
+   const plans=result.plans.filter(p=>p.conversation_id===selected&&p.mission?.scope?.task_id===selected&&(p.project_id??p.mission.scope.project_id??'')===currentProject),host=$('anticipation-missions'),key=JSON.stringify([selected,currentProject,result.plans]);missionPlans=plans;missionProject=currentProject;renderMissionGrantPlans();
    if(missionKey===key)return;missionKey=key;
    const expanded=new Set([...host.querySelectorAll('details[open]')].map(n=>n.dataset.missionId));
    const drafts=new Map([...host.querySelectorAll('[data-dependency-id]')].map(form=>[form.dataset.dependencyId,{open:form.parentElement.open,dirty:form.dataset.dirty==='true',selected:[...form.querySelector('select').selectedOptions].map(o=>o.value)}]));host.replaceChildren();
@@ -172,6 +179,41 @@
    }
   }catch(e){if(token===missionRevision)$('anticipation-mission-status').textContent=e.message||String(e);}
   finally{if(token===missionRevision)missionsLoading=false;}
+ }
+ const externalTargets=()=>snapshot?.sources?.folders===true?(snapshot.observation_targets||[]).filter(t=>t.task_id===task()&&t.source==='folder'&&t.observe===true&&t.retain===true&&(t.expires_at===null||t.expires_at*1000>Date.now())):[];
+ function syncVerificationSource(){
+  const target=externalTargets().find(t=>t.id===$('anticipation-grant-source').value),root=$('anticipation-grant-root');root.readOnly=!!target;$('anticipation-grant-events').disabled=false;
+  if(target){root.value=target.root;$('anticipation-grant-events').checked=false;}
+  $('anticipation-grant-source-status').textContent=target?'Solo lectura de esta fuente. Se conservarán metadatos del resultado; no el texto del documento ni contenido para proveedores.':'Las carpetas externas solo aparecen si su fuente permite observar y conservar metadatos en este chat.';
+ }
+ function renderMissionGrantPlans(){
+  const select=$('anticipation-mission-grant-plan'),key=JSON.stringify([task(),project(),missionPlans]);if(select.dataset.key===key)return;select.dataset.key=key;
+  const previous=select.value,hash=select.dataset.planHash,plans=missionProject===project()?missionPlans.filter(p=>p.conversation_id===task()):[];select.replaceChildren(new Option('Selecciona una misión',''));
+  for(const plan of plans)if(plan.plan_hash||plan.mission?.plan_hash)select.add(new Option(plan.mission?.objective||plan.request||plan.operation_id,plan.operation_id));
+  const selected=plans.find(p=>p.operation_id===previous);
+  if(selected&&(selected.plan_hash||selected.mission.plan_hash)===hash)select.value=previous;
+  else{delete select.dataset.planHash;$('anticipation-mission-plan-hash').textContent=previous?'La misión cambió o dejó de estar disponible. Selecciónala y revisa de nuevo su versión.':'';}
+ }
+ function syncMissionLifetime(){const mission=$('anticipation-mission-lifetime').value==='mission';$('anticipation-mission-plan-scope').hidden=!mission;$('anticipation-mission-grant-plan').required=mission;$('anticipation-mission-grant-plan').disabled=!mission;}
+ function renderPermissions(){
+  const source=$('anticipation-grant-source'),targets=externalTargets(),sourceKey=JSON.stringify([task(),targets]);
+  if(source.dataset.key!==sourceKey){const previous=source.value;source.dataset.key=sourceKey;source.replaceChildren(new Option('Carpeta del espacio de ensayo',''));for(const target of targets)source.add(new Option('Fuente de solo lectura · '+target.root,target.id));if(targets.some(t=>t.id===previous))source.value=previous;else if(previous){$('anticipation-grant-root').value='';$('anticipation-grant-events').checked=false;}syncVerificationSource();}
+  const capability=snapshot.capabilities?.mission_steps,form=$('anticipation-mission-grant-form'),host=$('anticipation-mission-commands'),commands=capability?.commands||[],key=JSON.stringify([task(),capability]);
+  $('anticipation-mission-authorize').disabled=capability?.available!==true;
+  $('anticipation-mission-permission-status').textContent=capability?.available===true?'Acciones disponibles según los adaptadores registrados. El permiso se revalida antes de cada plan.':'Los permisos de pasos de misión no están disponibles en este backend.';
+  if(host.dataset.key!==key){
+   host.dataset.key=key;const checked=new Set([...host.querySelectorAll('input:checked')].map(input=>input.value));host.replaceChildren();
+   const categories={inspection:'Inspección local',file_read:'Lectura e inspección local',metadata_read:'Lectura de metadatos',create_copy:'Crear copias de ensayo',new_artifact:'Crear archivos nuevos de ensayo',private_office_copy:'Crear copias privadas con Office'};
+   const titles={'axx.file.sha256':'Comprobar integridad SHA-256','axx.file.compare':'Comparar archivos','axx.file.find':'Buscar archivos por metadatos','axx.artifact.pdf':'Inspeccionar estructura y texto PDF','axx.artifact.media':'Leer metadatos multimedia','axx.artifact.ocr':'Leer texto de imagen mediante OCR','axx.artifact.write':'Crear archivo nuevo','axx.file.bundle':'Crear paquete nuevo','axx.office.excel.csv':'Crear copia CSV con Excel privado','axx.office.word.pdf':'Crear copia PDF con Word privado','axx.office.powerpoint.pdf':'Crear copia PDF con PowerPoint privado'};
+   for(const category of [...new Set(commands.map(command=>command.category))]){
+    const group=document.createElement('fieldset'),legend=document.createElement('legend');legend.textContent=categories[category]||category;group.append(legend);
+    for(const command of commands.filter(command=>command.category===category)){const label=document.createElement('label'),input=document.createElement('input');input.type='checkbox';input.value=command.command_id;input.name='mission_command';input.disabled=command.available!==true;input.checked=!input.disabled&&checked.has(command.command_id);const title=Axx.commandLibrary?.commands?.find(c=>c.id===command.command_id)?.title||titles[command.command_id]||String(command.tool||command.command_id).replace(/[_.]/g,' ');label.append(input,document.createTextNode(' '+title+' · '+command.command_id+(command.available===true?'':' · No disponible: '+(command.reason||'Adaptador no disponible'))));group.append(label);}host.append(group);
+   }
+   const lifetime=$('anticipation-mission-lifetime'),previous=lifetime.value;lifetime.replaceChildren();for(const id of capability?.lifetimes||[])lifetime.add(new Option(lifetimes[id]||id,id));if([...lifetime.options].some(option=>option.value===previous))lifetime.value=previous;syncMissionLifetime();
+  }
+  if(capability?.workspace_root&&!$('anticipation-mission-grant-root').value&&!form.dataset.rootDirty)$('anticipation-mission-grant-root').value=capability.workspace_root;
+  if(capability?.workspace_root&&!$('anticipation-grant-root').value&&!$('anticipation-grant-root').readOnly)$('anticipation-grant-root').value=capability.workspace_root;
+  const selected=new Set([...host.querySelectorAll('input:checked:not(:disabled)')].map(input=>input.value));$('anticipation-mission-parameters').textContent=JSON.stringify(Object.fromEntries(commands.filter(command=>selected.has(command.command_id)).map(command=>[command.command_id,command.parameters||{}])),null,2);renderMissionGrantPlans();
  }
  function renderSources(){
   for(const source of ['folders','applications'])$('anticipation-'+source).checked=snapshot.sources?.[source]===true;
@@ -221,6 +263,7 @@
   $('anticipation-events').checked=snapshot.sources?.events===true;
   $('anticipation-sources').textContent='Fuentes habilitadas: '+(['events','folders','applications'].filter(key=>snapshot.sources?.[key]).map(key=>({events:'eventos autorizados',folders:'carpetas seleccionadas',applications:'aplicaciones seleccionadas'})[key]).join(', ')||'ninguna')+(snapshot.observation_paused?' · Observación pausada.':'.');
   renderSources();
+  renderPermissions();
   const scopes=$('anticipation-scopes');scopes.replaceChildren();
   for(const [i,scope] of (snapshot.scopes||[]).entries()){
    const p=document.createElement('p');p.textContent=(scope.exclude?'Excluido':names[scope.profile]||scope.profile)+' · '+(scope.task_id||'Todos los chats')+' · '+(scope.root||'Todos los recursos')+(scope.project_id?' · Proyecto: '+scope.project_id:'')+(scope.application_id?' · Aplicación: '+scope.application_id:'')+(scope.device_id?' · Dispositivo: '+scope.device_id:'');
@@ -229,7 +272,11 @@
   const grants=$('anticipation-grants');grants.replaceChildren();
   for(const grant of snapshot.grants||[]){
    if(grant.task_id!==task())continue;
-   const p=document.createElement('p');p.textContent=grant.root+' · '+(grant.revoked?'Revocado':grant.expires_at===null?'Hasta revocación':new Date(grant.expires_at*1000).toLocaleString());
+   const reasons={revoked:'Revocado',expired:'Caducado',session_ended:'Sesión finalizada',consumed:'Una acción ya consumida',source_consent_changed:'El consentimiento de la fuente cambió'};
+   const status=reasons[grant.inactive_reason]||(grant.revoked?'Revocado':grant.consumed_operation_id?'Consumido por '+grant.consumed_operation_id:Number.isFinite(grant.expires_at)&&grant.expires_at*1000<=Date.now()?'Caducado':grant.active===false?'No vigente':grant.expires_at===null?'Sin fecha de caducidad':new Date(grant.expires_at*1000).toLocaleString());
+   const p=document.createElement('article');p.textContent=(grant.capability==='mission_steps'?'Pasos de misión':'Verificación de archivos')+' · '+grant.root+' · '+status+(grant.lifetime?' · '+(lifetimes[grant.lifetime]||grant.lifetime):'')+(grant.active===true?' · Vigencia base activa; cada plan se revalida':'')+(grant.capability==='verify_artifact'&&grant.observe_events===false?' · Solo aceptación explícita':'');
+   if(grant.command_ids){const detail=document.createElement('details'),summary=document.createElement('summary'),text=document.createElement('pre');summary.textContent='Acciones, raíces y versión autorizadas';text.style.cssText='white-space:pre-wrap;overflow-wrap:anywhere';text.textContent=JSON.stringify({command_ids:grant.command_ids,read_roots:grant.read_roots,parameter_constraints:grant.parameter_constraints,learning_plan_id:grant.learning_plan_id,reviewed_plan_hash:grant.reviewed_plan_hash},null,2);detail.append(summary,text);p.append(detail);}
+   if(grant.source_target_id)p.append(document.createTextNode(' · Fuente: '+grant.source_target_id+(grant.metadata_only===true?' · Solo metadatos':'')));
    if(!grant.revoked)p.append(button('Revocar',()=>api('revoke',{grant_id:grant.grant_id})));grants.append(p);
   }
   const history=$('anticipation-history'),expanded=new Set([...history.querySelectorAll('details[open]')].map(n=>n.dataset.suggestionId));history.replaceChildren();
@@ -283,7 +330,7 @@
   lib.renderOperation(plan);Axx.companion.openChat();
  }
  async function refresh(fill=false){
-  const selected=task();if(selected!==origin){origin=selected;snapshot=null;hide();for(const id of ['anticipation-grants','anticipation-history','anticipation-missions','anticipation-targets','anticipation-source-observations'])$(id).replaceChildren();$('anticipation-targets').dataset.renderKey='';$('anticipation-source-runtime').textContent='';$('anticipation-mission-status').textContent='';++missionRevision;missionsLoading=false;missionKey='';$('anticipation-status').textContent='Cargando el ámbito de este chat…';++revision;loading=false;}
+  const selected=task();if(selected!==origin){origin=selected;snapshot=null;hide();for(const id of ['anticipation-grants','anticipation-history','anticipation-missions','anticipation-targets','anticipation-source-observations'])$(id).replaceChildren();for(const id of ['anticipation-grant-form','anticipation-mission-grant-form'])$(id).reset();delete $('anticipation-mission-grant-form').dataset.rootDirty;$('anticipation-mission-commands').replaceChildren();$('anticipation-mission-commands').dataset.key='';$('anticipation-grant-source').replaceChildren(new Option('Carpeta del espacio de ensayo',''));$('anticipation-grant-source').dataset.key='';$('anticipation-grant-root').readOnly=false;$('anticipation-grant-events').disabled=false;$('anticipation-mission-grant-plan').replaceChildren(new Option('Selecciona una misión',''));delete $('anticipation-mission-grant-plan').dataset.planHash;$('anticipation-mission-plan-hash').textContent='';missionPlans=[];missionProject='';$('anticipation-targets').dataset.renderKey='';$('anticipation-source-runtime').textContent='';$('anticipation-mission-status').textContent='';++missionRevision;missionsLoading=false;missionKey='';$('anticipation-status').textContent='Cargando el ámbito de este chat…';++revision;loading=false;}
   if(loading&&!fill)return;
   const token=++revision;loading=true;
   try{
@@ -319,6 +366,13 @@
   await configure({observation_targets:[...targets,target]});
  });};
  $('anticipation-mission').addEventListener('toggle',()=>{if($('anticipation-mission').open)void loadMissions();});
+ $('anticipation-mission-permission').addEventListener('toggle',()=>{if($('anticipation-mission-permission').open)void loadMissions();});
+ $('anticipation-mission-lifetime').onchange=syncMissionLifetime;
+ $('anticipation-mission-grant-root').oninput=()=>{$('anticipation-mission-grant-form').dataset.rootDirty='true';};
+ $('anticipation-mission-commands').onchange=renderPermissions;
+ $('anticipation-mission-grant-plan').onchange=()=>{const select=$('anticipation-mission-grant-plan'),plan=missionProject===project()?missionPlans.find(p=>p.operation_id===select.value&&p.conversation_id===task()):null;if(plan){select.dataset.planHash=plan.plan_hash||plan.mission.plan_hash;$('anticipation-mission-plan-hash').textContent='Versión: '+select.dataset.planHash+'. Este hash identifica la versión; no contiene sus pasos. Revisa el plan antes de autorizar.';}else{delete select.dataset.planHash;$('anticipation-mission-plan-hash').textContent='';}};
+ $('anticipation-mission-review').onclick=()=>void run(async()=>{const id=$('anticipation-mission-grant-plan').value;if(!id)throw Error('Selecciona una misión de este chat.');await reviewPlan({learning_plan_id:id,task_id:task()});});
+ $('anticipation-grant-source').onchange=()=>{if(!$('anticipation-grant-source').value)$('anticipation-grant-root').value=snapshot?.capabilities?.mission_steps?.workspace_root||'';syncVerificationSource();};
  for(const form of $('anticipation-profiles').querySelectorAll('form')){
   form.oninput=()=>{form.dataset.dirty='true';};
   form.elements.schedule_enabled.onchange=()=>syncSchedule(form);
@@ -334,7 +388,17 @@
  $('anticipation-grant-form').onsubmit=e=>{e.preventDefault();void run(async()=>{
   if(!task())throw Error('Selecciona el chat que recibirá este permiso.');
   const expiry=$('anticipation-grant-expiry').value;
-  await api('grant',{task_id:task(),capability:'verify_artifact',root:$('anticipation-grant-root').value.trim(),expires_at:expiry==='persistent'?null:Date.now()/1000+Number(expiry),observe_events:$('anticipation-grant-events').checked});
+  const target=$('anticipation-grant-source').value?externalTargets().find(t=>t.id===$('anticipation-grant-source').value):null;if($('anticipation-grant-source').value&&!target)throw Error('La fuente ya no está autorizada para este chat.');
+  await api('grant',{task_id:task(),capability:'verify_artifact',root:target?target.root:$('anticipation-grant-root').value.trim(),expires_at:expiry==='persistent'?null:Date.now()/1000+Number(expiry),observe_events:$('anticipation-grant-events').checked,...(target?{source_target_id:target.id,metadata_only:true}:{})});
+ });};
+ $('anticipation-mission-grant-form').onsubmit=e=>{e.preventDefault();void run(async()=>{
+  if(!task()||snapshot?.capabilities?.mission_steps?.available!==true)throw Error('No hay permisos de misión disponibles para este chat.');
+  const command_ids=[...$('anticipation-mission-commands').querySelectorAll('input:checked:not(:disabled)')].map(input=>input.value);if(!command_ids.length)throw Error('Selecciona al menos una acción disponible.');
+  const lifetime=$('anticipation-mission-lifetime').value,expiry=$('anticipation-mission-expiry').value,body={capability:'mission_steps',task_id:task(),root:$('anticipation-mission-grant-root').value.trim(),read_roots:$('anticipation-mission-read-roots').value.split(/\r?\n/).map(value=>value.trim()).filter(Boolean),command_ids,expires_at:expiry==='persistent'?null:Date.now()/1000+Number(expiry),lifetime};
+  if(body.read_roots.length>16)throw Error('Selecciona hasta dieciséis carpetas adicionales de lectura.');
+  if(lifetime==='mission'){const select=$('anticipation-mission-grant-plan'),plan=missionProject===project()?missionPlans.find(p=>p.operation_id===select.value&&p.conversation_id===task()):null;if(!plan||!select.dataset.planHash||select.dataset.planHash!==(plan.plan_hash||plan.mission.plan_hash))throw Error('Selecciona y revisa la versión actual de la misión.');body.learning_plan_id=plan.operation_id;body.reviewed_plan_hash=select.dataset.planHash;}
+  const json=$('anticipation-mission-constraints').value.trim();if(json){let constraints;try{constraints=JSON.parse(json);}catch{throw Error('Las restricciones deben ser un objeto JSON válido.');}if(!constraints||typeof constraints!=='object'||Array.isArray(constraints))throw Error('Indica restricciones por ID de comando.');for(const [id,params] of Object.entries(constraints)){const command=snapshot.capabilities.mission_steps.commands.find(c=>c.command_id===id);if(!command||!command_ids.includes(id)||!params||typeof params!=='object'||Array.isArray(params)||Object.keys(params).some(key=>!Object.hasOwn(command.parameters||{},key)))throw Error('Las restricciones deben usar comandos seleccionados y parámetros registrados.');}body.parameter_constraints=constraints;}
+  await api('grant',body);
  });};
  $('anticipation-forget').onclick=()=>void run(async()=>{if(!task())throw Error('Selecciona un chat.');if(confirm('¿Borrar únicamente los eventos y propuestas aprendidos en este chat? Los permisos y archivos se conservan.'))await api('forget',{task_id:task()});});
  document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!e.repeat)void stop().catch(notice);},true);
