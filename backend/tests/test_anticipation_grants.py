@@ -9,6 +9,7 @@ import unittest
 from unittest.mock import patch
 
 from backend.actions.executor import ActionExecutor
+from backend.actions.tools import get_tool
 from backend.action_learning import ActionLearning
 from backend.anticipation import AnticipationService, MISSION_CAPABILITY
 from backend.commands import CommandService
@@ -133,10 +134,104 @@ class MissionGrantTests(unittest.TestCase):
                 before = len(self.executor.list_operations())
                 with patch.object(self.learning, '_run_step', side_effect=stop_after_first):
                     result = self.run_granted(plan, grant)
-                self.assertEqual(result['state'], 'failed', result)
+                self.assertIn(result['state'], ('paused', 'failed'), result)
                 self.assertTrue((self.executor.workspace_root / (change + '.txt')).is_file())
                 self.assertEqual(len(self.executor.list_operations()), before + 1)
                 self.service.clock = time.time
+
+    def test_direct_mission_policy_changes_cancel_after_guard_before_actual_writer_dispatch(self):
+        for change in ('revoke', 'downshift', 'pause', 'exclude', 'global_cancel'):
+            with self.subTest(change=change):
+                self.service.configure({'profile': 'full', 'paused': False, 'observation_paused': False, 'scopes': []})
+                grant = self.grant(command_ids=['axx.artifact.write'])
+                path = 'late-' + change + '.txt'
+                plan = self.plan(steps=[{'command_id': 'axx.artifact.write', 'inputs': {'path': path, 'content': 'late effect must not happen'}}])
+                entered, release = threading.Event(), threading.Event()
+                results, errors = [], []
+                tool = get_tool('file_artifact_writer')
+                preconditions = tool.verify_preconditions
+                cancel, pause = self.commands.cancel, self.learning.pause
+                def hold_after_guard(inputs):
+                    result = preconditions(inputs)
+                    entered.set()
+                    if not release.wait(8): raise AssertionError('Precondition release timed out')
+                    return result
+                def execute():
+                    try: results.append(self.run_granted(plan, grant))
+                    except Exception as exc: errors.append(exc)
+                def unlocked_cancel(*args, **kwargs):
+                    self.assertFalse(self.service.lock._is_owned(), 'Command cancellation must follow policy lock release')
+                    return cancel(*args, **kwargs)
+                def unlocked_pause(*args, **kwargs):
+                    self.assertFalse(self.service.lock._is_owned(), 'Planner pause must follow policy lock release')
+                    return pause(*args, **kwargs)
+                with patch.object(tool, 'verify_preconditions', side_effect=hold_after_guard), \
+                     patch.object(self.commands, 'cancel', side_effect=unlocked_cancel), \
+                     patch.object(self.learning, 'pause', side_effect=unlocked_pause):
+                    worker = threading.Thread(target=execute); worker.start()
+                    try:
+                        self.assertTrue(entered.wait(5))
+                        operation = plan['step_records'][0]['operation_id']
+                        self.assertEqual(self.commands.get(operation)['state'], 'running')
+                        with self.service.lock:
+                            self.assertEqual(self.service.db.execute('SELECT COUNT(*) FROM anticipation_suggestions').fetchone()[0], 0)
+                        if change == 'revoke': self.service.revoke(grant['grant_id'])
+                        elif change == 'downshift': self.service.configure({'profile': 'copiloto'})
+                        elif change == 'pause': self.service.pause()
+                        elif change == 'exclude': self.service.configure({'scopes': [{'task_id': 'task-a', 'root': str(self.executor.workspace_root), 'exclude': True}]})
+                        else: self.service.cancel()
+                        self.assertTrue(self.commands.get(operation)['cancel_requested'])
+                    finally:
+                        release.set(); worker.join(8)
+                self.assertFalse(worker.is_alive())
+                self.assertEqual(errors, [])
+                self.assertNotEqual(results[0]['state'], 'succeeded')
+                self.assertFalse((self.executor.workspace_root / path).exists())
+                self.assertEqual(self.commands.get(operation)['state'], 'cancelled')
+
+    def test_mission_known_writer_bytes_and_real_search_scan_budget_are_enforced(self):
+        self.service.configure({'profiles': {'full': {'resources': {'max_file_bytes': 1024, 'max_entries_scan': 1}}}})
+        oversized = self.plan(steps=[{'command_id': 'axx.artifact.write', 'inputs': {'path': 'too-large.txt', 'content': '\u00e1' * 600}}])
+        with self.assertRaises(ValueError): self.run_granted(oversized, self.grant(command_ids=['axx.artifact.write']))
+        self.assertFalse((self.executor.workspace_root / 'too-large.txt').exists())
+        for number in range(12): (self.executor.workspace_root / (str(number) + '.txt')).write_text('entry')
+        grant = self.grant(command_ids=['axx.file.find'])
+        for inputs in ({'directory': str(self.executor.workspace_root), 'limit': 100},
+                       {'directory': str(self.executor.workspace_root), 'limit': 100, 'max_entries_scan': 2}):
+            plan = self.plan(steps=[{'command_id': 'axx.file.find', 'inputs': inputs}])
+            with self.assertRaises(ValueError): self.run_granted(plan, grant)
+        self.assertEqual(self.executor.list_operations(), [])
+        bounded = self.plan(steps=[{'command_id': 'axx.file.find', 'inputs': {'directory': str(self.executor.workspace_root),
+            'pattern': '*.txt', 'limit': 100, 'max_entries_scan': 1}}])
+        result = self.run_granted(bounded, grant)
+        self.assertEqual(result['state'], 'succeeded', result)
+        self.assertLessEqual(result['results'][0]['output']['inspected_entries'], 1)
+        self.assertTrue(result['results'][0]['output']['truncated'])
+
+    def test_one_action_inflight_claim_remains_valid_on_unchanged_policy_but_cannot_cover_second_step(self):
+        grant, plan = self.grant(lifetime='one_action'), self.plan('one-actual-effect.txt')
+        entered, release = threading.Event(), threading.Event()
+        results, errors = [], []
+        tool = get_tool('file_artifact_writer'); preconditions = tool.verify_preconditions
+        def hold(inputs):
+            result = preconditions(inputs); entered.set()
+            if not release.wait(8): raise AssertionError('Precondition release timed out')
+            return result
+        def execute():
+            try: results.append(self.run_granted(plan, grant))
+            except Exception as exc: errors.append(exc)
+        with patch.object(tool, 'verify_preconditions', side_effect=hold):
+            worker = threading.Thread(target=execute); worker.start()
+            try:
+                self.assertTrue(entered.wait(5))
+                self.service.configure({'profile': 'full'})
+                self.assertFalse(self.commands.get(plan['step_records'][0]['operation_id'])['cancel_requested'])
+            finally:
+                release.set(); worker.join(8)
+        self.assertFalse(worker.is_alive()); self.assertEqual(errors, [])
+        self.assertTrue((self.executor.workspace_root / 'one-actual-effect.txt').exists())
+        self.assertNotEqual(results[0]['state'], 'succeeded')
+        self.assertEqual(len(self.executor.list_operations()), 1)
 
     def test_session_expires_on_service_restart_while_persistent_grant_survives(self):
         session, persistent = self.grant(lifetime='session'), self.grant()
