@@ -73,6 +73,13 @@ def _reference_package(source):
 
 def import_reference_package(source, destination, report_path, historical_references=()):
     """Extend the existing documentary archive; no document creates an adapter."""
+    paths = tuple(Path(value).resolve() for value in (source, destination, report_path, *historical_references))
+    for index, path in enumerate(paths):
+        for other in paths[index + 1:]:
+            if path == other or path.exists() and other.exists() and path.samefile(other):
+                raise ValueError('Source archive, destination library and report must be distinct files')
+    source, destination, report_path = paths[:3]
+    historical_references = paths[3:]
     raw, contents, catalog = _reference_package(source)
     package_hash = hashlib.sha256(raw).hexdigest()
     prefix = 'references/reasoning/' + package_hash + '/'

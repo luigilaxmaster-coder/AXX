@@ -103,6 +103,29 @@ class ReferenceLibraryTests(unittest.TestCase):
         self.assertEqual(import_reference_package(self.root / 'package.zip', self.library, self.report, [history])['added_records'], 0)
         self.assertEqual(self.library.read_bytes(), before)
 
+    def test_output_aliases_are_rejected_before_mutating_source_or_library(self):
+        source = self.package()
+        source_before, library_before = source.read_bytes(), self.library.read_bytes()
+        aliases = ((source, self.library, self.library), (source, self.library, source),
+            (source, self.library, self.root / 'unused' / '..' / self.library.name),
+            (source, source.parent / '.' / source.name, self.report))
+        for args in aliases:
+            with self.subTest(args=args), self.assertRaisesRegex(ValueError, 'distinct files'):
+                import_reference_package(*args)
+            self.assertEqual(source.read_bytes(), source_before)
+            self.assertEqual(self.library.read_bytes(), library_before)
+        alias = self.root / 'report-hardlink.json'
+        alias.hardlink_to(self.library)
+        with self.assertRaisesRegex(ValueError, 'distinct files'):
+            import_reference_package(source, self.library, alias)
+        self.assertEqual(source.read_bytes(), source_before)
+        self.assertEqual(self.library.read_bytes(), library_before)
+        history = self.root / 'original-history.md'
+        history.write_text('# Historical source must survive', encoding='utf-8')
+        with self.assertRaisesRegex(ValueError, 'distinct files'):
+            import_reference_package(source, self.library, history, [history])
+        self.assertEqual(history.read_text(encoding='utf-8'), '# Historical source must survive')
+
     def test_retrieval_is_selective_and_embedded_permission_text_never_executes(self):
         import_reference_package(self.package(), self.library, self.report)
         catalog = self.root / 'catalog.json'
