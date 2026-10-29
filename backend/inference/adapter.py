@@ -17,6 +17,24 @@ MAX_WORKER_INPUT = 3 * 1024 * 1024
 MAX_WORKER_OUTPUT = 8 * 1024 * 1024
 MAX_WORKER_ERROR = 64 * 1024
 
+
+def _attempt_details(source):
+    read = source.get if isinstance(source, dict) else lambda key, default=None: getattr(source, key, default)
+    details = {key: read(key) for key in ('upstream_attempts', 'attempt_budget_used')
+               if type(read(key)) is int and read(key) >= 0}
+    attempted = read('upstream_attempted')
+    if any(value > 0 for value in details.values()):
+        details['upstream_attempted'] = True
+    elif type(attempted) is bool:
+        details['upstream_attempted'] = attempted
+        if attempted is False:
+            details.update(upstream_attempts=0, attempt_budget_used=0)
+        else:
+            # Inconsistent zero counts cannot release a mission reservation.
+            details = {'upstream_attempted': True}
+    return details
+
+
 class ActiveRequest:
     def __init__(self, request_id, deadline_mono, cancel_event=None):
         self.request_id, self.deadline_mono = request_id, deadline_mono
@@ -30,7 +48,7 @@ class ActiveRequest:
 
 def worker_main(state_path: str) -> int:
     """Same executable entry point; exactly one bounded stdin/stdout JSON object."""
-    router = None
+    router, dispatched = None, False
     try:
         raw = sys.stdin.buffer.read(MAX_WORKER_INPUT + 1)
         if len(raw) > MAX_WORKER_INPUT:
@@ -45,6 +63,7 @@ def worker_main(state_path: str) -> int:
         if type(seconds) not in (int, float) or not math.isfinite(seconds) or not 0 < seconds <= 70:
             raise RequestError('Invalid worker deadline')
         router = Router(config, state=state_path)
+        dispatched = True
         result = router.chat(data['request'], deadline_time=time.monotonic() + seconds)
         response, code = {'ok': True, 'result': result}, 0
     except Exception as exc:
@@ -53,8 +72,7 @@ def worker_main(state_path: str) -> int:
             error_code = 'DEADLINE_EXCEEDED'
         response = {'ok': False, 'error': {'code': error_code, 'message': str(exc),
                     'retryable': error_code in ('UPSTREAM_TEMPORARY', 'NO_PROVIDER_AVAILABLE', 'STATE_UNAVAILABLE')}}
-        if type(getattr(exc, 'upstream_attempted', None)) is bool:
-            response['error']['upstream_attempted'] = exc.upstream_attempted
+        response['error'].update(_attempt_details(exc) if dispatched else _attempt_details({'upstream_attempted': False}))
         code = 1
     finally:
         if router:
@@ -129,11 +147,12 @@ class InferenceAdapter:
         return True
 
     @staticmethod
-    def _error(request_id, code, message, retryable=False, upstream_attempted=None):
+    def _error(request_id, code, message, retryable=False, upstream_attempted=None,
+               upstream_attempts=None, attempt_budget_used=None):
         result = {'request_id': request_id, 'ok': False,
                 'error': {'code': code, 'retryable': retryable, 'message': message}}
-        if type(upstream_attempted) is bool:
-            result['error']['upstream_attempted'] = upstream_attempted
+        result['error'].update(_attempt_details({'upstream_attempted': upstream_attempted,
+            'upstream_attempts': upstream_attempts, 'attempt_budget_used': attempt_budget_used}))
         return result
 
     def _worker_result(self, active, request, config_override=None):
@@ -236,23 +255,26 @@ class InferenceAdapter:
     def route(self, envelope: dict, *, _candidate_provider=None, _candidate_override=None, cancel_event=None) -> dict:
         request_id = str(uuid.uuid4())
         if not isinstance(envelope, dict):
-            return self._error(request_id, 'INVALID_REQUEST', 'Envelope must be an object')
+            return self._error(request_id, 'INVALID_REQUEST', 'Envelope must be an object', upstream_attempted=False)
         request_id = envelope.get('request_id') or request_id
         if cancel_event is not None and not isinstance(cancel_event, threading.Event):
-            return self._error(str(request_id)[:128], 'INVALID_REQUEST', 'Invalid internal cancellation event')
+            return self._error(str(request_id)[:128], 'INVALID_REQUEST', 'Invalid internal cancellation event', upstream_attempted=False)
         conversation_id, deadline_ms = envelope.get('conversation_id', 'default'), envelope.get('deadline_ms', 70000)
         if (not isinstance(request_id, str) or not 1 <= len(request_id) <= 128
                 or not isinstance(conversation_id, str) or not 1 <= len(conversation_id) <= 128
                 or type(deadline_ms) is not int or not 1 <= deadline_ms <= 70000):
-            return self._error(str(request_id)[:128], 'INVALID_REQUEST', 'Invalid request identity or deadline')
+            return self._error(str(request_id)[:128], 'INVALID_REQUEST', 'Invalid request identity or deadline', upstream_attempted=False)
+        if 'upstream_attempt_budget' in envelope and (type(envelope['upstream_attempt_budget']) is not int
+                or not 1 <= envelope['upstream_attempt_budget'] <= 10):
+            return self._error(request_id, 'INVALID_REQUEST', 'upstream_attempt_budget must be an integer between 1 and 10', upstream_attempted=False)
         if envelope.get('sensitivity', 'public') not in ('public', 'approved_sensitive'):
-            return self._error(request_id, 'INVALID_REQUEST', 'Local-only content cannot use remote inference')
+            return self._error(request_id, 'INVALID_REQUEST', 'Local-only content cannot use remote inference', upstream_attempted=False)
         active = ActiveRequest(request_id, time.monotonic() + deadline_ms / 1000, cancel_event)
         with self.lock:
             if active.is_cancelled():
                 return self._error(request_id, 'CANCELLED', 'Request cancelled before registration', upstream_attempted=False)
             if self.router is None:
-                return self._error(request_id, 'PROCESS_FAILURE', 'Adapter closed')
+                return self._error(request_id, 'PROCESS_FAILURE', 'Adapter closed', upstream_attempted=False)
             candidate_config = None
             if _candidate_provider is not None:
                 providers = [p for p in self.config.get('providers', []) if p['name'] == _candidate_provider]
@@ -273,10 +295,13 @@ class InferenceAdapter:
             if request_id in self.active_requests or conversation_id in self.conversation_locks or len(self.active_requests) >= 2:
                 return self._error(request_id, 'BUSY', 'Inference capacity is busy', True, upstream_attempted=False)
             self.active_requests[request_id], self.conversation_locks[conversation_id] = active, request_id
+        dispatched = False
         try:
             request = {'messages': envelope.get('messages', []), 'axx_task': envelope.get('task', 'chat'),
                        'selection_mode': envelope.get('selection_mode', 'manual'),
                        'axx_sensitive': envelope.get('sensitivity') == 'approved_sensitive'}
+            if 'upstream_attempt_budget' in envelope:
+                request['axx_attempt_budget'] = envelope['upstream_attempt_budget']
             if envelope.get('model') and request['selection_mode'] != 'automatic_free':
                 request['model'] = envelope['model']
             if envelope.get('provider_name') and request['selection_mode'] != 'automatic_free':
@@ -293,6 +318,7 @@ class InferenceAdapter:
             if active.is_cancelled():
                 return self._error(request_id, 'CANCELLED', 'Request cancelled before dispatch', upstream_attempted=False)
             # Injection is reserved for deterministic offline tests.
+            dispatched = True
             if self.router.transport is not http_transport:
                 if candidate_config is None:
                     raw_result = self.router.chat(request, deadline_time=active.deadline_mono)
@@ -307,17 +333,19 @@ class InferenceAdapter:
                 if not worker['ok']:
                     error = worker.get('error', {})
                     return self._error(request_id, error.get('code', 'PROCESS_FAILURE'),
-                                       error.get('message', 'Inference failed'), bool(error.get('retryable')), error.get('upstream_attempted'))
+                                       error.get('message', 'Inference failed'), bool(error.get('retryable')), **_attempt_details(error))
                 raw_result = worker['result']
             with active.lock:
                 if active.is_cancelled():
-                    return self._error(request_id, 'CANCELLED', 'Request cancelled; late response discarded')
+                    return self._error(request_id, 'CANCELLED', 'Request cancelled; late response discarded',
+                                       **_attempt_details(raw_result.get('axx_router', {})))
                 if time.monotonic() >= active.deadline_mono:
-                    return self._error(request_id, 'DEADLINE_EXCEEDED', 'Inference wall deadline exceeded')
+                    return self._error(request_id, 'DEADLINE_EXCEEDED', 'Inference wall deadline exceeded',
+                                       **_attempt_details(raw_result.get('axx_router', {})))
                 self.router._validate_response_message(raw_result)
                 active.completed, active.terminal_state = True, 'COMPLETED'
             return {'request_id': request_id, 'ok': True, 'message': raw_result['choices'][0]['message'],
-                    'route': raw_result.get('axx_router', {})}
+                    'route': raw_result.get('axx_router', {}), **_attempt_details(raw_result.get('axx_router', {}))}
         except Exception as exc:
             code = getattr(exc, 'code', 'PROCESS_FAILURE')
             if isinstance(exc, UpstreamError) and exc.status == 504:
@@ -326,7 +354,7 @@ class InferenceAdapter:
                 code = 'CANCELLED'
             return self._error(request_id, code, 'Request cancelled' if active.is_cancelled() else str(exc),
                                code in ('NO_PROVIDER_AVAILABLE', 'STATE_UNAVAILABLE', 'UPSTREAM_TEMPORARY'),
-                               getattr(exc, 'upstream_attempted', None))
+                               **(_attempt_details(exc) if dispatched else _attempt_details({'upstream_attempted': False})))
         finally:
             with self.lock:
                 self.active_requests.pop(request_id, None)

@@ -473,7 +473,9 @@ class Router:
         """Validates chat request with null checks per field (H02, D)."""
         if not isinstance(request, dict):
             raise RequestError("Request must be a JSON object")
-        allowed = {'messages', 'axx_task', 'axx_sensitive', 'temperature', 'max_tokens', 'tools', 'stream', 'model', 'provider_name', 'selection_mode'}
+        allowed = {'messages', 'axx_task', 'axx_sensitive', 'temperature', 'max_tokens', 'tools', 'stream', 'model', 'provider_name', 'selection_mode', 'axx_attempt_budget'}
+        if 'axx_attempt_budget' in request and (type(request['axx_attempt_budget']) is not int or not 1 <= request['axx_attempt_budget'] <= 10):
+            raise RequestError('axx_attempt_budget must be an integer between 1 and 10')
         if request.get('selection_mode', 'manual') not in ('manual', 'automatic_free'):
             raise RequestError('Invalid selection_mode')
         if request.get('selection_mode') == 'automatic_free' and request.get('axx_task', 'chat') not in TASK_PROFILES:
@@ -638,7 +640,7 @@ class Router:
         metadata = dict(provider=provider['name'], model=provider['model'] if mode == 'manual' else responder_model,
                         configured_model=provider['model'], responder_model=responder_model, responder_provider=responder_provider,
                         identity=identity, profile_id=profile, attribution_id=attribution, route_id=str(uuid.uuid4()),
-                        task=request.get('axx_task', 'chat'), selection_mode=mode, attempts=attempts,
+                        task=request.get('axx_task', 'chat'), selection_mode=mode, attempts=attempts, upstream_attempts=attempts,
                         attempt_budget_used=attempt_budget_used)
         try:
             with self.db:
@@ -647,6 +649,22 @@ class Router:
         except sqlite3.Error as exc:
             raise StateError(f'Cannot persist inference route receipt: {exc}') from None
         return metadata
+
+    def _verified_gateway(self, provider, task, deadline_time):
+        from .freellmapi import verify_provider
+        remaining = deadline_time - time.monotonic()
+        if remaining <= 0:
+            raise UpstreamError(504, message='Global inference deadline exceeded')
+        configured_tasks = provider.get('tasks')
+        provider = dict(provider, **verify_provider(provider, timeout=min(5, remaining)))
+        if configured_tasks and '*' not in configured_tasks:
+            provider['tasks'] = [name for name in provider.get('tasks', []) if name in configured_tasks]
+            if task not in provider['tasks']:
+                raise ValueError('Gateway task no longer belongs to the configured scope')
+        self._validate_config({'providers': [provider]})
+        if type(provider.get('gateway_attempt_limit')) is not int:
+            raise ValueError('The gateway has no verified attempt bound')
+        return provider
 
     def _automatic_candidates(self, request, task, needs_tools, image_count, deadline_time):
         required = {'text'}
@@ -659,25 +677,16 @@ class Router:
                                      ensure_ascii=False).encode('utf-8')) + 1024
         status = {p['name']: p for p in self.status()['providers']}
         candidates = []
+        attempt_limit = min(self.max_attempts, request.get('axx_attempt_budget', self.max_attempts))
         for provider in self.providers:
             if not automatic_free(provider) or status[provider['name']]['state'] != 'ready_locally':
                 continue
             if provider.get('kind') == 'freellmapi':
-                from .freellmapi import verify_provider
                 try:
-                    remaining = deadline_time - time.monotonic()
-                    if remaining <= 0:
-                        raise UpstreamError(504, message='Global inference deadline exceeded')
-                    configured_tasks = provider.get('tasks')
-                    provider = dict(provider, **verify_provider(provider, timeout=min(5, remaining)))
-                    if configured_tasks and '*' not in configured_tasks:
-                        provider['tasks'] = [t for t in provider.get('tasks', []) if t in configured_tasks]
-                        if task not in provider['tasks']:
-                            continue
-                    self._validate_config({'providers': [provider]})
+                    provider = self._verified_gateway(provider, task, deadline_time)
                 except ValueError:
                     continue
-                if not automatic_free(provider) or provider['gateway_attempt_limit'] > self.max_attempts:
+                if not automatic_free(provider) or provider['gateway_attempt_limit'] > attempt_limit:
                     continue
             if not required.issubset(provider['capabilities']):
                 continue
@@ -699,8 +708,21 @@ class Router:
         return [candidate[-1] for candidate in sorted(candidates, key=lambda item: item[:3])]
 
     def chat(self, request: dict, deadline_time: float | None = None) -> dict:
+        accounting = {'upstream_attempts': 0, 'attempt_budget_used': 0}
+        try:
+            return self._chat(request, deadline_time, accounting)
+        except Exception as exc:
+            # Counts describe this router's dispatches; gateway cost is a
+            # conservative downstream bound, never an invented completion count.
+            exc.upstream_attempted = accounting['upstream_attempts'] > 0
+            exc.upstream_attempts = accounting['upstream_attempts']
+            exc.attempt_budget_used = accounting['attempt_budget_used']
+            raise
+
+    def _chat(self, request: dict, deadline_time: float | None, accounting: dict) -> dict:
         """Executes sequential failover with strict global deadline (H01-H10)."""
         self.validate_request(request)
+        attempt_limit = min(self.max_attempts, request.get('axx_attempt_budget', self.max_attempts))
 
         # Monotonic wall-clock deadline budget (H01)
         start_time = time.monotonic()
@@ -728,9 +750,22 @@ class Router:
 
             if not p.get('enabled', False) or p.get('candidate_only') is True:
                 continue
-            gateway = automatic and p.get('kind') == 'freellmapi'
+            if ('axx_attempt_budget' in request and p.get('route_kind') == 'proxy'
+                    and p.get('kind') != 'freellmapi'):
+                continue  # An opaque proxy has no verified downstream attempt bound.
+            # A new bounded manual request must also constrain proxy fanout.
+            # Historical manual requests without this envelope retain their policy.
+            bounded_manual_gateway = not automatic and 'axx_attempt_budget' in request and p.get('kind') == 'freellmapi'
+            if bounded_manual_gateway:
+                if request.get('model') and request['model'] != p['model'] or request.get('provider_name') and request['provider_name'] != p['name']:
+                    continue
+                try:
+                    p = self._verified_gateway(p, req_task, deadline_time)
+                except ValueError:
+                    continue
+            gateway = (automatic or bounded_manual_gateway) and p.get('kind') == 'freellmapi'
             attempt_cost = p['gateway_attempt_limit'] if gateway else 1
-            if attempt_budget_used + attempt_cost > self.max_attempts:
+            if attempt_budget_used + attempt_cost > attempt_limit:
                 continue
             if not automatic and request.get('model') and request['model'] != p['model']:
                 continue
@@ -765,6 +800,7 @@ class Router:
 
             attempts += 1
             attempt_budget_used += attempt_cost
+            accounting.update(upstream_attempts=attempts, attempt_budget_used=attempt_budget_used)
             call_timeout = min(self.timeout, time_left)
             if gateway:
                 call_timeout = min(call_timeout, p.get('gateway_timeout_ms', 20000) / 1000)
@@ -819,7 +855,7 @@ class Router:
                     self._cool(p, 30.0)
 
                 # Check max attempts limit
-                if attempt_budget_used >= self.max_attempts:
+                if attempt_budget_used >= attempt_limit:
                     break
 
             except StateError:
@@ -828,7 +864,7 @@ class Router:
                 elapsed = time.monotonic() - call_start
                 self._record(p['name'], success=False, elapsed=elapsed, status=500)
                 last_error = exc
-                if attempt_budget_used >= self.max_attempts:
+                if attempt_budget_used >= attempt_limit:
                     break
 
         if last_error:
