@@ -15,6 +15,16 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
    window.Axx={isNative:()=>true,newId:()=> 'fixture-'+(++serial),chatWorkspace:{active:{id:'task-a',title:'Proyecto A'},busy:false},skillLibrary:{project:()=>window.missionProject},resident:{schedule(){},drag:null},app:{updateHitMap(){},bridge:{listen:async(id,fn)=>{events[id]=fn;}}},companion:{renderChat(){},openChat(){window.openedChat=true;},speakReply:text=>spoken.push(text)},commandLibrary:{busy:false,operation:null,renderOperation(plan){window.reviewedPlan=plan;}},
     backendRequest:async(method,route,body)=>{
      calls.push({method,route,body:structuredClone(body)});const action=route.split('/').at(-1);
+     if(route==='/axx-api/commands/prepare'){const operation={...body,state:'prepared',requires_approval:false};window.sourceCommands[body.operation_id]=operation;return operation;}
+     if(route==='/axx-api/commands/execute'){
+      const operation=sourceCommands[body.operation_id];let output;
+      if(operation.command_id==='axx.desktop.list_windows')output={windows:structuredClone(sourceWindows)};
+      else if(operation.command_id==='axx.desktop.window.observe'){
+       if(window.delayWindowObservation){window.delayWindowObservation=false;await new Promise(resolve=>{window.releaseWindowObservation=resolve;});}
+       const {window_id,pid}=operation.inputs;output={window_id,pid,quality:'geometry_only',observation:{window_id,pid,process_started:'133700000000000001',...window.sourceIdentityOverride}};
+      }else throw Error('Unexpected source command');
+      return {...operation,state:'succeeded',postconditions_passed:!window.sourceReceiptFailure,output};
+     }
      if(route.startsWith('/axx-api/learning/plans?'))return {plans:structuredClone(window.missionPlans)};
      if(route==='/axx-api/learning/dependencies'){if(window.dependencyError)return {error:{message:'El plan cambió; vuelve a revisarlo.'}};const plan=missionPlans.find(p=>p.operation_id===body.operation_id);plan.mission.mission_dependencies=body.dependencies.map(operation_id=>({operation_id,goal_revision:1,steps_hash:'fixture-steps'}));plan.mission.state='awaiting_approval';return structuredClone(plan);}
      if(route==='/axx-api/learning/plan?id=prepared-fixture')return {kind:'learned_plan',operation_id:'prepared-fixture',conversation_id:'task-a',state:'awaiting_approval',steps:[]};
@@ -48,6 +58,8 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
      if(action==='forget'){data.suggestions=data.suggestions.filter(r=>r.task_id!==body.task_id);return {forgotten:true};}
      throw Error('Unsupported test route: '+route);
     }};
+   window.sourceCommands={};window.sourceWindows=[{window_id:321,pid:41,title:'Documento <img src=x> A'},{window_id:654,pid:42,title:'Documento B'}];
+   Axx.commandLibrary.prepareRequest=async function(route,body){if(this.busy||this.operation)throw Error('Comando pendiente');this.busy=true;try{const operation=await Axx.backendRequest('POST',route,{...body,operation_id:Axx.newId()});this.lastOperation=operation;this.lastOperation=await Axx.backendRequest('POST','/axx-api/commands/execute',{operation_id:operation.operation_id});return '';}finally{this.busy=false;}};
   });
   await page.addScriptTag({path:path.join(__dirname,'anticipation.js')});
   await page.addStyleTag({content:'#anticipation-card{top:10px;left:10px}'});
@@ -300,8 +312,84 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
   await page.waitForFunction(()=>window.reviewedPlan?.operation_id==='prepared-fixture');
   assert.equal(await page.evaluate(()=>window.openedChat),true);
   assert.equal(await page.evaluate(()=>calls.filter(c=>c.route.endsWith('/commands/execute')||c.route.endsWith('/learning/execute')).length),0,'Preparing and reviewing never execute the proposed effects');
+  assert.equal(await page.evaluate(()=>calls.filter(c=>c.body?.command_id==='axx.desktop.list_windows').length),0,'Opening settings and polling status never enumerate window titles');
+  assert.equal(await page.locator('#anticipation-screen').isDisabled(),true,'Unavailable adapters cannot be enabled by their labels');
+  await page.evaluate(()=>{data.capabilities.screen=true;data.capabilities.clipboard=true;data.capabilities.provider_context={window:false,clipboard:false};data.observation_targets=[];data.source_runtime=[];data.source_observations=[];Axx.commandLibrary.operation=null;return Axx.anticipation.refresh();});
+  await page.evaluate(()=>{for(let node=document.getElementById('anticipation-target-source');node;node=node.parentElement)if(node.tagName==='DETAILS')node.open=true;});
+  await page.selectOption('#anticipation-target-source','clipboard');
+  assert.equal(await page.locator('#anticipation-target-root').isDisabled(),true);
+  assert.equal(await page.locator('#anticipation-target-process').isDisabled(),true);
+  assert.equal(await page.locator('#anticipation-target-provider').isDisabled(),true);
+  await page.evaluate(()=>{document.getElementById('anticipation-target-provider').checked=true;document.getElementById('anticipation-target-form').requestSubmit();});
+  await page.waitForFunction(()=>Axx.anticipation.state.observation_targets.length===1);
+  assert.deepEqual(await page.evaluate(()=>{const target=data.observation_targets[0];return [target.source,target.task_id,target.project_id,target.observe,target.retain,target.send_to_provider,Object.hasOwn(target,'root'),Object.hasOwn(target,'process_name'),Object.hasOwn(target,'window_id')];}),['clipboard','task-a','Proyecto A',true,false,false,false,false,false]);
+  assert.equal(await page.evaluate(()=>data.sources.clipboard),false,'Saving a target does not enable its source');
+  await page.evaluate(()=>{data.capabilities.provider_context={window:true,clipboard:true};return Axx.anticipation.refresh();});
+  assert.equal(await page.locator('#anticipation-target-provider').isDisabled(),false);
+  assert.equal(await page.locator('#anticipation-target-provider').isChecked(),false,'An available provider transport never implies consent');
+  await page.evaluate(()=>{const input=document.getElementById('anticipation-target-provider');input.checked=true;input.dispatchEvent(new Event('input',{bubbles:true}));document.getElementById('anticipation-target-form').requestSubmit();});
+  await page.waitForFunction(()=>data.observation_targets.length===2);
+  assert.equal(await page.evaluate(()=>data.observation_targets[1].send_to_provider),false,'An untrusted or restored draft cannot authorize provider use');
+  await page.locator('#anticipation-target-retain').check();
+  await page.locator('#anticipation-target-provider').check();
+  await page.evaluate(()=>document.getElementById('anticipation-target-form').requestSubmit());
+  await page.waitForFunction(()=>data.observation_targets.length===3);
+  assert.deepEqual(await page.evaluate(()=>[data.observation_targets[2].observe,data.observation_targets[2].retain,data.observation_targets[2].send_to_provider]),[true,true,true],'Observation, metadata retention and explicit provider consent remain independent');
+  assert.equal(await page.locator('#anticipation-target-provider').isChecked(),false,'Each new source starts without provider permission');
+  await page.evaluate(()=>{data.capabilities.provider_context.clipboard=false;return Axx.anticipation.refresh();});
+  const savedProvider=page.locator('#anticipation-targets article').nth(2).locator('input').nth(2);
+  assert.equal(await savedProvider.isDisabled(),false,'Existing provider consent can still be revoked when transport becomes unavailable');
+  await savedProvider.uncheck();
+  await page.waitForFunction(()=>data.observation_targets[2].send_to_provider===false);
+  assert.equal(await page.evaluate(()=>data.observation_targets[2].retain),true,'Revocation does not silently change metadata retention');
+  await page.evaluate(()=>{data.capabilities.provider_context.clipboard=true;return Axx.anticipation.refresh();});
+  await page.evaluate(()=>{data.source_observations=[{task_id:'task-a',type:'clipboard.changed',observed_at:Date.now()/1000,resource:{sequence:7,text_length:9,text:'RAW_PRIVATE_CLIPBOARD',title:'PRIVATE_WINDOW_TITLE',image:'RAW_PRIVATE_JPEG'},retained:true}];return Axx.anticipation.refresh();});
+  assert.match(await page.locator('#anticipation-source-observations').textContent(),/sequence.*7/);
+  assert.doesNotMatch(await page.locator('#anticipation-source-observations').textContent(),/RAW_PRIVATE|PRIVATE_WINDOW/,'Public source status only projects metadata, even if an invalid backend response contains raw fields');
+  await page.selectOption('#anticipation-target-source','window');
+  assert.equal(await page.locator('#anticipation-target-provider').isChecked(),false);
+  assert.equal(await page.evaluate(()=>calls.filter(c=>c.body?.command_id==='axx.desktop.list_windows').length),0,'Selecting the source still does not read titles');
+  await page.locator('#anticipation-target-find-windows').click();
+  await page.waitForFunction(()=>document.querySelectorAll('#anticipation-target-window option').length===3);
+  assert.equal(await page.locator('#anticipation-target-window img').count(),0,'Window titles render as text');
+  await page.selectOption('#anticipation-target-window','321');
+  await page.locator('#anticipation-target-provider').check();
+  await page.selectOption('#anticipation-target-window','654');
+  assert.equal(await page.locator('#anticipation-target-provider').isChecked(),false,'Changing the chosen window clears its provider consent');
+  await page.locator('#anticipation-target-provider').check();
+  await page.evaluate(()=>{window.delayWindowObservation=true;document.getElementById('anticipation-target-form').requestSubmit();});
+  await page.waitForFunction(()=>typeof window.releaseWindowObservation==='function');
+  await page.selectOption('#anticipation-target-window','321');
+  await page.evaluate(()=>{window.releaseWindowObservation();delete window.releaseWindowObservation;});
+  await page.waitForFunction(()=>document.getElementById('anticipation-status').textContent.includes('Cambió la selección'));
+  assert.equal(await page.evaluate(()=>data.observation_targets.length),3,'A changed selection cannot save an observation from the previous window');
+  await page.evaluate(()=>document.getElementById('anticipation-target-form').requestSubmit());
+  await page.waitForFunction(()=>data.observation_targets.length===4);
+  assert.deepEqual(await page.evaluate(()=>{const target=data.observation_targets[3];return [target.source,target.window_id,target.pid,target.process_started,target.send_to_provider,Object.hasOwn(target,'title'),Object.hasOwn(target,'root'),Object.hasOwn(target,'process_name')];}),['window',321,41,'133700000000000001',false,false,false,false],'Window sources store only fresh exact identity, never title or unrelated fields');
+  assert.deepEqual(await page.evaluate(()=>calls.filter(c=>c.body?.command_id==='axx.desktop.window.observe').at(-1).body.inputs),{window_id:321,pid:41});
+  await page.evaluate(()=>{window.sourceIdentityOverride={pid:999};document.getElementById('anticipation-target-form').requestSubmit();});
+  await page.waitForFunction(()=>document.getElementById('anticipation-status').textContent.includes('identidad de la ventana cambió'));
+  assert.equal(await page.evaluate(()=>data.observation_targets.length),4,'A mismatched PID fails closed');
+  await page.evaluate(()=>{delete window.sourceIdentityOverride;window.sourceReceiptFailure=true;document.getElementById('anticipation-target-form').requestSubmit();});
+  await page.waitForFunction(()=>document.getElementById('anticipation-status').textContent.includes('observación verificada'));
+  assert.equal(await page.evaluate(()=>data.observation_targets.length),4,'A successful-looking output without postconditions cannot authorize observation');
+  await page.evaluate(()=>{window.sourceReceiptFailure=false;});
+  await page.evaluate(()=>{window.delayWindowObservation=true;document.getElementById('anticipation-target-form').requestSubmit();});
+  await page.waitForFunction(()=>typeof window.releaseWindowObservation==='function');
+  await page.keyboard.press('Escape');
+  await page.evaluate(()=>{window.releaseWindowObservation();delete window.releaseWindowObservation;});
+  await page.waitForFunction(()=>document.getElementById('anticipation-status').textContent.includes('Cambió la selección'));
+  assert.equal(await page.evaluate(()=>data.observation_targets.length),4,'Escape invalidates a pending source authorization without saving it after cancellation');
+  await page.locator('#anticipation-target-provider').check();
+  await page.evaluate(()=>{window.missionProject='Otro proyecto';return Axx.anticipation.refresh();});
+  assert.equal(await page.locator('#anticipation-target-provider').isChecked(),false);
+  assert.equal(await page.locator('#anticipation-target-window option').count(),1,'Project changes discard the prior window list');
+  assert.equal(await page.locator('#anticipation-target-project').inputValue(),'Otro proyecto');
+  await page.evaluate(()=>{Axx.chatWorkspace.active={id:'task-b'};return Axx.anticipation.refresh();});
+  assert.equal(await page.locator('#anticipation-targets article').count(),0,'Source controls cannot leak into another chat');
+  assert.equal(await page.evaluate(()=>calls.some(c=>c.body?.approved===true||c.body?.command_id&& !['axx.desktop.list_windows','axx.desktop.window.observe'].includes(c.body.command_id))),false,'Source selection uses only explicit read commands, without approval bypass, focus or input');
   assert.deepEqual(errors,[]);
   const html=fs.readFileSync(path.join(__dirname,'../Axx.html'),'utf8');assert.match(html,/scripts\/anticipation\.js/);assert.match(html,/Axx\.anticipation\?\.layout\(g,size,add\)/);
-  console.log('PASS: scoped Full mission grants and lifetimes, exact hash invalidation, external metadata verification, nested limits, source consent, dependencies, strict receipts, Why, task races, busy deferral, Esc and suppression (controlled IPC)');
+  console.log('PASS: scoped Full mission grants, exact hashes, resource limits, explicit window identity and clipboard sources, independent metadata/provider consent, source races, strict receipts, dependencies, Why, task races, busy deferral, Esc and suppression (controlled IPC)');
  }finally{await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});

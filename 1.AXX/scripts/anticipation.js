@@ -35,14 +35,16 @@
  <p>No autoriza cambiar el foco, enviar entradas, ejecutar shell/MCP, enviar contenido ni borrar archivos. No autoriza consultas al modelo.</p><button id="anticipation-mission-authorize" type="submit">Autorizar estas acciones en este chat</button></form></details><div id="anticipation-grants"></div></details>
  <details><summary>Observación y memoria</summary><p id="anticipation-sources"></p><label><input id="anticipation-events" type="checkbox"> Procesar eventos autorizados de Axx</label>
  <label><input id="anticipation-folders" type="checkbox"> Habilitar observación de carpetas seleccionadas</label><label><input id="anticipation-applications" type="checkbox"> Habilitar observación de aplicaciones seleccionadas</label>
+ <label><input id="anticipation-screen" type="checkbox" disabled> Habilitar observación de ventanas seleccionadas</label><label><input id="anticipation-clipboard" type="checkbox" disabled> Habilitar observación del portapapeles</label>
  <details><summary>Fuentes locales de este chat</summary><p>La fuente debe estar habilitada y tener un ámbito autorizado. Observar, conservar metadatos y enviar contenido son decisiones separadas.</p>
- <form id="anticipation-target-form"><label class="setting">Fuente<select id="anticipation-target-source"><option value="folder">Carpeta</option><option value="application">Aplicación</option></select></label>
+ <form id="anticipation-target-form"><label class="setting">Fuente<select id="anticipation-target-source"><option value="folder">Carpeta</option><option value="application">Aplicación</option><option value="window" disabled>Ventana seleccionada</option><option value="clipboard" disabled>Portapapeles</option></select></label>
  <label class="setting" id="anticipation-target-folder">Carpeta absoluta<input id="anticipation-target-root" maxlength="4096" required></label><label class="setting" id="anticipation-target-app" hidden>Proceso exacto<input id="anticipation-target-process" maxlength="80" placeholder="programa.exe" disabled></label>
+ <div id="anticipation-target-window-fields" hidden><button id="anticipation-target-find-windows" type="button">Buscar ventanas</button><label class="setting">Ventana<select id="anticipation-target-window" disabled><option value="">Busca y selecciona una ventana</option></select></label><p id="anticipation-target-window-status" role="status"></p></div>
  <label class="setting">Proyecto, opcional<input id="anticipation-target-project" maxlength="128"></label><label class="setting">ID de aplicación, opcional<input id="anticipation-target-application" maxlength="128"></label><label class="setting">Dispositivo<input id="anticipation-target-device" maxlength="128" value="host" required></label>
  <label class="setting">Vigencia<select id="anticipation-target-expiry"><option value="3600">Una hora</option><option value="86400">Un día</option><option value="persistent">Hasta revocación</option></select></label>
- <label><input id="anticipation-target-observe" type="checkbox" checked> Observar dentro de este ámbito</label><label><input id="anticipation-target-retain" type="checkbox"> Conservar metadatos de los cambios</label><label><input type="checkbox" disabled> Enviar a proveedores (no disponible)</label><button type="submit">Guardar fuente en este chat</button></form>
+ <label><input id="anticipation-target-observe" type="checkbox" checked> Observar dentro de este ámbito</label><label><input id="anticipation-target-retain" type="checkbox"> Conservar metadatos de actividad</label><label><input id="anticipation-target-provider" type="checkbox" disabled> Permitir usar contenido transitorio con el modelo configurado</label><p id="anticipation-target-provider-status">Envío al proveedor no disponible para esta fuente.</p><p>El texto y la imagen son transitorios en memoria durante un máximo de 60 segundos. Conservar metadatos no guarda textos ni capturas. El envío al proveedor requiere su permiso separado.</p><button type="submit">Guardar fuente en este chat</button></form>
  <div id="anticipation-targets"></div><p id="anticipation-source-runtime" role="status"></p><div id="anticipation-source-observations"></div></details>
- <p>Pantalla, micrófono y portapapeles no están disponibles como fuentes de anticipación en esta entrega. Las autorizaciones de voz y Computer Use se administran por separado.</p>
+ <p>Las fuentes se habilitan sólo si el backend dispone del adaptador local. El micrófono de anticipación sigue sin estar disponible. Las autorizaciones de voz, foco y Computer Use se administran por separado.</p>
  <p>Los eventos se procesan localmente. Activar Full no autoriza capturas ni el envío de contenido a proveedores.</p>
  <details><summary>Alcance de los verificadores</summary><div id="anticipation-verifiers"></div><p>Un hash comprueba integridad. No acredita contenido, apariencia ni cumplimiento del objetivo.</p></details>
  <button id="anticipation-forget" type="button">Borrar memoria de anticipación de este chat</button><div id="anticipation-history"></div><pre id="anticipation-metrics" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre></details>`;
@@ -69,7 +71,7 @@
  #anticipation-card summary{cursor:pointer;min-height:44px;align-content:center}#anticipation-card summary:focus-visible{outline:2px solid var(--accent,#95c9fc);outline-offset:2px}.anticipation-evidence dl{margin:0;overflow-wrap:anywhere}.anticipation-evidence dt{font-weight:600;margin-top:8px}.anticipation-evidence dd{margin:2px 0 8px;white-space:pre-wrap}#anticipation-card .anticipation-evidence-body{max-height:190px;overflow:auto;font-size:12px}
  </style><small id="anticipation-phase"></small><p id="anticipation-text" role="status" aria-live="polite"></p><div id="anticipation-actions" class="anticipation-actions"></div>`;
  document.body.append(card);
- let snapshot=null,origin=null,revision=0,loading=false,mutation=false,current=null,stopped=false,settingsKey='',missionRevision=0,missionsLoading=false,missionKey='',missionPlans=[],missionProject='';
+ let snapshot=null,origin=null,revision=0,loading=false,mutation=false,current=null,stopped=false,settingsKey='',missionRevision=0,missionsLoading=false,missionKey='',missionPlans=[],missionProject='',sourceContext='',sourceRevision=0,targetWindows=[];
  const lifetimes={one_action:'Una acción permitida',session:'Esta sesión de Axx',mission:'Esta misión exacta',until_revoked:'Hasta revocación'};
  const spoken=new Set(),acknowledged=new Set();
  const task=()=>Axx.chatWorkspace.active?.id||null;
@@ -216,18 +218,53 @@
   if(capability?.workspace_root&&!$('anticipation-grant-root').value&&!$('anticipation-grant-root').readOnly)$('anticipation-grant-root').value=capability.workspace_root;
   const selected=new Set([...host.querySelectorAll('input:checked:not(:disabled)')].map(input=>input.value));$('anticipation-mission-parameters').textContent=JSON.stringify(Object.fromEntries(commands.filter(command=>selected.has(command.command_id)).map(command=>[command.command_id,command.parameters||{}])),null,2);renderMissionGrantPlans();
  }
+ const sourceScope=()=>JSON.stringify([task(),project()]);
+ const providerAvailable=source=>['window','clipboard'].includes(source)&&snapshot?.capabilities?.[source==='window'?'screen':source]===true&&snapshot.capabilities.provider_context?.[source]===true;
+ function clearSourceProvider(){const input=$('anticipation-target-provider');input.checked=false;delete input.dataset.consent;}
+ function clearTargetWindows(){++sourceRevision;targetWindows=[];$('anticipation-target-window').replaceChildren(new Option('Busca y selecciona una ventana',''));$('anticipation-target-window-status').textContent='';clearSourceProvider();}
+ function syncSourceScope(){const selected=sourceScope();if(sourceContext===selected)return;sourceContext=selected;$('anticipation-target-form').reset();$('anticipation-target-project').value=project();clearTargetWindows();syncTargetSource();}
+ function syncTargetSource(){
+  const source=$('anticipation-target-source').value,folder=source==='folder',application=source==='application',windowSource=source==='window';
+  $('anticipation-target-folder').hidden=!folder;$('anticipation-target-app').hidden=!application;$('anticipation-target-window-fields').hidden=!windowSource;
+  $('anticipation-target-root').disabled=!folder;$('anticipation-target-root').required=folder;$('anticipation-target-process').disabled=!application;$('anticipation-target-process').required=application;
+  $('anticipation-target-window').disabled=!windowSource;$('anticipation-target-window').required=windowSource;$('anticipation-target-find-windows').disabled=mutation||snapshot?.capabilities?.screen!==true;
+  const available=providerAvailable(source);$('anticipation-target-provider').disabled=!available;if(!available)clearSourceProvider();
+  $('anticipation-target-provider-status').textContent=available?'Puede enviar texto o imagen transitorios de esta fuente al proveedor del modelo configurado. Observar o conservar metadatos no autoriza ese envío.':'Envío al proveedor no disponible para esta fuente.';
+ }
+ async function sourceRead(commandId,inputs,scope){
+  const library=Axx.commandLibrary;if(!library?.prepareRequest||library.busy||library.operation)throw Error('Revisa o cancela el comando pendiente antes de consultar ventanas.');
+  if(scope!==sourceScope())throw Error('Cambió el chat o proyecto; selecciona de nuevo la fuente.');
+  const previous=library.lastOperation?.operation_id;
+  await library.prepareRequest('/axx-api/commands/prepare',{command_id:commandId,inputs,source:'text',conversation_id:task()});
+  const result=library.lastOperation;
+  if(scope!==sourceScope()||result?.operation_id===previous||result?.command_id!==commandId||result?.conversation_id!==task())throw Error('La consulta no corresponde al chat y proyecto actuales.');
+  if(result.state!=='succeeded'||result.postconditions_passed!==true)throw Error(result.state==='awaiting_approval'?'Aprueba la consulta pendiente en el chat y vuelve a preparar la fuente.':'No se recibió una observación verificada de la ventana.');
+  return result.output;
+ }
+ async function findSourceWindows(){
+  if($('anticipation-target-source').value!=='window'||snapshot?.capabilities?.screen!==true)throw Error('La observación de ventanas no está disponible.');
+  clearTargetWindows();const token=sourceRevision,scope=sourceScope(),output=await sourceRead('axx.desktop.list_windows',{},scope);
+  if(token!==sourceRevision||$('anticipation-target-source').value!=='window')throw Error('Cambió la selección; busca de nuevo las ventanas.');
+  targetWindows=(Array.isArray(output?.windows)?output.windows:[]).filter(row=>Number.isSafeInteger(row.window_id)&&row.window_id>0&&Number.isSafeInteger(row.pid)&&row.pid>0&&row.pid<=4294967295&&typeof row.title==='string').slice(0,128);
+  for(const row of targetWindows)$('anticipation-target-window').add(new Option(row.title.slice(0,2048)+' · PID '+row.pid,String(row.window_id)));
+  $('anticipation-target-window-status').textContent=targetWindows.length?'Selecciona una ventana. Al guardar se comprobará de nuevo su identidad, sin cambiar el foco.':'No se recibieron ventanas disponibles.';
+ }
+ function sourceMetadata(resource){const result={};for(const key of ['path','size','identity_hash','process_name','window_id','pid','foreground','sequence','format','bytes','width','height','text_length','content_length']){const value=resource?.[key];if(['string','number','boolean'].includes(typeof value))result[key]=typeof value==='string'?value.slice(0,4096):value;}return result;}
  function renderSources(){
-  for(const source of ['folders','applications'])$('anticipation-'+source).checked=snapshot.sources?.[source]===true;
-  const targets=snapshot.observation_targets||[],host=$('anticipation-targets'),key=JSON.stringify([task(),targets,mutation]);
+  syncSourceScope();
+  for(const source of ['folders','applications','screen','clipboard']){const input=$('anticipation-'+source);input.checked=snapshot.sources?.[source]===true;if(['screen','clipboard'].includes(source))input.disabled=snapshot.capabilities?.[source]!==true;}
+  for(const source of ['window','clipboard'])$('anticipation-target-source').querySelector('option[value="'+source+'"]').disabled=snapshot.capabilities?.[source==='window'?'screen':source]!==true;
+  syncTargetSource();
+  const targets=snapshot.observation_targets||[],host=$('anticipation-targets'),key=JSON.stringify([task(),targets,snapshot.capabilities?.provider_context,snapshot.capabilities?.screen,snapshot.capabilities?.clipboard,mutation]);
   if(host.dataset.renderKey!==key){
    host.dataset.renderKey=key;host.replaceChildren();
    for(const target of targets.filter(t=>t.task_id===task())){
-    const article=document.createElement('article'),description=document.createElement('p');description.textContent=(target.source==='folder'?'Carpeta: '+target.root:'Aplicación: '+target.process_name)+' · Proyecto: '+(target.project_id||'Personal')+' · Dispositivo: '+target.device_id;
-    const observe=document.createElement('input'),retain=document.createElement('input'),observeLabel=document.createElement('label'),retainLabel=document.createElement('label');observe.type=retain.type='checkbox';observe.checked=target.observe;retain.checked=target.retain;
-    observeLabel.append(observe,document.createTextNode(' Observar'));retainLabel.append(retain,document.createTextNode(' Conservar metadatos'));
-    const update=()=>void run(()=>configure({observation_targets:targets.map(t=>t.id===target.id?{...t,observe:observe.checked,retain:retain.checked}:t)}));observe.onchange=retain.onchange=update;
-    const expiry=document.createElement('p');expiry.textContent='Vigencia: '+(target.expires_at===null?'Hasta revocación':new Date(target.expires_at*1000).toLocaleString())+' · Envío a proveedores deshabilitado';
-    article.append(description,observeLabel,retainLabel,expiry,button('Quitar fuente',()=>configure({observation_targets:targets.filter(t=>t.id!==target.id)})));host.append(article);
+    const article=document.createElement('article'),description=document.createElement('p');description.textContent=({folder:'Carpeta: '+target.root,application:'Aplicación: '+target.process_name,window:'Ventana seleccionada · HWND '+target.window_id+' · PID '+target.pid,clipboard:'Portapapeles'})[target.source]+' · Proyecto: '+(target.project_id||'Personal')+' · Dispositivo: '+target.device_id;
+    const observe=document.createElement('input'),retain=document.createElement('input'),provider=document.createElement('input'),observeLabel=document.createElement('label'),retainLabel=document.createElement('label'),providerLabel=document.createElement('label');observe.type=retain.type=provider.type='checkbox';observe.checked=target.observe;retain.checked=target.retain;provider.checked=target.send_to_provider===true;provider.disabled=!providerAvailable(target.source)&&!provider.checked;
+    observeLabel.append(observe,document.createTextNode(' Observar'));retainLabel.append(retain,document.createTextNode(' Conservar metadatos de actividad'));providerLabel.append(provider,document.createTextNode(' Permitir contenido transitorio con el modelo configurado'));
+    const update=event=>{if(event.target===provider&&provider.checked&&(!event.isTrusted||!providerAvailable(target.source))){provider.checked=false;return;}void run(()=>configure({observation_targets:targets.map(t=>t.id===target.id?{...t,observe:observe.checked,retain:retain.checked,send_to_provider:provider.checked}:t)}));};observe.onchange=retain.onchange=provider.onchange=update;
+    const expiry=document.createElement('p');expiry.textContent='Vigencia: '+(target.expires_at===null?'Hasta revocación':new Date(target.expires_at*1000).toLocaleString())+' · '+(target.send_to_provider===true?'Contenido transitorio autorizado para el modelo configurado':'Sin envío al proveedor');
+    article.append(description,observeLabel,retainLabel,providerLabel,expiry,button('Quitar fuente',()=>configure({observation_targets:targets.filter(t=>t.id!==target.id)})));host.append(article);
    }
   }
   const runtime=(snapshot.source_runtime||[]).filter(r=>targets.some(t=>t.id===r.id&&t.task_id===task()));
@@ -235,7 +272,7 @@
   const observations=$('anticipation-source-observations');observations.replaceChildren();
   for(const item of snapshot.source_observations||[]){
    if(item.task_id!==task())continue;
-   const p=document.createElement('p');p.textContent=new Date(item.observed_at*1000).toLocaleString()+' · '+item.type+' · '+JSON.stringify(item.resource)+' · '+(item.retained?'Metadatos conservados':'Metadatos transitorios');p.style.overflowWrap='anywhere';observations.append(p);
+   const p=document.createElement('p');p.textContent=new Date(item.observed_at*1000).toLocaleString()+' · '+item.type+' · '+JSON.stringify(sourceMetadata(item.resource))+' · '+(item.retained?'Metadatos conservados':'Metadatos transitorios');p.style.overflowWrap='anywhere';observations.append(p);
   }
   const verifiers=$('anticipation-verifiers');verifiers.replaceChildren();
   for(const [format,verifier] of Object.entries(snapshot.capabilities?.verifiers||{})){
@@ -264,7 +301,7 @@
    form.dataset.dirty='false';
   }
   $('anticipation-events').checked=snapshot.sources?.events===true;
-  $('anticipation-sources').textContent='Fuentes habilitadas: '+(['events','folders','applications'].filter(key=>snapshot.sources?.[key]).map(key=>({events:'eventos autorizados',folders:'carpetas seleccionadas',applications:'aplicaciones seleccionadas'})[key]).join(', ')||'ninguna')+(snapshot.observation_paused?' · Observación pausada.':'.');
+  $('anticipation-sources').textContent='Fuentes habilitadas: '+(['events','folders','applications','screen','clipboard'].filter(key=>snapshot.sources?.[key]).map(key=>({events:'eventos autorizados',folders:'carpetas seleccionadas',applications:'aplicaciones seleccionadas',screen:'ventanas seleccionadas',clipboard:'portapapeles'})[key]).join(', ')||'ninguna')+(snapshot.observation_paused?' · Observación pausada.':'.');
   renderSources();
   renderPermissions();
   const usage=snapshot.resource_usage,memory=usage?.memory,date=at=>Number.isFinite(at)?new Date(at*1000).toLocaleString():'Fecha no informada';const resourceStatus=[memory?.known===true?'RSS observado del backend e hijos propios: '+memory.rss_bytes+' bytes · '+date(memory.observed_at):'RSS del backend e hijos propios: medición no disponible.'];for(const root of usage?.storage||[])resourceStatus.push(root.root+' · '+(root.known===true?'Último uso observado: '+root.used_bytes+' bytes · '+date(root.observed_at)+' · Reservado: '+root.reserved_bytes+' bytes':'Uso no disponible'));$('anticipation-resource-status').textContent=resourceStatus.join('\n');
@@ -334,7 +371,7 @@
   lib.renderOperation(plan);Axx.companion.openChat();
  }
  async function refresh(fill=false){
-  const selected=task();if(selected!==origin){origin=selected;snapshot=null;hide();for(const id of ['anticipation-grants','anticipation-history','anticipation-missions','anticipation-targets','anticipation-source-observations'])$(id).replaceChildren();for(const id of ['anticipation-grant-form','anticipation-mission-grant-form'])$(id).reset();delete $('anticipation-mission-grant-form').dataset.rootDirty;$('anticipation-mission-commands').replaceChildren();$('anticipation-mission-commands').dataset.key='';$('anticipation-grant-source').replaceChildren(new Option('Carpeta del espacio de ensayo',''));$('anticipation-grant-source').dataset.key='';$('anticipation-grant-root').readOnly=false;$('anticipation-grant-events').disabled=false;$('anticipation-mission-grant-plan').replaceChildren(new Option('Selecciona una misión',''));delete $('anticipation-mission-grant-plan').dataset.planHash;$('anticipation-mission-plan-hash').textContent='';missionPlans=[];missionProject='';$('anticipation-targets').dataset.renderKey='';$('anticipation-source-runtime').textContent='';$('anticipation-mission-status').textContent='';++missionRevision;missionsLoading=false;missionKey='';$('anticipation-status').textContent='Cargando el ámbito de este chat…';++revision;loading=false;}
+  const selected=task();syncSourceScope();if(selected!==origin){origin=selected;snapshot=null;hide();for(const id of ['anticipation-grants','anticipation-history','anticipation-missions','anticipation-targets','anticipation-source-observations'])$(id).replaceChildren();for(const id of ['anticipation-grant-form','anticipation-mission-grant-form'])$(id).reset();delete $('anticipation-mission-grant-form').dataset.rootDirty;$('anticipation-mission-commands').replaceChildren();$('anticipation-mission-commands').dataset.key='';$('anticipation-grant-source').replaceChildren(new Option('Carpeta del espacio de ensayo',''));$('anticipation-grant-source').dataset.key='';$('anticipation-grant-root').readOnly=false;$('anticipation-grant-events').disabled=false;$('anticipation-mission-grant-plan').replaceChildren(new Option('Selecciona una misión',''));delete $('anticipation-mission-grant-plan').dataset.planHash;$('anticipation-mission-plan-hash').textContent='';missionPlans=[];missionProject='';$('anticipation-targets').dataset.renderKey='';$('anticipation-source-runtime').textContent='';$('anticipation-mission-status').textContent='';++missionRevision;missionsLoading=false;missionKey='';$('anticipation-status').textContent='Cargando el ámbito de este chat…';++revision;loading=false;}
   if(loading&&!fill)return;
   const token=++revision;loading=true;
   try{
@@ -344,7 +381,7 @@
   }catch(e){if(token===revision){snapshot=null;hide();notice(e);}}
   finally{if(token===revision)loading=false;}
  }
- async function stop(id){stopped=true;hide();++revision;loading=false;await api('cancel',id?{suggestion_id:id}:{});await refresh();}
+ async function stop(id){stopped=true;hide();++sourceRevision;clearSourceProvider();++revision;loading=false;await api('cancel',id?{suggestion_id:id}:{});await refresh();}
  function layout(g,size,add){
   renderCard();if(card.hidden)return;
   const width=Math.min(Math.round(280*(Axx.interfaceTheme?.widgetScale||1)),g.workWidth-24);
@@ -359,15 +396,29 @@
  $('anticipation-pause').onclick=()=>void run(()=>configure({paused:!snapshot?.paused}));
  $('anticipation-observation').onclick=()=>void run(()=>configure({observation_paused:!snapshot?.observation_paused}));
  $('anticipation-events').onchange=()=>void run(()=>configure({sources:{events:$('anticipation-events').checked}}));
- for(const source of ['folders','applications'])$('anticipation-'+source).onchange=()=>void run(()=>configure({sources:{[source]:$('anticipation-'+source).checked}}));
- $('anticipation-target-source').onchange=()=>{const application=$('anticipation-target-source').value==='application';$('anticipation-target-folder').hidden=application;$('anticipation-target-app').hidden=!application;$('anticipation-target-root').disabled=application;$('anticipation-target-root').required=!application;$('anticipation-target-process').disabled=!application;$('anticipation-target-process').required=application;};
+ for(const source of ['folders','applications','screen','clipboard'])$('anticipation-'+source).onchange=()=>void run(()=>{if(['screen','clipboard'].includes(source)&&snapshot?.capabilities?.[source]!==true)throw Error('El adaptador local de esta fuente no está disponible.');return configure({sources:{[source]:$('anticipation-'+source).checked}});});
+ $('anticipation-target-source').onchange=()=>{clearTargetWindows();syncTargetSource();};
+ $('anticipation-target-window').onchange=()=>{++sourceRevision;clearSourceProvider();};
+ $('anticipation-target-find-windows').onclick=()=>void run(findSourceWindows);
+ $('anticipation-target-form').oninput=event=>{++sourceRevision;const input=$('anticipation-target-provider');if(event.target===input){if(event.isTrusted&&input.checked&&providerAvailable($('anticipation-target-source').value))input.dataset.consent=sourceScope();else delete input.dataset.consent;}else clearSourceProvider();};
+ const sourceDraft=()=>JSON.stringify([...$('anticipation-target-form').querySelectorAll('input,select')].map(field=>[field.id,field.value,field.type==='checkbox'?field.checked:null]));
  $('anticipation-target-form').onsubmit=e=>{e.preventDefault();void run(async()=>{
   if(!task())throw Error('Selecciona el chat que autoriza esta fuente.');
-  const source=$('anticipation-target-source').value,expiry=$('anticipation-target-expiry').value,targets=snapshot?.observation_targets||[];
+  const source=$('anticipation-target-source').value,expiry=$('anticipation-target-expiry').value,targets=snapshot?.observation_targets||[],scope=sourceScope();
   if(targets.length>=32)throw Error('Se permiten hasta 32 fuentes seleccionadas.');
-  const target={id:Axx.newId(),source,task_id:task(),project_id:$('anticipation-target-project').value.trim(),application_id:$('anticipation-target-application').value.trim(),device_id:$('anticipation-target-device').value.trim(),observe:$('anticipation-target-observe').checked,retain:$('anticipation-target-retain').checked,send_to_provider:false,expires_at:expiry==='persistent'?null:Date.now()/1000+Number(expiry),...(source==='folder'?{root:$('anticipation-target-root').value.trim()}:{process_name:$('anticipation-target-process').value.trim()})};
+  if(['window','clipboard'].includes(source)&&snapshot?.capabilities?.[source==='window'?'screen':source]!==true)throw Error('El adaptador local de esta fuente no está disponible.');
+  const target={id:Axx.newId(),source,task_id:task(),project_id:$('anticipation-target-project').value.trim(),application_id:$('anticipation-target-application').value.trim(),device_id:$('anticipation-target-device').value.trim(),observe:$('anticipation-target-observe').checked,retain:$('anticipation-target-retain').checked,send_to_provider:providerAvailable(source)&&$('anticipation-target-provider').checked&&$('anticipation-target-provider').dataset.consent===scope,expires_at:expiry==='persistent'?null:Date.now()/1000+Number(expiry),...(source==='folder'?{root:$('anticipation-target-root').value.trim()}:source==='application'?{process_name:$('anticipation-target-process').value.trim()}:{})};
   if(source==='application'&&!/^[A-Za-z0-9_. -]{1,76}\.exe$/i.test(target.process_name))throw Error('Indica el nombre exacto de un proceso .exe.');
+  if(source==='window'){
+   const selected=targetWindows.find(row=>String(row.window_id)===$('anticipation-target-window').value),token=sourceRevision,draft=sourceDraft();if(!selected)throw Error('Busca y selecciona una ventana disponible.');
+   const output=await sourceRead('axx.desktop.window.observe',{window_id:selected.window_id,pid:selected.pid},scope),identity=output?.observation;
+   if(token!==sourceRevision||scope!==sourceScope()||draft!==sourceDraft())throw Error('Cambió la selección durante la observación; revisa la fuente antes de guardarla.');
+   if(output?.window_id!==selected.window_id||output?.pid!==selected.pid||identity?.window_id!==selected.window_id||identity?.pid!==selected.pid||typeof identity.process_started!=='string'||!/^\d{1,32}$/.test(identity.process_started))throw Error('La identidad de la ventana cambió o no pudo comprobarse. Busca de nuevo las ventanas.');
+   Object.assign(target,{window_id:selected.window_id,pid:selected.pid,process_started:identity.process_started});
+  }
+  if(scope!==sourceScope())throw Error('Cambió el chat o proyecto; selecciona de nuevo la fuente.');
   await configure({observation_targets:[...targets,target]});
+  clearSourceProvider();
  });};
  $('anticipation-mission').addEventListener('toggle',()=>{if($('anticipation-mission').open)void loadMissions();});
  $('anticipation-mission-permission').addEventListener('toggle',()=>{if($('anticipation-mission-permission').open)void loadMissions();});
