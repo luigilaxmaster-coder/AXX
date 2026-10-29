@@ -29,9 +29,32 @@
         #subpanel-api .model-task-row small{font-size:11px;color:var(--secondary,var(--quiet))}
         #subpanel-api .model-task-row button{flex:none}
         #subpanel-api .provider-actions{position:static}
+        #view-ai:has(#tab-mode-api.active) .ai-current{display:none}
+        #subpanel-api .provider-overview{padding:14px;border:1px solid var(--line);border-radius:14px;background:var(--surface-subtle,#a9c9ef0b);display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 12px;align-items:center}
+        #subpanel-api .provider-overview-summary{grid-row:1/3;min-width:0}
+        #subpanel-api .provider-overview>.quick-row{justify-self:end}
+        #subpanel-api #provider-active-model{font-size:16px;line-height:1.3;overflow-wrap:anywhere}
+        #subpanel-api #provider-active-state{justify-self:end;font-size:11px;padding:5px 9px;border:1px solid var(--line);border-radius:20px}
+        #subpanel-api #provider-active-state[data-verified=true]{color:var(--accent);background:color-mix(in srgb,var(--accent) 12%,transparent)}
+        #subpanel-api .provider-overview p{margin:0;line-height:1.5;overflow-wrap:anywhere}
+        #subpanel-api #provider-probe-result:empty{display:none}
+        #subpanel-api #provider-probe-result{grid-column:1/-1;padding:12px;border-radius:10px;background:var(--surface);font-size:12px}
+        #subpanel-api #provider-advanced{border:1px solid var(--line);border-radius:16px;overflow:hidden}
+        #subpanel-api #provider-advanced>summary{padding:16px 18px;font-weight:600;cursor:pointer}
+        #subpanel-api .provider-fields{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+        #subpanel-api .provider-fields .setting{min-width:0;display:grid;gap:6px;border:0;padding:0}
+        #subpanel-api .provider-fields .setting:has(#provider-url),#subpanel-api .provider-fields .setting:has(#provider-key){grid-column:1/-1}
+        #subpanel-api .provider-fields :is(input,select){width:100%;min-width:0}
+        @media(max-width:480px){#subpanel-api .provider-fields{grid-template-columns:1fr}}
         @media(max-width:640px){#subpanel-api .model-task-controls{grid-template-columns:1fr}#subpanel-api #model-task-check{width:100%}#subpanel-api .model-task-row{align-items:stretch;flex-direction:column}#subpanel-api .model-task-row button{width:100%}}
       </style>
-      <div class="ai-section-head"><span>03</span><div><h3>Otros modelos</h3><p>Usa una ruta automática o configura una conexión personal.</p></div></div>
+      <div class="ai-section-head"><span>03</span><div><h3>Modelos por API</h3><p>Conecta, elige un modelo y comprueba una respuesta.</p></div></div>
+      <section class="provider-overview" aria-label="Estado del modelo seleccionado">
+        <div class="provider-overview-summary"><strong id="provider-active-model">Sin modelo seleccionado</strong><p id="provider-active-route" class="micro-copy"></p></div>
+        <span id="provider-active-state" role="status">Sin comprobar</span>
+        <div class="quick-row"><button id="provider-probe" type="button">Probar respuesta</button></div>
+        <p id="provider-probe-result" role="status" aria-live="polite"></p>
+      </section>
       <section class="setup-card ai-local-card">
       <label class="setting">Selección de modelos<select id="provider-selection-mode"><option value="automatic_free">Automático gratis · Sin claves</option><option value="manual">Manual · conexión seleccionada</option></select></label>
       <p class="micro-copy">Axx prueba rutas gratuitas. Si ninguna responde, te lo indica y conserva la tarea.</p>
@@ -49,7 +72,9 @@
         <button id="model-candidates-refresh" type="button">Actualizar catálogo de candidatos</button><div id="model-candidates-list"></div>
         <p id="model-candidates-status" role="status"></p>
       </details>
-      <details class="ai-advanced" id="provider-advanced"><summary>Conexiones personales y ajustes avanzados</summary><div class="ai-advanced-body">
+      <details class="ai-advanced" id="provider-advanced" open><summary>Conexión y modelo</summary><div class="ai-advanced-body">
+      <p class="micro-copy">1. Elige el proveedor y su dirección. 2. Consulta o escribe el ID del modelo. 3. Guarda y prueba la respuesta.</p>
+      <div class="provider-fields">
       <label class="setting">Conexiones guardadas<select id="provider-saved"><option value="">Nueva conexión</option></select></label>
       <label class="setting">Plataforma<select id="provider-kind">
         <option value="freellmapi">FreeLLMAPI · gateway de modelos</option>
@@ -61,7 +86,8 @@
       <label class="setting">Nombre de la conexión<input class="field" id="provider-name" maxlength="80" placeholder="Por ejemplo: Ollama escritorio" /></label>
       <label class="setting">URL o IP del servidor<input class="field" id="provider-url" spellcheck="false" placeholder="http://192.168.1.50:11434/v1" /></label>
       <label class="setting" id="provider-protocol-row" hidden>Protocolo<select id="provider-protocol"><option value="openai">Compatible con OpenAI</option><option value="anthropic">Anthropic Messages</option></select></label>
-      <label class="setting">Clave de API personal — opcional<input class="field" id="provider-key" type="password" autocomplete="off" spellcheck="false" placeholder="No se necesita en el modo sin claves" /></label>
+      <label class="setting">Clave de API personal<input class="field" id="provider-key" type="password" autocomplete="off" spellcheck="false" placeholder="Vacío conserva la clave guardada" /></label>
+      </div>
       <details id="gateway-controls"><summary>FreeLLMAPI: conexión y perfiles</summary>
         <p class="micro-copy">Axx puede administrar la instalación local fijada o conectarse a una instancia externa por su URL. Solo cierra los procesos que inició.</p>
         <div class="quick-row"><button id="gateway-start" type="button">Iniciar gateway local</button><button id="gateway-status" type="button">Comprobar conexión</button><button id="gateway-stop" type="button">Detener gateway de Axx</button></div>
@@ -91,6 +117,7 @@
       <p class="micro-copy">Las APIs pueden cobrar por uso. Guardar o consultar el catálogo no envía mensajes. Las claves se protegen en este usuario de Windows.</p>
       <div class="quick-row provider-actions"><button class="primary" id="provider-save" type="button">Guardar y seleccionar</button><button id="provider-refresh" type="button">Actualizar conexiones</button></div>
       <p id="provider-status" class="tool-feedback" role="status"></p></div></details>`;
+    panel.querySelector('.provider-overview').after($('provider-advanced'));
     const presets = {
       ollama: 'http://127.0.0.1:11434/v1', compat: 'http://127.0.0.1:1234/v1',
       ollama_cloud: 'https://ollama.com/v1',
@@ -185,6 +212,39 @@
       }
     };
     const status = text => { $('provider-status').textContent = text; };
+    const renderConnection = () => {
+      const c=Axx.companion,p=c.data.prefs,automatic=p.selection_mode==='automatic_free';
+      const saved=entries.find(entry=>entry.name===p.apiConnection&&entry.model===p.model);
+      const selected=p.provider==='bridge'&&!automatic&&saved;
+      const verified=!!selected&&c.brain.connected&&c.brain.inferenceVerified&&c.brain.signature===c.brain.signatureOf(p);
+      $('provider-active-model').textContent=automatic?'Selección automática':p.model||'Sin modelo seleccionado';
+      $('provider-active-route').textContent=automatic?'Las rutas gratuitas se comprueban por tarea.':p.provider==='chatgpt'?'ChatGPT · suscripción':selected?saved.name:'Guarda y selecciona una conexión para usarla.';
+      $('provider-active-state').textContent=verified?'Respuesta comprobada':selected?'Respuesta por comprobar':'Sin API seleccionada';
+      $('provider-active-state').dataset.verified=String(verified);
+      $('provider-probe').disabled=busy||!selected||!saved.enabled;
+    };
+    const syncProvider=Axx.companion.syncProvider.bind(Axx.companion);
+    Axx.companion.syncProvider=(...args)=>{const result=syncProvider(...args);renderConnection();return result;};
+    $('provider-probe').onclick=()=>action(async()=>{
+      const c=Axx.companion,p={...c.data.prefs},signature=c.brain.signatureOf(p);
+      if(p.provider!=='bridge'||p.selection_mode==='automatic_free'||!p.apiConnection||!p.model)throw Error('Selecciona primero una conexión personal guardada.');
+      const ctrl=new AbortController(),timer=setTimeout(()=>ctrl.abort(),18000),started=performance.now();
+      c.brain.inferenceVerified=false;
+      $('provider-probe-result').textContent='Esperando una respuesta del modelo seleccionado…';
+      try{
+        const result=await Axx.backendRequest('POST','/axx-api/chat',{model:p.model,provider_name:p.apiConnection,selection_mode:'manual',
+          request_id:Axx.newId(),conversation_id:'connection-test-'+Axx.newId(),deadline_ms:15000,
+          messages:[{role:'user',content:'Responde exactamente AXX_API_OK.'}],temperature:0,max_tokens:64},ctrl.signal);
+        const text=result.choices?.[0]?.message?.content,route=result.axx_router;
+        if(typeof text!=='string'||!text.trim())throw Error('El proveedor no devolvió texto.');
+        if(route?.provider!==p.apiConnection||(route.configured_model||route.model)!==p.model)throw Error('La respuesta no confirmó la ruta seleccionada.');
+        if(signature!==c.brain.signatureOf(c.data.prefs))throw Error('La selección cambió durante la prueba; vuelve a comprobarla.');
+        if(c.brain.connected&&c.brain.signature===signature)c.brain.inferenceVerified=true;
+        $('provider-probe-result').textContent=`Respuesta recibida · ${((performance.now()-started)/1000).toFixed(2)} s · ${p.apiConnection}\n${text.trim().slice(0,160)}`;
+        renderConnection();
+      }catch(error){$('provider-probe-result').textContent='No se comprobó la respuesta: '+(error.message||String(error));throw error;}
+      finally{clearTimeout(timer);}
+    });
     const payload = () => ({ provider: $('provider-kind').value, name: $('provider-name').value.trim(),
       base_url: $('provider-url').value.trim(), model: ($('provider-model').value === '__manual__' ? $('provider-model-manual').value : $('provider-model').value).trim(),
       protocol: $('provider-protocol').value, api_key: $('provider-key').value.trim(),
@@ -286,7 +346,7 @@
       const controls = [...$('view-ai').querySelectorAll('button,input,select')].map(control => [control, control.disabled]);
       controls.forEach(([control]) => control.disabled = true);
       try { await fn(); } catch(e) { const message=e.message || String(e); status(message); if (!$('subpanel-local').hidden) $('ollama-quick-status').textContent=message; }
-      finally { busy = false; if (clearKey) { $('provider-key').value = ''; $('gateway-dashboard').value = ''; } controls.forEach(([control, disabled]) => control.disabled = disabled); }
+      finally { busy = false; if (clearKey) { $('provider-key').value = ''; $('gateway-dashboard').value = ''; } controls.forEach(([control, disabled]) => control.disabled = disabled); renderConnection(); }
     };
     const platform = () => {
       $('provider-url').value = presets[$('provider-kind').value];

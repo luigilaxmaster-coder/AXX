@@ -131,14 +131,19 @@
  async function send(raw,source='text'){
   raw=String(raw||'').trim();
   if(!raw||!active()||!sameChat()||owned)return;
-  if(!Axx.chatWorkspace.ready||c.pending||c.externalBusy||Axx.commandLibrary?.busy||Axx.commandLibrary?.operation){notice='Hay una tarea pendiente. Revisa su resultado antes de enviar otra.';refresh();return;}
+  if(!Axx.chatWorkspace.ready||c.pending||c.externalBusy||Axx.commandLibrary?.busy||Axx.commandLibrary?.operation){
+   before=c.data.messages.at(-1)?.id;lastText='';phase='blocked';notice='Hay una tarea pendiente. Revisa su resultado antes de enviar otra.';reveal('quick-reply',true);refresh();return;
+  }
+  const keepFocus=['quick-input','quick-send'].includes(document.activeElement?.id);
   capture.stop();c.stopSpeech();const serial=++revision;owned=true;before=c.data.messages.at(-1)?.id;lastText='';phase='thinking';notice='Preparando respuesta…';
   $('quick-input').value='';reveal('quick-reply',true);c._forceVoiceReplyOnce=true;refresh();
   try{await c.send(raw,{source});}
   catch(error){if(serial===revision){notice=error.message||String(error);phase='error';}}
   finally{if(serial===revision){owned=false;c._forceVoiceReplyOnce=false;
    if(!lastText&&phase!=='error'){phase='idle';notice=Axx.commandLibrary?.operation?'La acción requiere revisión. Pulsa Revisar acción.':'No se recibió una respuesta. Comprueba el estado antes de repetir la acción.';}
-   refresh();}}
+   refresh();
+   if(keepFocus&&active()&&sameChat()&&document.hasFocus()&&[document.body,$('quick-send')].includes(document.activeElement))$('quick-input').focus({preventScroll:true});
+  }}
  }
  function refresh(){
   if(!active())return;
@@ -151,16 +156,16 @@
    reveal('quick-reply',true);
   }
   if(speaking)phase='speaking';
-  if(phase==='error'&&notice)reveal('quick-reply',true);
+  if(['error','blocked'].includes(phase)&&notice)reveal('quick-reply',true);
   const next=[capture.state,reader?.state,lastText,last?.status,notice,phase,owned,!!Axx.commandLibrary?.operation];
   if(renderState&&next.every((value,i)=>value===renderState[i]))return;renderState=next;
-  const text=lastText||notice||'Preparando respuesta…';if($('quick-reply').dataset.quickVisible==='true'&&$('quick-reply-text').textContent!==text)$('quick-reply-text').textContent=text;
-  $('quick-reply').dataset.phase=phase;$('quick-phase').textContent=speaking?'Hablando':reader?.state==='paused'?'Voz en pausa':reader?.state==='starting'?'Preparando voz…':phase==='thinking'?'Pensando…':phase==='error'?'Revisar':'Respuesta';
+  const text=(['error','blocked'].includes(phase)&&notice?notice:lastText||notice)||'Preparando respuesta…';if($('quick-reply').dataset.quickVisible==='true'&&$('quick-reply-text').textContent!==text)$('quick-reply-text').textContent=text;
+  $('quick-reply').dataset.phase=phase;$('quick-phase').textContent=speaking?'Hablando':reader?.state==='paused'?'Voz en pausa':reader?.state==='starting'?'Preparando voz…':phase==='thinking'?'Pensando…':['error','blocked'].includes(phase)?'Revisar':'Respuesta';
   $('quick-compose').dataset.phase=listening?'listening':starting||transcribing?'preparing':'idle';
   const message=listening?'Te escucho · pausa para enviar':starting?'Preparando micrófono…':transcribing?'Transcribiendo…':owned?'Preparando respuesta…':notice||'Intro para enviar · Esc para cerrar';
   if($('quick-state').textContent!==message)$('quick-state').textContent=message;
   $('quick-talk').setAttribute('aria-pressed',String(listening||starting));$('quick-talk').setAttribute('aria-label',listening?'Terminar grabación':'Hablar con Axx');
-  $('quick-level').hidden=!listening;$('quick-input').hidden=listening;$('quick-input').disabled=owned||listening||starting||transcribing;$('quick-send').disabled=owned||starting||transcribing;
+  $('quick-level').hidden=!listening;$('quick-input').hidden=listening;$('quick-input').readOnly=owned;$('quick-input').disabled=listening||starting||transcribing;$('quick-send').disabled=owned||starting||transcribing;
   $('quick-send').setAttribute('aria-label',listening?'Terminar grabación':'Enviar mensaje rápido');
   if($('quick-send').dataset.listening!==String(listening)){$('quick-send').dataset.listening=String(listening);$('quick-send').innerHTML=listening?icon('<path d="m5 12 4 4L19 6"/>'):icon('<path d="M12 20V4m-6 6 6-6 6 6"/>');}
   $('quick-approval').hidden=!Axx.commandLibrary?.operation;

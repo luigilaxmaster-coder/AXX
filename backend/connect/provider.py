@@ -425,6 +425,7 @@ class CodexProvider:
             rid = self.next_id
             result_queue = queue.Queue(maxsize=1)
             self.pending[rid] = result_queue
+            process = self.process
         finally:
             self.lock.release()
         try:
@@ -435,12 +436,14 @@ class CodexProvider:
                         timeout=max(0, deadline-time.monotonic()), admission=admission, admitted=admitted)
             remaining = min(deadline-time.monotonic(), self._remaining(timeout))
             if remaining <= 0:
+                if process is not None: self._transport_failed(process, 'RPC_TIMEOUT', time.monotonic())
                 raise ProviderError('RPC_TIMEOUT', 'El plazo expiró después de escribir ' + method)
             try:
                 response = result_queue.get(timeout=remaining)
             except queue.Empty as exc:
                 deadline = getattr(self.rpc_context, 'deadline', None)
                 code = 'DEADLINE_EXCEEDED' if deadline is not None and time.monotonic() >= deadline else 'RPC_TIMEOUT'
+                if process is not None: self._transport_failed(process, code, time.monotonic())
                 raise ProviderError(code, 'Codex no respondió a ' + method) from exc
             if 'error' in response:
                 error = response['error']

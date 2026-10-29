@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 import tempfile
 import threading
@@ -36,6 +37,121 @@ class ActionLearningTests(unittest.TestCase):
         self.assertEqual(plan['state'],'awaiting_approval')
         with self.assertRaises(ValueError):
             self.learning.propose('prepara un diagnóstico', operation_id='chat-plan', conversation_id='chat-b')
+
+    def test_api_plan_without_chat_uses_valid_stable_inference_identity(self):
+        original=self.model.route;requests=[]
+        def checked(request):
+            requests.append(request)
+            self.assertIsInstance(request['conversation_id'],str)
+            self.assertTrue(1<=len(request['conversation_id'])<=128)
+            return original(request)
+        self.model.route=checked
+        plan=self.learning.propose('prepara un diagnóstico',operation_id='api-plan')
+        self.assertEqual(plan['state'],'awaiting_approval')
+        self.assertEqual(requests[0]['conversation_id'],'api-plan')
+        self.assertEqual(self.executor.list_operations(),[])
+
+    def test_model_receives_ordered_clauses_and_cannot_drop_the_suffix(self):
+        seen=[];original=self.model.route
+        def capture(request):
+            seen.append(request);return original(request)
+        self.model.route=capture
+        plan=self.learning.propose('abre YouTube y busca Faint y abre calculadora')
+        self.assertEqual(plan['state'],'needs_input')
+        user=json.loads(seen[0]['messages'][-1]['content'])
+        self.assertEqual(user['requested_steps'],['abre YouTube','busca Faint','abre calculadora'])
+        self.assertEqual(self.model.calls,2)
+        self.assertEqual(self.executor.list_operations(),[])
+
+    def test_model_can_correct_an_incomplete_plan_once_before_review(self):
+        requests=[]
+        def answer(request):
+            requests.append(request)
+            steps=[{'command_id':'axx.desktop.open_url','inputs':{'url':'https://www.youtube.com/'}}]
+            if len(requests)==2: steps.append({'command_id':'axx.desktop.search','inputs':{'engine':'youtube','query':'Faint'}})
+            return {'ok':True,'message':{'content':json.dumps({'title':'Abrir y buscar','steps':steps})}}
+        self.model.route=answer
+        plan=self.learning.propose('abre YouTube y busca Faint')
+        self.assertEqual(plan['state'],'awaiting_approval')
+        self.assertEqual(len(plan['steps']),2)
+        self.assertEqual(plan['model_calls_used'],2)
+        self.assertEqual([r['provider_name'] for r in requests],['',''])
+        self.assertTrue(all(r['allow_paid'] is False for r in requests))
+        self.assertEqual(self.executor.list_operations(),[])
+
+    def test_parameter_contract_reaches_model_and_invalid_path_is_corrected_before_effects(self):
+        requests=[]
+        def answer(request):
+            requests.append(request)
+            path=str(self.executor.workspace_root/'training.txt') if len(requests)==1 else 'training.txt'
+            return {'ok':True,'message':{'content':json.dumps({'title':'Crear prueba','steps':[
+                {'command_id':'axx.artifact.write','inputs':{'path':path,'content':'TRAINING'}}]})}}
+        self.model.route=answer
+        plan=self.learning.propose('crea un archivo de prueba training.txt con el texto TRAINING')
+        self.assertEqual(plan['state'],'awaiting_approval')
+        self.assertEqual(plan['steps'][0]['inputs']['path'],'training.txt')
+        self.assertEqual(plan['model_calls_used'],2)
+        prompt=requests[0]['messages'][0]['content']
+        contract=json.JSONDecoder().raw_decode(prompt[prompt.index('{"capabilities":'):])[0]
+        command=next(c for c in contract['capabilities'] if c['command_id']=='axx.artifact.write')
+        self.assertIn('relativa',command['parameters']['path']['description'])
+        self.assertEqual(command['parameters']['path']['maxLength'],240)
+        self.assertEqual(command['parameters']['content']['maxBytes'],65536)
+        digest=next(c for c in contract['capabilities'] if c['command_id']=='axx.file.sha256')
+        self.assertIn('absoluta',digest['parameters']['path']['description'])
+        self.assertFalse((self.executor.workspace_root/'training.txt').exists())
+        self.assertEqual(self.executor.list_operations(),[])
+
+    def test_non_json_model_reply_can_be_repaired_without_executing_a_promise(self):
+        requests=[]
+        def answer(request):
+            requests.append(request)
+            content='Voy a hacerlo.' if len(requests)==1 else json.dumps({'title':'Consultar estado','steps':[{'command_id':'axx.system.telemetry','inputs':{}}]})
+            return {'ok':True,'message':{'content':content}}
+        self.model.route=answer
+        plan=self.learning.propose('consulta el estado del equipo')
+        self.assertEqual(plan['state'],'awaiting_approval')
+        self.assertEqual(plan['model_calls_used'],2)
+        self.assertEqual(plan['steps'],[{'command_id':'axx.system.telemetry','inputs':{}}])
+        self.assertEqual(self.executor.list_operations(),[])
+
+    def test_invented_final_check_is_repaired_before_creating_the_file(self):
+        requests=[]
+        def answer(request):
+            requests.append(request)
+            check={'path':'output','text':'sha256'} if len(requests)==1 else {'path':'training.txt','text':'TRAINING'}
+            data={'title':'Crear prueba','goal_spec':{'intent':'Crear prueba','checks':[check]},'steps':[
+                {'command_id':'axx.artifact.write','inputs':{'path':'training.txt','content':'TRAINING'}}]}
+            return {'ok':True,'message':{'content':json.dumps(data)}}
+        self.model.route=answer
+        plan=self.learning.propose('crea un archivo de prueba training.txt con el texto TRAINING')
+        self.assertEqual(plan['state'],'awaiting_approval',plan)
+        self.assertEqual(plan['model_calls_used'],2)
+        self.assertEqual(plan['goal_spec']['checks'],[{'path':'training.txt','text':'TRAINING'}])
+        self.assertFalse((self.executor.workspace_root/'training.txt').exists())
+        done=self.learning.execute(plan['operation_id'],approved=True)
+        self.assertEqual(done['state'],'succeeded',done)
+        self.assertTrue(done['goal_verification']['passed'])
+
+    def test_inconsistent_literal_final_check_never_executes(self):
+        self.model.answer={'title':'Crear prueba','goal_spec':{'intent':'Crear prueba','checks':[{'path':'training.txt','text':'WRONG'}]},'steps':[
+            {'command_id':'axx.artifact.write','inputs':{'path':'training.txt','content':'TRAINING'}}]}
+        plan=self.learning.propose('crea un archivo de prueba training.txt con el texto TRAINING')
+        self.assertEqual(plan['state'],'failed',plan)
+        self.assertEqual(plan['model_calls_used'],2)
+        self.assertFalse((self.executor.workspace_root/'training.txt').exists())
+        self.assertEqual(self.executor.list_operations(),[])
+
+    def test_binding_only_step_accepts_omitted_empty_inputs_and_reads_verified_path(self):
+        self.model.answer={'title':'Crear y comprobar','steps':[
+            {'command_id':'axx.artifact.write','inputs':{'path':'training.txt','content':'TRAINING'}},
+            {'command_id':'axx.file.sha256','bindings':{'path':{'step':0,'path':['output','path']}}}]}
+        plan=self.learning.propose('crea training.txt y luego comprueba su hash')
+        self.assertEqual(plan['state'],'awaiting_approval',plan)
+        self.assertEqual(plan['steps'][1]['inputs'],{})
+        done=self.learning.execute(plan['operation_id'],approved=True)
+        self.assertEqual(done['state'],'succeeded',done)
+        self.assertEqual(done['results'][0]['output']['sha256'],done['results'][1]['output']['files'][0]['sha256'])
 
     def test_model_plan_writes_real_file_hashes_it_and_learns_only_after_execution(self):
         self.model.answer = {'title': 'Crear y comprobar saludo', 'steps': [
@@ -97,6 +213,7 @@ class ActionLearningTests(unittest.TestCase):
         self.assertEqual(self.executor.list_operations(), [])
         self.assertEqual(self.learning.list_actions(), [])
 
+    @unittest.skipUnless(os.name == 'nt','Executes the Windows command interpreter')
     def test_model_generated_cmd_requires_explicit_terminal_request_and_fresh_approval(self):
         self.model.answer = {'title': 'Ver estado', 'steps': [{'command_id': 'axx.shell.cmd',
                              'inputs': {'script': 'echo AXX_MODEL_CMD_OK'}}]}

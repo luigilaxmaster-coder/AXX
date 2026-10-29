@@ -57,12 +57,15 @@ ADAPTERS = {
     'axx.file.sha256': {
         'title': 'Calcular SHA256 de un archivo', 'tool': 'file_inspection', 'risk': 'local_file_read',
         'description': 'Lee un archivo local de hasta 512 MiB tras revisar su ruta. Detecta cambios durante la lectura.',
-        'aliases': [], 'parameters': {'path': {'type': 'string', 'required': True, 'maxLength': 240}}},
+        'aliases': [], 'parameters': {'path': {'type': 'string', 'required': True, 'maxLength': 240,
+            'description': 'Ruta absoluta del archivo local. Si un paso anterior lo crea, enlaza su output.path mediante bindings.'}}},
     'axx.file.compare': {
         'title': 'Comparar dos archivos por SHA256', 'tool': 'file_inspection', 'risk': 'local_file_read',
         'description': 'Compara el contenido de dos archivos locales estables, sin modificarlos.',
-        'aliases': [], 'parameters': {'path': {'type': 'string', 'required': True, 'maxLength': 240},
-                                    'other_path': {'type': 'string', 'required': True, 'maxLength': 240}}},
+        'aliases': [], 'parameters': {'path': {'type': 'string', 'required': True, 'maxLength': 240,
+                                            'description': 'Ruta absoluta del primer archivo local.'},
+                                    'other_path': {'type': 'string', 'required': True, 'maxLength': 240,
+                                                  'description': 'Ruta absoluta del segundo archivo local.'}}},
     'axx.desktop.list_apps': {
         'title': 'Aplicaciones instaladas', 'tool': 'desktop_list_apps', 'risk': 'read',
         'description': 'Consulta los nombres y accesos registrados por Windows.',
@@ -171,7 +174,8 @@ ADAPTERS = {
     'axx.artifact.write': {
         'title': 'Crear archivo de texto', 'tool': 'file_artifact_writer', 'risk': 'workspace_write',
         'description': 'Crea un archivo nuevo en artifacts tras confirmar ruta y contenido; verifica SHA256.',
-        'aliases': [], 'parameters': {'path': {'type': 'string', 'required': True, 'maxLength': 240},
+        'aliases': [], 'parameters': {'path': {'type': 'string', 'required': True, 'maxLength': 240,
+                                             'description': 'Ruta relativa nueva dentro de artifacts, por ejemplo prueba.txt; no una ruta absoluta.'},
                                     'content': {'type': 'string', 'required': True, 'maxBytes': 65536}}},
 }
 

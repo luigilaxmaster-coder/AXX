@@ -325,8 +325,8 @@ const { chromium } = bundledRequire('playwright');
       try{await Axx.companion.send('haz clic en el primer vídeo',{source:'voice'});return {fallback:fallback.length-before,learning:calls.filter(call=>call.route==='/axx-api/learning/propose').length};}
       finally{Axx.companion.data=old;}
     });
-    assert.equal(connectFallback.fallback,1);assert.equal(connectFallback.learning,0);
-    results.push('Unresolved ChatGPT actions use Connect tool discovery instead of the unrelated local planner');
+    assert.equal(connectFallback.fallback,0);assert.equal(connectFallback.learning,1);
+    results.push('Unresolved ChatGPT actions prepare an explicit reviewed plan instead of becoming a conversational promise');
     const actionWords=await page.evaluate(()=>['escribe en ChatGPT hola','pulsa Enviar','haz clic en Nuevo chat en ChatGPT','presiona Enviar en Antigravity','ejecuta en CMD: dir','/cmd dir','escribe un poema'].map(value=>Axx.commandLibrary.isActionRequest(value)));
     assert.deepEqual(actionWords,[true,true,true,true,true,true,false]);
     assert.equal(await page.evaluate(()=>Axx.commandLibrary.isActionRequest('Con los muebles seleccionados, hazme una lámina')),true);
@@ -390,10 +390,35 @@ const { chromium } = bundledRequire('playwright');
     const generalSequence=await page.evaluate(async()=>{
       const previous=Axx.backendRequest,calls=[];Axx.commandLibrary.operation=null;Axx.commandLibrary.busy=false;
       Axx.backendRequest=async(method,route,body)=>{calls.push(route);if(route==='/axx-api/commands/resolve')return {match:'sequence_request'};if(route==='/axx-api/learning/propose')return {...body,kind:'learned_plan',state:'awaiting_approval',message:'Revisa el plan.'};return previous(method,route,body);};
-      try{await Axx.companion.send('calcula 2+2 y luego abre YouTube');return calls;}finally{Axx.backendRequest=previous;}
+      try{
+        for(const text of ['calcula 2+2 y luego abre YouTube','calcula 2+2 y abre YouTube','primero calcula 2+2, abre YouTube','calcula "2 y abre Chrome" y abre YouTube','calcula 2+2\nabre YouTube']){
+          Axx.commandLibrary.operation=null;Axx.commandLibrary.busy=false;await Axx.companion.send(text);
+        }
+        return calls;
+      }finally{Axx.backendRequest=previous;}
     });
     assert(generalSequence.includes('/axx-api/learning/propose'));assert(!generalSequence.includes('/axx-api/commands/execute'));
+    assert.equal(generalSequence.filter(route=>route==='/axx-api/learning/propose').length,5);
     results.push('A local first clause cannot swallow the remaining sequence; unresolved sequences use the general planner');
+    const routing=await page.evaluate(async()=>{
+      const previous=Axx.backendRequest,calls=[],c=Axx.companion,data=c.data;
+      Axx.backendRequest=async(method,route,body)=>{
+        calls.push({route,body});
+        if(route==='/axx-api/commands/resolve')return body.text==='crea un informe'?{match:'none'}:{match:'exact',command_id:'axx.artifact.write',parameters:{path:{required:true},content:{required:true}},inputs:{}};
+        if(route==='/axx-api/learning/propose')return {...body,kind:'learned_plan',state:'needs_input',message:'¿Qué contenido debe tener el archivo?'};
+        return previous(method,route,body);
+      };
+      try{
+        c.data={prefs:{provider:'chatgpt'}};Axx.commandLibrary.operation=null;Axx.commandLibrary.learningQuestion=null;
+        await c.send('crea un informe');Axx.commandLibrary.learningQuestion=null;
+        await c.send('crea un archivo');
+        return {calls,question:Axx.commandLibrary.learningQuestion?.question,weak:Axx.commandLibrary.hasLocalIntent('abre Chrome y busca Faint en YouTube')};
+      }finally{Axx.backendRequest=previous;c.data=data;}
+    });
+    assert.equal(routing.calls.filter(c=>c.route==='/axx-api/learning/propose').length,2);
+    assert.equal(routing.question,'¿Qué contenido debe tener el archivo?');assert.equal(routing.weak,false);
+    assert(!routing.calls.some(c=>c.route==='/axx-api/commands/execute'));
+    results.push('Unknown actions and missing parameters reach the selected model planner, including ChatGPT; no partial execution');
     assert.deepEqual(errors, []);
     console.log(JSON.stringify({ kind: 'COMMAND_LIBRARY_UI_IPC_CONTRACT_ONLY', passed: results.length, results, uncaught: errors }, null, 2));
   } finally { await browser.close(); }
