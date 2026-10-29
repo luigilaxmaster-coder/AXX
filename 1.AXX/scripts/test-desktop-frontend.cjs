@@ -130,6 +130,75 @@ assert.deepEqual(reviewResolution.steps,[{command_id:'axx.desktop.list_windows',
     assert.deepEqual(errors, []);
     assert.equal(await page.locator('#fatal').textContent(), '');
     results.push('Full original HTML starts without uncaught exceptions');
+    const corrections = await page.evaluate(async () => {
+      const library=Axx.commandLibrary, companion=Axx.companion;
+      const saved={operation:library.operation,lastOperation:library.lastOperation,busy:library.busy,generation:library.generation,observation:library.observationRevision,cancelling:library.cancellingGeneration,question:library.learningQuestion,request:library.request,render:library.renderOperation,status:library.status,notice:library.notice,message:companion.message,continueTask:Axx.skillLibrary.continueTask,chat:Axx.chatWorkspace.active.id,voiceRead:companion.data.prefs.voiceRead,voiceExplicit:localStorage.getItem('axx.voice.read.explicit'),stopSpeech:companion.stopSpeech};
+      const calls=[],origin=saved.chat;
+      const verifiedStep={state:'succeeded',operation_id:'completed-once',result:{state:'succeeded',postconditions_passed:true}},activeStep={state:'running',operation_id:'in-flight'};
+      let plan={kind:'learned_plan',operation_id:'trial-correction',state:'running',conversation_id:origin,request:'ensayo',steps:[{command_id:'axx.artifact.write'},{command_id:'axx.file.sha256'}],step_records:[verifiedStep,activeStep]};
+      try {
+        library.operation=library.lastOperation=plan;
+        library.busy=true;companion.message=()=>{};library.notice=text=>calls.push(['notice',text]);library.renderOperation=()=>{};library.status=()=>{};
+        Axx.skillLibrary.continueTask=async(id,text)=>{calls.push(['repair',id,text]);};
+        library.request=async(method,path,body)=>{
+          if(body?.operation_id==='trial-correction'||path==='/axx-api/learning/plan?id=trial-correction'){
+            calls.push([path,structuredClone(body)]);
+            if(path.endsWith('/pause')){if(window.__releaseNaturalPause)await new Promise(resolve=>{window.__finishNaturalPause=resolve;});return {...plan,state:plan.state==='running'?'pausing':'paused',message:'Pausa solicitada'};}
+            if(path.endsWith('/resume'))return {...plan,state:'awaiting_approval',message:'Revisa los pasos pendientes'};
+            if(path.endsWith('/cancel'))return {...plan,state:'cancelled',message:'Cancelada'};
+            return structuredClone(plan);
+          }
+          return saved.request.call(library,method,path,body);
+        };
+        await companion.send('No, ese archivo no.',{source:'voice'});
+        const question=structuredClone(library.learningQuestion);
+        await companion.send('C:\\destino-correcto\\ensayo.txt');
+        const deferred=calls.filter(item=>item[0]==='repair').length===0&&library.learningQuestion.operation_id===question.operation_id;
+        companion.data.prefs.voiceRead=true;companion.stopSpeech=()=>calls.push(['mute-speech']);
+        const mute=companion.externalCommand('silencio');await mute();
+        const speechOnly={muted:companion.data.prefs.voiceRead===false,pauses:calls.filter(item=>item[0]==='/axx-api/learning/pause').length};
+        await companion.send('Espera, sigo yo',{source:'voice'});
+        library.busy=false;plan={...plan,state:'awaiting_approval'};library.operation=library.lastOperation=plan;
+        await companion.send('ese archivo no');
+        const releasedApproval=library.operation===null;
+        plan={...plan,state:'paused'};library.lastOperation=plan;
+        await companion.send('C:\\destino-correcto\\ensayo.txt');
+        await companion.send('Continúa desde aquí',{source:'voice'});
+        library.operation={...library.operation,conversation_id:'another-chat'};
+        await companion.send('ese archivo no');
+        library.operation={...plan};delete library.operation.conversation_id;
+        await companion.send('ese archivo no');
+        library.learningQuestion={...question};Axx.chatWorkspace.active.id='another-chat';
+        await companion.send('hola');
+        const isolatedQuestion=library.learningQuestion===null;
+        Axx.chatWorkspace.active.id=origin;library.operation=library.lastOperation={...plan,state:'running'};library.busy=true;
+        window.__releaseNaturalPause=true;const delayed=companion.send('ese archivo no');
+        while(!window.__finishNaturalPause)await new Promise(resolve=>setTimeout(resolve,0));
+        Axx.chatWorkspace.active.id='another-chat';const other={...plan,operation_id:'other-task',conversation_id:'another-chat'};library.operation=library.lastOperation=other;
+        window.__finishNaturalPause();await delayed;
+        const isolatedResponse=library.lastOperation===other&&library.learningQuestion===null;
+        Axx.chatWorkspace.active.id=origin;library.operation=library.lastOperation={...plan,state:'running'};library.busy=true;window.__finishNaturalPause=null;
+        const cancelledPause=companion.send('ese archivo no');while(!window.__finishNaturalPause)await new Promise(resolve=>setTimeout(resolve,0));
+        await library.cancel();window.__finishNaturalPause();await cancelledPause;
+        const cancellationRace=library.lastOperation.state==='cancelled'&&library.learningQuestion===null;
+        return {calls,question,deferred,releasedApproval,isolatedQuestion,isolatedResponse,cancellationRace,steps:plan.step_records,local:library.hasLocalIntent('no, ese archivo no'),speechOnly,correctionForMute:library.taskCorrection('silencio')};
+      } finally {
+        delete window.__releaseNaturalPause;delete window.__finishNaturalPause;Axx.chatWorkspace.active.id=saved.chat;
+        Object.assign(library,{operation:saved.operation,lastOperation:saved.lastOperation,busy:saved.busy,generation:saved.generation,observationRevision:saved.observation,cancellingGeneration:saved.cancelling,learningQuestion:saved.question,request:saved.request,renderOperation:saved.render,status:saved.status,notice:saved.notice});companion.message=saved.message;companion.stopSpeech=saved.stopSpeech;companion.data.prefs.voiceRead=saved.voiceRead;companion.syncPreferences();if(saved.voiceExplicit===null)localStorage.removeItem('axx.voice.read.explicit');else localStorage.setItem('axx.voice.read.explicit',saved.voiceExplicit);Axx.skillLibrary.continueTask=saved.continueTask;
+      }
+    });
+    assert.equal(corrections.calls.filter(item=>item[0]==='/axx-api/learning/pause').length,5);
+    assert.equal(corrections.calls.filter(item=>item[0]==='/axx-api/learning/resume').length,1);
+    assert.equal(corrections.calls.find(item=>item[0]==='/axx-api/learning/resume')[1].approved,false);
+    assert.equal(corrections.calls.filter(item=>item[0]==='repair').length,1);
+    assert.deepEqual(corrections.calls.find(item=>item[0]==='repair').slice(1),['trial-correction','C:\\destino-correcto\\ensayo.txt']);
+    assert.equal(corrections.question.operation_id,'trial-correction');
+    assert.equal(corrections.question.conversation_id,'contract-chat');
+    assert(corrections.deferred&&corrections.releasedApproval&&corrections.isolatedQuestion&&corrections.isolatedResponse&&corrections.cancellationRace);
+    assert.equal(corrections.steps[0].operation_id,'completed-once');assert.equal(corrections.steps[0].result.postconditions_passed,true,'Correction keeps completed operation receipts');
+    assert(corrections.calls.some(item=>item[0]==='notice'&&item[1].includes('Selecciona la tarea')));
+    assert.equal(corrections.local,true);assert.equal(corrections.correctionForMute,null);assert.deepEqual(corrections.speechOnly,{muted:true,pauses:1});
+    results.push('Natural corrections bind exact chat/task, wait for confirmed pause, preserve completed receipts and stale-response isolation; speech mute remains independent');
     assert.equal(await page.evaluate(() => Axx.liveConversation.pauseMs), 700);
     assert.equal(await page.locator('#chat-live-pause').inputValue(), '700');
     results.push('The saved 700 ms voice pause is restored on startup and matches the visible setting');

@@ -374,7 +374,15 @@
             const labels = {running:'en curso',paused:'en pausa',requesting:'iniciando',ready:'listo',finished:'finalizado',empty:'sin contenido',error:'con un error; revisa sus controles'};
             return feature.title + ': ' + (labels[actions.phase(id)] || 'consulta sus controles') + '.';
         }
+        taskCorrection(raw) {
+            const text = String(raw).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[,.!?¡¿]/g, ' ').replace(/\s+/g,' ').trim();
+            if (/^(?:espera sigo yo|espera que sigo yo|sigo yo|deja que siga yo)$/.test(text)) return 'pause';
+            if (/^(?:no )?(?:ese archivo no|ese documento no|me referia al otro archivo|hazlo en la otra carpeta)$/.test(text)) return 'target';
+            if (/^continua desde aqui$/.test(text)) return 'review';
+            return null;
+        }
         hasLocalIntent(raw) {
+            if (this.taskCorrection(raw)) return true;
             if (sequenceRequest(raw)) return false;
             if (this.internalAction(raw)) return true;
             if (/^(?:(?:en|and)\s+(?:google\s+)?chrome[,.]?\s+(?:busca|bosca)|busca\s+en\s+(?:google\s+)?chrome)\b/i.test(raw.normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim())) return false;
@@ -403,7 +411,7 @@
             const previous = Axx.companion.send.bind(Axx.companion);
             if (Axx.symbiosis?.voiceCommand) {
                 const voiceCommand = Axx.symbiosis.voiceCommand.bind(Axx.symbiosis);
-                Axx.symbiosis.voiceCommand = text => !sequenceRequest(text) && this.internalAction(text)
+                Axx.symbiosis.voiceCommand = text => this.taskCorrection(text) || !sequenceRequest(text) && this.internalAction(text)
                     ? Axx.companion.send(text, {source:'voice'}) : voiceCommand(text);
             }
             if (Axx.companion.submit) {
@@ -422,6 +430,22 @@
                 const origin = Axx.chatWorkspace?.active?.id;
                 if (Axx.computerUse?.activeFor(origin) && !raw.startsWith('/')) return previous(raw, metadata);
                 const activeTask = this.operation || this.lastOperation;
+                const correction = this.taskCorrection(raw);
+                if (correction) {
+                    if (!origin || activeTask?.kind !== 'learned_plan' || activeTask.conversation_id !== origin) {
+                        this.notice('Selecciona la tarea que quieres corregir; no he cambiado sus archivos.', origin); return;
+                    }
+                    Axx.companion.message('user', raw, 'local');
+                    if (correction === 'review') { await this.resumePlan(); return; }
+                    const paused = await this.pausePlan();
+                    if (Axx.chatWorkspace?.active?.id !== origin || paused?.operation_id !== activeTask.operation_id || paused.conversation_id !== origin) return;
+                    if (!['paused','pausing'].includes(paused?.state)) return;
+                    if (correction === 'target') {
+                        this.learningQuestion = {operation_id:activeTask.operation_id,conversation_id:origin,requires_paused:true,request:activeTask.request,question:'¿Cuál es el archivo o la carpeta correctos?'};
+                        this.notice((paused.state==='pausing'?'Pausa solicitada: terminará el paso actual y no iniciará otro.':'Tarea pausada.')+' Se conservan los pasos ya verificados. ¿Cuál es el archivo o la carpeta correctos?', origin);
+                    } else this.notice(paused.message, origin);
+                    return;
+                }
                 if (activeTask?.kind === 'learned_plan' && !['succeeded','cancelled','failed','blocked','expired'].includes(activeTask.state)) {
                     if (/^(?:pausa|pausa la tarea|pausa el trabajo)$/i.test(raw)) { await this.pausePlan(); return; }
                     if (/^(?:para|detente|detener tarea|cancela la tarea)$/i.test(raw)) { await this.cancel(); return; }
@@ -445,11 +469,21 @@
                     catch (error) { this.notice('No se pudo completar la orden: ' + errorText(error), origin); }
                     Axx.resident?.schedule(); return;
                 }
+                if (this.learningQuestion && this.learningQuestion.conversation_id !== origin) this.learningQuestion = null;
                 if (this.learningQuestion && /^(cancelar|cancela|cancelar accion)$/i.test(raw)) { this.learningQuestion = null; Axx.companion.localNotice('Preparación cancelada.'); return; }
                 if (this.learningQuestion && raw && !raw.startsWith('/')) {
-                    const question = this.learningQuestion; this.learningQuestion = null;
+                    const question = this.learningQuestion;
+                    if(question.requires_paused){
+                        let state;
+                        try{state=await this.request('GET','/axx-api/learning/plan?id='+encodeURIComponent(question.operation_id));}
+                        catch(error){this.notice('No se pudo confirmar la pausa: '+errorText(error),origin);return;}
+                        if(origin!==Axx.chatWorkspace?.active?.id||this.learningQuestion!==question)return;
+                        if(state.operation_id!==question.operation_id||state.conversation_id!==origin){this.learningQuestion=null;this.notice('No se confirmó una tarea de este chat. Revisa el plan antes de corregirlo.',origin);return;}
+                        if(state.state!=='paused'||this.busy){this.notice('La pausa todavía no está confirmada. No preparé cambios; espera a que termine el paso actual y vuelve a indicar el destino.',origin);return;}
+                    }
+                    this.learningQuestion = null;
                     Axx.companion.message('user', raw, 'local');
-                    if (Axx.skillLibrary && question.operation_id) { await Axx.skillLibrary.continueTask(question.operation_id,raw); return; }
+                    if (Axx.skillLibrary && question.operation_id) { try{await Axx.skillLibrary.continueTask(question.operation_id,raw);}catch(error){if(origin===Axx.chatWorkspace?.active?.id&&!this.learningQuestion)this.learningQuestion=question;this.notice('No se pudo preparar la corrección: '+errorText(error),origin);}return; }
                     await this.planAction(question.request + '\nAclaración solicitada: ' + question.question + '\nRespuesta del usuario: ' + raw); return;
                 }
                 if (/^\/(?:acciones|aprendidas)$/i.test(raw)) { this.open(); await this.listLearned(); return; }
@@ -740,7 +774,7 @@
             const serial = ++this.generation, id = Axx.newId();
             const origin = Axx.chatWorkspace?.active?.id;
             this.busy = true; ++this.observationRevision;
-            this.operation = this.lastOperation = { kind:'learned_plan', operation_id:id, command_id:'axx.learned', state:'planning' };
+            this.operation = this.lastOperation = { kind:'learned_plan', operation_id:id, command_id:'axx.learned', state:'planning', conversation_id:origin };
             this.status('Buscando una habilidad y preparando la acción…'); this.renderOperation(this.operation);
             Axx.companion.action('thinking');
             const prefs = Axx.companion.data?.prefs || {};
@@ -752,7 +786,7 @@
                     model:prefs.model || '', provider_name:prefs.provider === 'chatgpt' ? '@codex' : prefs.provider === 'bridge' ? prefs.apiConnection || '' : '' });
                 if (serial !== this.generation) return;
                 this.lastOperation = plan; this.operation = plan.state === 'awaiting_approval' ? plan : null;
-                this.learningQuestion = plan.state === 'needs_input' ? {request:text,question:plan.message,operation_id:plan.operation_id} : null;
+                this.learningQuestion = plan.state === 'needs_input' ? {request:text,question:plan.message,operation_id:plan.operation_id,conversation_id:origin} : null;
                 this.busy = false; this.renderOperation(plan); this.status(plan.message || plan.state);
                 if (this.operation) { if(Axx.chatWorkspace) Axx.companion.openChat(); else this.open(); }
                 this.notice(plan.message || 'No se pudo preparar la acción.', origin);
@@ -800,23 +834,31 @@
         }
         async pausePlan() {
             const task = this.operation || this.lastOperation;
-            if (task?.kind !== 'learned_plan') return;
+            const origin=Axx.chatWorkspace?.active?.id,serial=this.generation;
+            if (!origin || task?.kind !== 'learned_plan' || task.conversation_id!==origin) return;
             try {
                 const result = await this.request('POST','/axx-api/learning/pause',{operation_id:task.operation_id});
+                if(result.operation_id!==task.operation_id||result.conversation_id!==origin)throw Error('La pausa no corresponde a la tarea seleccionada.');
+                if(serial!==this.generation||origin!==Axx.chatWorkspace?.active?.id||(this.operation||this.lastOperation)?.operation_id!==task.operation_id)return;
                 this.lastOperation = result;
+                if(!this.busy)this.operation=null;
                 this.renderOperation(result); this.status(result.message);
-            } catch (error) { this.report(error); }
+                return result;
+            } catch (error) { if(serial===this.generation&&origin===Axx.chatWorkspace?.active?.id)this.report(error); }
         }
         async resumePlan() {
             const task = this.operation || this.lastOperation;
-            if (this.busy || task?.kind !== 'learned_plan') return;
+            const origin=Axx.chatWorkspace?.active?.id,serial=this.generation;
+            if (this.busy || !origin || task?.kind !== 'learned_plan' || task.conversation_id!==origin) return;
             this.busy = true;
             try {
                 const result = await this.request('POST','/axx-api/learning/resume',{operation_id:task.operation_id,approved:false});
+                if(result.operation_id!==task.operation_id||result.conversation_id!==origin)throw Error('La revisión no corresponde a la tarea seleccionada.');
+                if(serial!==this.generation||origin!==Axx.chatWorkspace?.active?.id)return;
                 this.lastOperation = result; this.operation = result.state === 'awaiting_approval' ? result : null;
                 this.busy = false; this.renderOperation(result); this.status(result.message);
-            } catch (error) { this.report(error); }
-            finally { this.busy = false; }
+            } catch (error) { if(serial===this.generation&&origin===Axx.chatWorkspace?.active?.id)this.report(error); }
+            finally { if(serial===this.generation)this.busy = false; }
         }
         async recover() {
             if (this.busy || this.cancellingGeneration === this.generation) return;
