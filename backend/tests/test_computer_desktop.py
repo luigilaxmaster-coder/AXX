@@ -23,7 +23,7 @@ class DesktopComputerTests(unittest.TestCase):
     tearDown=fixture.ComputerUseTests.tearDown
     admit=fixture.ComputerUseTests.admit
     def test_desktop_consent_scope_and_cross_application_observation(self):
-        for kwargs in ({},{'image_authorized':True},{'image_authorized':True,'allow_input':True,'window_id':10}):
+        for kwargs in ({},{'image_authorized':True,'allow_input':1},{'image_authorized':True,'allow_input':True,'window_id':10}):
             with self.assertRaises(ValueError):self.service.begin('chat-two',scope='desktop',**kwargs)
         self.service.begin('chat-two',scope='desktop',image_authorized=True,allow_input=True)
         self.assertFalse(self.service.status('chat-one')['active'])

@@ -59,7 +59,8 @@ def capture(grant, identity, event, *, overview=False, hidden=()):
     return {'jpeg':jpeg,'width':width,'height':height,'image_bounds':bounds,'hash':hashlib.sha256(jpeg).hexdigest(),'at':time.monotonic()}
 
 
-def observe(grant,event,*,overview=False,hidden=()):
+def observe(grant,event,*,overview=False,hidden=(),on_observation=None):
+    if on_observation is not None and not callable(on_observation):raise ValueError('Registro de observación inválido.')
     rows=[w for w in uia.list_windows(include_untitled=True) if w['window_id']==grant['window_id'] and w['pid']==grant['pid']]
     if len(rows)!=1:raise ValueError('La ventana observada ya no existe.')
     geometry=uia.observe_geometry(grant['window_id'])
@@ -75,6 +76,7 @@ def observe(grant,event,*,overview=False,hidden=()):
             **geometry,'window_id':grant['window_id'],'pid':grant['pid'],'process_started':grant['birth'],
             'observation_id':uuid.uuid4().hex,'session_id':uia.OBSERVATION_SESSION_ID,'completed_monotonic':time.monotonic(),'source':'windows_visual'}}
         uia._remember_observation(observed)
+    if on_observation is not None:on_observation(observed)
     identity=observed['observation']
     if any(identity[k]!=geometry[k] for k in ('window_bounds','monitors')):raise ValueError('La geometría cambió durante la observación.')
     shot=capture(grant,identity,event,overview=overview,hidden=hidden)

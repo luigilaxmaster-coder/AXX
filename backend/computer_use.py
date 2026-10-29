@@ -44,11 +44,39 @@ class _Cancellation:
 
 class ComputerUse:
     def __init__(self,commands):
-        self.commands=commands;self.lock=threading.RLock();self.grants={};self.admissions={}
+        self.commands=commands;self.lock=threading.RLock();self.grants={};self.admissions={};self._input_grants=set()
     def close(self):
         with self.lock:
-            for grant in self.grants.values():grant['cancelled'].set()
-            self.grants.clear();self.admissions.clear()
+            for conversation_id in list(self.grants):self.end(conversation_id)
+            self.admissions.clear();self._input_grants.clear()
+    def _allows_input(self,grant):
+        # Input authority is issued only by begin, never by mutable ticket/status fields.
+        return grant.get('allow_input') is True and grant.get('id') in self._input_grants
+    def _clear_observations(self,grant):
+        with self.lock:
+            grant['shot']=None
+            owned=grant.setdefault('_observation_ids',set())
+            with uia._observation_lock:
+                for observation_id in owned:uia._observations.pop(observation_id,None)
+            owned.clear()
+    def _own_observation(self,grant,observed):
+        identity=observed['observation'];observation_id=identity['observation_id']
+        if (not isinstance(observation_id,str) or not 1<=len(observation_id)<=128
+                or any(identity.get(key)!=grant[key] for key in ('window_id','pid'))
+                or identity.get('process_started')!=grant['birth']):
+            raise ValueError('La observación no pertenece a la instancia autorizada.')
+        with self.lock:
+            grant.setdefault('_observation_ids',set()).add(observation_id)
+            if (self.grants.get(grant['conversation_id']) is not grant or grant['cancelled'].is_set()
+                    or time.monotonic()>=grant['deadline']):
+                self._clear_observations(grant)
+                raise ValueError('Computer use detenido durante la observación.')
+    def _require_input(self,grant,event=None):
+        with self.lock:
+            current=self._grant(grant['conversation_id'])
+            if current is not grant or not self._allows_input(grant):
+                raise ValueError('Esta autorización solo permite observar; no admite entrada de Windows.')
+            if event is not None and event.is_set():raise ValueError('Computer use detenido antes de la entrada.')
     def _windows(self):
         allowed=[];hidden=[];names={}
         for row in uia.list_windows(include_untitled=True):
@@ -61,8 +89,8 @@ class ComputerUse:
     def begin(self,conversation_id,window_id=None,pid=None,*,scope='window',image_authorized=False,allow_input=False):
         from .chat_store import ident
         ident(conversation_id)
-        if image_authorized is not True or allow_input is not True:
-            raise ValueError('Autoriza explícitamente compartir esta ventana con Codex y controlar su entrada.')
+        if image_authorized is not True or type(allow_input) is not bool:
+            raise ValueError('Autoriza explícitamente las imágenes y elige si permites entrada de Windows.')
         if scope not in ('window','desktop'):raise ValueError('Elige escritorio completo o una ventana.')
         if scope=='desktop' and (window_id is not None or pid is not None):raise ValueError('El escritorio completo no fija una sola ventana.')
         if scope=='window' and (type(window_id) is not int or type(pid) is not int or min(window_id,pid)<1):
@@ -72,7 +100,7 @@ class ComputerUse:
                 raise ValueError('Esta superficie no admite computer use; usa los comandos explícitos de Axx.')
             matches=[row for row in uia.list_windows() if row['window_id']==window_id and row['pid']==pid]
             if len(matches)!=1:raise ValueError('La ventana seleccionada ya no está disponible.')
-        for operation in self.commands.operations():
+        for operation in self.commands.operations() if allow_input else ():
             target=(operation.get('evidence') or {}).get('reconciliation_target') or {}
             if (operation.get('state')=='unknown' and target.get('window_id') and (scope=='desktop' or target.get('window_id')==window_id and target.get('pid')==pid)
                     and not (operation.get('evidence') or {}).get('manual_reviewed')):
@@ -82,29 +110,39 @@ class ComputerUse:
             self.grants[conversation_id]={'id':uuid.uuid4().hex,'conversation_id':conversation_id,
                 'scope':scope,'window_id':window_id,'pid':pid,'title':matches[0]['title'] if scope=='window' else 'Escritorio completo',
                 'birth':uia.process_started(pid) if pid else None,'target_title':None,'phase':'ready','work':threading.Lock(),
-                'cancelled':threading.Event(),'deadline':time.monotonic()+900,'actions':0,'shot':None,'blocked':None,'last_error':None}
+                'cancelled':threading.Event(),'deadline':time.monotonic()+900,'actions':0,'shot':None,'blocked':None,'last_error':None,
+                'allow_input':allow_input,'_observation_ids':set()}
+            if allow_input:self._input_grants.add(self.grants[conversation_id]['id'])
         return self.status(conversation_id)
     def end(self,conversation_id):
         grant=self.grants.get(conversation_id)
         if grant:grant['cancelled'].set()
         with self.lock:
             grant=self.grants.pop(conversation_id,None)
-            if grant:grant['cancelled'].set();grant['shot']=None
+            if grant:
+                grant['cancelled'].set();self._clear_observations(grant);self._input_grants.discard(grant['id'])
             self.admissions={ticket:entry for ticket,entry in self.admissions.items() if entry['grant'] is not grant}
-        return {'active':False}
+        return {'active':False,'allow_input':False}
     def status(self,conversation_id):
         with self.lock:
             grant=self.grants.get(conversation_id)
-            if not grant:return {'active':False}
+            if not grant:return {'active':False,'allow_input':False}
             if grant['cancelled'].is_set() or time.monotonic()>=grant['deadline']:return self.end(conversation_id)
+            if grant.get('shot') and not 0<=time.monotonic()-grant['shot']['at']<=60:self._clear_observations(grant)
             return {'active':True,'expires_in':max(0,int(grant['deadline']-time.monotonic())),
+                'allow_input':self._allows_input(grant),
                 **{k:grant[k] for k in ('id','scope','window_id','pid','title','target_title','phase','actions','blocked','last_error')}}
     def _grant(self,conversation_id,*,target=True):
         grant=self.grants.get(conversation_id)
         if not grant or grant['cancelled'].is_set() or time.monotonic()>=grant['deadline']:
             self.end(conversation_id)
             raise ValueError('Computer use no está autorizado en este chat. Selecciona y autoriza una ventana en Axx.')
-        if target and grant['pid'] and uia.process_started(grant['pid'])!=grant['birth']:raise ValueError('Cambió la instancia del proceso autorizado.')
+        if target and grant['pid']:
+            try:
+                if uia.process_started(grant['pid'])!=grant['birth']:raise ValueError('Cambió la instancia del proceso autorizado.')
+            except (ValueError,OSError):
+                self.end(conversation_id)
+                raise
         return grant
     def _target(self,grant,args):
         for key in ('window_id','pid'):
@@ -126,11 +164,16 @@ class ComputerUse:
         with self.lock:
             if name=='axx_computer_status':return self.status(run['conversation_id'])
             if name=='axx_computer_stop':return self.end(run['conversation_id'])
+            if name not in ('axx_computer_observe','axx_computer_act'):raise ValueError('Operación de computer use desconocida.')
             grant=self._grant(run['conversation_id'],target=name!='axx_computer_observe')
+            if run['_cancel'].is_set() or time.monotonic()>=run['_deadline']:
+                self._clear_observations(grant)
+                raise ValueError('Computer use detenido antes de admitir la observación o entrada.')
             account=run.get('account_fingerprint')
             if 'account' in grant and grant['account']!=account:raise ValueError('Cambió la cuenta del modelo; vuelve a autorizar la ventana.')
             grant['account']=account
             kind='observe' if name=='axx_computer_observe' else 'act'
+            if kind=='act':self._require_input(grant)
             if kind=='act' and grant['blocked']:raise ValueError('El último efecto es incierto; observa y revísalo antes de continuar.')
             if kind=='act' and grant['actions']>=60:raise ValueError('Se alcanzó el límite de 60 gestos de esta autorización.')
             if len(self.admissions)>=256:raise ValueError('Finaliza la sesión de computer use antes de admitir más trabajo.')
@@ -152,27 +195,40 @@ class ComputerUse:
                 raise ValueError('El ticket no pertenece a esta operación del ejecutor.')
             grant=self._grant(entry['grant']['conversation_id'],target=kind!='observe')
             if grant is not entry['grant']:raise ValueError('La autorización fue sustituida.')
+            if kind=='act':self._require_input(grant)
             event=_Cancellation(cancelled,entry['cancelled'],grant['cancelled'],deadline=min(entry['deadline'],grant['deadline']))
-            if event.is_set():raise ValueError('Computer use detenido antes del despacho.')
+            if event.is_set():
+                self._clear_observations(grant)
+                raise ValueError('Computer use detenido antes del despacho.')
             entry['claimed']=True
             return entry,grant,event
     def _observe(self,grant,event,*,overview=False):
-        allowed,hidden=self._windows() if grant['scope']=='desktop' else ([],[])
-        shot,output=vision.observe(grant,event,overview=overview,hidden=hidden)
-        if grant['scope']=='desktop':output['windows']=[{k:w.get(k) for k in ('window_id','pid','title','class_name','foreground')} for w in allowed]
-        return shot,output
+        try:
+            if event.is_set():raise ValueError('Observación cancelada antes de la captura.')
+            allowed,hidden=self._windows() if grant['scope']=='desktop' else ([],[])
+            shot,output=vision.observe(grant,event,overview=overview,hidden=hidden,
+                on_observation=lambda observed:self._own_observation(grant,observed))
+            if grant['scope']=='desktop':output['windows']=[{k:w.get(k) for k in ('window_id','pid','title','class_name','foreground')} for w in allowed]
+            return shot,output
+        except Exception:
+            self._clear_observations(grant)
+            raise
     def image_content(self,result,run):
         if not isinstance(result,dict) or result.get('state')!='succeeded' or result.get('command_id')!='axx.computer.observe':return []
         with self.lock:
             entry=self.admissions.get((result.get('inputs') or {}).get('ticket'))
             if not entry or entry['run_id']!=run['request_id']:return []
             grant=self._grant(run['conversation_id']);shot=grant.get('shot')
-            if not shot or shot['id']!=(result.get('output') or {}).get('observation_id') or time.monotonic()-shot['at']>60:return []
+            if entry['cancelled'].is_set() or time.monotonic()>=entry['deadline']:
+                self._clear_observations(grant);return []
+            if shot and not 0<=time.monotonic()-shot['at']<=60:
+                self._clear_observations(grant);return []
+            if not shot or shot['id']!=(result.get('output') or {}).get('observation_id'):return []
             return [{'type':'inputImage','imageUrl':'data:image/jpeg;base64,'+base64.b64encode(shot['jpeg']).decode()}]
 
 
 class ComputerUseTool:
-    version='1.1.0'
+    version='1.2.0'
     def __init__(self,kind):self.kind,self.name=kind,'computer_use_'+kind;self.description='Control visual autorizado: '+kind
     def verify_preconditions(self,inputs):
         valid=isinstance(inputs,dict) and set(inputs)=={'ticket'} and isinstance(inputs.get('ticket'),str) and re.fullmatch(r'[a-f0-9]{32}',inputs['ticket'])
@@ -187,16 +243,30 @@ class ComputerUseTool:
                 return ToolResult(False,error='COMPUTER_BUSY: espera el recibo de la operación actual antes de observar o actuar.',evidence={'effect_uncertain':False})
             working=True
             grant['last_error']=None
-            if self.kind=='observe':grant['shot']=None
-            owner=getattr(runtime,'input_control',None)
-            if owner is None:raise ValueError('El dueño de entrada de Windows no está disponible.')
+            if self.kind=='observe':service._clear_observations(grant)
             if self.kind=='observe':
                 grant['phase']='observing';service._target(grant,entry['arguments'])
-                with owner.automation(event) as control:
-                    uia.focus_window(grant['window_id'],grant['pid'],control=control)
-                    shot,output=service._observe(grant,control,overview=grant['scope']=='desktop' and 'window_id' not in entry['arguments'])
-                with service.lock:grant['shot']=shot
-                return ToolResult(True,output=output,evidence={'verification':'computer_window_snapshot','effect_executed':False})
+                with service.lock:
+                    if service._grant(grant['conversation_id']) is not grant or event.is_set():raise ValueError('La autorización ya no permite observar.')
+                if service._allows_input(grant):
+                    owner=getattr(runtime,'input_control',None)
+                    if owner is None:raise ValueError('El dueño de entrada de Windows no está disponible.')
+                    with owner.automation(event) as control:
+                        service._require_input(grant,control)
+                        uia.focus_window(grant['window_id'],grant['pid'],control=control)
+                        shot,output=service._observe(grant,control,overview=grant['scope']=='desktop' and 'window_id' not in entry['arguments'])
+                else:
+                    shot,output=service._observe(grant,event,overview=grant['scope']=='desktop' and 'window_id' not in entry['arguments'])
+                with service.lock:
+                    if service._grant(grant['conversation_id']) is not grant or event.is_set():
+                        service._clear_observations(grant)
+                        raise ValueError('La autorización terminó durante la captura.')
+                    grant['shot']=shot
+                return ToolResult(True,output=output,evidence={'verification':'computer_window_snapshot','effect_executed':False,
+                    'allow_input':service._allows_input(grant)})
+            service._require_input(grant,event)
+            owner=getattr(runtime,'input_control',None)
+            if owner is None:raise ValueError('El dueño de entrada de Windows no está disponible.')
             args=entry['arguments'];old=grant.get('shot')
             if not old or old['id']!=args['observation_id'] or time.monotonic()-old['at']>60:raise ValueError('Observa de nuevo antes de actuar.')
             identity=old.get('observed',{}).get('observation',{})
@@ -220,6 +290,7 @@ class ComputerUseTool:
             if args['action']!='move' and expected is None:raise ValueError('Indica una condición observable del resultado antes de este gesto.')
             grant['phase']='acting'
             with owner.automation(event) as control:
+                service._require_input(grant,control)
                 uia.focus_window(grant['window_id'],grant['pid'],control=control)
                 if args['action'] in ('type_text','hotkey'):
                     fresh=uia.inspect_focused_control(grant['window_id'],grant['pid'],cancelled=control)
@@ -258,10 +329,11 @@ class ComputerUseTool:
                         raise ValueError('Cambió la geometría antes del gesto; observa de nuevo.')
                     for x,y in (('x','y'),('to_x','to_y')):
                         if x in args and not vision.same_target(old,baseline,args[x],args[y]):raise ValueError('Cambió la zona del gesto antes de enviarlo; observa de nuevo.')
+                service._require_input(grant,control)
                 grant['actions']+=1
                 result=execute_action(payload,control)
                 dispatched=True
-                grant['shot']=None
+                service._clear_observations(grant)
                 if args['action']=='move':return ToolResult(**result)
                 grant['phase']='verifying'
                 deadline=time.monotonic()+5
@@ -282,6 +354,11 @@ class ComputerUseTool:
         except Exception as exc:
             uncertain=dispatched or isinstance(exc,uia.UncertainEffect)
             if grant:grant['last_error']=str(exc)[:500]
+            if grant and self.kind=='observe':
+                service._clear_observations(grant)
+                try:
+                    with service.lock:service._grant(grant['conversation_id'])
+                except (ValueError,OSError):pass
             if uncertain and grant:grant['blocked']=entry['operation_id']
             if grant and getattr(exc,'input_cancelled',False):service.end(grant['conversation_id'])
             return ToolResult(False,error=str(exc)[:500],evidence={'effect_uncertain':uncertain,'reconciliation_required':uncertain,

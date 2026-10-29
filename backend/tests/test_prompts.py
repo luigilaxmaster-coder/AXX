@@ -65,5 +65,13 @@ class PromptTests(unittest.TestCase):
         self.assertIn('ni anuncies éxito antes del recibo', compose('voice')['text'])
         self.assertIn('Geist en Chrome', compose('planning')['text'])
 
+    def test_computer_observation_does_not_imply_input_or_focus_permission(self):
+        for mode, connect in (('computer_use', False), ('conversation', True), ('voice', True)):
+            with self.subTest(mode=mode):
+                text = compose(mode, connect=connect)['text']
+                self.assertIn('allow_input', text)
+                self.assertIn('sin cambiar foco', text)
+                self.assertIn('una imagen autorizada no concede control', text)
+
 
 if __name__ == '__main__': unittest.main()

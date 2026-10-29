@@ -61,7 +61,7 @@ class ComputerUseTests(unittest.TestCase):
         self.service.end('chat-one');self.assertFalse(self.service.admit('axx_computer_status',{},self.run)['active'])
         self.assertFalse(self.service.admit('axx_computer_stop',{},self.run)['active'])
     def test_explicit_consent_and_observed_instance_required(self):
-        for args in ({},{'image_authorized':True}):
+        for args in ({},{'image_authorized':False,'allow_input':True},{'image_authorized':True,'allow_input':1}):
             with self.assertRaises(ValueError):self.service.begin('chat-two',10,20,**args)
         with patch.object(cu.uia,'process_name',return_value='powershell.exe'):
             with self.assertRaises(ValueError):self.service.begin('chat-two',10,20,image_authorized=True,allow_input=True)
@@ -177,6 +177,14 @@ class ComputerUseTests(unittest.TestCase):
             with self.assertRaises(urllib.error.HTTPError):request('begin',body,False)
             self.assertTrue(request('begin',body)['active'])
             self.assertIn(chats.get(chat)['connect_id'],self.service.grants)
+            self.assertFalse(request('stop',{'conversation_id':chat})['active'])
+            readonly=request('begin',dict(body,allow_input=False))
+            self.assertTrue(readonly['active']);self.assertIs(readonly['allow_input'],False)
+            status_request=urllib.request.Request('http://127.0.0.1:'+str(server.server_port)+
+                '/axx-api/computer/status?conversation_id='+chat,headers={'Authorization':'Bearer '+server.host_token})
+            with urllib.request.urlopen(status_request,timeout=5) as response:readonly_status=json.load(response)
+            self.assertTrue(readonly_status['active']);self.assertIs(readonly_status['allow_input'],False)
+            with self.assertRaises(urllib.error.HTTPError):request('begin',dict(body,allow_input=1))
             self.assertFalse(request('stop',{'conversation_id':chat})['active'])
             desktop={'conversation_id':chat,'scope':'desktop','image_authorized':True,'allow_input':True}
             result=request('begin',desktop);self.assertTrue(result['active']);self.assertEqual(result['scope'],'desktop');self.assertIsNone(result['window_id'])
