@@ -10,15 +10,15 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Source%20Version-v0.22.24-informational" alt="Source version 0.22.24" />
+  <img src="https://img.shields.io/badge/Source%20Version-v0.22.25-informational" alt="Source version 0.22.25" />
   <a href="https://github.com/luigilaxmaster-coder/AXX/actions/workflows/version-consistency.yml">Integración continua</a> ·
-  <a href="docs/releases/0.22.24.md">Notas de la versión</a> ·
+  <a href="docs/releases/0.22.25.md">Notas de la versión</a> ·
   <a href="docs/COMMAND-TRAINING.md">Práctica y aceptación</a>
 </p>
 
 [Archivos entre dispositivos](docs/mobile/TRANSFER.md) · [Empezar](#empezar) · [Funciones](#funciones) · [Modelos](#modelos) · [Magic Pen](#magic-pen) · [Control del PC](#control-del-pc) · [Arquitectura](#arquitectura) · [Validación](#pruebas-y-estado) · [Desarrollo](#desarrollo)
 
-> **Axx is under active development.** Source and published Windows installer are both **v0.22.24**. Validation is recorded per feature; a working UI or build does not by itself certify every hardware-dependent behavior.
+> **Axx is under active development.** Source is **v0.22.25**; the published Windows installer is **v0.22.24**. Delivery of the newer source is pending publication. Validation is recorded per feature; a working UI or build does not by itself certify every hardware-dependent behavior.
 
 ## Download Axx for Windows
 
@@ -29,7 +29,7 @@ Run the installer and open Axx. Python and Node are not required. Start with **A
 
 The packaged backend may take longer on its first launch while Windows extracts and scans it. The native host allows up to 90 seconds for backend readiness and reports a startup error if that limit is exceeded.
 
-Source and published Windows installer are both **v0.22.24**. Android APKs remain local test artifacts until separately published. See [mobile setup and validation](docs/mobile/README.md) and the [version and release procedure](docs/RELEASING.md).
+Source is **v0.22.25**; the published Windows installer is **v0.22.24**. Delivery of the newer source is pending publication. Android APKs remain local test artifacts until separately published. See [mobile setup and validation](docs/mobile/README.md) and the [version and release procedure](docs/RELEASING.md).
 <!-- release:download:end -->
 
 ---
