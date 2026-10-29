@@ -30,6 +30,8 @@ La selección fija tanto la conexión como el modelo: un fallo no cambia silenci
 
 Desde 0.22.22, la barra intenta reconectar al proveedor guardado antes de responder que no hay IA. Desconectar explícitamente conserva el modo sin proveedor. Las órdenes directas usan los comandos tipados; las peticiones nuevas y los parámetros que faltan se preparan con el modelo elegido, incluido ChatGPT. Las aclaraciones conservan esa selección. El plan requiere revisión y mantiene los límites y comprobaciones del ejecutor; el texto del modelo no concede permisos ni activa comandos documentales sin adaptador.
 
+Si el runtime Codex deja de responder a una solicitud RPC, Axx retira ese proceso para que una petición posterior pueda iniciar otro. La solicitud que agotó el plazo mantiene su resultado incierto y no se repite sola; consulta su recibo antes de intentar de nuevo acciones con efectos. No se modifican credenciales ni se cambia de proveedor.
+
 La conexión de Ollama Cloud utiliza el endpoint y los IDs de su [documentación oficial](https://github.com/ollama/ollama/blob/main/docs/api/openai-compatibility.mdx). La prueba instalada de 0.22.21 con la conexión existente devolvió texto en 2,76 s y preparó dos consultas en 1,62 s; esas mediciones no garantizan disponibilidad de otros servicios o modelos.
 
 ## Modelo local para este equipo

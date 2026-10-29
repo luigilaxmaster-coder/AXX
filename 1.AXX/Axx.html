@@ -19751,7 +19751,7 @@ var Axx;
                         await this.restoreIdentity();
                         await this.refresh();
                         const prefs = Axx.companion.data.prefs;
-                        if (prefs.provider !== 'none') {
+                        if (prefs.provider === 'bridge') {
                             Axx.companion.syncPreferences();
                             await Axx.companion.connect();
                         }

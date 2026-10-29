@@ -871,6 +871,22 @@ class ProviderTests(unittest.TestCase):
         finally:
             old.terminate(); current.terminate(); self.provider.process = None
 
+    def test_rpc_timeout_retires_stalled_child_without_replaying_request(self):
+        process=ControlledProcess(ControlledPipe());self.provider.process=process;writes=[]
+        self.provider._write=lambda message,**kwargs:writes.append(message)
+        with self.assertRaises(ProviderError) as cm:
+            CodexProvider._request(self.provider,'controlled-stalled-runtime',timeout=.04)
+        self.assertEqual(cm.exception.code,'RPC_TIMEOUT')
+        self.assertIsNotNone(process.poll());self.assertEqual(len(writes),1)
+        self.assertEqual(self.provider.pending,{})
+        replacement=ControlledProcess(ControlledPipe());self.provider.process=replacement
+        def reply(message,**kwargs):
+            self.provider.pending[message['id']].put({'id':message['id'],'result':{'ready':True}})
+        self.provider._write=reply
+        self.assertEqual(CodexProvider._request(self.provider,'controlled-new-runtime',timeout=.1),{'ready':True})
+        self.assertEqual(replacement.terminated,0)
+        replacement.terminate();self.provider.process=None
+
     def test_blocked_owner_close_does_not_hold_caller_or_exceed_cleanup_budget(self):
         stream = ControlledPipe('close'); process = ControlledProcess(stream)
         self.provider.process = process
