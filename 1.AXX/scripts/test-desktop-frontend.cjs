@@ -641,6 +641,9 @@ assert.deepEqual(reviewResolution.steps,[{command_id:'axx.desktop.list_windows',
     await page.waitForFunction(() => window.__contractEvents['axx-show']?.length >= 2);
     await page.evaluate(() => Axx.companion.hide());
     assert.equal(await page.evaluate(() => document.body.classList.contains('avatar-hidden')), true);
+    await page.locator('#restore').click();
+    assert.equal(await page.evaluate(() => document.body.classList.contains('avatar-hidden')), false);
+    await page.evaluate(() => Axx.companion.hide());
     await page.evaluate(() => window.__contractEvents['axx-show'].forEach(fn => fn({payload:{follow:false}})));
     assert.equal(await page.evaluate(() => document.body.classList.contains('avatar-hidden')), false);
     assert.equal(await page.locator('#restore').isHidden(), true);

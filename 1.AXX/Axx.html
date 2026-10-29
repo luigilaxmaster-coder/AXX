@@ -8061,7 +8061,7 @@ var Axx;
             click('context-summon', () => { node('context-menu').hidden = true; this.summon(); });
             click('context-hide', () => this.hide());
             click('hide-avatar', () => this.hide());
-            click('restore', () => this.summon());
+            click('restore', () => { this.app.setVisible(true); this.summon(); });
             click('reset-position', () => this.center());
             node('feature-search').oninput = () => this.renderCatalog();
             document.querySelectorAll('[data-say]').forEach(b => { b.onclick = () => { this.openChat(); void this.send(b.dataset.say); }; });
