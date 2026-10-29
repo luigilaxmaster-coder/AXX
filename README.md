@@ -5,19 +5,19 @@ Una interfaz 3D sobre el escritorio para conversar, seleccionar contenido, usar 
 ## Download Axx for Windows
 
 <!-- release:download:start -->
-**[Download Windows x64 test installer · v0.22.19](https://github.com/luigilaxmaster-coder/AXX/releases/download/v0.22.19/Axx_0.22.19_x64-setup.exe)** · [Release files](https://github.com/luigilaxmaster-coder/AXX/releases/tag/v0.22.19) · [SHA-256](https://github.com/luigilaxmaster-coder/AXX/releases/download/v0.22.19/SHA256SUMS.txt)
+**[Download Windows x64 test installer · v0.22.21](https://github.com/luigilaxmaster-coder/AXX/releases/download/v0.22.21/Axx_0.22.21_x64-setup.exe)** · [Release files](https://github.com/luigilaxmaster-coder/AXX/releases/tag/v0.22.21) · [SHA-256](https://github.com/luigilaxmaster-coder/AXX/releases/download/v0.22.21/SHA256SUMS.txt)
 
 Run the installer and open Axx. Python and Node are not required. Start with **Automático gratis · Sin claves**; Axx checks available free routes, whose availability can change. Personal API keys are optional in Settings. Credentials and conversation history are not included in the installer. Windows may need Internet to install WebView2. The installer is unsigned.
 
 The packaged backend may take longer on its first launch while Windows extracts and scans it. The native host allows up to 90 seconds for backend readiness and reports a startup error if that limit is exceeded.
 
-Source is **v0.22.20**; the published Windows installer is **v0.22.19**. Delivery of the newer source is pending publication. Android APKs remain local test artifacts until separately published. See [mobile setup and validation](docs/mobile/README.md) and the [version and release procedure](docs/RELEASING.md).
+Source is **v0.22.22**; the published Windows installer is **v0.22.21**. Delivery of the newer source is pending publication. Android APKs remain local test artifacts until separately published. See [mobile setup and validation](docs/mobile/README.md) and the [version and release procedure](docs/RELEASING.md).
 <!-- release:download:end -->
 
 ---
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Source%20Version-v0.22.20-informational" alt="Source version 0.22.20" />
+  <img src="https://img.shields.io/badge/Source%20Version-v0.22.22-informational" alt="Source version 0.22.22" />
 </p>
 
 ## Demo y galería
@@ -42,7 +42,7 @@ Una prueba de código, una ejecución instalada y una comprobación física acre
 
 | Funcionalidad | Qué cambió | Validación / estado | Límite actual |
 | --- | --- | --- | --- |
-| [Comandos del escritorio](docs/releases/0.22.20.md) | Recuperación de la pasarela, errores precisos y secuencias explícitas con pasos revisables. | Pruebas de fuente y reanudación del servicio existente; aceptación instalada pendiente. | Solo reanuda contenedores existentes. Las secuencias requieren aprobación; una red WSL cambiada requiere configurar la ruta. |
+| [Barra y modelos por API](docs/releases/0.22.22.md) | Reconexión al modelo guardado, planes y aclaraciones con el proveedor elegido, conexión API visible y prueba sintética de respuesta. | Pruebas de interfaz, aprendizaje y HTTP; 0.22.21 instalada: API con texto y plan de consultas comprobados. | Aceptación instalada de 0.22.22 pendiente. Envío desde la barra y contenido del navegador sin verificar; las acciones conservan aprobación y comprobaciones. |
 | [Magic Pen](docs/MAGIC-PEN-DESKTOP.md) | Barra mínima, herramientas agrupadas y respuesta junto al avatar; tinta, cancelación e historial conservados. | 0.22.14 instalada: 14 comprobaciones PASS, con captura e inferencia reales, dos monitores, exportación y grabación verificada. | Requiere un proveedor con visión; su precisión depende del modelo. |
 | [Voz MOSS](docs/voice/xxx-default.md) | Caché local limitada; referencia por solicitud, cuatro selectores compartidos y botón Usar Xxx default con estado de preparación/error. | 0.22.14: Xxx default seleccionada con clic Windows, conservada tras reiniciar y dos reproducciones Web Audio completas, sin vaciados del búfer. | No acredita micrófono, altavoces físicos ni calidad subjetiva de pronunciación. |
 | [Control del PC](docs/COMPUTER-USE.md) | Observaciones ligadas a ventana, proceso y captura; invalidación al cambiar de destino y comparación visual justo antes del gesto. | Gateway nativo recuperado; la prueba de sesión PC sigue pendiente tras interrupción con Escape. | Requiere modelo comprobado y consentimiento humano manual. Un cambio visual no acredita el objetivo. |
@@ -51,7 +51,7 @@ Una prueba de código, una ejecución instalada y una comprobación física acre
 | [Investigación aislada](docs/REVISION-CONJUNTA-20261027.md) | Revisión de candidatos del laboratorio M01–M15, separados de la aplicación. | M11: 23/23 casos existentes y manifiestos contrastados. El cierre posterior registra M15 bloqueado y currículo incompleto. | Sin promoción; los resultados del laboratorio no acreditan integración, modelos ni audio reales en Axx. |
 | [Catálogo de aplicaciones](docs/APPLICATION-COMMANDS.md) | 48 perfiles y 160 operaciones descritas, distinguiendo guías y rutas ejecutables. | Alcance documentado por aplicación y acción. | No equivale a 160 integraciones ejecutadas; detectar una app no verifica sus controles. |
 | [Chats](docs/CHAT-WORKSPACE.md) y [modelos](docs/PROVEEDORES-API-LOCAL.md) | Historial, grupos, borradores y contexto explícito; conexión y modelo seleccionables. | Contratos y políticas descritos en las guías. | Configurar o listar un modelo no demuestra inferencia. La selección explícita no cambia de proveedor silenciosamente. |
-| [Android](docs/mobile/README.md) | 0.2.3: diseño claro, ajustes en panel aparte y texto estándar o del teléfono. Ratón y teclado comparten el nuevo estilo. | Instalada y comprobada en Samsung A21s: tamaños 100/170 %, teclado de 299 puntos, enlace y borrador conservados y orden verificada en Windows. 12 pruebas de UI aprobadas. | QR óptico aplazado por el usuario; entrada física remota y audio conservan aceptación separada. |
+| [Android](docs/mobile/README.md) | 0.2.4: tema negro/claro, acento y color/forma/acabado compartidos con el PC; GPU con geometría y material del escritorio. | Instalada en Samsung A21s: sincronización en ambos sentidos, mediana de 50 FPS, texto 100/170 %, teclado de 299 puntos y consulta ejecutada en Windows. Enlace y borrador conservados. 17 pruebas UI y 59 de servicio aprobadas. | La medición depende de la escena y el teléfono. QR óptico aplazado; entrada física remota y audio conservan aceptación separada. |
 
 ## Empezar
 
@@ -71,7 +71,7 @@ PowerShell y CMD requieren aprobación y ejecutan con los permisos del usuario d
 <details>
 <summary>Desarrollo y documentación técnica</summary>
 
-> **Axx is under active development.** Source is **v0.22.20**; the published Windows installer is **v0.22.19**. Delivery of the newer source is pending publication. Validation is recorded per feature; a working UI or build does not by itself certify every hardware-dependent behavior.
+> **Axx is under active development.** Source is **v0.22.22**; the published Windows installer is **v0.22.21**. Delivery of the newer source is pending publication. Validation is recorded per feature; a working UI or build does not by itself certify every hardware-dependent behavior.
 
 Para desarrollo se necesitan Node.js, Rust con MSVC y Python, además de las dependencias declaradas por el proyecto. El instalador publicado no requiere instalar Python ni Node.
 

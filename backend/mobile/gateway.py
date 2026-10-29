@@ -25,6 +25,7 @@ from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
 from backend.mobile.trust_store import MobileTrustStore, PairingError, CommandConflict
 from backend.mobile.shared_state import SharedState
+from backend.connect.registry import validate_ui
 
 LOG = logging.getLogger("axx.mobile")
 MAX_BODY = 2 * 1024 * 1024
@@ -135,6 +136,49 @@ class MobileGateway:
         self._avatar_lock = threading.Lock()
         self._avatar_sequence = 0
         self._avatar_events = deque(maxlen=128)
+
+    @staticmethod
+    def _avatar_operation_id(device_id, operation_id):
+        try:
+            if str(uuid.UUID(operation_id)) != operation_id:
+                raise ValueError('Invalid avatar operation ID')
+        except (ValueError, TypeError, AttributeError) as exc:
+            raise ValueError('Invalid avatar operation ID') from exc
+        return str(uuid.uuid5(uuid.NAMESPACE_URL, 'axx-mobile-avatar:' + device_id + ':' + operation_id))
+
+    @staticmethod
+    def _avatar_receipt(operation_id, result):
+        if not result:
+            return None
+        output = result.get('output') or {}
+        settings = output.get('settings') or {}
+        return {'operation_id': operation_id, 'state': result['state'],
+                'postconditions_passed': result.get('postconditions_passed') is True,
+                'output': {key: settings[key] for key in ('form', 'palette') if key in settings}
+                          | ({'finish': output['finish']} if 'finish' in output else {}),
+                'error': result.get('error')}
+
+    def avatar_customize(self, device_id, body):
+        if not isinstance(body, dict) or set(body) != {'operation_id', 'device_id', 'inputs'} or not isinstance(body['inputs'], dict):
+            raise ValueError('Invalid character customization')
+        if body['device_id'] != device_id:
+            raise ValueError('El enlace cambió; no se envió el ajuste a otra PC')
+        inputs = body['inputs']
+        allowed = {'action', 'finish'} if inputs.get('action') == 'finish' else {'action', 'form', 'palette'}
+        if inputs.get('action') not in {'settings', 'finish'} or set(inputs) - allowed:
+            raise ValueError('Only character appearance can be changed')
+        validate_ui('axx.ui.identity', inputs)
+        operation_id = self._avatar_operation_id(device_id, body['operation_id'])
+        if not any(d['device_id'] == device_id and not d['revoked'] and 'input.control' in d['scopes'] for d in self.store.devices()):
+            raise ValueError('Aprueba el control de este teléfono en la PC')
+        result = self.backend_call('POST', '/axx-api/connect/execute', {
+            'operation_id': operation_id, 'command_id': 'axx.ui.identity', 'inputs': inputs, 'origin': 'mobile'})
+        return self._avatar_receipt(body['operation_id'], result)
+
+    def avatar_operation(self, device_id, operation_id):
+        internal = self._avatar_operation_id(device_id, operation_id)
+        result = self.backend_call('GET', '/axx-api/connect/task?operation_id=' + internal, None)
+        return self._avatar_receipt(operation_id, result)
 
     def avatar_gesture(self, device_id, body):
         if not isinstance(body, dict) or set(body) != {'kind', 'dx', 'dy'} or body['kind'] not in ('rotate', 'move', 'end'):
@@ -491,6 +535,13 @@ class MobileGateway:
                             command = gateway.store.command(self.device_id, query['command_id'][0])
                             self._send(200 if command else 404, {'ok':bool(command), 'data':command})
                             return
+                        if path == '/v1/avatar/operation':
+                            if not self._authorize('query'): return
+                            query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+                            if set(query) != {'operation_id'} or len(query['operation_id']) != 1:
+                                raise ValueError('operation_id required')
+                            result = gateway.avatar_operation(self.device_id, query['operation_id'][0])
+                            self._send(200 if result else 404, {'ok': bool(result), 'data': result});return
                         if path == '/v1/work/operation':
                             if not self._authorize('tools.control'): return
                             query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
@@ -511,7 +562,8 @@ class MobileGateway:
                                 device = next(d for d in gateway.store.devices() if d['device_id'] == self.device_id)
                                 snapshot = gateway.shared.snapshot() if gateway.share_history else {'conversation_id':'main','cursor':0,'messages':[]}
                                 self._send(200, {'ok':True, 'data':{**snapshot, 'appearance':gateway.appearance,
-                                    'pc_name':gateway.pc_name, 'scopes':device['scopes'], 'inference':gateway.preferences}})
+                                    'pc_name':gateway.pc_name, 'scopes':device['scopes'], 'inference':gateway.preferences,
+                                    'capabilities':{'avatar_customization':True}}})
                             return
                         if path not in routes:
                             self._send(404, {"ok": False, "error": {"code": "NOT_FOUND", "message": "Unknown route"}})
@@ -536,6 +588,10 @@ class MobileGateway:
                             operation=path.rsplit('/',1)[1]
                             if not self._authorize('query' if operation=='release' else 'input.control'):return
                             result=getattr(gateway.control,operation)(self.device_id,body)
+                            self._send(200, {'ok':True,'data':result});return
+                        if path == '/v1/avatar/customize':
+                            if not self._authorize('input.control'):return
+                            result = gateway.avatar_customize(self.device_id, body)
                             self._send(200, {'ok':True,'data':result});return
                         if path == '/v1/avatar/gesture':
                             if not self._authorize('input.control'):return

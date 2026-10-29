@@ -16,7 +16,8 @@
     const sequenceRequest = raw => {
         const text=requestWords(raw), verbs='(?:abre|abrir|inicia|busca|buscar|lee|enfoca|inspecciona|reproduce|cierra|crea|crear|copia|mueve|renombra|calcula|guarda|borra|elimina|envia|organiza|convierte|descarga|instala)';
         return !/["'«»\n]/.test(raw) && new RegExp('^'+verbs+'\\b').test(text)
-            && new RegExp('(?:;|\\b(?:y\\s+)?(?:luego|despues))\\s+'+verbs+'\\b').test(text);
+            && (new RegExp('(?:;|\\b(?:y\\s+)?(?:luego|despues))\\s+'+verbs+'\\b').test(text)
+                || /^(?:abre|abrir|inicia)\b/.test(text) && new RegExp('\\s+y\\s+'+verbs+'\\b').test(text));
     };
     class CommandLibrary {
         generation = 0; searchGeneration = 0; observationRevision = 0; cancellingGeneration = null; busy = false; operation = null; pendingOperationId = null; commands = []; voiceDraft = null; actionContext = {}; actionContextChat = ''; actionContextAt = 0;
@@ -490,10 +491,6 @@
                     }
                     if (resolved.match === 'none') {
                         if(!this.isActionRequest(raw))return previous(raw, metadata);
-                        if (Axx.companion.data?.prefs?.provider === 'chatgpt') {
-                            // Connect can discover and call the same typed Axx tools, with their existing approvals.
-                            return previous(raw, metadata);
-                        }
                         Axx.companion.message('user',raw,'local');
                         await this.planAction(raw);
                         return;
@@ -507,8 +504,7 @@
                         await this.planAction(raw); return;
                     }
                     if (Object.entries(resolved.parameters || {}).some(([key, spec]) => spec.required && !Object.hasOwn(resolved.inputs || {}, key))) {
-                        await this.search(resolved.command_id); this.open();
-                        this.notice('He seleccionado el comando. Completa sus datos en la biblioteca para prepararlo.', origin);
+                        await this.planAction(raw);
                         return;
                     }
                     prepared = true;

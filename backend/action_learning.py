@@ -484,7 +484,7 @@ class ActionLearning:
         try:
             request = {'task': 'plan' if settings['provider_name']=='@codex' else task, 'request_id': request_id, 'model': settings['model'],
                 'provider_name': settings['provider_name'], 'selection_mode': settings['selection_mode'], 'messages': messages,
-                'allow_paid':False,'deadline_ms':70000,'conversation_id':plan.get('conversation_id'),
+                'allow_paid':False,'deadline_ms':70000,'conversation_id':plan.get('conversation_id') or plan['operation_id'],
                 'generation': {'temperature': 0.1, 'max_tokens': 3000}}
             response = backend.generate_plan(request) if settings['provider_name']=='@codex' else backend.route(request)
         finally:

@@ -6,7 +6,7 @@ En **Conectar IA → Por API** puedes añadir varias conexiones con nombres dist
 2. Pon un nombre, la URL base o IP con puerto, y la clave si el servidor la requiere.
 3. Pulsa **Consultar modelos**. Elige uno en la lista Modelo disponible. Para servidores que no publican catálogo, elige **Escribir ID manualmente**. La clave de API se introduce únicamente en el campo de clave, nunca como modelo.
 4. Habilita la conexión. Para servicios remotos con cuota o saldo, marca su autorización de uso.
-5. Pulsa **Guardar y seleccionar** y abre el chat.
+5. Pulsa **Guardar y seleccionar** y **Probar respuesta**. La prueba envía una frase sintética al modelo seleccionado, sin el historial, y muestra respuesta y tiempo. Una conexión guardada o un catálogo válido todavía no prueban inferencia.
 
 Ejemplos de direcciones:
 
@@ -27,6 +27,10 @@ Una clave de Ollama Cloud no instala modelos en el servidor local. Si Ollama loc
 Las claves se guardan cifradas mediante DPAPI para el usuario actual de Windows. No se incluyen en las preferencias del navegador. Para actualizar un modelo, selecciona su conexión guardada. Deja la clave vacía para conservarla. Para cambiar el servidor, crea otra conexión con su propia clave. Puedes deshabilitar una conexión sin borrarla.
 
 La selección fija tanto la conexión como el modelo: un fallo no cambia silenciosamente al modelo de otra plataforma. Consultar el catálogo no envía una conversación. La compatibilidad se limita a chat de texto; no implica soporte de todas las herramientas multimedia de cada proveedor.
+
+Desde 0.22.22, la barra intenta reconectar al proveedor guardado antes de responder que no hay IA. Desconectar explícitamente conserva el modo sin proveedor. Las órdenes directas usan los comandos tipados; las peticiones nuevas y los parámetros que faltan se preparan con el modelo elegido, incluido ChatGPT. Las aclaraciones conservan esa selección. El plan requiere revisión y mantiene los límites y comprobaciones del ejecutor; el texto del modelo no concede permisos ni activa comandos documentales sin adaptador.
+
+La conexión de Ollama Cloud utiliza el endpoint y los IDs de su [documentación oficial](https://github.com/ollama/ollama/blob/main/docs/api/openai-compatibility.mdx). La prueba instalada de 0.22.21 con la conexión existente devolvió texto en 2,76 s y preparó dos consultas en 1,62 s; esas mediciones no garantizan disponibilidad de otros servicios o modelos.
 
 ## Modelo local para este equipo
 

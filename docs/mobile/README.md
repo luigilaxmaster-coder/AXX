@@ -4,12 +4,14 @@ Android is a client of the existing Windows Axx instance. It shares the desktop 
 
 ## Latest revision
 
-[Visual redesign and physical checks for 0.2.3](VISUAL-REVISION-20261028-023.md).
+[Themes, GPU and two-way character customization in 0.2.4](PERSONALIZATION-20261028-024.md).
+
+[Previous 0.2.3 physical checks](VISUAL-REVISION-20261028-023.md).
 
 [Previous 0.2.2 verification](MINIMAL-UI-20261028-022.md).
 
 
-Android **0.2.3-companion / build 24** improves the existing Windows-linked
+Android **0.2.4-companion / build 25** improves the existing Windows-linked
 companion rather than introduce a separate assistant. The phone follows the PC's
 appearance, active shared conversation, model selection and current grants. Active
 snapshots poll every two seconds while the phone is visible. Commands use the
@@ -18,7 +20,7 @@ enabled MCP and approved generated capabilities. Disabled and documentary record
 are not advertised as executable. New tools appear on reopening Actions or within
 the ten-second catalog refresh while that pane remains visible.
 
-The interface uses four focused tabs with light surfaces and a single home entry to chat. Character gestures and remote microphone controls live in a separate sheet. The obsolete prototype stylesheet is excluded from the operational entrypoint. The app defaults to standard text sizing (100%); PC → Tamaño del texto → Del teléfono follows Android accessibility sizing instead. Android system settings are unchanged. Both modes were checked on the physical Samsung, including its 299-point viewport with the keyboard open. Remote input surfaces share the new light design.
+The interface uses four focused tabs, light/black surfaces and a single home entry to chat. Character settings include a local theme/accent and shared PC color, shape and finish. Shared changes require the existing PC control grant and remain pending until the PC receipt and actual snapshot agree; uncertain changes are never automatically resubmitted. The same desktop mesh and material are rasterized on the GPU, with the original CPU renderer as fallback. The physical A21s test measured a median 50 FPS at 420 × 550; this is not a guarantee for other scenes or devices. Character gestures and remote microphone controls live in the same sheet. The app defaults to standard text sizing (100%); PC → Tamaño del texto → Del teléfono follows Android accessibility sizing instead. Both modes were checked on the physical Samsung, including its 299-point viewport with the keyboard open. Remote input surfaces follow the chosen theme.
 Microphone controls are collapsible and open automatically during recording.
 Work output distinguishes approval, execution, verified postconditions and an
 uncertain effect. Polling checks pending operations without resubmitting them.
