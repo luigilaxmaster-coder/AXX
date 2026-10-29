@@ -171,7 +171,8 @@ ADAPTERS = {
     'axx.artifact.write': {
         'title': 'Crear archivo de texto', 'tool': 'file_artifact_writer', 'risk': 'workspace_write',
         'description': 'Crea un archivo nuevo en artifacts tras confirmar ruta y contenido; verifica SHA256.',
-        'aliases': [], 'parameters': {'path': {'type': 'string', 'required': True, 'maxLength': 240},
+        'aliases': [], 'parameters': {'path': {'type': 'string', 'required': True, 'maxLength': 240,
+                                             'description': 'Ruta relativa nueva dentro de artifacts, por ejemplo prueba.txt; no una ruta absoluta.'},
                                     'content': {'type': 'string', 'required': True, 'maxBytes': 65536}}},
 }
 

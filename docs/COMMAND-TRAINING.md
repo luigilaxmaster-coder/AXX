@@ -10,7 +10,7 @@ del modelo o un catálogo válido por sí solos no acreditan una acción realiza
 | Lenguaje | «y», «luego», «después,», comas, líneas y «primero» | Mantiene cláusulas y orden; no incorpora el segundo mandato al buscador del primero. |
 | Contenido literal | Comillas, apóstrofos, negación y texto para escribir | Las palabras de un texto no conceden autoridad para ejecutar otras órdenes. La cláusula de escritura conserva su contenido restante. |
 | Planificación | Parámetros ausentes y secuencia nueva | El proveedor seleccionado recibe las cláusulas completas y las herramientas disponibles. |
-| Autocorrección | Un modelo devuelve menos acciones de las pedidas | Una corrección como máximo, dentro del presupuesto existente de dos inferencias. Si sigue incompleto, ningún paso se ejecuta. |
+| Autocorrección | Acciones omitidas, parámetros inválidos o respuesta sin JSON | El modelo recibe las restricciones del ejecutor y puede corregir una vez, dentro del presupuesto existente de dos inferencias. Si sigue inválido o incompleto, ningún paso se ejecuta. |
 | Ejecución | Escritura de prueba, fallo intermedio, tercera acción | El tercer efecto no ocurre tras el fallo. Consultar o repetir el ID no vuelve a ejecutar efectos. |
 | Aislamiento | Cambio de chat, cancelación y pérdida de respuesta | Conserva origen, parámetros y recibos; no convierte incertidumbre en éxito. |
 | Windows | Clic inicial sobre barra transparente y arrastre | Ajusta la recepción antes de entregar el clic. Fuera de Axx se conserva el paso al escritorio. |

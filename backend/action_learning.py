@@ -309,11 +309,11 @@ class ActionLearning:
         return result
 
     def _prompt(self, text, context):
-        # The executor retains all limits; the model needs the input shape and enums.
+        # Keep the model's parameter contract aligned with the executor's validation.
         def shape(parameters):
-            return {name: {key: value for key, value in rule.items() if key in ('type', 'required', 'enum', 'items')}
+            return {name: {key: value for key, value in rule.items() if key in ('type','required','enum','items','description','minimum','maximum','minLength','maxLength','maxBytes','minItems','maxItems','pattern','format')}
                     for name, rule in parameters.items()}
-        capabilities = [{'command_id': key, 'description': value['title'], 'parameters': shape(value['parameters'])}
+        capabilities = [{'command_id': key, 'title':value['title'], 'description': value.get('description',value['title']), 'parameters': shape(value['parameters'])}
                         for key, value in self.allowed.items() if not key.startswith('axx.mcp.')]
         for item in capabilities:
             if item['command_id'].startswith('axx.generated.'):
@@ -351,7 +351,8 @@ class ActionLearning:
         return [
             {'role': 'system', 'content': 'Axx Windows: SOLO JSON, sin afirmar ejecución; solo command_id/parámetros disponibles. '
              'CMD requiere pedido de CMD/terminal, mostrarlo completo y aprobarlo. Nunca PowerShell ni herramientas inventadas. '
-             'Solo lo pedido. Conserva todas las acciones solicitadas y su orden; requested_steps separa las cláusulas del usuario. '
+             'Solo lo pedido. No cambies destinos o contenido explícitos para esquivar una restricción: declara unavailable. '
+             'Conserva todas las acciones solicitadas y su orden; requested_steps separa las cláusulas del usuario. '
              'Incluye observación, resolución de parámetros y comprobación cuando el siguiente paso dependa de ellas. '
              'Si un paso no es posible, no propongas solo el prefijo como si cumpliera el objetivo. '
              'YouTube: buscar no reproduce; sin reproducción automática disponible, declara la carencia. '
@@ -606,13 +607,23 @@ class ActionLearning:
                         messages[0]['content'] += (' Si una habilidad disponible coincide con la solicitud, devuelve '
                             '{"skill_id":"ID exacto","version":1,"inputs":{}}. No inventes valores ausentes ni elijas entre referencias ambiguas.')
                         response = self._infer(plan, 'plan', messages)
-                        data = self._model_data(response)
+                        issue = None
+                        try: data = self._model_data(response)
+                        except ValueError:
+                            data = None
+                            issue = 'La respuesta no contiene un objeto JSON de planificación válido. Responde solo con el formato JSON solicitado.'
                         requested = command_sequence(plan['request'],'text')
-                        if requested and isinstance(data.get('steps'),list) and len(data['steps']) < len(requested) and plan['model_calls_used'] < 2:
-                            response = self._infer(plan, 'plan', messages + [
-                                {'role':'assistant','content':json.dumps(data,ensure_ascii=False)},
-                                {'role':'user','content':'El plan omite acciones de requested_steps. Corrige el plan completo y conserva el orden. Si falta una capacidad o un dato, declara unavailable o needs_input; no ejecutes un prefijo.'}], 'coverage-repair')
+                        if data is not None and isinstance(data.get('steps'),list):
+                            try:
+                                self._validate_steps(data['steps'],allow_shell=terminal_requested(plan['request']))
+                                if requested and len(data['steps']) < len(requested): issue = 'Faltan acciones de requested_steps.'
+                            except (ValueError,NeedsInput) as exc: issue = str(exc)[:500]
+                        if issue and plan['model_calls_used'] < 2:
+                            response = self._infer(plan, 'plan', messages + ([
+                                {'role':'assistant','content':json.dumps(data,ensure_ascii=False)}] if data is not None else []) + [
+                                {'role':'user','content':'Validación de preparación: '+issue+' Corrige el plan completo, sus parámetros y el orden. Si falta una capacidad o un dato, declara unavailable o needs_input; no ejecutes un prefijo ni cambies el objetivo.'}], 'preparation-repair')
                             data = self._model_data(response)
+                        if data is None: raise ValueError('El modelo no devolvió un plan JSON válido dentro del presupuesto de preparación.')
                         plan['model_data'] = data
                         self._save(plan)
                     data = dict(plan['model_data'])

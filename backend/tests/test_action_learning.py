@@ -78,6 +78,40 @@ class ActionLearningTests(unittest.TestCase):
         self.assertTrue(all(r['allow_paid'] is False for r in requests))
         self.assertEqual(self.executor.list_operations(),[])
 
+    def test_parameter_contract_reaches_model_and_invalid_path_is_corrected_before_effects(self):
+        requests=[]
+        def answer(request):
+            requests.append(request)
+            path=str(self.executor.workspace_root/'training.txt') if len(requests)==1 else 'training.txt'
+            return {'ok':True,'message':{'content':json.dumps({'title':'Crear prueba','steps':[
+                {'command_id':'axx.artifact.write','inputs':{'path':path,'content':'TRAINING'}}]})}}
+        self.model.route=answer
+        plan=self.learning.propose('crea un archivo de prueba training.txt con el texto TRAINING')
+        self.assertEqual(plan['state'],'awaiting_approval')
+        self.assertEqual(plan['steps'][0]['inputs']['path'],'training.txt')
+        self.assertEqual(plan['model_calls_used'],2)
+        prompt=requests[0]['messages'][0]['content']
+        contract=json.JSONDecoder().raw_decode(prompt[prompt.index('{"capabilities":'):])[0]
+        command=next(c for c in contract['capabilities'] if c['command_id']=='axx.artifact.write')
+        self.assertIn('relativa',command['parameters']['path']['description'])
+        self.assertEqual(command['parameters']['path']['maxLength'],240)
+        self.assertEqual(command['parameters']['content']['maxBytes'],65536)
+        self.assertFalse((self.executor.workspace_root/'training.txt').exists())
+        self.assertEqual(self.executor.list_operations(),[])
+
+    def test_non_json_model_reply_can_be_repaired_without_executing_a_promise(self):
+        requests=[]
+        def answer(request):
+            requests.append(request)
+            content='Voy a hacerlo.' if len(requests)==1 else json.dumps({'title':'Consultar estado','steps':[{'command_id':'axx.system.telemetry','inputs':{}}]})
+            return {'ok':True,'message':{'content':content}}
+        self.model.route=answer
+        plan=self.learning.propose('consulta el estado del equipo')
+        self.assertEqual(plan['state'],'awaiting_approval')
+        self.assertEqual(plan['model_calls_used'],2)
+        self.assertEqual(plan['steps'],[{'command_id':'axx.system.telemetry','inputs':{}}])
+        self.assertEqual(self.executor.list_operations(),[])
+
     def test_model_plan_writes_real_file_hashes_it_and_learns_only_after_execution(self):
         self.model.answer = {'title': 'Crear y comprobar saludo', 'steps': [
             {'command_id': 'axx.artifact.write', 'inputs': {'path': 'saludo.txt', 'content': 'hola real'}},
