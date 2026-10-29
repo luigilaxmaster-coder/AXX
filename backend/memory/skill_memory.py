@@ -453,8 +453,9 @@ class SkillMemory:
 
     def record_lesson(self, body):
         body = bounded_object(body, 8000)
-        if set(body) - {'operation_id', 'hypothesis', 'user_correction', 'verification_operation_id', 'project_id', 'task_id', 'context_dependencies'}:
+        if set(body) - {'operation_id', 'hypothesis', 'user_correction', 'verification_operation_id', 'project_id', 'task_id', 'context_dependencies', 'allow_provider'}:
             raise ValueError('Campo de incidente desconocido')
+        if type(body.get('allow_provider', False)) is not bool: raise ValueError('El permiso de envío debe ser booleano')
         hypothesis, correction = body.get('hypothesis'), body.get('user_correction', '')
         if not isinstance(hypothesis, str) or not 1 <= len(hypothesis.strip()) <= 1000:
             raise ValueError('Describe una hipótesis explícita de hasta mil caracteres')
@@ -495,27 +496,28 @@ class SkillMemory:
                 'command_environment': environment, 'environment_scope': 'registered_command_at_recording_not_historical_app_version',
                 'provenance': {'source': 'manual_incident', 'source_plan_id': parent['operation_id'] if parent else None,
                     'scope_source': 'journal' if parent else 'user_selection'},
-                'permissions_granted': False, 'preference_inferred': False}
+                'allow_provider': body.get('allow_provider', False), 'permissions_granted': False, 'preference_inferred': False}
             payload = json.dumps(item, ensure_ascii=False, allow_nan=False)
             if len(payload) > 3000: raise ValueError('Acorta la ficha: el incidente excede tres mil caracteres')
             existing = self.db.execute('SELECT payload FROM skill_lessons WHERE id=?', (item['id'],)).fetchone()
-            if existing: return json.loads(existing[0])
+            if existing: return {'allow_provider': False} | json.loads(existing[0])
             if self.db.execute('SELECT COUNT(*) FROM skill_lessons').fetchone()[0] >= 1000:
                 raise ValueError('La biblioteca de incidentes está llena; olvida fichas antes de añadir otras')
             text = lesson_search_text(' '.join((command, project, task or '', item['symptom'], item['error_code'], hypothesis, correction)))
             self.db.execute('INSERT INTO skill_lessons VALUES (?,?,?,?,?,?)', (item['id'], command, project, item['created_at'], text, payload))
         return item
 
-    def lessons(self, query='', command_id='', limit=3, *, project_id='', task_id=None):
+    def lessons(self, query='', command_id='', limit=3, *, project_id='', task_id=None, allow_provider_only=False):
         project_key(project_id)
         if (not isinstance(query, str) or len(query) > 1000 or not isinstance(command_id, str) or len(command_id) > 128
-                or type(limit) is not int or not 1 <= limit <= 3
+                or type(limit) is not int or not 1 <= limit <= 3 or type(allow_provider_only) is not bool
                 or task_id is not None and (not isinstance(task_id, str) or not 1 <= len(task_id) <= 160)):
             raise ValueError('Consulta de incidentes inválida')
         terms = list(dict.fromkeys(re.findall(r'[^\W_]+', lesson_search_text(query))))[:8]
         where, parameters = ['project_id IN (?,?)'], ['', project_id]
         if command_id: where.append('command_id=?'); parameters.append(command_id)
         if task_id is not None: where.append("json_extract(payload,'$.task_id')=?"); parameters.append(task_id)
+        if allow_provider_only: where.append("json_type(payload,'$.allow_provider')='true'")
         for term in terms:
             where.append('search_text LIKE ? ESCAPE \'\\\'')
             parameters.append('%' + term.replace('\\', '\\\\').replace('_', '\\_').replace('%', '\\%') + '%')
@@ -524,6 +526,7 @@ class SkillMemory:
             result = []
             for row in rows:
                 item = json.loads(row[0])
+                item.setdefault('allow_provider', False)
                 try: current = get_action_env_fingerprint([item['command_id']])
                 except (ValueError, KeyError, TypeError): current = None
                 item['environment_matches'] = current is not None and current == item['command_environment']

@@ -328,6 +328,37 @@ class SkillContextTests(unittest.TestCase):
         self.memory.record('skill.chain', 1, 'corrected-chain', {'effect_verified': True, 'results': corrected, 'revalidation': True})
         self.assertEqual(self.memory.get('skill.chain')['status'], 'verified')
 
+    def test_provider_consent_is_explicit_strict_and_does_not_disable_local_retrieval(self):
+        failure = self.hash(fail=True)
+        body = {'operation_id': failure['operation_id'], 'hypothesis': 'Local incident only.'}
+        local = self.memory.record_lesson(body)
+        self.assertFalse(local['allow_provider'])
+        self.assertEqual(self.memory.lessons('Local')[0]['id'], local['id'])
+        consented = self.memory.record_lesson(body | {'hypothesis': 'Explicit provider consent.', 'allow_provider': True})
+        self.assertTrue(consented['allow_provider'])
+        self.assertFalse(consented['permissions_granted'])
+        self.assertFalse(consented['preference_inferred'])
+        for invalid in (1, 'true', None, []):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                self.memory.record_lesson(body | {'allow_provider': invalid})
+        legacy = copy.deepcopy(local)
+        legacy.pop('allow_provider')
+        with self.db:
+            self.db.execute('UPDATE skill_lessons SET payload=? WHERE id=?', (json.dumps(legacy), local['id']))
+        self.assertFalse(self.memory.record_lesson(body)['allow_provider'])
+        self.assertFalse(next(item for item in self.memory.lessons() if item['id'] == local['id'])['allow_provider'])
+
+    def test_provider_consent_filter_precedes_limit_and_does_not_change_local_search(self):
+        failure = self.hash(fail=True)
+        allowed = self.memory.record_lesson({'operation_id': failure['operation_id'], 'hypothesis': 'Allowed reference.', 'allow_provider': True})
+        for number in range(4):
+            self.memory.record_lesson({'operation_id': failure['operation_id'], 'hypothesis': 'Local reference ' + str(number)})
+        self.assertTrue(all(item['allow_provider'] is False for item in self.memory.lessons()))
+        selected = self.memory.lessons(allow_provider_only=True)
+        self.assertEqual([item['id'] for item in selected], [allowed['id']])
+        for invalid in (1, 'true', None):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError): self.memory.lessons(allow_provider_only=invalid)
+
 
 if __name__ == '__main__':
     unittest.main()
