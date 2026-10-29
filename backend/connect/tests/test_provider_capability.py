@@ -74,6 +74,7 @@ class CapabilityProviderTests(unittest.TestCase):
         self.assertEqual(run['conversation_id'], isolated)
         start = next(params for method, params in self.provider.rpc_calls if method == 'thread/start')
         self.assertEqual(start['dynamicTools'], []); self.assertFalse(start['allowProviderModelFallback'])
+        self.assertTrue(start['ephemeral'])
         self.assertEqual(start['sandbox'], 'read-only'); self.assertIn('Return JSON only', start['developerInstructions'])
         self.assertFalse(any(method == 'thread/resume' for method, _ in self.provider.rpc_calls))
         turn = next(params for method, params in self.provider.rpc_calls if method == 'turn/start')
@@ -85,6 +86,20 @@ class CapabilityProviderTests(unittest.TestCase):
         self.assertEqual(result['message']['content'], '{"unavailable":"fixture"}')
         self.assertEqual(self.dispatched, []); self.assertTrue(self.provider.get('cap-fixture')['inference_verified'])
         self.assertTrue(any(method == 'account/rateLimits/read' for method, _ in self.provider.rpc_calls))
+        with self.provider.lock:
+            self.assertIsNone(self.provider.db.execute('SELECT 1 FROM connect_conversations WHERE conversation_id=?',
+                              (isolated+':axx-direct-v2',)).fetchone())
+
+    def test_runtime_must_confirm_ephemeral_before_receiving_private_context(self):
+        original = self.provider._request
+        def rpc(method, params=None, timeout=20):
+            answer = original(method, params, timeout)
+            if method == 'thread/start':answer['thread']['ephemeral']=False
+            return answer
+        self.provider._request = rpc
+        with self.assertRaises(ProviderError) as raised:self.provider.generate_plan(request(task='plan'))
+        self.assertEqual(raised.exception.code,'EPHEMERAL_UNVERIFIED')
+        self.assertFalse(any(method=='turn/start' for method,_ in self.provider.rpc_calls))
 
     def assert_request_denied(self, method, params):
         thread, results = self.background(); self.wait_started()

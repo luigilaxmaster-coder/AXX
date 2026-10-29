@@ -1032,6 +1032,8 @@ class CodexProvider:
                                  'web_search': 'disabled', 'mcp_servers': self.disabled_mcp,
                                  'plugins': self.disabled_plugins}}
             prompt = run['_prompt']
+            ephemeral = run['purpose'] in {'capability', 'planning'}
+            if ephemeral: common['ephemeral'] = True
             common['developerInstructions'] = prompt['text']
             with self.lock:
                 self._event(run, 'prompt/compiled', {key: prompt[key] for key in ('version', 'mode', 'characters', 'sha256')})
@@ -1041,6 +1043,8 @@ class CodexProvider:
                 result = self._rpc('thread/start', dict(common, dynamicTools=[] if run['purpose'] in {'translation', 'capability','planning'} else self._tool_specs(),
                                        environments=[], allowProviderModelFallback=False))
             thread_id = result['thread']['id']
+            if ephemeral and result['thread'].get('ephemeral') is not True:
+                raise ProviderError('EPHEMERAL_UNVERIFIED', 'El runtime no confirmó una sesión temporal; no se envió el contexto.')
             with self.lock:
                 run['thread_id'] = thread_id
                 run['runtime_model'] = result.get('model')
@@ -1052,9 +1056,10 @@ class CodexProvider:
                 if result.get('modelProvider') is not None and result['modelProvider'] != 'openai':
                     raise ProviderError('PROVIDER_MISMATCH', 'El runtime devolvió otro proveedor; el turno no se ha iniciado.')
                 self.thread_runs[thread_id] = run['request_id']
-                with self.db:
-                    self.db.execute('INSERT OR REPLACE INTO connect_conversations VALUES (?,?,?,?)',
-                                    (run['conversation_id'] + ':axx-direct-v2', thread_id, run['model'], time.time()))
+                if not ephemeral:
+                    with self.db:
+                        self.db.execute('INSERT OR REPLACE INTO connect_conversations VALUES (?,?,?,?)',
+                                        (run['conversation_id'] + ':axx-direct-v2', thread_id, run['model'], time.time()))
                 self._event(run, 'thread/ready', {'thread_id': thread_id, 'resumed': bool(saved)})
             if run['_cancel'].is_set():
                 run['state'] = 'cancelled'

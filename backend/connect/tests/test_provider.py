@@ -66,7 +66,7 @@ class ControlledProvider(CodexProvider):
         if method == 'account/rateLimits/read':
             return {'ordinaryUsageAllowed': True, 'rateLimits': {}}
         if method in {'thread/start', 'thread/resume'}:
-            return {'thread': {'id': 'thread-test'}, 'model': params['model'], 'modelProvider': 'openai'}
+            return {'thread': {'id': 'thread-test','ephemeral':params.get('ephemeral',False)}, 'model': params['model'], 'modelProvider': 'openai'}
         if method == 'turn/start':
             return {'turn': {'id': 'turn-test'}}
         if method == 'turn/interrupt':
