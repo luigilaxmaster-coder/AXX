@@ -23,6 +23,7 @@
         nextSurpriseAt: Date.now() + 8 * 60_000,
         deferSurprise() { this.nextSurpriseAt = Date.now() + 8 * 60_000; },
         maybeSurprise(now = Date.now()) {
+            if (!Axx.anticipation?.allowSurprises()) return false;
             if (now < this.nextSurpriseAt) return false;
             const companion = Axx.companion, style = companion?.data?.prefs?.personalityStyle;
             const panel = document.getElementById('panel');

@@ -8,6 +8,7 @@ import hashlib
 from functools import wraps
 from concurrent.futures import ThreadPoolExecutor
 import json
+import logging
 import re
 import sqlite3
 import threading
@@ -73,6 +74,7 @@ class ActionLearning:
         self.idle = threading.Condition(self.lock)
         self.recovery_stop = threading.Event()
         self.recovery_thread = None
+        self.anticipation = None
         self.active_inference_ids = set()
         self.inference_backends = {}
         self.db = sqlite3.connect(str(commands.executor.db_path), check_same_thread=False, timeout=10)
@@ -102,6 +104,8 @@ class ActionLearning:
             except Exception: pass
         if self.recovery_thread and self.recovery_thread is not threading.current_thread():
             self.recovery_thread.join(timeout=35)
+            if self.recovery_thread.is_alive():
+                raise TimeoutError('La recuperación sigue activa; se conserva abierta su base de datos')
         with self.idle:
             if not self.idle.wait_for(lambda: self.active_operations == 0, timeout=35):
                 raise TimeoutError('Una operación sigue activa; la base permanece abierta para preservar sus resultados')
@@ -112,11 +116,25 @@ class ActionLearning:
         with self.lock:
             if self.closing or self.closed: raise ValueError('El servicio de aprendizaje está cerrado')
             if self.recovery_thread and self.recovery_thread.is_alive(): return
+            def recover_plans():
+                try: self.retry_waiting()
+                except (ValueError, sqlite3.Error):
+                    if not self.recovery_stop.is_set():
+                        logging.getLogger('axx.learning').exception('Plan recovery stopped')
             def recover():
-                while not self.recovery_stop.wait(5):
-                    try: self.retry_waiting()
-                    except (ValueError, sqlite3.Error):
-                        if self.recovery_stop.is_set(): return
+                pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix='axx-plan-recovery')
+                pending = None
+                try:
+                    while not self.recovery_stop.wait(5):
+                        if self.anticipation:
+                            try: self.anticipation.tick()
+                            except (ValueError, OSError, sqlite3.Error):
+                                logging.getLogger('axx.anticipation').exception('Anticipation cycle failed; no uncertain effect is retried')
+                        # A slow provider must not stall local event policy or queue a second retry.
+                        if pending is None or pending.done():
+                            pending = pool.submit(recover_plans)
+                finally:
+                    pool.shutdown(wait=True, cancel_futures=True)
             self.recovery_thread = threading.Thread(target=recover, name='axx-skill-recovery', daemon=True)
             self.recovery_thread.start()
 
@@ -133,6 +151,7 @@ class ActionLearning:
             if self.pause_events.get(plan['operation_id'], threading.Event()).is_set():
                 plan['pause_requested'] = True
                 if plan['state'] == 'running': plan['state'] = 'pausing'
+            plan['mission'] = self._mission(plan)
             self.db.execute('INSERT INTO learning_plans VALUES (?,?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload',
                             (plan['operation_id'], json.dumps(plan, ensure_ascii=False)))
         return plan
@@ -142,7 +161,40 @@ class ActionLearning:
         with self.lock:
             row = self.db.execute('SELECT payload FROM learning_plans WHERE id=?', (key,)).fetchone()
         if not row: raise ValueError('Plan desconocido')
-        return json.loads(row[0])
+        plan = json.loads(row[0])
+        return plan | {'mission': self._mission(plan)}
+
+    @staticmethod
+    def _mission(plan):
+        """A view of the durable plan and receipts, never a second task or completion judge."""
+        records = plan.get('step_records', [])
+        verified = [index for index, record in enumerate(records)
+                    if (record.get('result') or {}).get('state') == 'succeeded'
+                    and (record.get('result') or {}).get('postconditions_passed') is True]
+        pending = [index for index in range(len(plan.get('steps', []))) if index not in verified]
+        goal = plan.get('goal_spec') or {}
+        blockers = [{'step': index, 'state': record.get('state'),
+                     'error': (record.get('result') or {}).get('error')}
+                    for index, record in enumerate(records)
+                    if record.get('state') in ('failed', 'unknown', 'blocked')]
+        if plan.get('state') in ('waiting_capacity', 'waiting_capability', 'needs_input', 'blocked', 'interrupted'):
+            blockers.append({'state': plan['state'], 'message': plan.get('message', '')})
+        complete = (plan.get('state') == 'succeeded' and plan.get('postconditions_passed') is True
+                    and not pending and (plan.get('goal_verification') or {}).get('passed') is True)
+        return {'mission_id': plan['operation_id'], 'objective': goal.get('intent') or plan.get('request', ''),
+                'scope': {'project_id': plan.get('project_id', ''), 'task_id': plan.get('conversation_id'),
+                          'resources': goal.get('sources', [])},
+                'state': plan.get('state'), 'plan_hash': plan.get('plan_hash'), 'revision': plan.get('goal_revision', 1),
+                'deliverables': goal.get('objects', []), 'destination': goal.get('destination', ''),
+                'success_conditions': goal.get('checks', []), 'dependencies': plan.get('dependencies', {}),
+                'verified_steps': verified, 'pending_steps': pending, 'blockers': blockers,
+                'permission': {'exact_plan_approved': bool(plan.get('approved_hash') and plan.get('approved_hash') == plan.get('plan_hash')),
+                               'automatic_future_plans_authorized': False},
+                'budget': {'step_limit': 8, 'model_call_limit': 2, 'model_calls_used': plan.get('model_calls_used', 0),
+                           'model_calls_remaining': max(0, 2 - plan.get('model_calls_used', 0))},
+                'stop_condition': 'verified_goal_or_cancellation', 'completed': complete,
+                'user_confirmed_usefulness': plan.get('goal_confirmed') is True,
+                'outcome_basis': 'verified_executor_receipts_and_goal_contract'}
 
     def list_actions(self, project_id=None):
         if project_id is not None: project_key(project_id)
@@ -152,6 +204,7 @@ class ActionLearning:
         project_key(project_id)
         with self.lock:
             plans = [json.loads(row[0]) for row in self.db.execute('SELECT payload FROM learning_plans ORDER BY rowid DESC')]
+        plans = [plan | {'mission': self._mission(plan)} for plan in plans]
         return [plan for plan in plans if plan.get('project_id', '') == project_id][:100]
 
     def _matches(self, text, project_id=''):

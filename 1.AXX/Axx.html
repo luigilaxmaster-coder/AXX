@@ -19539,6 +19539,7 @@ var Axx;
                 }
                 const add = (id, x, y, width, height) => boxes.push({ id, x, y, width, height });
                 Axx.quickReply?.layout(g,size,add);
+                Axx.anticipation?.layout(g,size,add);
                 const step = Axx.flow.nav.step;
                 const panel = this.visible('panel');
                 const extraIds = ['reach-tray', 'ink-review', 'v13-dock', 'v13-settings', 'v13-pad', 'reader-mini', 'reach-preview'];
@@ -19655,12 +19656,12 @@ var Axx;
         }
         interactiveRegions() {
             const regions = [];
-            for (const n of document.querySelectorAll('#quick-actions,#quick-compose,#quick-reply,#mp-canvas,#mp-toolbar,#mp-more-panel,#mp-widget,#panel,#dock-shell,#flow-sheet,#flow-pill,#flow-fan>button,#flow-all,#reach-tray,#reach-preview,#ink-review,#v13-dock,#v13-settings,#v13-pad,#reader-mini,.organic-satellite,dialog[open],button,input,textarea,select,summary,.resident-resize-handle')) {
+            for (const n of document.querySelectorAll('#quick-actions,#quick-compose,#quick-reply,#anticipation-card,#mp-canvas,#mp-toolbar,#mp-more-panel,#mp-widget,#panel,#dock-shell,#flow-sheet,#flow-pill,#flow-fan>button,#flow-all,#reach-tray,#reach-preview,#ink-review,#v13-dock,#v13-settings,#v13-pad,#reader-mini,.organic-satellite,dialog[open],button,input,textarea,select,summary,.resident-resize-handle')) {
                 if (n.id === 'a11-main-button' || n.hidden || n.closest('[inert]') || !n.getClientRects().length) continue;
                 // These bounded surfaces already own their input. Descendant
                 // rectangles can extend outside their scroll clip and must not
                 // intercept the desktop through invisible controls.
-                if (n.id !== 'mp-more-panel' && n.parentElement?.closest('#mp-widget,#mp-toolbar,#quick-actions,#quick-compose,#quick-reply')) continue;
+                if (n.id !== 'mp-more-panel' && n.parentElement?.closest('#mp-widget,#mp-toolbar,#quick-actions,#quick-compose,#quick-reply,#anticipation-card')) continue;
                 const style = getComputedStyle(n); if (style.visibility === 'hidden' || style.pointerEvents === 'none' || Number(style.opacity) === 0) continue;
                 const r = n.getBoundingClientRect();
                 if (r.width > 0 && r.height > 0 && r.right > 0 && r.bottom > 0 && r.x < innerWidth && r.y < innerHeight) regions.push({ x: r.x, y: r.y, width: r.width, height: r.height });
@@ -19915,4 +19916,4 @@ body[data-media16-source="system"] #view-music .m16-now{padding:12px;margin-top:
 body[data-media16-source="system"] #view-music .m16-transport{margin:8px 0 0}
 body[data-media16-source="system"] #view-music .m16-compact{padding:10px 14px;margin-top:8px}
 </style><script src="scripts/voice-audio.js"></script><script src="scripts/native-speech-stream.js"></script><script src="scripts/native-voice.js"></script><script src="scripts/voice-phrases.js"></script><script src="scripts/voice-conversation.js"></script><script src="scripts/command-library.js"></script><script src="scripts/skill-library.js"></script><script src="scripts/window-content.js"></script><script src="scripts/prompt-contracts.js"></script><script src="scripts/axx-connect.js"></script><script src="scripts/mcp-connections.js"></script><script src="scripts/application-catalog.js"></script><script src="scripts/model-profile.js"></script><script src="scripts/providers.js"></script><script src="scripts/native-music.js"></script><script src="scripts/native-capture.js"></script><script src="scripts/magic-pen.js"></script><script src="scripts/converter.js"></script><script src="scripts/chat-workspace.js"></script><script src="scripts/chat-workspace-design.js"></script><script src="scripts/mobile-gateway.js"></script>
-<script src="scripts/remote-voice.js"></script><script src="scripts/remote-control.js"></script><script src="scripts/mobile-work-approval.js"></script><script src="scripts/avatar-remote.js"></script><link rel="stylesheet" href="scripts/chat-workspace.css"><link rel="stylesheet" href="scripts/interface-theme.css"><script src="scripts/interface-theme.js"></script><script src="scripts/agent-profile.js"></script><script src="scripts/chat-live.js"></script><script src="scripts/capability-workshop.js"></script><script src="scripts/computer-use.js"></script><script src="scripts/quick-reply.js"></script><link rel="stylesheet" href="scripts/transfer.css"><script src="scripts/transfer.js"></script></body></html>
+<script src="scripts/remote-voice.js"></script><script src="scripts/remote-control.js"></script><script src="scripts/mobile-work-approval.js"></script><script src="scripts/avatar-remote.js"></script><link rel="stylesheet" href="scripts/chat-workspace.css"><link rel="stylesheet" href="scripts/interface-theme.css"><script src="scripts/interface-theme.js"></script><script src="scripts/agent-profile.js"></script><script src="scripts/chat-live.js"></script><script src="scripts/capability-workshop.js"></script><script src="scripts/computer-use.js"></script><script src="scripts/quick-reply.js"></script><script src="scripts/anticipation.js"></script><link rel="stylesheet" href="scripts/transfer.css"><script src="scripts/transfer.js"></script></body></html>

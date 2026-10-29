@@ -9,12 +9,15 @@ const companion = {
     message(role, text, source) { emitted.push({ role, text, source }); },
     renderChat() {}, save() {}, speakReply(text) { emitted.push({ spoken: text }); }
 };
-const Axx = { companion, voicePhrases: [] };
+const Axx = { companion, voicePhrases: [], anticipation:{allowSurprises:()=>true} };
 const window = { Axx, setInterval() {} };
 const document = { visibilityState: 'visible', hasFocus: () => true, getElementById: () => panel };
 vm.runInNewContext(fs.readFileSync(path.join(__dirname, 'voice-conversation.js'), 'utf8'), { window, document, Date, Math });
 const voice = Axx.voiceConversation;
 voice.nextSurpriseAt = 0;
+Axx.anticipation.allowSurprises=()=>false;
+assert.equal(voice.maybeSurprise(now),false,'Discreto and quiet profiles never produce spontaneous speech');
+Axx.anticipation.allowSurprises=()=>true;
 assert.equal(voice.maybeSurprise(now), true);
 assert.equal(emitted[0].source, 'local');
 assert.equal(emitted[1].spoken, emitted[0].text);

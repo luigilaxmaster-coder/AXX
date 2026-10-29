@@ -222,6 +222,7 @@ class CommandService:
         self.executor = executor
         self.adapters = dict(ADAPTERS)
         self.learning = None
+        self.dispatch_guard = None
         self.lock = threading.RLock()
         self.execution_gate = threading.Lock()
         self.parallel_operations = set()
@@ -751,6 +752,11 @@ class CommandService:
                         current = self.get(operation_id)
                         if current['cancel_requested']:
                             return self._save(current | {'state': 'cancelled', 'error': {'code': 'CANCELLED', 'message': 'Cancelado antes de ejecutar.'}})
+                        if self.dispatch_guard:
+                            try:
+                                self.dispatch_guard(operation_id)
+                            except ValueError as exc:
+                                raise ActionExecutionError(str(exc)) from exc
                     args = (self.adapters[result['command_id']]['tool'], result['inputs'], action_id)
                     mode_args = {'delivery_mode': result['delivery_mode']} if result.get('delivery_mode') else {}
                     if allow_parallel_read:

@@ -55,6 +55,7 @@ from backend.screen_recording import ScreenRecordingService
 from backend.magic_pen import MagicPenService, monitors as pen_monitors
 from backend.converter import ConverterService
 from backend.mobile.http_api import MobileHTTP
+from backend.anticipation import AnticipationService
 
 LOG = logging.getLogger('axx.server')
 MAX_BODY = 2 * 1024 * 1024
@@ -92,6 +93,7 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
     chats = None
     commands = None
     computer_use = None
+    anticipation = None
     learning = None
     workshop = None
     demonstration = None
@@ -213,6 +215,14 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
         if not self._authorized():
             return
         try:
+            if path == '/axx-api/anticipation/status':
+                query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query, keep_blank_values=True)
+                if set(query) - {'task_id'} or any(len(values) != 1 for values in query.values()):
+                    raise ValueError('Invalid anticipation query')
+                if not self.anticipation:
+                    raise ValueError('Anticipación no disponible en este runtime')
+                self._send_json(200, self.anticipation.status(query.get('task_id', [None])[0]))
+                return
             if MobileHTTP(self).get(path):
                 return
             if ConnectHTTP(self).get(path):
@@ -445,6 +455,30 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
             return
         path = urllib.parse.urlsplit(self.path).path
         try:
+            if path.startswith('/axx-api/anticipation/'):
+                if not self.anticipation:
+                    raise ValueError('Anticipación no disponible en este runtime')
+                action = path.rsplit('/', 1)[-1]
+                if action == 'configure':
+                    result = self.anticipation.configure(body)
+                elif action == 'status' and not set(body) - {'task_id'}:
+                    result = self.anticipation.status(body.get('task_id'))
+                elif action == 'grant':
+                    result = self.anticipation.grant(body)
+                elif action == 'revoke' and set(body) == {'grant_id'}:
+                    result = self.anticipation.revoke(body['grant_id'])
+                elif action == 'accept' and set(body) == {'suggestion_id', 'plan_hash'}:
+                    result = self.anticipation.accept(body['suggestion_id'], body['plan_hash'])
+                elif action == 'feedback' and set(body) == {'suggestion_id', 'action'}:
+                    result = self.anticipation.feedback(body['suggestion_id'], body['action'])
+                elif action == 'cancel' and not set(body) - {'suggestion_id'}:
+                    result = self.anticipation.cancel(body.get('suggestion_id'))
+                elif action == 'forget':
+                    result = self.anticipation.forget(body)
+                else:
+                    raise ValueError('Operación de anticipación o parámetros desconocidos')
+                self._send_json(200, result)
+                return
             if path == '/axx-api/prompts/compose':
                 self._send_json(200, public_compose(body))
                 return
@@ -772,6 +806,7 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                     self._send_json(200, self.executor.execute_action(body.get('tool_name'), body.get('inputs', {}), body.get('operation_id')))
             elif path == '/axx-api/actions/cancel':
                 # This must not wait on action_lock, which the active render owns.
+                anticipation = self.anticipation.cancel() if self.anticipation else None
                 if self.computer_use:self.computer_use.close()
                 if self.commands:
                     self.commands.cancel()
@@ -783,7 +818,8 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                     cancelled_count += self.speech.cancel_active()
                 if self.transcription:
                     cancelled_count += self.transcription.cancel_active()
-                self._send_json(200, {'cancelled': cancelled_count > 0, 'cancelled_operations': cancelled_count})
+                self._send_json(200, {'cancelled': cancelled_count > 0, 'cancelled_operations': cancelled_count,
+                                     'anticipation': anticipation})
             elif path == '/axx-api/speech/cancel':
                 if body:
                     raise ValueError('Speech cancellation accepts no parameters')
@@ -1166,7 +1202,11 @@ def run_server(host='127.0.0.1', port=4173, config_path='providers.json', state_
         services.append(executor.native_bridge)
         learning = ActionLearning(commands, adapter)
         commands.learning = learning
-        services.append(learning)
+        anticipation = AnticipationService(commands)
+        commands.dispatch_guard = anticipation.dispatch_guard
+        learning.anticipation = anticipation
+        # Reverse shutdown stops the resident loop before closing its policy store.
+        services.extend((anticipation, learning))
         workshop = CapabilityWorkshop(learning)
         services.append(workshop)
         demonstration = DemonstrationService(state_path)
@@ -1195,7 +1235,7 @@ def run_server(host='127.0.0.1', port=4173, config_path='providers.json', state_
             'transcription': transcription, 'chatgpt_auth': chatgpt_auth,
             'chatgpt_adapter': chatgpt_adapter, 'config_path': Path(config_path),
             'connect': connect, 'provider': provider, 'recording': recording, 'magic_pen': magic_pen,
-            'converter': converter, 'mcp_host': mcp_host
+            'converter': converter, 'mcp_host': mcp_host, 'anticipation': anticipation
         })
         server = ThreadedHTTPServer((host, port), handler)
         from backend.mobile.gateway import MobileGateway
