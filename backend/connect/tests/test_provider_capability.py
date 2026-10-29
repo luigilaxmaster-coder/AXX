@@ -1,5 +1,7 @@
 """Offline Codex protocol contracts for the isolated proposal-only purpose."""
 import hashlib
+import base64
+import io
 import json
 from pathlib import Path
 import tempfile
@@ -36,10 +38,10 @@ class CapabilityProviderTests(unittest.TestCase):
             time.sleep(.005)
         self.fail('Controlled proposal turn did not start')
 
-    def background(self, body=None, planning=False):
+    def background(self, body=None, planning=False, **kwargs):
         results = {}
         def work():
-            try: results['result'] = (self.provider.generate_plan if planning else self.provider.generate_capability)(body or request())
+            try: results['result'] = (self.provider.generate_plan if planning else self.provider.generate_capability)(body or request(), **kwargs)
             except Exception as exc: results['error'] = exc
         thread = threading.Thread(target=work, daemon=True); thread.start()
         return thread, results
@@ -100,6 +102,61 @@ class CapabilityProviderTests(unittest.TestCase):
         with self.assertRaises(ProviderError) as raised:self.provider.generate_plan(request(task='plan'))
         self.assertEqual(raised.exception.code,'EPHEMERAL_UNVERIFIED')
         self.assertFalse(any(method=='turn/start' for method,_ in self.provider.rpc_calls))
+
+    def test_private_planning_image_uses_ephemeral_input_without_persisting_capture(self):
+        from PIL import Image
+        buffer=io.BytesIO();Image.new('RGB',(32,24),'white').save(buffer,format='JPEG')
+        url='data:image/jpeg;base64,'+base64.b64encode(buffer.getvalue()).decode()
+        body=request(task='plan',images=[url],sensitivity='approved_sensitive')
+        thread,results=self.background(body,planning=True);self.wait_started()
+        turn=next(params for method,params in self.provider.rpc_calls if method=='turn/start')
+        self.assertEqual(turn['input'][1],{'type':'image','url':url})
+        self.finish();thread.join(2)
+        self.assertNotIn('error',results,results)
+        with self.provider.lock:
+            stored=''.join(row[0] for row in self.provider.db.execute('SELECT body_json FROM connect_runs'))
+            stored+=''.join(row[0] for row in self.provider.db.execute('SELECT event_json FROM connect_events'))
+        self.assertNotIn('data:image',stored)
+        self.assertNotIn(url,json.dumps(self.provider.get('cap-fixture')))
+
+    def test_planning_repair_keeps_feedback_separate_from_goal_and_contract(self):
+        body=request(task='plan')
+        body['messages'].append({'role':'user','content':'Correct the invalid typed parameter.'})
+        thread,results=self.background(body,planning=True);self.wait_started()
+        turn=next(params for method,params in self.provider.rpc_calls if method=='turn/start')
+        data=json.loads(turn['input'][0]['text'])
+        self.assertEqual(data['goal'],'Normalizar texto.')
+        self.assertEqual(data['preparation_feedback'],['Correct the invalid typed parameter.'])
+        self.finish();thread.join(2)
+        self.assertNotIn('error',results,results)
+
+    def test_source_echo_is_returned_only_in_memory_and_never_in_provider_journals(self):
+        event=threading.Event()
+        thread,results=self.background(request(task='plan'),planning=True,cancel_event=event)
+        self.wait_started();self.finish('{"needs_input":"PRIVATE_OBSERVATION_SENTINEL"}');thread.join(2)
+        self.assertNotIn('error',results,results)
+        self.assertIn('PRIVATE_OBSERVATION_SENTINEL',results['result']['message']['content'])
+        with self.provider.lock:
+            stored=''.join(row[0] for row in self.provider.db.execute('SELECT body_json FROM connect_runs'))
+            stored+=''.join(row[0] for row in self.provider.db.execute('SELECT event_json FROM connect_events'))
+            self.assertEqual(self.provider.live['cap-fixture']['response'],'')
+        self.assertNotIn('PRIVATE_OBSERVATION_SENTINEL',stored)
+        self.assertNotIn('PRIVATE_OBSERVATION_SENTINEL',json.dumps(self.provider.history()))
+        self.assertFalse(self.provider.get('cap-fixture')['response_retained'])
+
+    def test_invalid_images_and_source_cancellation_stop_before_dispatch(self):
+        for changes in ({'images':['invalid'],'sensitivity':'approved_sensitive'},
+                        {'images':['data:image/jpeg;base64,AA=='],'sensitivity':'approved_sensitive'},
+                        {'images':['data:image/jpeg;base64,AA==']}, {'images':[True],'sensitivity':'approved_sensitive'}):
+            with self.subTest(changes=changes), self.assertRaises(ProviderError):self.provider.generate_plan(request(task='plan',**changes))
+        event=threading.Event();event.set()
+        with self.assertRaises(ProviderError):self.provider.generate_plan(request(task='plan'),cancel_event=event)
+        self.assertEqual(self.provider.rpc_calls,[])
+        event.clear()
+        thread,results=self.background(request(task='plan'),planning=True,cancel_event=event)
+        self.wait_started();event.set();thread.join(2)
+        self.assertEqual(results['error'].code,'CANCELLED')
+        self.assertTrue(self.provider.get('cap-fixture')['cancel_requested'])
 
     def assert_request_denied(self, method, params):
         thread, results = self.background(); self.wait_started()

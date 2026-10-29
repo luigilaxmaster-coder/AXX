@@ -7,6 +7,8 @@ in the existing SQLite database without storing OAuth material or input prompts.
 from __future__ import annotations
 
 import hashlib
+import base64
+import io
 from contextlib import contextmanager
 import inspect
 import json
@@ -189,6 +191,7 @@ class CodexProvider:
     ``get(request_id, after)`` returns ordered events after a sequence cursor.
     The dispatcher signature is (name, arguments, request_id, call_id, *, admission).
     """
+    supports_cancel_event = True
     def __init__(self, commands, db_path, cwd, dispatcher=None):
         self.commands = commands
         self.dispatcher = dispatcher
@@ -252,6 +255,10 @@ class CodexProvider:
     def _store(self, run):
         run['updated_at'] = time.time()
         persisted = {key: value for key, value in run.items() if not key.startswith('_')}
+        if run.get('_source_tainted'):
+            persisted.update(response='', response_retained=False)
+            if persisted.get('error'):
+                persisted['error']={'code':'SOURCE_INFERENCE_FAILED','message':'No terminó la consulta de contexto temporal.'}
         with self.db:
             self.db.execute('UPDATE connect_runs SET body_json=?,updated_at=? WHERE request_id=?',
                             (json.dumps(persisted, ensure_ascii=False), run['updated_at'], run['request_id']))
@@ -263,6 +270,8 @@ class CodexProvider:
             seq = run.get('last_event', 0) + 1
             run['last_event'] = seq
             event = {'seq': seq, 'type': kind, 'data': data or {}, 'at': time.time()}
+            if run.get('_source_tainted'):
+                event['data']={'characters':len(str((data or {}).get('delta','')))} if kind=='item/agentMessage/delta' else {}
             with self.db:
                 self.db.execute('INSERT INTO connect_events VALUES (?,?,?)',
                                 (run['request_id'], seq, json.dumps(event, ensure_ascii=False)))
@@ -841,7 +850,8 @@ class CodexProvider:
                         raise ProviderError('CLOSED', 'El proveedor está detenido.')
                     if not cleanup:
                         self._assert_binding(run)
-                        if run['_cancel'].is_set() or run['state'] in TERMINAL:
+                        if (run['_cancel'].is_set() or run['state'] in TERMINAL
+                                or run.get('_source_cancel') is not None and run['_source_cancel'].is_set()):
                             raise ProviderError('CANCELLED', 'La ejecución ya no admite trabajo nuevo.')
                         if time.monotonic() >= run['_deadline']:
                             raise ProviderError('DEADLINE_EXCEEDED', 'El plazo total expiró antes de la admisión.')
@@ -922,12 +932,17 @@ class CodexProvider:
         return {'ordinary_usage_allowed': result.get('ordinaryUsageAllowed'),
                 'usage_status_available': result.get('ordinaryUsageAllowed') is not None}
 
-    def start(self, body):
+    def start(self, body, *, cancel_event=None, images=None):
+        if cancel_event is not None and not isinstance(cancel_event, threading.Event):
+            raise ProviderError('INVALID_INPUT', 'Evento interno de cancelación inválido.')
+        if cancel_event is not None and cancel_event.is_set():
+            raise ProviderError('CANCELLED', 'El contexto autorizado ya no está vigente.')
         if not isinstance(body, dict):
             raise ProviderError('INVALID_INPUT', 'La solicitud debe ser un objeto.')
         purpose = body.get('purpose', 'chat')
         if not isinstance(purpose, str) or purpose not in {'chat', 'voice', 'translation', 'capability', 'planning'}:
             raise ProviderError('INVALID_INPUT', 'Propósito de inferencia no permitido.')
+        images = self._planning_images(images, purpose)
         message = body.get('message', body.get('text'))
         message_limit = MAX_CAPABILITY_MESSAGE if purpose in {'capability','planning'} else 32000
         if not isinstance(message, str) or not 1 <= len(message.strip()) <= message_limit:
@@ -964,7 +979,9 @@ class CodexProvider:
         depth = body.get('delegation_depth', 0)
         if body.get('origin', 'axx') not in {'axx', 'axx-ui', 'test'} or body.get('parent_execution_id') or type(depth) is not int or depth != 0:
             raise ProviderError('RECURSION_BLOCKED', 'Una herramienta no puede iniciar otro planificador de Axx.')
-        fingerprint = hashlib.sha256(json.dumps([message, conversation_id, model, purpose, source_language, target_language, prompt['sha256']], ensure_ascii=False).encode()).hexdigest()
+        fingerprint_data = [message, conversation_id, model, purpose, source_language, target_language, prompt['sha256']]
+        if images:fingerprint_data.append(images)
+        fingerprint = hashlib.sha256(json.dumps(fingerprint_data, ensure_ascii=False).encode()).hexdigest()
         with self.lock:
             if self.closed:
                 raise ProviderError('CLOSED', 'El proveedor está detenido.')
@@ -993,6 +1010,9 @@ class CodexProvider:
             run['_done'], run['_cancel'], run['_turn_ready'] = threading.Event(), threading.Event(), threading.Event()
             run['_deadline'] = admission_deadline
             run['_prompt'] = prompt
+            run['_source_cancel'] = cancel_event
+            run['_source_images'] = images
+            run['_source_tainted'] = cancel_event is not None or bool(images)
             self.live[request_id] = run
             self.selected_model = model
             self._event(run, 'run/accepted')
@@ -1068,7 +1088,7 @@ class CodexProvider:
             self._assert_binding(run)
             self._remaining()
             result = self._rpc('turn/start', {'threadId': thread_id, 'input': [
-                {'type': 'text', 'text': message}], 'environments': []})
+                {'type': 'text', 'text': message}, *run.pop('_source_images', [])], 'environments': []})
             with self.lock:
                 run['turn_id'] = result.get('turn', {}).get('id', run['turn_id'])
                 run['_turn_ready'].set()
@@ -1098,6 +1118,9 @@ class CodexProvider:
             self.rpc_context.deadline = None
             self.rpc_context.run = None
             with self.lock:
+                run.pop('_source_images', None)
+                run.pop('_source_cancel', None)
+                if run.get('_source_tainted') and run['state']!='completed':run['response']=''
                 run['_turn_ready'].set()
                 if not self.closed:
                     run['duration_ms'] = round((time.time()-run['created_at'])*1000)
@@ -1107,30 +1130,60 @@ class CodexProvider:
                 for key in [key for key, (rid, _) in self.approvals.items() if rid == run['request_id']]:
                     self.approvals.pop(key, None)
 
-    def generate_plan(self, request):
-        return self.generate_capability(request, purpose='planning')
+    @staticmethod
+    def _planning_images(images, purpose):
+        if images is None:return []
+        if purpose != 'planning' or not isinstance(images, list) or len(images) > 2:
+            raise ProviderError('INVALID_INPUT', 'La planificación admite hasta dos imágenes temporales autorizadas.')
+        result = []
+        from PIL import Image
+        for url in images:
+            if (not isinstance(url, str) or not url.startswith('data:image/jpeg;base64,')
+                    or len(url) > 23 + ((350000+2)//3)*4):
+                raise ProviderError('INVALID_INPUT', 'Imagen temporal inválida o demasiado grande.')
+            try:
+                raw = base64.b64decode(url.split(',',1)[1],validate=True)
+                if not 0 < len(raw) <= 350000:raise ValueError()
+                with Image.open(io.BytesIO(raw)) as image:
+                    if image.format != 'JPEG' or not 0 < min(image.size) <= max(image.size) <= 1280:raise ValueError()
+                    image.verify()
+            except (ValueError, OSError, Image.DecompressionBombError):
+                raise ProviderError('INVALID_INPUT', 'Imagen temporal JPEG inválida o fuera de límites.') from None
+            result.append({'type':'image','url':url})
+        return result
 
-    def generate_capability(self, request, *, purpose='capability'):
+    def generate_plan(self, request, *, cancel_event=None):
+        return self.generate_capability(request, purpose='planning', cancel_event=cancel_event)
+
+    def generate_capability(self, request, *, purpose='capability', cancel_event=None):
         """Bounded adapter-shaped generation using the selected Codex account only."""
         if (purpose not in ('capability','planning') or not isinstance(request, dict) or request.get('provider_name') != '@codex'
                 or request.get('allow_paid') is not False or not request.get('model')
                 or request.get('task') not in {'code', 'plan'}):
             raise ProviderError('INVALID_INPUT', 'Selecciona @codex y un modelo explícito, con allow_paid=false.')
         messages = request.get('messages')
-        if (not isinstance(messages, list) or len(messages) != 2
+        if (not isinstance(messages, list) or not 2 <= len(messages) <= 4
                 or any(not isinstance(row, dict) or set(row) != {'role', 'content'}
                        or not isinstance(row['content'], str) or not row['content'].strip() for row in messages)
-                or [row['role'] for row in messages] != ['system', 'user']):
+                or messages[0]['role'] != 'system' or any(row['role'] != 'user' for row in messages[1:])):
             raise ProviderError('INVALID_INPUT', 'La generación requiere contrato y objetivo como datos separados.')
         timeout = request.get('deadline_ms', 70000)
         if type(timeout) is not int or not 1 <= timeout <= TURN_TIMEOUT * 1000:
             raise ProviderError('INVALID_INPUT', 'El plazo de generación debe estar entre 1 y 70000 ms.')
         deadline = time.monotonic() + timeout / 1000
-        message = json.dumps({'system_reference': messages[0]['content'], 'goal': messages[1]['content']}, ensure_ascii=False)
+        reference = {'system_reference': messages[0]['content'], 'goal': messages[1]['content']}
+        if len(messages)>2:reference['preparation_feedback']=[row['content'] for row in messages[2:]]
+        message = json.dumps(reference, ensure_ascii=False)
+        images = request.get('images')
+        if images and request.get('sensitivity') != 'approved_sensitive':
+            raise ProviderError('INVALID_INPUT', 'Las imágenes de contexto requieren autorización de contenido sensible.')
         run = self.start({'request_id': request.get('request_id'), 'model': request['model'],
-                          'message': message, 'purpose': purpose, 'origin': 'axx'})
+                          'message': message, 'purpose': purpose, 'origin': 'axx'}, cancel_event=cancel_event, images=images)
         request_id = run['request_id']
         while run['state'] not in TERMINAL:
+            if cancel_event is not None and cancel_event.is_set():
+                self.cancel(request_id)
+                raise ProviderError('CANCELLED', 'El contexto autorizado cambió; se solicitó la cancelación.')
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 self.cancel(request_id)
@@ -1140,6 +1193,12 @@ class CodexProvider:
             if event is not None: event.wait(min(0.1, remaining))
             else: threading.Event().wait(min(0.1, remaining))
             run = self.get(request_id)
+        with self.lock:
+            live=self.live.get(request_id) or {}
+            text=live.get('response') if run.get('response_retained') is False else run.get('response')
+            if live.get('_source_tainted'):live['response']=''
+        if cancel_event is not None and cancel_event.is_set():
+            raise ProviderError('CANCELLED', 'El contexto autorizado cambió; se descartó la respuesta.')
         if run['state'] != 'completed' or run.get('inference_verified') is not True:
             error = run.get('error') or {}
             raise ProviderError(error.get('code', 'CAPABILITY_GENERATION_FAILED'),
@@ -1147,7 +1206,6 @@ class CodexProvider:
         if (run.get('purpose') != purpose or run.get('runtime_model') != request['model']
                 or run.get('runtime_provider') != 'openai' or run.get('tool_results') or run.get('pending_approvals')):
             raise ProviderError('CAPABILITY_UNVERIFIED', 'La propuesta no conserva aislamiento, modelo y proveedor exactos.')
-        text = run.get('response')
         if not isinstance(text, str) or not text.strip() or len(text) > 64000:
             raise ProviderError('RESPONSE_LIMIT', 'La propuesta está vacía o supera 64000 caracteres.')
         return {'ok': True, 'message': {'content': text},
