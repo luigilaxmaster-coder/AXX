@@ -4,6 +4,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const assert = require('node:assert/strict');
 const http = require('node:http');
+const { execFileSync } = require('node:child_process');
 const { createRequire } = require('node:module');
 const bundledRequire = createRequire(path.join(process.env.USERPROFILE, '.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/package.json'));
 const { chromium } = bundledRequire('playwright');
@@ -12,6 +13,24 @@ const html = process.env.AXX_TEST_VOICE_DRAFT ? productionHtml.replace('</body>'
 for (const match of html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)) new vm.Script(match[1]);
 assert(!html.includes('X-Axx-Token'), 'Host credentials must not appear in the frontend');
 assert(!html.includes("const apiBase ="), 'Production must not hardcode a development port');
+const reviewRequest='lista mis ventanas y consulta el estado del sistema';
+const reviewResolution=JSON.parse(execFileSync(process.env.AXX_TEST_PYTHON||'python',['-c',`
+import json,sys,tempfile
+from pathlib import Path
+from backend.actions.executor import ActionExecutor
+from backend.commands import CommandService
+with tempfile.TemporaryDirectory() as directory:
+    executor=ActionExecutor(Path(directory)/'state.db',Path(directory)/'artifacts')
+    commands=CommandService(executor)
+    try:
+        result=commands.resolve(sys.argv[1])
+        assert executor.list_operations()==[]
+        print(json.dumps(result,ensure_ascii=False))
+    finally:
+        commands.close();executor.close()
+`,reviewRequest],{cwd:path.join(__dirname,'../..'),encoding:'utf8',windowsHide:true}));
+assert.equal(reviewResolution.match,'sequence','The review fixture must be reachable through the production resolver');
+assert.deepEqual(reviewResolution.steps,[{command_id:'axx.desktop.list_windows',inputs:{}},{command_id:'axx.system.telemetry',inputs:{}}]);
 
 (async () => {
   const server = http.createServer((req, res) => { if (req.url?.startsWith('/scripts/') && /\.(js|css)$/.test(req.url)) { const file=path.join(__dirname,path.basename(req.url)); if (fs.existsSync(file)) { res.writeHead(200, { 'Content-Type': req.url.endsWith('.css')?'text/css':'application/javascript' }); res.end(fs.readFileSync(file)); return; } } res.writeHead(200, { 'Content-Type': 'text/html' }); res.end(html); });
@@ -584,12 +603,12 @@ assert(!html.includes("const apiBase ="), 'Production must not hardcode a develo
       results.push('ASR transport contract normalizes locale, emits confirmed text and never sends the chat automatically');
     }
     await page.setViewportSize({width:1920,height:1040});
-    await page.evaluate(()=>{
+    await page.evaluate(resolution=>{
       Axx.commandLibrary.operation=null;Axx.commandLibrary.busy=false;
-      window.__contractResolve={match:'sequence',steps:[{command_id:'axx.system.telemetry',inputs:{}},{command_id:'axx.system.telemetry',inputs:{}}]};
+      window.__contractResolve=resolution;
       Axx.quickReply.write();
-    });
-    await page.fill('#quick-input','consulta el estado del sistema y consulta el estado del sistema');
+    },reviewResolution);
+    await page.fill('#quick-input',reviewRequest);
     await page.press('#quick-input','Enter');
     await page.waitForFunction(()=>Axx.commandLibrary.operation?.state==='awaiting_approval');
     const reviewLease=await page.evaluate(()=>window.__contractCalls.filter(c=>c.name==='window_action'&&c.args?.action==='close_panel').length);
