@@ -10,6 +10,8 @@ from .actions import windows_automation as uia
 from .actions.desktop_input import _interactive_session
 from .magic_pen import physical_dpi_context
 
+TARGETED_WINDOW_OBSERVATION = True
+
 
 def region(shot, box):
     if (not isinstance(box,list) or len(box)!=4 or any(type(n) is not int for n in box)
@@ -61,18 +63,19 @@ def capture(grant, identity, event, *, overview=False, hidden=()):
 
 def observe(grant,event,*,overview=False,hidden=(),on_observation=None):
     if on_observation is not None and not callable(on_observation):raise ValueError('Registro de observación inválido.')
-    rows=[w for w in uia.list_windows(include_untitled=True) if w['window_id']==grant['window_id'] and w['pid']==grant['pid']]
+    rows=[w for w in uia.list_windows(include_untitled=True,include_titles=False) if w['window_id']==grant['window_id'] and w['pid']==grant['pid']]
     if len(rows)!=1:raise ValueError('La ventana observada ya no existe.')
     geometry=uia.observe_geometry(grant['window_id'])
     if geometry.get('minimized') or uia.process_started(grant['pid'])!=grant['birth']:raise ValueError('La ventana no está disponible para observar.')
+    title=uia.read_window_title(grant['window_id'],grant['pid'],grant['birth'],cancelled=event)
     warning=None
     try:
-        if rows[0]['title']:observed=uia.read_window_content(grant['window_id'],grant['pid'],rows[0]['title'],cancelled=event,full_window=True,timeout=5)
+        if title:observed=uia.read_window_content(grant['window_id'],grant['pid'],title,cancelled=event,full_window=True,timeout=5)
         else:observed=uia._uia({'operation':'inspect','window_id':grant['window_id'],'pid':grant['pid']},cancelled=event,timeout=5)
     except ValueError as exc:
         if 'UI Automation excedió el límite' not in str(exc) or event.is_set():raise
         warning='Accesibilidad lenta: se conserva la imagen real; no se inventan controles.'
-        observed={'window_title':rows[0]['title'],'controls':[],'truncated':True,'focused_control_id':None,'observation':{
+        observed={'window_title':title,'controls':[],'truncated':True,'focused_control_id':None,'observation':{
             **geometry,'window_id':grant['window_id'],'pid':grant['pid'],'process_started':grant['birth'],
             'observation_id':uuid.uuid4().hex,'session_id':uia.OBSERVATION_SESSION_ID,'completed_monotonic':time.monotonic(),'source':'windows_visual'}}
         uia._remember_observation(observed)

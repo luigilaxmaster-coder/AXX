@@ -98,8 +98,10 @@ class ComputerUse:
         if scope=='window':
             if uia.process_name(pid).casefold() in BLOCKED_PROCESSES|{'axx.exe','axx-backend.exe'}:
                 raise ValueError('Esta superficie no admite computer use; usa los comandos explícitos de Axx.')
-            matches=[row for row in uia.list_windows() if row['window_id']==window_id and row['pid']==pid]
+            matches=[row for row in uia.list_windows(include_untitled=True,include_titles=False) if row['window_id']==window_id and row['pid']==pid]
             if len(matches)!=1:raise ValueError('La ventana seleccionada ya no está disponible.')
+        birth=uia.process_started(pid) if pid else None
+        title=uia.read_window_title(window_id,pid,birth) if scope=='window' else 'Escritorio completo'
         for operation in self.commands.operations() if allow_input else ():
             target=(operation.get('evidence') or {}).get('reconciliation_target') or {}
             if (operation.get('state')=='unknown' and target.get('window_id') and (scope=='desktop' or target.get('window_id')==window_id and target.get('pid')==pid)
@@ -108,8 +110,8 @@ class ComputerUse:
         with self.lock:
             for current in list(self.grants):self.end(current)
             self.grants[conversation_id]={'id':uuid.uuid4().hex,'conversation_id':conversation_id,
-                'scope':scope,'window_id':window_id,'pid':pid,'title':matches[0]['title'] if scope=='window' else 'Escritorio completo',
-                'birth':uia.process_started(pid) if pid else None,'target_title':None,'phase':'ready','work':threading.Lock(),
+                'scope':scope,'window_id':window_id,'pid':pid,'title':title,
+                'birth':birth,'target_title':None,'phase':'ready','work':threading.Lock(),
                 'cancelled':threading.Event(),'deadline':time.monotonic()+900,'actions':0,'shot':None,'blocked':None,'last_error':None,
                 'allow_input':allow_input,'_observation_ids':set()}
             if allow_input:self._input_grants.add(self.grants[conversation_id]['id'])

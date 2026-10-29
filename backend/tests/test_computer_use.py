@@ -32,6 +32,7 @@ class ComputerUseTests(unittest.TestCase):
         self.patches=[patch.object(cu.uia,'process_name',return_value='fixture.exe'),
                       patch.object(cu.uia,'process_started',return_value='birth'),
                       patch.object(cu.uia,'list_windows',return_value=[{'window_id':10,'pid':20,'title':'Fixture'}]),
+                      patch.object(cu.uia,'read_window_title',return_value='Fixture'),
                       patch.object(cu.uia,'focus_window')]
         self.patches.extend([patch.object(cu.vision,'_interactive_session'),patch.object(cu.uia,'_windows_api',return_value=(None,None))])
         for item in self.patches:item.start()

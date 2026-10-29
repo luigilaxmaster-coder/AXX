@@ -261,6 +261,30 @@ def list_windows(*, include_untitled=False, include_titles=True):
     return rows[:MAX_WINDOWS]
 
 
+def read_window_title(window_id, expected_pid, expected_process_started, cancelled=None):
+    """Read only the selected HWND's title, with PID/birth and cancellation checks."""
+    window_id, expected_pid = _positive_int(window_id, 'window_id'), _positive_int(expected_pid, 'pid')
+    if not isinstance(expected_process_started, str) or not 1 <= len(expected_process_started) <= 80:
+        raise ValueError('Falta la instancia observada del proceso.')
+    if cancelled is not None and cancelled.is_set():raise ValueError('Lectura de título cancelada.')
+    user, _ = _windows_api()
+    def identity():
+        if cancelled is not None and cancelled.is_set():raise ValueError('Lectura de título cancelada.')
+        actual_pid = wintypes.DWORD()
+        if (not user.IsWindow(window_id) or not user.GetWindowThreadProcessId(window_id, ctypes.byref(actual_pid))
+                or actual_pid.value != expected_pid or process_started(expected_pid) != expected_process_started):
+            raise ValueError('Cambió la ventana o instancia de proceso autorizada.')
+    identity()
+    length = user.GetWindowTextLengthW(window_id)
+    if not 0 <= length <= 2048:raise ValueError('El título autorizado excede el límite de lectura.')
+    title = ctypes.create_unicode_buffer(length + 1)
+    copied = user.GetWindowTextW(window_id, title, len(title))
+    identity()
+    if copied != length or user.GetWindowTextLengthW(window_id) != copied:
+        raise ValueError('El título cambió durante la lectura.')
+    return title.value
+
+
 def read_clipboard_text(*, max_characters=8192, cancelled=None):
     """Read a consented snapshot in the cancellable worker, never change the clipboard."""
     if type(max_characters) is not int or not 1 <= max_characters <= 100000:
