@@ -225,9 +225,9 @@ def _windows_api():
     return user, kernel
 
 
-def list_windows(*, include_untitled=False):
+def list_windows(*, include_untitled=False, include_titles=True):
     """Return visible top-level windows with ephemeral HWND/PID identity."""
-    if type(include_untitled) is not bool:raise ValueError('Alcance de ventanas inválido.')
+    if type(include_untitled) is not bool or type(include_titles) is not bool:raise ValueError('Alcance de ventanas inválido.')
     user, kernel = _windows_api()
     foreground = int(user.GetForegroundWindow() or 0)
     rows = []
@@ -236,17 +236,20 @@ def list_windows(*, include_untitled=False):
     def visit(hwnd, _):
         if not user.IsWindowVisible(hwnd):
             return True
-        title_len = min(max(user.GetWindowTextLengthW(hwnd), 0), 2048)
-        if title_len == 0 and not include_untitled:
-            return True
-        title = ctypes.create_unicode_buffer(title_len + 1)
-        user.GetWindowTextW(hwnd, title, len(title))
+        title_value = ''
+        if include_titles:
+            title_len = min(max(user.GetWindowTextLengthW(hwnd), 0), 2048)
+            if title_len == 0 and not include_untitled:
+                return True
+            title = ctypes.create_unicode_buffer(title_len + 1)
+            user.GetWindowTextW(hwnd, title, len(title))
+            title_value = title.value
         class_name = ctypes.create_unicode_buffer(256)
         user.GetClassNameW(hwnd, class_name, len(class_name))
         pid = wintypes.DWORD()
         user.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
         if pid.value:
-            rows.append({'window_id': int(hwnd), 'pid': int(pid.value), 'title': title.value,
+            rows.append({'window_id': int(hwnd), 'pid': int(pid.value), 'title': title_value,
                          'class_name': class_name.value, 'foreground': int(hwnd) == foreground})
         return len(rows) < MAX_WINDOWS
 
@@ -256,6 +259,21 @@ def list_windows(*, include_untitled=False):
         if error:
             raise ctypes.WinError(error)
     return rows[:MAX_WINDOWS]
+
+
+def read_clipboard_text(*, max_characters=8192, cancelled=None):
+    """Read a consented snapshot in the cancellable worker, never change the clipboard."""
+    if type(max_characters) is not int or not 1 <= max_characters <= 100000:
+        raise ValueError('El límite del portapapeles debe estar entre 1 y 100000 caracteres.')
+    result = _uia({'operation':'clipboard', 'max_characters':max_characters}, cancelled=cancelled, timeout=5)
+    if (not {'sequence_number', 'available', 'text'} <= set(result)
+            or type(result.get('sequence_number')) is not int or not 0 <= result['sequence_number'] <= 0xffffffff
+            or type(result.get('available')) is not bool
+            or result['available'] != isinstance(result.get('text'), str)
+            or result['text'] is not None and not isinstance(result['text'], str)
+            or isinstance(result.get('text'), str) and len(result['text']) > max_characters):
+        raise ValueError('El worker devolvió una lectura de portapapeles inválida.')
+    return {key:result[key] for key in ('sequence_number','available','text')}
 
 
 def close_window(window_id, expected_pid, cancelled=None):

@@ -10,8 +10,58 @@ try {
     Add-Type -AssemblyName UIAutomationClient
     Add-Type -AssemblyName UIAutomationTypes
     $request = [Console]::In.ReadToEnd() | ConvertFrom-Json -ErrorAction Stop
-    if ($null -eq $request -or $request.operation -notin @('focused_edit', 'capture', 'inspect', 'inspect_browser', 'read_content', 'locate_edit', 'set_value', 'invoke', 'check_value', 'locate_folder', 'scrape_app', 'set_state', 'read_grid', 'read_value')) {
+    if ($null -eq $request -or $request.operation -notin @('clipboard', 'focused_edit', 'capture', 'inspect', 'inspect_browser', 'read_content', 'locate_edit', 'set_value', 'invoke', 'check_value', 'locate_folder', 'scrape_app', 'set_state', 'read_grid', 'read_value')) {
         throw 'Operación UI Automation desconocida.'
+    }
+    if ($request.operation -eq 'clipboard') {
+        if ($request.max_characters -isnot [int] -or $request.max_characters -lt 1 -or $request.max_characters -gt 100000) { throw 'Límite de portapapeles inválido.' }
+        Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+public static class AxxClipboardRead {
+    [DllImport("user32.dll")] static extern bool OpenClipboard(IntPtr hwnd);
+    [DllImport("user32.dll")] static extern bool CloseClipboard();
+    [DllImport("user32.dll")] static extern uint GetClipboardSequenceNumber();
+    [DllImport("user32.dll")] static extern bool IsClipboardFormatAvailable(uint format);
+    [DllImport("user32.dll")] static extern IntPtr GetClipboardData(uint format);
+    [DllImport("kernel32.dll")] static extern UIntPtr GlobalSize(IntPtr handle);
+    [DllImport("kernel32.dll")] static extern IntPtr GlobalLock(IntPtr handle);
+    [DllImport("kernel32.dll")] static extern bool GlobalUnlock(IntPtr handle);
+    public static string Decode(byte[] bytes, int maximum) {
+        if (maximum < 1 || maximum > 100000 || bytes == null || bytes.Length < 2 || bytes.Length > (maximum+1)*2 || bytes.Length%2 != 0)
+            throw new ArgumentException("El texto del portapapeles supera el límite o no está disponible.");
+        for (int i=0; i<bytes.Length; i+=2) if (bytes[i]==0 && bytes[i+1]==0) {
+            try { return new UnicodeEncoding(false,false,true).GetString(bytes,0,i); }
+            catch (DecoderFallbackException) { throw new ArgumentException("El texto del portapapeles no tiene una codificación válida."); }
+        }
+        throw new ArgumentException("El texto del portapapeles no tiene un terminador válido.");
+    }
+    public static object[] Read(int maximum) {
+        uint sequence = GetClipboardSequenceNumber();
+        if (!OpenClipboard(IntPtr.Zero)) throw new InvalidOperationException("El portapapeles está ocupado; no se leyó su contenido.");
+        try {
+            string text = null;
+            if (IsClipboardFormatAvailable(13)) {
+                IntPtr handle = GetClipboardData(13);
+                ulong size = handle==IntPtr.Zero ? 0 : GlobalSize(handle).ToUInt64();
+                if (size<2 || size>(ulong)(maximum+1)*2 || size%2!=0) throw new ArgumentException("El texto del portapapeles supera el límite o no está disponible.");
+                IntPtr pointer = GlobalLock(handle);
+                if (pointer==IntPtr.Zero) throw new InvalidOperationException("No se pudo leer el portapapeles.");
+                byte[] bytes = new byte[(int)size];
+                try { Marshal.Copy(pointer,bytes,0,bytes.Length); }
+                finally { GlobalUnlock(handle); }
+                text = Decode(bytes,maximum);
+            }
+            if (GetClipboardSequenceNumber()!=sequence) throw new InvalidOperationException("El portapapeles cambió durante la lectura.");
+            return new object[] {sequence,text};
+        } finally { CloseClipboard(); }
+    }
+}
+'@
+        $snapshot = [AxxClipboardRead]::Read([int]$request.max_characters)
+        [Console]::Out.Write((@{success=$true;sequence_number=[long]$snapshot[0];text=$snapshot[1];available=($null -ne $snapshot[1])} | ConvertTo-Json -Compress))
+        exit 0
     }
     if ($request.operation -eq 'locate_folder') {
         $shell = New-Object -ComObject Shell.Application

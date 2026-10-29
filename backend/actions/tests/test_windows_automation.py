@@ -1,14 +1,85 @@
 import json
+import os
+from pathlib import Path
 import time
 import subprocess
 import threading
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 from backend.actions import windows_automation as automation
 
 
 class WindowsAutomationTests(unittest.TestCase):
+    def test_clipboard_reader_uses_cancellable_worker_and_validates_bounds(self):
+        snapshot = {'success':True,'sequence_number':7,'text':'ensayo','available':True}
+        cancelled = threading.Event()
+        with patch.object(automation, '_uia', return_value=snapshot) as worker:
+            self.assertEqual(automation.read_clipboard_text(max_characters=10, cancelled=cancelled),
+                             {'sequence_number':7,'text':'ensayo','available':True})
+            worker.assert_called_once_with({'operation':'clipboard','max_characters':10},cancelled=cancelled,timeout=5)
+        for maximum in (True,0,100001,'8192'):
+            with self.subTest(maximum=maximum), patch.object(automation,'_uia') as worker, self.assertRaises(ValueError):
+                automation.read_clipboard_text(max_characters=maximum)
+            worker.assert_not_called()
+        for bad in ({'sequence_number':True}, {'sequence_number':-1}, {'available':False}, {'text':42}, {'text':'x'*11}):
+            with self.subTest(bad=bad), patch.object(automation,'_uia',return_value=snapshot|bad), self.assertRaises(ValueError):
+                automation.read_clipboard_text(max_characters=10)
+
+    @unittest.skipUnless(os.name == 'nt', 'Requires the packaged Windows worker path')
+    def test_clipboard_worker_is_killed_on_cancel_without_reading_a_real_clipboard(self):
+        cancelled = threading.Event()
+        class Worker:
+            returncode = None
+            killed = False
+            def communicate(self, input=None, timeout=None):
+                if self.killed:return b'',b''
+                cancelled.set()
+                raise subprocess.TimeoutExpired('powershell',timeout)
+            def kill(self):self.killed=True
+        worker = Worker()
+        with patch.object(automation.subprocess,'Popen',return_value=worker), \
+                patch.object(automation,'observe_geometry',side_effect=AssertionError('Clipboard must not inspect a window')), \
+                self.assertRaisesRegex(ValueError,'cancelada'):
+            automation.read_clipboard_text(cancelled=cancelled)
+        self.assertTrue(worker.killed)
+
+    @unittest.skipUnless(os.name == 'nt', 'Compiles the actual Windows reader; never reads the clipboard')
+    def test_actual_clipboard_decoder_handles_untrusted_bytes_without_native_read(self):
+        source = Path(automation.__file__).with_name('uia_worker.ps1').read_text(encoding='utf8')
+        definition = source.split("Add-Type -TypeDefinition @'\n",1)[1].split("\n'@",1)[0]
+        cases = [([65,0,0,0],1,'A'), ([0,0],1,''), ([61,216,0,222,0,0],2,'😀'),
+                 ([0,216,0,0],2,None), ([65,0],1,None), ([65,0,0],2,None), ([65,0,0,0],0,None),
+                 ([65,0,66,0,0,0],1,None)]
+        request = {'source':definition, 'cases':[{'bytes':raw,'maximum':maximum} for raw,maximum,_ in cases],
+                   'path':str(Path(automation.__file__).with_name('uia_worker.ps1'))}
+        script = '''$ErrorActionPreference='Stop'; [Console]::OutputEncoding=[Text.UTF8Encoding]::new($false); $r=[Console]::In.ReadToEnd() | ConvertFrom-Json;
+$tokens=$null; $errors=$null; [void][Management.Automation.Language.Parser]::ParseFile($r.path,[ref]$tokens,[ref]$errors);
+if ($errors.Count) { throw 'Invalid packaged worker syntax' }; Add-Type -TypeDefinition $r.source;
+$answers=@(foreach ($c in $r.cases) { try { @{ok=$true;text=[AxxClipboardRead]::Decode([byte[]]$c.bytes,[int]$c.maximum)} } catch { @{ok=$false;text=$null} } });
+[Console]::Out.Write((ConvertTo-Json -InputObject $answers -Compress))'''
+        process = subprocess.run(['powershell.exe','-NoLogo','-NoProfile','-NonInteractive','-Command',script],
+                                 input=json.dumps(request).encode(),capture_output=True,timeout=20,
+                                 creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
+        self.assertEqual(process.returncode,0,process.stderr.decode(errors='replace'))
+        answers = json.loads(process.stdout.decode('utf-8-sig'))
+        self.assertEqual([(row['ok'],row['text']) for row in answers],[(expected is not None,expected) for _,_,expected in cases])
+
+    def test_metadata_only_enumeration_never_reads_window_titles(self):
+        user = MagicMock()
+        user.GetForegroundWindow.return_value = 42
+        user.IsWindowVisible.return_value = True
+        user.GetWindowTextLengthW.side_effect = AssertionError('Title observation was not authorized')
+        user.GetWindowTextW.side_effect = AssertionError('Title observation was not authorized')
+        user.GetWindowThreadProcessId.side_effect = lambda hwnd, out: setattr(out._obj, 'value', 7) or 1
+        user.GetClassNameW.side_effect = lambda hwnd, out, size: setattr(out, 'value', 'Fixture') or 7
+        user.EnumWindows.side_effect = lambda callback, value: callback(42, value)
+        with patch.object(automation, '_windows_api', return_value=(user, MagicMock())):
+            rows = automation.list_windows(include_titles=False)
+        self.assertEqual(rows, [{'window_id':42,'pid':7,'title':'','class_name':'Fixture','foreground':True}])
+        user.GetWindowTextW.assert_not_called()
+        user.GetWindowTextLengthW.assert_not_called()
+
     def test_read_value_binds_one_fresh_metadata_control_without_page_content(self):
         control_id = 'a' * 64
         observed = {'window_title': 'Owned browser fixture', 'truncated': False,
