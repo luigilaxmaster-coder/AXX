@@ -72,6 +72,9 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
     assert.equal(await page.evaluate(()=>Axx.companion.brain.connected),true);
     await page.locator('#panel').screenshot({path:'build/model-quick-start/chatgpt-dark.png'});
     await page.locator('#tab-mode-api').click();
+    assert.equal(await page.locator('#view-ai .ai-current').isVisible(),false);
+    assert.equal(await page.locator('.provider-overview').evaluate(el=>el.getBoundingClientRect().height<150),true);
+    assert.equal(await page.locator('#provider-saved').evaluate(el=>el.getBoundingClientRect().top<document.getElementById('panel').getBoundingClientRect().bottom),true);
     await page.locator('#panel').screenshot({path:'build/model-quick-start/other-dark.png'});
     assert.equal(await page.locator('#provider-advanced').evaluate(el=>el.open),true);
     await page.locator('#provider-kind').selectOption('groq');

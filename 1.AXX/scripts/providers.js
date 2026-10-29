@@ -29,29 +29,29 @@
         #subpanel-api .model-task-row small{font-size:11px;color:var(--secondary,var(--quiet))}
         #subpanel-api .model-task-row button{flex:none}
         #subpanel-api .provider-actions{position:static}
-        #subpanel-api .provider-overview{padding:20px;border:1px solid var(--line);border-radius:18px;background:var(--surface-subtle,#a9c9ef0b);display:grid;gap:10px}
-        #subpanel-api .provider-overview-header{display:flex;align-items:center;justify-content:space-between;gap:12px}
-        #subpanel-api .provider-eyebrow{font-size:11px;letter-spacing:.08em;color:var(--secondary);text-transform:uppercase}
-        #subpanel-api #provider-active-model{font-size:20px;line-height:1.3;overflow-wrap:anywhere}
-        #subpanel-api #provider-active-state{font-size:11px;padding:5px 9px;border:1px solid var(--line);border-radius:20px;white-space:nowrap}
+        #view-ai:has(#tab-mode-api.active) .ai-current{display:none}
+        #subpanel-api .provider-overview{padding:14px;border:1px solid var(--line);border-radius:14px;background:var(--surface-subtle,#a9c9ef0b);display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 12px;align-items:center}
+        #subpanel-api .provider-overview-summary{grid-row:1/3;min-width:0}
+        #subpanel-api .provider-overview>.quick-row{justify-self:end}
+        #subpanel-api #provider-active-model{font-size:16px;line-height:1.3;overflow-wrap:anywhere}
+        #subpanel-api #provider-active-state{justify-self:end;font-size:11px;padding:5px 9px;border:1px solid var(--line);border-radius:20px}
         #subpanel-api #provider-active-state[data-verified=true]{color:var(--accent);background:color-mix(in srgb,var(--accent) 12%,transparent)}
         #subpanel-api .provider-overview p{margin:0;line-height:1.5;overflow-wrap:anywhere}
         #subpanel-api #provider-probe-result:empty{display:none}
-        #subpanel-api #provider-probe-result{padding:12px;border-radius:10px;background:var(--surface);font-size:12px}
+        #subpanel-api #provider-probe-result{grid-column:1/-1;padding:12px;border-radius:10px;background:var(--surface);font-size:12px}
         #subpanel-api #provider-advanced{border:1px solid var(--line);border-radius:16px;overflow:hidden}
         #subpanel-api #provider-advanced>summary{padding:16px 18px;font-weight:600;cursor:pointer}
         #subpanel-api .provider-fields{display:grid;grid-template-columns:1fr 1fr;gap:12px}
         #subpanel-api .provider-fields .setting{min-width:0;display:grid;gap:6px;border:0;padding:0}
         #subpanel-api .provider-fields .setting:has(#provider-url),#subpanel-api .provider-fields .setting:has(#provider-key){grid-column:1/-1}
         #subpanel-api .provider-fields :is(input,select){width:100%;min-width:0}
-        @media(max-width:480px){#subpanel-api .provider-fields{grid-template-columns:1fr}#subpanel-api .provider-overview-header{align-items:flex-start;flex-direction:column}}
+        @media(max-width:480px){#subpanel-api .provider-fields{grid-template-columns:1fr}}
         @media(max-width:640px){#subpanel-api .model-task-controls{grid-template-columns:1fr}#subpanel-api #model-task-check{width:100%}#subpanel-api .model-task-row{align-items:stretch;flex-direction:column}#subpanel-api .model-task-row button{width:100%}}
       </style>
       <div class="ai-section-head"><span>03</span><div><h3>Modelos por API</h3><p>Conecta, elige un modelo y comprueba una respuesta.</p></div></div>
       <section class="provider-overview" aria-label="Estado del modelo seleccionado">
-        <div class="provider-overview-header"><span class="provider-eyebrow">Modelo activo</span><span id="provider-active-state" role="status">Sin comprobar</span></div>
-        <strong id="provider-active-model">Sin modelo seleccionado</strong><p id="provider-active-route" class="micro-copy"></p>
-        <p class="micro-copy">Las tareas nuevas se preparan con este modelo. Revisa los pasos antes de ejecutarlas.</p>
+        <div class="provider-overview-summary"><strong id="provider-active-model">Sin modelo seleccionado</strong><p id="provider-active-route" class="micro-copy"></p></div>
+        <span id="provider-active-state" role="status">Sin comprobar</span>
         <div class="quick-row"><button id="provider-probe" type="button">Probar respuesta</button></div>
         <p id="provider-probe-result" role="status" aria-live="polite"></p>
       </section>
