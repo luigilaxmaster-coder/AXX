@@ -59,10 +59,11 @@ class MobileHTTP:
             return True
         if path == '/axx-api/mobile/files/permissions':
             result = self.gateway.transfers.configure(body)
-        elif path == '/axx-api/mobile/files/search':
+        elif path in ('/axx-api/mobile/files/search', '/axx-api/mobile/files/browse'):
             if 'device_id' not in body:
                 raise ValueError('device_id required')
-            result = self.gateway.transfers.search(body['device_id'], {k: v for k, v in body.items() if k != 'device_id'})
+            action = self.gateway.transfers.browse if path.endswith('/browse') else self.gateway.transfers.search
+            result = action(body['device_id'], {k: v for k, v in body.items() if k != 'device_id'})
         elif path == '/axx-api/mobile/files/export':
             result = self.gateway.transfers.export(body)
         elif path == '/axx-api/mobile/files/save':

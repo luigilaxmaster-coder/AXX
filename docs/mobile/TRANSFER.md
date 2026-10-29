@@ -31,13 +31,32 @@ Descargas configurada en Windows; si el nombre ya existe, crea una copia numerad
 sin reemplazarlo. Los envíos incompletos siguen en Actividad hasta verificarse.
 **Enviar al teléfono** y los permisos conservan su apartado independiente.
 
+## Encontrar archivos desde el teléfono
+
+En **Archivos → En tu PC**, **Explorar** muestra las carpetas autorizadas en
+Windows. Abre una carpeta y recorre sus subcarpetas; la ruta superior permite
+volver sin escribir nombres. Las tarjetas muestran el nombre, tipo, tamaño y
+fecha de cada archivo. **Traer al teléfono** copia únicamente el archivo elegido.
+
+**Recientes** muestra los últimos archivos modificados de las carpetas
+autorizadas. Los filtros de documentos, imágenes, vídeo, audio y comprimidos
+ayudan a reducir la lista. La búsqueda por palabras sigue disponible cuando
+recuerdes una parte del nombre. Las listas se cargan por páginas y avisan cuando
+el recorrido alcanzó su límite; no son un índice completo de todo el disco.
+
+Si no hay carpetas autorizadas, el teléfono muestra cómo habilitarlas desde
+**Herramientas → Archivos → Actividad y permisos** en la PC. Explorar no concede
+permisos ni abre discos completos automáticamente.
+
 ## Contrato y protección
 
 - Un transporte: HTTPS entre el Android emparejado y la PC. La huella del
   certificado se obtiene del QR, sin omitir comprobaciones de identidad.
 - Transferencias identificadas por UUID, ligadas al teléfono y al contenido.
   Repetir una operación con otro contenido se rechaza.
-- Bloques de 256 KiB, tamaño máximo de archivo 5 GiB. No se carga el archivo
+- Bloques de 256 KiB, tamaño máximo de archivo 10 GiB y hasta 20 GiB de copias
+  en la bandeja de Windows. El espacio libre puede reducir la capacidad real;
+  se reserva margen para el cifrado y los metadatos. No se carga el archivo
   completo en memoria. SHA-256 y tamaño se verifican antes de confirmar recepción.
 - Almacenamiento privado cifrado por bloque con AES-GCM y nonce aleatorio.
   Metadatos cifrados; clave protegida por DPAPI en Windows y Android Keystore en

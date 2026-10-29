@@ -15,6 +15,7 @@ public class FilesTest {
         }
     }
     @Test public void validatesBoundsAndFinalBlock() {
+        assertEquals(10L * 1024 * 1024 * 1024, AxxFilesPlugin.MAX_SIZE);
         AxxFilesPlugin.checkedManifest(0, "a".repeat(64), 262144);
         AxxFilesPlugin.checkedManifest(AxxFilesPlugin.MAX_SIZE, "a".repeat(64), 262144);
         assertEquals(262144, AxxFilesPlugin.expectedLength(262145, 0));
@@ -30,6 +31,25 @@ public class FilesTest {
             try { AxxFilesPlugin.expectedLength(262145, index); fail("Invalid block accepted"); } catch (IllegalArgumentException expected) {}
         }
         try { AxxFilesPlugin.expectedLength(0, 0); fail("Empty file has no block"); } catch (IllegalArgumentException expected) {}
+    }
+    @Test public void reservesSpaceForEncryptionAndChecksOnlyRemainingBytes() {
+        long reserve = 16L * 1024 * 1024;
+        assertEquals(reserve, AxxFilesPlugin.storageBytes(0));
+        assertEquals(reserve + 262144 + 8192, AxxFilesPlugin.storageBytes(262144));
+        assertEquals(reserve + 262145 + 2 * 8192, AxxFilesPlugin.storageBytes(262145));
+        long remaining = 262145, needed = AxxFilesPlugin.storageBytes(remaining);
+        AxxFilesPlugin.checkAvailableSpace(remaining, needed);
+        assertTrue(AxxFilesPlugin.storageBytes(remaining + 262144) > needed);
+        for (long free : new long[]{-1, 0, needed - 1}) {
+            try { AxxFilesPlugin.checkAvailableSpace(remaining, free); fail("Insufficient storage accepted"); }
+            catch (IllegalStateException expected) {}
+        }
+        for (long size : new long[]{-1, AxxFilesPlugin.MAX_SIZE + 1, Long.MAX_VALUE}) {
+            try { AxxFilesPlugin.storageBytes(size); fail("Unbounded storage estimate accepted"); }
+            catch (IllegalArgumentException expected) {}
+        }
+        assertTrue(AxxFilesPlugin.storageBytes(AxxFilesPlugin.MAX_SIZE) > AxxFilesPlugin.MAX_SIZE);
+        AxxFilesPlugin.checkAvailableSpace(AxxFilesPlugin.MAX_SIZE, Long.MAX_VALUE);
     }
     @Test public void encryptionRejectsTamperingAndWrongFileIdentity() throws Exception {
         javax.crypto.KeyGenerator generator = javax.crypto.KeyGenerator.getInstance("AES"); generator.init(256);

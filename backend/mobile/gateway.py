@@ -625,9 +625,10 @@ class MobileGateway:
                             if self._authorize('voice'):
                                 self._send(200, {'ok': True, 'data': gateway.dictation.submit(self.device_id, body)})
                             return
-                        if path == '/v1/files/search':
+                        if path in ('/v1/files/search', '/v1/files/browse'):
                             if self._authorize('files.read'):
-                                self._send(200, {'ok': True, 'data': gateway.transfers.search(self.device_id, body)})
+                                action = gateway.transfers.browse if path.endswith('/browse') else gateway.transfers.search
+                                self._send(200, {'ok': True, 'data': action(self.device_id, body)})
                             return
                         if path in ('/v1/transfers/create', '/v1/transfers/chunk', '/v1/transfers/pause',
                                     '/v1/transfers/resume', '/v1/transfers/cancel', '/v1/transfers/finish', '/v1/transfers/receipt'):

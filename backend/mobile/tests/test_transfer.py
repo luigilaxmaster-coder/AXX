@@ -1,4 +1,5 @@
 import base64
+from contextlib import nullcontext
 import hashlib
 import json
 import os
@@ -12,9 +13,9 @@ import uuid
 import urllib.error
 import urllib.request
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
-from backend.mobile.transfer import FileTransfer, CHUNK_SIZE
+from backend.mobile.transfer import FileTransfer, CHUNK_SIZE, MAX_SIZE, MAX_STAGED
 from backend.mobile.trust_store import MobileTrustStore
 
 
@@ -120,6 +121,167 @@ class TransferTests(unittest.TestCase):
             self.files.action('receipt', self.device, {'transfer_id': transfer_id, 'size': len(content), 'sha256': '0' * 64})
         receipt = self.files.action('receipt', self.device, {'transfer_id': transfer_id, 'size': len(content), 'sha256': record['sha256']})
         self.assertEqual(receipt['state'], 'completed')
+
+    def test_browse_roots_folders_breadcrumbs_filters_and_paging(self):
+        self.grant()
+        for name in ('Fotos', 'Planos'):
+            (self.shared / name).mkdir()
+        (self.shared / 'Zeta.pdf').write_bytes(b'pdf')
+        (self.shared / 'Alfa.txt').write_bytes(b'txt')
+        (self.shared / 'Foto.JPG').write_bytes(b'image')
+        (self.shared / 'Planos' / 'Modelo final 27.rvt').write_bytes(b'model')
+        home = self.files.browse(self.device, {})
+        self.assertEqual(home['breadcrumbs'], [{'name': 'Carpetas', 'folder_ref': None}])
+        self.assertEqual([f['name'] for f in home['folders']], ['shared'])
+        root = home['folders'][0]['folder_ref']
+        first = self.files.browse(self.device, {'folder_ref': root, 'kind': 'documents', 'limit': 1})
+        self.assertEqual([f['name'] for f in first['folders']], ['Fotos'])
+        self.assertEqual(first['next_offset'], 1)
+        self.assertTrue(first['truncated'])
+        second = self.files.browse(self.device, {'folder_ref': root, 'kind': 'documents', 'offset': 1, 'limit': 1})
+        self.assertEqual([f['name'] for f in second['folders']], ['Planos'])
+        last = self.files.browse(self.device, {'folder_ref': root, 'kind': 'documents', 'offset': 2})
+        self.assertEqual([f['name'] for f in last['files']], ['Alfa.txt', 'Zeta.pdf'])
+        self.assertIsNone(last['next_offset'])
+        nested = self.files.browse(self.device, {'folder_ref': second['folders'][0]['folder_ref']})
+        self.assertEqual([b['name'] for b in nested['breadcrumbs']], ['Carpetas', 'shared', 'Planos'])
+        self.assertEqual(nested['files'][0]['relative_path'], str(Path('Planos') / 'Modelo final 27.rvt'))
+        self.assertNotIn(str(self.shared), json.dumps(nested))
+        back = self.files.browse(self.device, {'folder_ref': nested['breadcrumbs'][1]['folder_ref']})
+        self.assertEqual(len(back['folders']), 2)
+        transfer_id = str(uuid.uuid4())
+        self.files.create(self.device, {'transfer_id': transfer_id, 'direction': 'to_phone', 'file_ref': nested['files'][0]['file_ref']})
+        self.assertEqual(self.wait(transfer_id, {'ready', 'failed'})['state'], 'ready')
+
+    def test_browse_rejects_invalid_stale_foreign_and_wrong_kind_references(self):
+        self.grant()
+        (self.shared / 'file.txt').write_text('test')
+        folder_ref = self.files.browse(self.device, {})['folders'][0]['folder_ref']
+        file_ref = self.files.browse(self.device, {'folder_ref': folder_ref})['files'][0]['file_ref']
+        for body in ({'path': str(self.shared)}, {'folder_ref': '../outside'}, {'offset': -1}, {'offset': True},
+                     {'offset': 10001}, {'limit': 0}, {'limit': 101}, {'kind': 'unknown'}, {'kind': []}):
+            with self.subTest(body=body), self.assertRaises(ValueError):
+                self.files.browse(self.device, body)
+        with self.assertRaises(ValueError):
+            self.files.browse(self.device, {'folder_ref': file_ref})
+        with self.assertRaises(ValueError):
+            self.files.create(self.device, {'transfer_id': str(uuid.uuid4()), 'direction': 'to_phone', 'file_ref': folder_ref})
+        other = self.store.consume_pairing(self.store.create_pairing(), 'Other')['device_id']
+        self.files.configure({'device_id': other, 'read': True, 'write': False, 'roots': [str(self.shared)]})
+        with self.assertRaises(ValueError):
+            self.files.browse(other, {'folder_ref': folder_ref})
+        with self.store._connect() as db:
+            db.execute('UPDATE mobile_file_refs SET created=? WHERE file_ref=?', (time.time() - 3601, folder_ref))
+        with self.assertRaises(ValueError):
+            self.files.browse(self.device, {'folder_ref': folder_ref})
+
+    def test_browse_revalidates_root_grants_and_directory_identity(self):
+        self.grant()
+        folder = self.shared / 'plans'; folder.mkdir()
+        root_ref = self.files.browse(self.device, {})['folders'][0]['folder_ref']
+        folder_ref = self.files.browse(self.device, {'folder_ref': root_ref})['folders'][0]['folder_ref']
+        other = self.root / 'another'; other.mkdir()
+        self.files.configure({'device_id': self.device, 'read': True, 'write': True, 'roots': [str(other), str(self.shared)]})
+        with self.assertRaises(ValueError):
+            self.files.browse(self.device, {'folder_ref': folder_ref})
+        root_ref = next(f['folder_ref'] for f in self.files.browse(self.device, {})['folders'] if f['name'] == 'shared')
+        folder_ref = self.files.browse(self.device, {'folder_ref': root_ref})['folders'][0]['folder_ref']
+        self.assertEqual(self.files.browse(self.device, {'folder_ref': folder_ref})['files'], [])
+        folder.rename(self.shared / 'old-plans'); folder.mkdir()
+        (folder / 'outside.txt').write_text('not the selected directory')
+        with self.assertRaises(ValueError):
+            self.files.browse(self.device, {'folder_ref': folder_ref})
+        self.files.configure({'device_id': self.device, 'read': True, 'write': True, 'roots': [str(other)]})
+        with self.assertRaises(ValueError):
+            self.files.browse(self.device, {'folder_ref': root_ref})
+        self.grant(read=False)
+        with self.assertRaises(ValueError):
+            self.files.browse(self.device, {})
+
+    def test_search_kind_and_recent_limit_remain_bounded(self):
+        self.grant()
+        for i in range(65):
+            path = self.shared / f'{i:02}.pdf'; path.write_bytes(b'pdf'); os.utime(path, (1700000000 + i, 1700000000 + i))
+        (self.shared / 'image.JPG').write_bytes(b'image')
+        images = self.files.search(self.device, {'query': '', 'kind': 'images'})
+        self.assertEqual([f['name'] for f in images['files']], ['image.JPG'])
+        recent = self.files.search(self.device, {'query': '', 'kind': 'documents'})
+        self.assertEqual(len(recent['files']), 60)
+        self.assertEqual(recent['files'][0]['name'], '64.pdf')
+        self.assertTrue(recent['truncated'])
+        with self.assertRaises(ValueError):
+            self.files.search(self.device, {'query': '', 'kind': []})
+
+    def test_browse_scan_budget_reports_truncation_and_skips_links(self):
+        self.grant()
+        root_ref = self.files.browse(self.device, {})['folders'][0]['folder_ref']
+        entry = Mock()
+        entry.stat.return_value = SimpleNamespace(st_file_attributes=0)
+        entry.is_symlink.return_value = True
+        with patch('backend.mobile.transfer.os.scandir', return_value=nullcontext(iter([entry] * 10001))):
+            result = self.files.browse(self.device, {'folder_ref': root_ref})
+        self.assertEqual(result['files'], [])
+        self.assertEqual(result['folders'], [])
+        self.assertTrue(result['truncated'])
+        self.assertEqual(entry.stat.call_count, 10000)
+
+    def test_browse_rejects_directory_swapped_during_scan(self):
+        self.grant()
+        folder = self.shared / 'selected'; folder.mkdir()
+        outside = self.root / 'outside'; outside.mkdir()
+        (outside / 'private.txt').write_text('do not expose')
+        root_ref = self.files.browse(self.device, {})['folders'][0]['folder_ref']
+        folder_ref = self.files.browse(self.device, {'folder_ref': root_ref})['folders'][0]['folder_ref']
+        scandir = os.scandir
+        def swap(path):
+            folder.rename(self.shared / 'original')
+            outside.rename(folder)
+            return scandir(path)
+        with patch('backend.mobile.transfer.os.scandir', side_effect=swap), self.assertRaises(ValueError):
+            self.files.browse(self.device, {'folder_ref': folder_ref})
+
+    def test_reference_issuance_rechecks_changed_permissions(self):
+        self.grant()
+        (self.shared / 'file.txt').write_text('test')
+        root_ref = self.files.browse(self.device, {})['folders'][0]['folder_ref']
+        source = self.files._source
+        def revoke_after_check(*args):
+            result = source(*args)
+            self.grant(read=False)
+            return result
+        with patch.object(self.files, '_source', side_effect=revoke_after_check), self.assertRaises(ValueError):
+            self.files.browse(self.device, {'folder_ref': root_ref})
+
+    def test_larger_capacity_admits_metadata_but_enforces_size_and_quota(self):
+        self.grant()
+        self.assertEqual(MAX_SIZE, 10 * 1024**3)
+        self.assertEqual(MAX_STAGED, 20 * 1024**3)
+        def manifest(size):
+            return {'transfer_id': str(uuid.uuid4()), 'direction': 'to_pc', 'name': 'large.bin', 'size': size, 'sha256': 'a' * 64}
+        with patch('backend.mobile.transfer.shutil.disk_usage', return_value=SimpleNamespace(free=64 * 1024**3)):
+            item = self.files.create(self.device, manifest(MAX_SIZE))
+            self.assertEqual(item['chunk_count'], 40960)
+            self.files.create(self.device, manifest(MAX_SIZE))
+            with self.assertRaises(ValueError):
+                self.files.create(self.device, manifest(8 * 1024**3))
+            with self.assertRaises(ValueError):
+                self.files.create(self.device, manifest(MAX_SIZE + 1))
+            status = self.files.status(self.device)
+            self.assertEqual(status['staged_bytes'], MAX_STAGED)
+            self.assertEqual(status['max_staged'], MAX_STAGED)
+            self.assertEqual(status['available_bytes'], 0)
+
+    def test_pending_copies_reserve_free_space_until_cancelled(self):
+        self.grant()
+        def manifest():
+            return {'transfer_id': str(uuid.uuid4()), 'direction': 'to_pc', 'name': 'one.bin', 'size': 1024**2, 'sha256': 'a' * 64}
+        with patch('backend.mobile.transfer.shutil.disk_usage', return_value=SimpleNamespace(free=16 * 1024**2 + 1536 * 1024)):
+            first = self.files.create(self.device, manifest())
+            self.assertLess(self.files.status(self.device)['available_bytes'], 1024**2)
+            with self.assertRaises(ValueError):
+                self.files.create(self.device, manifest())
+            self.files.action('cancel', self.device, {'transfer_id': first['transfer_id']})
+            self.assertEqual(self.files.create(self.device, manifest())['state'], 'receiving')
 
     def test_save_received_to_downloads_preserves_existing_file(self):
         self.grant()

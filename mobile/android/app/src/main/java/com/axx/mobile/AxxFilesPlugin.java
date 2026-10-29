@@ -42,7 +42,8 @@ import org.json.JSONObject;
 @CapacitorPlugin(name = "AxxFiles")
 public class AxxFilesPlugin extends Plugin {
     static final int CHUNK_SIZE = 262144;
-    static final long MAX_SIZE = 5L * 1024 * 1024 * 1024;
+    static final long MAX_SIZE = 10L * 1024 * 1024 * 1024;
+    private static final long STORAGE_RESERVE = 16L * 1024 * 1024;
     private static final String KEY_ALIAS = "axx.mobile.files.v1";
     private final ThreadPoolExecutor worker = new ThreadPoolExecutor(1, 1, 0L, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(16));
     private boolean pickerOpen;
@@ -63,8 +64,18 @@ public class AxxFilesPlugin extends Plugin {
         return name;
     }
     static void checkedManifest(long size, String hash, int chunkSize) {
-        if (size < 0 || size > MAX_SIZE || hash == null || !hash.matches("[0-9a-f]{64}") || chunkSize != CHUNK_SIZE) throw new IllegalArgumentException("Tamaño, huella o bloques no válidos");
+        if (size > MAX_SIZE) throw new IllegalArgumentException("El máximo por archivo es 10 GiB");
+        if (size < 0 || hash == null || !hash.matches("[0-9a-f]{64}") || chunkSize != CHUNK_SIZE) throw new IllegalArgumentException("Tamaño, huella o bloques no válidos");
     }
+    static long storageBytes(long bytes) {
+        if (bytes < 0 || bytes > MAX_SIZE) throw new IllegalArgumentException("Tamaño de archivo no válido; máximo 10 GiB");
+        // Reserve per-file allocation/metadata plus headroom for atomic metadata writes.
+        return bytes + ((bytes + CHUNK_SIZE - 1) / CHUNK_SIZE) * 8192L + STORAGE_RESERVE;
+    }
+    static void checkAvailableSpace(long bytes, long freeBytes) {
+        if (freeBytes < storageBytes(bytes)) throw new IllegalStateException("No hay espacio suficiente en este teléfono. Libera espacio y vuelve a intentarlo.");
+    }
+    private void requireSpace(long bytes) throws Exception { checkAvailableSpace(bytes, root().getUsableSpace()); }
     static int expectedLength(long size, int index) {
         if (index < 0 || (long) index * CHUNK_SIZE >= size) throw new IllegalArgumentException("Bloque fuera del archivo");
         return (int) Math.min(CHUNK_SIZE, size - (long) index * CHUNK_SIZE);
@@ -153,7 +164,8 @@ public class AxxFilesPlugin extends Plugin {
             try (Cursor cursor = getContext().getContentResolver().query(uri, new String[]{OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE}, null, null, null)) {
                 if (cursor != null && cursor.moveToFirst()) {
                     int column = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME); if (column >= 0 && !cursor.isNull(column)) name = cursor.getString(column);
-                    column = cursor.getColumnIndex(OpenableColumns.SIZE); if (column >= 0 && !cursor.isNull(column) && cursor.getLong(column) > MAX_SIZE) throw new IllegalArgumentException("El máximo por archivo es 5 GiB");
+                    column = cursor.getColumnIndex(OpenableColumns.SIZE);
+                    if (column >= 0 && !cursor.isNull(column) && cursor.getLong(column) >= 0) requireSpace(cursor.getLong(column));
                 }
             }
             String fileId = UUID.randomUUID().toString(); JSONObject record = newRecord(fileId, name, 0, "", "to_pc", "importing"); save(record);
@@ -165,7 +177,8 @@ public class AxxFilesPlugin extends Plugin {
                     int length = 0;
                     while (length < buffer.length) { int count = input.read(buffer, length, buffer.length - length); if (count < 0) break; if (count == 0) { int one = input.read(); if (one < 0) break; buffer[length++] = (byte) one; } else length += count; }
                     if (length == 0) break; size += length;
-                    if (size > MAX_SIZE) throw new IllegalArgumentException("El máximo por archivo es 5 GiB");
+                    if (size > MAX_SIZE) throw new IllegalArgumentException("El máximo por archivo es 10 GiB");
+                    requireSpace(length);
                     digest.update(buffer, 0, length); write(fileId, Integer.toString(index++), Arrays.copyOf(buffer, length));
                     record.put("size", size).put("confirmed_bytes", size).put("next_index", index); save(record);
                 }
@@ -187,10 +200,13 @@ public class AxxFilesPlugin extends Plugin {
         if (!(value instanceof Number) || ((Number) value).doubleValue() != ((Number) value).longValue()) throw new IllegalArgumentException("Tamaño de archivo no válido");
         long size = ((Number) value).longValue(); checkedManifest(size, hash, call.getInt("chunk_size", CHUNK_SIZE));
         File meta = new File(directory(fileId), "meta.enc"); JSONObject record;
-        if (meta.exists() || new File(meta.getPath() + ".bak").exists()) {
+        boolean existing = meta.exists() || new File(meta.getPath() + ".bak").exists();
+        if (existing) {
             record = metadata(fileId);
             if (!record.getString("direction").equals("to_phone") || record.getLong("size") != size || !record.getString("sha256").equals(hash) || !record.getString("name").equals(name)) throw new IllegalArgumentException("El identificador ya pertenece a otro archivo");
-        } else { record = newRecord(fileId, name, size, hash, "to_phone", "receiving"); save(record); }
+        } else { record = newRecord(fileId, name, size, hash, "to_phone", "receiving"); }
+        if (!record.getString("state").equals("received")) requireSpace(size - record.getLong("confirmed_bytes"));
+        if (!existing) save(record);
         resolve(call, record);
     }); }
     @PluginMethod public void writeChunk(PluginCall call) { submit(call, () -> {
@@ -200,7 +216,7 @@ public class AxxFilesPlugin extends Plugin {
         byte[] bytes = Base64.decode(encoded, Base64.NO_WRAP);
         if (bytes.length != expectedLength(record.getLong("size"), index) || index > next) throw new IllegalArgumentException("Longitud u orden de bloque no válido");
         if (index < next) { if (!MessageDigest.isEqual(bytes, read(fileId, Integer.toString(index), CHUNK_SIZE))) throw new IllegalArgumentException("El bloque repetido tiene contenido diferente"); }
-        else { write(fileId, Integer.toString(index), bytes); record.put("next_index", next + 1).put("confirmed_bytes", (long) index * CHUNK_SIZE + bytes.length); save(record); }
+        else { requireSpace(bytes.length); write(fileId, Integer.toString(index), bytes); record.put("next_index", next + 1).put("confirmed_bytes", (long) index * CHUNK_SIZE + bytes.length); save(record); }
         resolve(call, record);
     }); }
     private void verify(JSONObject record, OutputStream output) throws Exception {
@@ -233,6 +249,9 @@ public class AxxFilesPlugin extends Plugin {
         }
         resolve(call, new JSONObject().put("files", files).put("unavailable", unavailable));
     }); }
+    @PluginMethod public void capacity(PluginCall call) { submit(call, () ->
+        resolve(call, new JSONObject().put("max_size", MAX_SIZE).put("free_bytes", root().getUsableSpace()))
+    ); }
 
     @PluginMethod public void export(PluginCall call) { submit(call, () -> {
         JSONObject record = metadata(id(call));

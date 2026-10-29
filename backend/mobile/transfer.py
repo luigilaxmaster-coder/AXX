@@ -20,9 +20,16 @@ from backend.actions.file_inspection import fingerprint
 from backend.actions.tools import artifact_path_error
 
 CHUNK_SIZE = 256 * 1024
-MAX_SIZE = 5 * 1024**3
-MAX_STAGED = 10 * 1024**3
+MAX_SIZE = 10 * 1024**3
+MAX_STAGED = 20 * 1024**3
 TERMINAL = {'completed', 'cancelled', 'failed'}
+FILE_KINDS = {
+    'documents': {'.pdf', '.doc', '.docx', '.odt', '.rtf', '.txt', '.md', '.csv', '.xls', '.xlsx', '.ods', '.ppt', '.pptx', '.odp', '.dwg', '.dxf', '.rvt', '.ifc'},
+    'images': {'.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tif', '.tiff', '.heic', '.heif', '.avif', '.svg'},
+    'video': {'.mp4', '.mov', '.mkv', '.avi', '.webm', '.m4v', '.wmv', '.3gp'},
+    'audio': {'.mp3', '.wav', '.flac', '.m4a', '.aac', '.ogg', '.opus', '.wma'},
+    'archives': {'.zip', '.7z', '.rar', '.tar', '.gz', '.bz2', '.xz'},
+}
 
 
 def _downloads_directory():
@@ -65,6 +72,17 @@ def _name(value):
 
 def _fold(value):
     return ''.join(c for c in unicodedata.normalize('NFKD', value.casefold()) if not unicodedata.combining(c))
+
+
+def _kind(value):
+    if not isinstance(value, str) or value not in {'all', *FILE_KINDS}:
+        raise ValueError('Tipo de archivo no válido.')
+    return value
+
+
+def _allocation_size(size):
+    # Reserve cipher tags and a filesystem block per chunk before admitting a copy.
+    return size + math.ceil(size / CHUNK_SIZE) * (28 + 4096)
 
 
 class FileTransfer:
@@ -170,6 +188,12 @@ class FileTransfer:
     def status(self, device_id=None):
         with self.lock:
             devices = [d for d in self.store.devices() if not d['revoked']]
+            active = [i for i in self._all() if i.get('stored', True) and i['state'] != 'cancelled']
+            staged = sum(i['size'] for i in active)
+            free = self._available_space(active)
+            capacity = {'chunk_size': CHUNK_SIZE, 'max_size': MAX_SIZE, 'max_staged': MAX_STAGED,
+                        'staged_bytes': staged, 'available_bytes': max(0, min(MAX_SIZE, MAX_STAGED - staged,
+                            free * CHUNK_SIZE // (CHUNK_SIZE + 28 + 4096))), 'transport': 'local_tls'}
             if device_id is not None:
                 device = next((d for d in devices if d['device_id'] == device_id), None)
                 if device is None:
@@ -178,11 +202,17 @@ class FileTransfer:
                 return {'permissions': {'read': 'files.read' in device['scopes'], 'write': 'files.write' in device['scopes']},
                         'roots': [{'id': str(i), 'name': Path(path).name} for i, path in enumerate(roots)],
                         'transfers': [self._public(i) for i in self._all(device_id)[:100]],
-                        'chunk_size': CHUNK_SIZE, 'max_size': MAX_SIZE, 'transport': 'local_tls'}
+                        **capacity}
             return {'devices': [{**d, 'roots': self.config(d['device_id'])['roots'],
                                  'permissions': {'read': 'files.read' in d['scopes'], 'write': 'files.write' in d['scopes']}}
                                 for d in devices], 'transfers': [self._public(i) for i in self._all()[:100]],
-                    'chunk_size': CHUNK_SIZE, 'max_size': MAX_SIZE, 'transport': 'local_tls'}
+                    **capacity}
+
+    def _available_space(self, active):
+        reserved = sum(_allocation_size(max(0, item['size'] - item.get(
+            'prepared_bytes' if item['direction'] == 'to_phone' else 'confirmed_bytes', 0)))
+            for item in active if item['state'] not in TERMINAL)
+        return max(0, shutil.disk_usage(self.directory).free - reserved - 16 * 1024**2)
 
     def _source(self, device_id, source, version=None):
         self._grant(device_id, 'files.read')
@@ -198,10 +228,133 @@ class FileTransfer:
             raise ValueError('El archivo cambió. Búscalo de nuevo antes de enviarlo.')
         return path, current
 
+    def _remember(self, device_id, items):
+        self._grant(device_id, 'files.read')
+        config, checked, visible = self.config(device_id), [], []
+        try:
+            for candidate in items:
+                item = dict(candidate)
+                if item.get('kind') == 'directory':
+                    if 'identity' not in item:
+                        item = self._directory_item(Path(item['root']), Path(item['source']))
+                    self._directory(device_id, item)
+                else:
+                    path, version = self._source(device_id, item['source'], item.get('source_version'))
+                    item.update(source=str(path), source_version=version, name=path.name,
+                                size=version[2], bytes=version[2], modified_at=version[3] / 1_000_000_000)
+                checked.append(item)
+        except (OSError, ValueError) as exc:
+            raise ValueError('Los archivos cambiaron o dejaron de estar autorizados. Actualiza la carpeta.') from exc
+        with self.lock, self.store._connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            self._grant(device_id, 'files.read')
+            if self.config(device_id) != config:
+                raise ValueError('Los permisos cambiaron. Vuelve a abrir Carpetas.')
+            db.execute('DELETE FROM mobile_file_refs WHERE created<?', (time.time() - 3600,))
+            for item in checked:
+                reference = str(uuid.uuid4())
+                db.execute('INSERT INTO mobile_file_refs VALUES(?,?,?,?)',
+                           (reference, device_id, self._encrypt(item, reference), time.time()))
+                if item.get('kind') == 'directory':
+                    visible.append({'folder_ref': reference, 'name': item['name']})
+                else:
+                    visible.append({**{k: v for k, v in item.items() if not k.startswith('source')},
+                                    'file_ref': reference, 'version': hashlib.sha256(json.dumps(item['source_version']).encode()).hexdigest()})
+            db.commit()
+        return visible
+
+    def _reference(self, device_id, reference):
+        _uuid(reference)
+        with self.store._connect() as db:
+            row = db.execute('SELECT payload FROM mobile_file_refs WHERE file_ref=? AND device_id=? AND created>?',
+                             (reference, device_id, time.time() - 3600)).fetchone()
+        if row is None:
+            raise ValueError('La referencia caducó. Vuelve a abrir la carpeta o busca de nuevo.')
+        return self._decrypt(row['payload'], reference)
+
+    def _directory(self, device_id, item):
+        self._grant(device_id, 'files.read')
+        try:
+            if item.get('kind') != 'directory' or item.get('root') not in self.config(device_id)['roots']:
+                raise ValueError()
+            root, path = _path(item['root']), _path(item['source'])
+            info = path.stat()
+            if (not path.is_dir() or not path.is_relative_to(root)
+                    or getattr(info, 'st_file_attributes', 0) & (0x400 | 0x1000 | 0x40000 | 0x400000)
+                    or item.get('identity') != [info.st_dev, info.st_ino]):
+                raise ValueError()
+        except (KeyError, OSError, ValueError) as exc:
+            raise ValueError('Esta carpeta ya no está disponible o autorizada. Vuelve a Carpetas.') from exc
+        return root, path
+
+    def _directory_item(self, root, path):
+        info = path.stat()
+        return {'kind': 'directory', 'source': str(path), 'root': str(root), 'name': path.name,
+                'identity': [info.st_dev, info.st_ino]}
+
+    def _file_item(self, root, path, info):
+        return {'source': str(path), 'name': path.name,
+                'relative_path': str(path.relative_to(root)), 'root_name': root.name,
+                'size': info.st_size, 'bytes': info.st_size, 'modified_at': info.st_mtime}
+
+    def browse(self, device_id, body):
+        self._grant(device_id, 'files.read')
+        if not isinstance(body, dict) or set(body) - {'folder_ref', 'offset', 'limit', 'kind'}:
+            raise ValueError('Selecciona una carpeta autorizada.')
+        offset, limit = body.get('offset', 0), body.get('limit', 40)
+        if type(offset) is not int or not 0 <= offset <= 10000 or type(limit) is not int or not 1 <= limit <= 100:
+            raise ValueError('Página de archivos no válida.')
+        kind = _kind(body.get('kind', 'all'))
+        items, parents, truncated = [], [], False
+        reference = body.get('folder_ref')
+        if reference is None:
+            for raw in self.config(device_id)['roots']:
+                try:
+                    root = _path(raw)
+                    items.append(self._directory_item(root, root))
+                except (OSError, ValueError):
+                    truncated = True
+        else:
+            current = self._reference(device_id, reference)
+            root, folder = self._directory(device_id, current)
+            path = root
+            parents.append(self._directory_item(root, root))
+            for part in folder.relative_to(root).parts:
+                path /= part
+                parents.append(self._directory_item(root, path))
+            try:
+                with os.scandir(folder) as entries:
+                    for index, entry in enumerate(entries):
+                        if index >= 10000:
+                            truncated = True
+                            break
+                        try:
+                            info = entry.stat(follow_symlinks=False)
+                            if entry.is_symlink() or getattr(info, 'st_file_attributes', 0) & (0x400 | 0x1000 | 0x40000 | 0x400000):
+                                continue
+                            if entry.is_dir(follow_symlinks=False):
+                                items.append({'kind': 'directory', 'source': entry.path, 'root': str(root), 'name': entry.name})
+                            elif (entry.is_file(follow_symlinks=False) and info.st_size <= MAX_SIZE
+                                  and (kind == 'all' or Path(entry.name).suffix.lower() in FILE_KINDS[kind])):
+                                items.append(self._file_item(root, Path(entry.path), info))
+                        except (OSError, ValueError):
+                            truncated = True
+            except OSError as exc:
+                raise ValueError('No se puede abrir esta carpeta. Comprueba sus permisos en la PC.') from exc
+            self._directory(device_id, current)
+        items.sort(key=lambda item: (item.get('kind') != 'directory', _fold(item['name']), item['name']))
+        page = self._remember(device_id, items[offset:offset + limit])
+        breadcrumbs = [{'name': 'Carpetas', 'folder_ref': None}, *self._remember(device_id, parents)]
+        next_offset = offset + limit if offset + limit < len(items) else None
+        return {'folders': [item for item in page if 'folder_ref' in item],
+                'files': [item for item in page if 'file_ref' in item], 'breadcrumbs': breadcrumbs,
+                'next_offset': next_offset, 'truncated': truncated or next_offset is not None}
+
     def search(self, device_id, body):
         self._grant(device_id, 'files.read')
-        if not isinstance(body, dict) or set(body) - {'query', 'modified_after', 'modified_before'} or not isinstance(body.get('query'), str) or len(body['query']) > 200:
+        if not isinstance(body, dict) or set(body) - {'query', 'modified_after', 'modified_before', 'kind'} or not isinstance(body.get('query'), str) or len(body['query']) > 200:
             raise ValueError('Escribe un nombre o tipo de archivo de hasta 200 caracteres.')
+        kind = _kind(body.get('kind', 'all'))
         after, before = body.get('modified_after', 0), body.get('modified_before', time.time() + 86400)
         if any(type(v) not in (int, float) or not math.isfinite(v) or v < 0 for v in (after, before)) or after > before:
             raise ValueError('Intervalo de fechas inválido.')
@@ -230,26 +383,17 @@ class FileTransfer:
                                     pending.append((Path(entry.path), depth + 1))
                                 else:
                                     truncated = True
-                            elif entry.is_file(follow_symlinks=False) and info.st_size <= MAX_SIZE and after <= info.st_mtime <= before:
+                            elif (entry.is_file(follow_symlinks=False) and info.st_size <= MAX_SIZE and after <= info.st_mtime <= before
+                                  and (kind == 'all' or Path(entry.name).suffix.lower() in FILE_KINDS[kind])):
                                 relative = str(Path(entry.path).relative_to(root))
                                 if all(word in _fold(relative) for word in words):
-                                    results.append({'source': entry.path, 'source_version': list(fingerprint(Path(entry.path).stat())),
-                                                    'name': entry.name, 'relative_path': relative, 'root_name': root.name,
-                                                    'size': info.st_size, 'bytes': info.st_size, 'modified_at': info.st_mtime})
+                                    results.append(self._file_item(root, Path(entry.path), info))
                 except (OSError, ValueError):
                     truncated = True
             truncated = truncated or bool(pending)
         results.sort(key=lambda item: (-item['modified_at'], item['name'].casefold()))
-        truncated = truncated or len(results) > 30
-        visible = []
-        with self.lock, self.store._connect() as db:
-            db.execute('DELETE FROM mobile_file_refs WHERE created<?', (time.time() - 3600,))
-            for item in results[:30]:
-                file_ref = str(uuid.uuid4())
-                db.execute('INSERT INTO mobile_file_refs VALUES(?,?,?,?)',
-                           (file_ref, device_id, self._encrypt(item, file_ref), time.time()))
-                visible.append({**{k: v for k, v in item.items() if not k.startswith('source')},
-                                'file_ref': file_ref, 'version': hashlib.sha256(json.dumps(item['source_version']).encode()).hexdigest()})
+        truncated = truncated or len(results) > 60
+        visible = self._remember(device_id, results[:60])
         return {'files': visible, 'truncated': truncated, 'inspected_entries': min(visited, 10000), 'sort': 'modified_desc'}
 
     def create(self, device_id, body):
@@ -275,22 +419,19 @@ class FileTransfer:
                 return self._public(self._load(transfer_id, device_id))
             if direction == 'to_phone':
                 file_ref = _uuid(body['file_ref'])
-                with self.store._connect() as db:
-                    row = db.execute('SELECT payload FROM mobile_file_refs WHERE file_ref=? AND device_id=? AND created>?',
-                                     (file_ref, device_id, time.time() - 3600)).fetchone()
-                if not row:
-                    raise ValueError('El resultado de búsqueda caducó. Busca de nuevo.')
-                source = self._decrypt(row['payload'], file_ref)
+                source = self._reference(device_id, file_ref)
+                if source.get('kind', 'file') != 'file':
+                    raise ValueError('Selecciona un archivo, no una carpeta.')
                 path, version = self._source(device_id, source['source'], source['source_version'])
                 name, size, digest = path.name, path.stat().st_size, None
             else:
                 name, size, digest = _name(body['name']), body.get('size', body.get('bytes')), body['sha256']
                 if type(size) is not int or not 0 <= size <= MAX_SIZE or not isinstance(digest, str) or not re.fullmatch('[a-f0-9]{64}', digest):
-                    raise ValueError('Tamaño o SHA-256 inválido; máximo 5 GiB.')
+                    raise ValueError('Tamaño o SHA-256 inválido; máximo 10 GiB.')
             active = [i for i in self._all() if i.get('stored', True) and i['state'] != 'cancelled']
             if len(active) >= 100 or sum(i['size'] for i in active) + size > MAX_STAGED:
-                raise ValueError('La bandeja llegó a su límite. Cancela transferencias antiguas para liberar espacio.')
-            if shutil.disk_usage(self.directory).free < size + 16 * 1024**2:
+                raise ValueError('La bandeja llegó a su límite. Elimina copias de Axx que ya no necesites para liberar espacio.')
+            if self._available_space(active) < _allocation_size(size):
                 raise ValueError('No hay espacio suficiente para guardar la transferencia.')
             item = {'transfer_id': transfer_id, 'device_id': device_id, 'direction': direction, 'name': name,
                     'size': size, 'bytes': size, 'sha256': digest, 'chunk_size': CHUNK_SIZE,
