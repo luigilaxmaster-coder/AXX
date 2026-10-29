@@ -10,9 +10,10 @@ red local o entre redes distintas mediante una red privada Tailscale existente.
    Para la segunda opción, conecta Tailscale en PC y Android a la misma red privada
    de Tailscale. Genera entonces el QR de Axx y escanéalo desde Axx Mobile. Se
    conservan identidad y permisos al volver a enlazar el mismo teléfono.
-2. Abre **Archivos** en Windows. Selecciona el teléfono y autoriza por separado
-   lectura de carpetas concretas y recepción. El emparejamiento no concede estos
-   permisos automáticamente. No selecciones un disco completo.
+2. Abre **Herramientas → Archivos → Actividad y permisos** en Windows. Selecciona
+   el teléfono y autoriza por separado lectura de carpetas concretas y recepción.
+   El emparejamiento no concede estos permisos automáticamente. No selecciones
+   un disco completo.
 3. En Android, abre **Archivos** para buscar en la PC o elegir un documento mediante
    el selector de Android. Recibir copia al almacén privado de Axx; **Guardar** crea
    una copia externa en el destino que el usuario elige.
