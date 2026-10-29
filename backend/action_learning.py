@@ -17,7 +17,7 @@ from .commands import ADAPTERS, ApprovalRequired, normalized, parse_command_json
 from .actions.plan_contract import validate_bindings, resolve_inputs
 from .memory.procedural_memory import get_action_env_fingerprint
 from .memory.skill_memory import SkillMemory, NeedsInput, PARAMETER, bind, bounded_object, project_key, validate_schema
-from .goal_contract import contract as goal_contract, verify as verify_goal
+from .goal_contract import contract as goal_contract, verify as verify_goal, validate_steps as validate_goal_steps
 from .actions.command_language import command_sequence
 
 TERMINAL = {'succeeded', 'failed', 'cancelled', 'blocked', 'needs_input', 'expired', 'unknown'}
@@ -289,6 +289,8 @@ class ActionLearning:
             raise ValueError('El plan debe contener de uno a ocho pasos concretos.')
         result = []
         for index, step in enumerate(steps):
+            if isinstance(step,dict) and 'inputs' not in step and step.get('bindings'):
+                step = {'inputs':{},**step}
             if not isinstance(step, dict) or not {'command_id', 'inputs'} <= set(step) or set(step) - {'command_id', 'inputs', 'bindings', 'delivery_mode'} or (step['command_id'] not in self.allowed and not (allow_shell and step['command_id'] in ('axx.shell.cmd', 'axx.process.run'))):
                 raise ValueError('El modelo propuso una herramienta no disponible. No se ejecutó.')
             if not isinstance(step['inputs'], dict): raise ValueError('Parámetros de paso inválidos')
@@ -363,13 +365,14 @@ class ActionLearning:
              'Falta información: {"needs_input":"pregunta concreta"}. Capacidad ausente: {"unavailable":"motivo concreto y capacidad faltante"}. '
              'Define resultado/objetos/fuentes/destino/filtros/parámetros/conservación. goal_spec opcional: '
              '{"intent":"resultado","objects":[],"sources":[],"destination":"","filters":{},"parameters":{},"preserve":[],"checks":[{"path":"relativo a artifacts","text":"contenido final esperado"}]}. '
-             'checks: solo texto final exacto conocido. Conserva goal_spec fijado. '
+             'checks: solo texto final exacto conocido de un archivo cuya ruta aparece en los pasos; nunca campos de respuesta como output ni el nombre sha256. Conserva goal_spec fijado. '
              'Redacta con herramientas antes de pedir código. Transformación pura ausente: '
              '{"capability_request":{"kind":"python_transform","goal":"carencia concreta, entradas, salida y comprobación"},"goal_spec":{...}}. '
              'APIs/apps sin interfaz comprobada: kind source_proposal (investigación, no ejecución). '
              'Taller: conserva tarea, genera candidatos y ejecuta pruebas puras; activación con revisión explícita. '
              'Máximo ocho pasos literales, sin código/pseudocódigo; archivos nuevos en artifacts. '
              'bindings:{"parametro":{"step":0,"path":["output","campo"]}}: resultados previos verificados; índice cero. '
+             'Archivo recién creado: axx.file.sha256 usa inputs:{} y bindings:{"path":{"step":0,"path":["output","path"]}} si axx.artifact.write es el paso 0. '
              'HWND, PID, observation_id, control_id y coordenadas: observación fresca y bindings; nunca inventes. '
              'Ventana: axx.desktop.window.select exige título exacto; pídelo si falta. window_id_hex:window.focus; window_id entero:observe/control.find. '
              'Entrada global: enfoca y observa después; cambiar foco puede caducar lo observado. '
@@ -518,6 +521,7 @@ class ActionLearning:
     def _ready(self, plan, title):
         if not isinstance(title, str) or not 1 <= len(title) <= 120: raise ValueError('Título de plan inválido')
         plan['steps'] = self._validate_steps(plan['steps'], allow_shell=terminal_requested(plan['request']))
+        validate_goal_steps(plan['goal_spec'],plan['steps'],self.commands.executor.workspace_root)
         requested = command_sequence(plan['request'],'text')
         if requested and len(plan['steps']) < len(requested):
             raise NeedsInput('El plan devolvió menos acciones que las solicitadas. No se ejecutó ningún paso; reformula el plan completo.')
@@ -615,7 +619,8 @@ class ActionLearning:
                         requested = command_sequence(plan['request'],'text')
                         if data is not None and isinstance(data.get('steps'),list):
                             try:
-                                self._validate_steps(data['steps'],allow_shell=terminal_requested(plan['request']))
+                                steps = self._validate_steps(data['steps'],allow_shell=terminal_requested(plan['request']))
+                                validate_goal_steps(goal_contract(plan['request'],data.get('goal_spec',plan['goal_spec'])),steps,self.commands.executor.workspace_root)
                                 if requested and len(data['steps']) < len(requested): issue = 'Faltan acciones de requested_steps.'
                             except (ValueError,NeedsInput) as exc: issue = str(exc)[:500]
                         if issue and plan['model_calls_used'] < 2:

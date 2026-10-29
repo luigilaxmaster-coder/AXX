@@ -34,6 +34,21 @@ def contract(request, value=None):
     return result
 
 
+def validate_steps(goal, steps, root):
+    root = Path(root).resolve()
+    declared = {(root / value).resolve() for step in steps for key,value in step['inputs'].items()
+                if key in ('path','destination') and isinstance(value,str)}
+    for check in goal['checks']:
+        target = (root / check['path']).resolve()
+        if target not in declared and not target.is_file():
+            raise ValueError('La comprobación final debe referirse a una ruta de archivo declarada en los pasos o ya existente en artifacts; no a un campo de respuesta como output.')
+        for step in steps:
+            if (step['command_id'] == 'axx.artifact.write' and isinstance(step['inputs'].get('path'),str)
+                    and (root / step['inputs']['path']).resolve() == target and 'content' in step['inputs']
+                    and step['inputs']['content'] != check['text']):
+                raise ValueError('El texto de la comprobación final no coincide con el contenido literal que se guardará. Conserva el contenido solicitado.')
+
+
 def verify(goal, root, cancelled):
     from .actions.file_inspection import hash_file
     root = Path(root).resolve()

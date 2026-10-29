@@ -96,6 +96,8 @@ class ActionLearningTests(unittest.TestCase):
         self.assertIn('relativa',command['parameters']['path']['description'])
         self.assertEqual(command['parameters']['path']['maxLength'],240)
         self.assertEqual(command['parameters']['content']['maxBytes'],65536)
+        digest=next(c for c in contract['capabilities'] if c['command_id']=='axx.file.sha256')
+        self.assertIn('absoluta',digest['parameters']['path']['description'])
         self.assertFalse((self.executor.workspace_root/'training.txt').exists())
         self.assertEqual(self.executor.list_operations(),[])
 
@@ -111,6 +113,44 @@ class ActionLearningTests(unittest.TestCase):
         self.assertEqual(plan['model_calls_used'],2)
         self.assertEqual(plan['steps'],[{'command_id':'axx.system.telemetry','inputs':{}}])
         self.assertEqual(self.executor.list_operations(),[])
+
+    def test_invented_final_check_is_repaired_before_creating_the_file(self):
+        requests=[]
+        def answer(request):
+            requests.append(request)
+            check={'path':'output','text':'sha256'} if len(requests)==1 else {'path':'training.txt','text':'TRAINING'}
+            data={'title':'Crear prueba','goal_spec':{'intent':'Crear prueba','checks':[check]},'steps':[
+                {'command_id':'axx.artifact.write','inputs':{'path':'training.txt','content':'TRAINING'}}]}
+            return {'ok':True,'message':{'content':json.dumps(data)}}
+        self.model.route=answer
+        plan=self.learning.propose('crea un archivo de prueba training.txt con el texto TRAINING')
+        self.assertEqual(plan['state'],'awaiting_approval',plan)
+        self.assertEqual(plan['model_calls_used'],2)
+        self.assertEqual(plan['goal_spec']['checks'],[{'path':'training.txt','text':'TRAINING'}])
+        self.assertFalse((self.executor.workspace_root/'training.txt').exists())
+        done=self.learning.execute(plan['operation_id'],approved=True)
+        self.assertEqual(done['state'],'succeeded',done)
+        self.assertTrue(done['goal_verification']['passed'])
+
+    def test_inconsistent_literal_final_check_never_executes(self):
+        self.model.answer={'title':'Crear prueba','goal_spec':{'intent':'Crear prueba','checks':[{'path':'training.txt','text':'WRONG'}]},'steps':[
+            {'command_id':'axx.artifact.write','inputs':{'path':'training.txt','content':'TRAINING'}}]}
+        plan=self.learning.propose('crea un archivo de prueba training.txt con el texto TRAINING')
+        self.assertEqual(plan['state'],'failed',plan)
+        self.assertEqual(plan['model_calls_used'],2)
+        self.assertFalse((self.executor.workspace_root/'training.txt').exists())
+        self.assertEqual(self.executor.list_operations(),[])
+
+    def test_binding_only_step_accepts_omitted_empty_inputs_and_reads_verified_path(self):
+        self.model.answer={'title':'Crear y comprobar','steps':[
+            {'command_id':'axx.artifact.write','inputs':{'path':'training.txt','content':'TRAINING'}},
+            {'command_id':'axx.file.sha256','bindings':{'path':{'step':0,'path':['output','path']}}}]}
+        plan=self.learning.propose('crea training.txt y luego comprueba su hash')
+        self.assertEqual(plan['state'],'awaiting_approval',plan)
+        self.assertEqual(plan['steps'][1]['inputs'],{})
+        done=self.learning.execute(plan['operation_id'],approved=True)
+        self.assertEqual(done['state'],'succeeded',done)
+        self.assertEqual(done['results'][0]['output']['sha256'],done['results'][1]['output']['files'][0]['sha256'])
 
     def test_model_plan_writes_real_file_hashes_it_and_learns_only_after_execution(self):
         self.model.answer = {'title': 'Crear y comprobar saludo', 'steps': [
