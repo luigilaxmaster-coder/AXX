@@ -12,7 +12,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/Source%20Version-v0.22.26-informational" alt="Source version 0.22.26" />
   <a href="https://github.com/luigilaxmaster-coder/AXX/actions/workflows/version-consistency.yml">Integración continua</a> ·
-  <a href="docs/releases/0.22.25.md">Notas de la versión</a> ·
+  <a href="docs/releases/0.22.26.md">Notas de la versión</a> ·
   <a href="docs/COMMAND-TRAINING.md">Práctica y aceptación</a>
 </p>
 
@@ -173,7 +173,7 @@ El taller puede proponer flujos y transformaciones puras, validarlas y mantener 
 
 ## Android
 
-Android mantiene su versión independiente: **0.2.5**. El enlace permite compartir apariencia y trabajar con las funciones móviles habilitadas, sin conceder automáticamente acceso a mouse, teclado, audio o tareas del PC. En Samsung A21s se verificaron copias de 1.049.652 bytes hacia Windows por LAN y Tailscale, guardado en Descargas con SHA-256 coincidente y persistencia del enlace tras reiniciar Axx. Ambas pruebas usaron la misma Wi-Fi. [Alcance de la prueba física](docs/mobile/TRANSFER-ACCEPTANCE-20261029.md); dos conexiones a Internet distintas, voz y segundo plano siguen pendientes de aceptación.
+Android mantiene su versión independiente: **0.2.6 en fuente**, con instalación y aceptación específicas pendientes. El enlace permite compartir apariencia y trabajar con las funciones móviles habilitadas, sin conceder automáticamente acceso a mouse, teclado, audio o tareas del PC. En la versión 0.2.5 se verificaron en Samsung A21s copias de 1.049.652 bytes hacia Windows por LAN y Tailscale, guardado en Descargas con SHA-256 coincidente y persistencia del enlace tras reiniciar Axx. Ambas pruebas usaron la misma Wi-Fi. [Alcance de la prueba física](docs/mobile/TRANSFER-ACCEPTANCE-20261029.md); dos conexiones a Internet distintas, voz y segundo plano siguen pendientes de aceptación.
 
 La validación de **0.2.4** registrada en Samsung A21s incluye sincronización de apariencia en ambos sentidos, conservación del enlace y borrador, texto al 100/170 %, teclado de 299 puntos y una consulta ejecutada en Windows. La escena medida obtuvo una mediana de 50 FPS; no es una garantía para otros teléfonos o escenas. Se registraron 17 pruebas UI y 59 de servicio.
 
