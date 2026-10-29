@@ -9,16 +9,23 @@
 The recordings stay in the user's AppData directory. They are not part of Git,
 the Windows installer, or the public download. To use this voice on another PC,
 copy the reference clips privately to the same folder and refresh the voice list.
-The existing MOSS model clones the selected reference at inference time; these
-recordings do not train or fine-tune its weights.
-The [official fine-tuning workflow](https://github.com/OpenMOSS/MOSS-TTS-Nano/blob/main/finetuning/README.md)
-requires a CUDA GPU and separate PyTorch checkpoints. Keep its output private
-and compare it with the current ONNX voice before replacing the inference model.
+The active MOSS ONNX model clones the selected reference at inference time;
+these recordings do not change its weights. A private CPU fine-tuning experiment
+exists under the local training directory, but its checkpoint is not active:
+the earlier held-out comparison improved Spanish recognition while English
+speaker similarity declined. Another training run should use more clean,
+transcribed speech and an independent Spanish/English comparison before any
+checkpoint replaces the current inference model. Keep all weights and recordings
+private.
 
 When available, Axxmorcito appears in **Voces de Axx** and the chat and live
 voice selectors. A new profile prefers it; an existing saved voice selection is
 kept. Spanish and English use distinct reference hashes in the audio cache, so
 changing either clip invalidates only its own synthesized phrases. MOSS warmup
 is required on first use. Audio cache reuse accelerates repeated text, but does
-not prove a first-response latency or subjective voice quality. Listen to both
+not prove a first-response latency or subjective voice quality. The sound panel
+offers per-voice bass, clarity, brightness, sibilance, volume and height/tempo
+controls with explanations on their info icons. Sibilance is a fixed frequency
+reduction, not a trained pronunciation model; height also changes duration.
+PCM packet boundaries use a short fade to reduce clicks. Listen to both
 languages in the installed app before acoustic acceptance.

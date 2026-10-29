@@ -48,13 +48,19 @@
             const source = this.context.createBufferSource(); source.buffer = buffer;
             const speed = Axx.voiceAudio?.speed(this.voice.name, this.reader.rate)
                 || Math.max(.75, Math.min(1.3, Number(this.reader.rate) || 1));
-            source.playbackRate.value = speed; source.connect(this.audioChain?.input || this.context.destination);
+            const gain = this.context.createGain();
+            source.playbackRate.value = speed; source.connect(gain).connect(this.audioChain?.input || this.context.destination);
             const now = this.context.currentTime;
             if (this.nextTime && this.nextTime < now) this.evidence.underruns++;
-            const start = Math.max(now + .04, this.nextTime);
-            this.nextTime = start + buffer.duration / speed;
+            const duration = buffer.duration / speed, fade = Math.min(.006, duration / 3);
+            const start = Math.max(now + .04, this.nextTime ? this.nextTime - fade : 0);
+            gain.gain.setValueAtTime(0, start);
+            gain.gain.linearRampToValueAtTime(1, start + fade);
+            gain.gain.setValueAtTime(1, start + duration - fade);
+            gain.gain.linearRampToValueAtTime(0, start + duration);
+            this.nextTime = start + duration;
             this.sources.add(source); this.evidence.chunks++;
-            source.onended = () => { this.sources.delete(source); source.disconnect(); };
+            source.onended = () => { this.sources.delete(source); source.disconnect(); gain.disconnect(); };
             source.start(start);
             // Observe the audio clock (which stops on pause), not a wall timer.
             const observe = () => {

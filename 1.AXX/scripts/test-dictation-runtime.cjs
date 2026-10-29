@@ -119,6 +119,10 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
     await page.locator('#voice-phrases-enabled').check();
     await page.locator('#voice-audio-preset').selectOption('warm');
     assert.equal(await page.evaluate(()=>Axx.voiceAudio.get('moss:axx-morcito').bass),5,'EQ preset must apply to the selected voice');
+    assert.match(await page.locator('#voice-audio-controls abbr').first().getAttribute('title'),/estilo de respuesta/);
+    await page.locator('#voice-audio-sibilance').fill('6');
+    assert.equal(await page.evaluate(()=>Axx.voiceAudio.get('moss:axx-morcito').sibilance),6,'Sibilance must persist for the selected voice');
+    assert.equal(await page.evaluate(()=>JSON.parse(localStorage.getItem('axx.voice.audio.v3'))['moss:axx-morcito'].sibilance),6);
     await page.locator('#voice-audio-pitch').fill('1');
     assert.equal(await page.evaluate(()=>Axx.voiceAudio.get('moss:axx-morcito').pitch),1,'Pitch must persist as a voice setting');
     assert.equal(await page.evaluate(()=>Axx.voiceAudio.get('piper:es_ES-carlfm-x_low').pitch),0,'One voice must not alter another');
@@ -172,7 +176,8 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
       };
       try{const measured={lowWarm:await render(120,Axx.voiceAudio.presets.warm),lowClear:await render(120,Axx.voiceAudio.presets.clear),
         highWarm:await render(5000,Axx.voiceAudio.presets.warm),highClear:await render(5000,Axx.voiceAudio.presets.clear),
-        quiet:await render(1000,{...Axx.voiceAudio.presets.natural,level:.25}),loud:await render(1000,{...Axx.voiceAudio.presets.natural,level:1.5})};
+        quiet:await render(1000,{...Axx.voiceAudio.presets.natural,level:.25}),loud:await render(1000,{...Axx.voiceAudio.presets.natural,level:1.5}),
+        essNormal:await render(6500,Axx.voiceAudio.presets.natural),essSoft:await render(6500,{...Axx.voiceAudio.presets.natural,sibilance:9})};
         Axx.companion.data.prefs.personalityStyle='playful';measured.playfulAir=await render(5000);measured.playfulBass=await render(120);
         Axx.companion.data.prefs.personalityStyle='psycho';measured.psychoAir=await render(5000);measured.psychoBass=await render(120);
         return measured;}
@@ -181,6 +186,7 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
     assert.ok(audioEffect.lowWarm>audioEffect.lowClear*1.4,'Warm and clear must measurably change bass in rendered audio');
     assert.ok(audioEffect.highClear>audioEffect.highWarm*1.4,'Warm and clear must measurably change treble in rendered audio');
     assert.ok(audioEffect.loud>audioEffect.quiet*3,'Level control must measurably change rendered audio');
+    assert.ok(audioEffect.essNormal>audioEffect.essSoft*1.8,'Sibilance control must measurably soften high consonants');
     assert.ok(audioEffect.psychoBass>audioEffect.playfulBass*1.4,'Personalities must audibly change rendered bass');
     assert.ok(audioEffect.playfulAir>audioEffect.psychoAir*1.4,'Personalities must audibly change rendered treble');
     await page.locator('#voice-audio-personality').selectOption('playful');
