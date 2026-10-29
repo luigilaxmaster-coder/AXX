@@ -94,6 +94,12 @@ const {chromium}=require(process.env.USERPROFILE+'/.cache/codex-runtimes/codex-p
   assert.equal(await p.locator('#quick-reply').isVisible(),true,'A blocked click must explain itself in the visible widget');
   assert.equal(await p.locator('#quick-approval').isVisible(),true);assert.equal(await p.evaluate(()=>sent.length),sentBeforeClick);
   assert.equal(await p.locator('#quick-input').inputValue(),'Orden pendiente');
+  const beforeReview=await p.evaluate(()=>focusActions.filter(n=>n==='close_panel').length);
+  await p.click('#quick-approval');
+  assert.equal(await p.evaluate(()=>libraryOpened),true);
+  assert.equal(await p.evaluate(()=>focusActions.filter(n=>n==='close_panel').length),beforeReview,'Review handoff must not revoke native focus from the approval panel');
+  await p.evaluate(()=>{Axx.commandLibrary.operation=null;Axx.quickReply.write();Axx.commandLibrary.operation={operation_id:'pending-review',state:'awaiting_approval'};});
+  await p.fill('#quick-input','Orden pendiente');
   await p.evaluate(()=>Axx.commandLibrary.operation=null);await p.click('#quick-send');
   await p.waitForFunction(n=>sent.length===n+1,sentBeforeClick);await p.evaluate(()=>releaseResponse());
   await p.waitForFunction(()=>!Axx.companion.pending);await p.waitForTimeout(200);

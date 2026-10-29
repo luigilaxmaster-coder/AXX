@@ -100,12 +100,13 @@
   if(owned){c.cancelRequest();if(Axx.commandLibrary?.busy||Axx.commandLibrary?.operation)void Axx.commandLibrary.cancel();}
   owned=false;c._forceVoiceReplyOnce=false;notice='Detenido. Los efectos ya realizados se conservan.';phase='idle';refresh();
  }
- function close(cancel=true){
+ function close(cancel=true,keepFocus=false){
   const wasActive=active();mode=null;origin=null;hovered=false;clearTimeout(hideTimer);
   clearTimeout(poll);poll=null;renderState=null;
   if(cancel&&wasActive)stop();else capture.stop();
   for(const id of ['quick-compose','quick-reply','quick-actions'])reveal(id,false);changed();
-  if(wasActive&&$('panel').hidden)void Axx.app.bridge.action('close_panel').catch(error=>Axx.app.toast(error.message));
+  // A panel handoff must not race its open_panel with an asynchronous focus release.
+  if(wasActive&&!keepFocus&&$('panel').hidden)void Axx.app.bridge.action('close_panel').catch(error=>Axx.app.toast(error.message));
  }
  function begin(kind){
   if(!Axx.chatWorkspace.ready||!Axx.chatWorkspace.active?.id){Axx.app.toast('Axx todavía está cargando el historial. Inténtalo en un momento.');return false;}
@@ -197,8 +198,8 @@
  }
  $('quick-write').onclick=write;$('quick-pen').onclick=magic;$('quick-talk').onclick=talk;$('quick-close').onclick=()=>close();$('quick-stop').onclick=stop;
  $('quick-replay').onclick=()=>{if(lastText)c.read(lastText);};
- $('quick-full').onclick=()=>{close(false);c.openChat();};
- $('quick-approval').onclick=()=>{close(false);Axx.commandLibrary.open();};
+ $('quick-full').onclick=()=>{close(false,true);c.openChat();};
+ $('quick-approval').onclick=()=>{close(false,true);Axx.commandLibrary.open();};
  $('quick-form').onsubmit=event=>{event.preventDefault();if(capture.state==='listening')capture.finish();else void send($('quick-input').value);};
  for(const target of [$('avatar'),$('quick-actions'),$('quick-compose'),$('quick-reply')]){
   target.addEventListener('pointerenter',()=>hover(true));target.addEventListener('pointerleave',()=>hover(false));

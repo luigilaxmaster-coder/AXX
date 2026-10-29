@@ -82,6 +82,14 @@ assert(!html.includes("const apiBase ="), 'Production must not hardcode a develo
         }
         if (path === '/axx-api/commands/execute') return { ...window.__contractCommands[body.operation_id], state: 'succeeded', postconditions_passed: true, output: { ready_for_action: true }, action_operation_id: 'fixture-action-' + body.operation_id, evidence: { fixture: true } };
         if (path === '/axx-api/commands/cancel') return { cancelled: true };
+        if (path === '/axx-api/learning/prepare') return window.__contractPlan = {...body,kind:'learned_plan',state:'awaiting_approval',message:'Revisa los dos pasos.',step_records:body.steps.map((_,i)=>({step_id:String(i),state:'pending'}))};
+        if (path === '/axx-api/learning/actions') return {actions:[]};
+        if (path.startsWith('/axx-api/learning/plan?id=')) return structuredClone(window.__contractPlan);
+        if (path === '/axx-api/learning/execute') {
+          if(body.operation_id!==window.__contractPlan.operation_id||body.approved!==true)throw Error('Wrong approval');
+          await new Promise(resolve=>setTimeout(resolve,100));
+          return window.__contractPlan={...window.__contractPlan,state:'succeeded',postconditions_passed:true,message:'Dos pasos comprobados.',results:[],step_records:window.__contractPlan.step_records.map(row=>({...row,state:'succeeded'}))};
+        }
         if (path === '/axx-api/recipes/register') { window.__contractRecipes.push({ id: body.id, intent_key: body.intent_key, status: 'verified', schema: {} }); return { saved: true }; }
         if (path === '/axx-api/recipes/execute') return { success: true, fixture: true, steps_executed: 1 };
         if (path === '/axx-api/chat/cancel') return { cancelled: true };
@@ -575,6 +583,28 @@ assert(!html.includes("const apiBase ="), 'Production must not hardcode a develo
       assert(asr.recognition.completed_at_ms > asr.recognition.speech_end_at_ms);
       results.push('ASR transport contract normalizes locale, emits confirmed text and never sends the chat automatically');
     }
+    await page.setViewportSize({width:1920,height:1040});
+    await page.evaluate(()=>{
+      Axx.commandLibrary.operation=null;Axx.commandLibrary.busy=false;
+      window.__contractResolve={match:'sequence',steps:[{command_id:'axx.system.telemetry',inputs:{}},{command_id:'axx.system.telemetry',inputs:{}}]};
+      Axx.quickReply.write();
+    });
+    await page.fill('#quick-input','consulta el estado del sistema y consulta el estado del sistema');
+    await page.press('#quick-input','Enter');
+    await page.waitForFunction(()=>Axx.commandLibrary.operation?.state==='awaiting_approval');
+    const reviewLease=await page.evaluate(()=>window.__contractCalls.filter(c=>c.name==='window_action'&&c.args?.action==='close_panel').length);
+    await page.locator('#quick-approval').click();
+    await page.waitForFunction(()=>!document.getElementById('panel').hidden&&document.getElementById('panel').dataset.view==='commands');
+    assert.equal(await page.locator('#command-library-approve').isVisible(),true);
+    assert.equal(await page.locator('#command-library-approve').isEnabled(),true);
+    assert.equal(await page.locator('#command-library-preview > li').count(),2);
+    assert.equal(await page.evaluate(()=>window.__contractCalls.filter(c=>c.name==='window_action'&&c.args?.action==='close_panel').length),reviewLease);
+    await page.locator('#command-library-approve').click();
+    await page.waitForFunction(()=>Axx.commandLibrary.lastOperation?.state==='succeeded'&&!Axx.commandLibrary.busy);
+    const approvalCalls=await page.evaluate(()=>window.__contractCalls.filter(c=>c.args?.path==='/axx-api/learning/execute'));
+    assert.equal(approvalCalls.length,1);assert.equal(approvalCalls[0].args.body.approved,true);
+    assert.equal(await page.locator('#command-library-approval').isVisible(),false);
+    results.push('Quick bar sequence opens its visible two-step review and its approval button executes exactly once through the normal frontend handler');
     const halo = await page.evaluate(async () => {
       const capture = Axx.nativeCapture, prior = { state: capture.state, region: capture.region, error: capture.error };
       capture.state = 'running'; capture.region = { x: 30, y: 30, width: 400, height: 300 }; capture.haloKey = '';

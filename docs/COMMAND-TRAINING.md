@@ -16,6 +16,14 @@ del modelo o un catálogo válido por sí solos no acreditan una acción realiza
 | Aislamiento | Cambio de chat, cancelación y pérdida de respuesta | Conserva origen, parámetros y recibos; no convierte incertidumbre en éxito. |
 | Windows | Clic inicial sobre barra transparente y arrastre | Ajusta la recepción antes de entregar el clic. Fuera de Axx se conserva el paso al escritorio. |
 
+Al pasar de la barra a «Revisar acción», Axx conserva el foco nativo hasta abrir
+el panel de aprobación. El cierre de la barra no debe enviar una desactivación
+de foco que compita con la apertura del panel. La aprobación sigue mostrando los
+pasos y parámetros y se ejecuta mediante el botón de esa revisión; abrirla no
+ejecuta el plan. La regresión de interfaz recorre envío, revisión de dos pasos y
+aprobación con clics por los handlers normales, sin llamadas de ejecución desde
+el código que dirige la prueba.
+
 ## Repetición local
 
 Desde la raíz del repositorio, con las dependencias del proyecto instaladas:
