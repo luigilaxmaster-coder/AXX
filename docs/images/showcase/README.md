@@ -2,13 +2,22 @@
 
 Este registro describe los archivos presentes. Una imagen de interfaz no acredita por sí sola una acción nativa, conectividad ni aceptación física.
 
+## Presentación actual · cinco imágenes de 0.22.23
+
+El README principal utiliza cinco composiciones nuevas del 29 de octubre de 2026:
+avatar, catálogo de herramientas, conexión API, Magic Pen y apariencia. Los
+componentes proceden del frontend del proyecto en Chromium aislado, con títulos
+y encuadre editorial. No muestran sesiones nativas ni datos personales.
+[Archivos, método, alcance y hashes](v0.22.23/README.md).
+
 ## Nuevas capturas del candidato Windows 0.22.12
 
 Capturadas el 27 de octubre de 2026 desde el WebView del EXE instalado, durante
 la aceptación de Magic Pen. Se copiaron sin retoques y conservando sus hashes.
 No son capturas de escritorio completo: la transparencia del WebView se representa
-en negro. El diseño de Magic Pen continúa en 0.22.14, cuya aceptación visual
-permanece pendiente por interrupción de la sesión de Computer Use.
+en negro. No son imágenes de 0.22.23. La aceptación posterior de Magic Pen en
+0.22.14 se describe en sus [notas de versión](../../releases/0.22.14.md);
+el estado de la distribución actual se recoge en [0.22.23](../../releases/0.22.23.md).
 
 | Archivo | Alcance |
 | --- | --- |
