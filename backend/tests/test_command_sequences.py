@@ -78,6 +78,16 @@ class CommandSequenceTests(unittest.TestCase):
             self.assertEqual(len(self.executor.list_operations()),count)
         finally: learning.close()
 
+    def test_typed_prefix_cannot_bypass_the_same_complete_plan_check(self):
+        learning=ActionLearning(self.commands,Mock())
+        try:
+            plan=learning.prepare_steps('abre YouTube y busca Faint',[
+                {'command_id':'axx.desktop.open_url','inputs':{'url':'https://www.youtube.com/'}}])
+            self.assertEqual(plan['state'],'needs_input')
+            self.assertFalse(plan['preparation_complete'])
+            self.assertEqual(self.executor.list_operations(),[])
+        finally: learning.close()
+
     def test_sequence_uses_existing_review_and_dependency_contract_without_a_model(self):
         model=Mock();learning=ActionLearning(self.commands,model)
         try:

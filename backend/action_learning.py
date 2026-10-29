@@ -517,6 +517,9 @@ class ActionLearning:
     def _ready(self, plan, title):
         if not isinstance(title, str) or not 1 <= len(title) <= 120: raise ValueError('Título de plan inválido')
         plan['steps'] = self._validate_steps(plan['steps'], allow_shell=terminal_requested(plan['request']))
+        requested = command_sequence(plan['request'],'text')
+        if requested and len(plan['steps']) < len(requested):
+            raise NeedsInput('El plan devolvió menos acciones que las solicitadas. No se ejecutó ningún paso; reformula el plan completo.')
         records = []
         for step in plan['steps']:
             # UUIDs belong to this immutable plan, never to a mutable step index.
@@ -635,9 +638,6 @@ class ActionLearning:
                         plan.update(learned_action_id=saved['id'], learned_trigger=saved['trigger'])
                         self._ready(plan, saved['title'])
                     elif set(data) in ({'title', 'steps'}, {'title', 'steps', 'skill_candidate'}):
-                        requested = command_sequence(plan['request'],'text')
-                        if requested and isinstance(data['steps'],list) and len(data['steps']) < len(requested):
-                            raise NeedsInput('El modelo devolvió menos acciones que las solicitadas. No se ejecutó ningún paso; reformula el plan completo.')
                         plan['steps'] = data['steps']
                         self._ready(plan, data['title'])
                         if 'skill_candidate' in data:
@@ -772,7 +772,11 @@ class ActionLearning:
             request_context={'conversation_id': conversation_id}, parts=steps)
         if not created: return plan
         plan.update(steps=steps, conversation_id=conversation_id, proposal_source='typed_request')
-        return self._save(self._ready(plan, text[:120]))
+        try:
+            self._ready(plan, text[:120])
+        except NeedsInput as exc:
+            plan.update(state='needs_input',message=str(exc),preparation_complete=False)
+        return self._save(plan)
     def _candidates(self, text, project_id):
         # FTS only proposes candidates; _select still requires an exact, authorized skill.
         rows = [row for row in self.skills.search(text, project_id) if row['environment_matches']]
