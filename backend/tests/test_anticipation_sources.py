@@ -62,8 +62,7 @@ class AnticipationSourceTests(unittest.TestCase):
         for change in ({'send_to_provider': True}, {'observe': 1}, {'retain': 'true'}, {'device_id': None}, {'device_id': 'unconnected-phone'}, {'unknown': True}):
             with self.subTest(change=change), self.assertRaises(ValueError):
                 self.service.configure({'observation_targets': [target | change]})
-        for changes in ({'sources': {'screen': True}}, {'sources': {'microphone': True}},
-            {'sources': {'clipboard': True}}, {'profiles': {'copiloto': {'cadence_seconds': 0}}},
+        for changes in ({'sources': {'microphone': True}}, {'profiles': {'copiloto': {'cadence_seconds': 0}}},
             {'profiles': {'copiloto': {'resources': {'max_events_tick': 0}}}},
             {'profiles': {'copiloto': {'schedule': {'timezone': 'Invalid/Zone', 'days': [0], 'start': '00:00', 'end': '23:59'}}}}):
             with self.subTest(changes=changes), self.assertRaises(ValueError):
@@ -274,6 +273,9 @@ class AnticipationSourceTests(unittest.TestCase):
             self.service._poll_sources()
             reader.assert_not_called()
         self.service.tick_started = None
+        # Isolate the file-size admission assertion from the elapsed/CPU checks
+        # above; a busy test host may legitimately exhaust a 10-ms tick first.
+        self.service.configure({'profiles': {'copiloto': {'resources': {'max_tick_ms': 5000, 'max_cpu_ms_tick': 1000}}}})
         self.service.tick()
         (self.folder / 'big.bin').write_bytes(b'x' * 2048)
         self.advance()

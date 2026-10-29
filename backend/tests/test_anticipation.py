@@ -373,7 +373,7 @@ class AnticipationTests(unittest.TestCase):
         self.assertEqual(self.verifications(), [])
 
     def test_foreign_sources_bad_grants_and_unsafe_parameters_fail_closed(self):
-        for changes in ({'sources': {'screen': True}}, {'sources': {'microphone': True}}, {'sources': {'clipboard': True}},
+        for changes in ({'sources': {'microphone': True}}, {'sources': {'unknown-source': True}},
             {'profiles': {'full': {'cooldown_seconds': -1}}}, {'profile': 'invalid'}, {'scopes': [{}]}):
             with self.subTest(changes=changes), self.assertRaises(ValueError):
                 self.service.configure(changes)

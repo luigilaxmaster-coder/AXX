@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import copy
-from contextlib import contextmanager
+import base64
+from contextlib import contextmanager, nullcontext
 import datetime as dt
 import hashlib
+import hmac
 import importlib.util
 import inspect
 import itertools
@@ -69,6 +71,10 @@ RESOURCE_LIMITS = {'max_events_tick': (1, 100), 'max_entries_scan': (1, 2000),
     'max_file_bytes': (1024, 512 * 1024 * 1024), 'max_tick_ms': (50, 5000), 'max_cpu_ms_tick': (10, 1000),
     'max_process_rss_bytes': (1, 9007199254740991), 'max_storage_bytes': (1, 9007199254740991), 'model_call_limit': (0, 2)}
 NULLABLE_RESOURCES = frozenset({'max_process_rss_bytes', 'max_storage_bytes'})
+SOURCE_FLAGS = {'folder': 'folders', 'application': 'applications', 'window': 'screen', 'clipboard': 'clipboard'}
+RAW_SOURCE_TTL_SECONDS = 60
+MAX_PROVIDER_CONTEXT_BYTES = 1048576
+MAX_CONTEXT_SOURCE_EVENTS = 2048
 
 
 def canonical(value):
@@ -118,6 +124,10 @@ class AnticipationService:
         self.lock, self.tick_gate = threading.RLock(), threading.Lock()
         self.closed = False
         self.source_state, self.source_observations = {}, []
+        self.source_generation = 0
+        self.source_hmac_key = os.urandom(32)
+        self.source_expiry_timer = None
+        self.provider_context_leases = {}
         self.verifier_cache = {}
         self.tick_started = None
         self.tick_events = {}
@@ -884,10 +894,12 @@ class AnticipationService:
     def _source_target(self, target_id, config=None):
         config = config or self._config()
         for target in config['observation_targets']:
-            source = 'folders' if target['source'] == 'folder' else 'applications'
+            source = SOURCE_FLAGS.get(target['source'])
             if (target['id'] == target_id and target['observe'] and config['sources'][source]
                     and (target['expires_at'] is None or self.clock() < target['expires_at'])
-                    and (source != 'applications' or self._applications_available())):
+                    and (source != 'applications' or self._applications_available())
+                    and (source != 'clipboard' or self._clipboard_available())
+                    and (source != 'screen' or self._window_available())):
                 return target
         return None
 
@@ -905,7 +917,174 @@ class AnticipationService:
     @staticmethod
     def _source_context(target):
         return {key: target.get(key, '') for key in CONTEXT_KEYS} | {
-            'source': 'folders' if target['source'] == 'folder' else 'applications'}
+            'source': SOURCE_FLAGS[target['source']]}
+
+    @staticmethod
+    def _clipboard_available():
+        from .actions import windows_automation as windows
+        return os.name == 'nt' and callable(getattr(windows, 'read_clipboard_text', None))
+
+    @staticmethod
+    def _window_available():
+        if os.name != 'nt':
+            return False
+        try:
+            from . import computer_vision as vision
+            from .actions import windows_automation as windows
+            return (getattr(vision, 'TARGETED_WINDOW_OBSERVATION', False) is True
+                and callable(getattr(windows, 'read_window_title', None))
+                and 'on_observation' in inspect.signature(vision.observe).parameters)
+        except (ImportError, AttributeError, TypeError, ValueError):
+            return False
+
+    @staticmethod
+    def _provider_context_available(source):
+        # A model can echo observed content into its result. Keep the entire
+        # provider path closed until both input and result persistence are ephemeral.
+        return False
+
+    def _cancel_context_leases(self, target_id=None):
+        for event, lease in list(self.provider_context_leases.items()):
+            if target_id is None or any(ref['target_id'] == target_id for ref in lease['refs']):
+                event.set(); lease['timer'].cancel()
+                self.provider_context_leases.pop(event, None)
+
+    @staticmethod
+    def _clear_source_observations(state):
+        from .actions import windows_automation as windows
+        with state.get('uia_lock', nullcontext()):
+            with windows._observation_lock:
+                for observation_id in state.get('uia_ids', ()):
+                    windows._observations.pop(observation_id, None)
+            state.get('uia_ids', set()).clear()
+
+    def _drop_source(self, target_id):
+        state = self.source_state.pop(target_id, None)
+        if state:
+            if state.get('cancelled'):
+                state['cancelled'].set()
+            state.pop('raw', None)
+            self._clear_source_observations(state)
+        self._cancel_context_leases(target_id)
+        self.source_observations = [event for event in self.source_observations if event['target_id'] != target_id]
+
+    def _clear_sources(self):
+        self.source_generation += 1
+        for target_id in list(self.source_state):
+            self._drop_source(target_id)
+        self.source_observations.clear()
+        self._cancel_context_leases()
+        if self.source_expiry_timer:
+            self.source_expiry_timer.cancel(); self.source_expiry_timer = None
+
+    def _expire_source_content(self):
+        with self.lock:
+            if self.closed:
+                return
+            now = time.monotonic()
+            for target_id, state in self.source_state.items():
+                raw = state.get('raw')
+                if raw and (now >= raw['deadline'] or self.clock() >= raw['expires_at']):
+                    state.pop('raw', None)
+                    self._cancel_context_leases(target_id)
+            if self.source_expiry_timer:
+                self.source_expiry_timer.cancel(); self.source_expiry_timer = None
+            deadlines = [state['raw']['deadline'] for state in self.source_state.values() if state.get('raw')]
+            if deadlines:
+                timer = threading.Timer(max(.01, min(deadlines) - now), self._expire_source_content)
+                timer.daemon = True; self.source_expiry_timer = timer; timer.start()
+
+    def _provider_source(self, target, state, task_id, context):
+        if (target['source'] not in ('window', 'clipboard') or target['task_id'] != task_id
+                or not self._provider_context_available(target['source'])
+                or not target['send_to_provider'] or self._source_target(target['id']) != target
+                or any(target.get(key) and target[key] != context.get(key) for key in CONTEXT_KEYS)
+                or state.get('consent_digest') != digest(target) or not state.get('cancelled') or state['cancelled'].is_set()):
+            return False
+        _, options = self._policy(task_id, target.get('root', str(self.commands.executor.workspace_root)), context=self._source_context(target))
+        raw = state.get('raw')
+        return (options['mode'] != 'OFF' and bool(raw) and time.monotonic() < raw['deadline']
+            and self.clock() < raw['expires_at'])
+
+    def provider_context_for_task(self, task_id, project_id='', application_id='', device_id='host'):
+        identifier(task_id, 'Tarea')
+        context = {'project_id': project_id, 'application_id': application_id, 'device_id': device_id}
+        with self.lock:
+            if self.closed:
+                raise ValueError('SOURCE_CONTEXT_STALE: observación detenida')
+            self._expire_source_content()
+            observations, refs, total = [], [], 0
+            for target in self._config()['observation_targets']:
+                state = self.source_state.get(target['id'], {})
+                if not self._provider_source(target, state, task_id, context):
+                    continue
+                raw = state['raw']
+                if not raw['content']:
+                    continue
+                ref = {'target_id': target['id'], 'consent_digest': state['consent_digest'],
+                    'observation_id': raw['observation_id'], 'generation': state['generation']}
+                observation = {'source': target['source'], 'target_id': target['id'], 'observation_id': raw['observation_id'],
+                    'observed_at': raw['observed_at'], 'expires_at': raw['expires_at'], 'context_state': 'observed',
+                    'untrusted': True, 'metadata': copy.deepcopy(raw['metadata']), 'content': copy.deepcopy(raw['content'])}
+                size = len(canonical(observation).encode('utf-8'))
+                if len(observations) >= 4 or total + size > MAX_PROVIDER_CONTEXT_BYTES:
+                    continue
+                observations.append(observation); refs.append(ref); total += size
+            return {'observations': observations, 'refs': refs, 'untrusted': True, 'sensitivity': 'approved_sensitive',
+                'retention_scope': 'metadata_only', 'raw_content_ttl_seconds': RAW_SOURCE_TTL_SECONDS}
+
+    def validate_provider_context_refs(self, task_id, refs, project_id='', application_id='', device_id='host'):
+        identifier(task_id, 'Tarea')
+        if not isinstance(refs, list) or len(refs) > 4:
+            raise ValueError('SOURCE_CONTEXT_STALE: referencias de observación inválidas')
+        context = {'project_id': project_id, 'application_id': application_id, 'device_id': device_id}
+        with self.lock:
+            if self.closed:
+                raise ValueError('SOURCE_CONTEXT_STALE: observación detenida')
+            targets = {target['id']: target for target in self._config()['observation_targets']}
+            for ref in refs:
+                if (not isinstance(ref, dict) or set(ref) != {'target_id', 'consent_digest', 'observation_id', 'generation'}
+                        or not all(isinstance(ref[key], str) for key in ('target_id', 'consent_digest', 'observation_id'))
+                        or type(ref['generation']) is not int):
+                    raise ValueError('SOURCE_CONTEXT_STALE: referencia de observación inválida')
+                target, state = targets.get(ref['target_id']), self.source_state.get(ref['target_id'], {})
+                raw = state.get('raw') or {}
+                if (not target or not self._provider_source(target, state, task_id, context)
+                        or ref != {'target_id': target['id'], 'consent_digest': state.get('consent_digest'),
+                                   'observation_id': raw.get('observation_id'), 'generation': state.get('generation')}):
+                    raise ValueError('SOURCE_CONTEXT_STALE: el consentimiento, contexto u observación cambió')
+            return True
+
+    def acquire_provider_context(self, task_id, refs, project_id='', application_id='', device_id='host'):
+        with self.lock:
+            self.validate_provider_context_refs(task_id, refs, project_id, application_id, device_id)
+            if len(self.provider_context_leases) >= 8:
+                raise ValueError('SOURCE_CONTEXT_BUSY: demasiadas consultas de observación')
+            event = threading.Event()
+            deadline = min((self.source_state[ref['target_id']]['raw']['deadline'] for ref in refs), default=time.monotonic() + RAW_SOURCE_TTL_SECONDS)
+            def expire():
+                with self.lock:
+                    lease = self.provider_context_leases.get(event)
+                    if not lease:
+                        return
+                    remaining = deadline - time.monotonic()
+                    if remaining > 0:
+                        timer = threading.Timer(max(.01, remaining), expire)
+                        timer.daemon = True; lease['timer'] = timer; timer.start()
+                        return
+                    event.set()
+                    self.provider_context_leases.pop(event, None)
+            timer = threading.Timer(max(.01, deadline - time.monotonic()), expire)
+            timer.daemon = True
+            self.provider_context_leases[event] = {'refs': copy.deepcopy(refs), 'timer': timer}
+            timer.start()
+            return event
+
+    def release_provider_context(self, event):
+        with self.lock:
+            lease = self.provider_context_leases.pop(event, None)
+            if lease:
+                lease['timer'].cancel()
 
     def _source_runtime(self, config, task_id=None):
         result = []
@@ -920,6 +1099,10 @@ class AnticipationService:
                 'last_observed_at': last, 'next_observation_at': last + options.get('cadence_seconds', 30) if active and last is not None else None,
                 'error': state.get('error') or (None if active else 'Fuente desactivada, fuera de ámbito/horario o autorización caducada.'),
                 'metadata_retained': target['retain'], 'provider_sent': False, 'baseline': state.get('snapshot') is not None,
+                'retention_scope': 'metadata_only', 'provider_allowed': target['send_to_provider'] and self._provider_context_available(target['source']),
+                'context_ready': bool(state.get('raw')) and target['send_to_provider'] and self._provider_context_available(target['source']) and active,
+                'raw_expires_at': state.get('raw', {}).get('expires_at'),
+                'raw_content_ttl_seconds': RAW_SOURCE_TTL_SECONDS if target['source'] in ('window', 'clipboard') else 0,
                 'truncated': state.get('truncated', False), 'samples': state.get('samples', 0), 'events': state.get('events', 0)})
         return result
 
@@ -966,36 +1149,193 @@ class AnticipationService:
             snapshot[key] = {'process_name': names[pid], 'window_id': row['window_id'], 'pid': pid, 'foreground': row.get('foreground') is True}
         return snapshot, truncated
 
+    def _source_cancellation(self, state, options, target):
+        from .computer_use import _Cancellation
+        deadline = time.monotonic() + min(5, options['resources']['max_tick_ms'] / 1000)
+        if self.tick_started:
+            deadline = min(deadline, time.monotonic() + max(0,
+                options['resources']['max_tick_ms'] / 1000 - (time.perf_counter() - self.tick_started[0])))
+        if target['expires_at'] is not None:
+            deadline = min(deadline, time.monotonic() + max(0, target['expires_at'] - self.clock()))
+        return _Cancellation(state['cancelled'], deadline=deadline)
+
+    def _content_fingerprint(self, domain, content):
+        key = self.source_hmac_key
+        if not isinstance(key, bytes):
+            raise ValueError('SOURCE_OBSERVATION_CANCELLED')
+        return hmac.new(key, domain.encode('ascii') + b'\0' + content, hashlib.sha256).hexdigest()
+
+    def _clipboard_snapshot(self, target, options, state):
+        from .actions import windows_automation as windows
+        cancellation = self._source_cancellation(state, options, target)
+        result = windows.read_clipboard_text(max_characters=8192, cancelled=cancellation)
+        if cancellation.is_set():
+            raise ValueError('SOURCE_OBSERVATION_CANCELLED')
+        text = result.get('text')
+        if (type(result.get('sequence_number')) is not int or result['sequence_number'] < 0
+                or type(result.get('available')) is not bool or text is not None and not isinstance(text, str)
+                or isinstance(text, str) and len(text) > 8192):
+            raise ValueError('SOURCE_OBSERVATION_INVALID')
+        text = text if result['available'] and text is not None else ''
+        metadata = {'sequence_number': result['sequence_number'], 'available': result['available'],
+            'characters': len(text), 'content_fingerprint': self._content_fingerprint('clipboard_text', text.encode('utf-8')),
+            'fingerprint_scope': 'hmac_sha256_session'}
+        return metadata, {'text': text} if text else {}, False
+
+    def _window_snapshot(self, target, options, state):
+        from . import computer_vision as vision
+        from .actions import windows_automation as windows
+        from .computer_use import BLOCKED_PROCESSES
+        if not self._window_available():
+            raise ValueError('SOURCE_OBSERVATION_UNAVAILABLE')
+        cancellation = self._source_cancellation(state, options, target)
+        if (windows.process_name(target['pid']).casefold() in BLOCKED_PROCESSES | {'axx.exe', 'axx-backend.exe'}
+                or windows.process_started(target['pid']) != target['process_started']):
+            raise ValueError('SOURCE_OBSERVATION_INVALID')
+        grant = {'window_id': target['window_id'], 'pid': target['pid'], 'birth': target['process_started']}
+        def remember(observed):
+            identity = observed.get('observation', {})
+            observation_id = identity.get('observation_id')
+            if (not isinstance(observation_id, str) or identity.get('window_id') != target['window_id']
+                    or identity.get('pid') != target['pid'] or identity.get('process_started') != target['process_started']):
+                raise ValueError('SOURCE_OBSERVATION_INVALID')
+            with state['uia_lock']:
+                state['uia_ids'].add(observation_id)
+                if cancellation.is_set():
+                    with windows._observation_lock:
+                        windows._observations.pop(observation_id, None)
+                    state['uia_ids'].discard(observation_id)
+        try:
+            shot, output = vision.observe(grant, cancellation, overview=False, on_observation=remember)
+            identity = shot.get('observed', {}).get('observation', {})
+            if (cancellation.is_set() or identity.get('window_id') != target['window_id']
+                    or identity.get('pid') != target['pid'] or identity.get('process_started') != target['process_started']
+                    or windows.process_started(target['pid']) != target['process_started']):
+                raise ValueError('SOURCE_OBSERVATION_INVALID')
+            jpeg = shot.get('jpeg')
+            if (not isinstance(jpeg, bytes) or len(jpeg) > 350000 or not jpeg
+                    or any(type(shot.get(key)) is not int or not 1 <= shot[key] <= 1280 for key in ('width', 'height'))):
+                raise ValueError('SOURCE_OBSERVATION_INVALID')
+            bounds = output.get('window_bounds')
+            if (not isinstance(bounds, dict) or set(bounds) != {'x', 'y', 'width', 'height'}
+                    or any(type(value) is not int for value in bounds.values())
+                    or any(not 1 <= bounds[key] <= 34000000 for key in ('width', 'height'))):
+                raise ValueError('SOURCE_OBSERVATION_INVALID')
+            pieces, remaining = [], 8192
+            controls = output.get('controls', [])
+            if not isinstance(controls, list):
+                raise ValueError('SOURCE_OBSERVATION_INVALID')
+            # Content is deliberately separate from the metadata whitelist below.
+            for value in itertools.chain([output.get('title')],
+                    (row.get(key) for row in controls[:500] if isinstance(row, dict) and not row.get('offscreen')
+                     and not row.get('is_password') for key in ('name', 'value', 'text'))):
+                if isinstance(value, str) and value and remaining > 0:
+                    piece = value[:remaining]
+                    pieces.append(piece); remaining -= len(piece) + 1
+            text = '\n'.join(pieces)[:8192]
+            metadata = {'window_id': target['window_id'], 'pid': target['pid'], 'process_started': target['process_started'],
+                'window_bounds': {key: bounds[key] for key in ('x', 'y', 'width', 'height')},
+                'image_width': shot['width'], 'image_height': shot['height'],
+                'image_fingerprint': self._content_fingerprint('window_image', jpeg),
+                'text_fingerprint': self._content_fingerprint('window_text', text.encode('utf-8')),
+                'fingerprint_scope': 'hmac_sha256_session',
+                'characters': len(text), 'control_count': min(len(controls), 500),
+                'truncated': bool(output.get('truncated')) or len(controls) > 500 or remaining <= 0}
+            return metadata, {'text': text, 'image_url': 'data:image/jpeg;base64,' + base64.b64encode(jpeg).decode('ascii')}, metadata['truncated']
+        finally:
+            self._clear_source_observations(state)
+
+    def _publish_context_snapshot(self, target, state, metadata, content, truncated, profile, options):
+        before = state.get('snapshot')
+        changed = before != metadata
+        if changed:
+            self._cancel_context_leases(target['id'])
+            self.source_generation += 1
+            state['generation'] = self.source_generation
+        state['snapshot'] = metadata
+        if target['send_to_provider'] and self._provider_context_available(target['source']) and content:
+            lifetime = min(RAW_SOURCE_TTL_SECONDS, target['expires_at'] - self.clock()) if target['expires_at'] is not None else RAW_SOURCE_TTL_SECONDS
+            old = state.get('raw', {})
+            state['raw'] = {'observation_id': old.get('observation_id') if not changed and old else uuid.uuid4().hex,
+                'observed_at': self.clock(), 'expires_at': self.clock() + lifetime, 'deadline': time.monotonic() + lifetime,
+                'metadata': metadata, 'content': content}
+            self._expire_source_content()
+        else:
+            state.pop('raw', None)
+        if not changed or not self._take_event_budget(profile, options):
+            return
+        event_id = 'observation-' + digest([target['id'], metadata, state['generation']])
+        event = {'event_id': event_id, 'type': target['source'] + ('.observed' if before is None else '.changed'),
+            'task_id': target['task_id'], 'source': SOURCE_FLAGS[target['source']], 'target_id': target['id'],
+            'observed_at': self.clock(), 'resource': metadata, 'context': self._source_context(target),
+            'source_authorization_hash': digest(target), 'retained': target['retain'], 'sent_to_provider': False,
+            'retention_scope': 'metadata_only', 'history_kind': 'context_observation_metadata', 'profile': profile, 'at': self.clock(),
+            'provenance': {'actor': 'system', 'origin': 'metadata_observation', 'causation_id': target['id'], 'human_preference_evidence': False}}
+        self.source_observations = (self.source_observations + [event])[-20:]
+        state['events'] += 1
+        if target['retain']:
+            self.db.execute('INSERT OR IGNORE INTO anticipation_events VALUES (?,?,?,?)',
+                (event_id, target['task_id'], self.clock(), canonical(event)))
+            # These are observation metadata, never effect receipts. Bound only
+            # this new history; preserve other sources and both command journals.
+            self.db.execute('''DELETE FROM anticipation_events WHERE event_id IN (
+                SELECT event_id FROM anticipation_events
+                WHERE json_extract(payload,'$.history_kind')='context_observation_metadata'
+                    AND json_extract(payload,'$.source') IN ('screen','clipboard')
+                ORDER BY at DESC,event_id DESC LIMIT -1 OFFSET ?)''', (MAX_CONTEXT_SOURCE_EVENTS,))
+
     def _poll_sources(self):
         with self.lock:
+            if self.closed:
+                return
+            self._expire_source_content()
             targets = copy.deepcopy(self._config()['observation_targets'])
         for target in targets:
             context = self._source_context(target)
             path = target.get('root', str(self.commands.executor.workspace_root))
             with self.lock:
+                if self.closed:
+                    return
                 current = self._source_target(target['id'])
                 profile, options = self._policy(target['task_id'], path, context=context)
                 if current is None or options['mode'] == 'OFF':
-                    self.source_state.pop(target['id'], None)
-                    self.source_observations = [event for event in self.source_observations if event['target_id'] != target['id']]
+                    self._drop_source(target['id'])
                     continue
-                state = self.source_state.setdefault(target['id'], {'snapshot': None, 'samples': 0, 'events': 0})
+                if target['id'] not in self.source_state:
+                    self.source_generation += 1
+                    self.source_state[target['id']] = {'snapshot': None, 'samples': 0, 'events': 0,
+                        'cancelled': threading.Event(), 'generation': self.source_generation,
+                        'consent_digest': digest(target), 'uia_ids': set(), 'uia_lock': threading.Lock()}
+                state = self.source_state[target['id']]
                 if self.clock() - state.get('last_observed_at', float('-inf')) < options['cadence_seconds'] or not self._within_budget(options):
                     continue
             try:
-                snapshot, truncated = (self._folder_snapshot(target, options) if target['source'] == 'folder'
-                                       else self._application_snapshot(target, options))
+                content = None
+                if target['source'] in ('window', 'clipboard'):
+                    reader = self._window_snapshot if target['source'] == 'window' else self._clipboard_snapshot
+                    snapshot, content, truncated = reader(target, options, state)
+                else:
+                    snapshot, truncated = (self._folder_snapshot(target, options) if target['source'] == 'folder'
+                                           else self._application_snapshot(target, options))
                 error = None
-            except (OSError, ValueError) as exc:
-                snapshot, truncated, error = {}, True, str(exc)[:300]
-            with self.lock, self.db:
-                if self._source_target(target['id']) != target:
+            except Exception:
+                snapshot, truncated, error = {}, True, 'SOURCE_OBSERVATION_FAILED: no se obtuvo una observación autorizada.'
+            with self.lock, (self.db if not self.closed else nullcontext()):
+                if self.closed:
+                    return
+                if (self.source_state.get(target['id']) is not state or state['cancelled'].is_set()
+                        or self._source_target(target['id']) != target):
                     continue
                 profile, options = self._policy(target['task_id'], path, context=context)
                 if options['mode'] == 'OFF':
                     continue
                 state.update(last_observed_at=self.clock(), samples=state['samples'] + 1, truncated=truncated, error=error)
                 if error:
+                    state.pop('raw', None)
+                    self._cancel_context_leases(target['id'])
+                    continue
+                if target['source'] in ('window', 'clipboard'):
+                    self._publish_context_snapshot(target, state, snapshot, content, truncated, profile, options)
                     continue
                 before = state['snapshot']
                 if before is None:
@@ -1039,6 +1379,7 @@ class AnticipationService:
 
     def status(self, task_id=None):
         with self.lock:
+            self._expire_source_content()
             config = self._config()
             rows = self._items(task_id)[:100]
             for item in rows:
@@ -1077,8 +1418,12 @@ class AnticipationService:
                     'folders': True, 'applications': self._applications_available(), 'provider_send': False,
                     'verifiers': {name: self._verifier(path) for name, path in {'hash': 'file.txt', 'pdf': 'file.pdf', 'media': 'file.mp4', 'image': 'file.png', 'docx': 'file.docx', 'xlsx': 'file.xlsx'}.items()},
                     'resource_limits_scope': 'Admission snapshots: backend/descendant RSS; logical bytes observed under granted roots plus operation reservations; bounded writer/bundle outputs and search entries. No hard OS/cluster/mission-CPU or unknown Office-output limit. Uncertain effects retain reservations until reconciliation.',
-                    'screen': False, 'microphone': False, 'clipboard': False,
-                    'reason': 'M15 abierto: input físico proactivo bloqueado. Carpetas y aplicaciones solo producen metadatos locales autorizados; pantalla, micrófono y portapapeles siguen inactivos.'}}
+                    'screen': self._window_available(), 'microphone': False, 'clipboard': self._clipboard_available(),
+                    'provider_context': {source: self._provider_context_available(source) for source in ('window', 'clipboard')},
+                    'retention_scope': 'metadata_only', 'raw_content_ttl_seconds': RAW_SOURCE_TTL_SECONDS,
+                    'observation_history_max_events': MAX_CONTEXT_SOURCE_EVENTS,
+                    'observation_history_scope': 'Only new retained window/clipboard metadata, globally, in addition to retention_days; not a state.db quota or command-journal limit.',
+                    'reason': 'M15 abierto: input físico proactivo bloqueado. Las fuentes locales requieren selección y consentimientos explícitos; ventana y portapapeles solo conservan metadatos. El envío de su contenido sigue deshabilitado hasta completar la privacidad de los resultados.'}}
 
     def configure(self, body):
         if not isinstance(body, dict) or set(body) - set(DEFAULTS):
@@ -1100,10 +1445,14 @@ class AnticipationService:
                 if not isinstance(body['sources'], dict) or set(body['sources']) - set(config['sources']):
                     raise ValueError('Fuente desconocida')
                 for source, enabled in body['sources'].items():
-                    if type(enabled) is not bool or source not in ('events', 'folders', 'applications') and enabled:
+                    if type(enabled) is not bool or source not in ('events', 'folders', 'applications', 'screen', 'clipboard') and enabled:
                         raise ValueError('Esta fuente todavía no dispone de observación validada')
                     if source == 'applications' and enabled and not self._applications_available():
                         raise ValueError('La observación de aplicaciones requiere el lector Windows existente')
+                    if source == 'screen' and enabled and not self._window_available():
+                        raise ValueError('La observación de ventana requiere el lector Windows dirigido disponible')
+                    if source == 'clipboard' and enabled and not self._clipboard_available():
+                        raise ValueError('La observación de portapapeles requiere el lector Windows disponible')
                     config['sources'][source] = enabled
             if 'profiles' in body:
                 if not isinstance(body['profiles'], dict) or set(body['profiles']) - set(PROFILES):
@@ -1169,8 +1518,8 @@ class AnticipationService:
                     raise ValueError('Selecciona hasta 32 fuentes explícitas')
                 checked, ids = [], set()
                 for raw in targets:
-                    allowed = {'id', 'source', 'task_id', *CONTEXT_KEYS, 'root', 'process_name', 'observe', 'retain', 'send_to_provider', 'expires_at'}
-                    if not isinstance(raw, dict) or set(raw) - allowed or raw.get('source') not in ('folder', 'application'):
+                    allowed = {'id', 'source', 'task_id', *CONTEXT_KEYS, 'root', 'process_name', 'window_id', 'pid', 'process_started', 'observe', 'retain', 'send_to_provider', 'expires_at'}
+                    if not isinstance(raw, dict) or set(raw) - allowed or raw.get('source') not in SOURCE_FLAGS:
                         raise ValueError('Fuente seleccionada inválida')
                     target = copy.deepcopy(raw)
                     identifier(target.get('id'), 'Fuente')
@@ -1192,29 +1541,41 @@ class AnticipationService:
                         target.setdefault(key, False)
                         if type(target[key]) is not bool:
                             raise ValueError('Los consentimientos deben ser booleanos independientes')
-                    if target['send_to_provider']:
+                    if target['send_to_provider'] and target['source'] not in ('clipboard', 'window'):
                         raise ValueError('Envío a proveedores no implementado para estas fuentes; no se autorizará implícitamente')
+                    if target['send_to_provider'] and not (self._window_available() if target['source'] == 'window' else self._clipboard_available()):
+                        raise ValueError('El contexto de proveedor requiere un lector local disponible')
+                    if target['send_to_provider'] and not self._provider_context_available(target['source']):
+                        raise ValueError('SOURCE_PROVIDER_UNAVAILABLE: el recorrido de resultados efímeros aún no está habilitado')
                     target.setdefault('expires_at', None)
                     expiry = target['expires_at']
                     preserved_expiry = any(old['id'] == target['id'] and old.get('expires_at') == expiry for old in config['observation_targets'])
                     if expiry is not None and (type(expiry) not in (int, float) or not math.isfinite(expiry) or expiry <= self.clock() and not preserved_expiry):
                         raise ValueError('Vigencia de observación inválida')
                     if target['source'] == 'folder':
-                        if 'process_name' in target:
+                        if any(key in target for key in ('process_name', 'window_id', 'pid', 'process_started')):
                             raise ValueError('Una carpeta no selecciona un proceso')
                         target['root'] = directory(target.get('root'))
-                    else:
+                    elif target['source'] == 'application':
                         process = target.get('process_name')
-                        if ('root' in target or not isinstance(process, str) or not 5 <= len(process) <= 80 or not process.casefold().endswith('.exe')
+                        if (any(key in target for key in ('root', 'window_id', 'pid', 'process_started')) or not isinstance(process, str) or not 5 <= len(process) <= 80 or not process.casefold().endswith('.exe')
                                 or process != process.strip() or any(ord(char) < 32 or char in '<>:"|?*/\\' for char in process)):
                             raise ValueError('Selecciona un nombre de proceso .exe exacto')
                         target['process_name'] = target['process_name'].casefold()
                         target['application_id'] = target['application_id'] or target['process_name']
+                    elif target['source'] == 'clipboard':
+                        if any(key in target for key in ('root', 'process_name', 'window_id', 'pid', 'process_started')):
+                            raise ValueError('El portapapeles no selecciona carpeta, proceso ni ventana')
+                    else:
+                        if (any(key in target for key in ('root', 'process_name'))
+                                or type(target.get('window_id')) is not int or not 1 <= target['window_id'] <= 9007199254740991
+                                or type(target.get('pid')) is not int or not 1 <= target['pid'] <= 4294967295
+                                or not isinstance(target.get('process_started'), str) or not re.fullmatch(r'[0-9]{1,32}', target['process_started'])):
+                            raise ValueError('Selecciona una ventana con identidad HWND, PID e inicio de proceso verificados')
                     checked.append(target)
                 config['observation_targets'] = checked
             self.db.execute('UPDATE anticipation_config SET payload=? WHERE id=1', (canonical(config),))
-            self.source_state.clear()
-            self.source_observations.clear()
+            self._clear_sources()
             cancelled = self._invalidate(config)
         self._cancel_commands(cancelled)
         return self.status()
@@ -2053,6 +2414,8 @@ class AnticipationService:
             self._observe()
             self._poll_sources()
             with self.lock:
+                if self.closed:
+                    return []
                 config = self._config()
                 options = config['profiles'][config['profile']]
             if self._within_budget(options):
@@ -2159,6 +2522,7 @@ class AnticipationService:
             if key is None:
                 config = self._config() | {'paused': True}
                 self.db.execute('UPDATE anticipation_config SET payload=? WHERE id=1', (canonical(config),))
+                self._clear_sources()
                 commands.extend(self._mission_cancellations(config))
         self._cancel_commands(commands)
         return self.status() if key is None else self.status_item(key)
@@ -2183,6 +2547,10 @@ class AnticipationService:
         for item in selected:
             self.cancel(item['suggestion_id'])
         with self.lock, self.db:
+            if body.get('task_id'):
+                for target in self._config()['observation_targets']:
+                    if target['task_id'] == body['task_id']:
+                        self._drop_source(target['id'])
             marker = ('forget-task-routine-' + digest(body) if len(body) == 2 else
                       'forget-task-' + digest(body['task_id']) if 'task_id' in body else 'forget-routine-' + digest(body['routine_id']))
             self.db.execute('INSERT INTO anticipation_seen VALUES (?,?) ON CONFLICT(operation_id) DO UPDATE SET at=excluded.at', (marker, self.clock()))
@@ -2222,8 +2590,8 @@ class AnticipationService:
             self.commands.executor.wait_for_reads()
             with self.lock:
                 if not self.closed:
+                    self._clear_sources()
+                    self.source_hmac_key = None
                     self.closed = True
-                    self.source_state.clear()
-                    self.source_observations.clear()
                     ACTIVE_OWNERS.pop(self.owner_id, None)
                     self.db.close()
