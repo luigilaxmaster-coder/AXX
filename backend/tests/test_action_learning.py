@@ -16,7 +16,7 @@ class Model:
     def __init__(self, answer): self.answer = answer
     def route(self, request):
         self.calls += 1
-        return {'ok': True, 'message': {'content': json.dumps(self.answer)}}
+        return {'ok': True, 'message': {'content': json.dumps(self.answer)},'route':{'upstream_attempts':1,'attempt_budget_used':1}}
 
 
 class ActionLearningTests(unittest.TestCase):
@@ -69,7 +69,7 @@ class ActionLearningTests(unittest.TestCase):
             requests.append(request)
             steps=[{'command_id':'axx.desktop.open_url','inputs':{'url':'https://www.youtube.com/'}}]
             if len(requests)==2: steps.append({'command_id':'axx.desktop.search','inputs':{'engine':'youtube','query':'Faint'}})
-            return {'ok':True,'message':{'content':json.dumps({'title':'Abrir y buscar','steps':steps})}}
+            return {'ok':True,'message':{'content':json.dumps({'title':'Abrir y buscar','steps':steps})},'route':{'upstream_attempts':1,'attempt_budget_used':1}}
         self.model.route=answer
         plan=self.learning.propose('abre YouTube y busca Faint')
         self.assertEqual(plan['state'],'awaiting_approval')
@@ -85,7 +85,7 @@ class ActionLearningTests(unittest.TestCase):
             requests.append(request)
             path=str(self.executor.workspace_root/'training.txt') if len(requests)==1 else 'training.txt'
             return {'ok':True,'message':{'content':json.dumps({'title':'Crear prueba','steps':[
-                {'command_id':'axx.artifact.write','inputs':{'path':path,'content':'TRAINING'}}]})}}
+                {'command_id':'axx.artifact.write','inputs':{'path':path,'content':'TRAINING'}}]})},'route':{'upstream_attempts':1,'attempt_budget_used':1}}
         self.model.route=answer
         plan=self.learning.propose('crea un archivo de prueba training.txt con el texto TRAINING')
         self.assertEqual(plan['state'],'awaiting_approval')
@@ -107,7 +107,7 @@ class ActionLearningTests(unittest.TestCase):
         def answer(request):
             requests.append(request)
             content='Voy a hacerlo.' if len(requests)==1 else json.dumps({'title':'Consultar estado','steps':[{'command_id':'axx.system.telemetry','inputs':{}}]})
-            return {'ok':True,'message':{'content':content}}
+            return {'ok':True,'message':{'content':content},'route':{'upstream_attempts':1,'attempt_budget_used':1}}
         self.model.route=answer
         plan=self.learning.propose('consulta el estado del equipo')
         self.assertEqual(plan['state'],'awaiting_approval')
@@ -122,7 +122,7 @@ class ActionLearningTests(unittest.TestCase):
             check={'path':'output','text':'sha256'} if len(requests)==1 else {'path':'training.txt','text':'TRAINING'}
             data={'title':'Crear prueba','goal_spec':{'intent':'Crear prueba','checks':[check]},'steps':[
                 {'command_id':'axx.artifact.write','inputs':{'path':'training.txt','content':'TRAINING'}}]}
-            return {'ok':True,'message':{'content':json.dumps(data)}}
+            return {'ok':True,'message':{'content':json.dumps(data)},'route':{'upstream_attempts':1,'attempt_budget_used':1}}
         self.model.route=answer
         plan=self.learning.propose('crea un archivo de prueba training.txt con el texto TRAINING')
         self.assertEqual(plan['state'],'awaiting_approval',plan)

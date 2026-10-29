@@ -13,7 +13,7 @@ from backend.actions.tools import get_tool, ToolResult
 class Planner:
     def __init__(self, steps): self.steps = steps
     def route(self, request):
-        return {'ok': True, 'message': {'content': json.dumps({'title': 'Entrega', 'steps': self.steps})}}
+        return {'ok': True, 'message': {'content': json.dumps({'title': 'Entrega', 'steps': self.steps})},'route':{'upstream_attempts':1,'attempt_budget_used':1}}
 
 
 class ComputerTaskTests(unittest.TestCase):
@@ -49,8 +49,10 @@ class ComputerTaskTests(unittest.TestCase):
         expected = {'alpha.txt': b'alpha original', 'beta.txt': 'beta áéíóú'.encode('utf-8')}
         for name, content in expected.items(): (sources / name).write_bytes(content)
         steps = [
-            {'command_id': 'axx.file.find', 'inputs': {'directory': str(sources), 'pattern': '*.txt', 'limit': 10}},
-            {'command_id': 'axx.file.bundle', 'inputs': {'destination': 'verified-copy', 'archive_name': 'delivery.zip'},
+            {'command_id': 'axx.file.find', 'inputs': {'directory': str(sources), 'pattern': '*.txt', 'limit': 10,
+                                                     'max_entries_scan': 10}},
+            {'command_id': 'axx.file.bundle', 'inputs': {'destination': 'verified-copy', 'archive_name': 'delivery.zip',
+                                                       'max_output_bytes': 16384},
              'bindings': {'paths': {'step': 0, 'path': ['output', 'paths']}}},
         ]
         plan = self.learning.prepare_steps('Busca y copia los archivos de prueba a un ZIP nuevo', steps)
@@ -60,6 +62,7 @@ class ComputerTaskTests(unittest.TestCase):
         for record in result['step_records']:self.assertTrue(record['result']['postconditions_passed'])
         bundle = result['step_records'][1]['result']['output']
         self.assertEqual(len(bundle['files']), 2)
+        self.assertLessEqual(sum(path.stat().st_size for path in Path(bundle['directory']).iterdir()), 16384)
         with zipfile.ZipFile(bundle['archive']['path']) as archive:
             for row in bundle['files']:
                 content = expected[row['name']]
@@ -111,7 +114,7 @@ class ComputerTaskTests(unittest.TestCase):
     def test_planning_catalog_fits_conservative_32k_budget_and_retains_typed_choices(self):
         messages = self.learning._prompt('Prepara un archivo de saludo', {})
         self.assertLess(len(json.dumps({'messages':messages,'tools':None},ensure_ascii=False).encode())+1024+2048,32768)
-        catalog = json.loads(messages[0]['content'].split('\n',1)[1])['capabilities']
+        catalog = json.loads(messages[-1]['content'])['capabilities']
         state = next(item for item in catalog if item['command_id']=='axx.desktop.state')
         self.assertIn('Toggle',state['parameters']['pattern']['enum'])
         self.assertEqual(state['parameters']['window_id']['type'],'integer')

@@ -26,7 +26,7 @@ class Model:
     def route(self, request):
         self.calls.append(request)
         return {'ok': True, 'message': {'content': json.dumps(self.answer)},
-                'route': {'model': 'test-local', 'provider_name': 'offline-fixture', 'api_key': 'must-not-persist'}}
+                'route': {'model': 'test-local', 'provider_name': 'offline-fixture', 'api_key': 'must-not-persist','upstream_attempts':1,'attempt_budget_used':1}}
 
 
 class CapabilityWorkshopTests(unittest.TestCase):
@@ -237,8 +237,8 @@ class CapabilityWorkshopTests(unittest.TestCase):
         self.assertEqual(self.workshop.list(), []); self.assertEqual(self.commands.operations(), [])
 
     def test_invalid_proposal_is_corrected_once_with_same_route_and_shared_deadline(self):
-        answers = [{'ok': True, 'message': {'content': '{bad json'}},
-                   {'ok': True, 'message': {'content': json.dumps(definition())}}]
+        answers = [{'ok': True, 'message': {'content': '{bad json'},'route':{'upstream_attempts':1,'attempt_budget_used':1}},
+                   {'ok': True, 'message': {'content': json.dumps(definition())},'route':{'upstream_attempts':1,'attempt_budget_used':1}}]
         with patch.object(self.model, 'route', side_effect=answers) as route:
             item = self.workshop.generate('Consulta estado', model='chosen', provider_name='local')
         first, second = [call.args[0] for call in route.call_args_list]

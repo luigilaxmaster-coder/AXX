@@ -17,7 +17,7 @@ import threading
 import time
 import uuid
 
-from .action_learning import ALLOWED
+from .action_learning import ALLOWED, ModelBudgetExceeded, inference_accounting
 from .commands import parse_command_json
 from .memory.procedural_memory import get_action_env_fingerprint
 from .memory.skill_memory import PARAMETER, bind, bounded_object, project_key, validate_schema
@@ -527,12 +527,13 @@ class CapabilityWorkshop:
 
     def generate(self, goal, model='', provider_name='', selection_mode='manual', kind='workflow', project_id='',
                  capability_id=None, revision=None, digest=None, conversation_id=None, request_id=None,
-                 max_attempts=2):
+                 max_attempts=2, _budget=None):
         _text(goal, 'Objetivo', 4000)
         _text(model, 'Modelo', 200, empty=True); _text(provider_name, 'Proveedor', 200, empty=True)
         project_key(project_id)
         if type(max_attempts) is not int or max_attempts not in (1, 2):
             raise ValueError('La generación permite uno o dos intentos')
+        if _budget is not None and not callable(_budget): raise ValueError('Presupuesto interno de construcción inválido')
         if selection_mode not in ('manual', 'automatic_free') or kind not in ('workflow', 'python_transform', 'source_proposal'):
             raise ValueError('Modo de selección o tipo de propuesta inválido')
         if conversation_id is not None:
@@ -545,7 +546,7 @@ class CapabilityWorkshop:
                 if previous['project_id'] != project_id: raise ValueError('La capacidad pertenece a otro proyecto')
         elif revision is not None or digest is not None:
             raise ValueError('La revisión requiere un ID de capacidad')
-        config = getattr(self.adapter, 'config', {})
+        config = getattr(self.adapter, 'config', {}) if provider_name != '@codex' else {}
         if config.get('allow_paid', False) is not False: raise ValueError('La inferencia de pago no está permitida')
         shape = ({'kind': 'workflow', 'title': 'Nombre', 'objective': goal,
                   'schema': {'type': 'object', 'properties': {}, 'required': []},
@@ -588,6 +589,7 @@ class CapabilityWorkshop:
         if provider_name == '@codex' and (backend is None or not model):
             raise ValueError('Selecciona un modelo del motor Codex conectado; no se usará otro proveedor como alternativa')
         deadline = time.monotonic() + 70
+        direct_remaining=2
         for attempt in range(max_attempts):
             attempt_id = request_id if attempt == 0 else 'capability-repair-' + uuid.uuid4().hex
             with self._inference(attempt_id, backend):
@@ -595,14 +597,25 @@ class CapabilityWorkshop:
                 if remaining < 1: raise ValueError('La generación agotó su plazo; no se guardó la propuesta')
                 request = {'request_id': attempt_id, 'conversation_id': conversation_id or request_id,
                     'task': 'code' if kind in ('source_proposal', 'python_transform') else 'plan', 'model': model, 'provider_name': provider_name,
-                    'selection_mode': selection_mode, 'allow_paid': False, 'deadline_ms': remaining,
+                    'selection_mode': selection_mode, 'allow_paid': False, 'deadline_ms': remaining, 'upstream_attempt_budget': 1,
                     'messages': [{'role': 'system', 'content': system}, {'role': 'user', 'content': reference}],
                     'generation': {'temperature': 0.1, 'max_tokens': 4500}}
-                if provider_name == '@codex':
-                    from .connect.provider import ProviderError
-                    try: response = backend.generate_capability(request)
-                    except ProviderError as exc: raise ValueError(str(exc)) from exc
-                else: response = backend.route(request)
+                if _budget is None and direct_remaining<1:raise ModelBudgetExceeded('Se agotó el presupuesto de dos solicitudes observables de esta construcción.')
+                settle = _budget(attempt_id) if _budget is not None else None
+                request['upstream_attempt_budget']=getattr(settle,'attempt_budget',1 if provider_name=='@codex' else direct_remaining)
+                reserved=request['upstream_attempt_budget']
+                try:
+                    if provider_name == '@codex':
+                        from .connect.provider import ProviderError
+                        try: response = backend.generate_capability(request)
+                        except ProviderError as exc: raise ValueError(str(exc)) from exc
+                    else: response = backend.route(request)
+                except BaseException:
+                    if settle is not None: settle(None)
+                    else:direct_remaining-=reserved
+                    raise
+                if settle is not None: settle(response)
+                else:direct_remaining-=inference_accounting(response,reserved,single_request=provider_name=='@codex')[1]
                 with self.lock: self._open()
                 if time.monotonic() >= deadline: raise ValueError('La generación agotó su plazo; no se guardó la propuesta')
                 if not isinstance(response, dict) or response.get('ok') is not True:

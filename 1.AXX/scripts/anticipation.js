@@ -4,7 +4,7 @@
  if (!Axx?.isNative() || !Axx.chatWorkspace || !document.getElementById('view-settings')) return;
  const $ = id => document.getElementById(id), names = {discreto:'Discreto',copiloto:'Copiloto',full:'Full'};
  const presetModes={discreto:'OFF',copiloto:'SUGGEST',full:'EXECUTE'},modeNames={OFF:'Solo responder',SHADOW:'Evaluar en silencio',SUGGEST:'Sugerir',PREPARE:'Preparar',EXECUTE:'Ejecutar con permiso'};
- const resourceFields=[['max_events_tick','Eventos por ciclo',1,100],['max_entries_scan','Entradas por exploración',1,2000],['max_file_bytes','Tamaño máximo por archivo, bytes',1024,536870912],['max_tick_ms','Tiempo por ciclo, ms',50,5000],['max_cpu_ms_tick','CPU por ciclo, ms',10,1000]];
+ const resourceFields=[['max_events_tick','Eventos por ciclo',1,100],['max_entries_scan','Entradas por exploración',1,2000],['max_file_bytes','Tamaño máximo por archivo, bytes',1024,536870912],['max_tick_ms','Tiempo por ciclo, ms',50,5000],['max_cpu_ms_tick','CPU por ciclo, ms',10,1000],['max_process_rss_bytes','Umbral de admisión RSS del backend e hijos propios, bytes',1,9007199254740991,true],['max_storage_bytes','Cuota por raíz: uso observado y reservas, bytes',1,9007199254740991,true],['model_call_limit','Máximo de inferencias por misión',0,2]];
  const weekdays=['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'];
  const verificationLabels={integrity_only:'Integridad verificada',pdf_structure_and_text_readability:'Inspección PDF completada',media_metadata:'Metadatos comprobados',image_ocr:'Lectura OCR completada'};
  const verificationScopes={integrity_only:'Integridad por hash',pdf_structure_and_text_readability:'Estructura y legibilidad del texto PDF',media_metadata:'Metadatos multimedia',image_ocr:'Texto mediante OCR'};
@@ -16,7 +16,7 @@
  <div class="quick-row"><button id="anticipation-pause" type="button">Pausar iniciativas</button><button id="anticipation-observation" type="button">Pausar observación</button></div>
  <p id="anticipation-status" role="status" aria-live="polite">Comprobando perfiles…</p>
  <details id="anticipation-mission"><summary>Misión de este chat</summary><p id="anticipation-mission-status" role="status"></p><div id="anticipation-missions"></div></details>
- <details><summary>Ajustes de cada perfil</summary><div id="anticipation-profiles"></div></details>
+ <details><summary>Ajustes de cada perfil</summary><div id="anticipation-profiles"></div><p id="anticipation-resource-status" role="status" style="white-space:pre-line"></p></details>
  <details><summary>Ámbitos y exclusiones</summary><form id="anticipation-scope-form">
  <label class="setting">Perfil para este ámbito<select id="anticipation-scope-profile"><option value="discreto">Discreto</option><option value="copiloto">Copiloto</option><option value="full">Full</option></select></label>
  <label><input id="anticipation-scope-task" type="checkbox" checked> Limitar al chat actual</label>
@@ -57,7 +57,7 @@
    <details><summary>Frecuencia, horario y recursos</summary><label class="setting">Intervalo de observación, segundos<input name="cadence_seconds" type="number" min="5" max="3600" required></label>
    <label><input name="schedule_enabled" type="checkbox"> Usar un horario</label><div data-schedule><label class="setting">Zona horaria IANA<input name="schedule_timezone" maxlength="80" required></label><label class="setting">Desde<input name="schedule_start" type="time" required></label><label class="setting">Hasta<input name="schedule_end" type="time" required></label>
    <fieldset><legend>Días</legend>${weekdays.map((day,i)=>`<label><input type="checkbox" name="schedule_days" value="${i}">${day}</label>`).join('')}</fieldset></div>
-   ${resourceFields.map(([key,label,min,max])=>`<label class="setting">${label}<input name="resource_${key}" type="number" min="${min}" max="${max}" required></label>`).join('')}</details>
+   ${resourceFields.map(([key,label,min,max,nullable])=>`<label class="setting">${label}<input name="resource_${key}" type="number" min="${min}" max="${max}" ${nullable?'placeholder="Sin límite adicional"':'required'}></label>`).join('')}<p>RSS y cuota vacíos significan sin límite adicional. Son controles de admisión; no limitan Windows, WebView ni procesos externos. El presupuesto incluye planificación, reparación, contenido y Taller: cuenta solicitudes observables de Axx y la cota conocida de su gateway, sin cuantificar llamadas internas del proveedor.</p></details>
    <button type="submit">Guardar ${name}</button></form>`;
   $('anticipation-profiles').append(details);
  }
@@ -163,7 +163,7 @@
     add('Permiso',mission.permission?.exact_plan_approved?'Versión exacta del plan aprobada.':'Esta versión del plan no consta aprobada.');
     if(mission.permission?.automatic_future_plans_authorized===false)add('Iniciativas futuras','Este plan no concede permiso para futuros planes autónomos.');
     const budget=mission.budget;
-    if(budget)add('Presupuesto','Límite de pasos: '+budget.step_limit+'\nConsultas al modelo: '+budget.model_calls_used+'/'+budget.model_call_limit+'\nConsultas restantes: '+budget.model_calls_remaining);
+    if(budget)add('Presupuesto','Límite de pasos: '+budget.step_limit+'\nPresupuesto ocupado: '+budget.model_calls_used+'/'+budget.model_call_limit+'\nSolicitudes observables confirmadas: '+(budget.model_calls_confirmed??'No informado')+'\nReservas pendientes: '+(budget.model_calls_reserved??'No informado')+'\nConsumo incierto: '+(budget.model_calls_uncertain??'No informado')+'\nConsultas restantes: '+budget.model_calls_remaining);
     add('Condición de parada',mission.stop_condition==='verified_goal_or_cancellation'?'Resultado verificado o cancelación.':mission.stop_condition);add('Revisión',mission.revision);
     add('Utilidad',mission.user_confirmed_usefulness===true?'Confirmada por ti; no sustituye las verificaciones de ejecución.':'Sin confirmación de utilidad.');
     const dependencies=document.createElement('details'),dependencySummary=document.createElement('summary'),form=document.createElement('form'),label=document.createElement('label'),select=document.createElement('select');dependencySummary.textContent='Esperar otras misiones de este proyecto';select.multiple=true;select.size=4;select.setAttribute('aria-label','Misiones requeridas');
@@ -244,7 +244,7 @@
  }
  function renderSettings(fill=false){
   if(!snapshot)return;
-  const key=JSON.stringify([task(),snapshot.profile,snapshot.paused,snapshot.observation_paused,snapshot.profiles,snapshot.sources,snapshot.scopes,snapshot.grants,snapshot.suggestions,snapshot.metrics,snapshot.observation_targets,snapshot.source_runtime,snapshot.source_observations,snapshot.capabilities,mutation]);
+  const key=JSON.stringify([task(),snapshot.profile,snapshot.paused,snapshot.observation_paused,snapshot.profiles,snapshot.sources,snapshot.scopes,snapshot.grants,snapshot.suggestions,snapshot.metrics,snapshot.observation_targets,snapshot.source_runtime,snapshot.source_observations,snapshot.capabilities,snapshot.resource_usage,mutation]);
   if(!fill&&settingsKey===key)return;settingsKey=key;
   $('anticipation-profile').value=snapshot.profile;
   for(const option of $('anticipation-profile').options){const mode=snapshot.profiles?.[option.value]?.mode;option.textContent=names[option.value]+(mode&&mode!==presetModes[option.value]?' · Personalizado: '+(modeNames[mode]||mode):'');}
@@ -267,6 +267,7 @@
   $('anticipation-sources').textContent='Fuentes habilitadas: '+(['events','folders','applications'].filter(key=>snapshot.sources?.[key]).map(key=>({events:'eventos autorizados',folders:'carpetas seleccionadas',applications:'aplicaciones seleccionadas'})[key]).join(', ')||'ninguna')+(snapshot.observation_paused?' · Observación pausada.':'.');
   renderSources();
   renderPermissions();
+  const usage=snapshot.resource_usage,memory=usage?.memory,date=at=>Number.isFinite(at)?new Date(at*1000).toLocaleString():'Fecha no informada';const resourceStatus=[memory?.known===true?'RSS observado del backend e hijos propios: '+memory.rss_bytes+' bytes · '+date(memory.observed_at):'RSS del backend e hijos propios: medición no disponible.'];for(const root of usage?.storage||[])resourceStatus.push(root.root+' · '+(root.known===true?'Último uso observado: '+root.used_bytes+' bytes · '+date(root.observed_at)+' · Reservado: '+root.reserved_bytes+' bytes':'Uso no disponible'));$('anticipation-resource-status').textContent=resourceStatus.join('\n');
   const scopes=$('anticipation-scopes');scopes.replaceChildren();
   for(const [i,scope] of (snapshot.scopes||[]).entries()){
    const p=document.createElement('p');p.textContent=(scope.exclude?'Excluido':names[scope.profile]||scope.profile)+' · '+(scope.task_id||'Todos los chats')+' · '+(scope.root||'Todos los recursos')+(scope.project_id?' · Proyecto: '+scope.project_id:'')+(scope.application_id?' · Aplicación: '+scope.application_id:'')+(scope.device_id?' · Dispositivo: '+scope.device_id:'');
@@ -379,7 +380,7 @@
  for(const form of $('anticipation-profiles').querySelectorAll('form')){
   form.oninput=()=>{form.dataset.dirty='true';};
   form.elements.schedule_enabled.onchange=()=>syncSchedule(form);
-  form.onsubmit=e=>{e.preventDefault();void run(async()=>{const settings={mode:form.elements.mode.value,interruptions:form.elements.interruptions.value,resources:{},schedule:null};for(const key of ['cooldown_seconds','max_interruptions_hour','retention_days','cadence_seconds'])settings[key]=Number(form.elements.namedItem(key).value);for(const [key] of resourceFields)settings.resources[key]=Number(form.elements.namedItem('resource_'+key).value);if(form.elements.schedule_enabled.checked){const days=[...form.querySelectorAll('[name=schedule_days]:checked')].map(day=>Number(day.value));if(!days.length)throw Error('Selecciona al menos un día del horario.');settings.schedule={timezone:form.elements.schedule_timezone.value.trim(),days,start:form.elements.schedule_start.value,end:form.elements.schedule_end.value};}await configure({profiles:{[form.dataset.profile]:settings}});form.dataset.dirty='false';});};
+  form.onsubmit=e=>{e.preventDefault();void run(async()=>{const settings={mode:form.elements.mode.value,interruptions:form.elements.interruptions.value,resources:{},schedule:null};for(const key of ['cooldown_seconds','max_interruptions_hour','retention_days','cadence_seconds'])settings[key]=Number(form.elements.namedItem(key).value);for(const [key,,, ,nullable] of resourceFields){const value=form.elements.namedItem('resource_'+key).value;settings.resources[key]=nullable&&value===''?null:Number(value);}if(form.elements.schedule_enabled.checked){const days=[...form.querySelectorAll('[name=schedule_days]:checked')].map(day=>Number(day.value));if(!days.length)throw Error('Selecciona al menos un día del horario.');settings.schedule={timezone:form.elements.schedule_timezone.value.trim(),days,start:form.elements.schedule_start.value,end:form.elements.schedule_end.value};}await configure({profiles:{[form.dataset.profile]:settings}});form.dataset.dirty='false';});};
  }
  $('anticipation-scope-form').onsubmit=e=>{e.preventDefault();void run(async()=>{
   const scoped=$('anticipation-scope-task').checked,root=$('anticipation-scope-root').value.trim(),context={};for(const [key,id] of [['project_id','project'],['application_id','application'],['device_id','device']]){const value=$('anticipation-scope-'+id).value.trim();if(value)context[key]=value;}

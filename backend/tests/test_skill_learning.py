@@ -23,7 +23,7 @@ class Model:
     def route(self, request):
         self.calls.append(request)
         return {'ok': True, 'message': {'content': json.dumps(self.answer)},
-                'route': {'task': request['task'], 'provider_name': 'offline-fixture', 'model': 'fixture', 'request_id': request['request_id']}}
+                'route': {'task': request['task'], 'provider_name': 'offline-fixture', 'model': 'fixture', 'request_id': request['request_id'],'upstream_attempts':1,'attempt_budget_used':1}}
 
     def record_outcome(self, route, task, outcome):
         self.outcomes.append((route, task, outcome))
@@ -207,9 +207,9 @@ class SkillLearningTests(unittest.TestCase):
             {'command_id': 'axx.artifact.write', 'inputs': {'path': 'second.txt', 'content': 'second'}}]}
         plan = self.learning.propose('two real files')
         record, step = plan['step_records'][0], plan['steps'][0]
-        plan['state'] = 'running'; record['state'] = 'running'; self.learning._save(plan)
+        plan.update(state='running', approved_hash=plan['plan_hash']); record['state'] = 'running'; self.learning._save(plan)
         self.commands.prepare(step['command_id'], step['inputs'], operation_id=record['operation_id'])
-        self.commands.execute(record['operation_id'], True)
+        self.assertEqual(self.commands.execute(record['operation_id'], True)['state'], 'succeeded')
         self.restart()
         recovered = self.learning.resume(plan['operation_id'])
         self.assertEqual(recovered['state'], 'awaiting_approval')
@@ -238,8 +238,9 @@ class SkillLearningTests(unittest.TestCase):
     def test_unknown_command_uses_real_executor_receipt_but_unknown_without_receipt_blocks(self):
         plan = self.learning.propose('real interrupted receipt')
         step, record = plan['steps'][0], plan['step_records'][0]
+        plan.update(state='running', approved_hash=plan['plan_hash']); record['state'] = 'running'; self.learning._save(plan)
         command = self.commands.prepare(step['command_id'], step['inputs'], operation_id=record['operation_id'])
-        self.commands.execute(record['operation_id'], True)
+        self.assertEqual(self.commands.execute(record['operation_id'], True)['state'], 'succeeded')
         with self.commands.lock: self.commands._save(command | {'state': 'unknown', 'postconditions_passed': False})
         plan['state'] = 'unknown'; record['state'] = 'running'; self.learning._save(plan)
         with patch.object(self.commands, 'execute', wraps=self.commands.execute) as execute:
@@ -255,8 +256,10 @@ class SkillLearningTests(unittest.TestCase):
             {'command_id': 'axx.artifact.write', 'inputs': {'path': 'uncertain.txt', 'content': 'expected'}}]}
         plan = self.learning.propose('uncertain file write')
         step, record = plan['steps'][0], plan['step_records'][0]
+        plan.update(state='running', approved_hash=plan['plan_hash']); record['state'] = 'running'; self.learning._save(plan)
         command = self.commands.prepare(step['command_id'], step['inputs'], operation_id=record['operation_id'])
         result = self.commands.execute(record['operation_id'], True)
+        self.assertEqual(result['state'], 'succeeded', result)
         action_id = result['action_operation_id']
         with self.commands.lock: self.commands._save(command | {'state': 'unknown', 'postconditions_passed': False})
         with self.executor.db:
@@ -373,7 +376,7 @@ class SkillLearningTests(unittest.TestCase):
         def content(request):
             self.model.calls.append(request)
             return {'ok': True, 'message': {'content': 'fresh:' + request['messages'][-1]['content']},
-                    'route': {'task': request['task'], 'request_id': request['request_id'], 'provider_name': 'fixture'}}
+                    'route': {'task': request['task'], 'request_id': request['request_id'], 'provider_name': 'fixture','upstream_attempts':1,'attempt_budget_used':1}}
         with patch.object(self.model, 'route', side_effect=content):
             first = self.learning.propose(skill['id'], inputs={'filename': 'content-one.txt'})
             self.assertEqual(first['state'], 'awaiting_approval', first)
@@ -388,7 +391,7 @@ class SkillLearningTests(unittest.TestCase):
             self.assertNotEqual(first['steps'][0]['inputs']['content'], second['steps'][0]['inputs']['content'])
 
     def test_capacity_resume_uses_same_task_and_requires_review_of_new_plan(self):
-        with patch.object(self.model, 'route', return_value={'ok': False, 'error': {'code': 'NO_PROVIDER_AVAILABLE', 'retryable': True, 'message': 'quota'}}):
+        with patch.object(self.model, 'route', return_value={'ok': False, 'error': {'code': 'NO_PROVIDER_AVAILABLE', 'retryable': True, 'message': 'quota','upstream_attempts':1,'attempt_budget_used':1}}):
             plan = self.learning.propose('wait for provider')
         self.assertEqual(plan['state'], 'waiting_capacity', plan)
         self.restart()
@@ -418,7 +421,7 @@ class SkillLearningTests(unittest.TestCase):
         self.assertEqual(self.learning.retry_waiting(), [])
 
     def test_cancel_during_resumed_inference_uses_real_request_id_without_locking_ui(self):
-        with patch.object(self.model, 'route', return_value={'ok': False, 'error': {'code': 'BUSY', 'retryable': True}}):
+        with patch.object(self.model, 'route', return_value={'ok': False, 'error': {'code': 'BUSY', 'retryable': True,'upstream_attempted':False}}):
             plan = self.learning.propose('cancel resumed provider')
         entered, release = threading.Event(), threading.Event()
         requests, cancelled = [], []
@@ -436,7 +439,7 @@ class SkillLearningTests(unittest.TestCase):
         self.assertEqual(self.executor.list_operations(), [])
 
     def test_actual_upstream_attempts_stop_at_two_and_missing_metadata_is_not_assumed_free(self):
-        with patch.object(self.model, 'route', return_value={'ok': False, 'error': {'code': 'NO_PROVIDER_AVAILABLE', 'retryable': True, 'upstream_attempted': True}}) as route:
+        with patch.object(self.model, 'route', return_value={'ok': False, 'error': {'code': 'NO_PROVIDER_AVAILABLE', 'retryable': True, 'upstream_attempted': True,'upstream_attempts':1,'attempt_budget_used':1}}) as route:
             plan = self.learning.propose('bounded failed inference')
             plan = self.learning.resume(plan['operation_id'])
             self.assertEqual(plan['state'], 'failed')
@@ -453,14 +456,14 @@ class SkillLearningTests(unittest.TestCase):
         self.assertEqual(self.model.outcomes[-1][2], 'user_confirmed')
 
     def test_scheduler_shutdown_cancels_transport_joins_and_preserves_pending_task(self):
-        with patch.object(self.model, 'route', return_value={'ok': False, 'error': {'code': 'BUSY', 'retryable': True}}):
+        with patch.object(self.model, 'route', return_value={'ok': False, 'error': {'code': 'BUSY', 'retryable': True,'upstream_attempted':False}}):
             plan = self.learning.propose('recover after shutdown')
         plan['next_retry_at'] = 0; self.learning._save(plan)
         entered, released = threading.Event(), threading.Event()
         cancelled = []
         def route(request):
             entered.set(); released.wait(8)
-            return {'ok': False, 'error': {'code': 'CANCELLED', 'retryable': False}}
+            return {'ok': False, 'error': {'code': 'CANCELLED', 'retryable': False,'upstream_attempted':False}}
         def cancel(request_id):
             cancelled.append(request_id); released.set()
         with patch.object(self.model, 'route', side_effect=route), patch.object(self.model, 'cancel', side_effect=cancel, create=True):
