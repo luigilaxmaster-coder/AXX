@@ -32,3 +32,8 @@ controls with explanations on their info icons. Sibilance is a fixed frequency
 reduction, not a trained pronunciation model; height also changes duration.
 PCM packet boundaries use a short fade to reduce clicks. Listen to both
 languages in the installed app before acoustic acceptance.
+
+An isolated CPU comparison tried joining the two Spanish references. On one
+new phrase the ASR result improved, but on another the generated voice changed
+the requested sentence into an unrelated question. The joined reference was
+rejected; the installed voice sample and selected model were not replaced.
