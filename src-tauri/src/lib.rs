@@ -146,6 +146,34 @@ pub struct NativeStatusResponse {
     pub backend_instance: Option<String>,
     pub data_directory: String,
     pub desktop: Option<resident::DesktopStatus>,
+    pub pointer: Option<Value>,
+}
+
+fn pointer_status(app: &AppHandle) -> Option<Value> {
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::{Foundation::POINT, Graphics::Gdi::ScreenToClient, UI::{HiDpi::GetDpiForWindow, WindowsAndMessaging::*}};
+        let window = app.get_webview_window("main")?;
+        let hwnd = window.hwnd().ok()?;
+        let mut point = POINT {x:0,y:0};
+        let mut physical = POINT {x:0,y:0};
+        if unsafe { GetCursorPos(&mut point) } == 0 || unsafe { GetPhysicalCursorPos(&mut physical) } == 0 { return None; }
+        let screen = json!({"x":point.x,"y":point.y});
+        if unsafe { ScreenToClient(hwnd.0 as _,&mut point) } == 0 { return None; }
+        let scale = window.scale_factor().ok()?;
+        let x = point.x as f64 / scale;
+        let y = point.y as f64 / scale;
+        let state = app.state::<HostState>();
+        let regions = state.interactive_regions.lock().ok()?;
+        let mask = state.avatar_mask.lock().ok()?;
+        return Some(json!({"screen":screen,"physical":{"x":physical.x,"y":physical.y},
+            "client":{"x":point.x,"y":point.y},"logical":{"x":x,"y":y},"scale":scale,
+            "dpi":unsafe { GetDpiForWindow(hwnd.0 as _) },"regions":regions.len(),
+            "inside":regions.iter().any(|r|r.contains(x,y)) || mask.as_ref().is_some_and(|m|m.contains(x,y)),
+            "passthrough":unsafe { GetWindowLongPtrW(hwnd.0 as _,GWL_EXSTYLE) } & WS_EX_TRANSPARENT as isize != 0}));
+    }
+    #[cfg(not(windows))]
+    { let _ = app; None }
 }
 
 #[tauri::command]
@@ -168,6 +196,7 @@ fn native_status(app: AppHandle, state: State<HostState>) -> NativeStatusRespons
         backend_instance: backend.as_ref().map(|b| b.instance_id.clone()),
         data_directory: state.data_dir.lock().unwrap().display().to_string(),
         desktop: resident::status(&app),
+        pointer: pointer_status(&app),
     }
 }
 
