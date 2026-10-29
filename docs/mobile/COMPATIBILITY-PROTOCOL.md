@@ -88,6 +88,8 @@ Un único responsable coordina versiones, build, instalación y publicación. Lo
 
 ## Alcance medido y pendientes
 
-La matriz exigida actualmente cubre 339/390/440 píxeles CSS en vertical, temas claro/negro, texto 100/170 % y viewport de teclado de 299 puntos. El [estudio extendido](SCREEN-STUDY-20261029.md) conserva también los fallos de formatos futuros; no se cambian sus resultados para convertirlos en soporte declarado.
+La matriz exigida cubre los diez formatos del estudio: 280/320/339/390/440 en vertical, 568 × 320 y 844 × 390 en horizontal, y ventanas de 600/840/1024 píxeles CSS. Todos se cruzan con temas claro/negro, texto 100/170/200 %, DPR 1/3 y compositor con teclado de 299 puntos: **120 escenarios obligatorios**. El test exige también la presencia de los 24 escenarios que fallaban; no pueden excluirse para conseguir un resultado positivo.
+
+La [corrección responsive de Android 0.2.7](SCREEN-FIXES-20261029.md) conserva las doce referencias previas de apariencia y añade su comparación de geometría, colores, tipografía y bordes al gate. El informe original de fallos se mantiene como histórico, junto al resultado corregido. Pasar estos escenarios de navegador no certifica un iPhone o plegable físico.
 
 El gate acredita fuente, contratos y navegador. APK/AAB, firma, instalación, micrófono/altavoz, QR óptico, input físico, bisagra, safe areas nativas, WebKit y rendimiento GPU real requieren recibos separados. Ninguna prueba individual acredita todas las funciones de todos los teléfonos.

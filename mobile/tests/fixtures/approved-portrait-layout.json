@@ -1,0 +1,962 @@
+[
+  {
+    "width": 339,
+    "height": 673,
+    "scale": 1,
+    "theme": "light",
+    "snapshot": {
+      ".app-header": {
+        "box": [
+          0,
+          0,
+          339,
+          62
+        ],
+        "font": "16px",
+        "color": "rgb(32, 33, 39)",
+        "background": "rgba(0, 0, 0, 0)",
+        "radius": "0px"
+      },
+      ".brand": {
+        "box": [
+          20,
+          20.5,
+          43.42,
+          31
+        ],
+        "font": "31px",
+        "color": "rgb(32, 33, 39)",
+        "background": "rgba(0, 0, 0, 0)",
+        "radius": "0px"
+      },
+      ".axx-stage-container": {
+        "box": [
+          20,
+          68,
+          299,
+          392
+        ],
+        "font": "16px",
+        "color": "rgb(32, 33, 39)",
+        "background": "rgba(0, 0, 0, 0)",
+        "radius": "0px"
+      },
+      "#character-options": {
+        "box": [
+          275,
+          76,
+          44,
+          44
+        ],
+        "font": "14px",
+        "color": "rgb(102, 106, 117)",
+        "background": "rgb(255, 255, 255)",
+        "radius": "50%"
+      },
+      "#open-chat": {
+        "box": [
+          20,
+          513,
+          299,
+          66
+        ],
+        "font": "14px",
+        "color": "rgb(32, 33, 39)",
+        "background": "rgb(255, 255, 255)",
+        "radius": "24px"
+      },
+      ".live-nav": {
+        "box": [
+          16,
+          597,
+          307,
+          66
+        ],
+        "font": "16px",
+        "color": "rgb(32, 33, 39)",
+        "background": "rgb(255, 255, 255)",
+        "radius": "25px"
+      }
+    }
+  },
+  {
+    "width": 339,
+    "height": 673,
+    "scale": 1,
+    "theme": "dark",
+    "snapshot": {
+      ".app-header": {
+        "box": [
+          0,
+          0,
+          339,
+          62
+        ],
+        "font": "16px",
+        "color": "rgb(237, 240, 246)",
+        "background": "rgba(0, 0, 0, 0)",
+        "radius": "0px"
+      },
+      ".brand": {
+        "box": [
+          20,
+          20.5,
+          43.42,
+          31
+        ],
+        "font": "31px",
+        "color": "rgb(237, 240, 246)",
+        "background": "rgba(0, 0, 0, 0)",
+        "radius": "0px"
+      },
+      ".axx-stage-container": {
+        "box": [
+          20,
+          68,
+          299,
+          392
+        ],
+        "font": "16px",
+        "color": "rgb(237, 240, 246)",
+        "background": "rgba(0, 0, 0, 0)",
+        "radius": "0px"
+      },
+      "#character-options": {
+        "box": [
+          275,
+          76,
+          44,
+          44
+        ],
+        "font": "14px",
+        "color": "rgb(167, 176, 191)",
+        "background": "rgb(21, 25, 34)",
+        "radius": "50%"
+      },
+      "#open-chat": {
+        "box": [
+          20,
+          513,
+          299,
+          66
+        ],
+        "font": "14px",
+        "color": "rgb(237, 240, 246)",
+        "background": "rgb(21, 25, 34)",
+        "radius": "24px"
+      },
+      ".live-nav": {
+        "box": [
+          16,
+          597,
+          307,
+          66
+        ],
+        "font": "16px",
+        "color": "rgb(237, 240, 246)",
+        "background": "rgb(21, 25, 34)",
+        "radius": "25px"
+      }
+    }
+  },
+  {
+    "width": 339,
+    "height": 673,
+    "scale": 1.7,
+    "theme": "light",
+    "snapshot": {
+      ".app-header": {
+        "box": [
+          0,
+          0,
+          339,
+          70.7
+        ],
+        "font": "27.2px",
+        "color": "rgb(32, 33, 39)",
+        "background": "rgba(0, 0, 0, 0)",
+        "radius": "0px"
+      },
+      ".brand": {
+        "box": [
+          20,
+          14,
+          79.08,
+          52.7
+        ],
+        "font": "52.7px",
+        "color": "rgb(32, 33, 39)",
+        "background": "rgba(0, 0, 0, 0)",
+        "radius": "0px"
+      },
+      ".axx-stage-container": {
+        "box": [
+          20,
+          76.7,
+          299,
+          360.67
+        ],
+        "font": "27.2px",
+        "color": "rgb(32, 33, 39)",
+        "background": "rgba(0, 0, 0, 0)",
+        "radius": "0px"
+      },
+      "#character-options": {
+        "box": [
+          275,
+          84.7,
+          44,
+          44
+        ],
+        "font": "23.8px",
+        "color": "rgb(102, 106, 117)",
+        "background": "rgb(255, 255, 255)",
+        "radius": "50%"
+      },
+      "#open-chat": {
+        "box": [
+          20,
+          505.06,
+          299,
+          66
+        ],
+        "font": "23.8px",
+        "color": "rgb(32, 33, 39)",
+        "background": "rgb(255, 255, 255)",
+        "radius": "24px"
+      },
+      ".live-nav": {
+        "box": [
+          16,
+          589.06,
+          307,
+          73.94
+        ],
+        "font": "27.2px",
+        "color": "rgb(32, 33, 39)",
+        "background": "rgb(255, 255, 255)",
+        "radius": "25px"
+      }
+    }
+  },
+  {
+    "width": 339,
+    "height": 673,
+    "scale": 1.7,
+    "theme": "dark",
+    "snapshot": {
+      ".app-header": {
+        "box": [
+          0,
+          0,
+          339,
+          70.7
+        ],
+        "font": "27.2px",
+        "color": "rgb(237, 240, 246)",
+        "background": "rgba(0, 0, 0, 0)",
+        "radius": "0px"
+      },
+      ".brand": {
+        "box": [
+          20,
+          14,
+          79.08,
+          52.7
+        ],
+        "font": "52.7px",
+        "color": "rgb(237, 240, 246)",
+        "background": "rgba(0, 0, 0, 0)",
+        "radius": "0px"
+      },
+      ".axx-stage-container": {
+        "box": [
+          20,
+          76.7,
+          299,
+          360.67
+        ],
+        "font": "27.2px",
+        "color": "rgb(237, 240, 246)",
+        "background": "rgba(0, 0, 0, 0)",
+        "radius": "0px"
+      },
+      "#character-options": {
+        "box": [
+          275,
+          84.7,
+          44,
+          44
+        ],
+        "font": "23.8px",
+        "color": "rgb(167, 176, 191)",
+        "background": "rgb(21, 25, 34)",
+        "radius": "50%"
+      },
+      "#open-chat": {
+        "box": [
+          20,
+          505.06,
+          299,
+          66
+        ],
+        "font": "23.8px",
+        "color": "rgb(237, 240, 246)",
+        "background": "rgb(21, 25, 34)",
+        "radius": "24px"
+      },
+      ".live-nav": {
+        "box": [
+          16,
+          589.06,
+          307,
+          73.94
+        ],
+        "font": "27.2px",
+        "color": "rgb(237, 240, 246)",
+        "background": "rgb(21, 25, 34)",
+        "radius": "25px"
+      }
+    }
+  },
+  {
+    "width": 390,
+    "height": 844,
+    "scale": 1,
+    "theme": "light",
+    "snapshot": {
+      ".app-header": {
+        "box": [
+          0,
+          0,
+          390,
+          62
+        ],
+        "font": "16px",
+        "color": "rgb(32, 33, 39)",
+        "background": "rgba(0, 0, 0, 0)",
+        "radius": "0px"
+      },
+      ".brand": {
+        "box": [
+          20,
+          20.5,
+          43.42,
+          31
+        ],
+        "font": "31px",
+        "color": "rgb(32, 33, 39)",
+        "background": "rgba(0, 0, 0, 0)",
+        "radius": "0px"
+      },
+      ".axx-stage-container": {
+        "box": [
+          20,
+          68,
+          350,
+          563
+        ],
+        "font": "16px",
+        "color": "rgb(32, 33, 39)",
+        "background": "rgba(0, 0, 0, 0)",
+        "radius": "0px"
+      },
+      "#character-options": {
+        "box": [
+          326,
+          76,
+          44,
+          44
+        ],
+        "font": "14px",
+        "color": "rgb(102, 106, 117)",
+        "background": "rgb(255, 255, 255)",
+        "radius": "50%"
+      },
+      "#open-chat": {
+        "box": [
+          20,
+          684,
+          350,
+          66
+        ],
+        "font": "14px",
+        "color": "rgb(32, 33, 39)",
+        "background": "rgb(255, 255, 255)",
+        "radius": "24px"
+      },
+      ".live-nav": {
+        "box": [
+          16,
+          768,
+          358,
+          66
+        ],
+        "font": "16px",
+        "color": "rgb(32, 33, 39)",
+        "background": "rgb(255, 255, 255)",
+        "radius": "25px"
+      }
+    }
+  },
+  {
+    "width": 390,
+    "height": 844,
+    "scale": 1,
+    "theme": "dark",
+    "snapshot": {
+      ".app-header": {
+        "box": [
+          0,
+          0,
+          390,
+          62
+        ],
+        "font": "16px",
+        "color": "rgb(237, 240, 246)",
+        "background": "rgba(0, 0, 0, 0)",
+        "radius": "0px"
+      },
+      ".brand": {
+        "box": [
+          20,
+          20.5,
+          43.42,
+          31
+        ],
+        "font": "31px",
+        "color": "rgb(237, 240, 246)",
+        "background": "rgba(0, 0, 0, 0)",
+        "radius": "0px"
+      },
+      ".axx-stage-container": {
+        "box": [
+          20,
+          68,
+          350,
+          563
+        ],
+        "font": "16px",
+        "color": "rgb(237, 240, 246)",
+        "background": "rgba(0, 0, 0, 0)",
+        "radius": "0px"
+      },
+      "#character-options": {
+        "box": [
+          326,
+          76,
+          44,
+          44
+        ],
+        "font": "14px",
+        "color": "rgb(167, 176, 191)",
+        "background": "rgb(21, 25, 34)",
+        "radius": "50%"
+      },
+      "#open-chat": {
+        "box": [
+          20,
+          684,
+          350,
+          66
+        ],
+        "font": "14px",
+        "color": "rgb(237, 240, 246)",
+        "background": "rgb(21, 25, 34)",
+        "radius": "24px"
+      },
+      ".live-nav": {
+        "box": [
+          16,
+          768,
+          358,
+          66
+        ],
+        "font": "16px",
+        "color": "rgb(237, 240, 246)",
+        "background": "rgb(21, 25, 34)",
+        "radius": "25px"
+      }
+    }
+  },
+  {
+    "width": 390,
+    "height": 844,
+    "scale": 1.7,
+    "theme": "light",
+    "snapshot": {
+      ".app-header": {
+        "box": [
+          0,
+          0,
+          390,
+          70.7
+        ],
+        "font": "27.2px",
+        "color": "rgb(32, 33, 39)",
+        "background": "rgba(0, 0, 0, 0)",
+        "radius": "0px"
+      },
+      ".brand": {
+        "box": [
+          20,
+          14,
+          79.08,
+          52.7
+        ],
+        "font": "52.7px",
+        "color": "rgb(32, 33, 39)",
+        "background": "rgba(0, 0, 0, 0)",
+        "radius": "0px"
+      },
+      ".axx-stage-container": {
+        "box": [
+          20,
+          76.7,
+          350,
+          531.67
+        ],
+        "font": "27.2px",
+        "color": "rgb(32, 33, 39)",
+        "background": "rgba(0, 0, 0, 0)",
+        "radius": "0px"
+      },
+      "#character-options": {
+        "box": [
+          326,
+          84.7,
+          44,
+          44
+        ],
+        "font": "23.8px",
+        "color": "rgb(102, 106, 117)",
+        "background": "rgb(255, 255, 255)",
+        "radius": "50%"
+      },
+      "#open-chat": {
+        "box": [
+          20,
+          676.06,
+          350,
+          66
+        ],
+        "font": "23.8px",
+        "color": "rgb(32, 33, 39)",
+        "background": "rgb(255, 255, 255)",
+        "radius": "24px"
+      },
+      ".live-nav": {
+        "box": [
+          16,
+          760.06,
+          358,
+          73.94
+        ],
+        "font": "27.2px",
+        "color": "rgb(32, 33, 39)",
+        "background": "rgb(255, 255, 255)",
+        "radius": "25px"
+      }
+    }
+  },
+  {
+    "width": 390,
+    "height": 844,
+    "scale": 1.7,
+    "theme": "dark",
+    "snapshot": {
+      ".app-header": {
+        "box": [
+          0,
+          0,
+          390,
+          70.7
+        ],
+        "font": "27.2px",
+        "color": "rgb(237, 240, 246)",
+        "background": "rgba(0, 0, 0, 0)",
+        "radius": "0px"
+      },
+      ".brand": {
+        "box": [
+          20,
+          14,
+          79.08,
+          52.7
+        ],
+        "font": "52.7px",
+        "color": "rgb(237, 240, 246)",
+        "background": "rgba(0, 0, 0, 0)",
+        "radius": "0px"
+      },
+      ".axx-stage-container": {
+        "box": [
+          20,
+          76.7,
+          350,
+          531.67
+        ],
+        "font": "27.2px",
+        "color": "rgb(237, 240, 246)",
+        "background": "rgba(0, 0, 0, 0)",
+        "radius": "0px"
+      },
+      "#character-options": {
+        "box": [
+          326,
+          84.7,
+          44,
+          44
+        ],
+        "font": "23.8px",
+        "color": "rgb(167, 176, 191)",
+        "background": "rgb(21, 25, 34)",
+        "radius": "50%"
+      },
+      "#open-chat": {
+        "box": [
+          20,
+          676.06,
+          350,
+          66
+        ],
+        "font": "23.8px",
+        "color": "rgb(237, 240, 246)",
+        "background": "rgb(21, 25, 34)",
+        "radius": "24px"
+      },
+      ".live-nav": {
+        "box": [
+          16,
+          760.06,
+          358,
+          73.94
+        ],
+        "font": "27.2px",
+        "color": "rgb(237, 240, 246)",
+        "background": "rgb(21, 25, 34)",
+        "radius": "25px"
+      }
+    }
+  },
+  {
+    "width": 440,
+    "height": 956,
+    "scale": 1,
+    "theme": "light",
+    "snapshot": {
+      ".app-header": {
+        "box": [
+          0,
+          0,
+          440,
+          62
+        ],
+        "font": "16px",
+        "color": "rgb(32, 33, 39)",
+        "background": "rgba(0, 0, 0, 0)",
+        "radius": "0px"
+      },
+      ".brand": {
+        "box": [
+          20,
+          20.5,
+          43.42,
+          31
+        ],
+        "font": "31px",
+        "color": "rgb(32, 33, 39)",
+        "background": "rgba(0, 0, 0, 0)",
+        "radius": "0px"
+      },
+      ".axx-stage-container": {
+        "box": [
+          20,
+          68,
+          400,
+          675
+        ],
+        "font": "16px",
+        "color": "rgb(32, 33, 39)",
+        "background": "rgba(0, 0, 0, 0)",
+        "radius": "0px"
+      },
+      "#character-options": {
+        "box": [
+          376,
+          76,
+          44,
+          44
+        ],
+        "font": "14px",
+        "color": "rgb(102, 106, 117)",
+        "background": "rgb(255, 255, 255)",
+        "radius": "50%"
+      },
+      "#open-chat": {
+        "box": [
+          20,
+          796,
+          400,
+          66
+        ],
+        "font": "14px",
+        "color": "rgb(32, 33, 39)",
+        "background": "rgb(255, 255, 255)",
+        "radius": "24px"
+      },
+      ".live-nav": {
+        "box": [
+          16,
+          880,
+          408,
+          66
+        ],
+        "font": "16px",
+        "color": "rgb(32, 33, 39)",
+        "background": "rgb(255, 255, 255)",
+        "radius": "25px"
+      }
+    }
+  },
+  {
+    "width": 440,
+    "height": 956,
+    "scale": 1,
+    "theme": "dark",
+    "snapshot": {
+      ".app-header": {
+        "box": [
+          0,
+          0,
+          440,
+          62
+        ],
+        "font": "16px",
+        "color": "rgb(237, 240, 246)",
+        "background": "rgba(0, 0, 0, 0)",
+        "radius": "0px"
+      },
+      ".brand": {
+        "box": [
+          20,
+          20.5,
+          43.42,
+          31
+        ],
+        "font": "31px",
+        "color": "rgb(237, 240, 246)",
+        "background": "rgba(0, 0, 0, 0)",
+        "radius": "0px"
+      },
+      ".axx-stage-container": {
+        "box": [
+          20,
+          68,
+          400,
+          675
+        ],
+        "font": "16px",
+        "color": "rgb(237, 240, 246)",
+        "background": "rgba(0, 0, 0, 0)",
+        "radius": "0px"
+      },
+      "#character-options": {
+        "box": [
+          376,
+          76,
+          44,
+          44
+        ],
+        "font": "14px",
+        "color": "rgb(167, 176, 191)",
+        "background": "rgb(21, 25, 34)",
+        "radius": "50%"
+      },
+      "#open-chat": {
+        "box": [
+          20,
+          796,
+          400,
+          66
+        ],
+        "font": "14px",
+        "color": "rgb(237, 240, 246)",
+        "background": "rgb(21, 25, 34)",
+        "radius": "24px"
+      },
+      ".live-nav": {
+        "box": [
+          16,
+          880,
+          408,
+          66
+        ],
+        "font": "16px",
+        "color": "rgb(237, 240, 246)",
+        "background": "rgb(21, 25, 34)",
+        "radius": "25px"
+      }
+    }
+  },
+  {
+    "width": 440,
+    "height": 956,
+    "scale": 1.7,
+    "theme": "light",
+    "snapshot": {
+      ".app-header": {
+        "box": [
+          0,
+          0,
+          440,
+          70.7
+        ],
+        "font": "27.2px",
+        "color": "rgb(32, 33, 39)",
+        "background": "rgba(0, 0, 0, 0)",
+        "radius": "0px"
+      },
+      ".brand": {
+        "box": [
+          20,
+          14,
+          79.08,
+          52.7
+        ],
+        "font": "52.7px",
+        "color": "rgb(32, 33, 39)",
+        "background": "rgba(0, 0, 0, 0)",
+        "radius": "0px"
+      },
+      ".axx-stage-container": {
+        "box": [
+          20,
+          76.7,
+          400,
+          643.67
+        ],
+        "font": "27.2px",
+        "color": "rgb(32, 33, 39)",
+        "background": "rgba(0, 0, 0, 0)",
+        "radius": "0px"
+      },
+      "#character-options": {
+        "box": [
+          376,
+          84.7,
+          44,
+          44
+        ],
+        "font": "23.8px",
+        "color": "rgb(102, 106, 117)",
+        "background": "rgb(255, 255, 255)",
+        "radius": "50%"
+      },
+      "#open-chat": {
+        "box": [
+          20,
+          788.06,
+          400,
+          66
+        ],
+        "font": "23.8px",
+        "color": "rgb(32, 33, 39)",
+        "background": "rgb(255, 255, 255)",
+        "radius": "24px"
+      },
+      ".live-nav": {
+        "box": [
+          16,
+          872.06,
+          408,
+          73.94
+        ],
+        "font": "27.2px",
+        "color": "rgb(32, 33, 39)",
+        "background": "rgb(255, 255, 255)",
+        "radius": "25px"
+      }
+    }
+  },
+  {
+    "width": 440,
+    "height": 956,
+    "scale": 1.7,
+    "theme": "dark",
+    "snapshot": {
+      ".app-header": {
+        "box": [
+          0,
+          0,
+          440,
+          70.7
+        ],
+        "font": "27.2px",
+        "color": "rgb(237, 240, 246)",
+        "background": "rgba(0, 0, 0, 0)",
+        "radius": "0px"
+      },
+      ".brand": {
+        "box": [
+          20,
+          14,
+          79.08,
+          52.7
+        ],
+        "font": "52.7px",
+        "color": "rgb(237, 240, 246)",
+        "background": "rgba(0, 0, 0, 0)",
+        "radius": "0px"
+      },
+      ".axx-stage-container": {
+        "box": [
+          20,
+          76.7,
+          400,
+          643.67
+        ],
+        "font": "27.2px",
+        "color": "rgb(237, 240, 246)",
+        "background": "rgba(0, 0, 0, 0)",
+        "radius": "0px"
+      },
+      "#character-options": {
+        "box": [
+          376,
+          84.7,
+          44,
+          44
+        ],
+        "font": "23.8px",
+        "color": "rgb(167, 176, 191)",
+        "background": "rgb(21, 25, 34)",
+        "radius": "50%"
+      },
+      "#open-chat": {
+        "box": [
+          20,
+          788.06,
+          400,
+          66
+        ],
+        "font": "23.8px",
+        "color": "rgb(237, 240, 246)",
+        "background": "rgb(21, 25, 34)",
+        "radius": "24px"
+      },
+      ".live-nav": {
+        "box": [
+          16,
+          872.06,
+          408,
+          73.94
+        ],
+        "font": "27.2px",
+        "color": "rgb(237, 240, 246)",
+        "background": "rgb(21, 25, 34)",
+        "radius": "25px"
+      }
+    }
+  }
+]

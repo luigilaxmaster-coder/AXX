@@ -2,6 +2,8 @@
 
 Fecha: 29 de octubre de 2026. Objetivo: extender la apariencia actual a más teléfonos sin perder legibilidad, funciones, datos ni compatibilidad con Desktop. Este documento es un análisis de implementación con pruebas de navegador; no una certificación de todos los modelos físicos.
 
+**Actualización posterior:** los 24 casos iniciales se corrigieron en Android 0.2.7 y los 120 escenarios son ahora obligatorios. Se conserva aquí el resultado inicial, sin reescribirlo como si hubiera pasado. Véase la [corrección, comparación visual y evidencia nueva](SCREEN-FIXES-20261029.md).
+
 ## Criterio de diseño
 
 Se conserva el inicio con personaje, entrada única a chat, navegación compacta, ajustes secundarios agrupados y temas claro/negro. Adaptar significa redistribuir espacio cuando cambia la ventana, no sustituir la identidad por otra interfaz ni aumentar todo proporcionalmente.
@@ -22,7 +24,7 @@ Android clasifica el ancho disponible en compacto (<600 dp), medio (600–839), 
 | Plugins propios | AxxTransportPlugin, AxxVoicePlugin, AxxFilesPlugin y widget Android. Las funciones nativas necesitan equivalentes y pruebas propios para iOS. |
 | Evidencia física existente | Samsung A21s; las comprobaciones históricas están en los documentos de 0.2.4 y Transfer. No se extienden automáticamente a otros modelos, iOS o todas las funciones. |
 
-## Matriz ejecutada
+## Matriz inicial ejecutada
 
 Se ejecutaron **120 escenarios**: diez ventanas × dos temas × texto 100/170/200 % × DPR 1/3, con transporte nativo declarado como fixture. Cada escenario recorre las pestañas principales, comprueba navegación, entrada a chat, hoja del personaje y compositor con una ventana de teclado de 299 píxeles CSS. No envía órdenes a un PC real ni cambia ajustes de un teléfono.
 
@@ -47,7 +49,7 @@ Se conserva el resultado por caso en `docs/mobile/evidence/screen-matrix-2026102
 python -m mobile.tests.test_screen_contract --study --output build/screen-study-20261029.json
 ```
 
-La matriz exigida para no retroceder en la entrega actual es más pequeña: 339/390/440 en vertical, temas claro/negro, texto 100/170 % y teclado de 299 puntos (**12 combinaciones**). Los casos que fallan en el estudio siguen declarados pendientes; no se eliminan del informe ni se presentan como soporte universal. Ampliar soporte exigirá corregirlos y promoverlos a la matriz obligatoria.
+En la entrega inicial se exigían 339/390/440 en vertical, temas claro/negro, texto 100/170 % y teclado de 299 puntos (**12 combinaciones**). Tras la corrección se promovieron todos los escenarios a obligatorios: véase el resultado de Android 0.2.7. Esto sigue sin equivaler a soporte físico universal.
 
 Los fixtures v1 prueban además snapshot básico sin capacidades nuevas, personalización opcional y campos futuros desconocidos, conservando identidad y borrador. Un test TLS aislado comprueba los campos reales del snapshot, null al arrancar, método permitido y denegación antes de mutar. No constituye una prueba binaria de todos los APK históricos.
 
@@ -87,4 +89,4 @@ El objetivo para futuras adaptaciones es conservar funcionalidad al 200 % de tex
 
 ## Lo que este estudio no acredita
 
-No acredita todos los modelos comerciales, versiones de WebView/WebKit, fuentes, lectores de pantalla, teclados, bisagras, espacios de color ni funciones nativas. No existe build iOS entregada aquí. No se ha modificado la interfaz aprobada para producir resultados positivos: se conservan las 24 incidencias para la adaptación futura solicitada.
+No acredita todos los modelos comerciales, versiones de WebView/WebKit, fuentes, lectores de pantalla, teclados, bisagras, espacios de color ni funciones nativas. No existe build iOS entregada aquí. Las 24 incidencias se conservan en este informe histórico; su corrección y la conservación de la apariencia se documentan por separado.

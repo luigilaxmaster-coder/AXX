@@ -1,0 +1,194 @@
+[
+  {
+    "profile": "small-portrait",
+    "width": 320,
+    "height": 568,
+    "theme": "light",
+    "text_scale": 1.7,
+    "dpr": 1
+  },
+  {
+    "profile": "narrow-cover",
+    "width": 280,
+    "height": 653,
+    "theme": "light",
+    "text_scale": 1.7,
+    "dpr": 1
+  },
+  {
+    "profile": "small-portrait",
+    "width": 320,
+    "height": 568,
+    "theme": "dark",
+    "text_scale": 1.7,
+    "dpr": 1
+  },
+  {
+    "profile": "narrow-cover",
+    "width": 280,
+    "height": 653,
+    "theme": "dark",
+    "text_scale": 1.7,
+    "dpr": 1
+  },
+  {
+    "profile": "samsung-portrait",
+    "width": 339,
+    "height": 673,
+    "theme": "light",
+    "text_scale": 2,
+    "dpr": 1
+  },
+  {
+    "profile": "small-portrait",
+    "width": 320,
+    "height": 568,
+    "theme": "light",
+    "text_scale": 2,
+    "dpr": 1
+  },
+  {
+    "profile": "narrow-cover",
+    "width": 280,
+    "height": 653,
+    "theme": "light",
+    "text_scale": 2,
+    "dpr": 1
+  },
+  {
+    "profile": "compact-landscape",
+    "width": 568,
+    "height": 320,
+    "theme": "light",
+    "text_scale": 2,
+    "dpr": 1
+  },
+  {
+    "profile": "samsung-portrait",
+    "width": 339,
+    "height": 673,
+    "theme": "dark",
+    "text_scale": 2,
+    "dpr": 1
+  },
+  {
+    "profile": "small-portrait",
+    "width": 320,
+    "height": 568,
+    "theme": "dark",
+    "text_scale": 2,
+    "dpr": 1
+  },
+  {
+    "profile": "narrow-cover",
+    "width": 280,
+    "height": 653,
+    "theme": "dark",
+    "text_scale": 2,
+    "dpr": 1
+  },
+  {
+    "profile": "compact-landscape",
+    "width": 568,
+    "height": 320,
+    "theme": "dark",
+    "text_scale": 2,
+    "dpr": 1
+  },
+  {
+    "profile": "small-portrait",
+    "width": 320,
+    "height": 568,
+    "theme": "light",
+    "text_scale": 1.7,
+    "dpr": 3
+  },
+  {
+    "profile": "narrow-cover",
+    "width": 280,
+    "height": 653,
+    "theme": "light",
+    "text_scale": 1.7,
+    "dpr": 3
+  },
+  {
+    "profile": "small-portrait",
+    "width": 320,
+    "height": 568,
+    "theme": "dark",
+    "text_scale": 1.7,
+    "dpr": 3
+  },
+  {
+    "profile": "narrow-cover",
+    "width": 280,
+    "height": 653,
+    "theme": "dark",
+    "text_scale": 1.7,
+    "dpr": 3
+  },
+  {
+    "profile": "samsung-portrait",
+    "width": 339,
+    "height": 673,
+    "theme": "light",
+    "text_scale": 2,
+    "dpr": 3
+  },
+  {
+    "profile": "small-portrait",
+    "width": 320,
+    "height": 568,
+    "theme": "light",
+    "text_scale": 2,
+    "dpr": 3
+  },
+  {
+    "profile": "narrow-cover",
+    "width": 280,
+    "height": 653,
+    "theme": "light",
+    "text_scale": 2,
+    "dpr": 3
+  },
+  {
+    "profile": "compact-landscape",
+    "width": 568,
+    "height": 320,
+    "theme": "light",
+    "text_scale": 2,
+    "dpr": 3
+  },
+  {
+    "profile": "samsung-portrait",
+    "width": 339,
+    "height": 673,
+    "theme": "dark",
+    "text_scale": 2,
+    "dpr": 3
+  },
+  {
+    "profile": "small-portrait",
+    "width": 320,
+    "height": 568,
+    "theme": "dark",
+    "text_scale": 2,
+    "dpr": 3
+  },
+  {
+    "profile": "narrow-cover",
+    "width": 280,
+    "height": 653,
+    "theme": "dark",
+    "text_scale": 2,
+    "dpr": 3
+  },
+  {
+    "profile": "compact-landscape",
+    "width": 568,
+    "height": 320,
+    "theme": "dark",
+    "text_scale": 2,
+    "dpr": 3
+  }
+]

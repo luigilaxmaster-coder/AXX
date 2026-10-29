@@ -3,37 +3,140 @@
   "revision": 1,
   "api_prefix": "/v1",
   "evolution": "additive; retain v1 when introducing a breaking v2",
-  "snapshot_required": ["conversation_id", "messages", "appearance", "pc_name", "scopes", "inference"],
-  "appearance_required": ["settings", "studio", "camera", "finish"],
-  "nullable_snapshot_fields": ["appearance", "inference"],
-  "optional_features": ["avatar_customization", "files", "transfers", "voice", "remote_control"],
+  "snapshot_required": [
+    "conversation_id",
+    "messages",
+    "appearance",
+    "pc_name",
+    "scopes",
+    "inference"
+  ],
+  "appearance_required": [
+    "settings",
+    "studio",
+    "camera",
+    "finish"
+  ],
+  "nullable_snapshot_fields": [
+    "appearance",
+    "inference"
+  ],
+  "optional_features": [
+    "avatar_customization",
+    "files",
+    "transfers",
+    "voice",
+    "remote_control"
+  ],
   "required_routes": [
-    "/v1/pair/claim", "/v1/status", "/v1/snapshot", "/v1/appearance",
-    "/v1/commands", "/v1/command", "/v1/catalog", "/v1/providers", "/v1/tasks",
-    "/v1/work/catalog", "/v1/work/execute", "/v1/work/operation", "/v1/work/resolve",
-    "/v1/avatar/customize", "/v1/avatar/operation", "/v1/avatar/gesture",
-    "/v1/control/status", "/v1/control/acquire", "/v1/control/renew", "/v1/control/events", "/v1/control/release",
-    "/v1/voice/poll", "/v1/voice/audio", "/v1/voice/cancel", "/v1/voice/action",
-    "/v1/files/status", "/v1/files/browse", "/v1/files/search", "/v1/files/dictation",
-    "/v1/transfers", "/v1/transfers/create", "/v1/transfers/chunk", "/v1/transfers/finish",
-    "/v1/transfers/receipt", "/v1/transfers/cancel", "/v1/transfers/pause", "/v1/transfers/resume"
+    "/v1/pair/claim",
+    "/v1/status",
+    "/v1/snapshot",
+    "/v1/appearance",
+    "/v1/commands",
+    "/v1/command",
+    "/v1/catalog",
+    "/v1/providers",
+    "/v1/tasks",
+    "/v1/work/catalog",
+    "/v1/work/execute",
+    "/v1/work/operation",
+    "/v1/work/resolve",
+    "/v1/avatar/customize",
+    "/v1/avatar/operation",
+    "/v1/avatar/gesture",
+    "/v1/control/status",
+    "/v1/control/acquire",
+    "/v1/control/renew",
+    "/v1/control/events",
+    "/v1/control/release",
+    "/v1/voice/poll",
+    "/v1/voice/audio",
+    "/v1/voice/cancel",
+    "/v1/voice/action",
+    "/v1/files/status",
+    "/v1/files/browse",
+    "/v1/files/search",
+    "/v1/files/dictation",
+    "/v1/transfers",
+    "/v1/transfers/create",
+    "/v1/transfers/chunk",
+    "/v1/transfers/finish",
+    "/v1/transfers/receipt",
+    "/v1/transfers/cancel",
+    "/v1/transfers/pause",
+    "/v1/transfers/resume"
   ],
   "required_layouts": [
-    {"id": "samsung-portrait", "width": 339, "height": 673},
-    {"id": "standard-portrait", "width": 390, "height": 844},
-    {"id": "large-portrait", "width": 440, "height": 956}
+    {
+      "id": "samsung-portrait",
+      "width": 339,
+      "height": 673
+    },
+    {
+      "id": "standard-portrait",
+      "width": 390,
+      "height": 844
+    },
+    {
+      "id": "large-portrait",
+      "width": 440,
+      "height": 956
+    },
+    {
+      "id": "small-portrait",
+      "width": 320,
+      "height": 568
+    },
+    {
+      "id": "narrow-cover",
+      "width": 280,
+      "height": 653
+    },
+    {
+      "id": "compact-landscape",
+      "width": 568,
+      "height": 320
+    },
+    {
+      "id": "standard-landscape",
+      "width": 844,
+      "height": 390
+    },
+    {
+      "id": "foldable-medium",
+      "width": 600,
+      "height": 720
+    },
+    {
+      "id": "foldable-expanded",
+      "width": 840,
+      "height": 900
+    },
+    {
+      "id": "tablet-window",
+      "width": 1024,
+      "height": 768
+    }
   ],
-  "study_layouts": [
-    {"id": "small-portrait", "width": 320, "height": 568},
-    {"id": "narrow-cover", "width": 280, "height": 653},
-    {"id": "compact-landscape", "width": 568, "height": 320},
-    {"id": "standard-landscape", "width": 844, "height": 390},
-    {"id": "foldable-medium", "width": 600, "height": 720},
-    {"id": "foldable-expanded", "width": 840, "height": 900},
-    {"id": "tablet-window", "width": 1024, "height": 768}
+  "study_layouts": [],
+  "text_scales": [
+    1,
+    1.7,
+    2
   ],
-  "text_scales": [1, 1.7, 2],
-  "release_text_scales": [1, 1.7],
-  "themes": ["light", "dark"],
-  "keyboard_height": 299
+  "release_text_scales": [
+    1,
+    1.7,
+    2
+  ],
+  "themes": [
+    "light",
+    "dark"
+  ],
+  "keyboard_height": 299,
+  "device_pixel_ratios": [
+    1,
+    3
+  ]
 }

@@ -36,6 +36,10 @@ def open_page(browser, scale=1, theme='light', dpr=1, snapshot=None):
     page.locator('#sync-status[data-state=complete]').wait_for()
     return page
 
+def reference_snapshot(page):
+    selectors=['.app-header','.brand','.axx-stage-container','#character-options','#open-chat','.live-nav']
+    return page.evaluate('''selectors=>Object.fromEntries(selectors.map(s=>{const e=document.querySelector(s),r=e.getBoundingClientRect(),c=getComputedStyle(e);return [s,{box:[r.x,r.y,r.width,r.height].map(x=>Math.round(x*100)/100),font:c.fontSize,color:c.color,background:c.backgroundColor,radius:c.borderRadius}]}))''',selectors)
+
 def inspect_case(page, profile):
     page.set_viewport_size({'width':profile['width'],'height':profile['height']})
     issues=[]
@@ -57,7 +61,8 @@ def inspect_case(page, profile):
         page.locator('[data-pane='+pane+']').click();geometry(pane)
     page.locator('[data-pane=axx]').click()
     button=page.locator('#open-chat').bounding_box()
-    if not button or button['y']+button['height']>profile['height']+1:issues.append('home: chat entry outside viewport')
+    nav=page.locator('.live-nav').bounding_box()
+    if not button or not nav or button['y']+button['height']>nav['y']+1:issues.append('home: chat entry outside the content area')
     page.locator('#character-options').click()
     if page.locator('#character-dialog').evaluate('(d)=>d.scrollWidth>d.clientWidth+1'):issues.append('character: horizontal overflow')
     page.locator('#character-close').click()
@@ -74,7 +79,7 @@ def run_matrix(study=False):
     scales=CONTRACT['text_scales'] if study else CONTRACT['release_text_scales']
     with sync_playwright() as p:
         browser=p.chromium.launch()
-        for dpr in ([1,3] if study else [1]):
+        for dpr in CONTRACT['device_pixel_ratios']:
             for scale in scales:
                 for theme in CONTRACT['themes']:
                     page=open_page(browser,scale,theme,dpr)
@@ -87,10 +92,31 @@ def run_matrix(study=False):
     return {'kind':'browser fixtures; no physical phone claim','cases':cases,'passed':sum(not row['issues'] for row in cases),'failed':sum(bool(row['issues']) for row in cases)}
 
 class ScreenContractTests(unittest.TestCase):
-    def test_required_portrait_keyboard_theme_and_text_matrix(self):
+    def test_all_required_screen_keyboard_theme_text_and_density_cases(self):
         report=run_matrix()
+        prior=json.loads((Path(__file__).parent/'fixtures/screen-failures-20261029.json').read_text(encoding='utf-8'))
+        key=lambda row:tuple(row[k] for k in ('profile','width','height','theme','text_scale','dpr'))
+        self.assertEqual(len(prior),24)
+        self.assertTrue({key(row) for row in prior}<={key(row) for row in report['cases']})
+        self.assertEqual(len(report['cases']),120)
         failures=[row for row in report['cases'] if row['issues']]
         self.assertFalse(failures,json.dumps(failures,ensure_ascii=False))
+
+    def test_approved_portrait_geometry_colors_and_sizes_are_preserved(self):
+        references=json.loads((Path(__file__).parent/'fixtures/approved-portrait-layout.json').read_text(encoding='utf-8'))
+        with sync_playwright() as p:
+            browser=p.chromium.launch()
+            for row in references:
+                with self.subTest(width=row['width'],scale=row['scale'],theme=row['theme']):
+                    page=open_page(browser,row['scale'],row['theme'])
+                    try:
+                        page.set_viewport_size({'width':row['width'],'height':row['height']})
+                        actual=reference_snapshot(page)
+                        for selector,expected in row['snapshot'].items():
+                            self.assertEqual({k:v for k,v in actual[selector].items() if k!='box'},{k:v for k,v in expected.items() if k!='box'},selector)
+                            for before,after in zip(expected['box'],actual[selector]['box']):self.assertAlmostEqual(before,after,delta=1,msg=selector)
+                    finally:page.context.close()
+            browser.close()
 
     def test_v1_old_optional_and_unknown_additive_snapshots_keep_identity_and_draft(self):
         fixtures=json.loads((Path(__file__).parent/'fixtures/compatibility-v1.json').read_text(encoding='utf-8'))
