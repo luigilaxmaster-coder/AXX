@@ -2,6 +2,7 @@
 from PyInstaller.utils.hooks import collect_submodules, collect_dynamic_libs, collect_data_files
 from pathlib import Path
 
+# offline_asr uses vad_filter=False; unused VAD weights are not distributed.
 a = Analysis(
     ['backend/server.py'],
     pathex=[SPECPATH, str(Path(SPECPATH) / 'vendor' / 'cli_anything_blender')],
@@ -25,7 +26,7 @@ a = Analysis(
            ('vendor/cli_anything_blender/LICENSE', 'licenses/cli-anything'),
            ('vendor/cli_anything_blender/UPSTREAM.json', 'licenses/cli-anything'),
            ('resources/models/faster-whisper-tiny', 'models/faster-whisper-tiny')]
-           + collect_data_files('faster_whisper') + collect_data_files('mcp') + collect_data_files('jsonschema_specifications')
+           + collect_data_files('faster_whisper', excludes=['assets/*.onnx']) + collect_data_files('mcp') + collect_data_files('jsonschema_specifications')
            + collect_data_files('rapidocr_onnxruntime', excludes=['models/*']),
     hiddenimports=collect_submodules('backend', filter=lambda name: '.tests' not in name and '.test_' not in name)
         + collect_submodules('mcp', filter=lambda name: not name.startswith('mcp.cli')) + collect_submodules('uvicorn') + [
