@@ -152,6 +152,8 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
   });
   assert(whyHeights[1]>whyHeights[0]);assert.equal(whyHeights[2],whyHeights[0],'Collapsing Why returns the resident card to its compact height');
   assert.match(await page.locator('#anticipation-why').innerText(),/Observado[\s\S]*artifact-a[\s\S]*Inferido[\s\S]*regla registrada[\s\S]*Actor: Axx[\s\S]*Origen: Orden directa[\s\S]*Causa: writer-a/);
+  assert.match(await page.locator('#anticipation-why').innerText(),/Alcance de la comprobación[\s\S]*Integridad por hash/);
+  assert.doesNotMatch(await page.locator('#anticipation-why').innerText(),/Integridad verificada/,'A planned verification scope is not a completed result');
   assert.equal(await page.locator('#anticipation-why dt').filter({hasText:/^Confirmado por ti$/}).count(),0,'An inference or Axx event is not user confirmation');
   await page.locator('#anticipation-actions button').filter({hasText:/^Verificar$/}).click();
   await page.waitForFunction(()=>Axx.anticipation.state.suggestions[0].state==='VERIFIED');

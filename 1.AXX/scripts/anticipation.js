@@ -6,6 +6,7 @@
  const resourceFields=[['max_events_tick','Eventos por ciclo',1,100],['max_entries_scan','Entradas por exploración',1,2000],['max_file_bytes','Tamaño máximo por archivo, bytes',1024,536870912],['max_tick_ms','Tiempo por ciclo, ms',50,5000],['max_cpu_ms_tick','CPU por ciclo, ms',10,1000]];
  const weekdays=['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'];
  const verificationLabels={integrity_only:'Integridad verificada',pdf_structure_and_text_readability:'Inspección PDF completada',media_metadata:'Metadatos comprobados',image_ocr:'Lectura OCR completada'};
+ const verificationScopes={integrity_only:'Integridad por hash',pdf_structure_and_text_readability:'Estructura y legibilidad del texto PDF',media_metadata:'Metadatos multimedia',image_ocr:'Texto mediante OCR'};
  const states = {DETECTED:'Detectado',PREPARED:'Preparado',AWAITING_APPROVAL:'Requiere aceptación',EXECUTING:'En ejecución',VERIFIED:'Verificado',FAILED:'No verificado',CANCELLED:'Cancelado',EXPIRED:'Caducado',DISMISSED:'Descartado',SUPPRESSED:'No volver a sugerir'};
  const section = document.createElement('section');section.id='anticipation-settings';section.className='setup-card';
  section.innerHTML=`<strong>Presencia y autonomía</strong>
@@ -104,7 +105,7 @@
    if(row.result.output?.sha256)refs.push('SHA-256 observado: '+row.result.output.sha256);
   }
   const scope=row.verification_scope||row.result?.verification_scope||row.plan?.verification_scope;
-  if(scope)add('Alcance',verificationLabels[scope]||scope);
+  if(scope)add('Alcance de la comprobación',verificationScopes[scope]||scope);
   if(row.semantic_verified===false||row.result?.semantic_verified===false)add('Límite','El significado del contenido y la apariencia no constan verificados.');
   if(row.verifier_reason)add('Verificador',row.verifier_reason);
   add('Observado',refs.length?refs.join('\n'):'Esta propuesta no adjunta referencias de observación.');
