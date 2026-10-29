@@ -2,17 +2,23 @@
 from __future__ import annotations
 
 import copy
+import datetime as dt
 import hashlib
+import importlib.util
+import inspect
 import json
 import logging
 import math
+import os
 from pathlib import Path
 import re
+import shutil
 import sqlite3
 import threading
 import time
 import uuid
 import weakref
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .actions.file_inspection import hash_file, fingerprint
 from .actions.tools import artifact_path_error, get_tool
@@ -25,14 +31,22 @@ PENDING = ('DETECTED', 'PREPARED', 'AWAITING_APPROVAL')
 TERMINAL = ('VERIFIED', 'FAILED', 'CANCELLED', 'EXPIRED', 'DISMISSED', 'SUPPRESSED', 'UNCERTAIN')
 ROUTINE = 'verify_generated_artifact'
 CAPABILITY = 'verify_artifact'
+ARTIFACT_GENERATORS = ('file_artifact_writer', 'office_excel_csv', 'office_word_pdf', 'office_powerpoint_pdf', 'browser_download_pdf')
 ACTIVE_OWNERS = weakref.WeakValueDictionary()
 DEFAULTS = {
     'profile': 'discreto', 'paused': False, 'observation_paused': False,
-    'sources': {'events': True, 'screen': False, 'microphone': False, 'clipboard': False},
+    'sources': {'events': True, 'folders': False, 'applications': False,
+                'screen': False, 'microphone': False, 'clipboard': False},
     'profiles': {name: {'mode': mode, 'interruptions': 'silent' if name == 'discreto' else 'cards',
-        'cooldown_seconds': 60, 'max_interruptions_hour': 3, 'retention_days': 30}
+        'cooldown_seconds': 60, 'max_interruptions_hour': 3, 'retention_days': 30,
+        'cadence_seconds': 30, 'schedule': None,
+        'resources': {'max_events_tick': 25, 'max_entries_scan': 500, 'max_file_bytes': 40 * 1024 * 1024,
+                      'max_tick_ms': 1000, 'max_cpu_ms_tick': 250}}
         for name, mode in zip(PROFILES, ('OFF', 'SUGGEST', 'EXECUTE'))},
-    'scopes': []}
+    'scopes': [], 'observation_targets': []}
+CONTEXT_KEYS = ('project_id', 'application_id', 'device_id')
+RESOURCE_LIMITS = {'max_events_tick': (1, 100), 'max_entries_scan': (1, 2000),
+    'max_file_bytes': (1024, 512 * 1024 * 1024), 'max_tick_ms': (50, 5000), 'max_cpu_ms_tick': (10, 1000)}
 
 
 def canonical(value):
@@ -46,6 +60,15 @@ def digest(value):
 def identifier(value, label='Identificador'):
     if not isinstance(value, str) or not re.fullmatch(r'[A-Za-z0-9_.:-]{1,160}', value):
         raise ValueError(label + ' inválido')
+    return value
+
+
+def scope_identifier(value, key):
+    if (not isinstance(value, str) or not value or len(value) > (128 if key == 'project_id' else 160)
+            or value != value.strip() or any(ord(char) < 32 for char in value)):
+        raise ValueError('Identificador de ámbito inválido: ' + key)
+    if key == 'device_id':
+        identifier(value, key)
     return value
 
 
@@ -72,6 +95,10 @@ class AnticipationService:
         ACTIVE_OWNERS[self.owner_id] = self
         self.lock, self.tick_gate = threading.RLock(), threading.Lock()
         self.closed = False
+        self.source_state, self.source_observations = {}, []
+        self.verifier_cache = {}
+        self.tick_started = None
+        self.tick_events = {}
         self.db = sqlite3.connect(str(commands.executor.db_path), timeout=10, check_same_thread=False)
         self.db.row_factory = sqlite3.Row
         with self.db:
@@ -84,15 +111,27 @@ class AnticipationService:
                 CREATE TABLE IF NOT EXISTS anticipation_suppressions (task_id TEXT NOT NULL, routine_id TEXT NOT NULL, PRIMARY KEY(task_id,routine_id));
                 CREATE TABLE IF NOT EXISTS anticipation_transitions (id INTEGER PRIMARY KEY AUTOINCREMENT, suggestion_id TEXT NOT NULL, stage TEXT NOT NULL, at REAL NOT NULL, detail TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS anticipation_stats (task_id TEXT NOT NULL, routine_id TEXT NOT NULL, payload TEXT NOT NULL, PRIMARY KEY(task_id,routine_id));
+                CREATE TABLE IF NOT EXISTS anticipation_measurements (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT NOT NULL, kind TEXT NOT NULL, at REAL NOT NULL, wall_ms REAL NOT NULL, cpu_ms REAL);
+                CREATE TABLE IF NOT EXISTS anticipation_privacy (action_operation_id TEXT PRIMARY KEY, verification_scope TEXT NOT NULL, at REAL NOT NULL);
             ''')
             if not self.db.execute('SELECT 1 FROM anticipation_config WHERE id=1').fetchone():
                 self.db.execute('INSERT INTO anticipation_config VALUES (1,?)', (canonical(DEFAULTS),))
                 # Installing anticipation never turns historical artifacts into new initiatives.
                 self.db.execute("INSERT OR IGNORE INTO anticipation_seen SELECT operation_id,? FROM operations WHERE tool_name='file_artifact_writer'", (self.clock(),))
+            if not self.db.execute("SELECT 1 FROM anticipation_seen WHERE operation_id='baseline-generators-v2'").fetchone():
+                placeholders = ','.join('?' for _ in ARTIFACT_GENERATORS)
+                self.db.execute('INSERT OR IGNORE INTO anticipation_seen SELECT operation_id,? FROM operations WHERE tool_name IN (' + placeholders + ')', (self.clock(), *ARTIFACT_GENERATORS))
+                self.db.execute('INSERT INTO anticipation_seen VALUES (?,?)', ('baseline-generators-v2', self.clock()))
         self._recover()
 
     def _config(self):
-        return json.loads(self.db.execute('SELECT payload FROM anticipation_config WHERE id=1').fetchone()[0])
+        saved = json.loads(self.db.execute('SELECT payload FROM anticipation_config WHERE id=1').fetchone()[0])
+        config = copy.deepcopy(DEFAULTS) | saved
+        config['sources'] = DEFAULTS['sources'] | saved.get('sources', {})
+        config['profiles'] = {name: copy.deepcopy(DEFAULTS['profiles'][name]) | saved.get('profiles', {}).get(name, {}) for name in PROFILES}
+        for name in PROFILES:
+            config['profiles'][name]['resources'] = DEFAULTS['profiles'][name]['resources'] | saved.get('profiles', {}).get(name, {}).get('resources', {})
+        return config
 
     def _save(self, item):
         self.db.execute('UPDATE anticipation_suggestions SET state=?,payload=? WHERE suggestion_id=?',
@@ -127,11 +166,15 @@ class AnticipationService:
             args = (task_id,)
         return [json.loads(row[0]) for row in self.db.execute(sql + ' ORDER BY at DESC', args)]
 
-    def _policy(self, task_id, path, config=None):
+    def _policy(self, task_id, path, config=None, context=None):
         config = config or self._config()
-        matches = [scope for scope in config['scopes'] if
+        context = context or {}
+        possible = [scope for scope in config['scopes'] if
             (not scope.get('task_id') or scope['task_id'] == task_id) and
             (not scope.get('root') or Path(path).is_relative_to(Path(scope['root'])))]
+        if any(scope.get(key) and not context.get(key) for scope in possible for key in CONTEXT_KEYS):
+            return None, {'mode': 'OFF', 'missing_context': True}
+        matches = [scope for scope in possible if all(not scope.get(key) or scope[key] == context.get(key) for key in CONTEXT_KEYS)]
         if any(scope.get('exclude') for scope in matches):
             return None, {'mode': 'OFF'}
         names = {scope['profile'] for scope in matches if scope.get('profile')}
@@ -139,9 +182,40 @@ class AnticipationService:
             return None, {'mode': 'OFF', 'conflict': True}
         name = next(iter(names)) if names else config['profile']
         options = config['profiles'][name]
-        if config['paused'] or config['observation_paused'] or not config['sources']['events']:
+        source = context.get('source', 'events')
+        if (config['paused'] or config['observation_paused'] or not config['sources'].get(source, False)
+                or not self._schedule_active(options.get('schedule'))):
             return name, options | {'mode': 'OFF'}
         return name, options
+
+    def _schedule_active(self, schedule):
+        if schedule is None:
+            return True
+        try:
+            local = dt.datetime.fromtimestamp(self.clock(), ZoneInfo(schedule['timezone']))
+        except (ZoneInfoNotFoundError, ValueError, OverflowError):
+            return False
+        minute = local.hour * 60 + local.minute
+        start, end = (int(value[:2]) * 60 + int(value[3:]) for value in (schedule['start'], schedule['end']))
+        if start <= end:
+            return local.weekday() in schedule['days'] and start <= minute <= end
+        return ((local.weekday() in schedule['days'] and minute >= start)
+                or ((local.weekday() - 1) % 7 in schedule['days'] and minute <= end))
+
+    def _within_budget(self, options):
+        if self.tick_started is None:
+            return True
+        resources = options.get('resources', DEFAULTS['profiles']['discreto']['resources'])
+        return ((time.perf_counter() - self.tick_started[0]) * 1000 < resources['max_tick_ms']
+                and (time.process_time() - self.tick_started[1]) * 1000 < resources['max_cpu_ms_tick'])
+
+    def _take_event_budget(self, profile, options):
+        if self.tick_started is None:
+            return True
+        if self.tick_events.get(profile, 0) >= options['resources']['max_events_tick']:
+            return False
+        self.tick_events[profile] = self.tick_events.get(profile, 0) + 1
+        return True
 
     def _grant(self, item):
         now = self.clock()
@@ -172,12 +246,265 @@ class AnticipationService:
         adapter = self.commands.adapters.get('axx.file.sha256') or {}
         return command.get('execution_enabled') is True and adapter.get('tool') == 'file_inspection' and get_tool('file_inspection') is not None
 
+    def _verifier(self, path):
+        suffix = Path(path).suffix.casefold()
+        kind = ('pdf' if suffix == '.pdf' else 'media' if suffix in ('.mp4', '.mkv', '.mov', '.avi', '.mp3', '.wav', '.flac', '.ogg', '.m4a')
+                else 'ocr' if suffix in ('.png', '.jpg', '.jpeg') else 'hash')
+        command_id = 'axx.file.sha256' if kind == 'hash' else 'axx.artifact.' + kind
+        expected_tool = 'file_inspection' if kind == 'hash' else 'artifact_' + kind
+        command, adapter = self.commands.commands.get(command_id) or {}, self.commands.adapters.get(command_id) or {}
+        available = command.get('execution_enabled') is True and adapter.get('tool') == expected_tool and get_tool(expected_tool) is not None
+        reason = 'Lectura local registrada; precondiciones y resultado se comprueban al ejecutar.'
+        scope = {'hash': 'integrity_only', 'pdf': 'pdf_structure_and_text_readability', 'media': 'media_metadata', 'ocr': 'image_ocr'}[kind]
+        if kind != 'hash' and not callable(getattr(self.commands.executor, 'result_filter', None)):
+            available, reason = False, 'Falta el filtro de privacidad del journal; no se conservará texto por una ruta alternativa.'
+        if kind == 'pdf':
+            try:
+                ready = importlib.util.find_spec('pypdf') is not None
+            except (ImportError, ValueError):
+                ready = False
+            if not ready:
+                available, reason = False, 'El lector PDF registrado no está disponible en este entorno.'
+        elif kind == 'media' and not shutil.which('ffprobe'):
+            available, reason = False, 'ffprobe no está disponible; no se simula inspección multimedia.'
+        elif kind == 'ocr':
+            cached = self.verifier_cache.get('ocr')
+            if cached is None or time.monotonic() - cached[0] > 30:
+                try:
+                    if importlib.util.find_spec('rapidocr_onnxruntime') is None:
+                        raise ValueError('OCR no está instalado')
+                    from .actions.local_ocr import models
+                    models()
+                    cached = (time.monotonic(), True)
+                except (ImportError, ValueError, OSError, KeyError):
+                    cached = (time.monotonic(), False)
+                self.verifier_cache['ocr'] = cached
+            if not cached[1]:
+                available, reason = False, 'Faltan el lector OCR o sus modelos locales verificados; no se instalarán automáticamente.'
+        if suffix in ('.docx', '.xlsx', '.pptx'):
+            reason = 'No hay inspector de formato de solo lectura registrado; esta comprobación acredita únicamente integridad.'
+        return {'command_id': command_id, 'available': available, 'verification_scope': scope,
+                'version': str(getattr(get_tool(expected_tool), 'version', 'unknown')),
+                'semantic_verified': False, 'reason': reason}
+
+    @staticmethod
+    def _applications_available():
+        from .actions import windows_automation as windows
+        try:
+            metadata_reader = 'include_titles' in inspect.signature(windows.list_windows).parameters
+        except (TypeError, ValueError):
+            metadata_reader = False
+        return os.name == 'nt' and get_tool('desktop_list_windows') is not None and metadata_reader
+
+    def filter_result(self, action_operation_id, output, evidence, error=None):
+        """Executor hook: remove raw document content before either journal commits it."""
+        with self.lock:
+            row = self.db.execute('SELECT verification_scope FROM anticipation_privacy WHERE action_operation_id=?', (action_operation_id,)).fetchone()
+            if not row:
+                return output, evidence, error
+            scope = row[0]
+        content_keys = {'text', 'text_excerpt', 'content', 'transcript', 'lines', 'full_text', 'page_text', 'ocr_text'}
+        def metadata(value):
+            if isinstance(value, dict):
+                result = {key: metadata(child) for key, child in value.items() if key.casefold() not in content_keys}
+                if isinstance(value.get('text_excerpt'), str):
+                    result['text_characters'] = len(value['text_excerpt'])
+                if isinstance(value.get('lines'), list):
+                    result['line_count'] = len(value['lines'])
+                return result
+            if isinstance(value, list):
+                return [metadata(child) for child in value]
+            return value
+        filtered = metadata(output)
+        if isinstance(filtered, dict):
+            filtered.update(verification_scope=scope,
+                            semantic_verified=False, raw_content_retained=False, provider_sent=False)
+        return filtered, metadata(evidence), 'ARTIFACT_INSPECTION_FAILED: no se pudo comprobar el archivo; el diagnóstico de contenido no se conserva.' if error else error
+
+    def _measure(self, task, kind, wall_ms, cpu_ms=None):
+        if not math.isfinite(wall_ms) or wall_ms < 0:
+            return
+        self.db.execute('INSERT INTO anticipation_measurements(task_id,kind,at,wall_ms,cpu_ms) VALUES (?,?,?,?,?)',
+                        (task, kind, self.clock(), wall_ms, cpu_ms))
+        self.db.execute('DELETE FROM anticipation_measurements WHERE id NOT IN (SELECT id FROM anticipation_measurements ORDER BY id DESC LIMIT 512)')
+
+    def _metrics(self, stats, task_id=None):
+        measurements = self.db.execute('SELECT kind,wall_ms,cpu_ms FROM anticipation_measurements' + (' WHERE task_id=?' if task_id else ''), (task_id,) if task_id else ()).fetchall()
+        def distribution(values):
+            values = sorted(value for value in values if value is not None)
+            return {'samples': len(values), **{name: values[max(0, math.ceil(len(values) * percentile) - 1)] if values else None
+                    for name, percentile in (('p50', .5), ('p95', .95))}}
+        fields = ('eligible', 'evaluated_proposed', 'proposed', 'shown', 'verified', 'failed', 'abstained', 'explicit_acceptances', 'autonomous_executions', 'explicit_useful_feedback', 'explicit_corrections')
+        metrics = {key: sum(row.get(key, 0) for row in stats) for key in fields}
+        metrics.update(model_calls=0, coverage={'numerator': metrics['evaluated_proposed'], 'denominator': metrics['eligible'], 'universe': 'Candidates evaluated since P1 eligibility counters were introduced.'},
+            verification_latency_ms=distribution([row['wall_ms'] for row in measurements if row['kind'] == 'verification']),
+            tick_latency_ms=distribution([row['wall_ms'] for row in measurements if row['kind'] == 'tick']),
+            tick_cpu_ms=distribution([row['cpu_ms'] for row in measurements if row['kind'] == 'tick']),
+            measurement_window_max=512, cpu_basis='Process CPU delta during tick; concurrent threads included, child-process CPU excluded.')
+        return metrics
+
+    def _source_target(self, target_id, config=None):
+        config = config or self._config()
+        for target in config['observation_targets']:
+            source = 'folders' if target['source'] == 'folder' else 'applications'
+            if (target['id'] == target_id and target['observe'] and config['sources'][source]
+                    and (target['expires_at'] is None or self.clock() < target['expires_at'])
+                    and (source != 'applications' or self._applications_available())):
+                return target
+        return None
+
+    def _source_authorized(self, item, config=None):
+        target_id = item['plan'].get('source_target_id')
+        if not target_id:
+            return True
+        target = self._source_target(target_id, config)
+        return bool(target and target['source'] == 'folder' and target['retain']
+            and digest(target) == item['plan'].get('source_authorization_hash')
+            and target['task_id'] == item['task_id']
+            and self._source_context(target) == item['plan'].get('context')
+            and Path(item['plan']['inputs']['path']).is_relative_to(Path(target['root'])))
+
+    @staticmethod
+    def _source_context(target):
+        return {key: target.get(key, '') for key in CONTEXT_KEYS} | {
+            'source': 'folders' if target['source'] == 'folder' else 'applications'}
+
+    def _source_runtime(self, config, task_id=None):
+        result = []
+        for target in config['observation_targets']:
+            if task_id is not None and target['task_id'] != task_id:
+                continue
+            state = self.source_state.get(target['id'], {})
+            _, options = self._policy(target['task_id'], target.get('root', str(self.commands.executor.workspace_root)), config, self._source_context(target))
+            active = self._source_target(target['id'], config) is not None and options['mode'] != 'OFF'
+            last = state.get('last_observed_at')
+            result.append({'id': target['id'], 'source': target['source'], 'active': active and not state.get('error'),
+                'last_observed_at': last, 'next_observation_at': last + options.get('cadence_seconds', 30) if active and last is not None else None,
+                'error': state.get('error') or (None if active else 'Fuente desactivada, fuera de ámbito/horario o autorización caducada.'),
+                'metadata_retained': target['retain'], 'provider_sent': False, 'baseline': state.get('snapshot') is not None,
+                'truncated': state.get('truncated', False), 'samples': state.get('samples', 0), 'events': state.get('events', 0)})
+        return result
+
+    def _folder_snapshot(self, target, options):
+        root = directory(target['root'])
+        snapshot, truncated = {}, False
+        with os.scandir(root) as entries:
+            for index, entry in enumerate(entries):
+                if index >= options['resources']['max_entries_scan'] or not self._within_budget(options):
+                    truncated = True
+                    break
+                try:
+                    if entry.is_symlink() or not entry.is_file(follow_symlinks=False):
+                        continue
+                    info = entry.stat(follow_symlinks=False)
+                    if getattr(info, 'st_file_attributes', 0) & (0x400 | 0x1000 | 0x40000 | 0x400000):
+                        truncated = True
+                        continue
+                    path = str(Path(root) / entry.name)
+                    if artifact_path_error(path):
+                        truncated = True
+                        continue
+                    snapshot[path] = {'path': path, 'size': info.st_size, 'identity_hash': digest(fingerprint(info))}
+                except OSError:
+                    truncated = True
+        return snapshot, truncated
+
+    def _application_snapshot(self, target, options):
+        from .actions import windows_automation as windows
+        if not self._applications_available():
+            raise ValueError('El lector de aplicaciones Windows no está disponible')
+        snapshot, names, truncated = {}, {}, False
+        for index, row in enumerate(windows.list_windows(include_untitled=True, include_titles=False)):
+            if index >= options['resources']['max_entries_scan'] or not self._within_budget(options):
+                truncated = True
+                break
+            pid = row['pid']
+            if pid not in names:
+                names[pid] = windows.process_name(pid).casefold()
+            if names[pid] != target['process_name']:
+                continue
+            birth = windows.process_started(pid)
+            key = digest([row['window_id'], pid, birth])
+            snapshot[key] = {'process_name': names[pid], 'window_id': row['window_id'], 'pid': pid, 'foreground': row.get('foreground') is True}
+        return snapshot, truncated
+
+    def _poll_sources(self):
+        with self.lock:
+            targets = copy.deepcopy(self._config()['observation_targets'])
+        for target in targets:
+            context = self._source_context(target)
+            path = target.get('root', str(self.commands.executor.workspace_root))
+            with self.lock:
+                current = self._source_target(target['id'])
+                profile, options = self._policy(target['task_id'], path, context=context)
+                if current is None or options['mode'] == 'OFF':
+                    self.source_state.pop(target['id'], None)
+                    self.source_observations = [event for event in self.source_observations if event['target_id'] != target['id']]
+                    continue
+                state = self.source_state.setdefault(target['id'], {'snapshot': None, 'samples': 0, 'events': 0})
+                if self.clock() - state.get('last_observed_at', float('-inf')) < options['cadence_seconds'] or not self._within_budget(options):
+                    continue
+            try:
+                snapshot, truncated = (self._folder_snapshot(target, options) if target['source'] == 'folder'
+                                       else self._application_snapshot(target, options))
+                error = None
+            except (OSError, ValueError) as exc:
+                snapshot, truncated, error = {}, True, str(exc)[:300]
+            with self.lock, self.db:
+                if self._source_target(target['id']) != target:
+                    continue
+                profile, options = self._policy(target['task_id'], path, context=context)
+                if options['mode'] == 'OFF':
+                    continue
+                state.update(last_observed_at=self.clock(), samples=state['samples'] + 1, truncated=truncated, error=error)
+                if error:
+                    continue
+                before = state['snapshot']
+                if before is None:
+                    state['snapshot'] = snapshot
+                    continue
+                changes = [(key, value, 'file.created' if target['source'] == 'folder' else 'application.opened')
+                           for key, value in snapshot.items() if key not in before]
+                changes += [(key, value, 'file.modified' if target['source'] == 'folder' else 'application.foreground')
+                            for key, value in snapshot.items() if key in before and before[key] != value]
+                if not truncated:
+                    changes += [(key, value, 'file.deleted' if target['source'] == 'folder' else 'application.closed')
+                                for key, value in before.items() if key not in snapshot]
+                state['truncated'] = truncated or len(changes) > options['resources']['max_events_tick']
+                for key, resource, kind in changes[:options['resources']['max_events_tick']]:
+                    if not self._within_budget(options) or not self._take_event_budget(profile, options):
+                        state['truncated'] = True
+                        break
+                    stamp = int(self.clock() // options['cadence_seconds'])
+                    event_id = 'observation-' + digest([target['id'], kind, resource, stamp])
+                    event = {'event_id': event_id, 'type': kind, 'task_id': target['task_id'], 'source': context['source'],
+                        'target_id': target['id'], 'observed_at': self.clock(), 'resource': resource, 'context': context,
+                        'source_authorization_hash': digest(target),
+                        'retained': target['retain'], 'sent_to_provider': False, 'profile': profile, 'at': self.clock(),
+                        'provenance': {'actor': 'system', 'origin': 'metadata_observation', 'causation_id': target['id'], 'human_preference_evidence': False}}
+                    self.source_observations = (self.source_observations + [event])[-20:]
+                    state['events'] += 1
+                    if kind.endswith(('deleted', 'closed')):
+                        before.pop(key, None)
+                    else:
+                        before[key] = resource
+                    if target['retain']:
+                        inserted = self.db.execute('INSERT OR IGNORE INTO anticipation_events VALUES (?,?,?,?)',
+                            (event_id, target['task_id'], self.clock(), canonical(event))).rowcount
+                        if inserted and target['source'] == 'folder' and kind != 'file.deleted':
+                            candidate = event | {'path': resource['path'], 'sha256': None}
+                            try:
+                                self._propose(candidate, profile, options)
+                            except (OSError, ValueError):
+                                self._stats(target['task_id'], ROUTINE, 'abstained')
+                state['snapshot'] = dict(list(before.items())[:options['resources']['max_entries_scan']])
+
     def status(self, task_id=None):
         with self.lock:
             config = self._config()
             rows = self._items(task_id)[:100]
             for item in rows:
-                effective, options = self._policy(item['task_id'], item['plan']['inputs']['path'], config)
+                effective, options = self._policy(item['task_id'], item['plan']['inputs']['path'], config, item['plan'].get('context'))
                 item['visible'] = self._visible(item, options)
                 item.update(effective_profile=effective, options=options, policy=options)
             grants = [json.loads(row[0]) for row in self.db.execute('SELECT payload FROM anticipation_grants')]
@@ -194,14 +521,15 @@ class AnticipationService:
                 elif names:
                     effective = next(iter(names))
             return config | {'effective_profile': effective, 'suggestions': rows, 'grants': grants, 'routines': stats,
-                'metrics': {'proposed': sum(row.get('proposed', 0) for row in stats),
-                    'shown': sum(row.get('shown', 0) for row in stats),
-                    'verified': sum(row.get('verified', 0) for row in stats),
-                    'failed': sum(row.get('failed', 0) for row in stats),
-                    'model_calls': 0},
+                'metrics': self._metrics(stats, task_id),
+                'source_runtime': self._source_runtime(config, task_id),
+                'source_observations': [copy.deepcopy(event) for event in self.source_observations if task_id is None or event['task_id'] == task_id],
                 'capabilities': {'verify_artifact': self._can_verify(), 'physical_execution': False,
+                    'folders': True, 'applications': self._applications_available(), 'provider_send': False,
+                    'verifiers': {name: self._verifier(path) for name, path in {'hash': 'file.txt', 'pdf': 'file.pdf', 'media': 'file.mp4', 'image': 'file.png', 'docx': 'file.docx', 'xlsx': 'file.xlsx'}.items()},
+                    'resource_limits_scope': 'Periodic observation and admission; each registered tool retains its own execution deadline.',
                     'screen': False, 'microphone': False, 'clipboard': False,
-                    'reason': 'M15 abierto: no se habilita ejecución física proactiva; fuentes nuevas no validadas.'}}
+                    'reason': 'M15 abierto: input físico proactivo bloqueado. Carpetas y aplicaciones solo producen metadatos locales autorizados; pantalla, micrófono y portapapeles siguen inactivos.'}}
 
     def configure(self, body):
         if not isinstance(body, dict) or set(body) - set(DEFAULTS):
@@ -223,8 +551,10 @@ class AnticipationService:
                 if not isinstance(body['sources'], dict) or set(body['sources']) - set(config['sources']):
                     raise ValueError('Fuente desconocida')
                 for source, enabled in body['sources'].items():
-                    if type(enabled) is not bool or source != 'events' and enabled:
+                    if type(enabled) is not bool or source not in ('events', 'folders', 'applications') and enabled:
                         raise ValueError('Esta fuente todavía no dispone de observación validada')
+                    if source == 'applications' and enabled and not self._applications_available():
+                        raise ValueError('La observación de aplicaciones requiere el lector Windows existente')
                     config['sources'][source] = enabled
             if 'profiles' in body:
                 if not isinstance(body['profiles'], dict) or set(body['profiles']) - set(PROFILES):
@@ -238,17 +568,42 @@ class AnticipationService:
                     for key, minimum, maximum in (('cooldown_seconds', 0, 86400), ('max_interruptions_hour', 0, 60), ('retention_days', 1, 365)):
                         if type(options[key]) is not int or not minimum <= options[key] <= maximum:
                             raise ValueError('Límite de perfil inválido: ' + key)
+                    if type(options['cadence_seconds']) is not int or not 5 <= options['cadence_seconds'] <= 3600:
+                        raise ValueError('La cadencia debe ser de 5 a 3600 segundos')
+                    resources = changes.get('resources', {})
+                    if not isinstance(resources, dict) or set(resources) - set(RESOURCE_LIMITS):
+                        raise ValueError('Límite de recursos desconocido')
+                    options['resources'] = config['profiles'][name]['resources'] | resources
+                    for key, (minimum, maximum) in RESOURCE_LIMITS.items():
+                        if type(options['resources'][key]) is not int or not minimum <= options['resources'][key] <= maximum:
+                            raise ValueError('Límite de recursos inválido: ' + key)
+                    schedule = options['schedule']
+                    if schedule is not None:
+                        if (not isinstance(schedule, dict) or set(schedule) != {'timezone', 'days', 'start', 'end'}
+                                or not isinstance(schedule['timezone'], str) or len(schedule['timezone']) > 80
+                                or not isinstance(schedule['days'], list) or not 1 <= len(schedule['days']) <= 7
+                                or any(type(day) is not int or not 0 <= day <= 6 for day in schedule['days'])
+                                or len(set(schedule['days'])) != len(schedule['days'])
+                                or any(not isinstance(schedule[key], str) or not re.fullmatch(r'(?:[01]\d|2[0-3]):[0-5]\d', schedule[key]) for key in ('start', 'end'))):
+                            raise ValueError('Horario inválido: zona IANA, días 0–6 y horas HH:MM')
+                        try:
+                            ZoneInfo(schedule['timezone'])
+                        except (ZoneInfoNotFoundError, ValueError) as exc:
+                            raise ValueError('La zona horaria IANA solicitada no está disponible en este Python') from exc
                     config['profiles'][name] = options
             if 'scopes' in body:
                 if not isinstance(body['scopes'], list) or len(body['scopes']) > 64:
                     raise ValueError('Ámbitos inválidos')
                 scopes = []
                 for raw in body['scopes']:
-                    if not isinstance(raw, dict) or set(raw) - {'task_id', 'root', 'profile', 'exclude'} or not (raw.get('task_id') or raw.get('root')):
-                        raise ValueError('Indica tarea o carpeta del ámbito')
+                    if not isinstance(raw, dict) or set(raw) - {'task_id', 'root', 'profile', 'exclude', *CONTEXT_KEYS} or not any(raw.get(key) for key in ('task_id', 'root', *CONTEXT_KEYS)):
+                        raise ValueError('Indica tarea, carpeta, proyecto, aplicación o dispositivo del ámbito')
                     scope = copy.deepcopy(raw)
                     if scope.get('task_id'):
                         identifier(scope['task_id'], 'Tarea')
+                    for key in CONTEXT_KEYS:
+                        if key in scope:
+                            scope_identifier(scope[key], key)
                     if scope.get('root'):
                         scope['root'] = directory(scope['root'])
                     if scope.get('profile') not in (None, *PROFILES) or type(scope.get('exclude', False)) is not bool:
@@ -257,7 +612,58 @@ class AnticipationService:
                         raise ValueError('El ámbito debe seleccionar un perfil o excluir')
                     scopes.append(scope)
                 config['scopes'] = scopes
+            if 'observation_targets' in body:
+                targets = body['observation_targets']
+                if not isinstance(targets, list) or len(targets) > 32:
+                    raise ValueError('Selecciona hasta 32 fuentes explícitas')
+                checked, ids = [], set()
+                for raw in targets:
+                    allowed = {'id', 'source', 'task_id', *CONTEXT_KEYS, 'root', 'process_name', 'observe', 'retain', 'send_to_provider', 'expires_at'}
+                    if not isinstance(raw, dict) or set(raw) - allowed or raw.get('source') not in ('folder', 'application'):
+                        raise ValueError('Fuente seleccionada inválida')
+                    target = copy.deepcopy(raw)
+                    identifier(target.get('id'), 'Fuente')
+                    identifier(target.get('task_id'), 'Tarea')
+                    if target['id'] in ids:
+                        raise ValueError('Identificador de fuente duplicado')
+                    ids.add(target['id'])
+                    for key in CONTEXT_KEYS:
+                        target.setdefault(key, 'host' if key == 'device_id' else '')
+                        if not isinstance(target[key], str):
+                            raise ValueError('El ámbito de observación debe usar identificadores de texto')
+                        if key == 'device_id' and not target[key]:
+                            target[key] = 'host'
+                        if target[key]:
+                            scope_identifier(target[key], key)
+                    if target['device_id'] != 'host':
+                        raise ValueError('Estas fuentes solo observan el host local; no hay un observador remoto autorizado')
+                    for key in ('observe', 'retain', 'send_to_provider'):
+                        target.setdefault(key, False)
+                        if type(target[key]) is not bool:
+                            raise ValueError('Los consentimientos deben ser booleanos independientes')
+                    if target['send_to_provider']:
+                        raise ValueError('Envío a proveedores no implementado para estas fuentes; no se autorizará implícitamente')
+                    target.setdefault('expires_at', None)
+                    expiry = target['expires_at']
+                    preserved_expiry = any(old['id'] == target['id'] and old.get('expires_at') == expiry for old in config['observation_targets'])
+                    if expiry is not None and (type(expiry) not in (int, float) or not math.isfinite(expiry) or expiry <= self.clock() and not preserved_expiry):
+                        raise ValueError('Vigencia de observación inválida')
+                    if target['source'] == 'folder':
+                        if 'process_name' in target:
+                            raise ValueError('Una carpeta no selecciona un proceso')
+                        target['root'] = directory(target.get('root'))
+                    else:
+                        process = target.get('process_name')
+                        if ('root' in target or not isinstance(process, str) or not 5 <= len(process) <= 80 or not process.casefold().endswith('.exe')
+                                or process != process.strip() or any(ord(char) < 32 or char in '<>:"|?*/\\' for char in process)):
+                            raise ValueError('Selecciona un nombre de proceso .exe exacto')
+                        target['process_name'] = target['process_name'].casefold()
+                        target['application_id'] = target['application_id'] or target['process_name']
+                    checked.append(target)
+                config['observation_targets'] = checked
             self.db.execute('UPDATE anticipation_config SET payload=? WHERE id=1', (canonical(config),))
+            self.source_state.clear()
+            self.source_observations.clear()
             cancelled = self._invalidate(config)
         self._cancel_commands(cancelled)
         return self.status()
@@ -267,9 +673,11 @@ class AnticipationService:
         for item in self._items():
             if item['state'] not in (*PENDING, 'EXECUTING'):
                 continue
-            _, options = self._policy(item['task_id'], item['plan']['inputs']['path'], config)
+            _, options = self._policy(item['task_id'], item['plan']['inputs']['path'], config, item['plan'].get('context'))
             old_mode = item.get('admitted_mode', 'SUGGEST')
             invalid = MODES.index(options['mode']) < MODES.index(old_mode)
+            if not self._source_authorized(item, config):
+                invalid = True
             if item.get('candidate_kind', 'verify_artifact') != 'verify_artifact' and not self._preparation_scope_allowed(item['task_id'], config):
                 invalid = True
             if item.get('approval') == 'persistent' and not self._grant(item):
@@ -318,41 +726,61 @@ class AnticipationService:
 
     def _observe(self):
         with self.lock:
+            placeholders = ','.join('?' for _ in ARTIFACT_GENERATORS)
             rows = self.db.execute("""SELECT o.operation_id,o.result_json,c.result_json AS command_json
                 FROM operations o JOIN command_runs c ON json_extract(c.result_json,'$.action_operation_id')=o.operation_id
-                WHERE o.tool_name='file_artifact_writer' AND o.state='succeeded' AND c.state='succeeded'
+                WHERE o.tool_name IN (""" + placeholders + """) AND o.state='succeeded' AND c.state='succeeded'
                 AND NOT EXISTS (SELECT 1 FROM anticipation_seen s WHERE s.operation_id=o.operation_id)
-                ORDER BY o.created_at LIMIT 50""").fetchall()
+                ORDER BY o.created_at LIMIT 100""", ARTIFACT_GENERATORS).fetchall()
         for row in rows:
             with self.lock, self.db:
-                inserted = self.db.execute('INSERT OR IGNORE INTO anticipation_seen VALUES (?,?)', (row['operation_id'], self.clock())).rowcount
-                if not inserted:
-                    continue
+                config = self._config()
+                if not self._within_budget(config['profiles'][config['profile']]):
+                    break
                 receipt, command = json.loads(row['result_json']), json.loads(row['command_json'])
                 output = receipt.get('output') or {}
+                files = [candidate for candidate in ([output] + (output.get('files') or [])) if isinstance(candidate, dict)
+                         and isinstance(candidate.get('path'), str) and isinstance(candidate.get('sha256'), str)]
+                # One additional check per generation: prefer the PDF copy when an Office output contains several files.
+                if files:
+                    output = min(files, key=lambda candidate: (Path(candidate['path']).suffix.casefold() != '.pdf', candidate['path']))
                 task = command.get('conversation_id') or command['operation_id']
                 path = output.get('path')
                 if (receipt.get('postconditions_passed') is not True or not isinstance(path, str)
                         or not re.fullmatch('[a-f0-9]{64}', output.get('sha256', ''))):
+                    self.db.execute('INSERT OR IGNORE INTO anticipation_seen VALUES (?,?)', (row['operation_id'], self.clock()))
                     continue
-                profile, options = self._policy(task, path)
+                context = self._command_context(command)
+                profile, options = self._policy(task, path, context=context)
+                if options['mode'] != 'OFF' and not self._take_event_budget(profile, options):
+                    break
+                inserted = self.db.execute('INSERT OR IGNORE INTO anticipation_seen VALUES (?,?)', (row['operation_id'], self.clock())).rowcount
+                if not inserted:
+                    continue
                 if options['mode'] == 'OFF' or not Path(path).is_relative_to(self.commands.executor.workspace_root):
                     continue
                 event = {'event_id': 'artifact-' + row['operation_id'], 'type': 'artifact.generated', 'task_id': task,
                     'source_operation_id': row['operation_id'], 'path': path, 'sha256': output['sha256'], 'at': self.clock(),
                     'profile': profile, 'retention_days': options['retention_days'],
+                    'context': context,
                     'provenance': self._command_provenance(command), 'outcome': 'verified', 'feedback': 'none'}
                 self.db.execute('INSERT OR IGNORE INTO anticipation_events VALUES (?,?,?,?)', (event['event_id'], task, self.clock(), canonical(event)))
-                if self._suppressed(task, ROUTINE):
-                    continue
-                previous = self.db.execute('SELECT MAX(at) FROM anticipation_suggestions WHERE task_id=? AND routine_id=?', (task, ROUTINE)).fetchone()[0]
-                if previous is not None and self.clock() - previous < options['cooldown_seconds']:
-                    self._stats(task, ROUTINE, 'cooldown_abstentions')
-                    continue
                 try:
                     self._propose(event, profile, options)
                 except OSError:
                     self._stats(task, ROUTINE, 'unavailable_abstentions')
+                    self._stats(task, ROUTINE, 'abstained')
+
+    def _command_context(self, command):
+        context = {'source': 'events', 'device_id': 'host'}
+        if self.commands.learning:
+            row = self.db.execute("""SELECT payload FROM learning_plans p WHERE EXISTS
+                (SELECT 1 FROM json_each(json_extract(p.payload,'$.step_records')) r
+                 WHERE json_extract(r.value,'$.operation_id')=?) LIMIT 1""", (command['operation_id'],)).fetchone()
+            if row:
+                plan = json.loads(row[0])
+                context['project_id'] = plan.get('project_id', '')
+        return context
 
     def _command_provenance(self, command):
         provenance = {'actor': 'axx', 'origin': 'direct_instruction',
@@ -375,32 +803,60 @@ class AnticipationService:
         return provenance
 
     def _propose(self, event, profile, options):
-        plan = {'version': 1, 'command_id': 'axx.file.sha256', 'inputs': {'path': event['path']},
-                'expected_sha256': event['sha256'], 'expected_identity': list(fingerprint(Path(event['path']).stat())),
-                'source_operation_id': event['source_operation_id'], 'task_id': event['task_id']}
-        context_fingerprint = digest({'path': event['path'], 'sha256': event['sha256'], 'task_id': event['task_id']})
-        key = digest({'event': event['event_id'], 'routine': ROUTINE, 'task': event['task_id']})
+        verifier = self._verifier(event['path'])
+        identity = list(fingerprint(Path(event['path']).stat()))
+        # Journal receipts and an opted-in folder can describe the same generation.
+        # The UNIQUE dedupe column arbitrates their resource identity across processes.
+        key = digest({'path': os.path.normcase(event['path']), 'identity': identity, 'task': event['task_id'],
+                      'command': verifier['command_id'], 'verifier_version': verifier['version']})
+        existing = self.db.execute("""SELECT payload FROM anticipation_suggestions WHERE
+            dedupe_key=? OR (task_id=? AND routine_id=? AND json_extract(payload,'$.plan.inputs.path')=?
+            AND json_extract(payload,'$.plan.command_id')=? AND json_extract(payload,'$.plan.expected_identity')=?) LIMIT 1""",
+            (key, event['task_id'], ROUTINE, event['path'], verifier['command_id'], canonical(identity))).fetchone()
+        if existing:
+            return json.loads(existing[0])
+        self._stats(event['task_id'], ROUTINE, 'eligible')
+        previous = self.db.execute('SELECT MAX(at) FROM anticipation_suggestions WHERE task_id=? AND routine_id=?', (event['task_id'], ROUTINE)).fetchone()[0]
+        if (not verifier['available'] or self._suppressed(event['task_id'], ROUTINE)
+                or identity[2] > options['resources']['max_file_bytes']
+                or previous is not None and self.clock() - previous < options['cooldown_seconds']):
+            self._stats(event['task_id'], ROUTINE, 'abstained')
+            return None
+        plan = {'version': 1, 'command_id': verifier['command_id'], 'inputs': {'path': event['path']},
+                'expected_sha256': event.get('sha256'), 'expected_identity': identity,
+                'source_operation_id': event.get('source_operation_id'), 'task_id': event['task_id'],
+                'context': event.get('context', {}), 'source_target_id': event.get('target_id'),
+                'source_authorization_hash': event.get('source_authorization_hash'),
+                'verification_scope': verifier['verification_scope'], 'verifier_version': verifier['version'],
+                'verification_basis': 'generation_receipt' if event.get('sha256') else 'observed_file_snapshot'}
+        context_fingerprint = digest({'path': event['path'], 'sha256': event.get('sha256'), 'identity': identity, 'task_id': event['task_id']})
         sid = 'anticipation-' + key[:32]
         mode = options['mode']
         item = {'suggestion_id': sid, 'candidate_kind': 'verify_artifact', 'task_id': event['task_id'], 'routine_id': ROUTINE, 'routine_version': 1,
-            'title': 'Verificar el archivo generado', 'state': 'DETECTED' if mode == 'SHADOW' else 'PREPARED' if mode == 'PREPARE' else 'AWAITING_APPROVAL',
+            'title': 'Comprobar el archivo observado' if event.get('target_id') else 'Verificar el archivo generado',
+            'verification_scope': verifier['verification_scope'], 'semantic_verified': False, 'verifier_reason': verifier['reason'],
+            'state': 'DETECTED' if mode == 'SHADOW' else 'PREPARED' if mode == 'PREPARE' else 'AWAITING_APPROVAL',
             'plan': plan, 'plan_hash': digest(plan), 'context_fingerprint': context_fingerprint,
             'operation_id': 'ant-' + key[:48], 'profile': profile, 'admitted_mode': mode, 'shadow': mode == 'SHADOW',
             'context_state': 'observed',
             'created_at': self.clock(), 'expires_at': self.clock() + 300, 'result': None, 'error': None,
             'assessment': {'likelihood': {'score': 1, 'method': 'registered_generated_artifact_rule'},
-                'capability': {'available': self._can_verify(), 'command_id': 'axx.file.sha256'},
+                'capability': verifier,
                 'authorization': {'allowed': False, 'required': CAPABILITY}},
             'provenance': event['provenance'],
             'initiative_chain': {'root_event_id': event['event_id'], 'depth': 1, 'budget': 1, 'stop_condition': 'verification_terminal'},
             'feedback': {'acceptance': 'none', 'usefulness': 'unknown', 'corrections': 0},
-            'message': 'Puedo comprobar que el archivo sigue legible y conserva su SHA256; no verifica su calidad visual.'}
+            'message': 'Comprobación disponible: ' + verifier['verification_scope'] + '. No acredita corrección semántica ni calidad visual.'}
+        item['action_operation_id'] = 'cmd-' + hashlib.sha256(item['operation_id'].encode()).hexdigest()
         if mode == 'EXECUTE' and (grant := self._grant(item)):
             item.update(approval='persistent', grant_id=grant['grant_id'])
         inserted = self.db.execute('INSERT OR IGNORE INTO anticipation_suggestions VALUES (?,?,?,?,?,?,?,?)',
             (sid, key, item['task_id'], ROUTINE, item['state'], item['plan_hash'], self.clock(), canonical(item))).rowcount
         if inserted:
+            self.db.execute('INSERT OR IGNORE INTO anticipation_privacy VALUES (?,?,?)',
+                            (item['action_operation_id'], verifier['verification_scope'], self.clock()))
             self._stats(item['task_id'], ROUTINE, 'proposed')
+            self._stats(item['task_id'], ROUTINE, 'evaluated_proposed')
             self._transition(item, 'DETECTED', {'event_id': event['event_id']})
             if mode == 'PREPARE':
                 self._transition(item, 'PREPARED', {'isolated_plan_only': True})
@@ -441,6 +897,8 @@ class AnticipationService:
         last = self.db.execute('SELECT MAX(at) FROM anticipation_suggestions WHERE task_id=? AND routine_id=?', (task, routine)).fetchone()[0]
         if last is not None and self.clock() - last < options['cooldown_seconds']:
             return
+        if not self._within_budget(options) or not self._take_event_budget(profile, options):
+            return
         kind = plan['kind']
         sid = 'anticipation-' + key[:32]
         item = {'suggestion_id': sid, 'candidate_kind': kind, 'task_id': task, 'routine_id': routine,
@@ -460,8 +918,10 @@ class AnticipationService:
         inserted = self.db.execute('INSERT OR IGNORE INTO anticipation_suggestions VALUES (?,?,?,?,?,?,?,?)',
             (sid, key, task, routine, item['state'], item['plan_hash'], self.clock(), canonical(item))).rowcount
         if inserted:
+            self._stats(task, routine, 'eligible')
             self.db.execute('INSERT OR IGNORE INTO anticipation_seen VALUES (?,?)', ('preparation-' + key, self.clock()))
             self._stats(task, routine, 'proposed')
+            self._stats(task, routine, 'evaluated_proposed')
             self._transition(item, 'DETECTED', {'candidate_kind': kind})
 
     def _observe_preparations(self):
@@ -474,18 +934,19 @@ class AnticipationService:
         for source in plans:
             task = source.get('conversation_id') or source['operation_id']
             path = str(self.commands.executor.workspace_root)
+            context = {'source': 'events', 'project_id': source.get('project_id', ''), 'device_id': 'host'}
             with self.lock:
                 if not self._preparation_scope_allowed(task):
                     continue
-                profile, options = self._policy(task, path)
-            if options['mode'] == 'OFF' or source.get('preparation_complete') is False:
+                profile, options = self._policy(task, path, context=context)
+            if options['mode'] == 'OFF' or not self._within_budget(options) or source.get('preparation_complete') is False:
                 continue
             if source.get('state') in ('paused', 'interrupted'):
                 checkpoint = self._checkpoint(source)
                 with self.lock:
                     forgotten = self._forgotten_source(task, 'resume_incomplete_task', source)
                 if not forgotten and checkpoint['last_verified_step'] >= 0 and checkpoint['next_step'] < len(source.get('steps', [])):
-                    plan = {'kind': 'resume_task', 'inputs': {'path': path}, 'task_id': task,
+                    plan = {'kind': 'resume_task', 'inputs': {'path': path}, 'task_id': task, 'context': context,
                             'learning_operation_id': source['operation_id'], 'source_plan_hash': source.get('plan_hash'), **checkpoint}
                     with self.lock, self.db:
                         self._preparation_candidate(task, 'resume_incomplete_task', 'Preparar reanudación de la tarea', plan, profile, options,
@@ -514,8 +975,10 @@ class AnticipationService:
             if len({source['operation_id'] for source, *_ in occurrences}) < 3:
                 continue
             source, ref, profile, options = max(occurrences, key=lambda entry: entry[0].get('updated_at', entry[0].get('created_at', 0)))
+            if not self._within_budget(options):
+                continue
             try:
-                skill = learning.skills.get(skill_id, version)
+                skill = learning.skills.get(skill_id, version, project_id=source.get('project_id', ''), task_id=task)
                 if not skill.get('environment_matches') or not skill.get('effect_verified'):
                     continue
                 from .memory.skill_memory import bind
@@ -525,7 +988,8 @@ class AnticipationService:
                 continue
             evidence_ids = sorted({entry[0]['operation_id'] for entry in occurrences})
             plan = {'kind': 'prepare_routine', 'inputs': {'path': str(self.commands.executor.workspace_root)},
-                'task_id': task, 'skill_id': skill_id, 'skill_version': version, 'inputs_hash': inputs_hash,
+                'task_id': task, 'context': {'source': 'events', 'project_id': source.get('project_id', ''), 'device_id': 'host'},
+                'skill_id': skill_id, 'skill_version': version, 'inputs_hash': inputs_hash,
                 'learning_operation_id': source['operation_id'], 'source_plan_hash': source['plan_hash'],
                 'evidence_ids': evidence_ids}
             with self.lock, self.db:
@@ -560,14 +1024,9 @@ class AnticipationService:
             and ref['version'] == plan['skill_version'] and digest(ref['inputs']) == plan['inputs_hash']]
         if source['state'] != 'succeeded' or len(refs) != 1:
             raise ValueError('La rutina ya no tiene parámetros verificados inequívocos')
-        skill_row = self.db.execute('SELECT payload FROM skill_versions WHERE id=? AND version=?', (plan['skill_id'], plan['skill_version'])).fetchone()
-        if not skill_row:
-            raise ValueError('La versión de la rutina ya no existe')
-        skill = json.loads(skill_row[0])
-        evidence = [json.loads(row[0]) for row in self.db.execute('SELECT payload FROM skill_evidence WHERE id=? AND version=?', (plan['skill_id'], plan['skill_version']))]
-        from .memory.procedural_memory import get_action_env_fingerprint
-        compatible = skill.get('executable') and skill.get('environment') == get_action_env_fingerprint(step['command_id'] for step in skill['templates'])
-        if not compatible or not any(row.get('effect_verified') is True for row in evidence):
+        from .memory.skill_memory import read_skill_state
+        skill = read_skill_state(self.db, plan['skill_id'], plan['skill_version'], project_id=source.get('project_id', ''), task_id=item['task_id'])
+        if not skill.get('environment_matches') or not skill.get('effect_verified'):
             raise ValueError('La rutina ya no es compatible con el entorno')
         from .memory.skill_memory import bind
         steps, _ = bind(skill, refs[0]['inputs'], {})
@@ -580,7 +1039,7 @@ class AnticipationService:
             raise StaleContext('El plan cambió; se requiere una propuesta nueva')
         if self.clock() >= item['expires_at']:
             raise ValueError('La propuesta caducó')
-        _, options = self._policy(item['task_id'], item['plan']['inputs']['path'])
+        _, options = self._policy(item['task_id'], item['plan']['inputs']['path'], context=item['plan'].get('context'))
         if options['mode'] in ('OFF', 'SHADOW') or self._suppressed(item['task_id'], item['routine_id']):
             raise ValueError('La iniciativa está pausada, excluida o suprimida')
         if item.get('candidate_kind', 'verify_artifact') != 'verify_artifact':
@@ -589,7 +1048,12 @@ class AnticipationService:
             if automatic:
                 raise ApprovalRequired('Revisa la preparación de esta tarea o rutina')
             return self._preparation_source(item)
-        if not self._can_verify():
+        path = item['plan']['inputs']['path']
+        if not self._source_authorized(item):
+            raise ValueError('La autorización de origen cambió, fue revocada o caducó')
+        verifier = self._verifier(path)
+        if (not verifier['available'] or verifier['command_id'] != item['plan']['command_id']
+                or item['plan'].get('verifier_version', verifier['version']) != verifier['version']):
             raise ValueError('El verificador registrado ya no está disponible')
         if automatic or item.get('approval') == 'persistent':
             grant = self._grant(item)
@@ -597,10 +1061,12 @@ class AnticipationService:
                 raise ApprovalRequired('Esta iniciativa necesita una autorización vigente para su tarea y carpeta')
             if item.get('grant_id') and grant['grant_id'] != item['grant_id']:
                 raise ApprovalRequired('La autorización aceptada cambió')
-        if list(fingerprint(Path(item['plan']['inputs']['path']).stat())) != item['plan']['expected_identity']:
+        if artifact_path_error(path) or list(fingerprint(Path(path).stat())) != item['plan']['expected_identity']:
             raise StaleContext('Cambió la identidad del archivo desde la propuesta')
-        observed = hash_file(item['plan']['inputs']['path'], threading.Event())
-        if observed['sha256'] != item['plan']['expected_sha256']:
+        if Path(path).stat().st_size > options['resources']['max_file_bytes']:
+            raise ValueError('El archivo excede el presupuesto de lectura del perfil')
+        observed = hash_file(path, threading.Event())
+        if item['plan'].get('expected_sha256') is not None and observed['sha256'] != item['plan']['expected_sha256']:
             raise StaleContext('El archivo cambió desde la propuesta; no se ejecutará el plan anterior')
         return observed
 
@@ -681,6 +1147,13 @@ class AnticipationService:
             return self._finish(suggestion_id, result)
         except Exception as exc:
             LOG.warning('Anticipation execution stopped: %s', type(exc).__name__)
+            with self.lock:
+                forgotten = self.db.execute('SELECT 1 FROM anticipation_suggestions WHERE suggestion_id=?', (suggestion_id,)).fetchone() is None
+            if forgotten:
+                # Forget may race preparation, but cannot leave a command waiting
+                # for a later accidental approval or recreate personal context.
+                self.commands.cancel(item['operation_id'])
+                return {'suggestion_id': suggestion_id, 'state': 'CANCELLED', 'forgotten': True, 'result': None}
             if item.get('candidate_kind', 'verify_artifact') != 'verify_artifact':
                 with self.lock, self.db:
                     item = self._get(suggestion_id)
@@ -723,14 +1196,20 @@ class AnticipationService:
             learning.prepare_steps(item['title'], steps, operation_id=plan_id,
                 project_id=source.get('project_id', ''), conversation_id=item['task_id']))
         with self.lock:
-            cancelled = self._get(item['suggestion_id']).get('cancel_requested')
+            try:
+                cancelled = self._get(item['suggestion_id']).get('cancel_requested')
+            except ValueError:
+                cancelled = True
         if cancelled:
             result = learning.pause(plan_id)
         return self._finish_preparation(item['suggestion_id'], result)
 
     def _finish_preparation(self, key, result):
         with self.lock, self.db:
-            item = self._get(key)
+            try:
+                item = self._get(key)
+            except ValueError:
+                return {'suggestion_id': key, 'state': 'CANCELLED', 'forgotten': True, 'result': None}
             prepared = result.get('state') == 'awaiting_approval' and bool(result.get('steps')) and bool(result.get('plan_hash'))
             state = 'PREPARED' if prepared else 'FAILED'
             if item.get('cancel_requested'):
@@ -745,14 +1224,20 @@ class AnticipationService:
 
     def _finish(self, key, result):
         with self.lock, self.db:
-            item = self._get(key)
-            observed = (result.get('output') or {}).get('files') or []
+            try:
+                item = self._get(key)
+            except ValueError:
+                return {'suggestion_id': key, 'state': 'CANCELLED', 'forgotten': True, 'result': None,
+                        'message': 'La iniciativa se olvidó; la cancelación no revierte efectos ya ocurridos.'}
+            output = result.get('output') or {}
+            observed = output.get('files') or ([output] if output.get('sha256') and output.get('path') else [])
             try:
                 same_identity = list(fingerprint(Path(item['plan']['inputs']['path']).stat())) == item['plan']['expected_identity']
             except OSError:
                 same_identity = False
             verified = (result.get('state') == 'succeeded' and result.get('postconditions_passed') is True
-                and len(observed) == 1 and observed[0].get('sha256') == item['plan']['expected_sha256']
+                and len(observed) == 1 and isinstance(observed[0].get('sha256'), str) and re.fullmatch('[a-f0-9]{64}', observed[0]['sha256'])
+                and (item['plan'].get('expected_sha256') is None or observed[0].get('sha256') == item['plan']['expected_sha256'])
                 and observed[0].get('path') == item['plan']['inputs']['path'] and same_identity)
             if result.get('dispatch_status') == 'delivered':
                 self._transition(item, 'EXECUTED', {'operation_id': result['operation_id']})
@@ -761,7 +1246,7 @@ class AnticipationService:
                 return item
             item.update(state=state, result=result, completed_at=self.clock(), counted_result=True,
                 error=None if verified else result.get('error') or 'El contenido no coincide con el artefacto original.',
-                message=('Archivo leído; SHA256 y tamaño observados. No se comprobó calidad visual.' if verified else 'Revisa el resultado; no se repetirá esta iniciativa automáticamente.'))
+                message=('Comprobación observada: ' + item['plan'].get('verification_scope', 'integrity_only') + '. No acredita corrección semántica ni calidad visual.' if verified else 'Revisa el resultado; no se repetirá esta iniciativa automáticamente.'))
             if not same_identity:
                 item['context_state'] = 'stale'
             self._save(item)
@@ -769,6 +1254,8 @@ class AnticipationService:
             self._stats(item['task_id'], item['routine_id'], 'verified' if verified else 'failed')
             if verified:
                 self._stats(item['task_id'], item['routine_id'], 'technical_verified')
+            if type(result.get('duration_ms')) in (int, float):
+                self._measure(item['task_id'], 'verification', result['duration_ms'])
             return item
 
     def _recover(self):
@@ -803,9 +1290,16 @@ class AnticipationService:
         if self.closed or not self.tick_gate.acquire(blocking=False):
             return []
         try:
+            self.tick_started = (time.perf_counter(), time.process_time())
+            self.tick_events = {}
             self._recover()
             self._observe()
-            self._observe_preparations()
+            self._poll_sources()
+            with self.lock:
+                config = self._config()
+                options = config['profiles'][config['profile']]
+            if self._within_budget(options):
+                self._observe_preparations()
             with self.lock, self.db:
                 cancelled = self._invalidate()
                 candidates = []
@@ -819,15 +1313,33 @@ class AnticipationService:
                         self._save(item)
                         self._transition(item, 'EXPIRED')
                         continue
-                    _, options = self._policy(item['task_id'], item['plan']['inputs']['path'])
+                    _, options = self._policy(item['task_id'], item['plan']['inputs']['path'], context=item['plan'].get('context'))
                     # A later profile upgrade never turns an old suggestion into an automatic action.
-                    if item.get('candidate_kind', 'verify_artifact') == 'verify_artifact' and item['admitted_mode'] == 'EXECUTE' and options['mode'] == 'EXECUTE' and not item.get('shadow') and item.get('grant_id') and self._grant(item):
+                    if self._within_budget(options) and item.get('candidate_kind', 'verify_artifact') == 'verify_artifact' and item['admitted_mode'] == 'EXECUTE' and options['mode'] == 'EXECUTE' and not item.get('shadow') and item.get('grant_id') and self._grant(item):
                         candidates.append(item)
             self._cancel_commands(cancelled)
-            results = [self.accept(item['suggestion_id'], item['plan_hash'], automatic=True) for item in candidates]
+            results = []
+            dispatched = {}
+            for item in candidates:
+                with self.lock:
+                    profile, options = self._policy(item['task_id'], item['plan']['inputs']['path'], context=item['plan'].get('context'))
+                    # Admission is checked after each real inspector; an admitted
+                    # bounded command still uses its existing executor timeout.
+                    if (not self._within_budget(options)
+                            or dispatched.get(profile, 0) >= options['resources']['max_events_tick']):
+                        continue
+                    dispatched[profile] = dispatched.get(profile, 0) + 1
+                results.append(self.accept(item['suggestion_id'], item['plan_hash'], automatic=True))
             self._purge()
             return results
         finally:
+            if self.tick_started is not None:
+                started, cpu_started = self.tick_started
+                with self.lock:
+                    if not self.closed:
+                        with self.db:
+                            self._measure('', 'tick', (time.perf_counter() - started) * 1000, (time.process_time() - cpu_started) * 1000)
+                self.tick_started = None
             self.tick_gate.release()
 
     def feedback(self, key, body):
@@ -847,7 +1359,7 @@ class AnticipationService:
                     feedback['usefulness'] = 'confirmed'
                     self._stats(item['task_id'], item['routine_id'], 'explicit_useful_feedback')
             elif action == 'shown':
-                _, options = self._policy(item['task_id'], item['plan']['inputs']['path'])
+                _, options = self._policy(item['task_id'], item['plan']['inputs']['path'], context=item['plan'].get('context'))
                 if not item.get('shown_at') and self._visible(item, options):
                     item['shown_at'] = self.clock()
                     self._stats(item['task_id'], item['routine_id'], 'shown')
@@ -914,12 +1426,14 @@ class AnticipationService:
                 self.db.execute('DELETE FROM ' + table + ' WHERE ' + where, tuple(body.values()))
             if body.get('task_id') and body.get('routine_id', ROUTINE) == ROUTINE:
                 self.db.execute('DELETE FROM anticipation_events WHERE task_id=?', (body['task_id'],))
+                self.db.execute('DELETE FROM anticipation_measurements WHERE task_id=?', (body['task_id'],))
             elif body.get('routine_id') == ROUTINE:
                 self.db.execute('DELETE FROM anticipation_events')
         return {'forgotten_suggestions': len(selected), 'scope': body, 'command_journal_preserved': True}
 
     def _purge(self):
         with self.lock, self.db:
+            self.db.execute("DELETE FROM anticipation_privacy WHERE action_operation_id IN (SELECT operation_id FROM operations WHERE state IN ('succeeded','failed','cancelled'))")
             config = self._config()
             for name, options in config['profiles'].items():
                 cutoff = self.clock() - options['retention_days'] * 86400
@@ -937,5 +1451,7 @@ class AnticipationService:
         with self.lock:
             if not self.closed:
                 self.closed = True
+                self.source_state.clear()
+                self.source_observations.clear()
                 ACTIVE_OWNERS.pop(self.owner_id, None)
                 self.db.close()

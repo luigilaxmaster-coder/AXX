@@ -462,6 +462,20 @@ class AnticipationTests(unittest.TestCase):
         self.assertEqual(result['state'], 'CANCELLED')
         self.assertEqual(self.learning.get(plan['operation_id'])['state'], 'paused')
 
+    def test_forget_during_preparation_pauses_plan_without_recreating_context(self):
+        plan, candidate = self.checkpoint()
+        resume = self.learning.resume
+        def forget_during(*args, **kwargs):
+            result = resume(*args, **kwargs)
+            self.service.forget({'task_id': 'task-a'})
+            return result
+        with patch.object(self.learning, 'resume', side_effect=forget_during):
+            result = self.service.accept(candidate['suggestion_id'], candidate['plan_hash'])
+        self.assertEqual(result['state'], 'CANCELLED')
+        self.assertTrue(result['forgotten'])
+        self.assertEqual(self.learning.get(plan['operation_id'])['state'], 'paused')
+        self.assertEqual(self.service.suggestions(), [])
+
     def test_resource_conditioned_preparation_abstains_instead_of_ignoring_targets(self):
         _, candidate = self.checkpoint()
         folder = self.executor.workspace_root / 'excluded'
