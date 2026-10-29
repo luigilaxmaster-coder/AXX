@@ -13,7 +13,10 @@ The active MOSS ONNX model clones the selected reference at inference time;
 these recordings do not change its weights. A private CPU fine-tuning experiment
 exists under the local training directory, but its checkpoint is not active:
 the earlier held-out comparison improved Spanish recognition while English
-speaker similarity declined. Another training run should use more clean,
+speaker similarity declined. A local single-phrase speaker check measured
+baseline/trained cosine similarity of 0.7843/0.7880 in Spanish and
+0.7254/0.6872 in English; these scores do not measure listening quality.
+Another training run should use more clean,
 transcribed speech and an independent Spanish/English comparison before any
 checkpoint replaces the current inference model. Keep all weights and recordings
 private.
