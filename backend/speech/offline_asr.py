@@ -4,6 +4,7 @@ import base64
 import hashlib
 import importlib.util
 import importlib.abc
+import io
 import json
 import logging
 import os
@@ -12,7 +13,6 @@ import queue
 import re
 import subprocess
 import sys
-import tempfile
 import threading
 import time
 
@@ -21,6 +21,7 @@ from .windows_tts import SpeechError
 
 SNAPSHOT = 'd90ca5fe260221311c53c58e660288d3deb8d356'
 MAX_AUDIO = 1400 * 1024
+MAX_WORKER_REQUEST = ((MAX_AUDIO + 2) // 3) * 4 + 16384
 MAX_SECONDS = 60
 MAX_WORKER_OUTPUT = 256 * 1024
 VOICE_CONTEXT = 'Spotify. Google Chrome. YouTube. ChatGPT. Obsidian.'
@@ -78,8 +79,8 @@ def worker_main(raw=None):
     """Only this isolated process imports the native ASR libraries/model."""
     started=time.monotonic()
     try:
-        if raw is None: raw = sys.stdin.buffer.read(16385)
-        if len(raw)>16384: raise SpeechError('INVALID_REQUEST','Transcription worker request exceeds limit')
+        if raw is None: raw = sys.stdin.buffer.read(MAX_WORKER_REQUEST + 1)
+        if len(raw)>MAX_WORKER_REQUEST: raise SpeechError('INVALID_REQUEST','Transcription worker request exceeds limit')
         request = json.loads(raw)
         # CTranslate2 also ships training-format converters. Those optional
         # frameworks are explicitly disabled in this inference-only worker.
@@ -94,10 +95,21 @@ def worker_main(raw=None):
             sys.stdout.buffer.write(json.dumps({'ok':True,'result':{'ready':True,'model':Path(requested_model).name}}).encode('utf-8')+b'\n')
             sys.stdout.buffer.flush()
             return 0
-        path = Path(request['audio_path'])
-        if not 0<path.stat().st_size<=MAX_AUDIO: raise SpeechError('INVALID_REQUEST','Audio exceeds byte limit')
+        if 'audio_base64' in request:
+            encoded = request['audio_base64']
+            if ('audio_path' in request or not isinstance(encoded, str)
+                    or not 1 <= len(encoded) <= ((MAX_AUDIO + 2) // 3) * 4):
+                raise SpeechError('INVALID_REQUEST','Invalid bounded audio payload')
+            try: audio_bytes = base64.b64decode(encoded, validate=True)
+            except ValueError: raise SpeechError('INVALID_REQUEST','Audio is not valid base64') from None
+            if not 0 < len(audio_bytes) <= MAX_AUDIO: raise SpeechError('INVALID_REQUEST','Audio exceeds byte limit')
+            source = io.BytesIO(audio_bytes)
+        else:
+            path = Path(request['audio_path'])
+            if not 0<path.stat().st_size<=MAX_AUDIO: raise SpeechError('INVALID_REQUEST','Audio exceeds byte limit')
+            source = str(path)
         pieces=[];samples=0
-        with av.open(str(path)) as container:
+        with av.open(source) as container:
             if not container.streams.audio: raise SpeechError('INVALID_REQUEST','Input contains no audio stream')
             if container.duration is not None and container.duration/av.time_base>MAX_SECONDS+1:
                 raise SpeechError('INVALID_REQUEST','Audio exceeds its 60-second duration limit')
@@ -154,10 +166,11 @@ def worker_main(raw=None):
 
 
 def worker_server_main():
-    while raw := sys.stdin.buffer.readline(16386):
+    while raw := sys.stdin.buffer.readline(MAX_WORKER_REQUEST + 2):
         worker_main(raw)
-        if len(raw)>16384:
+        if len(raw)>MAX_WORKER_REQUEST:
             return 1
+        raw = None
     return 0
 
 class OfflineTranscriptionService:
@@ -169,7 +182,8 @@ class OfflineTranscriptionService:
 
     def status(self):
         return {'engine':'faster-whisper','model':self.model_path.name.removeprefix('faster-whisper-') if self.model_path else 'tiny','available':bool(self.model_path and importlib.util.find_spec('faster_whisper')),
-                'device':'cpu','compute_type':'int8','local_only':True,'external_calls':0,'max_duration_seconds':MAX_SECONDS}
+                'device':'cpu','compute_type':'int8','local_only':True,'external_calls':0,'max_duration_seconds':MAX_SECONDS,
+                'input_storage':'process_memory','input_transport':'bounded_worker_pipe'}
 
     def warm(self):
         if not self.status()['available']: return
@@ -214,14 +228,11 @@ class OfflineTranscriptionService:
         if not self.status()['available']:raise SpeechError('NOT_SUPPORTED','El modelo local de transcripción o su motor no está disponible.')
         if not self._busy.acquire(False):raise SpeechError('BUSY','Local transcription is busy')
         try:
-            self.data_dir.mkdir(parents=True,exist_ok=True)
-            with tempfile.TemporaryDirectory(prefix='asr-',dir=self.data_dir) as directory:
-                audio_path=Path(directory)/'input.audio';audio_path.write_bytes(raw)
-                request={'audio_path':str(audio_path),'model_path':str(self.model_path),'language':language,'task':task}
-                result=self._execute(request)
-                result['input_sha256']=hashlib.sha256(raw).hexdigest()
-                result.setdefault('timings_ms',{})['service_total']=round((time.monotonic()-started)*1000)
-                return result
+            request={'audio_base64':encoded,'model_path':str(self.model_path),'language':language,'task':task}
+            result=self._execute(request)
+            result['input_sha256']=hashlib.sha256(raw).hexdigest()
+            result.setdefault('timings_ms',{})['service_total']=round((time.monotonic()-started)*1000)
+            return result
         finally:self._busy.release()
 
     def _execute(self,request):
@@ -250,15 +261,21 @@ class OfflineTranscriptionService:
             process,job,responses,reader=self._worker
             cancelled=threading.Event();healthy=False
             with self._lock:self._active=(process,job,cancelled)
+            writer = None
             try:
                 encoded=json.dumps(request,ensure_ascii=False).encode('utf-8')
-                if len(encoded)>16383:raise SpeechError('INVALID_REQUEST','Transcription worker request exceeds limit')
-                try:process.stdin.write(encoded+b'\n');process.stdin.flush()
-                except (OSError,ValueError):raise SpeechError('PROCESS_FAILURE','Local transcription worker input failed') from None
+                if len(encoded)>=MAX_WORKER_REQUEST:raise SpeechError('INVALID_REQUEST','Transcription worker request exceeds limit')
                 deadline=time.monotonic()+90
+                write_errors = queue.Queue(maxsize=1)
+                def write_request():
+                    try:process.stdin.write(encoded+b'\n');process.stdin.flush()
+                    except (OSError,ValueError):write_errors.put(True)
+                writer=threading.Thread(target=write_request,name='axx-asr-input',daemon=True)
+                writer.start()
                 while True:
                     if cancelled.is_set():raise SpeechError('CANCELLED','Local transcription was cancelled')
                     if time.monotonic()>=deadline:raise SpeechError('DEADLINE_EXCEEDED','Local transcription exceeded its 90-second deadline')
+                    if not write_errors.empty():raise SpeechError('PROCESS_FAILURE','Local transcription worker input failed')
                     try:line=responses.get(timeout=.025)
                     except queue.Empty:
                         if cancelled.is_set():raise SpeechError('CANCELLED','Local transcription was cancelled')
@@ -282,6 +299,12 @@ class OfflineTranscriptionService:
             finally:
                 with self._lock:self._active=None
                 if not healthy or cancelled.is_set() or process.poll() is not None:self._stop_worker()
+                if writer:
+                    writer.join(1)
+                    if writer.is_alive():
+                        self._stop_worker()
+                        writer.join(1)
+                        raise SpeechError('PROCESS_FAILURE','Local transcription worker input did not finish')
 
     def _stop_worker(self):
         if not self._worker:return

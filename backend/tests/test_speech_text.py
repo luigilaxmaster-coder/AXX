@@ -11,7 +11,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from backend.speech.speech_text import prepare_spoken_text, spanish_integer
-from backend.speech.offline_asr import OfflineTranscriptionService, excessive_repetition, model_path, guard_worker_imports, InferenceOnlyImports, worker_main
+from backend.speech.offline_asr import OfflineTranscriptionService, excessive_repetition, model_path, guard_worker_imports, InferenceOnlyImports, worker_main, MAX_AUDIO
 from backend.speech.windows_tts import SpeechError
 
 
@@ -27,6 +27,10 @@ class SpokenTextTests(unittest.TestCase):
                                                  'mime': 'Audio/WAV; codecs=pcm', 'language': 'es'})
                     self.assertEqual(result['text'], 'hola'); self.assertGreaterEqual(result['timings_ms']['service_total'], 0)
                     self.assertEqual(execute.call_count, 1)
+                    request = execute.call_args.args[0]
+                    self.assertNotIn('audio_path', request)
+                    self.assertEqual(base64.b64decode(request['audio_base64']), b'RIFF0000WAVEdata')
+                    self.assertFalse(service.data_dir.exists())
                 for body in ([], None, 'audio'):
                     with self.assertRaises(SpeechError): service.transcribe(body)
             finally: service.close()
@@ -43,17 +47,44 @@ class SpokenTextTests(unittest.TestCase):
             with wave.open(str(path), 'wb') as stream:
                 stream.setparams((1, 2, 16000, 0, 'NONE', 'not compressed'))
                 stream.writeframes(b'\0\0' * 16000)
-            output = io.BytesIO()
-            with patch('backend.speech.offline_asr._load_worker_model') as load, \
-                    patch.object(sys, 'stdout', type('Output', (), {'buffer': output})()), \
-                    patch.object(sys, 'meta_path', list(sys.meta_path)):
-                code = worker_main(json.dumps({'audio_path': str(path), 'model_path': 'unused',
-                                               'language': 'es', 'task': 'transcribe'}).encode())
-            result = json.loads(output.getvalue())
-            self.assertEqual(code, 0, result); load.assert_not_called()
-            self.assertTrue(result['result']['silence_detected']); self.assertEqual(result['result']['text'], '')
-            self.assertEqual(result['result']['timings_ms']['model_load'], 0)
-            self.assertEqual(result['result']['timings_ms']['inference'], 0)
+            for audio in ({'audio_path': str(path)}, {'audio_base64':base64.b64encode(path.read_bytes()).decode()}):
+                with self.subTest(source=next(iter(audio))):
+                    output = io.BytesIO()
+                    with patch('backend.speech.offline_asr._load_worker_model') as load, \
+                            patch.object(sys, 'stdout', type('Output', (), {'buffer': output})()), \
+                            patch.object(sys, 'meta_path', list(sys.meta_path)):
+                        code = worker_main(json.dumps({**audio, 'model_path':'unused', 'language':'es', 'task':'transcribe'}).encode())
+                    result = json.loads(output.getvalue())
+                    self.assertEqual(code, 0, result); load.assert_not_called()
+                    self.assertTrue(result['result']['silence_detected']); self.assertEqual(result['result']['text'], '')
+                    self.assertEqual(result['result']['timings_ms']['model_load'], 0)
+                    self.assertEqual(result['result']['timings_ms']['inference'], 0)
+
+    def test_large_memory_payload_remains_cancellable_if_worker_never_reads(self):
+        children = []
+        def spawn(_command, **kwargs):
+            process = subprocess.Popen([sys.executable,'-c','import time; time.sleep(30)'],**kwargs)
+            children.append(process)
+            return process,None
+        with tempfile.TemporaryDirectory() as directory, patch('backend.speech.offline_asr.spawn_managed_process',side_effect=spawn):
+            service = OfflineTranscriptionService(directory)
+            errors = []
+            def execute():
+                try:service._execute({'audio_base64':'A' * (((MAX_AUDIO+2)//3)*4)})
+                except SpeechError as exc:errors.append(exc.code)
+            thread = threading.Thread(target=execute)
+            thread.start()
+            try:
+                until = time.monotonic()+3
+                while (service._active is None or not any(row.name=='axx-asr-input' and row.is_alive() for row in threading.enumerate())) and time.monotonic()<until:
+                    time.sleep(.01)
+                self.assertEqual(service.cancel_active(),1)
+                thread.join(3)
+                self.assertFalse(thread.is_alive())
+                self.assertEqual(errors,['CANCELLED'])
+                self.assertTrue(children and all(child.poll() is not None for child in children))
+                self.assertFalse(service.data_dir.exists())
+            finally:service.close();thread.join(3)
 
     def test_persistent_worker_installs_only_one_import_guard(self):
         with patch.object(sys,'meta_path',list(sys.meta_path)):
