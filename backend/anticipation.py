@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import copy
+from contextlib import contextmanager
 import datetime as dt
 import hashlib
 import importlib.util
@@ -31,6 +32,22 @@ PENDING = ('DETECTED', 'PREPARED', 'AWAITING_APPROVAL')
 TERMINAL = ('VERIFIED', 'FAILED', 'CANCELLED', 'EXPIRED', 'DISMISSED', 'SUPPRESSED', 'UNCERTAIN')
 ROUTINE = 'verify_generated_artifact'
 CAPABILITY = 'verify_artifact'
+MISSION_CAPABILITY = 'mission_steps'
+GRANT_LIFETIMES = ('one_action', 'session', 'mission', 'until_revoked')
+# Closed direct adapters: no application routing, UI input, shell, MCP or generated code.
+MISSION_COMMANDS = {
+    'axx.file.sha256': ('file_inspection', 'file_read', ('path',), ()),
+    'axx.file.compare': ('file_inspection', 'file_read', ('path', 'other_path'), ()),
+    'axx.file.find': ('file_find', 'metadata_read', ('directory',), ()),
+    'axx.artifact.pdf': ('artifact_pdf', 'file_read', ('path',), ()),
+    'axx.artifact.media': ('artifact_media', 'file_read', ('path',), ()),
+    'axx.artifact.ocr': ('artifact_ocr', 'file_read', ('path',), ()),
+    'axx.artifact.write': ('file_artifact_writer', 'new_artifact', (), ('path',)),
+    'axx.file.bundle': ('file_bundle', 'new_artifact', ('paths',), ('destination',)),
+    'axx.office.excel.csv': ('office_excel_csv', 'private_office_copy', ('source',), ('destination',)),
+    'axx.office.word.pdf': ('office_word_pdf', 'private_office_copy', ('source',), ('destination',)),
+    'axx.office.powerpoint.pdf': ('office_powerpoint_pdf', 'private_office_copy', ('source',), ('destination',)),
+}
 ARTIFACT_GENERATORS = ('file_artifact_writer', 'office_excel_csv', 'office_word_pdf', 'office_powerpoint_pdf', 'browser_download_pdf')
 ACTIVE_OWNERS = weakref.WeakValueDictionary()
 DEFAULTS = {
@@ -133,6 +150,14 @@ class AnticipationService:
             config['profiles'][name]['resources'] = DEFAULTS['profiles'][name]['resources'] | saved.get('profiles', {}).get(name, {}).get('resources', {})
         return config
 
+    @contextmanager
+    def _policy_transaction(self):
+        with self.lock:
+            if self.closed:
+                raise ValueError('La política de iniciativa está cerrada')
+            with self.db:
+                yield
+
     def _save(self, item):
         self.db.execute('UPDATE anticipation_suggestions SET state=?,payload=? WHERE suggestion_id=?',
                         (item['state'], canonical(item), item['suggestion_id']))
@@ -222,11 +247,240 @@ class AnticipationService:
         for row in self.db.execute('SELECT payload FROM anticipation_grants'):
             grant = json.loads(row[0])
             if (not grant['revoked'] and grant['task_id'] == item['task_id'] and grant['capability'] == CAPABILITY
+                    and grant.get('observe_events', True) is True
                     and (not item.get('grant_id') or item['grant_id'] == grant['grant_id'])
                     and (grant['expires_at'] is None or grant['expires_at'] > now)
                     and Path(item['plan']['inputs']['path']).is_relative_to(Path(grant['root']))):
+                if grant.get('source_target_id'):
+                    target = self._source_target(grant['source_target_id'])
+                    if not target or not target['retain'] or digest(target) != grant.get('source_authorization_hash'):
+                        continue
                 return grant
         return None
+
+    def _mission_descriptor(self, command_id):
+        spec = MISSION_COMMANDS.get(command_id)
+        if spec is None:
+            raise ValueError('La categoría no tiene un adaptador directo no físico autorizado')
+        tool, category, _, _ = spec
+        command, adapter = self.commands.commands.get(command_id) or {}, self.commands.adapters.get(command_id) or {}
+        available = command.get('execution_enabled') is True and adapter.get('tool') == tool and get_tool(tool) is not None
+        reason = 'Adaptador directo registrado; sus precondiciones reales se revalidan por paso.'
+        if command_id in ('axx.artifact.pdf', 'axx.artifact.media', 'axx.artifact.ocr'):
+            suffix = {'axx.artifact.pdf': '.pdf', 'axx.artifact.media': '.mp4', 'axx.artifact.ocr': '.png'}[command_id]
+            verifier = self._verifier('artifact' + suffix)
+            available, reason = available and verifier['available'], verifier['reason']
+        elif category == 'private_office_copy':
+            try:
+                ready = os.name == 'nt' and importlib.util.find_spec('win32com.client') is not None
+            except (ImportError, ValueError):
+                ready = False
+            if not ready:
+                available, reason = False, 'El adaptador Office privado requiere Windows y COM disponibles; no se instala ni abre nada al conceder permiso.'
+        return {'command_id': command_id, 'tool': tool, 'category': category, 'available': bool(available),
+                'parameters': copy.deepcopy(adapter.get('parameters', {})), 'reason': reason}
+
+    def _mission_capability(self):
+        return {'available': True, 'workspace_root': str(self.commands.executor.workspace_root),
+            'lifetimes': list(GRANT_LIFETIMES), 'parameter_constraints': 'exact_subset',
+            'write_scope': 'executor_workspace', 'provider_inference': False,
+            'commands': [self._mission_descriptor(key) for key in MISSION_COMMANDS]}
+
+    def _mission_context(self, plan):
+        from .memory.skill_memory import read_context_state
+        context = {'source': 'events', 'device_id': 'host', 'project_id': plan.get('project_id', '')}
+        current = read_context_state(self.db, plan.get('project_id', ''))
+        meta = current.get('context_meta', {}).get('current_application', {})
+        if meta.get('status') == 'active' and meta.get('task_id') in (None, '', plan.get('conversation_id')):
+            context['application_id'] = current.get('current_application', '')
+        return context, current
+
+    @staticmethod
+    def _grant_live(grant, now, session_id):
+        return (not grant.get('revoked') and (grant.get('expires_at') is None or now < grant['expires_at'])
+                and (grant.get('lifetime') != 'session' or grant.get('session_id') == session_id))
+
+    def _checkpoint_grant(self, item, source, *, bound=True):
+        """Select future-only permission; final resources are checked at dispatch."""
+        for row in self.db.execute('SELECT payload FROM anticipation_grants'):
+            grant = json.loads(row[0])
+            if (grant.get('capability') != MISSION_CAPABILITY or grant.get('task_id') != item['task_id']
+                    or not self._grant_live(grant, self.clock(), self.owner_id)
+                    or grant.get('created_at', float('inf')) > item['created_at']
+                    or bound and grant.get('grant_id') != item.get('grant_id')):
+                continue
+            if grant.get('learning_plan_id') and (grant['learning_plan_id'] != source['operation_id']
+                    or grant['reviewed_plan_hash'] != source.get('plan_hash')):
+                continue
+            pending = [(step, record) for step, record in zip(source.get('steps', []), source.get('step_records', []))
+                       if record.get('state') != 'succeeded']
+            if (not pending or any(step['command_id'] not in grant['command_ids'] or step['command_id'] not in MISSION_COMMANDS
+                    or record.get('state') in ('running', 'failed', 'unknown', 'cancelled') for step, record in pending)):
+                continue
+            if grant.get('consumed_operation_id') not in (None, pending[0][1]['operation_id']):
+                continue
+            return grant
+        return None
+
+    def _preparation_grant(self, item):
+        if item.get('candidate_kind') != 'resume_task':
+            return None
+        row = self.db.execute('SELECT payload FROM learning_plans WHERE id=?', (item['plan']['learning_operation_id'],)).fetchone()
+        return self._checkpoint_grant(item, json.loads(row[0])) if row else None
+
+    def _automatic_preparation(self, item):
+        if item.get('candidate_kind') != 'resume_task':
+            return True
+        row = self.db.execute('SELECT payload FROM learning_plans WHERE id=?', (item['plan']['learning_operation_id'],)).fetchone()
+        source = json.loads(row[0]) if row else {}
+        return source.get('state') == 'interrupted' and not source.get('pause_requested')
+
+    def _mission_resources(self, command_id, inputs, grant, context, config, *, deferred=(), require_existing=True):
+        _, _, read_fields, write_fields = MISSION_COMMANDS[command_id]
+        workspace = self.commands.executor.workspace_root.resolve()
+        write_root = Path(directory(grant['root']))
+        if not write_root.is_relative_to(workspace):
+            raise ValueError('El destino autorizado salió del espacio de artefactos')
+        read_roots = [write_root, *(Path(directory(raw)) for raw in grant.get('read_roots', []))]
+        resources = []
+        for field in read_fields:
+            if field in deferred:
+                continue
+            values = inputs[field] if field == 'paths' else [inputs[field]]
+            for raw in values:
+                if artifact_path_error(raw) or not Path(raw).is_absolute():
+                    raise ValueError('El origen debe ser una ruta local absoluta segura')
+                path = Path(raw).resolve(strict=require_existing)
+                if not any(path.is_relative_to(root) for root in read_roots):
+                    raise ValueError('El origen no está cubierto por read_roots')
+                if require_existing and (field == 'directory' and not path.is_dir() or field != 'directory' and not path.is_file()):
+                    raise ValueError('El tipo del recurso de origen cambió')
+                resources.append(path)
+        for field in write_fields:
+            if field in deferred:
+                continue
+            raw = inputs[field]
+            path = Path(raw)
+            if artifact_path_error(raw) or path.is_absolute() or path.drive or '..' in path.parts:
+                raise ValueError('El destino debe ser nuevo y relativo al espacio de artefactos')
+            path = (workspace / path).resolve()
+            if artifact_path_error(str(path)) or not path.is_relative_to(write_root) or path.exists():
+                raise ValueError('El destino ya existe o está fuera de la raíz concedida')
+            resources.append(path)
+        # Root checks apply even when a command's output has not been created yet.
+        for path in resources or [write_root]:
+            _, options = self._policy(grant['task_id'], str(path), config, context)
+            if options['mode'] != 'EXECUTE' or not self._within_budget(options):
+                raise ApprovalRequired('El perfil Full, ámbito, horario o presupuesto ya no autoriza el paso')
+            if path.is_file() and path.stat().st_size > options['resources']['max_file_bytes']:
+                raise ValueError('El recurso excede el presupuesto de lectura del perfil')
+
+    def authorize_mission_step(self, plan, step, actual_inputs, command_operation_id, claim=False):
+        """Exact-dispatch guard; only pure validation and caller-owned SQL under policy lock."""
+        identifier(command_operation_id, 'Operación de comando')
+        if self.closed:
+            raise ValueError('La política de iniciativa está cerrada')
+        if type(claim) is not bool or not isinstance(plan, dict) or not isinstance(step, dict):
+            raise ValueError('Admisión de misión inválida')
+        command_id = step.get('command_id')
+        descriptor = self._mission_descriptor(command_id)
+        if not descriptor['available']:
+            raise ValueError(descriptor['reason'])
+        # These validators acquire no CommandService/ActionLearning locks. Run
+        # before the policy lock; the caller's dispatch lock stabilizes adapters.
+        inputs = self.commands._validate_inputs(command_id, actual_inputs, require_new=False, check_files=False)
+        learning = self.commands.learning
+        if learning is None or learning.closed or learning.closing:
+            raise ValueError('El planificador existente no está disponible')
+        plan_hash = learning._plan_hash(plan)
+        auth = plan.get('initiative_authorization') or {}
+        if plan_hash != plan.get('plan_hash') or auth.get('admitted_plan_hash') != plan_hash:
+            raise StaleContext('El plan no coincide con la versión admitida por el permiso')
+        if (not isinstance(auth.get('grant_id'), str) or type(auth.get('authorized_at')) not in (int, float)
+                or not math.isfinite(auth['authorized_at'])):
+            raise ValueError('Falta la admisión explícita de esta revisión del plan')
+        records = plan.get('step_records') or []
+        matches = [(candidate, record) for candidate, record in zip(plan.get('steps', []), records)
+                   if record.get('operation_id') == command_operation_id]
+        if len(matches) != 1 or matches[0][0] != step:
+            raise ValueError('La operación no pertenece al paso exacto de la misión')
+        from .actions.plan_contract import resolve_inputs
+        expected = self.commands._validate_inputs(command_id, resolve_inputs(step, records), require_new=False, check_files=False)
+        if canonical(expected) != canonical(inputs):
+            raise StaleContext('Los parámetros reales no coinciden con los literales y resultados verificados del plan')
+        pending = []
+        for candidate, record in zip(plan.get('steps', []), records):
+            if record.get('state') == 'succeeded':
+                continue
+            descriptor = self._mission_descriptor(candidate.get('command_id'))
+            if not descriptor['available']:
+                raise ValueError('Un paso pendiente no tiene su adaptador no físico disponible')
+            literal = self.commands._validate_inputs(candidate['command_id'], candidate['inputs'], require_new=False,
+                check_files=False, deferred_fields=candidate.get('bindings', {}))
+            pending.append((candidate, literal))
+        if (plan.get('cancel_requested') or plan.get('pause_requested') or plan.get('state') not in ('awaiting_approval', 'interrupted', 'running')
+                or any(record.get('state') in ('unknown', 'failed', 'cancelled') for record in records)):
+            raise ValueError('La misión cancelada, terminada o incierta no puede continuar automáticamente')
+        if claim and (plan['state'] != 'running' or matches[0][1].get('state') != 'running' or plan.get('approved_hash') != plan_hash):
+            raise ValueError('El paso no está en el límite de despacho aprobado')
+        with self._policy_transaction():
+            if self.closed:
+                raise ValueError('La política de iniciativa está cerrada')
+            saved = self.db.execute('SELECT payload FROM learning_plans WHERE id=?', (plan.get('operation_id'),)).fetchone()
+            current_plan = json.loads(saved[0]) if saved else {}
+            if (current_plan.get('plan_hash') != plan_hash or current_plan.get('cancel_requested') or current_plan.get('pause_requested')
+                    or current_plan.get('state') not in ('awaiting_approval', 'interrupted', 'running')
+                    or any(record.get('state') in ('unknown', 'failed', 'cancelled') for record in current_plan.get('step_records', []))):
+                raise StaleContext('La misión existente cambió o fue cancelada')
+            if claim:
+                current_record = next((record for record in current_plan.get('step_records', []) if record.get('operation_id') == command_operation_id), {})
+                if (current_plan.get('state') != 'running' or current_plan.get('approved_hash') != plan_hash
+                        or current_record.get('state') != 'running'
+                        or (current_plan.get('initiative_authorization') or {}).get('grant_id') != auth['grant_id']):
+                    raise StaleContext('El despacho ya no pertenece a una misión autorizada activa')
+            row = self.db.execute('SELECT payload FROM anticipation_grants WHERE grant_id=?', (auth.get('grant_id'),)).fetchone()
+            if not row:
+                raise ApprovalRequired('El permiso persistente ya no existe')
+            grant = json.loads(row[0])
+            task = plan.get('conversation_id') or plan.get('operation_id')
+            if (grant.get('capability') != MISSION_CAPABILITY or grant.get('task_id') != task
+                    or not self._grant_live(grant, self.clock(), self.owner_id)
+                    or command_id not in grant['command_ids']):
+                raise ApprovalRequired('La tarea, comando o vigencia no están cubiertos por el permiso')
+            if any(candidate['command_id'] not in grant['command_ids'] for candidate, _ in pending):
+                raise ApprovalRequired('Un paso pendiente no pertenece a los comandos concedidos; no se ejecutó ningún prefijo')
+            if grant.get('learning_plan_id') and (grant['learning_plan_id'] != plan.get('operation_id') or grant['reviewed_plan_hash'] != plan_hash):
+                raise StaleContext('La misión o su revisión no coincide con el permiso')
+            if grant.get('consumed_operation_id') not in (None, command_operation_id):
+                raise ApprovalRequired('El permiso de una acción ya se consumió')
+            fixed = grant.get('parameter_constraints', {}).get(command_id, {})
+            if any(key not in inputs or canonical(inputs[key]) != canonical(value) for key, value in fixed.items()):
+                raise ApprovalRequired('Un parámetro no coincide con el valor exacto concedido')
+            context, current = self._mission_context(plan)
+            error = learning._context_error(plan, current)
+            if error:
+                raise StaleContext(error)
+            self._mission_resources(command_id, inputs, grant, context, self._config())
+            for candidate, literal in pending:
+                fixed = grant.get('parameter_constraints', {}).get(candidate['command_id'], {})
+                if any(key in literal and canonical(literal[key]) != canonical(value) for key, value in fixed.items()):
+                    raise ApprovalRequired('Un paso pendiente contradice un límite exacto concedido')
+                self._mission_resources(candidate['command_id'], literal, grant, context, self._config(),
+                    deferred=candidate.get('bindings', {}), require_existing=False)
+            if claim and grant['lifetime'] == 'one_action' and grant.get('consumed_operation_id') is None:
+                changed = grant | {'consumed_operation_id': command_operation_id, 'consumed_at': self.clock()}
+                updated = self.db.execute('UPDATE anticipation_grants SET payload=? WHERE grant_id=? AND payload=?',
+                                         (canonical(changed), grant['grant_id'], row[0])).rowcount
+                if not updated:
+                    raise ApprovalRequired('El permiso cambió al reservar la acción')
+                grant = changed
+            if claim:
+                action_id = 'cmd-' + hashlib.sha256(command_operation_id.encode()).hexdigest()
+                self.db.execute('INSERT OR IGNORE INTO anticipation_privacy VALUES (?,?,?)',
+                    (action_id, 'mission_step:' + MISSION_COMMANDS[command_id][1], self.clock()))
+                self.db.execute('INSERT OR IGNORE INTO anticipation_seen VALUES (?,?)',
+                    ('initiated-learning-' + digest(plan['operation_id']), self.clock()))
+            return {key: grant[key] for key in ('grant_id', 'capability', 'lifetime')} | {'admitted_plan_hash': plan_hash}
 
     def _suppressed(self, task, routine):
         return self.db.execute('SELECT 1 FROM anticipation_suppressions WHERE task_id IN (?,?) AND routine_id=?', (task, '*', routine)).fetchone() is not None
@@ -299,6 +553,8 @@ class AnticipationService:
     def filter_result(self, action_operation_id, output, evidence, error=None):
         """Executor hook: remove raw document content before either journal commits it."""
         with self.lock:
+            if self.closed:
+                raise ValueError('La política de privacidad está cerrada')
             row = self.db.execute('SELECT verification_scope FROM anticipation_privacy WHERE action_operation_id=?', (action_operation_id,)).fetchone()
             if not row:
                 return output, evidence, error
@@ -334,7 +590,7 @@ class AnticipationService:
             values = sorted(value for value in values if value is not None)
             return {'samples': len(values), **{name: values[max(0, math.ceil(len(values) * percentile) - 1)] if values else None
                     for name, percentile in (('p50', .5), ('p95', .95))}}
-        fields = ('eligible', 'evaluated_proposed', 'proposed', 'shown', 'verified', 'failed', 'abstained', 'explicit_acceptances', 'autonomous_executions', 'explicit_useful_feedback', 'explicit_corrections')
+        fields = ('eligible', 'evaluated_proposed', 'proposed', 'shown', 'verified', 'failed', 'abstained', 'explicit_acceptances', 'autonomous_executions', 'autonomous_preparations', 'explicit_useful_feedback', 'explicit_corrections')
         metrics = {key: sum(row.get(key, 0) for row in stats) for key in fields}
         metrics.update(model_calls=0, coverage={'numerator': metrics['evaluated_proposed'], 'denominator': metrics['eligible'], 'universe': 'Candidates evaluated since P1 eligibility counters were introduced.'},
             verification_latency_ms=distribution([row['wall_ms'] for row in measurements if row['kind'] == 'verification']),
@@ -510,6 +766,15 @@ class AnticipationService:
             grants = [json.loads(row[0]) for row in self.db.execute('SELECT payload FROM anticipation_grants')]
             if task_id is not None:
                 grants = [grant for grant in grants if grant['task_id'] == task_id]
+            for grant in grants:
+                reason = ('revoked' if grant.get('revoked') else 'expired' if grant.get('expires_at') is not None and self.clock() >= grant['expires_at']
+                          else 'session_ended' if grant.get('lifetime') == 'session' and grant.get('session_id') != self.owner_id
+                          else 'consumed' if grant.get('consumed_operation_id') else None)
+                if not reason and grant.get('source_target_id'):
+                    target = self._source_target(grant['source_target_id'], config)
+                    if not target or not target['retain'] or digest(target) != grant.get('source_authorization_hash'):
+                        reason = 'source_consent_changed'
+                grant.update(active=reason is None, inactive_reason=reason)
             stats = [dict(task_id=row['task_id'], routine_id=row['routine_id'], **json.loads(row['payload']))
                      for row in self.db.execute('SELECT * FROM anticipation_stats' + (' WHERE task_id=?' if task_id else ''), (task_id,) if task_id else ())]
             effective = config['profile']
@@ -525,6 +790,7 @@ class AnticipationService:
                 'source_runtime': self._source_runtime(config, task_id),
                 'source_observations': [copy.deepcopy(event) for event in self.source_observations if task_id is None or event['task_id'] == task_id],
                 'capabilities': {'verify_artifact': self._can_verify(), 'physical_execution': False,
+                    'mission_steps': self._mission_capability(),
                     'folders': True, 'applications': self._applications_available(), 'provider_send': False,
                     'verifiers': {name: self._verifier(path) for name, path in {'hash': 'file.txt', 'pdf': 'file.pdf', 'media': 'file.mp4', 'image': 'file.png', 'docx': 'file.docx', 'xlsx': 'file.xlsx'}.items()},
                     'resource_limits_scope': 'Periodic observation and admission; each registered tool retains its own execution deadline.',
@@ -680,7 +946,7 @@ class AnticipationService:
                 invalid = True
             if item.get('candidate_kind', 'verify_artifact') != 'verify_artifact' and not self._preparation_scope_allowed(item['task_id'], config):
                 invalid = True
-            if item.get('approval') == 'persistent' and not self._grant(item):
+            if item.get('approval') == 'persistent' and not (self._grant(item) if item.get('candidate_kind', 'verify_artifact') == 'verify_artifact' else self._preparation_grant(item)):
                 invalid = True
             if invalid:
                 item.update(state='CANCELLED', message='La política o autorización cambió; la iniciativa no se reactivará.', cancel_requested=True)
@@ -693,21 +959,97 @@ class AnticipationService:
         # Never hold the policy lock while acquiring CommandService's lock.
         for key in operation_ids:
             self.commands.cancel(key)
+            with self.lock:
+                row = self.db.execute("SELECT payload FROM anticipation_suggestions WHERE json_extract(payload,'$.operation_id')=?", (key,)).fetchone()
+                item = json.loads(row[0]) if row else {}
+                source = None
+                if item.get('auto_continue') and item.get('learning_plan_id'):
+                    plan = self.db.execute('SELECT payload FROM learning_plans WHERE id=?', (item['learning_plan_id'],)).fetchone()
+                    source = json.loads(plan[0]) if plan else None
+            if source and self.commands.learning:
+                self.commands.learning.pause(source['operation_id'])
+                for operation in source.get('active_operation_ids', []):
+                    self.commands.cancel(operation)
 
     def grant(self, body):
-        if not isinstance(body, dict) or set(body) - {'task_id', 'capability', 'root', 'expires_at', 'observe_events'}:
+        if not isinstance(body, dict) or set(body) - {'task_id', 'capability', 'root', 'expires_at', 'observe_events',
+                'source_target_id', 'metadata_only', 'read_roots', 'command_ids', 'parameter_constraints',
+                'lifetime', 'learning_plan_id', 'reviewed_plan_hash'}:
             raise ValueError('Autorización desconocida')
         task = identifier(body.get('task_id'), 'Tarea')
-        if body.get('capability') != CAPABILITY or body.get('observe_events', True) is not True:
-            raise ValueError('Solo se admite verificación de artefactos y sus eventos autorizados')
+        capability = body.get('capability')
+        if capability not in (CAPABILITY, MISSION_CAPABILITY) or type(body.get('observe_events', True)) is not bool:
+            raise ValueError('Solo se admiten capacidades directas explícitas y sus eventos autorizados')
         root = directory(body.get('root'))
-        if not Path(root).is_relative_to(self.commands.executor.workspace_root):
-            raise ValueError('El permiso debe permanecer dentro de la carpeta de artefactos de Axx')
         expiry = body.get('expires_at')
         if expiry is not None and (type(expiry) not in (int, float) or not math.isfinite(expiry) or expiry <= self.clock()):
             raise ValueError('Vigencia inválida')
-        grant = {'grant_id': uuid.uuid4().hex, 'task_id': task, 'capability': CAPABILITY,
-                 'root': root, 'expires_at': expiry, 'observe_events': True, 'revoked': False, 'created_at': self.clock()}
+        grant = {'grant_id': uuid.uuid4().hex, 'task_id': task, 'capability': capability,
+                 'root': root, 'expires_at': expiry, 'observe_events': body.get('observe_events', True), 'revoked': False, 'created_at': self.clock()}
+        if capability == MISSION_CAPABILITY:
+            if set(body) & {'source_target_id', 'metadata_only', 'observe_events'}:
+                raise ValueError('Una misión requiere sus raíces y comandos, no permisos de observador implícitos')
+            grant.pop('observe_events', None)
+            if not Path(root).is_relative_to(self.commands.executor.workspace_root):
+                raise ValueError('El destino de misión debe permanecer dentro de la carpeta de artefactos de Axx')
+            commands = body.get('command_ids')
+            if (not isinstance(commands, list) or not 1 <= len(commands) <= len(MISSION_COMMANDS)
+                    or any(not isinstance(key, str) for key in commands) or len(set(commands)) != len(commands)):
+                raise ValueError('Selecciona comandos directos explícitos sin duplicados')
+            descriptors = [self._mission_descriptor(key) for key in commands]
+            if any(not descriptor['available'] for descriptor in descriptors):
+                raise ValueError('Un adaptador directo o su entorno todavía no está disponible')
+            constraints = body.get('parameter_constraints', {})
+            if not isinstance(constraints, dict) or set(constraints) - set(commands) or len(canonical(constraints).encode()) > 65536:
+                raise ValueError('Los límites exactos de parámetros deben pertenecer a los comandos concedidos')
+            for key, fixed in constraints.items():
+                if not isinstance(fixed, dict):
+                    raise ValueError('Cada límite debe ser un subconjunto exacto de parámetros')
+                parameters = self.commands.adapters[key]['parameters']
+                # Deferred fields omit only unbound parameters; supplied values
+                # retain the same real type/bounds validation as CommandService.
+                self.commands._validate_inputs(key, fixed, require_new=False, check_files=False,
+                    deferred_fields=set(parameters) - set(fixed) or ())
+            roots = body.get('read_roots', [])
+            if not isinstance(roots, list) or len(roots) > 16:
+                raise ValueError('Selecciona hasta dieciséis carpetas de lectura explícitas')
+            roots = list(dict.fromkeys(directory(value) for value in roots))
+            lifetime = body.get('lifetime', 'until_revoked')
+            if lifetime not in GRANT_LIFETIMES:
+                raise ValueError('Duración del permiso desconocida')
+            plan_id, plan_hash = body.get('learning_plan_id'), body.get('reviewed_plan_hash')
+            if (plan_id is None) != (plan_hash is None) or lifetime == 'mission' and not plan_id:
+                raise ValueError('El permiso de misión requiere ID y hash de la revisión existente')
+            if plan_id is not None:
+                identifier(plan_id, 'Misión')
+                if not isinstance(plan_hash, str) or not re.fullmatch('[a-f0-9]{64}', plan_hash):
+                    raise ValueError('Hash de misión inválido')
+                with self.lock:
+                    exists = self.db.execute("SELECT 1 FROM sqlite_master WHERE name='learning_plans'").fetchone()
+                    row = self.db.execute('SELECT payload FROM learning_plans WHERE id=?', (plan_id,)).fetchone() if exists else None
+                source = json.loads(row[0]) if row else {}
+                if (source.get('conversation_id') or source.get('operation_id')) != task or source.get('plan_hash') != plan_hash:
+                    raise ValueError('La misión o revisión no pertenece a la tarea concedida')
+            grant.update(command_ids=commands, categories=sorted({item['category'] for item in descriptors}),
+                parameter_constraints=constraints, read_roots=roots, lifetime=lifetime,
+                learning_plan_id=plan_id, reviewed_plan_hash=plan_hash, consumed_operation_id=None)
+            if lifetime == 'session':
+                grant['session_id'] = self.owner_id
+        else:
+            if set(body) & {'read_roots', 'command_ids', 'parameter_constraints', 'lifetime', 'learning_plan_id', 'reviewed_plan_hash'}:
+                raise ValueError('La verificación de artefactos no concede pasos de misión')
+            if body.get('metadata_only', True) is not True:
+                raise ValueError('La verificación proactiva conserva solo metadatos')
+            grant['metadata_only'] = True
+            if 'source_target_id' in body:
+                with self.lock:
+                    target = self._source_target(identifier(body['source_target_id']))
+                if (not target or target['source'] != 'folder' or not target['retain'] or target['task_id'] != task
+                        or not Path(root).is_relative_to(Path(target['root']))):
+                    raise ValueError('La carpeta de lectura requiere un observador activo con retención explícita para esta tarea')
+                grant.update(source_target_id=target['id'], source_authorization_hash=digest(target))
+            elif not Path(root).is_relative_to(self.commands.executor.workspace_root):
+                raise ValueError('Una raíz externa requiere source_target_id y permiso de metadatos específico')
         with self.lock, self.db:
             self.db.execute('INSERT INTO anticipation_grants VALUES (?,?)', (grant['grant_id'], canonical(grant)))
         return grant
@@ -765,6 +1107,15 @@ class AnticipationService:
                     'context': context,
                     'provenance': self._command_provenance(command), 'outcome': 'verified', 'feedback': 'none'}
                 self.db.execute('INSERT OR IGNORE INTO anticipation_events VALUES (?,?,?,?)', (event['event_id'], task, self.clock(), canonical(event)))
+                if event['provenance'].get('origin') == 'explicit_revalidation':
+                    try:
+                        verifier = self._verifier(path)
+                        key = digest({'path': os.path.normcase(path), 'identity': list(fingerprint(Path(path).stat())),
+                            'task': task, 'command': verifier['command_id'], 'verifier_version': verifier['version']})
+                        self.db.execute('INSERT OR IGNORE INTO anticipation_seen VALUES (?,?)', ('no-initiative-resource-' + key, self.clock()))
+                    except OSError:
+                        pass
+                    continue
                 try:
                     self._propose(event, profile, options)
                 except OSError:
@@ -793,6 +1144,13 @@ class AnticipationService:
             if row:
                 plan = json.loads(row[0])
                 provenance['learning_plan_id'] = plan['operation_id']
+                if plan.get('revalidation'):
+                    provenance.update(origin='explicit_revalidation', human_preference_evidence=False)
+                    return provenance
+                if plan.get('initiative_authorization'):
+                    provenance.update(origin='persistent_mission',
+                        grant_id=plan['initiative_authorization'].get('grant_id'), human_preference_evidence=False)
+                    return provenance
                 linked = self.db.execute("SELECT suggestion_id FROM anticipation_suggestions WHERE json_extract(payload,'$.learning_plan_id')=? LIMIT 1", (plan['operation_id'],)).fetchone()
                 if plan['operation_id'].startswith('ant-plan-') or linked or self._initiated_plan(plan['operation_id']):
                     provenance.update(origin='suggestion_accepted', causation_id=linked[0] if linked else plan['operation_id'])
@@ -809,6 +1167,8 @@ class AnticipationService:
         # The UNIQUE dedupe column arbitrates their resource identity across processes.
         key = digest({'path': os.path.normcase(event['path']), 'identity': identity, 'task': event['task_id'],
                       'command': verifier['command_id'], 'verifier_version': verifier['version']})
+        if self.db.execute('SELECT 1 FROM anticipation_seen WHERE operation_id=?', ('no-initiative-resource-' + key,)).fetchone():
+            return None
         existing = self.db.execute("""SELECT payload FROM anticipation_suggestions WHERE
             dedupe_key=? OR (task_id=? AND routine_id=? AND json_extract(payload,'$.plan.inputs.path')=?
             AND json_extract(payload,'$.plan.command_id')=? AND json_extract(payload,'$.plan.expected_identity')=?) LIMIT 1""",
@@ -915,6 +1275,13 @@ class AnticipationService:
             'assessment': {'likelihood': {'score': 1, 'method': 'verified_checkpoint' if kind == 'resume_task' else 'repeated_verified_skill', 'evidence_count': len(evidence)},
                 'capability': {'available': True, 'method': 'ActionLearning.resume' if kind == 'resume_task' else 'ActionLearning.prepare_steps'},
                 'authorization': {'allowed': False, 'required': 'prepare_existing_plan'}}}
+        if options['mode'] == 'EXECUTE' and kind == 'resume_task':
+            row = self.db.execute('SELECT payload FROM learning_plans WHERE id=?', (plan['learning_operation_id'],)).fetchone()
+            source = json.loads(row[0]) if row else {}
+            if source.get('state') == 'interrupted' and not source.get('pause_requested'):
+                grant = self._checkpoint_grant(item, source, bound=False)
+                if grant:
+                    item.update(grant_id=grant['grant_id'], auto_continue=True)
         inserted = self.db.execute('INSERT OR IGNORE INTO anticipation_suggestions VALUES (?,?,?,?,?,?,?,?)',
             (sid, key, task, routine, item['state'], item['plan_hash'], self.clock(), canonical(item))).rowcount
         if inserted:
@@ -932,6 +1299,8 @@ class AnticipationService:
             plans = [json.loads(row[0]) for row in self.db.execute('SELECT payload FROM learning_plans')]
         groups = {}
         for source in plans:
+            if source.get('revalidation'):
+                continue
             task = source.get('conversation_id') or source['operation_id']
             path = str(self.commands.executor.workspace_root)
             context = {'source': 'events', 'project_id': source.get('project_id', ''), 'device_id': 'host'}
@@ -957,7 +1326,7 @@ class AnticipationService:
                 initiated = self.db.execute("SELECT 1 FROM anticipation_suggestions WHERE json_extract(payload,'$.learning_plan_id')=? LIMIT 1", (source['operation_id'],)).fetchone()
             with self.lock:
                 initiated = initiated or self._initiated_plan(source['operation_id'])
-            if (source['operation_id'].startswith('ant-plan-') or initiated
+            if (source['operation_id'].startswith('ant-plan-') or initiated or source.get('initiative_authorization')
                     or source.get('origin') in ('anticipation', 'autonomous_routine', 'suggestion_accepted')):
                 continue
             for ref in source.get('skill_versions', []):
@@ -1045,9 +1414,17 @@ class AnticipationService:
         if item.get('candidate_kind', 'verify_artifact') != 'verify_artifact':
             if not self._preparation_scope_allowed(item['task_id']):
                 raise ValueError('La preparación de tareas usa ámbitos por tarea; hay una condición de carpeta sin resolver')
-            if automatic:
-                raise ApprovalRequired('Revisa la preparación de esta tarea o rutina')
-            return self._preparation_source(item)
+            prepared = self._preparation_source(item)
+            if automatic or item.get('approval') == 'persistent':
+                _, source, _ = prepared
+                if item['candidate_kind'] == 'resume_task' and (source.get('state') != 'interrupted' or source.get('pause_requested')):
+                    raise ApprovalRequired('Una pausa humana conserva la revisión manual del checkpoint')
+                local_prepare = options['mode'] == item['admitted_mode'] == 'PREPARE'
+                full_continue = (options['mode'] == item['admitted_mode'] == 'EXECUTE' and item.get('auto_continue')
+                                 and self._checkpoint_grant(item, source))
+                if not local_prepare and not full_continue:
+                    raise ApprovalRequired('Revisa la preparación de esta tarea o rutina')
+            return prepared
         path = item['plan']['inputs']['path']
         if not self._source_authorized(item):
             raise ValueError('La autorización de origen cambió, fue revocada o caducó')
@@ -1074,6 +1451,8 @@ class AnticipationService:
         if not isinstance(operation_id, str) or not operation_id.startswith('ant-'):
             return
         with self.lock:
+            if self.closed:
+                raise ValueError('La política de iniciativa está cerrada')
             row = self.db.execute('SELECT payload FROM anticipation_suggestions WHERE json_extract(payload,\'$.operation_id\')=?', (operation_id,)).fetchone()
             if not row:
                 return
@@ -1119,10 +1498,11 @@ class AnticipationService:
                     self._save(item)
                     self._transition(item, item['state'])
                 return item
-            item.update(state='EXECUTING', approval='persistent' if automatic else 'manual', accepted_hash=plan_hash,
+            local_preparation = automatic and item.get('candidate_kind', 'verify_artifact') != 'verify_artifact' and item['admitted_mode'] == 'PREPARE'
+            item.update(state='EXECUTING', approval='profile_preparation' if local_preparation else 'persistent' if automatic else 'manual', accepted_hash=plan_hash,
                         accepted_at=self.clock(), owner_id=self.owner_id, lease_expires_at=self.clock() + 60)
-            item.setdefault('feedback', {})['acceptance'] = 'persistent_grant' if automatic else 'explicit'
-            if automatic:
+            item.setdefault('feedback', {})['acceptance'] = 'profile_preparation' if local_preparation else 'persistent_grant' if automatic else 'explicit'
+            if automatic and item.get('candidate_kind', 'verify_artifact') == 'verify_artifact':
                 item['grant_id'] = self._grant(item)['grant_id']
             item['assessment']['authorization'] = {'allowed': True, 'source': item['approval'], 'grant_id': item.get('grant_id')}
             # The conditional claim also arbitrates two backend processes sharing state.db.
@@ -1132,7 +1512,7 @@ class AnticipationService:
                 if not changed:
                     return self._get(suggestion_id) | {'replayed': True}
                 self._stats(item['task_id'], item['routine_id'], 'accepted')
-                self._stats(item['task_id'], item['routine_id'], 'autonomous_executions' if automatic else 'explicit_acceptances')
+                self._stats(item['task_id'], item['routine_id'], 'autonomous_preparations' if local_preparation else 'autonomous_executions' if automatic else 'explicit_acceptances')
                 self._transition(item, 'INTENDED', {'plan_hash': plan_hash})
         try:
             if item.get('candidate_kind', 'verify_artifact') != 'verify_artifact':
@@ -1147,6 +1527,8 @@ class AnticipationService:
             return self._finish(suggestion_id, result)
         except Exception as exc:
             LOG.warning('Anticipation execution stopped: %s', type(exc).__name__)
+            if self.closed:
+                return {'suggestion_id': suggestion_id, 'state': 'CANCELLED', 'service_closed': True, 'result': None}
             with self.lock:
                 forgotten = self.db.execute('SELECT 1 FROM anticipation_suggestions WHERE suggestion_id=?', (suggestion_id,)).fetchone() is None
             if forgotten:
@@ -1202,28 +1584,52 @@ class AnticipationService:
                 cancelled = True
         if cancelled:
             result = learning.pause(plan_id)
+        execute = item.get('approval') == 'persistent' and item.get('auto_continue') and not cancelled
+        if execute:
+            with self.lock:
+                try:
+                    current = self._get(item['suggestion_id'])
+                    execute = (current['state'] == 'EXECUTING' and not current.get('cancel_requested')
+                               and self._preparation_grant(current) is not None)
+                except ValueError:
+                    execute = False
+            if execute:
+                result = learning.execute_with_grant(plan_id, item['grant_id'], result['plan_hash'])
+                return self._finish_preparation(item['suggestion_id'], result, executed=True)
+            result = learning.pause(plan_id)
         return self._finish_preparation(item['suggestion_id'], result)
 
-    def _finish_preparation(self, key, result):
+    def _finish_preparation(self, key, result, *, executed=False):
         with self.lock, self.db:
             try:
                 item = self._get(key)
             except ValueError:
                 return {'suggestion_id': key, 'state': 'CANCELLED', 'forgotten': True, 'result': None}
-            prepared = result.get('state') == 'awaiting_approval' and bool(result.get('steps')) and bool(result.get('plan_hash'))
-            state = 'PREPARED' if prepared else 'FAILED'
+            prepared = bool(result.get('steps')) and bool(result.get('plan_hash')) and (executed or result.get('state') == 'awaiting_approval')
+            verified = executed and result.get('state') == 'succeeded' and result.get('postconditions_passed') is True
+            state = ('VERIFIED' if verified else 'UNCERTAIN' if executed and result.get('state') in ('running', 'unknown')
+                     else 'CANCELLED' if executed and result.get('state') == 'cancelled'
+                     else 'FAILED' if executed and result.get('state') in ('failed', 'blocked') else 'PREPARED' if prepared else 'FAILED')
             if item.get('cancel_requested'):
                 state = 'CANCELLED'
             item.update(state=state, preparation_complete=prepared, learning_plan_id=result['operation_id'],
                 result=result | {'kind': 'learned_plan'}, completed_at=self.clock(),
                 message='Plan preparado en la tarea existente. Revisa y aprueba sus pasos antes de ejecutarlos.' if prepared else 'La tarea requiere revisión; no se ejecutaron nuevos pasos.',
                 error=None if prepared else result.get('message'))
+            if executed:
+                item.update(execution_attempted=True, error=None if verified else result.get('message'),
+                    message='Misión continuada y resultado comprobado por el ejecutor existente.' if verified else 'La misión se detuvo; consulta sus recibos reales antes de continuar.')
+                self._stats(item['task_id'], item['routine_id'], 'verified' if verified else 'failed')
             self._save(item)
-            self._transition(item, state, {'learning_plan_id': result['operation_id'], 'effects_executed': False})
+            self._transition(item, state, {'learning_plan_id': result['operation_id'], 'execution_attempted': executed})
             return item
 
     def _finish(self, key, result):
+        if self.closed:
+            return {'suggestion_id': key, 'state': 'CANCELLED', 'service_closed': True, 'result': None}
         with self.lock, self.db:
+            if self.closed:
+                return {'suggestion_id': key, 'state': 'CANCELLED', 'service_closed': True, 'result': None}
             try:
                 item = self._get(key)
             except ValueError:
@@ -1315,7 +1721,13 @@ class AnticipationService:
                         continue
                     _, options = self._policy(item['task_id'], item['plan']['inputs']['path'], context=item['plan'].get('context'))
                     # A later profile upgrade never turns an old suggestion into an automatic action.
-                    if self._within_budget(options) and item.get('candidate_kind', 'verify_artifact') == 'verify_artifact' and item['admitted_mode'] == 'EXECUTE' and options['mode'] == 'EXECUTE' and not item.get('shadow') and item.get('grant_id') and self._grant(item):
+                    verification = (item.get('candidate_kind', 'verify_artifact') == 'verify_artifact'
+                        and item['admitted_mode'] == options['mode'] == 'EXECUTE' and item.get('grant_id') and self._grant(item))
+                    preparation = (item.get('candidate_kind', 'verify_artifact') != 'verify_artifact'
+                        and self._automatic_preparation(item)
+                        and (item['admitted_mode'] == options['mode'] == 'PREPARE'
+                             or item.get('auto_continue') and item['admitted_mode'] == options['mode'] == 'EXECUTE' and self._preparation_grant(item)))
+                    if self._within_budget(options) and not item.get('shadow') and (verification or preparation):
                         candidates.append(item)
             self._cancel_commands(cancelled)
             results = []
@@ -1329,7 +1741,11 @@ class AnticipationService:
                             or dispatched.get(profile, 0) >= options['resources']['max_events_tick']):
                         continue
                     dispatched[profile] = dispatched.get(profile, 0) + 1
-                results.append(self.accept(item['suggestion_id'], item['plan_hash'], automatic=True))
+                try:
+                    results.append(self.accept(item['suggestion_id'], item['plan_hash'], automatic=True))
+                except ApprovalRequired:
+                    # Revocation or a newly requested human pause wins admission.
+                    continue
             self._purge()
             return results
         finally:
@@ -1448,10 +1864,14 @@ class AnticipationService:
                     self.db.execute('DELETE FROM anticipation_events WHERE event_id=?', (row['event_id'],))
 
     def close(self):
-        with self.lock:
-            if not self.closed:
-                self.closed = True
-                self.source_state.clear()
-                self.source_observations.clear()
-                ACTIVE_OWNERS.pop(self.owner_id, None)
-                self.db.close()
+        # Same executor -> policy order as result_filter. Parallel reads release
+        # the executor lock, so drain its existing condition before closing SQL.
+        with self.commands.executor.lock:
+            self.commands.executor.wait_for_reads()
+            with self.lock:
+                if not self.closed:
+                    self.closed = True
+                    self.source_state.clear()
+                    self.source_observations.clear()
+                    ACTIVE_OWNERS.pop(self.owner_id, None)
+                    self.db.close()

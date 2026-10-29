@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 import re
 import tempfile
+import threading
 import time
 import unittest
 from unittest.mock import patch
@@ -374,6 +375,78 @@ class AnticipationSourceTests(unittest.TestCase):
         self.assertFalse(action['output']['raw_content_retained'])
         self.assertNotIn('text_excerpt', action['output'])
         self.assertNotIn(b'RAW_PDF_TEXT_NOT_FOR_STORAGE', self.executor.db_path.read_bytes())
+
+    def test_close_waits_for_active_real_inspector_before_closing_privacy_policy(self):
+        self.configure_folder(retain=True)
+        self.service.tick()
+        self.pdf(self.folder / 'closing.pdf')
+        self.advance()
+        item = self.service.suggestions()[0]
+        entered, release, closed = threading.Event(), threading.Event(), threading.Event()
+        errors, results = [], []
+        primitive = self.executor.invoke_primitive
+        def hold_raw_result(*args, **kwargs):
+            result = primitive(*args, **kwargs)
+            entered.set()
+            if not release.wait(5): raise AssertionError('Read release timed out')
+            return result
+        def inspect():
+            try: results.append(self.service.accept(item['suggestion_id'], item['plan_hash']))
+            except Exception as exc: errors.append(exc)
+        def close():
+            self.service.close(); closed.set()
+        with patch.object(self.executor, 'invoke_primitive', side_effect=hold_raw_result):
+            worker = threading.Thread(target=inspect); worker.start()
+            self.assertTrue(entered.wait(5))
+            closer = threading.Thread(target=close); closer.start()
+            self.assertFalse(closed.wait(.05), 'Policy must stay open until the inspector commits its redacted receipt')
+            release.set()
+            worker.join(5); closer.join(5)
+            self.assertFalse(worker.is_alive()); self.assertFalse(closer.is_alive())
+        self.assertEqual(errors, [])
+        self.assertEqual(len(results), 1)
+        receipt = self.executor.list_operations()[0]
+        self.assertTrue(receipt['output']['raw_content_retained'] is False)
+        self.assertNotIn('text_excerpt', receipt['output'])
+        self.assertNotIn(b'RAW_PDF_TEXT_NOT_FOR_STORAGE', self.executor.db_path.read_bytes())
+        with self.assertRaises(ValueError): self.service.dispatch_guard(item['operation_id'])
+
+    def test_close_drains_parallel_read_before_privacy_database_is_closed(self):
+        self.configure_folder(retain=True)
+        self.service.tick()
+        (self.folder / 'parallel.txt').write_text('private input')
+        self.advance()
+        item = self.service.suggestions()[0]
+        entered, release, closed = threading.Event(), threading.Event(), threading.Event()
+        errors = []
+        primitive, execute = self.executor.invoke_primitive, self.commands.execute
+        def hold_read(*args, **kwargs):
+            result = primitive(*args, **kwargs)
+            result.output['text_excerpt'] = 'PRIVATE_PARALLEL_RESULT'
+            entered.set()
+            if not release.wait(5): raise AssertionError('Read release timed out')
+            return result
+        def parallel(*args, **kwargs):
+            return execute(*args, **(kwargs | {'allow_parallel_read': True}))
+        def inspect():
+            try: self.service.accept(item['suggestion_id'], item['plan_hash'])
+            except Exception as exc: errors.append(exc)
+        def close():
+            self.service.close(); closed.set()
+        with patch.object(self.executor, 'invoke_primitive', side_effect=hold_read), \
+             patch.object(self.commands, 'execute', side_effect=parallel):
+            worker = threading.Thread(target=inspect); worker.start()
+            self.assertTrue(entered.wait(5))
+            self.assertEqual(self.executor.parallel_reads, 1)
+            closer = threading.Thread(target=close); closer.start()
+            self.assertFalse(closed.wait(.05))
+            release.set()
+            worker.join(5); closer.join(5)
+            self.assertFalse(worker.is_alive()); self.assertFalse(closer.is_alive())
+        self.assertEqual(errors, [])
+        self.assertEqual(self.executor.parallel_reads, 0)
+        self.assertNotIn(b'PRIVATE_PARALLEL_RESULT', self.executor.db_path.read_bytes())
+        self.assertNotIn('text_excerpt', self.executor.list_operations()[0]['output'])
 
 
 if __name__ == '__main__':

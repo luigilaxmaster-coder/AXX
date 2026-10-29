@@ -377,7 +377,7 @@ class AnticipationTests(unittest.TestCase):
             {'profiles': {'full': {'cooldown_seconds': -1}}}, {'profile': 'invalid'}, {'scopes': [{}]}):
             with self.subTest(changes=changes), self.assertRaises(ValueError):
                 self.service.configure(changes)
-        for values in ({'capability': 'send'}, {'task_id': ''}, {'root': str(self.root)}, {'expires_at': 0}, {'observe_events': False}):
+        for values in ({'capability': 'send'}, {'task_id': ''}, {'root': str(self.root)}, {'expires_at': 0}, {'observe_events': 'false'}):
             with self.subTest(values=values), self.assertRaises(ValueError):
                 self.grant(**values)
 
