@@ -6,7 +6,7 @@ del modelo o un catálogo válido por sí solos no acreditan una acción realiza
 
 | Serie | Casos | Criterio |
 | --- | --- | --- |
-| Entrada rápida | Intro, botón Enviar, tarea pendiente y borrador | Un envío por gesto. Un bloqueo muestra su motivo en el widget y conserva el texto. |
+| Entrada rápida | Intro, botón Enviar, segunda orden, cierre de otro panel, tarea pendiente y borrador | Un envío por gesto. Conserva el foco para la siguiente orden. Un bloqueo muestra su motivo en el widget y conserva el texto. |
 | Lenguaje | «y», «luego», «después,», comas, líneas y «primero» | Mantiene cláusulas y orden; no incorpora el segundo mandato al buscador del primero. |
 | Contenido literal | Comillas, apóstrofos, negación y texto para escribir | Las palabras de un texto no conceden autoridad para ejecutar otras órdenes. La cláusula de escritura conserva su contenido restante. |
 | Planificación | Parámetros ausentes y secuencia nueva | El proveedor seleccionado recibe las cláusulas completas y las herramientas disponibles. |

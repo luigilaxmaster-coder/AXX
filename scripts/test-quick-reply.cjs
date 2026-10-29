@@ -13,7 +13,7 @@ const {chromium}=require(process.env.USERPROFILE+'/.cache/codex-runtimes/codex-p
    window.fullChat=0;window.captures=0;window.sent=[];window.stopped=0;window.hits=0;window.focusActions=[];window.penOpen=false;
    window.Axx={isNative:()=>true,chatWorkspace:{ready:true,active:{id:'chat-one'}},liveConversation:{stop(){}},flow:{nav:{step:0},fold(){this.nav.step=0;},tap(){this.nav.step=2;}},
     nativeVoice:{inputLevel:null,attach(owner){owner.start=()=>{captures++;owner.state='starting';owner.onState();};owner.finish=()=>{owner.state='stopping';owner.onState();};owner.stop=()=>{owner.state='idle';owner.onState();};}},
-    app:{bridge:{async action(name){focusActions.push(name);}},toast(){},stopDemo(){},updateHitMap:async()=>{hits++;},setVisible(){}},magicPen:{open(){penOpen=true;},isOpen(){return penOpen;}},symbiosis:{prefs:{language:'es-DO'},reader:{state:'idle'}},
+    app:{bridge:{available:true,async action(name){focusActions.push(name);}},toast(){},stopDemo(){},updateHitMap:async()=>{hits++;},setVisible(){}},magicPen:{open(){penOpen=true;},isOpen(){return penOpen;}},symbiosis:{prefs:{language:'es-DO'},reader:{state:'idle'}},
     commandLibrary:{busy:false,operation:null,cancel(){stopped++;},open(){window.libraryOpened=true;}}};
    const c=Axx.companion={data:{messages:[],prefs:{mode:'companion'}},pending:null,dictating:false,renderChat(){},sayStatus(){},refreshVoiceState(){window.bodyPhase=this.dictating?'listening':'idle';},
     stopSpeech(){Axx.symbiosis.reader.state='idle';},stopDictation(){},cancelRequest(){stopped++;this.pending=null;window.releaseResponse?.();},read(text){window.spoken=text;Axx.symbiosis.reader.state='speaking';},
@@ -40,8 +40,11 @@ const {chromium}=require(process.env.USERPROFILE+'/.cache/codex-runtimes/codex-p
   const activitiesStart=source.indexOf('        activities() {'),activitiesEnd=source.indexOf('        arrange() {',activitiesStart);assert.ok(activitiesStart>0&&activitiesEnd>activitiesStart);
   const activityState=await p.evaluate(fragment=>{const host=document.createElement('nav');host.id='a11-activities';document.body.append(host);const controller={music:{tracks:[{}],audio:{paused:true}},remoteMusic:{state:{connected:true,playing:false}},screen:{active:false,blob:null},app:{store:{data:{timer:null}}},tools:{stopwatch:{running:false}},selected:null};const activities=new Function('ac','ACTION_NAMES','return ({'+fragment+'}).activities')(id=>document.getElementById(id),{music:'Música'});activities.call(controller);const idleHidden=host.hidden;controller.music.audio.paused=false;activities.call(controller);const playingVisible=!host.hidden;controller.music.audio.paused=true;activities.call(controller);const stoppedHidden=host.hidden;host.remove();return {idleHidden,playingVisible,stoppedHidden};},source.slice(activitiesStart,activitiesEnd));assert.deepEqual(activityState,{idleHidden:true,playingVisible:true,stoppedHidden:true});
   await p.fill('#quick-input','Una pregunta');await p.press('#quick-input','Enter');await p.waitForFunction(()=>sent.length===1);
+  assert.equal(await p.evaluate(()=>document.activeElement.id),'quick-input','Sending must keep the input focused while the response is pending');
+  assert.equal(await p.locator('#quick-input').evaluate(el=>el.readOnly),true);
   assert.equal(await p.evaluate(()=>fullChat),0);assert.equal(await p.locator('#quick-reply').isVisible(),true);
   await p.evaluate(()=>releaseResponse());await p.waitForFunction(()=>document.getElementById('quick-reply-text').textContent==='Respuesta comprobada');
+  assert.equal(await p.evaluate(()=>document.activeElement.id),'quick-input');assert.equal(await p.locator('#quick-input').evaluate(el=>el.readOnly),false);
   await p.waitForFunction(()=>!document.getElementById('quick-reply').getAnimations().length);const replySize=await p.locator('#quick-reply').boundingBox();assert.equal(replySize.width,260);assert.ok(replySize.height<=160);
   await p.evaluate(()=>{const change=(id,value,event='input')=>{const input=document.getElementById(id);input.value=value;input.dispatchEvent(new Event(event));};change('axx-widget-opacity','55');change('axx-widget-size','125');change('axx-widget-motion','700');change('axx-interface-font','serif','change');change('axx-color-background','#272035');});
   await p.waitForFunction(()=>document.getElementById('quick-reply').offsetWidth===325);assert.equal(await p.locator('#quick-root').evaluate(el=>getComputedStyle(el).fontFamily),'Georgia, serif');assert.equal(await p.evaluate(()=>Axx.interfaceTheme.motionDuration),700);assert.equal(await p.evaluate(()=>JSON.parse(localStorage.getItem('axx.interface.customization')).opacity),55);assert.match(await p.locator('#quick-compose').evaluate(el=>getComputedStyle(el).backgroundColor),/0.55/);
@@ -82,6 +85,9 @@ const {chromium}=require(process.env.USERPROFILE+'/.cache/codex-runtimes/codex-p
   assert.equal(await p.evaluate(()=>{Axx.nativeVoice.activeCapture={owner:{state:'listening'}};Axx.companion.dictating=true;Axx.quickReply.close();const retained=Axx.companion.dictating;Axx.nativeVoice.activeCapture=null;Axx.companion.dictating=false;return retained;}),true,'Closing an inactive quick capture must preserve another voice owner');
   await p.evaluate(()=>{window.revokedComputer=0;Axx.computerUse={stop:async()=>revokedComputer++};Axx.quickReply.write();Axx.quickReply.talk();Axx.quickReply.write();});assert.equal(await p.evaluate(()=>revokedComputer),0,'Changing input mode must preserve the Computer Use grant');await p.click('#quick-close');assert.equal(await p.evaluate(()=>revokedComputer),1,'Closing the active quick task must revoke Computer Use');
   await p.evaluate(()=>{Axx.quickReply.write();Axx.commandLibrary.operation={operation_id:'pending-review',state:'awaiting_approval'};});
+  const closeStart=source.indexOf('        closePanel() { if (!this.panelName)'),closeEnd=source.indexOf('        setVisible(',closeStart);assert.ok(closeStart>0&&closeEnd>closeStart);
+  await p.evaluate(fragment=>{const before=focusActions.filter(n=>n==='close_panel').length;const close=new Function('Axx','el','return ({'+fragment+'}).closePanel')(Axx,id=>document.getElementById(id));close.call({panelName:'chat',bridge:Axx.app.bridge,updateHitMap(){}});window.quickLeaseRetained=focusActions.filter(n=>n==='close_panel').length===before;},source.slice(closeStart,closeEnd));
+  assert.equal(await p.evaluate(()=>quickLeaseRetained),true,'Closing another panel must retain the active quick input focus lease');
   const sentBeforeClick=await p.evaluate(()=>sent.length);
   await p.fill('#quick-input','Orden pendiente');await p.click('#quick-send');
   await p.waitForFunction(()=>document.getElementById('quick-reply-text').textContent.includes('Hay una tarea pendiente'));
@@ -92,6 +98,7 @@ const {chromium}=require(process.env.USERPROFILE+'/.cache/codex-runtimes/codex-p
   await p.waitForFunction(n=>sent.length===n+1,sentBeforeClick);await p.evaluate(()=>releaseResponse());
   await p.waitForFunction(()=>!Axx.companion.pending);await p.waitForTimeout(200);
   assert.equal(await p.evaluate(()=>sent.length),sentBeforeClick+1,'Click must dispatch once through the existing form, without duplicate execution');
+  assert.equal(await p.evaluate(()=>document.activeElement.id),'quick-input','After activating Send, the next command must be ready to type');
   assert.deepEqual(errors,[]);console.log('QUICK_REPLY_HOVER_COMPOSER_VOICE_STATE_RESPONSE_CANCEL_SCOPE_PASS');
  }finally{await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});
