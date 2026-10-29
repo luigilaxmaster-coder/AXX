@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import fnmatch
+import itertools
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
@@ -34,7 +36,7 @@ def find_files(inputs, cancelled=None):
     cancelled = cancelled or threading.Event()
     if not isinstance(inputs, dict):
         raise ValueError('La búsqueda requiere un objeto de parámetros.')
-    if set(inputs) - {'directory', 'pattern', 'recursive', 'limit'}:
+    if set(inputs) - {'directory', 'pattern', 'recursive', 'limit', 'max_entries_scan'}:
         raise ValueError('Parámetros de búsqueda desconocidos.')
     directory = _check_path(inputs.get('directory'))
     if not directory.is_absolute() or not directory.is_dir():
@@ -45,18 +47,18 @@ def find_files(inputs, cancelled=None):
     recursive, limit = inputs.get('recursive', False), inputs.get('limit', MAX_FILES)
     if type(recursive) is not bool or type(limit) is not int or not 1 <= limit <= MAX_FILES:
         raise ValueError('recursive debe ser booleano y limit estar entre 1 y 100.')
+    scan_limit = inputs.get('max_entries_scan', MAX_ENTRIES)
+    if type(scan_limit) is not int or not 1 <= scan_limit <= MAX_ENTRIES:
+        raise ValueError('El límite de entradas inspeccionadas debe estar entre 1 y 10000.')
     files, pending, visited, skipped, truncated = [], [(directory, 0)], 0, 0, False
-    while pending and len(files) < limit and visited < MAX_ENTRIES:
+    while pending and len(files) < limit and visited < scan_limit:
         current, depth = pending.pop()
         _cancelled(cancelled)
         _check_path(str(current))
         with os.scandir(current) as entries:
-            for entry in entries:
+            for entry in itertools.islice(entries, scan_limit - visited):
                 _cancelled(cancelled)
                 visited += 1
-                if visited > MAX_ENTRIES:
-                    truncated = True
-                    break
                 info = entry.stat(follow_symlinks=False)
                 if entry.is_symlink() or getattr(info, 'st_file_attributes', 0) & (0x400 | 0x1000 | 0x40000 | 0x400000):
                     skipped += 1
@@ -73,16 +75,19 @@ def find_files(inputs, cancelled=None):
                         break
     files.sort(key=lambda row: row['path'].casefold())
     return {'directory': str(directory), 'files': files, 'paths': [row['path'] for row in files],
-            'total_bytes': sum(row['bytes'] for row in files), 'truncated': truncated or bool(pending),
-            'inspected_entries': min(visited, MAX_ENTRIES), 'skipped_unavailable_or_linked': skipped,
+            'total_bytes': sum(row['bytes'] for row in files), 'truncated': truncated or bool(pending) or visited >= scan_limit,
+            'inspected_entries': visited, 'skipped_unavailable_or_linked': skipped,
             'verification': 'local_metadata_only'}
 
 
 def _bundle_inputs(inputs):
     if not isinstance(inputs, dict):
         raise ValueError('La copia requiere un objeto de parámetros.')
-    if set(inputs) - {'paths', 'destination', 'archive_name'}:
+    if set(inputs) - {'paths', 'destination', 'archive_name', 'max_output_bytes'}:
         raise ValueError('Parámetros de copia desconocidos.')
+    maximum = inputs.get('max_output_bytes')
+    if maximum is not None and (type(maximum) is not int or not 1 <= maximum <= 2 * MAX_BYTES):
+        raise ValueError('El presupuesto de salida debe estar entre 1 y 1073741824 bytes.')
     paths = inputs.get('paths')
     if not isinstance(paths, list) or not 1 <= len(paths) <= MAX_FILES:
         raise ValueError('Selecciona de 1 a 100 archivos explícitos.')
@@ -103,10 +108,12 @@ def _bundle_inputs(inputs):
     budget = MAX_BYTES - 1024 * 1024 if archive else MAX_BYTES
     if sum(source.stat().st_size for source in sources) > budget:
         raise ValueError('La selección y sus metadatos superan el límite total de 512 MiB.')
+    if maximum is not None and sum(source.stat().st_size for source in sources) > maximum:
+        raise ValueError('Las copias exceden el presupuesto lógico de salida.')
     return sources, destination, archive
 
 
-def _copy_file(source, target, cancelled, created=None):
+def _copy_file(source, target, cancelled, created=None, *, max_bytes=None):
     validate_path(str(source))
     before = source.stat()
     digest, copied = hashlib.sha256(), 0
@@ -123,6 +130,8 @@ def _copy_file(source, target, cancelled, created=None):
                 copied += len(chunk)
                 if copied > before.st_size:
                     raise ValueError('El origen creció durante la copia.')
+                if max_bytes is not None and copied > max_bytes:
+                    raise ValueError('La copia excede el presupuesto lógico de salida.')
                 writer.write(chunk)
                 digest.update(chunk)
         if fingerprint(os.fstat(reader.fileno())) != fingerprint(before):
@@ -131,6 +140,17 @@ def _copy_file(source, target, cancelled, created=None):
     if fingerprint(source.stat()) != fingerprint(before) or copied != before.st_size:
         raise ValueError('El origen fue sustituido durante la copia.')
     return {'source': str(source), 'path': str(target), 'name': target.name, 'bytes': copied, 'sha256': digest.hexdigest()}
+
+
+class _CappedZipWriter(io.BufferedWriter):
+    def __init__(self, raw, maximum):
+        super().__init__(raw)
+        self.maximum = maximum
+
+    def write(self, data):
+        if self.tell() + len(data) > self.maximum:
+            raise ValueError('El ZIP excede el presupuesto lógico de salida.')
+        return super().write(data)
 
 
 def _verify_bundle(output, cancelled):
@@ -166,7 +186,7 @@ def _verify_bundle(output, cancelled):
 
 
 class FindFilesTool:
-    name, version = 'file_find', '1.0.0'
+    name, version = 'file_find', '1.1.0'
     description = 'Find bounded local file metadata without following links or scanning the whole disk'
 
     def verify_preconditions(self, inputs):
@@ -197,7 +217,7 @@ class FindFilesTool:
 
 
 class FileBundleTool:
-    name, version = 'file_bundle', '1.0.0'
+    name, version = 'file_bundle', '1.1.0'
     description = 'Copy explicit files into a new workspace folder and optionally create a hash-verified ZIP'
 
     def verify_preconditions(self, inputs):
@@ -229,14 +249,19 @@ class FileBundleTool:
             target.mkdir()
             created.append(str(target))
             output['directory'] = str(target)
+            maximum = inputs.get('max_output_bytes')
             for source in sources:
                 _cancelled(cancelled)
                 destination = target / source.name
-                output['files'].append(_copy_file(source, destination, cancelled, created))
+                remaining = {} if maximum is None else {'max_bytes':maximum - sum(row['bytes'] for row in output['files'])}
+                output['files'].append(_copy_file(source, destination, cancelled, created, **remaining))
                 if sum(row['bytes'] for row in output['files']) > MAX_BYTES:
                     raise ValueError('Los orígenes crecieron por encima del límite total.')
             manifest_bytes = (json.dumps({'schema_version': 1, 'files': output['files']}, ensure_ascii=False, sort_keys=True, indent=2) + '\n').encode('utf8')
             manifest_path = target / MANIFEST
+            occupied = sum(row['bytes'] for row in output['files']) + len(manifest_bytes)
+            if maximum is not None and occupied > maximum:
+                raise ValueError('El manifiesto excede el presupuesto lógico de salida.')
             _check_path(str(manifest_path))
             _cancelled(cancelled)
             with manifest_path.open('xb') as stream:
@@ -246,20 +271,22 @@ class FileBundleTool:
             if archive_name:
                 archive_path = target / archive_name
                 _check_path(str(archive_path))
-                with zipfile.ZipFile(archive_path, 'x', compression=zipfile.ZIP_DEFLATED) as zipped:
+                with archive_path.open('xb', buffering=0) as raw:
                     created.append(str(archive_path))
-                    for path in [Path(row['path']) for row in output['files']] + [manifest_path]:
-                        _check_path(str(path))
-                        info = zipfile.ZipInfo(path.name, (1980, 1, 1, 0, 0, 0))
-                        info.compress_type = zipfile.ZIP_DEFLATED
-                        size = 0
-                        with path.open('rb') as reader, zipped.open(info, 'w') as member:
-                            while chunk := reader.read(1024 * 1024):
-                                _cancelled(cancelled)
-                                size += len(chunk)
-                                if size > MAX_BYTES:
-                                    raise ValueError('El archivo creció durante la creación del ZIP.')
-                                member.write(chunk)
+                    stream = raw if maximum is None else _CappedZipWriter(raw, maximum - occupied)
+                    with stream, zipfile.ZipFile(stream, 'w', compression=zipfile.ZIP_DEFLATED) as zipped:
+                        for path in [Path(row['path']) for row in output['files']] + [manifest_path]:
+                            _check_path(str(path))
+                            info = zipfile.ZipInfo(path.name, (1980, 1, 1, 0, 0, 0))
+                            info.compress_type = zipfile.ZIP_DEFLATED
+                            size = 0
+                            with path.open('rb') as reader, zipped.open(info, 'w') as member:
+                                while chunk := reader.read(1024 * 1024):
+                                    _cancelled(cancelled)
+                                    size += len(chunk)
+                                    if size > MAX_BYTES:
+                                        raise ValueError('El archivo creció durante la creación del ZIP.')
+                                    member.write(chunk)
                 output['archive'] = hash_file(str(archive_path), cancelled)
             _verify_bundle(output, cancelled)
             return ToolResult(True, output=output, evidence={'verification': 'source_copy_manifest_zip_sha256', 'created_paths': created})

@@ -156,6 +156,59 @@ class FileWorkflowsTests(unittest.TestCase):
         self.assertFalse(result.success)
         self.assertEqual(list(self.workspace.iterdir()), [])
 
+    def test_output_budget_is_validated_before_creating_files(self):
+        for maximum in (True, 0, -1, 1073741825, '1000'):
+            with self.subTest(maximum=maximum):
+                result = self.execute({**self.inputs, 'max_output_bytes': maximum})
+                self.assertFalse(result.success)
+        result = self.execute({**self.inputs, 'max_output_bytes': 1})
+        self.assertFalse(result.success)
+        self.assertEqual(list(self.workspace.iterdir()), [])
+
+    def test_output_budget_covers_copies_manifest_and_zip(self):
+        maximum = 16384
+        result = self.execute({**self.inputs, 'max_output_bytes': maximum})
+        self.assertTrue(result.success, result.error)
+        files = [path for path in (self.workspace / 'revision').iterdir() if path.is_file()]
+        self.assertEqual(len(files), len(self.paths) + 2)
+        self.assertLessEqual(sum(path.stat().st_size for path in files), maximum)
+        self.assertTrue(self.tool.verify_postconditions(self.inputs, result)[0])
+
+    def test_manifest_and_zip_failures_leave_bounded_partial_files(self):
+        copied_bytes = sum(Path(raw).stat().st_size for raw in self.paths)
+        result = self.execute({**self.inputs, 'max_output_bytes': copied_bytes})
+        self.assertFalse(result.success)
+        self.assertIn('manifiesto', result.error)
+        self.assertTrue(result.evidence['partial_effect'])
+        self.assertLessEqual(sum(path.stat().st_size for path in (self.workspace / 'revision').iterdir()), copied_bytes)
+
+        reference = self.execute({**self.inputs, 'destination': 'reference', 'archive_name': None})
+        self.assertTrue(reference.success, reference.error)
+        occupied = sum(row['bytes'] for row in reference.output['files']) + reference.output['manifest']['bytes']
+        # A few bytes admit a ZIP header but cannot admit its contents and central directory.
+        maximum = occupied + 64
+        result = self.execute({**self.inputs, 'destination': 'zipbudget', 'max_output_bytes': maximum})
+        self.assertFalse(result.success, result)
+        self.assertIn('ZIP', result.error)
+        partial = self.workspace / 'zipbudget'
+        self.assertTrue((partial / 'entrega.zip').exists())
+        self.assertLessEqual(sum(path.stat().st_size for path in partial.iterdir()), maximum)
+
+    def test_source_growth_after_admission_cannot_exceed_output_budget(self):
+        maximum = 4096
+        original = file_workflows._copy_file
+
+        def grow_before_copy(source, target, cancelled, created, **kwargs):
+            source.write_bytes(b'x' * (maximum + 1))
+            return original(source, target, cancelled, created, **kwargs)
+
+        with patch.object(file_workflows, '_copy_file', side_effect=grow_before_copy):
+            result = self.execute({**self.inputs, 'max_output_bytes': maximum})
+        self.assertFalse(result.success)
+        self.assertIn('presupuesto', result.error)
+        partial = self.workspace / 'revision'
+        self.assertLessEqual(sum(path.stat().st_size for path in partial.iterdir()), maximum)
+
     def test_find_is_bounded_and_does_not_recurse_by_default(self):
         nested = self.source / 'nested'
         nested.mkdir()
@@ -171,7 +224,8 @@ class FileWorkflowsTests(unittest.TestCase):
         self.assertLessEqual(bounded['inspected_entries'], 1)
 
     def test_find_invalid_bounds_and_cancellation(self):
-        for fields in ({'limit': 0}, {'limit': True}, {'limit': 101}, {'recursive': 'yes'}, {'pattern': '../*.pdf'}):
+        for fields in ({'limit': 0}, {'limit': True}, {'limit': 101}, {'recursive': 'yes'}, {'pattern': '../*.pdf'},
+                       {'max_entries_scan':0}, {'max_entries_scan':True}, {'max_entries_scan':10001}):
             with self.subTest(fields=fields), self.assertRaises(ValueError):
                 find_files({'directory': str(self.source), **fields})
         event = threading.Event()
@@ -180,6 +234,13 @@ class FileWorkflowsTests(unittest.TestCase):
         result = tool.execute_cancellable({'directory': str(self.source)}, self.workspace, event)
         self.assertFalse(result.success)
         self.assertFalse(tool.verify_postconditions({}, result)[0])
+
+    def test_explicit_scan_budget_limits_actual_entries_not_just_results(self):
+        for number in range(12): (self.source / ('scan-' + str(number) + '.txt')).write_text('test')
+        result = find_files({'directory':str(self.source),'pattern':'*.absent','limit':100,'max_entries_scan':1})
+        self.assertEqual(result['inspected_entries'],1)
+        self.assertEqual(result['files'],[])
+        self.assertTrue(result['truncated'])
 
     def test_source_growth_or_replacement_during_copy_is_not_success(self):
         original = file_workflows._copy_file
