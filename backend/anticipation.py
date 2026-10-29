@@ -7,6 +7,7 @@ import datetime as dt
 import hashlib
 import importlib.util
 import inspect
+import itertools
 import json
 import logging
 import math
@@ -15,6 +16,7 @@ from pathlib import Path
 import re
 import shutil
 import sqlite3
+import stat
 import threading
 import time
 import uuid
@@ -58,12 +60,15 @@ DEFAULTS = {
         'cooldown_seconds': 60, 'max_interruptions_hour': 3, 'retention_days': 30,
         'cadence_seconds': 30, 'schedule': None,
         'resources': {'max_events_tick': 25, 'max_entries_scan': 500, 'max_file_bytes': 40 * 1024 * 1024,
-                      'max_tick_ms': 1000, 'max_cpu_ms_tick': 250}}
+                      'max_tick_ms': 1000, 'max_cpu_ms_tick': 250, 'max_process_rss_bytes': None,
+                      'max_storage_bytes': None, 'model_call_limit': 2}}
         for name, mode in zip(PROFILES, ('OFF', 'SUGGEST', 'EXECUTE'))},
     'scopes': [], 'observation_targets': []}
 CONTEXT_KEYS = ('project_id', 'application_id', 'device_id')
 RESOURCE_LIMITS = {'max_events_tick': (1, 100), 'max_entries_scan': (1, 2000),
-    'max_file_bytes': (1024, 512 * 1024 * 1024), 'max_tick_ms': (50, 5000), 'max_cpu_ms_tick': (10, 1000)}
+    'max_file_bytes': (1024, 512 * 1024 * 1024), 'max_tick_ms': (50, 5000), 'max_cpu_ms_tick': (10, 1000),
+    'max_process_rss_bytes': (1, 9007199254740991), 'max_storage_bytes': (1, 9007199254740991), 'model_call_limit': (0, 2)}
+NULLABLE_RESOURCES = frozenset({'max_process_rss_bytes', 'max_storage_bytes'})
 
 
 def canonical(value):
@@ -116,6 +121,8 @@ class AnticipationService:
         self.verifier_cache = {}
         self.tick_started = None
         self.tick_events = {}
+        self.memory_usage, self.storage_usage = {}, {}
+        self._process_created_at = None
         self.db = sqlite3.connect(str(commands.executor.db_path), timeout=10, check_same_thread=False)
         self.db.row_factory = sqlite3.Row
         with self.db:
@@ -130,6 +137,10 @@ class AnticipationService:
                 CREATE TABLE IF NOT EXISTS anticipation_stats (task_id TEXT NOT NULL, routine_id TEXT NOT NULL, payload TEXT NOT NULL, PRIMARY KEY(task_id,routine_id));
                 CREATE TABLE IF NOT EXISTS anticipation_measurements (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT NOT NULL, kind TEXT NOT NULL, at REAL NOT NULL, wall_ms REAL NOT NULL, cpu_ms REAL);
                 CREATE TABLE IF NOT EXISTS anticipation_privacy (action_operation_id TEXT PRIMARY KEY, verification_scope TEXT NOT NULL, at REAL NOT NULL);
+                CREATE TABLE IF NOT EXISTS anticipation_storage_reservations (operation_id TEXT PRIMARY KEY,
+                    action_operation_id TEXT NOT NULL, grant_id TEXT NOT NULL, task_id TEXT NOT NULL,
+                    root TEXT NOT NULL, target TEXT NOT NULL, bytes INTEGER NOT NULL, state TEXT NOT NULL,
+                    inputs_hash TEXT NOT NULL, at REAL NOT NULL, reconciliation_json TEXT NOT NULL);
             ''')
             if not self.db.execute('SELECT 1 FROM anticipation_config WHERE id=1').fetchone():
                 self.db.execute('INSERT INTO anticipation_config VALUES (1,?)', (canonical(DEFAULTS),))
@@ -151,10 +162,12 @@ class AnticipationService:
         return config
 
     @contextmanager
-    def _policy_transaction(self):
+    def _policy_transaction(self, *, immediate=False):
         with self.lock:
             if self.closed:
                 raise ValueError('La política de iniciativa está cerrada')
+            if immediate and not self.db.in_transaction:
+                self.db.execute('BEGIN IMMEDIATE')
             with self.db:
                 yield
 
@@ -228,11 +241,252 @@ class AnticipationService:
                 or ((local.weekday() - 1) % 7 in schedule['days'] and minute <= end))
 
     def _within_budget(self, options):
+        resources = options.get('resources', DEFAULTS['profiles']['discreto']['resources'])
+        if not self._memory_admitted(resources, refresh=False):
+            return False
         if self.tick_started is None:
             return True
-        resources = options.get('resources', DEFAULTS['profiles']['discreto']['resources'])
         return ((time.perf_counter() - self.tick_started[0]) * 1000 < resources['max_tick_ms']
                 and (time.process_time() - self.tick_started[1]) * 1000 < resources['max_cpu_ms_tick'])
+
+    def budget_for_task(self, task_id, project_id='', application_id='', device_id='host'):
+        """Conservative resource policy before any destination has been chosen.
+
+        A possible folder/context override cannot raise the admission budget.
+        This getter grants neither remote inference nor access to a resource.
+        """
+        identifier(task_id, 'Tarea')
+        context = {'project_id': project_id, 'application_id': application_id, 'device_id': device_id}
+        for key, value in context.items():
+            if not isinstance(value, str):
+                raise ValueError('Identificador de contexto inválido: ' + key)
+            if value:
+                scope_identifier(value, key)
+        with self.lock:
+            config = self._config()
+            possible = [scope for scope in config['scopes'] if (not scope.get('task_id') or scope['task_id'] == task_id)
+                and all(not scope.get(key) or not context.get(key) or scope[key] == context[key] for key in CONTEXT_KEYS)]
+            certain = [scope for scope in possible if not scope.get('root') and
+                all(not scope.get(key) or scope[key] == context.get(key) for key in CONTEXT_KEYS)]
+            names = {scope['profile'] for scope in certain if scope.get('profile')} or {config['profile']}
+            names.update(scope['profile'] for scope in possible if scope.get('profile'))
+            result = {}
+            for key in RESOURCE_LIMITS:
+                values = [config['profiles'][name]['resources'][key] for name in names]
+                finite = [value for value in values if value is not None]
+                result[key] = min(finite) if finite else None
+            return result | {'policy_profiles': sorted(names), 'scope': 'potential_policies_before_destination'}
+
+    def _sample_memory(self, *, refresh=True):
+        now = time.monotonic()
+        if not refresh and self.memory_usage and now - self.memory_usage.get('sampled_monotonic', 0) <= .25:
+            return self.memory_usage
+        sample = {'known': False, 'rss_bytes': None, 'observed_at': self.clock(), 'sampled_monotonic': now,
+            'scope': 'backend_and_current_descendants_by_pid_and_create_time', 'processes': [],
+            'hard_os_limit': False, 'excludes': ['parent_webview', 'non_descendant_office_com', 'other_applications'], 'error': None}
+        try:
+            import psutil
+            backend = psutil.Process(os.getpid())
+            birth = backend.create_time()
+            if self._process_created_at is not None and self._process_created_at != birth:
+                raise ValueError('Backend process identity changed')
+            children = backend.children(recursive=True)
+            if len(children) > 128:
+                raise ValueError('Process tree exceeds the measurement bound')
+            seen = set()
+            for process in [backend, *children]:
+                created = process.create_time()
+                rss = process.memory_info().rss
+                # create_time() is cached by psutil.Process. Re-open the PID to
+                # detect replacement rather than comparing that cached value.
+                if (psutil.Process(process.pid).create_time() != created or type(rss) is not int or rss < 0
+                        or process.pid != backend.pid and not any(parent.pid == backend.pid and parent.create_time() == birth for parent in process.parents())):
+                    raise ValueError('Process identity changed during RSS observation')
+                if (process.pid, created) in seen:
+                    continue
+                seen.add((process.pid, created))
+                sample['processes'].append({'pid': process.pid, 'create_time': created, 'rss_bytes': rss})
+            if psutil.Process(backend.pid).create_time() != birth:
+                raise ValueError('Backend process identity changed during RSS observation')
+            self._process_created_at = birth
+            sample.update(known=True, rss_bytes=sum(item['rss_bytes'] for item in sample['processes']))
+        except Exception as exc:
+            # psutil errors include AccessDenied/NoSuchProcess. Unknown is never
+            # treated as zero, and diagnostics contain no process command lines.
+            sample.update(processes=[], error=type(exc).__name__)
+        self.memory_usage = sample
+        return sample
+
+    def _memory_admitted(self, resources, *, refresh=True):
+        limit = resources.get('max_process_rss_bytes')
+        if limit is None:
+            return True
+        sample = self._sample_memory(refresh=refresh)
+        return sample['known'] and sample['rss_bytes'] <= limit
+
+    def assert_resource_admission(self, task_id, project_id='', application_id='', device_id='host'):
+        with self.lock:
+            budget = self.budget_for_task(task_id, project_id, application_id, device_id)
+            if budget['max_process_rss_bytes'] is not None:
+                sample = self._sample_memory(refresh=True)
+                if not sample['known']:
+                    raise ApprovalRequired('MEMORY_ADMISSION_UNKNOWN: no se pudo medir RSS del backend y sus descendientes')
+                if sample['rss_bytes'] > budget['max_process_rss_bytes']:
+                    raise ApprovalRequired('MEMORY_ADMISSION_LIMIT: el RSS observado supera el umbral de admisión')
+                budget['memory'] = copy.deepcopy(sample)
+            return budget
+
+    def _scan_storage(self, root, max_entries):
+        """Logical file lengths only; no content, links, deletion or OS quota."""
+        sample = {'root': str(root), 'known': False, 'used_bytes': None, 'entries': 0,
+            'observed_at': self.clock(), 'scope': 'logical_regular_file_bytes', 'error': None}
+        identities, pending, used = [], [], 0
+        try:
+            pending.append(Path(directory(str(root))))
+            while pending:
+                current = pending.pop()
+                if artifact_path_error(str(current)):
+                    raise ValueError('STORAGE_UNOBSERVABLE')
+                before = current.stat(follow_symlinks=False)
+                identities.append((current, fingerprint(before)))
+                with os.scandir(current) as entries:
+                    for entry in itertools.islice(entries, max_entries - sample['entries']):
+                        sample['entries'] += 1
+                        path = Path(entry.path)
+                        # DirEntry.stat on Windows may omit inode/device IDs;
+                        # use the same native stat API for both identity samples.
+                        info = path.stat(follow_symlinks=False)
+                        if entry.is_symlink() or getattr(info, 'st_file_attributes', 0) & (0x400 | 0x1000 | 0x40000 | 0x400000):
+                            raise ValueError('STORAGE_UNOBSERVABLE')
+                        if stat.S_ISDIR(info.st_mode):
+                            pending.append(path)
+                        elif stat.S_ISREG(info.st_mode):
+                            used += info.st_size
+                            identities.append((path, fingerprint(info)))
+                        else:
+                            raise ValueError('STORAGE_UNOBSERVABLE')
+                # Reaching the bound does not prove the directory was exhausted.
+                if sample['entries'] >= max_entries:
+                    raise ValueError('STORAGE_SCAN_BOUND')
+            if any(fingerprint(path.stat(follow_symlinks=False)) != identity for path, identity in identities):
+                raise ValueError('STORAGE_CHANGED')
+            sample.update(known=True, used_bytes=used, snapshot_hash=digest([(str(path.relative_to(root)), list(identity)) for path, identity in identities]))
+        except (OSError, ValueError) as exc:
+            sample['error'] = str(exc) if isinstance(exc, ValueError) else type(exc).__name__
+        self.storage_usage[str(root)] = sample
+        return sample
+
+    def _storage_limits(self, grant, target, context, config):
+        limits = {}
+        def add(root, quota, scan):
+            if quota is None:
+                return
+            root = str(Path(root).resolve())
+            old = limits.get(root)
+            limits[root] = {'root': root, 'limit_bytes': min(quota, old['limit_bytes']) if old else quota,
+                'max_entries_scan': min(scan, old['max_entries_scan']) if old else scan}
+        _, options = self._policy(grant['task_id'], str(target), config, context)
+        own = options.get('resources', {})
+        add(grant['root'], own.get('max_storage_bytes'), own.get('max_entries_scan', 500))
+        # A second grant for a child folder cannot bypass a declared ancestor
+        # quota. Session/one-action consumption does not erase a root budget;
+        # explicit revocation or a changed profile removes that declaration.
+        for row in self.db.execute("SELECT payload FROM anticipation_grants WHERE json_extract(payload,'$.capability')=?", (MISSION_CAPABILITY,)):
+            other = json.loads(row[0])
+            if (other.get('revoked') or other.get('expires_at') is not None and self.clock() >= other['expires_at']
+                    or not any(MISSION_COMMANDS.get(key, (None, None, (), ()))[3] for key in other.get('command_ids', []))):
+                continue
+            root = Path(other['root'])
+            if not target.is_relative_to(root) and not root.is_relative_to(target):
+                continue
+            budget = self.budget_for_task(other['task_id'], context.get('project_id', '') if other['task_id'] == grant['task_id'] else '',
+                context.get('application_id', '') if other['task_id'] == grant['task_id'] else '', context.get('device_id', 'host'))
+            add(root, budget['max_storage_bytes'], budget['max_entries_scan'])
+        return list(limits.values())
+
+    def _reconcile_storage(self, samples):
+        """Account terminal effects only after a fresh complete metadata scan.
+
+        The caller owns BEGIN IMMEDIATE. Unknown/crashed operations retain the
+        reservation unless the existing journal records explicit manual review.
+        """
+        for row in self.db.execute("SELECT * FROM anticipation_storage_reservations WHERE state IN ('reserved','uncertain')").fetchall():
+            if not any(sample['known'] and Path(row['target']).is_relative_to(Path(sample['root'])) for sample in samples):
+                continue
+            action = self.db.execute('SELECT state,result_json FROM operations WHERE operation_id=?', (row['action_operation_id'],)).fetchone()
+            command = self.db.execute('SELECT state,result_json FROM command_runs WHERE operation_id=?', (row['operation_id'],)).fetchone()
+            receipt = json.loads(action['result_json']) if action and action['result_json'] else json.loads(command['result_json']) if command and command['result_json'] else {}
+            state = action['state'] if action else command['state'] if command else None
+            reviewed = (receipt.get('evidence') or {}).get('manual_reviewed') is True
+            safe = (state == 'succeeded' and receipt.get('postconditions_passed') is True
+                    or state in ('failed', 'cancelled') or state == 'unknown' and reviewed)
+            if safe:
+                detail = json.loads(row['reconciliation_json']) | {'reconciled_at': self.clock(), 'receipt_state': state,
+                    'manual_reviewed': reviewed, 'method': 'terminal_receipt_and_complete_metadata_scan'}
+                self.db.execute("UPDATE anticipation_storage_reservations SET state='accounted',reconciliation_json=? WHERE operation_id=?",
+                    (canonical(detail), row['operation_id']))
+            elif state == 'unknown':
+                self.db.execute("UPDATE anticipation_storage_reservations SET state='uncertain' WHERE operation_id=?", (row['operation_id'],))
+
+    def _storage_admission(self, command_id, inputs, grant, context, config, operation_id, *, claim):
+        write_fields = MISSION_COMMANDS[command_id][3]
+        if not write_fields:
+            return None
+        target = (self.commands.executor.workspace_root / inputs[write_fields[0]]).resolve()
+        limits = self._storage_limits(grant, target, context, config)
+        if not limits:
+            return None
+        if command_id == 'axx.artifact.write':
+            cost = len(inputs['content'].encode('utf-8'))
+        elif command_id == 'axx.file.bundle' and type(inputs.get('max_output_bytes')) is int:
+            cost = inputs['max_output_bytes']
+        else:
+            raise ApprovalRequired('STORAGE_OUTPUT_UNBOUNDED: esta salida automática no tiene una cota ejecutable; prepara y revisa manualmente')
+        existing = self.db.execute('SELECT * FROM anticipation_storage_reservations WHERE operation_id=?', (operation_id,)).fetchone()
+        signature = digest({'command_id': command_id, 'inputs': inputs, 'root': grant['root'], 'target': str(target)})
+        if existing and (existing['inputs_hash'] != signature or existing['bytes'] != cost or existing['grant_id'] != grant['grant_id']):
+            raise StaleContext('La reserva pertenece a otra operación, parámetros o permiso')
+        samples = []
+        for limit in limits:
+            sample = self._scan_storage(Path(limit['root']), limit['max_entries_scan'])
+            sample['limit_bytes'] = limit['limit_bytes']
+            samples.append(sample)
+            if not sample['known']:
+                raise ApprovalRequired('STORAGE_USAGE_UNKNOWN: el recorrido de metadatos no pudo demostrar el uso completo de la raíz')
+        self._reconcile_storage(samples)
+        held = self.db.execute("SELECT operation_id,target,bytes FROM anticipation_storage_reservations WHERE state IN ('reserved','uncertain')").fetchall()
+        for sample in samples:
+            root = Path(sample['root'])
+            reserved = sum(row['bytes'] for row in held if row['operation_id'] != operation_id
+                and (Path(row['target']).is_relative_to(root) or root.is_relative_to(Path(row['target']))))
+            sample['reserved_bytes'] = reserved
+            sample['admission_requested_bytes'] = cost
+            if sample['used_bytes'] + reserved + cost > sample['limit_bytes']:
+                raise ApprovalRequired('STORAGE_ADMISSION_LIMIT: uso observado más reservas y nueva salida exceden la cuota lógica de la raíz')
+        if claim and not existing:
+            action_id = 'cmd-' + hashlib.sha256(operation_id.encode()).hexdigest()
+            self.db.execute('INSERT INTO anticipation_storage_reservations VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+                (operation_id, action_id, grant['grant_id'], grant['task_id'], grant['root'], str(target), cost,
+                 'reserved', signature, self.clock(), canonical({'limits': limits, 'method': 'known_utf8_bytes' if command_id == 'axx.artifact.write' else 'enforced_bundle_output_bytes'})))
+            for sample in samples:
+                sample['reserved_bytes'] += cost
+        return {'operation_id': operation_id, 'reserved_bytes': cost, 'roots': [item['root'] for item in limits], 'claimed': claim}
+
+    def _resource_usage(self):
+        roots = copy.deepcopy(self.storage_usage)
+        held = self.db.execute("SELECT operation_id,task_id,root,target,bytes,state,at FROM anticipation_storage_reservations WHERE state IN ('reserved','uncertain')").fetchall()
+        for root, item in roots.items():
+            overlap = [row for row in held if Path(row['target']).is_relative_to(Path(root)) or Path(root).is_relative_to(Path(row['target']))]
+            item.update(reserved_bytes=sum(row['bytes'] for row in overlap), held_operations=len(overlap))
+        for row in self.db.execute("SELECT root,SUM(bytes) AS bytes,COUNT(*) AS count FROM anticipation_storage_reservations WHERE state IN ('reserved','uncertain') GROUP BY root"):
+            item = roots.setdefault(row['root'], {'root': row['root'], 'known': False, 'used_bytes': None, 'observed_at': None,
+                'scope': 'logical_regular_file_bytes', 'error': 'No complete scan in this service session'})
+            if not item.get('known'):
+                item.update(reserved_bytes=row['bytes'], held_operations=row['count'])
+        reservations = [dict(row) for row in held]
+        return {'memory': copy.deepcopy(self._sample_memory(refresh=False)), 'storage': list(roots.values()),
+            'storage_reservations': reservations,
+            'scope': 'Admission snapshots and logical file reservations; no hard OS/RSS/cluster quota and no deletion of user files.'}
 
     def _take_event_budget(self, profile, options):
         if self.tick_started is None:
@@ -270,6 +524,8 @@ class AnticipationService:
             reason += ' En iniciativas, max_entries_scan debe fijarse dentro del presupuesto del perfil; el valor legado por omisión es 10000.'
         elif command_id == 'axx.artifact.write':
             reason += ' El contenido UTF-8 debe caber en max_file_bytes del perfil.'
+        elif command_id == 'axx.file.bundle':
+            reason += ' Con cuota de almacenamiento finita se exige max_output_bytes explícito y se reserva ese máximo lógico ejecutable.'
         if command_id in ('axx.artifact.pdf', 'axx.artifact.media', 'axx.artifact.ocr'):
             suffix = {'axx.artifact.pdf': '.pdf', 'axx.artifact.media': '.mp4', 'axx.artifact.ocr': '.png'}[command_id]
             verifier = self._verifier('artifact' + suffix)
@@ -281,6 +537,8 @@ class AnticipationService:
                 ready = False
             if not ready:
                 available, reason = False, 'El adaptador Office privado requiere Windows y COM disponibles; no se instala ni abre nada al conceder permiso.'
+            else:
+                reason += ' Con cuota de almacenamiento finita se abstiene de ejecutar automáticamente porque la salida no tiene una cota verificable; puede prepararse y revisarse manualmente.'
         return {'command_id': command_id, 'tool': tool, 'category': category, 'available': bool(available),
                 'parameters': copy.deepcopy(adapter.get('parameters', {})), 'reason': reason}
 
@@ -347,7 +605,7 @@ class AnticipationService:
         if not write_root.is_relative_to(workspace):
             raise ValueError('El destino autorizado salió del espacio de artefactos')
         read_roots = [write_root, *(Path(directory(raw)) for raw in grant.get('read_roots', []))]
-        resources = []
+        resources, policies = [], []
         for field in read_fields:
             if field in deferred:
                 continue
@@ -375,7 +633,12 @@ class AnticipationService:
         # Root checks apply even when a command's output has not been created yet.
         for path in resources or [write_root]:
             _, options = self._policy(grant['task_id'], str(path), config, context)
+            policies.append(options.get('resources', {}))
             if options['mode'] != 'EXECUTE' or check_admission_budget and not self._within_budget(options):
+                limit = options.get('resources', {}).get('max_process_rss_bytes')
+                if options['mode'] == 'EXECUTE' and limit is not None and (not self.memory_usage.get('known') or self.memory_usage['rss_bytes'] > limit):
+                    code = 'MEMORY_ADMISSION_LIMIT' if self.memory_usage.get('known') else 'MEMORY_ADMISSION_UNKNOWN'
+                    raise ApprovalRequired(code + ': no se admite el paso con el RSS observado')
                 raise ApprovalRequired('El perfil Full, ámbito, horario o presupuesto ya no autoriza el paso')
             if path.is_file() and path.stat().st_size > options['resources']['max_file_bytes']:
                 raise ValueError('El recurso excede el presupuesto de lectura del perfil')
@@ -386,6 +649,7 @@ class AnticipationService:
                 from .actions.file_workflows import MAX_ENTRIES
                 if inputs.get('max_entries_scan', MAX_ENTRIES) > options['resources']['max_entries_scan']:
                     raise ValueError('La búsqueda requiere max_entries_scan explícito dentro del presupuesto del perfil')
+        return policies
 
     def authorize_mission_step(self, plan, step, actual_inputs, command_operation_id, claim=False):
         """Exact-dispatch guard; only pure validation and caller-owned SQL under policy lock."""
@@ -435,7 +699,7 @@ class AnticipationService:
             raise ValueError('La misión cancelada, terminada o incierta no puede continuar automáticamente')
         if claim and (plan['state'] != 'running' or matches[0][1].get('state') != 'running' or plan.get('approved_hash') != plan_hash):
             raise ValueError('El paso no está en el límite de despacho aprobado')
-        with self._policy_transaction():
+        with self._policy_transaction(immediate=True):
             if self.closed:
                 raise ValueError('La política de iniciativa está cerrada')
             saved = self.db.execute('SELECT payload FROM learning_plans WHERE id=?', (plan.get('operation_id'),)).fetchone()
@@ -472,13 +736,18 @@ class AnticipationService:
             error = learning._context_error(plan, current)
             if error:
                 raise StaleContext(error)
-            self._mission_resources(command_id, inputs, grant, context, self._config())
+            policies = self._mission_resources(command_id, inputs, grant, context, self._config())
             for candidate, literal in pending:
                 fixed = grant.get('parameter_constraints', {}).get(candidate['command_id'], {})
                 if any(key in literal and canonical(literal[key]) != canonical(value) for key, value in fixed.items()):
                     raise ApprovalRequired('Un paso pendiente contradice un límite exacto concedido')
                 self._mission_resources(candidate['command_id'], literal, grant, context, self._config(),
                     deferred=candidate.get('bindings', {}), require_existing=False)
+            storage = self._storage_admission(command_id, inputs, grant, context, self._config(), command_operation_id, claim=claim)
+            finite_rss = [policy['max_process_rss_bytes'] for policy in policies if policy.get('max_process_rss_bytes') is not None]
+            if finite_rss and not self._memory_admitted({'max_process_rss_bytes': min(finite_rss)}, refresh=True):
+                code = 'MEMORY_ADMISSION_LIMIT' if self.memory_usage.get('known') else 'MEMORY_ADMISSION_UNKNOWN'
+                raise ApprovalRequired(code + ': el RSS del backend y sus descendientes no permite admitir este paso')
             if claim and grant['lifetime'] == 'one_action' and grant.get('consumed_operation_id') is None:
                 changed = grant | {'consumed_operation_id': command_operation_id, 'consumed_at': self.clock()}
                 updated = self.db.execute('UPDATE anticipation_grants SET payload=? WHERE grant_id=? AND payload=?',
@@ -492,7 +761,8 @@ class AnticipationService:
                     (action_id, 'mission_step:' + MISSION_COMMANDS[command_id][1], self.clock()))
                 self.db.execute('INSERT OR IGNORE INTO anticipation_seen VALUES (?,?)',
                     ('initiated-learning-' + digest(plan['operation_id']), self.clock()))
-            return {key: grant[key] for key in ('grant_id', 'capability', 'lifetime')} | {'admitted_plan_hash': plan_hash}
+            return {key: grant[key] for key in ('grant_id', 'capability', 'lifetime')} | {'admitted_plan_hash': plan_hash,
+                **({'storage_reservation': storage} if storage else {})}
 
     def _suppressed(self, task, routine):
         return self.db.execute('SELECT 1 FROM anticipation_suppressions WHERE task_id IN (?,?) AND routine_id=?', (task, '*', routine)).fetchone() is not None
@@ -799,13 +1069,14 @@ class AnticipationService:
                     effective = next(iter(names))
             return config | {'effective_profile': effective, 'suggestions': rows, 'grants': grants, 'routines': stats,
                 'metrics': self._metrics(stats, task_id),
+                'resource_usage': self._resource_usage(),
                 'source_runtime': self._source_runtime(config, task_id),
                 'source_observations': [copy.deepcopy(event) for event in self.source_observations if task_id is None or event['task_id'] == task_id],
                 'capabilities': {'verify_artifact': self._can_verify(), 'physical_execution': False,
                     'mission_steps': self._mission_capability(),
                     'folders': True, 'applications': self._applications_available(), 'provider_send': False,
                     'verifiers': {name: self._verifier(path) for name, path in {'hash': 'file.txt', 'pdf': 'file.pdf', 'media': 'file.mp4', 'image': 'file.png', 'docx': 'file.docx', 'xlsx': 'file.xlsx'}.items()},
-                    'resource_limits_scope': 'Periodic observation and mission admission: known file inputs, writer UTF-8 output and requested file-search entries. Each tool retains its deadline; Office/bundle output size and mission CPU are not universally capped.',
+                    'resource_limits_scope': 'Admission snapshots: backend/descendant RSS; logical bytes observed under granted roots plus operation reservations; bounded writer/bundle outputs and search entries. No hard OS/cluster/mission-CPU or unknown Office-output limit. Uncertain effects retain reservations until reconciliation.',
                     'screen': False, 'microphone': False, 'clipboard': False,
                     'reason': 'M15 abierto: input físico proactivo bloqueado. Carpetas y aplicaciones solo producen metadatos locales autorizados; pantalla, micrófono y portapapeles siguen inactivos.'}}
 
@@ -853,6 +1124,8 @@ class AnticipationService:
                         raise ValueError('Límite de recursos desconocido')
                     options['resources'] = config['profiles'][name]['resources'] | resources
                     for key, (minimum, maximum) in RESOURCE_LIMITS.items():
+                        if key in NULLABLE_RESOURCES and options['resources'][key] is None:
+                            continue
                         if type(options['resources'][key]) is not int or not minimum <= options['resources'][key] <= maximum:
                             raise ValueError('Límite de recursos inválido: ' + key)
                     schedule = options['schedule']
