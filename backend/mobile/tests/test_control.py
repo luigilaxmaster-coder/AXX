@@ -57,3 +57,30 @@ class ControlTests(unittest.TestCase):
         self.assertEqual(self.control.status()['lease']['last_seq'],0)
         self.control.release(self.device,b)
         self.assertFalse(self.native.active)
+
+    def test_reply_window_includes_processing_but_never_extends_native_deadline(self):
+        grant=self.native.grant
+        def slow_grant(*args):
+            self.now+=2.5;grant(*args);self.native.deadline=self.now+3
+            self.now+=.5  # Native execution already finished before the acknowledgement is read.
+        self.native.grant=slow_grant
+        state=self.control.acquire(self.device,self.request)
+        self.assertEqual(state['ttl_ms'],3000)
+        self.assertEqual(state['request_window_ms'],5500)
+        self.assertEqual(self.native.deadline,105.5)
+        self.now=105.6
+        self.assertEqual(self.control.status(self.device)['request_window_ms'],0)
+
+    def test_slow_renewal_window_and_expired_duplicate_keep_original_lease(self):
+        body=self.acquire();renew=self.native.renew
+        def slow_renew(*args):
+            self.now+=2;renew(*args);self.native.deadline=self.now+3
+        self.native.renew=slow_renew
+        state=self.control.renew(self.device,{**body,'visible':True})
+        self.assertEqual(state['request_window_ms'],5000)
+        self.assertEqual(state['ttl_ms'],3000)
+        self.assertEqual(state['lease']['lease_id'],body['lease_id'])
+        self.now+=4
+        with self.assertRaises(ValueError):self.control.renew(self.device,{**body,'visible':True})
+        self.assertFalse(self.native.active)
+        self.assertEqual(self.native.sent,[])

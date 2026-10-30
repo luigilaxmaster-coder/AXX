@@ -75,7 +75,7 @@ class RemoteControl:
     def _allowed(self,device):
         return any(d['device_id']==device and not d['revoked'] and 'input.control' in d['scopes'] for d in self.store.devices())
 
-    def _state(self):
+    def _state(self,request_started=None):
         native=self.native.status() if self.native else {'active':False,'reason':'idle','keys':[],'buttons':[]}
         if self.lease and self.lease['state']=='granted':
             if self.clock()>=self.lease['deadline'] or not self._allowed(self.lease['device_id']):
@@ -83,16 +83,23 @@ class RemoteControl:
             if not native['active']:
                 self.lease.update(state='released',reason=native['reason'])
         lease={k:v for k,v in self.lease.items() if k not in ('deadline','last_hash')} if self.lease else None
-        return {'boot_id':self.boot_id,'lease':lease,'native':native,'ttl_ms':int(self.TTL*1000)}
+        result={'boot_id':self.boot_id,'lease':lease,'native':native,'ttl_ms':int(self.TTL*1000)}
+        if request_started is not None:
+            # Bound the reply to the native deadline, including time spent processing this request.
+            deadline=min(self.lease['deadline'],getattr(self.native,'deadline',self.lease['deadline'])) if self.lease and self.lease['state']=='granted' and native['active'] else request_started
+            result['request_window_ms']=max(0,int((deadline-request_started)*1000))
+        return result
 
     def status(self,device=None):
+        started=self.clock()
         with self.lock:
-            result=self._state()
+            result=self._state(started)
             if device and result['lease'] and result['lease']['device_id']!=device:
                 result['lease']={'state':'occupied'}
             return result
 
     def acquire(self,device,body):
+        started=self.clock()
         if set(body)!={'request_id','visible'} or body['visible'] is not True:raise ValueError('Abre Axx Mobile para solicitar control')
         try:uuid.UUID(body['request_id'])
         except (ValueError,TypeError,AttributeError):raise ValueError('ID de solicitud inválido')
@@ -100,13 +107,13 @@ class RemoteControl:
             self._state()
             if not self._allowed(device):raise ValueError('Autoriza ratón y teclado para este teléfono desde Axx en la PC')
             if self.lease and self.lease['state']=='granted':
-                if self.lease['device_id']==device and self.lease['request_id']==body['request_id']:return self._state()
+                if self.lease['device_id']==device and self.lease['request_id']==body['request_id']:return self._state(started)
                 raise ValueError('Ya existe una sesión de control. Libérala antes de solicitar otra.')
             if body['request_id'] in self.used:raise ValueError('Solicitud caducada. Solicita control de nuevo.')
             native=self._native();lease_id=str(uuid.uuid4());native.grant(lease_id,self.TTL)
             self.used=(self.used+[body['request_id']])[-128:]
             self.lease={'lease_id':lease_id,'device_id':device,'request_id':body['request_id'],'state':'granted','last_seq':0,'last_hash':'','deadline':self.clock()+self.TTL,'reason':''}
-            return self._state()
+            return self._state(started)
 
     def _require(self,device,body):
         self._state()
@@ -115,10 +122,11 @@ class RemoteControl:
         return self.lease
 
     def renew(self,device,body):
+        started=self.clock()
         if set(body)!={'lease_id','boot_id','visible'} or body['visible'] is not True:raise ValueError('La app debe permanecer visible')
         with self.lock:
             lease=self._require(device,body);self.native.renew(lease['lease_id'],self.TTL);lease['deadline']=self.clock()+self.TTL
-            return self._state()
+            return self._state(started)
 
     def events(self,device,body):
         if set(body)!={'lease_id','boot_id','seq','events'} or type(body['seq']) is not int or body['seq']<1:raise ValueError('Secuencia inválida')
