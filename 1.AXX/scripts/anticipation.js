@@ -247,7 +247,7 @@
   return !!(native?.activeCapture&&native.activeCapture.owner!==microphoneOwner||native?.sessions?.some(session=>session.owner!==microphoneOwner&&(session.pending||session.recorder?.state==='recording'))||c?.pending||c?.externalBusy||c?.dictating||c?.dictationStarting||c?.speaking||s?.liveActive||Axx.liveConversation?.active||['starting','listening','stopping'].includes(s?.dictation?.state)||Axx.voice13?.status==='listening'||[s?.reader,Axx.voice13?.reader].some(reader=>['starting','speaking','paused'].includes(reader?.state))||window.speechSynthesis?.speaking);
  }
  function microphoneTarget(){
-  if(!snapshot||snapshot.capabilities?.microphone!==true||snapshot.sources?.microphone!==true||snapshot.paused||snapshot.observation_paused||stopped||document.hidden||!task()||!microphoneOwner.available)return null;
+  if(!snapshot||snapshot.capabilities?.microphone!==true||snapshot.sources?.microphone!==true||snapshot.paused||snapshot.observation_paused||stopped||Axx.app.machine?.visible===false||document.hidden||!task()||!microphoneOwner.available)return null;
   return (snapshot.observation_targets||[]).find(target=>target.source==='microphone'&&target.task_id===task()&&(target.project_id||'')===project()&&!target.application_id&&target.device_id==='host'&&target.observe===true&&target.send_to_provider!==true&&(target.expires_at===null||target.expires_at*1000>Date.now())&&(snapshot.source_runtime||[]).some(runtime=>runtime.id===target.id&&runtime.active===true))||null;
  }
  const microphoneKey=target=>JSON.stringify([task(),project(),target,snapshot?.profile,snapshot?.profiles,snapshot?.scopes,snapshot?.sources,snapshot?.paused,snapshot?.observation_paused]);
@@ -517,6 +517,6 @@
  const timer=setInterval(()=>void refresh(),3000);
  document.addEventListener('visibilitychange',()=>{if(document.hidden){hide();stopMicrophone();}else void refresh();});
  window.addEventListener('pagehide',()=>{clearInterval(timer);++revision;hide();stopMicrophone();});
- Axx.anticipation={refresh,render:renderCard,layout,cancel:stop,allowSurprises,get state(){return snapshot;},get current(){return current;}};
+ Axx.anticipation={refresh,render(){renderCard();if(Axx.app.machine?.visible===false)stopMicrophone();},layout,cancel:stop,allowSurprises,get state(){return snapshot;},get current(){return current;}};
  void refresh(true);
 })(window.Axx);

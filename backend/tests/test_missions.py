@@ -9,6 +9,7 @@ from unittest.mock import patch
 from backend.action_learning import ActionLearning
 from backend.actions.executor import ActionExecutor
 from backend.commands import CommandService
+from backend.chat_store import ChatStore
 
 
 class MissionTests(unittest.TestCase):
@@ -39,6 +40,13 @@ class MissionTests(unittest.TestCase):
                 self.assertEqual(current['mission']['pending_steps'], [0])
                 self.assertEqual(current['mission']['blockers'][0]['state'], 'quarantined')
                 self.assertFalse(learning.list_plans('a')[0]['mission']['completed'])
+                chats = ChatStore(executor.db_path)
+                try:
+                    recovered = {row['operation_id']: row for row in chats.operations()}
+                    self.assertFalse(recovered[source['operation_id']]['mission']['completed'])
+                    self.assertFalse(recovered[operation]['compensation']['available_current'])
+                finally:
+                    chats.close()
                 guarded = learning.prepare_steps('Comprobar dependencia antes del efecto', [{'command_id': 'axx.artifact.write',
                     'inputs': {'path': 'guarded.txt', 'content': 'no debe escribirse'}}], project_id='a')
                 guarded = learning.link_dependencies(guarded['operation_id'], [source['operation_id']], guarded['plan_hash'])

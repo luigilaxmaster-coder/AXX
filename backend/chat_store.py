@@ -186,8 +186,16 @@ class ChatStore:
             results = []
             if 'command_runs' in tables:
                 results += [json.loads(r[0]) for r in db.execute('SELECT result_json FROM command_runs ORDER BY created_at DESC LIMIT 100')]
+                if 'artifact_compensations' in tables:
+                    from .actions.artifact_compensation import project_relationship
+                    results = [project_relationship(db, result) for result in results]
             if 'learning_plans' in tables:
-                results += [json.loads(r[0]) for r in db.execute('SELECT payload FROM learning_plans ORDER BY rowid DESC LIMIT 100')]
+                from .action_learning import ActionLearning
+                for row in db.execute('SELECT payload FROM learning_plans ORDER BY rowid DESC LIMIT 100'):
+                    plan = json.loads(row[0])
+                    if 'artifact_compensations' in tables:
+                        ActionLearning._project_compensations(plan, db)
+                    results.append(plan | {'mission': ActionLearning._mission(plan)})
             return results
 
     def mutate(self, action, body):

@@ -676,7 +676,7 @@
             node('command-library-remember').hidden = !(operation?.state === 'succeeded' && operation.postconditions_passed && ['axx.desktop.notepad.text','axx.desktop.explorer.folder'].includes(operation.command_id));
             node('command-library-prepare').disabled = this.busy || !!this.operation || !this.commands.find(item => item.id === node('command-library-select').value)?.execution_enabled;
             if (Axx.desktop) {
-                const verified = operation?.state === 'succeeded' && operation.postconditions_passed === true;
+                const verified = operation?.state === 'succeeded' && operation.postconditions_passed === true && operation.mission?.completed !== false;
                 Axx.desktop.lastOperation = verified ? operation : null;
                 node('desktop-action-result').textContent = JSON.stringify(operation, null, 2);
             }
@@ -697,15 +697,16 @@
             let completed = 0;
             steps.forEach((step, index) => {
                 const done = operation.step_records?.[index]?.state === 'succeeded';
+                const unavailable = operation.mission?.artifact_compensations?.some(item=>item.step===index&&item.available_current!==true);
                 if (done) completed++;
                 const item = document.createElement('li'), title = document.createElement('strong');
-                title.textContent = (done ? 'Completado · ' : '') + (this.isCompensation(step)?step.command_id.endsWith('.quarantine')?'Apartar archivo nuevo':'Restaurar archivo apartado':titles[step.command_id] || this.commands.find(c => c.id === step.command_id)?.title || step.command_id);
+                title.textContent = (done ? unavailable?'Ejecutado; entrega pendiente · ':'Completado · ' : '') + (this.isCompensation(step)?step.command_id.endsWith('.quarantine')?'Apartar archivo nuevo':'Restaurar archivo apartado':titles[step.command_id] || this.commands.find(c => c.id === step.command_id)?.title || step.command_id);
                 item.append(title);
                 if(this.isCompensation(step)){
                     const text=document.createElement('p');text.style.whiteSpace='pre-line';text.textContent=this.compensationApprovalMatches(operation)?this.compensationDescription(this.compensationApproval.preview):'Comprobando el archivo y su revisión antes de permitir la aprobación.';item.append(text);preview.append(item);return;
                 }
                 if (step.delivery_mode) { const mode = document.createElement('p'); mode.textContent = 'Entorno: ' + ({background:'segundo plano',foreground:'escritorio activo',isolated:'aislado'}[step.delivery_mode] || step.delivery_mode); item.append(mode); }
-                if (done) { const note = document.createElement('p'); note.textContent = 'Se conserva el resultado. Este paso no se repetirá.'; item.append(note); }
+                if (done) { const note = document.createElement('p'); note.textContent = unavailable?'Se conserva el recibo. El archivo está apartado o su restauración no está verificada. Este paso no se repetirá.':'Se conserva el resultado. Este paso no se repetirá.'; item.append(note); }
                 for (const [key, value] of Object.entries(step.inputs || {})) {
                     const label = document.createElement('div'), text = document.createElement('pre');
                     label.textContent = labels[key] || key; text.textContent = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
@@ -917,7 +918,7 @@
                 void this.request('GET', '/axx-api/learning/plan?id=' + encodeURIComponent(operation.operation_id)).then(current => {
                     if (serial !== this.generation || !this.busy || this.operation?.operation_id !== operation.operation_id) return;
                     this.renderOperation(current);
-                    this.status(`Ejecutando y comprobando: ${(current.step_records || []).filter(step => step.state === 'succeeded').length}/${current.steps?.length || 0} pasos confirmados.`);
+                    this.status(`Ejecutando y comprobando: ${current.mission?.verified_steps?.length??(current.step_records || []).filter(step => step.state === 'succeeded').length}/${current.steps?.length || 0} pasos confirmados.`);
                 }).catch(() => {});
             }, 1000);
             try {
@@ -925,11 +926,11 @@
                 if (serial !== this.generation) return;
                 this.lastOperation = plan; this.operation = null; this.busy = false;
                 this.renderOperation(plan); this.status(plan.message || plan.state);
-                const verified = plan.state === 'succeeded' && plan.postconditions_passed === true;
-                let message = plan.message || plan.state;
+                const verified = plan.state === 'succeeded' && plan.postconditions_passed === true && plan.mission?.completed !== false;
+                let message = plan.mission?.completed===false&&plan.state==='succeeded'?'Entrega pendiente. Revisa las evidencias actuales de la misión.':plan.message || plan.state;
                 for (const result of plan.results || []) {
                     if (result.evidence?.verification === 'os_handoff') message += '\nWindows aceptó abrir: ' + (result.output?.label || result.evidence.target);
-                    if (result.evidence?.sha256) message += '\nArchivo verificado: ' + result.evidence.path;
+                    if (result.evidence?.sha256 && plan.mission?.completed!==false) message += '\nArchivo verificado: ' + result.evidence.path;
                 }
                 this.notice(message, origin); Axx.companion.action(verified ? 'success' : 'error');
                 if (verified) void this.listLearned().catch(() => {});
@@ -984,7 +985,7 @@
             this.lastOperation = result.operation;
             this.operation = ['prepared', 'awaiting_approval', 'running'].includes(result.operation.state) ? result.operation : null;
             this.renderOperation(result.operation);
-            this.status('Estado observado: ' + result.operation.state + (result.operation.postconditions_passed === true ? ' · condiciones verificadas.' : '.'));
+            this.status(result.operation.mission?.completed===false&&result.operation.state==='succeeded'?'Estado observado: entrega pendiente. Revisa el bloqueo y las evidencias actuales.':'Estado observado: ' + result.operation.state + (result.operation.postconditions_passed === true ? ' · condiciones verificadas.' : '.'));
         }
         async reviewUnknown(operation) {
             if (this.busy || operation?.state !== 'unknown') return;

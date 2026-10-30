@@ -231,7 +231,7 @@
     taskPlans=result.plans||[];taskPlansProject=selected;renderLessonReceipts();
     for(const plan of result.plans || []) {
       const row=element('article'); row.className='setup-card';
-      row.append(element('strong',plan.title||plan.text||plan.operation_id),element('p',`${states[plan.state]||plan.state} · ${(plan.step_records||[]).filter(s=>s.state==='succeeded').length}/${plan.steps?.length||0} pasos · ${plan.model_calls_used||0} llamadas al modelo`));
+      row.append(element('strong',plan.title||plan.text||plan.operation_id),element('p',`${plan.state==='succeeded'&&plan.mission?.completed===false?'Entrega pendiente':states[plan.state]||plan.state} · ${plan.mission?.verified_steps?.length??(plan.step_records||[]).filter(s=>s.state==='succeeded').length}/${plan.steps?.length||0} pasos · ${plan.model_calls_used||0} llamadas al modelo`));
       row.append(button('Consultar',async()=>{if(commands.busy||commands.operation)throw new Error('Termina o cancela la acción activa antes de cambiar la tarea mostrada.');adopt(await api('GET','learning/plan?id='+encodeURIComponent(plan.operation_id)));}));
       if(!['succeeded','cancelled'].includes(plan.state)) row.append(button('Cancelar tarea',async()=>{await api('POST','learning/cancel',{operation_id:plan.operation_id});await tasks();}));
       if(!['succeeded','cancelled','running','needs_input'].includes(plan.state)) row.append(button('Retomar y revisar',()=>planRequest('resume',{operation_id:plan.operation_id,approved:false})));

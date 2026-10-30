@@ -498,7 +498,16 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
   await page.evaluate(()=>Axx.nativeVoice.sessions[0].owner.finish());
   await page.waitForFunction(id=>calls.some(c=>c.route.endsWith('/microphone/stop')&&c.body.capture_id===id),mismatchedMicrophone);
   assert.equal(await page.evaluate(()=>calls.some(c=>c.route.endsWith('/microphone/stop')&&c.body.capture_id==='foreign-capture')),false,'A mismatched result never changes the captured lease used for cancellation');
-  await page.evaluate(()=>{Date.now=originalDateNow;Axx.nativeVoice.activeCapture=null;data.sources.microphone=false;return Axx.anticipation.refresh();});
+  await page.evaluate(()=>{window.microphoneWrongReceipt=false;});
+  await page.locator('#anticipation-microphone').uncheck();await page.locator('#anticipation-microphone').check();
+  await page.waitForFunction(()=>microphoneStarts.length===9);
+  const hiddenAvatarMicrophone=await page.evaluate(()=>microphoneLeases.at(-1).capture_id);
+  await page.evaluate(()=>{Axx.app.machine.visible=false;Axx.anticipation.render();});
+  await page.waitForFunction(id=>calls.some(c=>c.route.endsWith('/microphone/stop')&&c.body.capture_id===id),hiddenAvatarMicrophone);
+  await page.evaluate(()=>{microphoneNow+=31000;return Axx.anticipation.refresh();});
+  assert.equal(await page.evaluate(()=>document.hidden),false,'The resident restore button keeps the host window visible');
+  assert.equal(await page.evaluate(()=>microphoneStarts.length),9,'Hiding the avatar stops its context microphone without hiding the host window');
+  await page.evaluate(()=>{Axx.app.machine.visible=true;Date.now=originalDateNow;Axx.nativeVoice.activeCapture=null;data.sources.microphone=false;return Axx.anticipation.refresh();});
   assert.deepEqual(errors,[]);
   const html=fs.readFileSync(path.join(__dirname,'../Axx.html'),'utf8');assert.match(html,/scripts\/anticipation\.js/);assert.match(html,/Axx\.anticipation\?\.layout\(g,size,add\)/);
   console.log('PASS: scoped Full mission grants, exact hashes, LLM resource limits, explicit window/clipboard/local-microphone sources, metadata-only microphone hooks, denied/busy/stale/hidden/TTL capture guards, independent provider consent, strict receipts, dependencies, Why, task races, Esc and suppression (controlled IPC)');

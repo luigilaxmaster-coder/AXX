@@ -210,7 +210,7 @@
         if(compact){
             if(dismissedResult===op.operation_id&&op.operation_id){box.hidden=true;return;}
             const pendingComputerGoal=op.command_id==='axx.computer.act'&&op.output?.goal_verified===false;
-            const status=document.createElement('strong');status.textContent=op.state==='cancelled'?'Cancelado':pendingComputerGoal?(op.evidence?.verification==='computer_region_changed'?'Cambio visual observado':'Entrada entregada; objetivo pendiente'):op.postconditions_passed?'Completado':'Resultado recibido';
+            const status=document.createElement('strong');status.textContent=op.state==='cancelled'?'Cancelado':op.mission?.completed===false?'Entrega pendiente':pendingComputerGoal?(op.evidence?.verification==='computer_region_changed'?'Cambio visual observado':'Entrada entregada; objetivo pendiente'):op.postconditions_passed?'Completado':'Resultado recibido';
             if(pendingComputerGoal)status.style.whiteSpace='normal';
             const title=document.createElement('span');title.className='cw-result-title';title.textContent=compensation?.title||op.title||lib.commands?.find(c=>c.id===op.command_id)?.title||'Acción';title.title=title.textContent;
             const details=button('Ver detalles',()=>{lib.open();lib.renderOperation(op);});
@@ -228,7 +228,7 @@
         if(op.state==='awaiting_approval'){const b=button('Aprobar y ejecutar',()=>lib.approve());b.className='cw-primary';b.disabled=!!compensation&&!compensation.canApprove;box.append(b);}
         if(op.kind==='learned_plan'){
             const progress=document.createElement('p'),records=op.step_records||[];
-            progress.textContent=`${records.filter(step=>step.state==='succeeded').length}/${op.steps?.length||0} pasos verificados`;
+            progress.textContent=`${op.mission?.verified_steps?.length??records.filter(step=>step.state==='succeeded').length}/${op.steps?.length||0} pasos verificados`;
             box.append(progress);
             if(['running','awaiting_approval'].includes(op.state))box.append(button('Pausar tarea',()=>lib.pausePlan()));
             if(['paused','interrupted'].includes(op.state))box.append(button('Retomar tarea',()=>lib.resumePlan()));

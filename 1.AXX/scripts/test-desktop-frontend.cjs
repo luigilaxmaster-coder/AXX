@@ -116,6 +116,7 @@ assert.deepEqual(reviewResolution.steps,[{command_id:'axx.desktop.list_windows',
         if (path === '/axx-api/commands/cancel') {const operation=window.__contractCommands[body.operation_id];if(operation?.source_operation_id)return window.__contractCommands[body.operation_id]={...operation,state:'cancelled'};return { cancelled: true };}
         if (path === '/axx-api/learning/prepare') return window.__contractPlan = {...body,kind:'learned_plan',state:'awaiting_approval',message:'Revisa los dos pasos.',step_records:body.steps.map((_,i)=>({step_id:String(i),state:'pending'}))};
         if (path === '/axx-api/learning/actions') return {actions:[]};
+        if (path.startsWith('/axx-api/learning/plans?')) return {plans:[]};
         if (path.startsWith('/axx-api/learning/plan?id=')) return structuredClone(window.__contractPlan);
         if (path === '/axx-api/learning/execute') {
           if(body.operation_id!==window.__contractPlan.operation_id||body.approved!==true)throw Error('Wrong approval');
@@ -647,6 +648,17 @@ assert.deepEqual(reviewResolution.steps,[{command_id:'axx.desktop.list_windows',
     assert.equal(await page.evaluate(()=>__contractCalls.filter(call=>call.args?.path==='/axx-api/commands/execute').length),compensationExecuteBeforeReconcile,'Reconcile observes the effect without redispatch');
     assert.equal(await page.evaluate(()=>__contractCalls.some(call=>call.args?.path==='/axx-api/commands/review'&&call.args.body.operation_id==='uncertain-compensation')),false);
     results.push('Receipt-bound NTFS compensation exposes filename/path/effect, preserves explicit approval and original receipts, refreshes stale/double/cancel/chat previews, and reconciles unknown without redispatch');
+    const compensatedMission=await page.evaluate(async()=>{
+      const lib=Axx.commandLibrary,saved={request:lib.request,operation:lib.operation,lastOperation:lib.lastOperation,busy:lib.busy},chat=Axx.chatWorkspace.active.id;
+      const plan={kind:'learned_plan',operation_id:'compensated-mission',command_id:'axx.learned',conversation_id:chat,title:'Entrega apartada',state:'succeeded',postconditions_passed:true,steps:[{command_id:'axx.artifact.write',inputs:{path:'apartado.txt',content:'fixture'}}],step_records:[{state:'succeeded'}],mission:{completed:false,verified_steps:[],artifact_compensations:[{step:0,state:'quarantined',available_current:false}]}};
+      lib.request=async function(method,path,body){if(path.startsWith('/axx-api/learning/plan?id='))return structuredClone(plan);if(path.startsWith('/axx-api/learning/plans?'))return {plans:[structuredClone(plan)]};return saved.request.call(this,method,path,body);};
+      try{lib.busy=false;lib.operation=null;lib.lastOperation=plan;lib.renderOperation(plan);Axx.companion.openChat();const card=document.querySelector('#cw-operation>strong').textContent,desktopCurrent=Axx.desktop.lastOperation;await lib.recover();const status=document.getElementById('command-library-status').textContent;await Axx.skillLibrary.tasks();const history=document.getElementById('skills-tasks').textContent;
+        plan.state='awaiting_approval';plan.steps.push({command_id:'axx.file.sha256',inputs:{path:'apartado.txt'}});plan.step_records.push({state:'pending'});lib.renderOperation(plan);
+        return {card,desktopCurrent,status,history,approval:document.getElementById('command-library-approval-summary').textContent,note:document.getElementById('command-library-preview').textContent,approve:document.getElementById('command-library-approve').textContent};
+      }finally{Object.assign(lib,saved);lib.renderOperation(saved.lastOperation);await Axx.skillLibrary.tasks();}
+    });
+    assert.equal(compensatedMission.card,'Entrega pendiente');assert.equal(compensatedMission.desktopCurrent,null);assert.match(compensatedMission.status,/entrega pendiente/);assert.match(compensatedMission.history,/Entrega pendiente · 0\/1 pasos/);assert.match(compensatedMission.approval,/1 paso pendiente/);assert.match(compensatedMission.note,/archivo está apartado[\s\S]*Este paso no se repetirá/);assert.equal(compensatedMission.approve,'Aprobar y ejecutar 1 paso');
+    results.push('Compensated missions show pending delivery in chat/history/recovery while approval preserves executed receipts without promising a repeat');
     await page.evaluate(() => { Axx.companion.openFeature('settings'); Axx.companion.openChat(false); });
     await page.waitForFunction(() => Axx.app.panelFocusTimer === null && document.activeElement === document.getElementById('chat-input'));
     const untouchedDraft = await page.locator('#chat-input').inputValue();
@@ -851,6 +863,16 @@ assert.deepEqual(reviewResolution.steps,[{command_id:'axx.desktop.list_windows',
     const nonresidentHide=await page.evaluate(()=>{const resident=Axx.resident,before=__contractCalls.filter(call=>call.name==='window_action'&&call.args.action==='hide').length;try{Axx.resident=null;Axx.app.hide();return __contractCalls.filter(call=>call.name==='window_action'&&call.args.action==='hide').length-before;}finally{Axx.resident=resident;Axx.app.setVisible(true);}});
     assert.equal(nonresidentHide,1,'The non-resident native view preserves its existing window-hide request');
     results.push('Software UI hide/restore/summon buttons and native events plus core software/WebGL visibility synchronously clear alpha and hide controls except restore with the native map, independently of RAF');
+    const hiddenMenus=await page.evaluate(async()=>{
+      const results=[],menu=document.getElementById('context-menu'),restore=document.getElementById('restore');
+      const flush=async()=>{for(let i=0;i<30&&Axx.app.maskInFlight;i++)await new Promise(resolve=>setTimeout(resolve,10));Axx.app.lastHitSignature='';await Axx.app.updateHitMap();};
+      try{for(const route of ['context-hide','companion','app']){Axx.app.setVisible(true);menu.hidden=false;menu.style.left='200px';menu.style.top='100px';if(route==='context-hide')document.getElementById(route).click();else if(route==='companion')Axx.companion.hide();else Axx.app.hide();await flush();
+        const rect=restore.getBoundingClientRect(),map=__contractCalls.filter(call=>call.name==='hit_map').at(-1)?.args.map,hidden={menuClosed:menu.hidden,menuVisible:!!menu.getClientRects().length,restoreVisible:!!restore.getClientRects().length,onlyRestoreMapped:map?.regions.every(region=>region.x>=rect.x-1&&region.y>=rect.y-1&&region.x+region.width<=rect.right+1&&region.y+region.height<=rect.bottom+1)};
+        restore.click();results.push({route,hidden,menuClosedAfterRestore:menu.hidden,menuVisibleAfterRestore:!!menu.getClientRects().length});
+      }}finally{menu.hidden=true;Axx.app.setVisible(true);Axx.resident.fold();}return results;
+    });
+    for(const result of hiddenMenus){assert.deepEqual(result.hidden,{menuClosed:true,menuVisible:false,restoreVisible:true,onlyRestoreMapped:true},JSON.stringify(result));assert.equal(result.menuClosedAfterRestore,true);assert.equal(result.menuVisibleAfterRestore,false);}
+    results.push('Hide closes an open context menu through its own button, Companion and App paths and never resurrects it on restore');
     await page.evaluate(() => Axx.companion.hide());
     assert.equal(await page.evaluate(() => document.body.classList.contains('avatar-hidden')), true);
     await page.locator('#restore').click();
