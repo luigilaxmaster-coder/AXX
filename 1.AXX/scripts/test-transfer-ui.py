@@ -23,6 +23,58 @@ class TransferPanel(unittest.TestCase):
         page.wait_for_function('()=>Axx.transfer && Axx.resident?.firstFrame')
         return page
 
+    def same_name_phones(self,page):
+        page.evaluate(r'''()=>{
+          window.phoneRows=[{device_id:'phone-OLD111',name:'SM-A217M',created_at:1700000000,permissions:{read:true,write:true},roots:['C:\\Old']},{device_id:'phone-NEW222',name:'SM-A217M',created_at:1700000100,permissions:{read:false,write:true},roots:[]}];
+          window.savedGrants=[];
+          const prior=Axx.backendRequest;Axx.backendRequest=async(method,path,body)=>{
+            if(path.endsWith('/files/status'))return {devices:phoneRows,transfers:[]};
+            if(path.endsWith('/files/permissions')){savedGrants.push(body);if(window.holdGrant)await new Promise(resolve=>window.finishGrant=resolve);return {};}
+            return prior(method,path,body);
+          };Axx.transfer.open();
+        }''')
+        page.locator('#tf-device option[value="phone-NEW222"]').wait_for(state='attached')
+        page.locator('#tf-tab-activity').click()
+        page.locator('#tf-activity-panel details').evaluate('(el)=>el.open=true')
+
+    def test_same_model_links_are_distinct_and_refresh_preserves_selection_and_draft(self):
+        with sync_playwright() as p:
+            page=self.open(p);self.same_name_phones(page)
+            self.assertEqual(page.locator('#tf-device').input_value(),'phone-NEW222')
+            self.assertIn('NEW222',page.locator('#tf-device option:checked').text_content())
+            self.assertRegex(page.locator('#tf-device option:checked').text_content(),r'\d')
+            page.locator('#tf-device').select_option('phone-OLD111')
+            page.locator('#tf-roots').fill('C:\\Draft')
+            page.evaluate("phoneRows.push({device_id:'phone-NEW333',name:'SM-A217M',created_at:1700000200,permissions:{read:false,write:false},roots:[]})")
+            page.locator('#tf-refresh').click()
+            page.locator('#tf-device option[value="phone-NEW333"]').wait_for(state='attached')
+            self.assertEqual(page.locator('#tf-device').input_value(),'phone-OLD111')
+            self.assertEqual(page.locator('#tf-roots').input_value(),'C:\\Draft')
+            page.locator('#tf-device').select_option('phone-NEW222')
+            page.evaluate("phoneRows[1].permissions.read=true;phoneRows[1].roots=['C:\\\\Updated']")
+            page.locator('#tf-refresh').click()
+            page.wait_for_function("()=>document.querySelector('#tf-roots').value==='C:\\\\Updated'")
+            self.assertTrue(page.locator('#tf-read').is_checked())
+            self.assertEqual(page.evaluate('savedGrants.length'),0)
+
+    def test_quoted_path_uses_selected_id_and_late_save_preserves_another_draft(self):
+        with sync_playwright() as p:
+            page=self.open(p);self.same_name_phones(page)
+            page.locator('#tf-read').check()
+            page.locator('#tf-roots').fill('"C:\\Documents"')
+            page.evaluate('window.holdGrant=true')
+            page.locator('#tf-permissions button').click()
+            page.wait_for_function('()=>typeof finishGrant==="function"')
+            self.assertEqual(page.evaluate('savedGrants[0].device_id'),'phone-NEW222')
+            self.assertEqual(page.evaluate('savedGrants[0].roots'),['C:\\Documents'])
+            page.locator('#tf-device').select_option('phone-OLD111')
+            page.locator('#tf-roots').fill('C:\\Keep-this-draft')
+            page.evaluate('finishGrant()')
+            page.wait_for_function("()=>document.querySelector('#tf-status').textContent.includes('NEW222')")
+            self.assertEqual(page.locator('#tf-device').input_value(),'phone-OLD111')
+            self.assertEqual(page.locator('#tf-roots').input_value(),'C:\\Keep-this-draft')
+            self.assertEqual(page.evaluate('savedGrants.length'),1)
+
     def test_visible_tools_entry_opens_received_files_from_all_phones(self):
         with sync_playwright() as p:
             page=self.open(p,"localStorage.setItem('axx.flow.favorites',JSON.stringify(['notes','calculator']));")
