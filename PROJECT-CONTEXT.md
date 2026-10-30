@@ -10,3 +10,5 @@ Actualizado: 2026-10-29.
 - **Criterio de terminado:** pruebas pertinentes aprobadas, Windows instalado y verificado antes de publicarse con hashes confirmados, y Android compilado con evidencia separada de instalación y validación física.
 
 - **Revisión móvil 0.2.9:** cámara progresiva, identidad de enlace visible en Archivos y regresiones de canvas oculto/selector de Windows. Gate incluye selector y huellas. Ver docs/mobile/FLUENCY-AND-PATHS-20261029.md; instalación y consumo/calor prolongados requieren recibos físicos separados.
+
+- **Revisión del trackpad:** 0.2.10 falló la aceptación de entrada. Android 0.2.11 ya está instalada conservando datos, con gate y JVM aprobados; añade sesión renovable sin máximo total, ventanas conservadoras y diagnóstico nativo. La caché prolongada del indicador se limita al teléfono; automatización conserva su heartbeat. Efecto nativo y ensayo térmico siguen pendientes de recibos separados. Ver docs/mobile/TRACKPAD-20261029.md.

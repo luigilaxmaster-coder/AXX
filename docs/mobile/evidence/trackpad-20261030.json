@@ -1,0 +1,33 @@
+{
+  "android": {
+    "version": "0.2.11-companion",
+    "version_code": 32,
+    "built": true,
+    "installed": true,
+    "apk_sha256": "eeb7148a30b552b957645dc1e3ceb8e4f820e927528b12285a262ba378fbda3e",
+    "signature_matches_previous": true,
+    "canonical_web_assets_matched": 20,
+    "jvm_transport_tests": 6,
+    "installed_apk_hash_matches": true,
+    "persistent_app_files_preserved_before_launch": true
+  },
+  "source_validation": {
+    "result": "PASS",
+    "canonical_inputs": 114,
+    "contract_tests": 11,
+    "backend_tests": 96,
+    "backend_skipped": 1,
+    "mobile_browser_tests": 54,
+    "control_ui_tests": 17,
+    "desktop_selector_tests": 6
+  },
+  "windows": {
+    "source_base": "0.22.29 / 18a4fd8",
+    "backend_optional_window_commit": "f15d2b2",
+    "remote_only_material_commits": ["5eb282e", "d389ad1"],
+    "requires_both_material_commits": true,
+    "installed_patch_acceptance": "PENDING coordinated Windows delivery"
+  },
+  "physical_trackpad_acceptance": "NOT_PERFORMED; 0.2.10 previously failed",
+  "thermal_battery_trial": "NOT_STARTED"
+}
