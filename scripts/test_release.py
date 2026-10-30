@@ -24,7 +24,7 @@ class ReleaseTests(unittest.TestCase):
         self.current = release.check(self.root)
 
     def receipt(self):
-        for name in ("axx-backend.spec", "scripts/setup-freellmapi.ps1", "scripts/configure-native-gateway.py", "scripts/anythingmcp-local.py", "src-tauri/resources/ai-memory.exe"):
+        for name in ("axx-backend.spec", "scripts/setup-freellmapi.ps1", "scripts/configure-native-gateway.py", "scripts/anythingmcp-local.py", "src-tauri/resources/ai-memory.exe", "requirements-telegram.txt", "backend/telegram/webapp.html", "backend/telegram/webapp.css", "backend/telegram/webapp.js", "mobile/js/desktop-avatar.js", "mobile/js/avatar-renderer.js"):
             path = self.root / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(b"unit test source fixture")
@@ -87,7 +87,7 @@ class ReleaseTests(unittest.TestCase):
 
     def test_added_source_after_build_is_rejected(self):
         _, b, i = self.receipt()
-        (self.root / "backend").mkdir()
+        (self.root / "backend").mkdir(exist_ok=True)
         (self.root / "backend/new_feature.py").write_text("pass\n", encoding="utf-8")
         with self.assertRaisesRegex(ValueError, "inventory changed"):
             release.validate_receipts(self.root, b, i)
@@ -97,6 +97,16 @@ class ReleaseTests(unittest.TestCase):
         (self.root / "axx-backend.spec").write_text("changed", encoding="utf-8")
         with self.assertRaisesRegex(ValueError, "Source changed"):
             release.validate_receipts(self.root, b, i)
+
+    def test_telegram_assets_are_required_and_tampering_is_rejected(self):
+        for name in ('backend/telegram/webapp.html', 'backend/telegram/webapp.css', 'backend/telegram/webapp.js',
+                     'mobile/js/desktop-avatar.js', 'mobile/js/avatar-renderer.js', 'requirements-telegram.txt'):
+            with self.subTest(name=name):
+                _, b, i = self.receipt()
+                self.assertIn((self.root / name).resolve(), release.source_inventory(self.root))
+                (self.root / name).write_text('changed', encoding='utf-8')
+                with self.assertRaisesRegex(ValueError, 'Source changed'):
+                    release.validate_receipts(self.root, b, i)
 
     def test_license_notice_bytes_are_part_of_delivery(self):
         notice = self.root / 'src-tauri/resources/license-notices/example/LICENSE'

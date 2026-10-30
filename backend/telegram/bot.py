@@ -7,6 +7,7 @@ from contextlib import contextmanager
 import hashlib
 import json
 from pathlib import Path
+import re
 import sqlite3
 import sys
 import time
@@ -16,6 +17,7 @@ import urllib.request
 from backend.auth.chatgpt_auth import _dpapi_decrypt, _dpapi_encrypt
 from backend.telegram.bot_config import load_bot
 from backend.telegram.config import _file_lease, account_path, load_account
+from backend.telegram.pairing import PairingStore
 from backend.telegram.worker import NoRedirect, chunks
 
 MAX_RESPONSE = 1024 * 1024
@@ -216,8 +218,20 @@ class BotWorker:
             text = message.get('text')
             if not isinstance(text, str):
                 self.send('Las notas de voz y archivos de este bot aún no están habilitados.')
+            elif re.fullmatch(r'/start\s+axx_[A-Za-z0-9_-]{43}', text.strip()):
+                start_param = text.strip().split()[1]
+                config = load_bot(self.data_dir)
+                account = load_account(self.data_dir)
+                if config['public_url'] and PairingStore(self.data_dir).pending(account, start_param):
+                    url = config['public_url'] + '#pairing=' + start_param
+                    self.send('Abre Axx para completar la vinculación.', {'inline_keyboard': [[
+                        {'text': 'Abrir Axx', 'web_app': {'url': url}}]]})
+                else:
+                    self.send('La vinculación no está disponible o ha vencido. Genera otro QR en la PC.')
             elif text.strip() in ('/start', '/menu'):
                 self.send('Menú de Axx. Consulta el estado de cada capacidad.', menu(load_bot(self.data_dir)['public_url']))
+            elif text.strip().startswith('/start '):
+                self.send('La vinculación no es válida. Genera otro QR en la PC.')
             elif 1 <= len(text.strip()) <= 12000:
                 result = local_request(self.endpoint_file, '/axx-api/telegram/bot-input',
                     {'peer_id': self.account['owner_id'], 'event_id': update_id,

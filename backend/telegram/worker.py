@@ -3,10 +3,12 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+from collections import OrderedDict
 import json
 from pathlib import Path
 import sqlite3
 import sys
+import time
 import urllib.error
 import urllib.request
 
@@ -80,6 +82,8 @@ class TelegramWorker:
         self.queue = asyncio.Queue(maxsize=8)
         self.tasks = set()
         self.queued = set()
+        self.seen_calls = OrderedDict()
+        self.last_call_notice = None
         directory = account_path(data_dir).parent
         directory.mkdir(parents=True, exist_ok=True)
         self.db = sqlite3.connect(directory / 'transport.db')
@@ -183,6 +187,36 @@ class TelegramWorker:
             # Message data and Telegram credentials must never enter logs.
             return
 
+    async def incoming_call(self, update):
+        from telethon.tl.functions.phone import DiscardCallRequest
+        from telethon.tl.types import InputPhoneCall, PhoneCallDiscardReasonBusy, PhoneCallRequested
+
+        call = getattr(update, 'phone_call', None)
+        if not isinstance(call, PhoneCallRequested) or not await self.permitted():
+            return
+        if call.id in self.seen_calls:
+            return
+        self.seen_calls[call.id] = None
+        if len(self.seen_calls) > 128:
+            self.seen_calls.popitem(last=False)
+        try:
+            await self.client(DiscardCallRequest(InputPhoneCall(call.id, call.access_hash), 0,
+                                                 PhoneCallDiscardReasonBusy(), 0))
+        except Exception:
+            pass
+        if call.admin_id != self.account['owner_id'] or call.participant_id != self.account['account_id']:
+            return
+        try:
+            current = load_account(self.data_dir)
+            now = time.monotonic()
+            if (current.get('grants', {}).get('private_calls') is True
+                    and (self.last_call_notice is None or now - self.last_call_notice >= 30)):
+                self.last_call_notice = now
+                if await self.permitted():
+                    await self.send('Las llamadas de Axx todavía están en reparación. Puedes usar el menú del bot; el estado se consulta en Axx del PC → Herramientas → Telegram.')
+        except Exception:
+            pass
+
     async def dispatch(self, key, payload):
         phase = 'dispatch_unknown'
         try:
@@ -223,6 +257,7 @@ async def run(data_dir=None, endpoint_file=None):
     if not account['enabled']:
         return
     from telethon import TelegramClient, events
+    from telethon.tl.types import UpdatePhoneCall
     from telethon.sessions import StringSession
 
     endpoint_file = Path(endpoint_file) if endpoint_file else account_path(data_dir).parent.parent / 'connect' / 'endpoint.dpapi'
@@ -237,6 +272,7 @@ async def run(data_dir=None, endpoint_file=None):
                 raise RuntimeError('TELEGRAM_ACCOUNT_MISMATCH')
             worker = TelegramWorker(client, account, endpoint_file, data_dir)
             client.add_event_handler(worker.receive, events.NewMessage(incoming=True))
+            client.add_event_handler(worker.incoming_call, events.Raw(types=UpdatePhoneCall))
             consumer = asyncio.create_task(worker.consume())
             monitor = asyncio.create_task(worker.monitor())
             try:

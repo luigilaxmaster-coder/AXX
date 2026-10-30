@@ -46,6 +46,9 @@ def configure(token, url, enabled, data_dir=None):
     me = bot_request(token, 'getMe', {})
     if not isinstance(me, dict) or me.get('is_bot') is not True:
         raise BotApiError('BOT_IDENTITY_INVALID')
+    username = me.get('username')
+    if isinstance(username, str) and re.fullmatch(r'[A-Za-z][A-Za-z0-9_]{4,31}', username):
+        value['username'] = username
     save_bot(value, data_dir)
     result = {'local_saved': True, 'account_enabled': account['enabled'],
               'menu_configured': False, 'error_code': None, 'retry_after': 0}

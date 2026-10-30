@@ -16,12 +16,14 @@ def bot_path(data_dir=None):
 
 
 def validate_bot(value):
-    if not isinstance(value, dict) or set(value) != {'token', 'enabled', 'public_url'}:
+    if not isinstance(value, dict) or not {'token', 'enabled', 'public_url'} <= set(value) or set(value) - {'token', 'enabled', 'public_url', 'username'}:
         raise ValueError('Invalid bot configuration')
     if not isinstance(value['token'], str) or not re.fullmatch(r'[0-9]{5,15}:[A-Za-z0-9_-]{25,100}', value['token']):
         raise ValueError('Invalid bot token')
     if type(value['enabled']) is not bool or not isinstance(value['public_url'], str):
         raise ValueError('Invalid bot settings')
+    if 'username' in value and (not isinstance(value['username'], str) or not re.fullmatch(r'[A-Za-z][A-Za-z0-9_]{4,31}', value['username'])):
+        raise ValueError('Invalid bot username')
     if value['public_url']:
         try:
             url = urlsplit(value['public_url'])

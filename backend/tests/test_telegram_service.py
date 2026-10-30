@@ -197,6 +197,49 @@ class TelegramServiceTests(unittest.TestCase):
             self.service.admit_miniapp(20, 'hola', str(uuid.uuid4()), approved=True)
         self.assertEqual(self.inbox_count(), 1)
 
+    def test_diagnostics_and_history_do_not_create_conversations(self):
+        self.preferences = {}
+        state = self.service.diagnostics(20)
+        self.assertEqual(state['conversation']['reason_code'], 'SELECTED_PROVIDER_NOT_SYNCED')
+        self.assertIsNone(state['conversation']['model'])
+        self.assertEqual(self.service.history(20), {'messages': [], 'has_more': False})
+        self.assertEqual(self.chats.list()['conversations'], [])
+        with self.assertRaises(ValueError):
+            self.service.history(21)
+
+    def test_history_requires_grant_and_remains_owner_bound(self):
+        self.service.admit(self.body('private from owner'))
+        history = self.service.history(20)
+        self.assertTrue(any(item['text'] == 'private from owner' for item in history['messages']))
+        self.assertTrue(all(set(item) <= {'id','role','text','status','at'} for item in history['messages']))
+        self.account['grants']['conversation'] = False
+        with self.assertRaises(ValueError):
+            self.service.history(20)
+        self.account.update(account_id=30, owner_id=40)
+        self.account['grants']['conversation'] = True
+        self.assertEqual(self.service.history(40), {'messages': [], 'has_more': False})
+
+    def test_activity_cancel_only_owned_permitted_commands(self):
+        self.command()
+        self.commands.prepare.return_value = {'state': 'awaiting_approval'}
+        operation = self.service.admit(self.body('/accion'))['operation_id']
+        self.commands.get.return_value = {'operation_id': operation, 'state': 'awaiting_approval', 'command_id': 'allowed', 'secret': 'private'}
+        item = self.service.activity(20)['items'][0]
+        self.assertTrue(item['can_cancel'])
+        self.assertNotIn('secret', item)
+        with self.assertRaises(ValueError):
+            self.service.cancel_operation(21, operation)
+        with self.assertRaises(ValueError):
+            self.service.cancel_operation(20, str(uuid.uuid4()))
+        self.commands.cancel.assert_not_called()
+        self.account['grants']['pc_commands'] = False
+        with self.assertRaises(ValueError):
+            self.service.cancel_operation(20, operation)
+        self.commands.cancel.assert_not_called()
+        self.account['grants']['pc_commands'] = True
+        self.assertEqual(self.service.cancel_operation(20, operation), {'state':'cancel_requested'})
+        self.commands.cancel.assert_called_once_with(operation)
+
     def test_conversation_history_is_separate_between_accounts(self):
         self.service.admit(self.body('secreto primera cuenta'))
         self.account.update(account_id=30, owner_id=40)

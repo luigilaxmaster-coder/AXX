@@ -45,6 +45,9 @@ class BotConfigTests(unittest.TestCase):
             with self.subTest(url=url), self.assertRaises(ValueError):
                 validate_bot(dict(BOT, public_url=url))
         self.assertEqual(validate_bot(dict(BOT, public_url='https://axx.example.org/app'))['public_url'], 'https://axx.example.org/app')
+        self.assertEqual(validate_bot(dict(BOT, username='VerifiedBot'))['username'], 'VerifiedBot')
+        with self.assertRaises(ValueError):
+            validate_bot(dict(BOT, username='https://other.example/'))
 
     def test_config_roundtrip_with_protection_injected(self):
         with tempfile.TemporaryDirectory() as directory, \
@@ -111,6 +114,37 @@ class BotWorkerTests(unittest.TestCase):
              patch('backend.telegram.bot.bot_request') as request:
             self.worker.process(1, message(text='/start'))
             request.assert_not_called()
+
+    def test_pairing_link_is_sent_only_for_authorized_owner_and_pending_token(self):
+        param = 'axx_' + 'x' * 43
+        update = message(text='/start ' + param)
+        configured = dict(BOT, public_url='https://axx.example.org/')
+        with patch('backend.telegram.bot.load_bot', return_value=configured), \
+             patch('backend.telegram.bot.PairingStore') as store, \
+             patch('backend.telegram.bot.bot_request') as request:
+            store.return_value.pending.return_value = True
+            self.worker.process(1, update)
+            body = request.call_args.args[2]
+            self.assertEqual(body['chat_id'], 22)
+            self.assertEqual(body['reply_markup']['inline_keyboard'][0][0]['web_app']['url'],
+                             'https://axx.example.org/#pairing=' + param)
+            store.return_value.pending.assert_called_once_with(ACCOUNT, param)
+            request.reset_mock(); store.reset_mock()
+            self.worker.process(2, message(owner=23, text='/start ' + param))
+            request.assert_not_called()
+            store.assert_not_called()
+
+    def test_expired_and_invalid_pairing_does_not_expose_token(self):
+        param = 'axx_' + 'x' * 43
+        with patch('backend.telegram.bot.load_bot', return_value=dict(BOT, public_url='https://axx.example.org/')), \
+             patch('backend.telegram.bot.PairingStore') as store, \
+             patch('backend.telegram.bot.bot_request') as request:
+            store.return_value.pending.return_value = False
+            self.worker.process(1, message(text='/start ' + param))
+            self.assertNotIn(param, str(request.call_args))
+            request.reset_mock()
+            self.worker.process(2, message(text='/start https://attacker.example/'))
+            self.assertNotIn('attacker.example', str(request.call_args))
 
     def test_result_delivery_failure_becomes_unknown(self):
         self.worker.persist([message()])

@@ -1,126 +1,76 @@
-# Telegram: cuenta única de Axx
+# Usar Axx desde Telegram
 
-Estado: implementación inicial en fuente. La autorización de cuenta se comprueba
-por separado de mensajes y llamadas; no instalado ni publicado como integración
-completa.
+Esta guía describe la integración en el código actual. Tener la cuenta guardada
+no demuestra que el canal o las llamadas funcionen: cada capacidad debe comprobarse
+por separado en la versión instalada. Axx debe estar abierto en la PC, que también
+debe permanecer encendida y conectada a Internet.
 
-La cuenta de usuario dedicada conserva mensajes y pruebas de llamadas privadas.
-Por autorización posterior del propietario, un bot auxiliar añade el menú y la
-Mini App oficial. Ambos canales comparten la autoridad de Axx. El PC debe
-permanecer encendido, conectado y con Axx abierto.
+## Conectar y usar
 
-## Bot y Mini App
+1. En Axx en la PC, abre **Herramientas → Asistencia → Telegram**. Si tu cuenta
+   ya está guardada en esta PC, no necesitas repetir el primer QR.
+2. Si aún no está guardada, pulsa **Conectar con QR**. En la cuenta de Telegram
+   dedicada a Axx, abre **Ajustes → Dispositivos → Vincular dispositivo de
+   escritorio** y escanea el **QR 1**. Si Telegram pide tu contraseña de
+   verificación en dos pasos, introdúcela en la ventana de Axx de la PC.
+3. Elige lo que permites, activa Telegram y pulsa **Guardar permisos**.
+   Cambiar permisos después de vincular el teléfono requiere escanear otra vez el QR 2.
+4. Para abrir la Mini App en tu teléfono, pulsa **Mostrar QR para teléfono**.
+   Escanea el **QR 2** con la cámara, toca **Iniciar** en el bot y después
+   **Abrir Axx**. Si el QR vence, genera otro. Esta etapa requiere tener el bot
+   y la dirección HTTPS de la Mini App configurados.
+5. Usa **Comprobar conexión** para consultar si el proceso está activo.
+   Eso no sustituye una prueba real enviando un mensaje.
+6. En la Mini App puedes consultar el estado y la actividad disponible. Los
+   comandos y acciones mantienen los permisos y las aprobaciones de la PC.
+   Si un envío queda pendiente, consulta su estado antes de reintentarlo.
 
-```powershell
-& "$env:LOCALAPPDATA\Axx\telegram-runtime\Scripts\pythonw.exe" -m backend.telegram.bot_setup
-```
+Si es la primera configuración y faltan datos de aplicación o del bot, abre
+**Opciones avanzadas** en ese mismo panel. Los datos se introducen solo en la PC:
+`api_id`, `api_hash`, ID numérico de tu cuenta personal, token del bot y dirección
+HTTPS de la Mini App. La cuenta personal autorizada debe ser distinta de la
+cuenta dedicada a Axx. Dejar vacío el token al editar conserva el token guardado.
+No pegues códigos, contraseñas ni tokens en el chat.
 
-Crear el bot con BotFather, abrirlo desde la cuenta personal y enviar `/start`.
-Pegar el token solo en la ventana local. El token validado se guarda con DPAPI
-antes de configurar el menú; un fallo de menú no pierde ese guardado. La ventana
-muestra códigos públicos acotados, nunca la respuesta cruda con el token.
+Para detener el acceso, pulsa **Pausar**. Puedes reanudarlo después. Para retirar
+el acceso de un teléfono, usa **Desvincular** junto a él; **Desvincular todos**
+revoca las vinculaciones de la Mini App. Estas acciones conservan la cuenta y
+los datos guardados en la PC y no deshacen una acción ya realizada. Revocar una
+sesión de Telegram desde sus ajustes de dispositivos es una acción independiente.
 
-La Mini App necesita una URL HTTPS real. La fachada escucha solo en loopback,
-puerto 6451, y requiere `initData` firmado por Telegram para el propietario,
-caducidad, sesión revocable y CSRF. Tailscale Funnel debe habilitarse explícitamente
-en la cuenta Tailscale antes de hacer accesible esa fachada. Nunca reenviar todo
-el backend nativo hacia Internet.
+## Lo que está pendiente
 
-El conector provisional puede utilizar el backend instalado sin otro ejecutor:
+- **Llamadas privadas:** todavía no están operativas. Las pruebas recibieron audio,
+  pero no confirmaron que el teléfono escuchara el audio saliente; una prueba de
+  archivo terminó con un tiempo de espera en la limpieza. No se ha comprobado una
+  conversación de voz bidireccional ni su interrupción. El canal de mensajes puede
+  rechazar una llamada y avisar al propietario de que está en reparación.
+- **Notas de voz y archivos:** pendientes de implementación y aceptación. El
+  canal responde que los adjuntos aún no están habilitados.
+- **Chat con IA:** se conserva el proveedor seleccionado en el escritorio. Si
+  su acceso remoto no está disponible o no ha pasado las comprobaciones de
+  aislamiento, la conversación queda bloqueada; Axx no cambia de proveedor ni
+  activa uno de pago por su cuenta.
+- **Acciones en la PC:** utilizan los comandos, permisos y aprobaciones existentes.
+  Una función configurada o un permiso concedido no prueban que el resultado de
+  una acción haya sido verificado.
 
-```powershell
-& "$env:LOCALAPPDATA\Axx\telegram-runtime\Scripts\pythonw.exe" -m backend.telegram.daemon --account-channel
-```
+## Referencia técnica
 
-Su endpoint DPAPI es independiente del endpoint nativo. Los comandos se admiten,
-aprueban y ejecutan mediante las rutas autenticadas de Axx instalado. Se detiene
-si cambia la instancia nativa. No registra inicio automático de Windows y no
-sustituye una entrega del instalador. El propietario eligió conservar el proveedor
-del escritorio aunque la conversación remota permanezca bloqueada: el conector
-provisional no hace inferencia ni selecciona otro proveedor.
+La cuenta de usuario de Telegram y el bot auxiliar son canales distintos. La
+sesión de usuario se protege con DPAPI en `%LOCALAPPDATA%\Axx\telegram` y el
+trabajador admite únicamente mensajes privados del propietario autorizado. La
+bandeja conserva identificadores de operación; no reejecuta automáticamente un
+despacho o una entrega de resultado inciertos. Las acciones sensibles continúan
+requiriendo aprobación en la PC.
 
-## Alta local y primera prueba
+La Mini App requiere una dirección HTTPS configurada para el bot. La fachada se
+mantiene separada del backend nativo y verifica la identidad firmada por Telegram;
+el QR de vinculación es de un solo uso y caduca. No expongas el backend nativo
+completo a Internet. La conexión del teléfono o del bot no demuestra por sí sola
+que la conversación, los archivos o las llamadas funcionen.
 
-Desde la raíz del repositorio en Windows x64, Python 3.12:
-
-```powershell
-python -m venv "$env:LOCALAPPDATA\Axx\telegram-runtime"
-& "$env:LOCALAPPDATA\Axx\telegram-runtime\Scripts\python.exe" -m pip install -r requirements-telegram.txt
-& "$env:LOCALAPPDATA\Axx\telegram-runtime\Scripts\pythonw.exe" -m backend.telegram.setup
-```
-
-Obtén `api_id` y `api_hash` mediante https://my.telegram.org. Introduce los
-datos únicamente en la ventana local: teléfono de la cuenta dedicada, ID
-numérico de tu cuenta personal, código y 2FA cuando corresponda. El propietario
-debe ser otra cuenta; la primera persona que escriba no obtiene acceso.
-
-Activa el canal y el permiso de llamadas para la prueba. Antes de iniciar el
-trabajador de mensajes, ejecuta:
-
-```powershell
-& "$env:LOCALAPPDATA\Axx\telegram-runtime\Scripts\python.exe" -m backend.telegram.call_probe --output build/telegram-call-probe.json --timeout 180 --confirm-audible
-```
-
-Durante esos tres minutos llama al contacto de Axx desde la cuenta autorizada.
-Escucha el tono de prueba, habla y cuelga desde Telegram. La confirmación auditiva
-se introduce en esa consola después de la llamada. El recibo contiene contadores
-y estados, sin grabación ni credenciales. Energía entrante puede ser ruido: el
-corte de un tono no acredita una interrupción de conversación con IA.
-
-`PASS` exige audio entrante no silencioso, frames salientes, colgado remoto,
-limpieza, salida comprobada del proceso aislado y confirmación auditiva local.
-Sin esos datos queda `BLOCKED`. Importar una DLL no acredita una llamada.
-
-## Lo implementado y sus límites
-
-- Configuración y StringSession protegidas por DPAPI del usuario de Windows en
-  `%LOCALAPPDATA%\Axx\telegram\account.dpapi`; no hay sesión en texto plano.
-- Trabajador de mensajes aislado con la misma cuenta, solo chat privado del
-  propietario. Descarta grupos, bots, ediciones, reenvíos y respuestas citadas.
-- Bandeja de transporte persistente con payload protegido, deduplicación e IDs
-  de operación estables. Un envío o despacho incierto no se repite automáticamente.
-- Conversación separada y visible en ChatStore. Se reutiliza la selección API
-  que el escritorio comparte con el backend; requiere UI abierta/sincronizada.
-  La selección Connect no se conecta remotamente hasta verificar su aislamiento.
-- Acciones exactas del catálogo mediante CommandService, modo guardado, permisos,
-  aprobación en la PC y recibos. No hay ejecución directa de shell ni aprobación
-  concedida por un mensaje. `/estado` y `/cancelar <id>` conservan prioridad.
-- Los mensajes anteriores a 120 segundos se rechazan; los nuevos con el mismo
-  texto son solicitudes diferentes. Las operaciones inciertas se revisan en la PC.
-
-El backend de esta fuente inicia el trabajador si hay configuración habilitada,
-al arrancar. El trabajador de texto y la prueba telefónica comparten una exclusión
-de sesión; hay que detener uno antes de iniciar el otro. El instalador anterior
-no incluye estos cambios. Los permisos pueden retirarse en la ventana local sin
-detenerla; el trabajador desconecta y el backend comprueba autoridad otra vez.
-Revocar no deshace un efecto ya ejecutado.
-
-Rutas nuevas, solo bajo autenticación nativa existente:
-`GET /axx-api/telegram/status`, `POST /axx-api/telegram/input`.
-No se exponen puertos públicos ni se modifica `/v1` móvil.
-
-**Pendiente:** notas de voz, recepción/procesamiento y devolución de archivos,
-conversación ASR/TTS dentro de la llamada, perfil sonoro, interrupción real de
-respuesta, aceptación instalada y publicación. Los adjuntos reciben una respuesta
-explícita de función todavía no habilitada.
-
-Las pruebas reales del transporte privado recibieron audio, pero no obtuvieron
-confirmación de reproducción saliente y una prueba con archivo terminó en timeout
-de limpieza nativa. Los contadores de envío no acreditan sonido en el teléfono.
-No hay aceptación completa de llamadas ni receptor permanente con conversación.
-
-## Comprobaciones y entrega
-
-```powershell
-python -m unittest backend.tests.test_telegram_config backend.tests.test_telegram_service backend.tests.test_telegram_worker backend.tests.test_telegram_http backend.tests.test_telegram_call_probe
-python scripts/validate_companion.py --output build/telegram-companion-validation.json
-```
-
-Las pruebas automáticas usan dobles de Telegram. El recibo de llamada real y las
-pruebas instaladas se evalúan por separado. No se cambia la versión ni se publica
-un instalador completo antes de resolver la prueba prioritaria y la aceptación
-de las capacidades solicitadas. Para una entrega posterior sigue RELEASING.md.
-
-Para detener acceso, desactiva el canal en la ventana local. Los datos y las
-operaciones se conservan. Para revocar la autorización en Telegram usa su gestión
-de dispositivos/sesiones; desconectar localmente no equivale a esa revocación.
+Las pruebas automatizadas y las pruebas reales tienen alcances diferentes. La
+entrega de una versión de escritorio requiere además seguir `docs/RELEASING.md`
+y el protocolo de compatibilidad móvil del proyecto. No publiques evidencias
+que contengan credenciales, códigos, muestras de voz o estado privado.

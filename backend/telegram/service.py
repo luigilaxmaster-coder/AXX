@@ -61,6 +61,93 @@ class TelegramService:
                 'files': 'not_implemented', 'pc_commands': 'not_verified',
                 'private_calls': 'not_verified'}
 
+    def diagnostics(self, owner_id):
+        account = load_account(self.data_dir)
+        self._authorize({'account_id': account['account_id'], 'peer_id': owner_id})
+        prefs = dict(self.preferences() or {})
+        if not prefs:
+            state, reason, message = 'blocked', 'SELECTED_PROVIDER_NOT_SYNCED', 'Abre Axx en la PC para comprobar el proveedor de chat. El chat con IA todavía no está disponible aquí.'
+        elif prefs.get('provider') != 'bridge':
+            state, reason, message = 'blocked', 'REMOTE_PROVIDER_ISOLATION_REQUIRED', 'El chat con IA todavía no está disponible en Telegram. Se conserva el proveedor de tu PC; falta comprobar su aislamiento remoto.'
+        elif prefs.get('selection_mode', 'manual') != 'automatic_free' and not (prefs.get('provider_name') and prefs.get('model')):
+            state, reason, message = 'blocked', 'SELECTED_PROVIDER_NOT_SYNCED', 'Falta la selección explícita del modelo y conexión.'
+        else:
+            state, reason, message = 'configured', 'READY_FOR_REQUEST', 'Selección configurada; la disponibilidad se comprueba al enviar.'
+        connection = getattr(self, 'connection', lambda: None)()
+        return {'permissions': {key: value is True for key, value in account['grants'].items()},
+                'conversation': {'state': state, 'reason_code': reason, 'provider': 'desktop_selected',
+                                 'model': prefs.get('model') or None, 'message': message},
+                'connection': {'core_bound': connection, 'account_running': self.process is not None and self.process.poll() is None,
+                               'bot_running': self.bot_process is not None and self.bot_process.poll() is None, 'checked_at': time.time()},
+                'observed_at': time.time()}
+
+    def activity(self, owner_id):
+        account = load_account(self.data_dir)
+        self._authorize({'account_id': account['account_id'], 'peer_id': owner_id})
+        with self._db() as db:
+            rows = db.execute('SELECT operation_id,state,created FROM inbox WHERE account=? AND peer=? ORDER BY created DESC LIMIT 30',
+                              (account['account_id'], owner_id)).fetchall()
+        items = []
+        for operation_id, state, created in rows:
+            item = {'id': operation_id, 'state': state, 'created_at': created, 'can_cancel': False}
+            try:
+                operation = self.commands.get(operation_id)
+            except Exception:
+                operation = None
+            if isinstance(operation, dict) and operation.get('operation_id') == operation_id:
+                state = operation.get('state', state)
+                item['state'] = state
+                if isinstance(operation.get('command_id'), str):
+                    item['command_id'] = operation['command_id']
+                if type(operation.get('postconditions_passed')) is bool:
+                    item['postconditions_passed'] = operation['postconditions_passed']
+                item['can_cancel'] = bool(account['grants'].get('pc_commands') and state in ('prepared','awaiting_approval','running'))
+            items.append(item)
+        return {'items': items}
+
+    def history(self, owner_id):
+        account = load_account(self.data_dir)
+        self._authorize({'account_id': account['account_id'], 'peer_id': owner_id})
+        if not account['grants'].get('conversation'):
+            raise ValueError('Conversation permission revoked')
+        with self._db() as db:
+            row = db.execute('SELECT conversation FROM bindings WHERE account=? AND peer=?', (account['account_id'], owner_id)).fetchone()
+        if not row:
+            return {'messages': [], 'has_more': False}
+        messages = self.chats.get(row[0])['messages']
+        selected = []
+        size = 64
+        for message in reversed(messages[-50:]):
+            item = {key: message[key] for key in ('id', 'role', 'text', 'status', 'at') if key in message}
+            encoded = json.dumps(item, ensure_ascii=False).encode('utf-8')
+            if size + len(encoded) + 1 > 128 * 1024:
+                break
+            selected.append(item)
+            size += len(encoded) + 1
+        return {'messages': list(reversed(selected)), 'has_more': len(selected) < len(messages)}
+
+    def cancel_operation(self, owner_id, operation_id):
+        if not isinstance(operation_id, str) or str(uuid.UUID(operation_id)) != operation_id:
+            raise ValueError('Invalid operation')
+        account = load_account(self.data_dir)
+        self._authorize({'account_id': account['account_id'], 'peer_id': owner_id})
+        if not account['grants'].get('pc_commands'):
+            raise ValueError('Permission revoked')
+        with self._db() as db:
+            owned = db.execute('SELECT 1 FROM inbox WHERE operation_id=? AND account=? AND peer=?',
+                               (operation_id, account['account_id'], owner_id)).fetchone()
+        if not owned:
+            raise ValueError('Unknown operation')
+        operation = self.commands.get(operation_id)
+        if not operation or operation.get('operation_id') != operation_id or operation.get('state') not in ('prepared','awaiting_approval','running'):
+            raise ValueError('Operation cannot be cancelled')
+        latest = self._authorize({'account_id': account['account_id'], 'peer_id': owner_id})
+        if not latest['grants'].get('pc_commands'):
+            raise ValueError('Permission revoked')
+        self.commands.cancel(operation_id)
+        self.adapter.cancel(operation_id)
+        return {'state': 'cancel_requested'}
+
     def start(self, endpoint_file=None):
         if self.process is not None and self.process.poll() is None:
             return
@@ -117,6 +204,16 @@ class TelegramService:
                 except subprocess.TimeoutExpired:
                     process.kill()
                     process.wait(timeout=5)
+
+    def pause_account(self):
+        process = self.process
+        if process and process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=5)
 
     def _authorize(self, body):
         account = load_account(self.data_dir)
@@ -252,7 +349,7 @@ class TelegramService:
             return {'state':'blocked','text':'Comando no registrado. Disponibles: /estado y /cancelar <id>. Las aprobaciones se realizan en la PC.'}
         prefs = dict(self.preferences() or {})
         if prefs.get('provider') != 'bridge':
-            return {'state':'blocked','text':'Se conserva el proveedor del escritorio. Su conversación remota todavía está bloqueada por falta de aislamiento comprobado; no se cambió de modelo ni se activó otro proveedor.'}
+            return {'state':'blocked','text':'Axx recibió tu mensaje. El chat con IA todavía no está disponible en Telegram: falta comprobar el aislamiento remoto del proveedor de tu PC. Se conserva tu proveedor. Puedes consultar /estado.'}
         if prefs.get('selection_mode', 'manual') != 'automatic_free' and not (prefs.get('model') and prefs.get('provider_name')):
             return {'state':'blocked', 'text':'Falta la selección explícita del modelo y la conexión en Axx. No se cambió de proveedor.'}
         # Reuse the current selected connection; no provider change or paid fallback.

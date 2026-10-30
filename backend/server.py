@@ -56,6 +56,7 @@ from backend.magic_pen import MagicPenService, monitors as pen_monitors
 from backend.converter import ConverterService
 from backend.mobile.http_api import MobileHTTP
 from backend.anticipation import AnticipationService
+from backend.telegram.http_api import TelegramHTTP
 
 LOG = logging.getLogger('axx.server')
 MAX_BODY = 2 * 1024 * 1024
@@ -104,6 +105,7 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
     magic_pen = None
     converter = None
     telegram = None
+    telegram_desktop = telegram_pairing = None
     chatgpt_auth = chatgpt_adapter = None
     connect = provider = None
     frontend_path = root_dir / '1.AXX' / 'Axx.html'
@@ -223,6 +225,8 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                 if not self.anticipation:
                     raise ValueError('Anticipación no disponible en este runtime')
                 self._send_json(200, self.anticipation.status(query.get('task_id', [None])[0]))
+                return
+            if TelegramHTTP(self).get(path):
                 return
             if path == '/axx-api/telegram/status':
                 self._send_json(200, self.telegram.status() if self.telegram else {'state': 'unavailable'})
@@ -493,6 +497,8 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                 else:
                     raise ValueError('Operación de anticipación o parámetros desconocidos')
                 self._send_json(200, result)
+                return
+            if TelegramHTTP(self).post(path, body):
                 return
             if path == '/axx-api/telegram/input':
                 if not self.telegram:
@@ -1307,15 +1313,16 @@ def run_server(host='127.0.0.1', port=4173, config_path='providers.json', state_
         handler.telegram = TelegramService(state_dir, chats, commands, adapter, lambda: server.mobile.preferences,
                                            appearance=lambda: server.mobile.appearance)
         services.append(handler.telegram)
-        handler.telegram.start()
-        handler.telegram.start_bot()
+        from backend.telegram.desktop import DesktopTelegram
+        from backend.telegram.pairing import PairingStore
+        handler.telegram_desktop = DesktopTelegram(state_dir, handler.telegram)
+        handler.telegram_pairing = PairingStore(state_dir)
         from backend.telegram.miniapp import MiniAppFacade
         facade = MiniAppFacade(state_dir, handler.telegram)
-        try:
-            facade.start(port=6451)
-            services.append(facade)
-        except (OSError, ValueError, RuntimeError):
-            LOG.info('Mini App Telegram pendiente de configuración HTTPS.')
+        services.append(facade)
+        services.append(handler.telegram_desktop)
+        handler.telegram_desktop.facade = facade
+        handler.telegram_desktop.reconcile()
         if ready_path:
             ready_path.parent.mkdir(parents=True, exist_ok=True)
             temporary = ready_path.with_suffix('.tmp')

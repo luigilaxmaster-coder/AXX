@@ -13,8 +13,15 @@ from urllib.parse import parse_qsl, urlsplit
 import uuid
 
 from backend.telegram.config import load_account
+from backend.telegram.pairing import PairingStore
 
 MAX_BODY = 16384
+
+
+class MiniAppError(Exception):
+    def __init__(self, code, status):
+        self.code, self.status = code, status
+        super().__init__(code)
 
 
 def validate_init_data(raw, token, owner_id, now=None):
@@ -82,6 +89,7 @@ class MiniAppFacade:
     def __init__(self, data_dir, service, asset_path=None):
         self.data_dir = data_dir
         self.service = service
+        self.pairing = PairingStore(data_dir)
         self.asset_path = Path(asset_path) if asset_path else Path(__file__).with_name('webapp.html')
         self.server = None
         self.thread = None
@@ -94,7 +102,7 @@ class MiniAppFacade:
         bot = load_bot(self.data_dir)
         account = load_account(self.data_dir)
         if not bot['enabled'] or not account['enabled']:
-            raise ValueError('Disabled')
+            raise MiniAppError('PERMISSION_DENIED', 403)
         origin = _origin(bot['public_url'])
         return bot, account, origin
 
@@ -111,7 +119,7 @@ class MiniAppFacade:
             def log_message(self, *args):
                 pass
 
-            def _send(self, status, value, *, cookie=None):
+            def _send(self, status, value, *, cookie=None, bond_cookie=None):
                 raw = json.dumps(value, ensure_ascii=False).encode()
                 self.send_response(status)
                 self.send_header('Content-Type', 'application/json; charset=utf-8')
@@ -120,6 +128,8 @@ class MiniAppFacade:
                 self.send_header('X-Content-Type-Options', 'nosniff')
                 if cookie:
                     self.send_header('Set-Cookie', '__Host-axx_telegram=' + cookie + '; Path=/; Max-Age=600; HttpOnly; Secure; SameSite=Strict')
+                if bond_cookie:
+                    self.send_header('Set-Cookie', '__Host-axx_telegram_bond=' + bond_cookie + '; Path=/; Max-Age=31536000; HttpOnly; Secure; SameSite=Strict')
                 self.end_headers()
                 self.wfile.write(raw)
 
@@ -132,7 +142,12 @@ class MiniAppFacade:
                 raw = self.rfile.read(int(size))
                 if len(raw) != int(size):
                     raise ValueError()
-                value = json.loads(raw)
+                def unique(pairs):
+                    result = dict(pairs)
+                    if len(result) != len(pairs):
+                        raise ValueError()
+                    return result
+                value = json.loads(raw, object_pairs_hook=unique)
                 if not isinstance(value, dict):
                     raise ValueError()
                 return value
@@ -144,9 +159,18 @@ class MiniAppFacade:
                 key = cookie.value if cookie else ''
                 with facade.lock:
                     item = facade.sessions.get(key)
-                    if not item or item['until'] <= time.time() or item['account'] != account['account_id'] or item['owner'] != account['owner_id'] or not hmac.compare_digest(item['bot'], hashlib.sha256(bot['token'].encode()).digest()):
+                    if not item:
+                        raise MiniAppError('AUTH_REQUIRED', 401)
+                    if item['until'] <= time.time():
                         facade.sessions.pop(key, None)
-                        raise ValueError()
+                        raise MiniAppError('SESSION_EXPIRED', 401)
+                    if item['account'] != account['account_id'] or item['owner'] != account['owner_id'] or not hmac.compare_digest(item['bot'], hashlib.sha256(bot['token'].encode()).digest()):
+                        facade.sessions.pop(key, None)
+                        raise MiniAppError('PERMISSION_DENIED', 403)
+                    bound = jar.get('__Host-axx_telegram_bond')
+                    if not bound or not facade.pairing.check(account, bound.value, item['binding']):
+                        facade.sessions.pop(key, None)
+                        raise MiniAppError('PAIRING_REQUIRED', 403)
                     return item.copy()
 
             def do_GET(self):
@@ -156,10 +180,12 @@ class MiniAppFacade:
                 try:
                     bot, account, _ = facade._config()
                     if self.path == '/api/state':
-                        self._session(bot, account)
+                        session = self._session(bot, account)
                         status = facade.service.status()
                         fields = ('state', 'worker_running', 'messages', 'voice_notes', 'files', 'pc_commands', 'private_calls')
                         public = {key: status[key] for key in fields if key in status}
+                        public.update(facade.service.diagnostics(account['owner_id']))
+                        public['session_expires_at'] = session['until']
                         appearance = getattr(facade.service, 'appearance', None)
                         if callable(appearance):
                             snapshot = appearance()
@@ -168,6 +194,10 @@ class MiniAppFacade:
                                 snapshot = checked_appearance(snapshot)
                             public['appearance'] = snapshot
                         self._send(200, public)
+                    elif self.path in ('/api/activity', '/api/history'):
+                        self._session(bot, account)
+                        action = facade.service.activity if self.path == '/api/activity' else facade.service.history
+                        self._send(200, action(account['owner_id']))
                     elif self.path in ('/', '/app.js', '/app.css', '/desktop-avatar.js', '/avatar-renderer.js'):
                         assets = {'/': (facade.asset_path, 'text/html; charset=utf-8'),
                                   '/app.js': (facade.asset_path.with_name('webapp.js'), 'application/javascript; charset=utf-8'),
@@ -186,20 +216,30 @@ class MiniAppFacade:
                         self.wfile.write(html)
                     else:
                         self._send(404, {'error': 'not_found'})
+                except MiniAppError as error:
+                    self._send(error.status, {'error': error.code})
+                except ValueError:
+                    self._send(403, {'error': 'PERMISSION_DENIED'})
                 except Exception:
-                    self._send(403, {'error': 'unavailable'})
+                    self._send(503, {'error': 'CORE_UNAVAILABLE'})
 
             def do_POST(self):
                 try:
                     bot, account, origin = facade._config()
                     if self.headers.get('Origin') != origin:
-                        raise ValueError()
+                        raise MiniAppError('PERMISSION_DENIED', 403)
                     body = self._body()
                     if self.path == '/api/session':
-                        if set(body) != {'init_data'}:
+                        if set(body) not in ({'init_data'}, {'init_data', 'pairing_token'}):
                             raise ValueError()
-                        digest = validate_init_data(body['init_data'], bot['token'], account['owner_id'])
+                        try:
+                            digest = validate_init_data(body['init_data'], bot['token'], account['owner_id'])
+                        except ValueError:
+                            raise MiniAppError('AUTH_REQUIRED', 401) from None
                         now = time.time()
+                        jar = cookies.SimpleCookie()
+                        jar.load(self.headers.get('Cookie', ''))
+                        bond = jar.get('__Host-axx_telegram_bond')
                         try:
                             current = self._session(bot, account)
                         except Exception:
@@ -211,17 +251,35 @@ class MiniAppFacade:
                             facade.used = {k: v for k, v in facade.used.items() if v > now}
                             facade.sessions = {k: v for k, v in facade.sessions.items() if v['until'] > now}
                             if digest in facade.used or len(facade.used) >= 1024 or len(facade.sessions) >= 1024:
-                                raise ValueError()
+                                raise MiniAppError('AUTH_REQUIRED', 401)
+                            binding = facade.pairing.check(account, bond.value) if bond else None
+                            new_bond = None
+                            if not binding:
+                                try:
+                                    binding, new_bond = facade.pairing.consume(account, body.get('pairing_token', ''))
+                                except ValueError:
+                                    raise MiniAppError('PAIRING_REQUIRED', 403) from None
                             facade.used[digest] = now + 331
                             session, csrf = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
-                            facade.sessions[session] = {'until': now + 600, 'csrf': csrf, 'account': account['account_id'], 'owner': account['owner_id'], 'bot': hashlib.sha256(bot['token'].encode()).digest(), 'init': digest}
-                        self._send(200, {'csrf': csrf}, cookie=session)
+                            facade.sessions[session] = {'until': now + 600, 'csrf': csrf, 'account': account['account_id'], 'owner': account['owner_id'], 'bot': hashlib.sha256(bot['token'].encode()).digest(), 'init': digest, 'binding': binding}
+                        self._send(200, {'csrf': csrf}, cookie=session, bond_cookie=new_bond)
+                    elif self.path == '/api/cancel':
+                        if set(body) != {'operation_id', 'csrf'}:
+                            raise ValueError()
+                        session = self._session(bot, account)
+                        if not isinstance(body['csrf'], str) or not hmac.compare_digest(body['csrf'], session['csrf']):
+                            raise MiniAppError('PERMISSION_DENIED', 403)
+                        try:
+                            result = facade.service.cancel_operation(account['owner_id'], body['operation_id'])
+                        except ValueError:
+                            raise MiniAppError('PERMISSION_DENIED', 403) from None
+                        self._send(200, {'state': result['state']})
                     elif self.path == '/api/chat':
                         if set(body) != {'text', 'request_id', 'csrf'}:
                             raise ValueError()
                         session = self._session(bot, account)
                         if not isinstance(body['csrf'], str) or not hmac.compare_digest(body['csrf'], session['csrf']):
-                            raise ValueError()
+                            raise MiniAppError('PERMISSION_DENIED', 403)
                         text, request_id = body['text'], body['request_id']
                         if not isinstance(text, str) or not 1 <= len(text.strip()) <= 12000 or not isinstance(request_id, str) or str(uuid.UUID(request_id)) != request_id:
                             raise ValueError()
@@ -229,8 +287,12 @@ class MiniAppFacade:
                         self._send(200, {key: result[key] for key in ('state', 'text', 'operation_id') if key in result})
                     else:
                         self._send(404, {'error': 'not_found'})
+                except MiniAppError as error:
+                    self._send(error.status, {'error': error.code})
+                except (ValueError, TypeError, KeyError, UnicodeError):
+                    self._send(400, {'error': 'INVALID_REQUEST'})
                 except Exception:
-                    self._send(403, {'error': 'unavailable'})
+                    self._send(503, {'error': 'CORE_UNAVAILABLE'})
 
         self.server = _BoundedServer(('127.0.0.1', port), Handler)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True, name='telegram-miniapp')

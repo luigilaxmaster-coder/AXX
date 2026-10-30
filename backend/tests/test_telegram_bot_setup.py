@@ -23,7 +23,7 @@ class BotSetupTests(unittest.TestCase):
         calls = []
         def request(token, method, body):
             calls.append((token, method, body))
-            return {'is_bot': True} if method == 'getMe' else True
+            return {'is_bot': True, 'username': 'AxxVerifiedBot'} if method == 'getMe' else True
         with patch('backend.telegram.bot_setup.load_bot', return_value=BOT), \
              patch('backend.telegram.bot_setup.load_account', return_value=ACCOUNT), \
              patch('backend.telegram.bot_setup.bot_request', side_effect=request), \
@@ -34,6 +34,7 @@ class BotSetupTests(unittest.TestCase):
         self.assertEqual(calls[1][2]['chat_id'], 22)
         self.assertEqual(calls[2][2]['scope'], {'type': 'chat', 'chat_id': 22})
         self.assertEqual(save.call_args.args[0]['token'], TOKEN)
+        self.assertEqual(save.call_args.args[0]['username'], 'AxxVerifiedBot')
 
     def test_invalid_identity_never_saves(self):
         with patch('backend.telegram.bot_setup.load_account', return_value=ACCOUNT), \

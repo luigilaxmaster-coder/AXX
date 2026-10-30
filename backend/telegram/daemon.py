@@ -87,6 +87,12 @@ class CommandProxy:
         return self.core.request('POST', '/axx-api/commands/prepare', {'command_id': command_id, 'inputs': inputs,
             'source': source, 'operation_id': operation_id, 'conversation_id': conversation_id, 'command_mode': command_mode})
 
+    def get(self, operation_id):
+        try:
+            return self.core.request('GET', '/axx-api/commands/operations?' + urlencode({'operation_id': operation_id})).get('operation')
+        except Exception:
+            return None
+
     def execute(self, operation_id, approved=False):
         if approved is not False:
             raise ValueError('Remote approval is not supported')
@@ -265,6 +271,7 @@ def main(argv=None):
         from backend.telegram.service import TelegramService
         from backend.telegram.miniapp import MiniAppFacade
         service = TelegramService(data_dir, ChatProxy(core), CommandProxy(core), DisabledInference(), lambda: None)
+        service.connection = lambda: True
         server = CallbackServer(service)
         thread = threading.Thread(target=server.serve_forever, daemon=True, name='telegram-local-callback')
         endpoint = local_dir / 'connect' / 'endpoint.dpapi'

@@ -10,6 +10,12 @@ from unittest.mock import AsyncMock, patch
 
 from backend.telegram.worker import TelegramWorker, chunks, local_input
 
+try:
+    from telethon.tl.functions.phone import DiscardCallRequest
+    from telethon.tl.types import PhoneCallDiscardReasonBusy, PhoneCallRequested, UpdatePhoneCall
+except ImportError:
+    PhoneCallRequested = None
+
 
 ACCOUNT = {'account_id': 11, 'owner_id': 22, 'session': 'session', 'enabled': True}
 
@@ -52,6 +58,46 @@ class TelegramWorkerTests(unittest.IsolatedAsyncioTestCase):
         for incoming in cases:
             await worker.receive(incoming)
         self.assertEqual(worker.db.execute('SELECT count(*) FROM inbox').fetchone()[0], 0)
+        self.client.send_message.assert_not_awaited()
+
+    @unittest.skipIf(PhoneCallRequested is None, 'Telethon is unavailable')
+    async def test_incoming_calls_declined_and_owner_notice_deduplicated(self):
+        class Client:
+            def __init__(self):
+                self.requests = []
+                self.send_message = AsyncMock()
+                self.disconnect = AsyncMock()
+            async def __call__(self, request):
+                self.requests.append(request)
+        self.client = Client()
+        worker = self.worker()
+        def incoming(call_id, admin=22, participant=11):
+            call = PhoneCallRequested(call_id, 321, None, admin, participant, b'', None)
+            return UpdatePhoneCall(call)
+        granted = dict(ACCOUNT, grants={'private_calls': True})
+        with patch('backend.telegram.worker.load_account', return_value=granted):
+            await worker.incoming_call(incoming(1))
+            await worker.incoming_call(incoming(1))
+            await worker.incoming_call(incoming(2, admin=99))
+            await worker.incoming_call(incoming(3))
+        self.assertEqual(len(self.client.requests), 3)
+        self.assertTrue(all(isinstance(item, DiscardCallRequest) and isinstance(item.reason, PhoneCallDiscardReasonBusy) for item in self.client.requests))
+        self.client.send_message.assert_awaited_once()
+        self.assertEqual(self.client.send_message.await_args.args[0], 22)
+        self.assertIn('reparación', self.client.send_message.await_args.args[1])
+
+    @unittest.skipIf(PhoneCallRequested is None, 'Telethon is unavailable')
+    async def test_call_without_grant_is_declined_without_notice(self):
+        class Client:
+            def __init__(self):
+                self.requests = []
+                self.send_message, self.disconnect = AsyncMock(), AsyncMock()
+            async def __call__(self, request): self.requests.append(request)
+        self.client = Client()
+        worker = self.worker()
+        with patch('backend.telegram.worker.load_account', return_value=dict(ACCOUNT, grants={'private_calls': False})):
+            await worker.incoming_call(UpdatePhoneCall(PhoneCallRequested(1, 321, None, 22, 11, b'', None)))
+        self.assertEqual(len(self.client.requests), 1)
         self.client.send_message.assert_not_awaited()
 
     async def test_owner_deduplication_and_media_is_not_dispatched(self):
