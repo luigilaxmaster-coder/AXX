@@ -7264,6 +7264,7 @@ var Axx;
             this.renderer.interact();
         }
         else {
+            el('context-menu').hidden = true;
             this.closePanel();
             this.stopAudio();
         } Axx.quickReply?.refresh(); Axx.anticipation?.render(); Axx.resident?.schedule(); void this.updateHitMap(); if (this.bridge.available && visible)
