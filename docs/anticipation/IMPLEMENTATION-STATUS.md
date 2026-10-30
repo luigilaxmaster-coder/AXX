@@ -1,11 +1,12 @@
 # Integración de razonamiento y autonomía · estado técnico
 
 Este informe conserva el alcance original de los adjuntos. Distingue contratos
-implementados de generalizaciones y aceptaciones pendientes. Windows 0.22.32
-está instalado y tiene aceptación manual de avatar, herramientas, ocultar,
-invocar, atajo, Telegram y conservación de voz/Claridad. Android 0.2.13-code34
-está compilado y firmado, sin instalación ni aceptación física por falta de
-dispositivo conectado. La descarga confirmada es
+implementados de generalizaciones y aceptaciones pendientes. Windows 0.22.33
+está compilado e instalado: arranque autenticado, superficie visible, 2.050
+archivos del backend y licencia MIT comprobados. Su aceptación nativa y publicación
+siguen pendientes; no se reutiliza la aceptación manual de Windows 0.22.32.
+Android 0.2.14-code35 está compilado y firmado, sin instalación ni aceptación
+física por falta de dispositivo disponible. La descarga confirmada sigue siendo
 [Windows 0.22.32](https://github.com/luigilaxmaster-coder/AXX/releases/tag/v0.22.32),
 publicada como prerelease con el mismo instalador instalado: 199.431.659 bytes,
 SHA-256 `89974d55981a43df410aecf3c0a71ee6361704f46780057801a676fd87699721`.
