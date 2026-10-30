@@ -844,7 +844,7 @@ class SkillMemory:
             where.append('search_text LIKE ? ESCAPE \'\\\'')
             parameters.append('%' + term.replace('\\', '\\\\').replace('_', '\\_').replace('%', '\\%') + '%')
         with self.lock:
-            rows = self.db.execute('SELECT payload FROM skill_lessons WHERE ' + ' AND '.join(where) + ' ORDER BY created_at DESC LIMIT ?', (*parameters, limit)).fetchall()
+            rows = self.db.execute('SELECT payload FROM skill_lessons WHERE ' + ' AND '.join(where) + ' ORDER BY created_at DESC', parameters)
             result = []
             for row in rows:
                 item = json.loads(row[0])
@@ -858,7 +858,10 @@ class SkillMemory:
                 item['status'] = 'reference' if item['environment_matches'] and item['context_matches'] else 'stale'
                 if not self._origin_current(item, lesson=True):
                     item.update(status='stale', requires_review=True, auto_select=False)
-                if len(json.dumps(item, ensure_ascii=False)) <= 3500: result.append(item)
+                if allow_provider_only and item['status'] == 'stale': continue
+                if len(json.dumps(item, ensure_ascii=False)) <= 3500:
+                    result.append(item)
+                    if len(result) == limit: break
             return result
 
     def forget_lesson(self, lesson_id, *, memory_scope=None, memory_context_id=None):

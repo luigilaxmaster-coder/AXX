@@ -152,6 +152,34 @@ class DocumentLessonProvenanceTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             assert_lessons_current(db, refs, self.project, self.a, procedure_library=self.commands.procedures)
 
+    def test_stale_optional_lesson_does_not_cancel_a_new_plan(self):
+        failure, _ = self.failure()
+        lesson = self.lesson(failure)
+        self.fixture.answer()
+        with patch('backend.memory.skill_memory.get_action_env_fingerprint', return_value='changed-environment'):
+            local = self.learning.skills.lessons('PROBELESSONECHO', project_id=self.project, task_id=self.a)
+            self.assertEqual([(item['id'], item['status']) for item in local], [(lesson['id'], 'stale')])
+            self.assertEqual(self.learning.skills.lessons('PROBELESSONECHO', project_id=self.project,
+                task_id=self.a, allow_provider_only=True), [])
+            plan = self.learning.propose('PROBELESSONECHO', project_id=self.project, conversation_id=self.a, **self.scope(self.a))
+        self.assertEqual(plan['state'], 'awaiting_approval', plan)
+        self.assertEqual(plan['lesson_dependencies'], [])
+        self.assertEqual(len(self.model.calls), 1)
+        payload = json.loads(self.model.calls[0]['messages'][1]['content'])
+        self.assertNotIn('incident_references', payload['previous_action'])
+
+    def test_current_lesson_is_not_hidden_by_newer_stale_lessons(self):
+        failure, _ = self.failure()
+        valid = self.lesson(failure)
+        with patch('backend.memory.skill_memory.get_action_env_fingerprint', return_value='obsolete-environment'):
+            stale = [self.lesson(failure, hypothesis='PROBELESSONECHO obsolete ' + str(index)) for index in range(3)]
+        local = self.learning.skills.lessons('PROBELESSONECHO', project_id=self.project, task_id=self.a)
+        self.assertEqual({item['id'] for item in local}, {item['id'] for item in stale})
+        for limit in (1, 3):
+            selected = self.learning.skills.lessons('PROBELESSONECHO', limit=limit,
+                project_id=self.project, task_id=self.a, allow_provider_only=True)
+            self.assertEqual([item['id'] for item in selected], [valid['id']])
+
     def test_failure_parent_and_verification_capture_lineage_once_without_rebasing(self):
         failure, parent = self.failure(references=self.fixture.references[:1])
         path = self.fixture.files[2]

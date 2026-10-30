@@ -52,6 +52,7 @@ axx_stdout.log
 
 # Prevent backend bundled executable from exceeding GitHub 100MB limit
 src-tauri/resources/axx-backend.exe
+src-tauri/resources/_internal/
 
 # Ephemeral test sandboxes, sub-repositories and binaries in evidence
 evidence/**/runtime-inventory-isolated-*/

@@ -42,13 +42,15 @@
     ],
     "resources": [
       "resources/axx-backend.exe",
+      "resources/_internal/",
       "resources/ai-memory.exe",
       "resources/ai-memory-LICENSE",
       "resources/license-notices/"
     ],
     "windows": {
       "nsis": {
-        "installMode": "currentUser"
+        "installMode": "currentUser",
+        "installerHooks": "windows/backend-bundle.nsh"
       }
     },
     "icon": [

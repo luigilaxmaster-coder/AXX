@@ -343,14 +343,84 @@ class CapabilityWorkshopTests(unittest.TestCase):
 
     def test_pending_command_prevents_second_validation(self):
         item = self.reviewed()
-        self.commands.prepare('axx.system.telemetry', {}, command_mode='ask')
-        with self.assertRaises(ValueError): self.workshop.prepare_validation(*self.ref(item))
+        pending = self.commands.prepare('axx.system.telemetry', {}, command_mode='ask')
+        for state in ('prepared', 'awaiting_approval', 'running'):
+            with self.subTest(state=state):
+                self.commands._save(pending | {'state': state})
+                with self.assertRaisesRegex(ValueError, 'otra acción pendiente'):
+                    self.workshop.prepare_validation(*self.ref(item))
+
+    def test_read_only_validation_preserves_unknown_command_and_requires_approval(self):
+        unknown = self.commands.prepare('axx.artifact.write', {'path': 'old.txt', 'content': 'old'}, command_mode='ask')
+        self.commands._save(unknown | {'state': 'unknown'})
+        before = tuple(self.commands.db.execute('SELECT * FROM command_runs WHERE operation_id=?',
+                                               (unknown['operation_id'],)).fetchone())
+        left, right = self.root / 'left.txt', self.root / 'right.txt'
+        left.write_text('same', encoding='utf-8'); right.write_text('same', encoding='utf-8')
+        item = self.reviewed(definition('axx.file.compare', {'path': str(left), 'other_path': str(right)}))
+        plan = self.workshop.prepare_validation(*self.ref(item))
+        self.assertEqual(plan['state'], 'awaiting_approval')
+        with self.assertRaises(ApprovalRequired): self.learning.execute(plan['operation_id'])
+        done = self.learning.execute(plan['operation_id'], approved=True)
+        self.assertEqual(done['state'], 'succeeded', done)
+        self.assertTrue(done['postconditions_passed'])
+        self.assertTrue(self.commands.get(done['step_records'][0]['operation_id'])['output']['equal'])
+        after = tuple(self.commands.db.execute('SELECT * FROM command_runs WHERE operation_id=?',
+                                              (unknown['operation_id'],)).fetchone())
+        self.assertEqual(before, after, 'An independent observation must not rewrite the unknown receipt')
+        self.assertFalse((self.executor.workspace_root / 'old.txt').exists())
+
+    def test_write_or_mixed_validation_still_blocked_by_unknown_command(self):
+        unknown = self.commands.prepare('axx.artifact.write', {'path': 'old.txt', 'content': 'old'})
+        self.commands._save(unknown | {'state': 'unknown'})
+        for mixed in (False, True):
+            with self.subTest(mixed=mixed):
+                value = definition('axx.artifact.write', {'path': 'new.txt', 'content': 'new'})
+                if mixed: value['templates'].insert(0, {'command_id': 'axx.system.telemetry', 'inputs': {}})
+                item = self.reviewed(value)
+                with self.assertRaisesRegex(ValueError, 'otra acción pendiente'):
+                    self.workshop.prepare_validation(*self.ref(item))
+                self.assertIsNone(self.workshop.get(item['id'])['validation_operation_id'])
+        self.assertEqual(self.commands.get(unknown['operation_id'])['state'], 'unknown')
+        self.assertFalse((self.executor.workspace_root / 'new.txt').exists())
+
+    def test_other_unknown_plan_allows_only_read_only_validation(self):
+        old = self.reviewed()
+        unknown = self.workshop.prepare_validation(*self.ref(old))
+        unknown['state'] = 'unknown'; self.learning._save(unknown)
+        before = self.learning.db.execute('SELECT payload FROM learning_plans WHERE id=?',
+                                          (unknown['operation_id'],)).fetchone()[0]
+        write = self.reviewed(definition('axx.artifact.write', {'path': 'new.txt', 'content': 'new'}))
+        with self.assertRaisesRegex(ValueError, 'otra acción pendiente'):
+            self.workshop.prepare_validation(*self.ref(write))
+        read = self.reviewed()
+        plan = self.workshop.prepare_validation(*self.ref(read))
+        self.assertEqual(plan['state'], 'awaiting_approval')
+        after = self.learning.db.execute('SELECT payload FROM learning_plans WHERE id=?',
+                                         (unknown['operation_id'],)).fetchone()[0]
+        self.assertEqual(before, after)
+
+    def test_active_or_interrupted_plan_still_blocks_read_only_validation(self):
+        old = self.reviewed()
+        pending = self.workshop.prepare_validation(*self.ref(old))
+        item = self.reviewed()
+        for state in ('planning', 'awaiting_approval', 'running', 'interrupted', 'waiting_capacity'):
+            with self.subTest(state=state):
+                pending['state'] = state; self.learning._save(pending)
+                with self.assertRaisesRegex(ValueError, 'otra acción pendiente'):
+                    self.workshop.prepare_validation(*self.ref(item))
 
     def test_unknown_validation_is_not_retried_by_new_identity(self):
         item = self.reviewed()
         plan = self.workshop.prepare_validation(*self.ref(item))
         plan['state'] = 'unknown'; self.learning._save(plan)
-        self.assertEqual(self.workshop.prepare_validation(*self.ref(item))['operation_id'], plan['operation_id'])
+        count = self.learning.db.execute('SELECT COUNT(*) FROM learning_plans').fetchone()[0]
+        replay = self.workshop.prepare_validation(*self.ref(item))
+        self.assertEqual(replay['operation_id'], plan['operation_id'])
+        self.assertEqual(replay['state'], 'unknown')
+        self.assertEqual(self.learning.execute(replay['operation_id'], approved=True)['state'], 'unknown')
+        self.assertEqual(self.learning.db.execute('SELECT COUNT(*) FROM learning_plans').fetchone()[0], count)
+        self.assertEqual(self.commands.operations(), [], 'The same unknown validation must never dispatch again')
         with self.assertRaises(ValueError): self.workshop.revise(*self.ref(item), definition())
         with self.assertRaises(ValueError): self.workshop.activate(*self.ref(item))
 

@@ -32,24 +32,32 @@ try {
     $sourceFiles = @(Get-ChildItem -LiteralPath '1.AXX' -File -Recurse | Where-Object { $_.Extension -in '.html','.js','.css','.json','.png','.ico','.svg','.woff','.woff2' } | ForEach-Object FullName) + @('axx-backend.spec', 'scripts\setup-freellmapi.ps1', 'src-tauri\tauri.conf.json', 'src-tauri\Cargo.toml', 'src-tauri\resources\ai-memory.exe') + $telegramAssets
     $sourceFiles += @(Get-ChildItem backend,src-tauri\src,resources,vendor -File -Recurse | Where-Object { $_.Extension -in '.ps1','.py','.rs','.json','.bin','.txt','.zip' -and $_.FullName -notmatch '\\(__pycache__|tests)\\' -and $_.Name -notlike 'test_*.py' } | ForEach-Object FullName)
     $sourceFiles += @(Get-ChildItem -LiteralPath 'src-tauri\resources\license-notices' -File -Recurse | ForEach-Object FullName)
-    $sourceFiles += @('scripts\configure-native-gateway.py', 'scripts\anythingmcp-local.py', 'requirements-telegram.txt')
+    $sourceFiles += @('scripts\configure-native-gateway.py', 'scripts\anythingmcp-local.py', 'scripts\backend_bundle.py', 'scripts\build-windows.ps1', 'src-tauri\windows\backend-bundle.nsh', 'requirements-telegram.txt')
     $before = @{}
     foreach ($file in $sourceFiles) { $before[$file] = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash }
     $steps = @()
     $started = [DateTimeOffset]::Now
     $backendInputs = @{}
-    foreach ($file in @(Get-ChildItem backend,resources,vendor -File -Recurse | Where-Object { $_.Extension -in '.ps1','.py','.json','.bin','.txt','.zip' -and $_.FullName -notmatch '\\(__pycache__|tests)\\' -and $_.Name -notlike 'test_*.py' } | ForEach-Object FullName) + @('axx-backend.spec', 'scripts\setup-freellmapi.ps1', 'scripts\configure-native-gateway.py', 'scripts\anythingmcp-local.py', 'requirements-telegram.txt') + $telegramAssets) {
+    foreach ($file in @(Get-ChildItem backend,resources,vendor -File -Recurse | Where-Object { $_.Extension -in '.ps1','.py','.json','.bin','.txt','.zip' -and $_.FullName -notmatch '\\(__pycache__|tests)\\' -and $_.Name -notlike 'test_*.py' } | ForEach-Object FullName) + @('axx-backend.spec', 'scripts\setup-freellmapi.ps1', 'scripts\configure-native-gateway.py', 'scripts\anythingmcp-local.py', 'scripts\backend_bundle.py', 'scripts\build-windows.ps1', 'requirements-telegram.txt') + $telegramAssets) {
         $backendInputs[$file] = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash
     }
     $backendReceiptPath = Join-Path $projectRoot 'build\backend-build-receipt.json'
+    $backendRoot = Join-Path $projectRoot 'dist\axx-backend'
+    $backendExecutable = Join-Path $backendRoot 'axx-backend.exe'
+    $bundleHelper = Join-Path $PSScriptRoot 'backend_bundle.py'
+    $bundleManifestPath = Join-Path $evidencePath 'backend-bundle.json'
     if ($SkipBackend) {
         $receipt = Get-Content -LiteralPath $backendReceiptPath -Raw | ConvertFrom-Json
-        if ((Get-FileHash -LiteralPath 'dist\axx-backend.exe' -Algorithm SHA256).Hash -ne $receipt.sha256) { throw 'Packaged backend hash differs from its build receipt' }
+        if (-not $receipt.bundle) { throw 'Backend receipt has no onedir bundle inventory; rebuild without -SkipBackend' }
+        if ((Get-FileHash -LiteralPath $backendExecutable -Algorithm SHA256).Hash -ne $receipt.sha256) { throw 'Packaged backend hash differs from its build receipt' }
         if (@($receipt.inputs.PSObject.Properties).Count -ne $backendInputs.Count) { throw 'Backend source inventory changed; rebuild without -SkipBackend' }
         foreach ($file in $backendInputs.Keys) {
             if ($receipt.inputs.$file -ne $backendInputs[$file]) { throw "Backend source changed: $file; rebuild without -SkipBackend" }
         }
-        $steps += @{command='Reuse backend with verified source and binary hashes'; exit_code=0}
+        $receipt.bundle | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $bundleManifestPath -Encoding UTF8
+        & $PythonExecutable $bundleHelper verify $backendRoot $bundleManifestPath
+        if ($LASTEXITCODE -ne 0) { throw 'Packaged backend bundle differs from its build receipt; rebuild without -SkipBackend' }
+        $steps += @{command='Reuse backend with verified source and complete onedir bundle hashes'; exit_code=0}
     } else {
         $ErrorActionPreference = 'Continue'
         & $PythonExecutable -m PyInstaller --noconfirm --clean axx-backend.spec *> (Join-Path $evidencePath 'pyinstaller-build.log')
@@ -59,18 +67,36 @@ try {
         foreach ($file in $backendInputs.Keys) {
             if ((Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash -ne $backendInputs[$file]) { throw "Backend source changed during packaging: $file" }
         }
-        @{inputs=$backendInputs; sha256=(Get-FileHash -LiteralPath 'dist\axx-backend.exe' -Algorithm SHA256).Hash} | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $backendReceiptPath -Encoding UTF8
+        & $PythonExecutable $bundleHelper inventory $backendRoot --output $bundleManifestPath
+        if ($LASTEXITCODE -ne 0) { throw 'Backend onedir bundle inventory failed' }
+        $backendBundle = Get-Content -LiteralPath $bundleManifestPath -Raw | ConvertFrom-Json
+        @{inputs=$backendInputs; sha256=(Get-FileHash -LiteralPath $backendExecutable -Algorithm SHA256).Hash; bundle=$backendBundle} | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $backendReceiptPath -Encoding UTF8
     }
-    & (Join-Path $projectRoot 'dist\axx-backend.exe') --verify-mobile-qr *> (Join-Path $evidencePath 'packaged-mobile-qr.json')
+    $backendBundle = Get-Content -LiteralPath $bundleManifestPath -Raw | ConvertFrom-Json
+    & $backendExecutable --verify-mobile-qr *> (Join-Path $evidencePath 'packaged-mobile-qr.json')
     $steps += @{command='axx-backend.exe --verify-mobile-qr'; exit_code=$LASTEXITCODE}
     if ($LASTEXITCODE -ne 0) { throw 'Packaged QR rendering failed; see packaged-mobile-qr.json' }
-    & (Join-Path $projectRoot 'dist\axx-backend.exe') --configure-native-gateway --help *> (Join-Path $evidencePath 'packaged-native-gateway-help.txt')
+    & $backendExecutable --configure-native-gateway --help *> (Join-Path $evidencePath 'packaged-native-gateway-help.txt')
     $steps += @{command='axx-backend.exe --configure-native-gateway --help'; exit_code=$LASTEXITCODE}
     if ($LASTEXITCODE -ne 0) { throw 'Packaged gateway configuration command failed' }
-    Copy-Item -LiteralPath 'dist\axx-backend.exe' -Destination 'src-tauri\resources\axx-backend.exe' -Force
+    & $PythonExecutable $bundleHelper verify $backendRoot $bundleManifestPath
+    if ($LASTEXITCODE -ne 0) { throw 'Backend bundle changed during packaged checks' }
+    $resourceRoot = [IO.Path]::GetFullPath((Join-Path $projectRoot 'src-tauri\resources'))
+    $targetInternal = [IO.Path]::GetFullPath((Join-Path $resourceRoot '_internal'))
+    if ((Split-Path $targetInternal -Parent) -ne $resourceRoot -or (Split-Path $targetInternal -Leaf) -ne '_internal') { throw 'Invalid generated backend resource target' }
+    if ((Get-Item -LiteralPath $resourceRoot -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Backend resource directory must not be a link' }
+    if (Test-Path -LiteralPath $targetInternal) {
+        $existing = @(Get-Item -LiteralPath $targetInternal -Force) + @(Get-ChildItem -LiteralPath $targetInternal -Force -Recurse)
+        if (@($existing | Where-Object { $_.Attributes -band [IO.FileAttributes]::ReparsePoint }).Count) { throw 'Generated backend directory contains a link; refusing recursive removal' }
+        Remove-Item -LiteralPath $targetInternal -Recurse -Force
+    }
+    Copy-Item -LiteralPath (Join-Path $backendRoot '_internal') -Destination $targetInternal -Recurse -Force
+    Copy-Item -LiteralPath $backendExecutable -Destination (Join-Path $resourceRoot 'axx-backend.exe') -Force
+    & $PythonExecutable $bundleHelper verify $resourceRoot $bundleManifestPath
+    if ($LASTEXITCODE -ne 0) { throw 'Staged Tauri backend resources differ from the verified onedir bundle' }
     if ($BackendOnly) {
-        Get-Item -LiteralPath 'dist\axx-backend.exe' | Select-Object FullName,Length
-        Get-FileHash -LiteralPath 'dist\axx-backend.exe' -Algorithm SHA256
+        Get-Item -LiteralPath $backendExecutable | Select-Object FullName,Length
+        Get-FileHash -LiteralPath $backendExecutable -Algorithm SHA256
         return
     }
     $tauri = Join-Path $projectRoot 'node_modules\.bin\tauri.cmd'
@@ -83,12 +109,16 @@ try {
     foreach ($file in $sourceFiles) {
         if ((Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash -ne $before[$file]) { throw "Source changed during build: $file" }
     }
+    & $PythonExecutable $bundleHelper verify $backendRoot $bundleManifestPath
+    if ($LASTEXITCODE -ne 0) { throw 'Backend bundle changed during Tauri packaging' }
+    & $PythonExecutable $bundleHelper verify $resourceRoot $bundleManifestPath
+    if ($LASTEXITCODE -ne 0) { throw 'Staged backend bundle changed during Tauri packaging' }
     $version = (Get-Content 'src-tauri\tauri.conf.json' -Raw | ConvertFrom-Json).version
-    $artifacts = @("src-tauri\target\release\bundle\nsis\Axx_${version}_x64-setup.exe", 'src-tauri\target\release\Axx.exe', 'dist\axx-backend.exe') | ForEach-Object {
+    $artifacts = @("src-tauri\target\release\bundle\nsis\Axx_${version}_x64-setup.exe", 'src-tauri\target\release\Axx.exe', 'dist\axx-backend\axx-backend.exe') | ForEach-Object {
         $item=Get-Item -LiteralPath $_
         @{path=$item.FullName; bytes=$item.Length; sha256=(Get-FileHash -LiteralPath $item.FullName -Algorithm SHA256).Hash; architecture='x86_64'; version=$version}
     }
-    @{started=$started.ToString('o'); completed=[DateTimeOffset]::Now.ToString('o'); steps=$steps; artifacts=$artifacts; source_hashes=$before} | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $evidencePath 'build-result.json') -Encoding UTF8
+    @{started=$started.ToString('o'); completed=[DateTimeOffset]::Now.ToString('o'); steps=$steps; artifacts=$artifacts; backend_bundle=$backendBundle; source_hashes=$before} | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $evidencePath 'build-result.json') -Encoding UTF8
     $artifacts | ConvertTo-Json -Depth 4
 } finally {
     Pop-Location
