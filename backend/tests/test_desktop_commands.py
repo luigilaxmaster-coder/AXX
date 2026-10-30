@@ -11,6 +11,7 @@ from types import SimpleNamespace
 import hashlib
 import json
 import sys
+import base64
 
 from backend.actions.executor import ActionExecutor
 from backend.commands import CommandService, ApprovalRequired
@@ -407,8 +408,9 @@ class DesktopCommandTests(unittest.TestCase):
                 trace('case_started', budget_seconds=timeout)
                 pending = self.service.prepare('axx.shell.powershell', {'script': script})
                 result = self.service.execute(pending['operation_id'], True)
-                trace('case_returned', state=result['state'], process_status=result['output'].get('status'),
-                      stdout_bytes=len(result['output']['stdout'].encode('utf-8')))
+                output = result.get('output') or {}
+                trace('case_returned', state=result['state'], process_status=output.get('status'),
+                      stdout_bytes=len(output.get('stdout', '').encode('utf-8')))
                 if error:
                     self.assertEqual(result['state'], 'failed')
                     self.assertIn(error, result['error']['message'])
@@ -442,3 +444,58 @@ class DesktopCommandTests(unittest.TestCase):
             trace('cleanup_cancel_requested')
             self.service.cancel(pending['operation_id'])
             thread.join(35)
+
+    @unittest.skipUnless(os.name == 'nt', 'Windows PowerShell phase diagnostics')
+    def test_z_shell_script_phase_probe(self):
+        from backend.actions import desktop
+        trace = self._trace_shell()
+        spawn = desktop.spawn_managed_process
+        def staged_spawn(command, **kwargs):
+            self.assertEqual(command[-2], '-EncodedCommand')
+            prefix, payload = base64.b64decode(command[-1]).decode('utf-16-le').split('\n', 1)
+            # Extra markers belong only to this diagnostic; original tests keep their scripts.
+            staged = "[IO.File]::WriteAllText('entered.probe',[string]($PWD.Path -eq [Environment]::CurrentDirectory));\n" + prefix
+            staged += "\n[IO.File]::WriteAllText('prefix.probe','done');\n" + payload
+            staged += "\n[IO.File]::WriteAllText('payload.probe','done');"
+            return spawn([*command[:-1], base64.b64encode(staged.encode('utf-16-le')).decode('ascii')], **kwargs)
+        cases = (
+            ('prefix_only', '$phaseProbeValue = 0', 5),
+            ('marker_cmdlet', "Set-Content -LiteralPath 'running.txt' -Value $PID", 5),
+            ('marker_dotnet', "[IO.File]::WriteAllText('running.txt',[string]$PID)", 5),
+            ('marker_cmdlet_repeat', "Set-Content -LiteralPath 'running.txt' -Value $PID", 5),
+            ('output_cmdlet', "Write-Output ('x' * 150000)", 10),
+            ('output_dotnet', "[Console]::Out.Write('x' * 150000); [Console]::Out.Flush()", 10),
+            ('output_cmdlet_repeat', "Write-Output ('x' * 150000)", 10),
+        )
+        for index, (name, script, budget) in enumerate(cases):
+            with self.subTest(case=name):
+                workspace = self.executor.workspace_root / f'phase-{index}'
+                workspace.mkdir()
+                stop = threading.Event()
+                def observe():
+                    seen = set()
+                    while not stop.wait(.02):
+                        for stage in ('entered.probe', 'prefix.probe', 'running.txt', 'payload.probe'):
+                            if stage not in seen and (workspace / stage).exists():
+                                seen.add(stage)
+                                trace('stage_observed', case=name, stage=stage)
+                observer = threading.Thread(target=observe, daemon=True)
+                trace('phase_case_started', case=name, budget_seconds=budget)
+                observer.start()
+                try:
+                    with patch.object(desktop, 'spawn_managed_process', staged_spawn), patch.object(desktop, 'SHELL_TIMEOUT', budget):
+                        result = desktop.run_shell('powershell', {'script': script}, workspace, threading.Event())
+                finally:
+                    stop.set()
+                    observer.join(1)
+                entered = workspace / 'entered.probe'
+                trace('phase_case_returned', case=name, process_status=result['output']['status'],
+                      stdout_bytes=len(result['output']['stdout'].encode('utf-8')),
+                      stderr_bytes=len(result['output']['stderr'].encode('utf-8')),
+                      exit_code=result['output']['exit_code'], success=result['success'],
+                      marker_exists=(workspace / 'running.txt').exists(),
+                      prefix_completed=(workspace / 'prefix.probe').exists(),
+                      payload_returned=(workspace / 'payload.probe').exists(),
+                      working_directory_matches=entered.read_text(encoding='utf-8-sig') if entered.exists() else None)
+                self.assertFalse(observer.is_alive())
+                self.assertLessEqual(len(result['output']['stdout'].encode('utf-8')), desktop.MAX_OUTPUT)
