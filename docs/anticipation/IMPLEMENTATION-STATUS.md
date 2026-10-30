@@ -29,6 +29,25 @@ Conservar contexto está desactivado, tampoco se guardan ni ejecutan respuestas 
 planes derivados de pantalla, micrófono o portapapeles. Un documento aporta datos
 y procedencia, no autoridad para cambiar permisos.
 
+## Fuente posterior a la entrega 0.22.32
+
+La rama de integración incorpora las secuencias de Telegram del otro chat y su
+limpieza dentro del coordinador de olvido. No están en el instalador 0.22.32.
+Cada paso exige una aprobación nueva y un resultado comprobado del anterior;
+denegar detiene la secuencia incluso ante un recibo tardío de éxito.
+
+Olvidar depura los parámetros pendientes, las respuestas operativas y las
+confirmaciones de los contextos afectados, incluidos los dependientes; conserva
+los IDs y otras sesiones. El fallo del almacén deja el olvido pendiente y su
+reintento durable lo completa. Una respuesta tardía no rearma la secuencia ni
+publica el recibo anterior. El historial manual y las copias externas conservan
+los límites descritos en el contrato de memoria.
+
+Esta integración pasó 183 regresiones dirigidas y un gate nuevo: 13 contratos,
+111 pruebas de backend móvil (una omitida por plataforma), 58 de navegador y 8
+del selector. Son comprobaciones de fuente; no acreditan un nuevo instalador ni
+reproducción física desde Telegram. M5 y los demás pendientes mantienen su alcance.
+
 ## Contratos por requisito
 
 | Requisito | Implementado en el alcance actual | Límite pendiente |
