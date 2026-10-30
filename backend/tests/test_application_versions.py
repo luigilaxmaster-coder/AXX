@@ -1,6 +1,7 @@
 """Application compatibility uses real temporary bytes; no application is launched."""
 from pathlib import Path
 import copy
+from contextvars import copy_context
 import os
 import tempfile
 import threading
@@ -55,6 +56,43 @@ class ApplicationVersionTests(unittest.TestCase):
                 self.assertEqual(hashing.call_count, 1)
         self.binary.write_bytes(b'SYNTHETIC_EXECUTABLE_VERSION_B')
         self.assertNotEqual(first, get_action_env_fingerprint(['axx.blender.scene.render']))
+
+    @unittest.skipUnless(os.name == 'nt', 'Requires Windows file custody; no application launch')
+    def test_copied_context_cannot_reuse_a_released_binary_snapshot(self):
+        from backend.actions.cli_blender import blender_version_lease
+        with blender_version_lease():
+            original = get_action_env_fingerprint(['axx.blender.scene.render'])
+            copied = copy_context()
+        self.binary.write_bytes(b'SYNTHETIC_EXECUTABLE_VERSION_B')
+        self.assertNotEqual(copied.run(get_action_env_fingerprint, ['axx.blender.scene.render']), original)
+
+    @unittest.skipUnless(os.name == 'nt', 'Requires Windows file custody; no application launch')
+    def test_copied_context_holds_its_own_custody_after_parent_exits(self):
+        from backend.actions.cli_blender import blender_version_lease
+        ready, release = threading.Event(), threading.Event()
+        failures = []
+        def child():
+            try:
+                with blender_version_lease():
+                    ready.set()
+                    if not release.wait(5): raise AssertionError('Synthetic lease timeout')
+            except BaseException as exc:
+                failures.append(exc); ready.set()
+        worker = None
+        try:
+            with blender_version_lease():
+                copied = copy_context()
+                worker = threading.Thread(target=copied.run, args=(child,))
+                worker.start()
+                self.assertTrue(ready.wait(3))
+                self.assertEqual(failures, [])
+            with self.assertRaises(OSError):
+                self.binary.write_bytes(b'FORBIDDEN_UPDATE_DURING_CHILD_CUSTODY')
+        finally:
+            release.set()
+            if worker: worker.join(3)
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(failures, [])
 
     @unittest.skipUnless(os.name == 'nt', 'Requires Windows file custody; no application launch')
     def test_journal_proof_selective_revalidation_and_approved_binary_custody(self):

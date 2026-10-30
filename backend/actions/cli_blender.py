@@ -44,8 +44,9 @@ def _adapter():
 
 def find_blender() -> Path:
     """Discover an installed application; never execute a user-supplied path."""
-    if _selected_binary.get() is not None:
-        return Path(_selected_binary.get()['path'])
+    bound = _selected_binary.get()
+    if bound is not None and bound['active']:
+        return Path(bound['binary']['path'])
     if os.name != 'nt':
         raise RuntimeError('This capability requires the installed Windows Blender application')
     bases = [Path(os.environ.get('ProgramFiles', r'C:\Program Files')) / 'Blender Foundation']
@@ -60,24 +61,26 @@ def find_blender() -> Path:
 @contextmanager
 def blender_version_lease():
     """Pin the selected executable while its existing Windows file lease is held."""
-    if _selected_binary.get() is not None:
-        yield
-        return
     from .process_runner import _locked_executable
     from .file_inspection import hash_file
     binary = find_blender()
     with _locked_executable(str(binary)):
-        token = _selected_binary.set(hash_file(str(binary), threading.Event()))
+        previous = _selected_binary.get()
+        snapshot = previous['binary'] if previous is not None and previous['active'] and previous['binary']['path'] == str(binary) else hash_file(str(binary), threading.Event())
+        scope = {'binary': snapshot, 'active': True}
+        token = _selected_binary.set(scope)
         try:
             yield
         finally:
+            # Copied contexts must expire with this handle, not retain its cached proof.
+            scope['active'] = False
             _selected_binary.reset(token)
 
 
 def blender_binary_snapshot():
     from .file_inspection import hash_file
     bound = _selected_binary.get()
-    return dict(bound) if bound is not None else hash_file(str(find_blender()), threading.Event())
+    return dict(bound['binary']) if bound is not None and bound['active'] else hash_file(str(find_blender()), threading.Event())
 
 
 def verify_png(path: Path) -> dict:
