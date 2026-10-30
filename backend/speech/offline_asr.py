@@ -90,7 +90,9 @@ def excessive_repetition(text):
 def model_path():
     local_base = Path(os.environ.get('LOCALAPPDATA', str(Path.home())))/'Axx'/'models'/'faster-whisper-base'
     if getattr(sys,'frozen',False):
-        candidates = [local_base, Path(sys.executable).parent/'models'/'faster-whisper-tiny',
+        # Existing private models survive upgrades independently of bundled data.
+        candidates = [local_base, local_base.with_name('faster-whisper-tiny'),
+                      Path(sys.executable).parent/'models'/'faster-whisper-tiny',
                       Path(sys.executable).parent/'resources'/'models'/'faster-whisper-tiny',
                       Path(getattr(sys,'_MEIPASS',Path(sys.executable).parent))/'models'/'faster-whisper-tiny',
                       Path(getattr(sys,'_MEIPASS',Path(sys.executable).parent))/'resources'/'models'/'faster-whisper-tiny']
