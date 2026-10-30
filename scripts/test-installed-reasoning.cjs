@@ -59,7 +59,12 @@ async function main() {
       const prefs = Axx.companion.data.prefs;
       return {provider:prefs.provider, model:prefs.model || '', apiConnection:prefs.apiConnection || '', selection_mode:prefs.selection_mode || 'manual'};
     });
-    const runtime = await page.evaluate(() => Axx.nativeInvoke('native_status'));
+    const native = await page.evaluate(() => Axx.nativeInvoke('native_status'));
+    const runtime = JSON.parse(fs.readFileSync(path.join(process.env.LOCALAPPDATA,'Axx/logs/native-runtime.json'),'utf8'));
+    assert.equal(native.backendInstance, runtime.backendInstance, 'Runtime snapshot belongs to a different backend');
+    const installed = path.join(process.env.LOCALAPPDATA,'Programs/Axx/Axx.exe');
+    assert.equal(path.resolve(runtime.executable).toLowerCase(), path.resolve(installed).toLowerCase(), 'The runtime is not the installed executable');
+    runtime.sha256 = hash(fs.readFileSync(installed));
     const expectedVersion = JSON.parse(fs.readFileSync(path.join(__dirname,'../package.json'),'utf8')).version;
     assert.equal(runtime.version, expectedVersion, 'Installed version differs from this source');
     assert(runtime.backendInstance, 'Native backend identity missing');
@@ -95,7 +100,7 @@ async function main() {
     if (!resume) {
       const currentSelection = await selection();
       receipt.selection = currentSelection;
-      receipt.runtime_before = pick(runtime, ['version','backendInstance','pid']); save();
+      receipt.runtime_before = pick(runtime, ['version','backendInstance','pid','sha256']); save();
       const pending = await api('GET','/axx-api/commands/operations');
       receipt.preexisting_unknown_count = (pending.operations || []).filter(item => item.state === 'unknown').length;
       assert(!(pending.operations || []).some(item => ['prepared','awaiting_approval','running'].includes(item.state)), 'Resolve existing pending commands without this harness cancelling them');
@@ -168,8 +173,9 @@ async function main() {
     } else {
       assert.equal(receipt.result, 'RESTART_REQUIRED', 'Preparation must finish before resume');
       assert.notEqual(runtime.backendInstance, receipt.runtime_before.backendInstance, 'Restart the EXE; a WebView reload is insufficient');
+      assert.equal(runtime.sha256, receipt.runtime_before.sha256, 'The executable changed between acceptance phases');
       assert.deepEqual(await selection(), receipt.selection, 'Model selection changed across restart');
-      receipt.runtime_after = pick(runtime, ['version','backendInstance','pid']);
+      receipt.runtime_after = pick(runtime, ['version','backendInstance','pid','sha256']);
       await selectChat(receipt.chat);
       const active = await api('GET','/axx-api/capabilities/get?id='+encodeURIComponent(receipt.capability.id));
       assert.equal(active.state, 'active'); assert.equal(active.digest, receipt.capability.digest); verifyLineage(active);
