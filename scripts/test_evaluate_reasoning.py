@@ -1,5 +1,9 @@
 """The evaluation receipt cannot turn missing or failed checks into acceptance."""
 import copy
+import json
+import os
+from pathlib import Path
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -24,6 +28,80 @@ class Fixture(unittest.TestCase):
 
 
 class EvaluationTests(unittest.TestCase):
+    def human_input(self, folder):
+        path = folder / 'human.json'
+        path.write_text(json.dumps({'schema_version': 1, 'dataset_id': 'fixture', 'dataset_revision': 'r1',
+            'partition': 'development', 'measurement_basis': 'fixture', 'protocol_sha256': 'a' * 64,
+            'eligible_pairs': 1, 'pairs': []}), encoding='utf-8')
+        return path
+
+    def test_human_report_is_offline_descriptive_and_never_runs_reasoning_cases(self):
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory); source = self.human_input(folder); output = folder / 'report.json'
+            original = source.read_bytes()
+            with patch.object(evaluation, 'source_identity', return_value={'commit': 'fixture'}), \
+                    patch.object(evaluation, 'run_cases', side_effect=AssertionError('No inference or unrelated test run')), \
+                    patch('builtins.print'):
+                self.assertEqual(evaluation.main(['--human-episodes', str(source), '--output', str(output)]), 0)
+            report = json.loads(output.read_text(encoding='utf-8'))
+            self.assertEqual(report['result'], 'descriptive')
+            self.assertEqual(report['pairs_missing'], 1)
+            self.assertIsNone(report['paired_declared_human_difference_ms'])
+            self.assertFalse(report['physical_acceptance_verified'])
+            self.assertEqual(source.read_bytes(), original)
+
+    def test_human_input_cannot_be_overwritten_by_path_or_hard_link_or_mixed_with_baseline(self):
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory); source = self.human_input(folder); alias = folder / 'alias.json'
+            os.link(source, alias)
+            original = source.read_bytes()
+            for destination, extra in ((source, []), (alias, []), (folder / 'other.json', ['--baseline', str(source)])):
+                with self.subTest(destination=destination, extra=extra), self.assertRaises(SystemExit) as error:
+                    evaluation.main(['--human-episodes', str(source), '--output', str(destination), *extra])
+                self.assertEqual(error.exception.code, 2)
+                self.assertEqual(source.read_bytes(), original)
+
+    def test_invalid_or_oversized_human_data_never_creates_a_report(self):
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory); source = folder / 'human.json'; output = folder / 'report.json'
+            for content in ('[]', '{}', ' ' * (1024 * 1024 + 1)):
+                source.write_text(content, encoding='utf-8')
+                with self.assertRaises(SystemExit) as error:
+                    evaluation.main(['--human-episodes', str(source), '--output', str(output)])
+                self.assertEqual(error.exception.code, 2)
+                self.assertFalse(output.exists())
+
+    def test_source_drift_during_human_evaluation_keeps_existing_report(self):
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory); source = self.human_input(folder); output = folder / 'report.json'
+            output.write_text('original report', encoding='utf-8')
+            with patch.object(evaluation, 'source_identity', side_effect=[{'commit': 'before'}, {'commit': 'after'}]), \
+                    self.assertRaises(SystemExit) as error:
+                evaluation.main(['--human-episodes', str(source), '--output', str(output)])
+            self.assertEqual(error.exception.code, 2)
+            self.assertEqual(output.read_text(encoding='utf-8'), 'original report')
+
+    def test_output_failure_preserves_previous_report_and_removes_temporary_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory); output = folder / 'report.json'; output.write_text('original', encoding='utf-8')
+            with patch.object(evaluation.os, 'replace', side_effect=OSError('fixture replacement failure')):
+                with self.assertRaises(OSError): evaluation.write_report(output, {'result': 'descriptive'})
+            self.assertEqual(output.read_text(encoding='utf-8'), 'original')
+            self.assertEqual(list(folder.glob('.axx-evaluation-*')), [])
+
+    def test_output_hard_link_created_after_precheck_cannot_truncate_observations(self):
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory); source = self.human_input(folder); output = folder / 'report.json'
+            original = source.read_bytes(); identities = []
+            def identity(root):
+                identities.append(True)
+                if len(identities) == 2: os.link(source, output)
+                return {'commit': 'fixture'}
+            with patch.object(evaluation, 'source_identity', side_effect=identity), patch('builtins.print'):
+                self.assertEqual(evaluation.main(['--human-episodes', str(source), '--output', str(output)]), 0)
+            self.assertEqual(source.read_bytes(), original)
+            self.assertEqual(json.loads(output.read_text(encoding='utf-8'))['result'], 'descriptive')
+
     def rows(self):
         cases = tuple((name, 'offline_unit', ('test_evaluate_reasoning.Fixture.' + name,))
             for name in ('pass_case', 'fail_case', 'skip_case', 'subtest_case'))

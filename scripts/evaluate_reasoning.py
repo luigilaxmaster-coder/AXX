@@ -1,4 +1,4 @@
-"""Run exposed reasoning contract regressions; never certify a model or hardware."""
+"""Evaluate reasoning contracts or declared human effort; never certify hardware."""
 from __future__ import annotations
 
 import argparse
@@ -6,10 +6,12 @@ from contextlib import redirect_stderr, redirect_stdout
 import hashlib
 import io
 import json
+import os
 from pathlib import Path
 import platform
 import subprocess
 import sys
+import tempfile
 import time
 import unittest
 
@@ -112,7 +114,7 @@ def source_identity(root):
     for path in paths:
         payload = path.relative_to(root).as_posix().encode() + b'\0' + path.read_bytes() + b'\0'
         digest.update(payload)
-        if path.name.startswith('test_') or path == root / 'scripts/evaluate_reasoning.py':
+        if path.name.startswith('test_') or path in (root / 'scripts/evaluate_reasoning.py', root / 'backend/effort_evaluation.py'):
             evaluator.update(payload)
     commit = subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=root, check=True,
         capture_output=True, text=True, timeout=15).stdout.strip()
@@ -182,13 +184,44 @@ def evaluate(root=ROOT):
         'contract_result': contract_result, 'cases': cases}
 
 
+def write_report(path, report):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile('w', encoding='utf-8', dir=path.parent,
+                                        prefix='.axx-evaluation-', suffix='.json', delete=False) as stream:
+            temporary = Path(stream.name)
+            stream.write(json.dumps(report, indent=2, ensure_ascii=False, allow_nan=False) + '\n')
+        os.replace(temporary, path)
+    finally:
+        if temporary is not None: temporary.unlink(missing_ok=True)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--baseline', type=Path)
+    parser.add_argument('--human-episodes', type=Path)
     args = parser.parse_args(argv)
     sys.path.insert(0, str(ROOT))
     try:
+        if args.human_episodes:
+            from backend.effort_evaluation import evaluate_effort
+            if (args.baseline or args.human_episodes.resolve() == args.output.resolve()
+                    or args.output.exists() and args.human_episodes.samefile(args.output)):
+                raise ValueError('Human episodes need a separate output and cannot use a reasoning baseline')
+            with args.human_episodes.open('rb') as stream:
+                observations = stream.read(1024 * 1024 + 1)
+            if len(observations) > 1024 * 1024:
+                raise ValueError('Human episodes exceed 1 MiB')
+            before = source_identity(ROOT)
+            report = evaluate_effort(json.loads(observations.decode('utf-8')))
+            if before != source_identity(ROOT):
+                raise ValueError('Source changed while evaluating human observations')
+            report.update(source=before, source_unchanged_during_run=True)
+            write_report(args.output, report)
+            print('Human effort: descriptive; independently verified acceptance: not run')
+            return 0
         baseline = None
         if args.baseline:
             if args.baseline.resolve() == args.output.resolve():
@@ -201,8 +234,7 @@ def main(argv=None):
         report = evaluate()
         if baseline is not None:
             report['comparison'] = compare(baseline, report)
-        args.output.parent.mkdir(parents=True, exist_ok=True)
-        args.output.write_text(json.dumps(report, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
+        write_report(args.output, report)
     except (OSError, ValueError, subprocess.SubprocessError) as error:
         parser.exit(2, 'Evaluation failed: ' + str(error) + '\n')
     print('Reasoning contracts: ' + report['contract_result'] + '; overall acceptance: partial')

@@ -68,6 +68,8 @@ jobs:
         run: node scripts/test-prompt-timings.cjs
       - name: Reasoning evaluation guards
         run: python -m unittest discover -s scripts -p test_evaluate_reasoning.py -v
+      - name: Declared human effort and missing-data contracts
+        run: python -m unittest backend.tests.test_effort_evaluation -q
       - name: Reasoning contract evaluation
         run: python scripts/evaluate_reasoning.py --output build/reasoning-evaluation.json
       - name: Native acceptance harness guards (no hardware)
