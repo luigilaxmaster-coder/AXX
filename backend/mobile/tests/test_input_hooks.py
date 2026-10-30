@@ -20,10 +20,31 @@ class InputHooksTests(unittest.TestCase):
             self.assertTrue(native.active);self.assertIs(native.table,material)
             self.assertEqual(native.deadline,103)
             native._set_hooks.assert_called_once_with(True)
-        with patch('backend.mobile.windows_input.time.monotonic',return_value=102):native._check('lease')
-        with patch('backend.mobile.windows_input.time.monotonic',return_value=103):
+        for now in range(102,122,2):
+            with patch('backend.mobile.windows_input.time.monotonic',return_value=now):native._execute('renew',('lease',3))
+            self.assertEqual(native.deadline,now+3)
+            self.assertEqual(native.material_at,0)
+        with patch('backend.mobile.windows_input.time.monotonic',return_value=native.deadline):
             with self.assertRaises(ValueError):native._check('lease')
         native._cancel.assert_called_once_with('expired_or_revoked')
+
+    def test_automation_and_unknown_sources_still_require_desktop_heartbeat(self):
+        for source in ['axx_automation','direct_pointer','unknown']:
+            with self.subTest(source=source):
+                native=WindowsInput.__new__(WindowsInput)
+                native.active=False;native.table=bytes(128*128*4);native.material_at=0;native.abort=threading.Event()
+                native.user=SimpleNamespace(GetAsyncKeyState=lambda _:0)
+                native._set_hooks=Mock();native._cancel=Mock()
+                with patch('backend.mobile.windows_input.time.monotonic',return_value=100):
+                    with self.assertRaises(ValueError):native._execute('grant',('lease',30,source))
+                    native._set_hooks.assert_not_called()
+                    native.material_at=99;native._execute('grant',('lease',30,source))
+                with patch('backend.mobile.windows_input.time.monotonic',return_value=104):native._execute('renew',('lease',30))
+                self.assertEqual(native.material_at,99)
+                self.assertEqual(native.deadline,134)
+                with patch('backend.mobile.windows_input.time.monotonic',return_value=105):
+                    with self.assertRaises(ValueError):native._check('lease')
+                native._cancel.assert_called_once_with('expired_or_revoked')
 
     def test_hooks_only_exist_during_requested_control_and_cleanup_is_idempotent(self):
         installed=[];removed=[]
