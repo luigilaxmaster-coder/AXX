@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
-from contextlib import nullcontext
+from contextlib import ExitStack, nullcontext
 import json
 import math
 import os
@@ -907,7 +907,7 @@ class CommandService:
             try:
                 action_id = 'cmd-' + hashlib.sha256(operation_id.encode()).hexdigest()
                 # A legacy action may hold the executor. Check cancellation again at the dispatch boundary.
-                with nullcontext() if allow_parallel_read else self.executor.lock:
+                with (nullcontext() if allow_parallel_read else self.executor.lock), ExitStack() as leases:
                     if not allow_parallel_read:
                         self.executor.wait_for_reads()
                     with self.lock:
@@ -927,7 +927,7 @@ class CommandService:
                                 raise ActionExecutionError(str(exc)) from exc
                         if self.mission_guard:
                             try:
-                                self.mission_guard(operation_id)
+                                leases.enter_context(self.mission_guard(operation_id) or nullcontext())
                             except ValueError as exc:
                                 raise ActionExecutionError(str(exc)) from exc
                     args = (self.adapters[result['command_id']]['tool'], result['inputs'], action_id)

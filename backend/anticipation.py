@@ -132,6 +132,7 @@ class AnticipationService:
         self.transcription = None
         self.microphone_leases = {}
         self.verifier_cache = {}
+        self.goal_progress_revisions = {}
         self.tick_started = None
         self.tick_events = {}
         self.memory_usage, self.storage_usage = {}, {}
@@ -581,6 +582,7 @@ class AnticipationService:
         source = ActionLearning._project_compensations(source, self.db)
         if any(row.get('available_current') is not True for row in source.get('artifact_compensations', [])):
             return None
+        progression = item.get('candidate_kind') == 'goal_progress'
         for row in self.db.execute('SELECT payload FROM anticipation_grants'):
             grant = json.loads(row[0])
             if (grant.get('capability') != MISSION_CAPABILITY or grant.get('task_id') != item['task_id']
@@ -591,8 +593,13 @@ class AnticipationService:
             if grant.get('learning_plan_id') and (grant['learning_plan_id'] != source['operation_id']
                     or grant['reviewed_plan_hash'] != source.get('plan_hash')):
                 continue
+            # A reviewed prefix never authorizes the newly appended revision.
+            if progression and grant.get('learning_plan_id'):
+                continue
             pending = [(step, record) for step, record in zip(source.get('steps', []), source.get('step_records', []))
                        if record.get('state') != 'succeeded']
+            if progression and source.get('state') == 'goal_pending' and not source.get('pause_requested'):
+                pending = [(item['plan']['step'], {'state': 'pending', 'operation_id': None})]
             if (not pending or any(step['command_id'] not in grant['command_ids'] or step['command_id'] not in MISSION_COMMANDS
                     or record.get('state') in ('running', 'failed', 'unknown', 'cancelled') for step, record in pending)):
                 continue
@@ -602,17 +609,24 @@ class AnticipationService:
         return None
 
     def _preparation_grant(self, item):
-        if item.get('candidate_kind') != 'resume_task':
+        if item.get('candidate_kind') not in ('resume_task', 'goal_progress'):
             return None
         row = self.db.execute('SELECT payload FROM learning_plans WHERE id=?', (item['plan']['learning_operation_id'],)).fetchone()
         return self._checkpoint_grant(item, json.loads(row[0])) if row else None
 
     def _automatic_preparation(self, item):
-        if item.get('candidate_kind') != 'resume_task':
+        if item.get('candidate_kind') not in ('resume_task', 'goal_progress'):
             return True
+        learning = self.commands.learning
+        if learning is None or learning.closed or learning.closing:
+            return False
         row = self.db.execute('SELECT payload FROM learning_plans WHERE id=?', (item['plan']['learning_operation_id'],)).fetchone()
         source = json.loads(row[0]) if row else {}
-        return source.get('state') == 'interrupted' and not source.get('pause_requested')
+        revision = (learning.change_revision, self.commands.change_revision)
+        if item['candidate_kind'] == 'goal_progress' and self.goal_progress_revisions.get(source.get('operation_id')) == (revision, False):
+            return False
+        state = 'goal_pending' if item['candidate_kind'] == 'goal_progress' else 'interrupted'
+        return source.get('state') == state and not source.get('pause_requested') and not source.get('cancel_requested')
 
     def _mission_resources(self, command_id, inputs, grant, context, config, *, deferred=(), require_existing=True,
                            require_new=True, check_admission_budget=True):
@@ -1900,6 +1914,7 @@ class AnticipationService:
                     checked.append(target)
                 config['observation_targets'] = checked
             self.db.execute('UPDATE anticipation_config SET payload=? WHERE id=1', (canonical(config),))
+            self.goal_progress_revisions.clear()
             self._clear_sources()
             cancelled = self._invalidate(config)
         self._cancel_commands(cancelled)
@@ -1908,7 +1923,7 @@ class AnticipationService:
     def _invalidate(self, config=None):
         cancelled = []
         for item in self._items():
-            if item['state'] not in (*PENDING, 'EXECUTING'):
+            if item['state'] not in (*PENDING, 'EXECUTING') or item.get('goal_progress_verified'):
                 continue
             _, options = self._policy(item['task_id'], item['plan']['inputs']['path'], config, item['plan'].get('context'))
             old_mode = item.get('admitted_mode', 'SUGGEST')
@@ -2312,13 +2327,14 @@ class AnticipationService:
             'provenance': {'actor': 'axx', 'origin': 'suggestion', 'causation_id': plan['learning_operation_id'], 'human_preference_evidence': False},
             'feedback': {'acceptance': 'none', 'usefulness': 'unknown', 'corrections': 0},
             'message': 'Prepararé el plan existente para que lo revises; no ejecutaré sus acciones.',
-            'assessment': {'likelihood': {'score': 1, 'method': 'verified_checkpoint' if kind == 'resume_task' else 'repeated_verified_skill', 'evidence_count': len(evidence)},
-                'capability': {'available': True, 'method': 'ActionLearning.resume' if kind == 'resume_task' else 'ActionLearning.prepare_steps'},
+            'assessment': {'likelihood': {'score': 1, 'method': 'typed_goal_deficit' if kind == 'goal_progress' else 'verified_checkpoint' if kind == 'resume_task' else 'repeated_verified_skill', 'evidence_count': len(evidence)},
+                'capability': {'available': True, 'method': 'ActionLearning.prepare_goal_progress' if kind == 'goal_progress' else 'ActionLearning.resume' if kind == 'resume_task' else 'ActionLearning.prepare_steps'},
                 'authorization': {'allowed': False, 'required': 'prepare_existing_plan'}}}
-        if options['mode'] == 'EXECUTE' and kind == 'resume_task':
+        if options['mode'] == 'EXECUTE' and kind in ('resume_task', 'goal_progress'):
             row = self.db.execute('SELECT payload FROM learning_plans WHERE id=?', (plan['learning_operation_id'],)).fetchone()
             source = json.loads(row[0]) if row else {}
-            if source.get('state') == 'interrupted' and not source.get('pause_requested'):
+            state = 'goal_pending' if kind == 'goal_progress' else 'interrupted'
+            if source.get('state') == state and not source.get('pause_requested') and not source.get('cancel_requested'):
                 grant = self._checkpoint_grant(item, source, bound=False)
                 if grant:
                     item.update(grant_id=grant['grant_id'], auto_continue=True)
@@ -2353,6 +2369,39 @@ class AnticipationService:
                 profile, options = self._policy(task, path, context=context)
             if options['mode'] == 'OFF' or not self._within_budget(options) or source.get('preparation_complete') is False:
                 continue
+            if source.get('state') == 'goal_pending' and not source.get('pause_requested') and not source.get('cancel_requested'):
+                with self.lock:
+                    if (self._forgotten_source(task, 'advance_pending_goal', source)
+                            or self._suppressed(task, 'advance_pending_goal')):
+                        continue
+                revision = (learning.change_revision, self.commands.change_revision)
+                cached = self.goal_progress_revisions.get(source['operation_id'])
+                if cached is None or cached[0] != revision:
+                    self.goal_progress_revisions[source['operation_id']] = (revision, False)
+                    cancellation = self._source_cancellation(
+                        {'cancelled': learning.events.setdefault(source['operation_id'], threading.Event())}, options, {'expires_at': None})
+                    class GoalAssessmentCancellation:
+                        def is_set(cancelled):
+                            return self.closed or cancellation.is_set() or not self._within_budget(options)
+                    assessment_cancelled = GoalAssessmentCancellation()
+                    # File assessment takes planner locks; never run it under the policy lock.
+                    source = learning.refresh_goal_progress(source['operation_id'], cancelled=assessment_cancelled)
+                    if assessment_cancelled.is_set():
+                        continue
+                    self.goal_progress_revisions[source['operation_id']] = (revision, True)
+                elif not cached[1]:
+                    continue
+                progress = source.get('goal_progress') or {}
+                with self.lock, self.db:
+                    forgotten = self._forgotten_source(task, 'advance_pending_goal', source)
+                    if (not forgotten and source.get('state') == 'goal_pending' and not source.get('pause_requested')
+                            and not source.get('cancel_requested') and progress.get('status') == 'ready'
+                            and self._within_budget(options)):
+                        plan = {'kind': 'goal_progress', 'inputs': {'path': path}, 'task_id': task, 'context': context,
+                            'learning_operation_id': source['operation_id'],
+                            **{key: progress[key] for key in ('source_plan_hash', 'criterion_id', 'step', 'fingerprint', 'input_versions', 'prefix_length')}}
+                        self._preparation_candidate(task, 'advance_pending_goal', 'Preparar avance del objetivo pendiente', plan, profile, options,
+                            [{'operation_id': source['operation_id'], 'criterion_id': progress['criterion_id'], 'fingerprint': progress['fingerprint']}])
             if source.get('state') in ('paused', 'interrupted'):
                 checkpoint = self._checkpoint(source)
                 with self.lock:
@@ -2430,6 +2479,13 @@ class AnticipationService:
         task = source.get('conversation_id') or source['operation_id']
         if task != item['task_id'] or source.get('plan_hash') != plan['source_plan_hash'] or learning._plan_hash(source) != source.get('plan_hash'):
             raise StaleContext('La tarea de origen o sus pasos cambiaron')
+        if plan['kind'] == 'goal_progress':
+            progress = source.get('goal_progress') or {}
+            if (source.get('state') != 'goal_pending' or source.get('pause_requested') or source.get('cancel_requested')
+                    or progress.get('status') != 'ready' or any(progress.get(key) != plan[key] for key in
+                        ('source_plan_hash', 'criterion_id', 'step', 'fingerprint', 'input_versions', 'prefix_length'))):
+                raise StaleContext('El candidato o el objetivo pendiente cambió; prepara una propuesta nueva')
+            return learning, source, None
         if plan['kind'] == 'resume_task':
             if source['state'] not in ('paused', 'interrupted') or self._checkpoint(source) != {key: plan[key] for key in ('last_verified_step', 'next_step', 'records_hash')}:
                 raise StaleContext('El checkpoint cambió; prepara una propuesta nueva')
@@ -2646,7 +2702,9 @@ class AnticipationService:
             current = self._get(item['suggestion_id'])
             if current['state'] != 'EXECUTING' or current.get('cancel_requested'):
                 raise ValueError('La preparación fue cancelada antes de usar el planificador')
-        result = (learning.resume(source['operation_id'], approved=False) if steps is None else
+        result = (learning.prepare_goal_progress(source['operation_id'], item['plan']['source_plan_hash'],
+                    item['plan']['criterion_id'], item['plan']['fingerprint']) if item['candidate_kind'] == 'goal_progress' else
+            learning.resume(source['operation_id'], approved=False) if steps is None else
             learning.prepare_steps(item['title'], steps, operation_id=plan_id,
                 project_id=source.get('project_id', ''), conversation_id=item['task_id'], _mission_dependencies=dependencies))
         with self.lock:
@@ -2679,6 +2737,10 @@ class AnticipationService:
                 return {'suggestion_id': key, 'state': 'CANCELLED', 'forgotten': True, 'result': None}
             prepared = bool(result.get('steps')) and bool(result.get('plan_hash')) and (executed or result.get('state') == 'awaiting_approval')
             verified = executed and result.get('state') == 'succeeded' and result.get('postconditions_passed') is True
+            new_records = result.get('step_records', [])[item['plan']['prefix_length']:] if item.get('candidate_kind') == 'goal_progress' else []
+            progressed = (executed and result.get('state') == 'goal_pending' and bool(new_records)
+                and all((row.get('result') or {}).get('state') == 'succeeded'
+                        and (row.get('result') or {}).get('postconditions_passed') is True for row in new_records))
             state = ('VERIFIED' if verified else 'UNCERTAIN' if executed and result.get('state') in ('running', 'unknown')
                      else 'CANCELLED' if executed and result.get('state') == 'cancelled'
                      else 'FAILED' if executed and result.get('state') in ('failed', 'blocked') else 'PREPARED' if prepared else 'FAILED')
@@ -2689,9 +2751,13 @@ class AnticipationService:
                 message='Plan preparado en la tarea existente. Revisa y aprueba sus pasos antes de ejecutarlos.' if prepared else 'La tarea requiere revisión; no se ejecutaron nuevos pasos.',
                 error=None if prepared else result.get('message'))
             if executed:
-                item.update(execution_attempted=True, error=None if verified else result.get('message'),
-                    message='Misión continuada y resultado comprobado por el ejecutor existente.' if verified else 'La misión se detuvo; consulta sus recibos reales antes de continuar.')
-                self._stats(item['task_id'], item['routine_id'], 'verified' if verified else 'failed')
+                item.update(execution_attempted=True, error=None if verified or progressed else result.get('message'),
+                    message='Misión continuada y resultado comprobado por el ejecutor existente.' if verified else
+                        'Paso nuevo verificado; el objetivo conserva criterios pendientes.' if progressed else
+                        'La misión se detuvo; consulta sus recibos reales antes de continuar.')
+                self._stats(item['task_id'], item['routine_id'], 'verified' if verified else 'goal_steps_verified' if progressed else 'failed')
+            if progressed:
+                item['goal_progress_verified'] = True
             self._save(item)
             self._transition(item, state, {'learning_plan_id': result['operation_id'], 'execution_attempted': executed})
             return item

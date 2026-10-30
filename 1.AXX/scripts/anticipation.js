@@ -160,12 +160,21 @@
    $('anticipation-mission-status').textContent=plans.length?plans.length+' planes de este chat · Proyecto: '+(currentProject||'Personal'):'Este chat todavía no tiene un plan de misión persistente.';
    for(const plan of plans){
     const mission=plan.mission,article=document.createElement('article'),title=document.createElement('strong'),progress=document.createElement('p');
-    const labels={awaiting_approval:'Pendiente de aprobación',running:'En curso',paused:'En pausa',pausing:'Pausa solicitada',cancelled:'Cancelada',unknown:'Pendiente de reconciliación',expired:'Requiere revisión',blocked:'Bloqueada',needs_input:'Necesita datos',interrupted:'Interrumpida',waiting_capacity:'Espera un modelo apto',waiting_capability:'Espera una capacidad',waiting_dependency:'Espera otra misión verificada'};
+    const labels={awaiting_approval:'Pendiente de aprobación',running:'En curso',paused:'En pausa',pausing:'Pausa solicitada',cancelled:'Cancelada',unknown:'Pendiente de reconciliación',expired:'Requiere revisión',blocked:'Bloqueada',needs_input:'Necesita datos',interrupted:'Interrumpida',waiting_capacity:'Espera un modelo apto',waiting_capability:'Espera una capacidad',waiting_dependency:'Espera otra misión verificada',goal_pending:'Objetivo pendiente de verificar'};
+    const requiredCriteria=mission.criteria||plan.goal_spec?.criteria||[],observedCriteria=plan.goal_verification?.criteria||mission.goal_progress?.criteria||[],unverifiedCriteria=requiredCriteria.some(criterion=>{const rows=observedCriteria.filter(row=>row.id===criterion.id&&row.kind===criterion.kind);return rows.length!==1||rows[0].status!=='satisfied';})||observedCriteria.some(row=>row.status!=='satisfied');
     title.textContent=mission.objective||plan.request||'Misión';
-    progress.textContent=(mission.completed===true?'Completada y verificada':mission.state==='succeeded'?'Resultado recibido; objetivo pendiente':labels[mission.state]||mission.state)+' · '+(mission.verified_steps||[]).length+'/'+(plan.steps||[]).length+' pasos verificados';
+    progress.textContent=(mission.state==='goal_pending'||unverifiedCriteria?labels.goal_pending:mission.completed===true?'Completada y verificada':mission.state==='succeeded'?'Resultado recibido; objetivo pendiente':labels[mission.state]||mission.state)+' · '+(mission.verified_steps||[]).length+'/'+(plan.steps||[]).length+' pasos verificados';
     const details=document.createElement('details'),summary=document.createElement('summary'),list=document.createElement('dl');summary.textContent='Objetivo, límites y evidencia';
     const add=(label,value)=>{if(value===undefined||value===null)return;const name=document.createElement('dt'),text=document.createElement('dd');name.textContent=label;text.textContent=typeof value==='string'?value:JSON.stringify(value,null,2);list.append(name,text);};
     add('Entregables',mission.deliverables);add('Destino',mission.destination);add('Condiciones de éxito',mission.success_conditions);add('Recursos',mission.scope.resources);add('Misiones requeridas',mission.mission_dependencies);add('Pasos pendientes',(mission.pending_steps||[]).map(index=>index+1));add('Bloqueos',mission.blockers);
+    if(Array.isArray(mission.criteria)&&mission.criteria.length)add('Criterios de resultado',mission.criteria.map(row=>(row?.id||'Sin ID')+' · '+(row?.kind||'Tipo no informado')).join('\n'));
+    const verification=plan.goal_verification,goalProgress=mission.goal_progress,criterionLabels={satisfied:'Cumplido (satisfied)',unsatisfied:'No cumplido (unsatisfied)',indeterminate:'Sin determinar (indeterminate)'};
+    const criterionSummary=rows=>rows.map(row=>(row?.id||'Sin ID')+' · '+(row?.kind||'Tipo no informado')+' · '+(criterionLabels[row?.status]||'Estado no informado')+' · '+(row?.reason_code||'Motivo no informado')).join('\n');
+    if(Array.isArray(verification?.criteria))add('Evaluación de criterios',criterionSummary(verification.criteria));
+    add('Cobertura de evaluación',verification?.coverage);
+    add('Avance del objetivo',goalProgress?.status);add('Criterio del avance',goalProgress?.criterion_id);
+    if(Array.isArray(goalProgress?.criteria))add('Evaluación del avance',criterionSummary(goalProgress.criteria));
+    if(Number.isSafeInteger(goalProgress?.prefix_length)&&goalProgress.prefix_length>=0)add('Prefijo verificado del avance',goalProgress.prefix_length+' pasos');
     add('Permiso',mission.permission?.exact_plan_approved?'Versión exacta del plan aprobada.':'Esta versión del plan no consta aprobada.');
     if(mission.permission?.automatic_future_plans_authorized===false)add('Iniciativas futuras','Este plan no concede permiso para futuros planes autónomos.');
     const budget=mission.budget;

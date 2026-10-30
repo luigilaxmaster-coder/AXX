@@ -5,7 +5,95 @@ const {spawn, spawnSync} = require('node:child_process');
 const {createRequire} = require('node:module');
 const {chromium} = createRequire(path.join(process.env.USERPROFILE, '.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/package.json'))('playwright');
 
+async function goalUi() {
+  const browser=await chromium.launch({headless:true,executablePath:process.env.AXX_TEST_CHROMIUM||path.join(process.env.LOCALAPPDATA,'ms-playwright/chromium_headless_shell-1248/chrome-headless-shell-win64/chrome-headless-shell.exe')});
+  try {
+    const page=await browser.newPage(),errors=[];page.on('pageerror',error=>errors.push(error.message));
+    await page.setContent('<section id="command-library"><button id="command-library-learned"></button></section>');
+    await page.evaluate(()=>{
+      window.calls=[];window.rendered=[];window.criteria=[{id:'note',kind:'text_exact',parameters:{path:'note.txt',text:'Expected <img src=x>'}},{id:'sheet',kind:'xlsx_from_csv',parameters:{source:'data.csv',destination:'report.xlsx',delimiter:',',numeric_column:'amount'}},{id:'bundle',kind:'file_bundle',parameters:{paths:['note.txt','report.xlsx'],destination:'bundle',archive_name:'result.zip',max_output_bytes:1048576}}];
+      const evaluation=criteria.map((criterion,index)=>({id:criterion.id,kind:criterion.kind,status:index===1?'indeterminate':'unsatisfied',reason_code:index===1?'SOURCE_UNAVAILABLE':'OUTPUT_MISSING'}));
+      window.baseGoalPlan={kind:'learned_plan',operation_id:'goal-mission',conversation_id:'chat-a',project_id:'A',state:'succeeded',plan_hash:'a'.repeat(64),goal_revision:2,goal_locked:true,goal_spec:{intent:'Deliver the reviewed result',criteria},goal_verification:{passed:false,coverage:'typed_criteria',criteria:evaluation},goal_progress:{status:'pending',criteria:evaluation,prefix_length:1},steps:[{command_id:'axx.artifact.write',inputs:{path:'prefix.txt',content:'Already done'}}],step_records:[{operation_id:'prefix-receipt',state:'succeeded',result:{state:'succeeded',postconditions_passed:true}}],mission:{completed:true,verified_steps:[0],budget:{model_calls_used:1,model_call_limit:2,model_calls_remaining:1}}};
+      window.plans=[structuredClone(baseGoalPlan)];let serial=0;
+      window.Axx={newId:()=> 'goal-fixture-'+(++serial),isNative:()=>false,chatWorkspace:{active:{id:'chat-a'}},resident:{schedule(){}},companion:{data:{prefs:{skillProject:'A'}},save(){},openFeature(){},renderChat(){}},commandLibrary:{busy:false,operation:null,generation:0,renderOperation(plan){rendered.push(structuredClone(plan));},status(){},open(){},request:async(method,route,body)=>{
+        calls.push({method,route,body:structuredClone(body)});
+        if(route.startsWith('/axx-api/learning/plans?'))return {plans:structuredClone(plans)};
+        if(route.startsWith('/axx-api/learning/actions?'))return {actions:[]};
+        if(route.startsWith('/axx-api/learning/context?'))return {context_meta:{}};
+        if(route.startsWith('/axx-api/learning/plan?id=')){const plan=structuredClone(plans[0]);if(window.staleGoal){plan.goal_revision++;plan.plan_hash='d'.repeat(64);}return plan;}
+        if(route==='/axx-api/learning/propose'){
+          const plan={...structuredClone(baseGoalPlan),operation_id:body.operation_id,conversation_id:body.conversation_id,project_id:body.project_id,state:'awaiting_approval',plan_hash:'b'.repeat(64),goal_spec:structuredClone(body.goal_spec)};
+          if(window.rewriteGoal)plan.goal_spec.criteria[0].parameters.text='Model replacement';
+          if(window.delayPropose){window.delayPropose=false;await new Promise(resolve=>{window.releasePropose=resolve;});}return plan;
+        }
+        if(route==='/axx-api/learning/repair')return {...structuredClone(plans[0]),state:'awaiting_approval',plan_hash:'b'.repeat(64),goal_spec:structuredClone(body.goal_spec),goal_revision:body.goal_revision+1};
+        if(route==='/axx-api/learning/goal-progress'){
+          const plan=structuredClone(plans[0]);plan.state='awaiting_approval';plan.plan_hash='b'.repeat(64);plan.goal_progress.status='prepared';plan.steps.push(structuredClone(plan.goal_progress.step));
+          if(window.delayProgress){window.delayProgress=false;await new Promise(resolve=>{window.releaseProgress=resolve;});}plans=[plan];return structuredClone(plan);
+        }
+        throw Error('Unsupported controlled goal route '+route);
+      }}};
+    });
+    await page.addScriptTag({path:path.join(__dirname,'skill-library.js')});
+    await page.evaluate(()=>Axx.skillLibrary.tasks());
+    const row=page.locator('#skills-tasks article').first();
+    await row.evaluate(node=>node.querySelectorAll('details').forEach(details=>details.open=true));
+    assert.match(await row.locator(':scope > p').textContent(),/Objetivo pendiente/,'Verified steps cannot override an indeterminate goal');
+    assert.match(await row.textContent(),/Indeterminado[\s\S]*typed_criteria[\s\S]*Prefijo conservado: 1[\s\S]*1\/2 llamadas/);
+    assert.equal(await row.locator('img').count(),0,'Criteria and expected content are text only');
+    assert.equal(await row.getByRole('button',{name:'Preparar siguiente paso',exact:true}).count(),0,'Pending criteria do not invent a producer');
+    for(const status of ['waiting_dependency','satisfied','needs_input']){await page.evaluate(status=>{plans[0].goal_progress.status=status;return Axx.skillLibrary.tasks();},status);await row.evaluate(node=>node.querySelectorAll('details').forEach(details=>details.open=true));assert.equal(await row.getByRole('button',{name:'Preparar siguiente paso',exact:true}).count(),0,'A non-ready progress status never prepares a suffix');}
+    await page.evaluate(()=>{plans[0].goal_progress.status='pending';plans[0].goal_verification.criteria=criteria.map(criterion=>({id:criterion.id,kind:criterion.kind,status:'satisfied',reason_code:'VERIFIED'}));plans[0].goal_verification.criteria.push({...plans[0].goal_verification.criteria[0],status:'unsatisfied'});return Axx.skillLibrary.tasks();});
+    assert.match(await row.locator(':scope > p').textContent(),/Objetivo pendiente/,'Contradictory duplicate evaluations cannot certify completion');
+    await page.evaluate(()=>{plans=[structuredClone(baseGoalPlan)];return Axx.skillLibrary.tasks();});await row.evaluate(node=>node.querySelectorAll('details').forEach(details=>details.open=true));
+    await page.locator('#skills-goal-editor').evaluate(node=>{node.open=true;node.parentElement.open=true;});
+    const raw=await page.evaluate(()=>JSON.stringify(criteria));
+    await page.locator('#skills-objective').fill('Deliver a reviewed result');await page.locator('#skills-goal-criteria').fill('[{"id":"x","kind":"python","parameters":{}}]');await page.locator('#skills-goal-review').click();
+    await page.waitForFunction(()=>document.getElementById('skills-status').textContent.includes('Tipo de criterio no disponible'));assert.equal(await page.locator('#skills-goal-prepare').isDisabled(),true,'Human criteria cannot supply an arbitrary evaluator');
+    await page.locator('#skills-objective').fill('Deliver a reviewed result');await page.locator('#skills-goal-criteria').fill(raw);
+    await page.locator('#skills-goal-review').click();
+    assert.equal(await page.locator('#skills-goal-preview img').count(),0);
+    await page.locator('#skills-goal-criteria').fill(raw+' ');
+    assert.equal(await page.locator('#skills-goal-prepare').isDisabled(),true,'Editing invalidates the previous review');
+    await page.locator('#skills-goal-review').click();await page.locator('#skills-goal-prepare').click();
+    await page.waitForFunction(()=>Axx.commandLibrary.lastOperation?.state==='awaiting_approval');
+    assert.deepEqual(await page.evaluate(()=>calls.find(call=>call.route==='/axx-api/learning/propose').body.goal_spec),{intent:'Deliver a reviewed result',criteria:JSON.parse(raw)});
+    await page.evaluate(()=>{Axx.commandLibrary.operation=null;window.rewriteGoal=true;});
+    await page.locator('#skills-goal-review').click();await page.locator('#skills-goal-prepare').click();
+    await page.waitForFunction(()=>document.getElementById('skills-status').textContent.includes('cambió los criterios'));
+    assert.equal(await page.evaluate(()=>Axx.commandLibrary.operation),null,'A model replacement is not adopted for approval');
+    await page.evaluate(()=>{window.rewriteGoal=false;Axx.commandLibrary.operation=null;});
+    const corrected=JSON.parse(raw);corrected[0].parameters.text='Human correction';
+    await row.getByLabel('Criterios corregidos de la misión').fill(JSON.stringify(corrected));await row.getByLabel('Motivo de la corrección de criterios').fill('Use the exact agreed text');
+    await row.getByRole('button',{name:'Revisar corrección de criterios',exact:true}).click();
+    await page.evaluate(()=>{window.staleGoal=true;});await row.getByRole('button',{name:'Preparar corrección de criterios',exact:true}).click();
+    await page.waitForFunction(()=>document.getElementById('skills-status').textContent.includes('revisión del objetivo cambió'));
+    assert.equal(await page.evaluate(()=>calls.some(call=>call.route==='/axx-api/learning/repair')),false,'A stale goal revision cannot submit a repair');
+    await page.evaluate(()=>{window.staleGoal=false;});await row.getByRole('button',{name:'Preparar corrección de criterios',exact:true}).click();
+    await page.waitForFunction(()=>calls.some(call=>call.route==='/axx-api/learning/repair')&&Axx.commandLibrary.operation?.state==='awaiting_approval');
+    assert.deepEqual(await page.evaluate(()=>{const body=calls.find(call=>call.route==='/axx-api/learning/repair').body;return [body.operation_id,body.goal_revision,body.goal_spec.criteria[0].parameters.text];}),['goal-mission',2,'Human correction']);
+    await page.evaluate(()=>{Axx.commandLibrary.operation=null;plans=[structuredClone(baseGoalPlan)];plans[0].state='goal_pending';plans[0].mission.completed=false;Object.assign(plans[0].goal_progress,{status:'ready',criterion_id:'note',fingerprint:'c'.repeat(64),source_plan_hash:plans[0].plan_hash,step:{command_id:'axx.artifact.write',inputs:{path:'note.txt',content:'Expected <img src=x>'}}});return Axx.skillLibrary.tasks();});
+    await row.evaluate(node=>node.querySelectorAll('details').forEach(details=>details.open=true));
+    await page.evaluate(()=>{window.staleGoal=true;});await row.getByRole('button',{name:'Preparar siguiente paso',exact:true}).click();
+    await page.waitForFunction(()=>document.getElementById('skills-status').textContent.includes('candidato cambió'));
+    assert.equal(await page.evaluate(()=>calls.some(call=>call.route==='/axx-api/learning/goal-progress')),false);
+    await page.evaluate(()=>{window.staleGoal=false;});await row.getByRole('button',{name:'Preparar siguiente paso',exact:true}).click();
+    await page.waitForFunction(()=>Axx.commandLibrary.operation?.plan_hash==='b'.repeat(64));
+    assert.deepEqual(await page.evaluate(()=>calls.find(call=>call.route==='/axx-api/learning/goal-progress').body),{operation_id:'goal-mission',plan_hash:'a'.repeat(64),criterion_id:'note',candidate_hash:'c'.repeat(64)});
+    assert.deepEqual(await page.evaluate(()=>[Axx.commandLibrary.operation.operation_id,Axx.commandLibrary.operation.step_records,Axx.commandLibrary.operation.mission.budget]),['goal-mission',await page.evaluate(()=>baseGoalPlan.step_records),{model_calls_used:1,model_call_limit:2,model_calls_remaining:1}]);
+    await page.evaluate(()=>{Axx.commandLibrary.operation=null;plans[0].state='goal_pending';plans[0].plan_hash='a'.repeat(64);plans[0].goal_progress.status='ready';window.delayProgress=true;return Axx.skillLibrary.tasks();});
+    await row.evaluate(node=>node.querySelectorAll('details').forEach(details=>details.open=true));await row.getByRole('button',{name:'Preparar siguiente paso',exact:true}).click();
+    await page.waitForFunction(()=>typeof window.releaseProgress==='function');const beforeLate=await page.evaluate(()=>rendered.length);
+    await page.evaluate(()=>{Axx.chatWorkspace.active.id='chat-b';document.getElementById('skills-project').value='B';Axx.companion.renderChat();releaseProgress();});
+    await page.waitForFunction(()=>!Axx.commandLibrary.busy);assert.equal(await page.evaluate(()=>rendered.length),beforeLate,'A late suffix is not adopted in another chat/project');
+    assert.equal(await page.locator('#skills-goal-prepare').isDisabled(),true);
+    assert.equal(await page.evaluate(()=>calls.some(call=>/execute/.test(call.route)||call.body?.approved===true)),false,'Goal preparation never approves or executes effects');
+    assert.deepEqual(errors,[]);console.log('PASS: typed human criteria, immutable reviewed goal, stale revision/candidate guards, same-mission suffix preparation, preserved prefix/budget, indeterminate status and late chat/project response (controlled IPC only)');
+  } finally {await browser.close();}
+}
+
 (async () => {
+  if(process.argv.includes('--goal-ui'))return goalUi();
   const root = path.resolve(__dirname, '../..');
   const sourceMode = process.argv[2] === '--source';
   const binary = sourceMode ? path.join(root, 'backend/server.py') : path.resolve(process.argv[2] || path.join(root, 'dist/axx-backend.exe'));

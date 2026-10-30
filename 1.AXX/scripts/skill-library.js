@@ -9,7 +9,7 @@
   const button = (text, action) => { const node = element('button', text); node.type = 'button'; node.onclick = () => run(action); return node; };
   const run = async action => { try { await action(); } catch (error) { $('skills-status').textContent = error.message || String(error); } Axx.resident?.schedule(); };
   const states = {candidate:'Candidata', verified:'Comprobada', awaiting_approval:'Requiere aprobación', waiting_capacity:'Esperando un modelo apto', waiting_capability:'Construyendo una capacidad para esta tarea',
-    succeeded:'Completada', failed:'Falló', unknown:'Resultado incierto', interrupted:'Interrumpida', cancelled:'Cancelada', expired:'Requiere revisión', running:'Ejecutando', needs_input:'Faltan datos'};
+    succeeded:'Completada', goal_pending:'Objetivo pendiente de verificación', failed:'Falló', unknown:'Resultado incierto', interrupted:'Interrumpida', cancelled:'Cancelada', expired:'Requiere revisión', running:'Ejecutando', needs_input:'Faltan datos'};
   const section = element('section'); section.id = 'skill-library'; section.className = 'setup-card';
   section.innerHTML = `<strong>Mis habilidades</strong>
     <label class="setting">Proyecto actual<input id="skills-project" class="field" maxlength="128" placeholder="Personal, o nombre del proyecto"></label>
@@ -34,6 +34,7 @@
       </details></details>
     <details><summary>Combinar habilidades</summary><p>Añade las habilidades en el orden de la tarea. Las lecturas independientes pueden ejecutarse de dos en dos; los cambios en archivos y aplicaciones conservan un solo ejecutor.</p>
       <div id="skills-parts"></div><label class="setting">Objetivo<input id="skills-objective" class="field" maxlength="2000"></label>
+      <details id="skills-goal-editor"><summary>Criterios verificables de una misión nueva</summary><p>Define hasta ocho criterios: text_exact, xlsx_from_csv o file_bundle. Usa rutas relativas al espacio de ensayo. El backend comprueba rutas, enlaces y límites. Revisar o preparar no ejecuta efectos.</p><label class="setting">Criterios JSON<textarea id="skills-goal-criteria" class="field" maxlength="16000" rows="8">[]</textarea></label><button id="skills-goal-review" type="button">Revisar criterios</button><pre id="skills-goal-preview"></pre><button id="skills-goal-prepare" type="button" disabled>Preparar misión con criterios</button></details>
       <button id="skills-compose" type="button">Preparar tarea combinada</button><button id="skills-clear-parts" type="button">Vaciar selección</button>
     </details>
     <details id="skills-demonstration"><summary>Aprende esto</summary>
@@ -48,12 +49,33 @@
     <details open><summary>Tareas e historial</summary><button id="skills-tasks-refresh" type="button">Actualizar tareas</button><div id="skills-tasks"></div></details>
     <p id="skills-status" role="status"></p>`;
   $('command-library').before(section);
-  let skills = [], parts = [], windows = [], demo = null, polling = null, refreshRevision=0, tasksRevision=0, contextBusy=false, lessonRevision=0, lessonScope='', lessonBusy=false, taskPlans=[],taskPlansProject='',currentContext=null,currentContextProject='',editorState=null;
+  let skills = [], parts = [], windows = [], demo = null, polling = null, refreshRevision=0, tasksRevision=0, contextBusy=false, lessonRevision=0, lessonScope='', lessonBusy=false, taskPlans=[],taskPlansProject='',currentContext=null,currentContextProject='',editorState=null,goalReview=null,goalScope='';
+  const goalDrafts=new Map();
   const contextInputs={current_folder:'skills-folder',current_file:'skills-file',current_application:'skills-app'},contextDirty=new Set();
   const project = () => $('skills-project').value.trim();
   $('skills-project').value = Axx.companion.data.prefs.skillProject || '';
   const task=()=>Axx.chatWorkspace?.active?.id||null,scope=()=>JSON.stringify([project(),task()]);
-  function syncLessonScope(){const selected=scope();if(selected===lessonScope)return;lessonScope=selected;++lessonRevision;if(editorState&&editorState.scope!==selected){editorState=null;$('skills-editor').replaceChildren();}$('skills-lessons-list').replaceChildren();$('skills-lesson-form').reset();for(const key of ['scope','humanCorrection','providerConsent'])delete $('skills-lesson-form').dataset[key];$('skills-lessons-search').reset();$('skills-lessons-status').textContent='';renderLessonReceipts();}
+  function clearGoalReview(){goalReview=null;$('skills-goal-preview').textContent='';$('skills-goal-prepare').disabled=true;}
+  function syncGoalScope(){const selected=scope();if(goalScope===selected)return;if(goalScope)goalDrafts.set(goalScope,[$('skills-objective').value,$('skills-goal-criteria').value]);goalScope=selected;const draft=goalDrafts.get(selected)||['','[]'];$('skills-objective').value=draft[0];$('skills-goal-criteria').value=draft[1];clearGoalReview();}
+  function syncLessonScope(){syncGoalScope();const selected=scope();if(selected===lessonScope)return;lessonScope=selected;++lessonRevision;if(editorState&&editorState.scope!==selected){editorState=null;$('skills-editor').replaceChildren();}$('skills-lessons-list').replaceChildren();$('skills-lesson-form').reset();for(const key of ['scope','humanCorrection','providerConsent'])delete $('skills-lesson-form').dataset[key];$('skills-lessons-search').reset();$('skills-lessons-status').textContent='';renderLessonReceipts();}
+  const goalDraftKey=()=>JSON.stringify([scope(),$('skills-objective').value,$('skills-goal-criteria').value]);
+  const stableGoal=value=>JSON.stringify(value,(_key,item)=>item&&typeof item==='object'&&!Array.isArray(item)?Object.fromEntries(Object.keys(item).sort().map(key=>[key,item[key]])):item);
+  function reviewedGoal(intent,raw,original={}){
+    let criteria;try{criteria=JSON.parse(raw);}catch{throw Error('Los criterios deben ser una lista JSON válida.');}
+    if(typeof intent!=='string'||!intent.trim()||intent.length>4000||!Array.isArray(criteria)||!criteria.length||criteria.length>8)throw Error('Indica un objetivo y entre uno y ocho criterios.');
+    const ids=new Set(),relative=value=>typeof value==='string'&&value.length>0&&value.length<=180&&!/^[\\/]|:|\0/.test(value)&&value.replace(/\\/g,'/').split('/').every(part=>part&&part!=='.'&&part!=='..');
+    for(const criterion of criteria){
+      if(!criterion||typeof criterion!=='object'||Array.isArray(criterion)||Object.keys(criterion).sort().join(',')!=='id,kind,parameters'||typeof criterion.id!=='string'||! /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/.test(criterion.id)||ids.has(criterion.id))throw Error('Cada criterio necesita id único, kind y parameters exactos.');ids.add(criterion.id);
+      const p=criterion.parameters;if(!p||typeof p!=='object'||Array.isArray(p))throw Error('Los parámetros del criterio deben ser un objeto.');
+      const keys=Object.keys(p).sort().join(',');
+      if(criterion.kind==='text_exact'){if(keys!=='path,text'||!relative(p.path)||typeof p.text!=='string'||p.text.length>8000)throw Error('text_exact requiere path relativo y text literal.');}
+      else if(criterion.kind==='xlsx_from_csv'){if(keys!=='delimiter,destination,numeric_column,source'||!relative(p.source)||!relative(p.destination)||!p.destination.toLowerCase().endsWith('.xlsx')||![',',';','\t'].includes(p.delimiter)||typeof p.numeric_column!=='string'||!p.numeric_column.length||p.numeric_column.length>200)throw Error('xlsx_from_csv requiere source, destination .xlsx, delimiter y numeric_column.');}
+      else if(criterion.kind==='file_bundle'){if(Object.keys(p).some(key=>!['paths','destination','archive_name','max_output_bytes'].includes(key))||!relative(p.destination)||!Array.isArray(p.paths)||!p.paths.length||p.paths.length>100||p.paths.some(path=>!relative(path))||new Set(p.paths).size!==p.paths.length||Object.hasOwn(p,'archive_name')&&(typeof p.archive_name!=='string'||!p.archive_name.length||p.archive_name.length>100||/[\\/]/.test(p.archive_name)||!p.archive_name.toLowerCase().endsWith('.zip'))||Object.hasOwn(p,'max_output_bytes')&&(!Number.isSafeInteger(p.max_output_bytes)||p.max_output_bytes<1||p.max_output_bytes>1073741824))throw Error('file_bundle requiere paths únicos y destination relativos; archive_name .zip y max_output_bytes son opcionales.');}
+      else throw Error('Tipo de criterio no disponible.');
+    }
+    const goal={...original,intent,criteria};if(new TextEncoder().encode(JSON.stringify(goal)).length>16000)throw Error('El contrato completo supera 16000 bytes.');return goal;
+  }
+  syncGoalScope();
   function lessonReceipts(){
     const receipts=new Map(),plans=taskPlansProject===project()?taskPlans:[],last=commands.lastOperation;
     const add=(record,conversation,command)=>{const result=record.result||record;if(conversation!==task()||!record.operation_id||!command||record.state!==result.state||!['failed','succeeded'].includes(result.state)||result.state==='failed'&&!result.error||result.state==='succeeded'&&result.postconditions_passed!==true)return;receipts.set(record.operation_id,{id:record.operation_id,command,state:result.state,error:result.error});};
@@ -74,13 +96,52 @@
     if (commands.operation) commands.open();
   }
   async function planRequest(action, body) {
-    if (commands.busy || commands.operation) throw new Error('Revisa o cancela la acción pendiente antes de preparar otra.');
-    commands.busy = true; const serial = ++commands.generation;
+    const humanGoal=action==='repair'&&body.goal_spec,sameGoal=humanGoal&&commands.operation?.operation_id===body.operation_id&&commands.operation.state!=='running',previous=commands.lastOperation;
+    if (commands.busy || commands.operation&&!sameGoal) throw new Error('Revisa o cancela la acción pendiente antes de preparar otra.');
+    commands.busy = true; const serial = ++commands.generation,selectedScope=scope();
     commands.operation=commands.lastOperation={kind:'learned_plan',operation_id:body.operation_id,state:'planning',steps:[],...(body.conversation_id?{conversation_id:body.conversation_id}:{})};
     commands.renderOperation(commands.operation);
-    try { const plan = await api('POST', 'learning/' + action, body); if (serial === commands.generation) adopt(plan); }
-    catch(error){if(action==='revalidate'&&serial===commands.generation){commands.lastOperation={kind:'learned_plan',operation_id:body.operation_id,conversation_id:body.conversation_id,state:'unknown',steps:[],revalidation:{id:body.id,version:body.version},message:'No se confirmó la preparación de este ensayo. Su ID se conserva para consultar el resultado.'};commands.operation=null;commands.renderOperation(commands.lastOperation);}throw error;}
-    finally { if (serial === commands.generation) commands.busy = false; }
+    try { const plan = await api('POST', 'learning/' + action, body); if (serial === commands.generation&&selectedScope===scope()) {if(body.conversation_id&&plan.conversation_id!==body.conversation_id||body.goal_spec&&plan.operation_id!==body.operation_id)throw Error('La preparación no corresponde a la misión y chat revisados.');if(body.goal_spec&&stableGoal(body.goal_spec)!==stableGoal(Object.fromEntries(Object.keys(body.goal_spec).map(key=>[key,plan.goal_spec?.[key]]))))throw Error('La preparación cambió los criterios revisados; consulta el resultado sin aprobarlo.');adopt(plan);} }
+    catch(error){if(selectedScope!==scope()||serial!==commands.generation)return;if(action==='revalidate'||body.goal_spec){commands.lastOperation={...(humanGoal?previous:{}),kind:'learned_plan',operation_id:body.operation_id,conversation_id:body.conversation_id||previous?.conversation_id,state:'unknown',...(humanGoal?{}:{steps:[],...(action==='revalidate'?{revalidation:{id:body.id,version:body.version}}:{goal_spec:body.goal_spec})}),message:'No se confirmó la preparación. Consulta este mismo ID antes de volver a prepararlo.'};commands.operation=null;commands.renderOperation(commands.lastOperation);}throw error;}
+    finally { if (serial === commands.generation) {commands.busy = false;if(selectedScope!==scope()&&commands.operation?.operation_id===body.operation_id&&commands.operation.state==='planning')commands.operation=null;} }
+  }
+  const goalCriteria=plan=>plan.goal_spec?.criteria||plan.mission?.criteria||[];
+  const goalEvaluations=plan=>plan.goal_verification?.criteria||plan.goal_progress?.criteria||plan.mission?.goal_progress?.criteria||[];
+  const criteriaSatisfied=plan=>goalCriteria(plan).every(criterion=>{const rows=goalEvaluations(plan).filter(row=>row.id===criterion.id&&row.kind===criterion.kind);return rows.length===1&&rows[0].status==='satisfied';});
+  const goalProgress=plan=>plan.goal_progress||plan.mission?.goal_progress;
+  function sameMission(plan,selected){if(selected!==scope()||plan.conversation_id!==task()||(plan.project_id??project())!==project())throw Error('La misión no corresponde al chat y proyecto actuales.');}
+  async function prepareGoalProgress(plan){
+    const selected=scope(),progress=goalProgress(plan);sameMission(plan,selected);
+    if(commands.busy||commands.operation)throw Error('Revisa o cancela la acción pendiente antes de preparar el siguiente paso.');
+    commands.busy=true;const serial=++commands.generation;
+    try{
+      const fresh=await api('GET','learning/plan?id='+encodeURIComponent(plan.operation_id));if(serial!==commands.generation||selected!==scope())return;sameMission(fresh,selected);const candidate=goalProgress(fresh);
+      if(fresh.operation_id!==plan.operation_id||fresh.plan_hash!==plan.plan_hash||candidate?.status!=='ready'||candidate.fingerprint!==progress.fingerprint||candidate.criterion_id!==progress.criterion_id||candidate.source_plan_hash&&candidate.source_plan_hash!==fresh.plan_hash)throw Error('La revisión o el candidato cambió. Actualiza y revisa el progreso.');
+      const result=await api('POST','learning/goal-progress',{operation_id:plan.operation_id,plan_hash:plan.plan_hash,criterion_id:progress.criterion_id,candidate_hash:progress.fingerprint});
+      if(serial!==commands.generation||selected!==scope())return;sameMission(result,selected);
+      if(result.operation_id!==plan.operation_id||result.state!=='awaiting_approval'||typeof result.plan_hash!=='string'||result.plan_hash===plan.plan_hash)throw Error('No se confirmó un sufijo nuevo para esta misma misión. Consulta su resultado.');
+      adopt(result);await tasks();
+    }catch(error){if(serial===commands.generation&&selected===scope())throw error;}
+    finally{if(serial===commands.generation)commands.busy=false;}
+  }
+  function renderGoal(row,plan){
+    if(!plan.goal_spec&&!goalProgress(plan))return;
+    const details=element('details'),criteria=goalCriteria(plan),evaluations=goalEvaluations(plan),progress=goalProgress(plan),selected=scope();details.append(element('summary','Objetivo, criterios y progreso verificable'));
+    details.append(element('p','Objetivo fijado · revisión '+(plan.goal_revision??plan.mission?.revision??'No informada')),element('p',plan.goal_spec?.intent||plan.mission?.objective||''));
+    const statuses={satisfied:'Satisfecho',unsatisfied:'No satisfecho',indeterminate:'Indeterminado'};
+    for(const criterion of criteria){const matches=evaluations.filter(value=>value.id===criterion.id&&value.kind===criterion.kind),evaluation=matches.length===1?matches[0]:null;details.append(element('p',criterion.id+' · '+criterion.kind+' · '+(matches.length>1?'Indeterminado · Evaluaciones duplicadas':statuses[evaluation?.status]||'Sin evaluación')+(evaluation?.reason_code?' · '+evaluation.reason_code:'')),element('pre',JSON.stringify(criterion.parameters,null,2)));}
+    const coverage=plan.goal_verification?.coverage;details.append(element('p','Cobertura: '+(coverage==null?'No informada':typeof coverage==='string'?coverage:JSON.stringify(coverage))));
+    if(progress){const labels={pending:'Déficit pendiente',waiting_dependency:'Esperando dependencia verificada',ready:'Hay un candidato para el siguiente déficit',prepared:'Sufijo preparado; requiere aprobación',satisfied:'Criterios satisfechos',needs_input:'Necesita información'};details.append(element('p',labels[progress.status]||'Progreso sin confirmar'));if(Number.isSafeInteger(progress.prefix_length))details.append(element('p','Prefijo conservado: '+progress.prefix_length+' pasos. Los recibos se conservan; no se repite el prefijo.'));}
+    const budget=plan.mission?.budget;if(budget)details.append(element('p','Presupuesto total de la misión: '+(budget.model_calls_used??'No informado')+'/'+(budget.model_call_limit??'No informado')+' llamadas; restantes: '+(budget.model_calls_remaining??'No informado')));
+    const own=plan.conversation_id===task()&&(plan.project_id??project())===project();
+    if(progress?.status==='ready'&&own){details.append(element('p','Candidato para el criterio '+(progress.criterion_id||'No informado')),element('pre',JSON.stringify({step:progress.step,fingerprint:progress.fingerprint,source_plan_hash:progress.source_plan_hash},null,2)));const next=button('Preparar siguiente paso',()=>prepareGoalProgress(plan));next.disabled=commands.busy||!!commands.operation||! /^[a-f0-9]{64}$/i.test(plan.plan_hash||'')||! /^[a-f0-9]{64}$/i.test(progress.fingerprint||'')||!criteria.some(criterion=>criterion.id===progress.criterion_id)||!!progress.source_plan_hash&&progress.source_plan_hash!==plan.plan_hash;details.append(next,element('p','Sólo prepara un sufijo de esta misión. Revisa y aprueba su nueva versión para producir efectos.'));}
+    if(own&&plan.goal_spec&&!['running','cancelled'].includes(plan.state)){
+      const editor=element('details'),input=element('textarea'),correction=element('input'),preview=element('pre');editor.append(element('summary','Corregir criterios con una nueva revisión'));input.className=correction.className='field';input.value=JSON.stringify(criteria,null,2);input.maxLength=16000;input.rows=8;input.setAttribute('aria-label','Criterios corregidos de la misión');correction.setAttribute('aria-label','Motivo de la corrección de criterios');correction.placeholder='Qué debe corregirse';let review=null;
+      const apply=button('Preparar corrección de criterios',async()=>{if(!review||review.key!==JSON.stringify([input.value,correction.value])||selected!==scope())throw Error('Revisa otra vez la corrección actual.');sameMission(plan,selected);const fresh=await api('GET','learning/plan?id='+encodeURIComponent(plan.operation_id));if(selected!==scope())return;sameMission(fresh,selected);if(fresh.operation_id!==plan.operation_id||fresh.goal_revision!==plan.goal_revision||fresh.plan_hash!==plan.plan_hash)throw Error('La revisión del objetivo cambió; consulta el plan actual antes de corregirlo.');if(!review||review.key!==JSON.stringify([input.value,correction.value]))throw Error('La corrección cambió durante la consulta; revísala otra vez.');await planRequest('repair',{operation_id:plan.operation_id,text:correction.value,goal_spec:review.goal,goal_revision:plan.goal_revision,...prefs()});});apply.disabled=true;
+      const reviewButton=element('button','Revisar corrección de criterios');reviewButton.type='button';reviewButton.onclick=event=>run(()=>{if(!event.isTrusted||!correction.value.trim())throw Error('Escribe y revisa explícitamente el motivo de la corrección.');sameMission(plan,selected);review={key:JSON.stringify([input.value,correction.value]),goal:reviewedGoal(plan.goal_spec.intent,input.value,plan.goal_spec)};preview.textContent=JSON.stringify(review.goal,null,2);apply.disabled=false;});
+      input.oninput=correction.oninput=()=>{review=null;preview.textContent='';apply.disabled=true;};editor.append(element('p','La corrección humana cambia la revisión y exige una nueva preparación. El modelo no puede sustituir estos criterios.'),input,correction,reviewButton,preview,apply);details.append(editor);
+    }
+    row.append(details);
   }
   const prefs = () => {const p=Axx.companion.data.prefs;return {model:p.model || '',provider_name:p.provider==='chatgpt'?'@codex':p.provider==='bridge'?p.apiConnection || '':'',selection_mode:p.selection_mode || 'manual'};};
   async function refresh() {
@@ -227,14 +288,15 @@
     }));
   }
   async function tasks() {
-    const selected=project(),token=++tasksRevision,result=await api('GET','learning/plans?project_id='+encodeURIComponent(selected));if(token!==tasksRevision||selected!==project())return;const root=$('skills-tasks'); root.replaceChildren();
+    const selected=project(),selectedTask=task(),token=++tasksRevision,result=await api('GET','learning/plans?project_id='+encodeURIComponent(selected));if(token!==tasksRevision||selected!==project()||selectedTask!==task())return;const root=$('skills-tasks'); root.replaceChildren();
     taskPlans=result.plans||[];taskPlansProject=selected;renderLessonReceipts();
     for(const plan of result.plans || []) {
       const row=element('article'); row.className='setup-card';
-      row.append(element('strong',plan.title||plan.text||plan.operation_id),element('p',`${plan.state==='succeeded'&&plan.mission?.completed===false?'Entrega pendiente':states[plan.state]||plan.state} · ${plan.mission?.verified_steps?.length??(plan.step_records||[]).filter(s=>s.state==='succeeded').length}/${plan.steps?.length||0} pasos · ${plan.model_calls_used||0} llamadas al modelo`));
-      row.append(button('Consultar',async()=>{if(commands.busy||commands.operation)throw new Error('Termina o cancela la acción activa antes de cambiar la tarea mostrada.');adopt(await api('GET','learning/plan?id='+encodeURIComponent(plan.operation_id)));}));
+      row.append(element('strong',plan.title||plan.text||plan.operation_id),element('p',`${plan.state==='succeeded'&&(plan.mission?.completed===false||!criteriaSatisfied(plan))?'Objetivo pendiente de verificación':states[plan.state]||plan.state} · ${plan.mission?.verified_steps?.length??(plan.step_records||[]).filter(s=>s.state==='succeeded').length}/${plan.steps?.length||0} pasos · ${plan.model_calls_used||0} llamadas al modelo`));
+      renderGoal(row,plan);
+      row.append(button('Consultar',async()=>{if(commands.busy||commands.operation)throw new Error('Termina o cancela la acción activa antes de cambiar la tarea mostrada.');const selected=scope(),fresh=await api('GET','learning/plan?id='+encodeURIComponent(plan.operation_id));if(selected===scope())adopt(fresh);}));
       if(!['succeeded','cancelled'].includes(plan.state)) row.append(button('Cancelar tarea',async()=>{await api('POST','learning/cancel',{operation_id:plan.operation_id});await tasks();}));
-      if(!['succeeded','cancelled','running','needs_input'].includes(plan.state)) row.append(button('Retomar y revisar',()=>planRequest('resume',{operation_id:plan.operation_id,approved:false})));
+      if(!['succeeded','cancelled','running','needs_input','goal_pending'].includes(plan.state)) row.append(button('Retomar y revisar',()=>planRequest('resume',{operation_id:plan.operation_id,approved:false,...(plan.plan_hash?{plan_hash:plan.plan_hash}:{})})));
       if(['failed','needs_input'].includes(plan.state)) { const correction=element('input'); correction.className='field'; correction.placeholder=plan.state==='needs_input'?(plan.message||'Información que falta'):'Qué debe cambiar'; correction.setAttribute('aria-label','Corrección o aclaración de la tarea'); row.append(correction,button(plan.state==='needs_input'?'Completar y preparar':'Preparar reparación',()=>planRequest('repair',{operation_id:plan.operation_id,text:correction.value,...prefs()}))); }
       const detail=element('details'); detail.append(element('summary','Evidencias y trazabilidad')); const pre=element('pre',JSON.stringify(plan,null,2)); pre.style.cssText='white-space:pre-wrap;max-height:220px;overflow:auto'; detail.append(pre); row.append(detail); root.append(row);
     }
@@ -263,6 +325,9 @@
   $('skills-lesson-form').elements.verified_receipt.onchange=event=>{if(event.isTrusted){$('skills-lesson-form').dataset.scope=scope();$('skills-lesson-form').elements.verification_operation_id.value=event.target.value;}};
   const renderChat=Axx.companion.renderChat?.bind(Axx.companion);if(renderChat)Axx.companion.renderChat=(...args)=>{const result=renderChat(...args);syncLessonScope();return result;};
   $('skills-tasks-refresh').onclick=()=>run(tasks);
+  for(const id of ['skills-objective','skills-goal-criteria'])$(id).addEventListener('input',clearGoalReview);
+  $('skills-goal-review').onclick=event=>run(()=>{if(!event.isTrusted)throw Error('Revisa explícitamente los criterios antes de preparar la misión.');const goal=reviewedGoal($('skills-objective').value,$('skills-goal-criteria').value);goalReview={key:goalDraftKey(),scope:scope(),goal};$('skills-goal-preview').textContent=JSON.stringify(goal,null,2);$('skills-goal-prepare').disabled=false;});
+  $('skills-goal-prepare').onclick=()=>run(async()=>{if(!task()||!goalReview||goalReview.scope!==scope()||goalReview.key!==goalDraftKey())throw Error('Selecciona un chat y revisa los criterios actuales.');const reviewed=goalReview;await planRequest('propose',{text:reviewed.goal.intent,goal_spec:reviewed.goal,operation_id:Axx.newId(),project_id:project(),conversation_id:task(),...prefs()});if(goalReview===reviewed&&reviewed.scope===scope())clearGoalReview();});
   $('skills-clear-parts').onclick=()=>{parts=[];renderParts();};
   $('skills-compose').onclick=()=>run(()=>planRequest('compose',{text:$('skills-objective').value,parts,operation_id:Axx.newId(),project_id:project()}));
   $('skills-inventory').onclick=()=>run(inventory);

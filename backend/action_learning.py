@@ -22,7 +22,8 @@ from .commands import ADAPTERS, ApprovalRequired, normalized, parse_command_json
 from .actions.plan_contract import validate_bindings, resolve_inputs
 from .memory.procedural_memory import get_action_env_fingerprint
 from .memory.skill_memory import SkillMemory, NeedsInput, PARAMETER, bind, bounded_object, project_key, validate_schema, read_context_state, read_skill_state
-from .goal_contract import contract as goal_contract, verify as verify_goal, validate_steps as validate_goal_steps
+from .goal_contract import (contract as goal_contract, verify as verify_goal, validate_steps as validate_goal_steps,
+                            evaluate_criteria, propose_goal_step, assert_input_versions, input_version_lease)
 from .actions.command_language import command_sequence
 from .inference.adapter import SourceDestinationPolicy
 
@@ -116,7 +117,7 @@ class ActionLearning:
             self.db.execute('CREATE TABLE IF NOT EXISTS learning_plans (id TEXT PRIMARY KEY, payload TEXT NOT NULL)')
             for key, raw in self.db.execute('SELECT id,payload FROM learning_plans').fetchall():
                 plan = json.loads(raw)
-                if plan['state'] not in TERMINAL and plan['state'] not in ('awaiting_approval', 'waiting_capacity', 'waiting_capability', 'paused', 'waiting_dependency'):
+                if plan['state'] not in TERMINAL and plan['state'] not in ('awaiting_approval', 'waiting_capacity', 'waiting_capability', 'paused', 'waiting_dependency', 'goal_pending'):
                     plan.update(state='interrupted', postconditions_passed=False,
                                 message='Sesión interrumpida. Revisa y reanuda el plan guardado.')
                     self.db.execute('UPDATE learning_plans SET payload=? WHERE id=?', (json.dumps(plan), key))
@@ -517,6 +518,7 @@ class ActionLearning:
                 'state': plan.get('state'), 'plan_hash': plan.get('plan_hash'), 'revision': plan.get('goal_revision', 1),
                 'deliverables': goal.get('objects', []), 'destination': goal.get('destination', ''),
                 'success_conditions': goal.get('checks', []), 'dependencies': plan.get('dependencies', {}),
+                'criteria': goal.get('criteria', []), 'goal_progress': plan.get('goal_progress'),
                 'mission_dependencies': plan.get('mission_dependencies', []),
                 'artifact_compensations': plan.get('artifact_compensations', []),
                 'verified_steps': verified, 'pending_steps': pending, 'blockers': blockers,
@@ -672,11 +674,13 @@ class ActionLearning:
             return self._project_compensations(json.loads(source[0]), self.commands.db)
         error = error or self._dependency_error(plan, read)
         if error: raise ValueError(error)
+        self._assert_progress_inputs(plan, self.events.setdefault(plan['operation_id'], threading.Event()))
         if plan.get('initiative_authorization'):
             if not self.anticipation: raise ValueError('La política de iniciativa no está disponible.')
             index = next(i for i, record in enumerate(plan['step_records']) if record['operation_id'] == operation_id)
             command = self.commands.get(operation_id)
             self.anticipation.authorize_mission_step(plan, plan['steps'][index], command['inputs'], operation_id, claim=True)
+        return self._progress_input_lease(plan, self.events.setdefault(plan['operation_id'], threading.Event()))
 
     @active_operation
     def execute_with_grant(self, key, grant_id, plan_hash):
@@ -699,7 +703,7 @@ class ActionLearning:
                 raise ValueError('La revisión de la misión cambió durante la autorización.')
             current['initiative_authorization'] = plan['initiative_authorization']
             self._save(current)
-        return self.execute(key, approved=True, initiative_grant_id=grant_id)
+        return self.execute(key, approved=True, initiative_grant_id=grant_id, plan_hash=plan_hash)
 
     @active_operation
     def link_dependencies(self, key, dependencies, plan_hash):
@@ -979,7 +983,7 @@ class ActionLearning:
     def _hash(value):
         return hashlib.sha256(json.dumps(value, sort_keys=True, ensure_ascii=False, allow_nan=False).encode()).hexdigest()
 
-    def _new_plan(self, text, operation_id, inputs, project_id, request_context=None, parts=None, *, operational_context=None):
+    def _new_plan(self, text, operation_id, inputs, project_id, request_context=None, parts=None, *, operational_context=None, goal_spec=None):
         if not isinstance(text, str) or not 1 <= len(text.strip()) <= 4000:
             raise ValueError('Describe una acción en menos de 4.000 caracteres.')
         key = operation_id or str(uuid.uuid4())
@@ -987,8 +991,11 @@ class ActionLearning:
             raise ValueError('ID de plan inválido')
         inputs = bounded_object({} if inputs is None else inputs)
         project_key(project_id)
-        signature = self._hash({'text': text, 'inputs': inputs, 'project_id': project_id,
-                                'context': request_context or {}, 'parts': parts})
+        goal = goal_contract(text, goal_spec)
+        request = {'text': text, 'inputs': inputs, 'project_id': project_id,
+                   'context': request_context or {}, 'parts': parts}
+        if goal_spec is not None: request['goal_spec'] = goal
+        signature = self._hash(request)
         with self.lock:
             row = self.db.execute('SELECT payload FROM learning_plans WHERE id=?', (key,)).fetchone()
             if row:
@@ -1005,7 +1012,8 @@ class ActionLearning:
                     'steps': [], 'step_records': [], 'skill_versions': [], 'results': [], 'postconditions_passed': False,
                     'goal_confirmed': False, 'created_at': time.time(), 'model_calls_used': 0,
                     'operational_context': self.context(project_id) if operational_context is None else bounded_object(operational_context, 48000)}
-            plan.update(goal_spec=goal_contract(text), goal_revision=1)
+            plan.update(goal_spec=goal, goal_revision=1)
+            if goal_spec is not None: plan['goal_locked'] = True
             return self._save(plan), True
 
     def _select(self, text, project_id, operational_context, task_id=None):
@@ -1293,6 +1301,7 @@ class ActionLearning:
                 payload[key] = plan.get(key)
         for key in ('mission_dependencies', 'context_dependencies', 'observation_dependencies'):
             if plan.get(key): payload[key] = plan[key]
+        if plan.get('goal_progress_admissions'): payload['goal_progress_admissions'] = plan['goal_progress_admissions']
         if 'goal_spec' in plan:
             payload['goal_spec'] = plan['goal_spec']
             payload['goal_revision'] = plan.get('goal_revision',1)
@@ -1379,7 +1388,7 @@ class ActionLearning:
                     data = dict(plan['model_data'])
                     if 'goal_spec' in data:
                         goal = goal_contract(plan['request'], data.pop('goal_spec'))
-                        if plan.get('capability_build') and goal != plan['goal_spec']:
+                        if (plan.get('capability_build') or plan.get('goal_locked')) and goal != goal_contract(plan['request'], plan['goal_spec']):
                             raise ValueError('El planificador intentó cambiar el contrato durante la construcción')
                         plan['goal_spec'] = goal
                     if set(data) == {'capability_request'}:
@@ -1496,7 +1505,7 @@ class ActionLearning:
             return self._save(plan)
 
     @active_operation
-    def propose(self, text, operation_id=None, context=None, model='', provider_name='', inputs=None, project_id='', selection_mode='manual', conversation_id=None):
+    def propose(self, text, operation_id=None, context=None, model='', provider_name='', inputs=None, project_id='', selection_mode='manual', conversation_id=None, goal_spec=None):
         if conversation_id is not None:
             from .chat_store import ident
             ident(conversation_id)
@@ -1504,7 +1513,7 @@ class ActionLearning:
         if any(not isinstance(v, str) or len(v) > 200 for v in (model, provider_name)):
             raise ValueError('Modelo inválido')
         if selection_mode not in ('manual', 'automatic_free'): raise ValueError('Selección de modelo inválida')
-        plan, fresh = self._new_plan(text, operation_id, inputs, project_id, context)
+        plan, fresh = self._new_plan(text, operation_id, inputs, project_id, context, goal_spec=goal_spec)
         if not fresh and plan.get('conversation_id') != conversation_id:
             raise ValueError('El plan pertenece a otra conversación')
         if not fresh: return plan
@@ -1525,7 +1534,7 @@ class ActionLearning:
             return self._finish_planning(plan)
 
     @active_operation
-    def prepare_steps(self, text, steps, operation_id=None, project_id='', conversation_id=None, *, _mission_dependencies=()):
+    def prepare_steps(self, text, steps, operation_id=None, project_id='', conversation_id=None, *, _mission_dependencies=(), goal_spec=None):
         """Explicit typed proposals share approval, checkpoint and execution with model plans."""
         if not isinstance(text, str) or not text.strip() or len(text) > 12000:
             raise ValueError('Indica un objetivo de tarea válido')
@@ -1535,7 +1544,7 @@ class ActionLearning:
         steps = self._validate_steps(steps, allow_shell=terminal_requested(text))
         plan, created = self._new_plan(text, operation_id, None, project_id,
             request_context={'conversation_id': conversation_id}, parts=steps,
-            operational_context={'project_id':project_id,'context_meta':{}})
+            operational_context={'project_id':project_id,'context_meta':{}}, goal_spec=goal_spec)
         if not created: return plan
         if _mission_dependencies:
             plan['mission_dependencies'] = json.loads(json.dumps(_mission_dependencies, allow_nan=False))
@@ -1548,6 +1557,121 @@ class ActionLearning:
         except NeedsInput as exc:
             plan.update(state='needs_input',message=str(exc),preparation_complete=False)
         return self._save(plan)
+
+    def _goal_file_limit(self, plan):
+        if callable(getattr(self.anticipation, 'budget_for_task', None)):
+            return self.anticipation.budget_for_task(plan.get('conversation_id') or plan['operation_id'],
+                project_id=plan.get('project_id', ''))['max_file_bytes']
+        return 40 * 1024 * 1024
+
+    def _assert_progress_inputs(self, plan, cancelled):
+        for admission in plan.get('goal_progress_admissions', []):
+            assert_input_versions(admission['input_versions'], self.commands.executor.workspace_root,
+                cancelled, max_file_bytes=self._goal_file_limit(plan))
+
+    @contextmanager
+    def _progress_input_lease(self, plan, cancelled):
+        with ExitStack() as leases:
+            for admission in plan.get('goal_progress_admissions', []):
+                leases.enter_context(input_version_lease(admission['input_versions'],
+                    self.commands.executor.workspace_root, cancelled, max_file_bytes=self._goal_file_limit(plan)))
+            yield
+
+    def assess_goal_progress(self, plan, cancelled=None):
+        """Read-only deficit assessment; no inference, approval, or command effects."""
+        cancelled = cancelled or self.events.setdefault(plan['operation_id'], threading.Event())
+        root, limit = self.commands.executor.workspace_root, self._goal_file_limit(plan)
+        progress = {'status': 'needs_input', 'criteria': [], 'prefix_length': len(plan.get('steps', [])),
+                    'source_plan_hash': plan.get('plan_hash'),
+                    'progression_revision': len(plan.get('goal_progress_admissions', [])) + 1}
+        error = self._context_error(plan, self.context(plan.get('project_id', '')))
+        if error or plan.get('context_invalidated'):
+            return progress | {'reason_code': 'CONTEXT_CHANGED'}
+        if self._dependency_error(plan, self.get):
+            return progress | {'status': 'waiting_dependency', 'reason_code': 'DEPENDENCY_PENDING'}
+        goal = goal_contract(plan['request'], plan.get('goal_spec'))
+        criteria = evaluate_criteria(goal, root, cancelled, max_file_bytes=limit)
+        progress['criteria'] = criteria
+        if not criteria: return progress | {'reason_code': 'NO_TYPED_CRITERIA'}
+        if cancelled.is_set(): return progress | {'reason_code': 'CANCELLED'}
+        if all(row['status'] == 'satisfied' for row in criteria):
+            return progress | {'status': 'satisfied'}
+        if len(plan['steps']) >= 8: return progress | {'reason_code': 'STEP_LIMIT'}
+        for row in criteria:
+            if row['status'] != 'unsatisfied' or row['reason_code'] != 'OUTPUT_MISSING': continue
+            try:
+                candidate = propose_goal_step(goal, row['id'], root, cancelled, max_file_bytes=limit)
+                candidate['step'] = self._validate_steps([candidate['step']])[0]
+                if not self.commands.details(candidate['step']['command_id'])['command']['execution_enabled']:
+                    continue
+            except (ValueError, NeedsInput):
+                continue
+            fingerprint = self._hash({'candidate': candidate, 'source_plan_hash': plan['plan_hash'],
+                'goal_revision': plan.get('goal_revision', 1), 'prefix_length': len(plan['steps'])})
+            return progress | candidate | {'status': 'ready', 'fingerprint': fingerprint}
+        return progress | {'reason_code': 'NO_SAFE_PRODUCER'}
+
+    def refresh_goal_progress(self, key, cancelled=None):
+        """The resident event revision, not a file polling loop, requests this assessment."""
+        plan = self.get(key)
+        if plan['state'] != 'goal_pending' or plan.get('pause_requested'): return plan
+        progress = self.assess_goal_progress(plan, cancelled)
+        if cancelled is not None and cancelled.is_set(): return self.get(key)
+        with self.lock:
+            current = self.get(key)
+            if (current['state'] != 'goal_pending' or current.get('pause_requested')
+                    or current.get('plan_hash') != plan.get('plan_hash')): return current
+            if progress['status'] == 'satisfied':
+                event = cancelled or self.events.setdefault(key, threading.Event())
+                self._assert_progress_inputs(current, event)
+                current['goal_verification'] = verify_goal(goal_contract(current['request'], current['goal_spec']),
+                    self.commands.executor.workspace_root, event, max_file_bytes=self._goal_file_limit(current))
+                if current['goal_verification']['passed'] and not event.is_set() and not self._dependency_error(current, self.get):
+                    return self._learn(current)
+            if current.get('goal_progress') != progress:
+                current['goal_progress'] = progress
+                self._save(current)
+            return current
+
+    @active_operation
+    def prepare_goal_progress(self, key, plan_hash, criterion_id=None, candidate_hash=None):
+        if not self.gate.acquire(blocking=False): raise ValueError('Ya hay un plan ejecutándose')
+        try:
+            plan = self.get(key)
+            if (not isinstance(plan_hash, str) or plan.get('plan_hash') != plan_hash
+                    or plan['state'] != 'goal_pending' or plan.get('pause_requested') or plan.get('cancel_requested')):
+                raise ValueError('La misión cambió, está pausada o requiere conciliación antes de avanzar.')
+            records = self._records(plan)
+            if not records or any(record['state'] != 'succeeded' or (record.get('result') or {}).get('postconditions_passed') is not True for record in records):
+                raise ValueError('El prefijo debe conservar recibos verificados de todos los pasos.')
+            progress = self.assess_goal_progress(plan)
+            if (progress['status'] != 'ready' or criterion_id is not None and criterion_id != progress['criterion_id']
+                    or candidate_hash is not None and candidate_hash != progress['fingerprint']):
+                raise ValueError('El candidato cambió o no hay un paso seguro que contribuya al objetivo.')
+            with self.lock:
+                current = self.get(key)
+                if (current.get('plan_hash') != plan_hash or current['state'] != 'goal_pending'
+                        or current.get('pause_requested') or current.get('cancel_requested')):
+                    raise ValueError('La misión cambió durante la preparación del avance.')
+                self._assert_progress_inputs(current, self.events[key])
+                assert_input_versions(progress['input_versions'], self.commands.executor.workspace_root,
+                    self.events[key], max_file_bytes=self._goal_file_limit(current))
+                step = progress['step']; step_id = uuid.uuid4().hex
+                current.setdefault('goal_progress_admissions', []).append({key: progress[key] for key in
+                    ('criterion_id', 'input_versions', 'prefix_length', 'progression_revision')})
+                current['steps'].append(step)
+                current['step_records'].append({'step_id': step_id, 'operation_id': 'learn-' + step_id,
+                    'input_hash': self._hash(step), 'state': 'pending', 'result': None})
+                current.setdefault('dependencies', {})[step_id] = [record['step_id'] for record in records]
+                current.pop('initiative_authorization', None)
+                current.update(state='awaiting_approval', approved_hash=None, prepared_at=time.time(),
+                    preparation_complete=True, postconditions_passed=False, proposal_source='goal_progress',
+                    learned_action_id=None, goal_progress=progress | {'status': 'prepared'},
+                    message='Se añadió un paso para un criterio pendiente. Revisa esta nueva versión; el prefijo verificado se conserva.')
+                current['plan_hash'] = self._plan_hash(current)
+                return self._save(current)
+        finally:
+            self.gate.release()
 
     def _revalidation_resources(self, command_id, inputs, *, deferred=(), require_existing=False, require_new=False):
         """A revalidation trial has no path authority outside the executor's disposable workspace."""
@@ -1694,7 +1818,7 @@ class ActionLearning:
             if plan.get('workshop_validation') or any(str(ref.get('id', '')).startswith('workshop.cap.') for ref in plan.get('skill_versions', [])):
                 raise ValueError('Crea una revisión en el taller para corregir esta capacidad')
             if plan['state'] == 'cancelled': return plan
-            if plan['state'] not in ('failed', 'awaiting_approval', 'needs_input', 'paused'): raise ValueError('Primero resuelve cualquier efecto incierto')
+            if plan['state'] not in ('failed', 'awaiting_approval', 'needs_input', 'paused', 'goal_pending'): raise ValueError('Primero resuelve cualquier efecto incierto')
             self._records(plan)
             self._reconcile(plan)
             if plan['state'] in ('unknown', 'cancelled'): return self._save(plan)
@@ -1704,7 +1828,17 @@ class ActionLearning:
             history = {'steps': plan['steps'], 'step_records': plan['step_records'], 'skill_versions': plan['skill_versions'],
                        'goal_spec':plan.get('goal_spec'),'goal_revision':plan.get('goal_revision',1),
                        'plan_hash': plan.get('plan_hash'), 'correction': text, 'at': time.time()}
+            for field in ('goal_progress', 'goal_progress_admissions'):
+                if field in plan: history[field] = plan[field]
             plan.setdefault('revisions', []).append(history)
+            if 'goal_progress_admissions' in plan:
+                if new_goal is not None and new_goal != goal_contract(plan['request'], plan.get('goal_spec')):
+                    plan['goal_progress_admissions'] = []
+                else:
+                    confirmed = [index for index, record in enumerate(plan['step_records']) if record['state'] == 'succeeded']
+                    plan['goal_progress_admissions'] = [admission | {'prefix_length': confirmed.index(admission['prefix_length'])}
+                        for admission in plan['goal_progress_admissions'] if admission['prefix_length'] in confirmed]
+            plan.pop('goal_progress', None)
             if new_goal is not None:
                 plan.update(goal_spec=new_goal,goal_revision=plan.get('goal_revision',1)+1)
             plan.update(preparation={'kind': 'repair', 'prefix': prefix, 'previous': history, 'correction': text},
@@ -1845,7 +1979,10 @@ class ActionLearning:
         return True
 
     @active_operation
-    def resume(self, key, approved=False):
+    def resume(self, key, approved=False, plan_hash=None):
+        snapshot = self.get(key)
+        if approved is True and (snapshot.get('goal_progress_admissions') or snapshot.get('proposal_source') == 'goal_progress') and plan_hash != snapshot.get('plan_hash'):
+            raise ValueError('La continuación requiere aprobar el hash exacto de la revisión mostrada.')
         if not self.gate.acquire(blocking=False): raise ValueError('Ya hay un plan ejecutándose')
         try:
             with self.lock:
@@ -1879,12 +2016,16 @@ class ActionLearning:
                     if command and command['state'] in ('prepared', 'awaiting_approval', 'expired'):
                         self.commands.renew(record['operation_id'])
                 if not self._reconcile(plan): return self._save(plan)
+                if plan.get('goal_spec', {}).get('criteria') and all(record['state'] == 'succeeded' for record in plan['step_records']):
+                    plan.update(state='goal_pending', approved_hash=None)
+                    plan['goal_progress'] = self.assess_goal_progress(plan)
+                    return self._save(plan)
                 plan.update(state='awaiting_approval', prepared_at=time.time(), approved_hash=None,
                             message='Resultados recuperados. Revisa los pasos pendientes antes de reanudar.')
                 self._save(plan)
         finally:
             self.gate.release()
-        return self.execute(key, approved=True) if approved is True else plan
+        return self.execute(key, approved=True, plan_hash=plan_hash) if approved is True else plan
 
     def retry_waiting(self, limit=3):
         """Called by the resident scheduler; retries planning only, never effects."""
@@ -1924,6 +2065,13 @@ class ActionLearning:
                 except Exception: pass  # Metrics never change an execution receipt.
 
     def _learn(self, plan):
+        if plan.get('goal_spec', {}).get('criteria'):
+            plan.update(state='succeeded', postconditions_passed=True, learned_action_id=None,
+                effect_verified=all(bool(record['result'].get('evidence')) for record in plan['step_records']),
+                goal_progress={'status': 'satisfied', 'criteria': plan['goal_verification']['criteria'],
+                               'prefix_length': len(plan['steps'])},
+                message='El resultado cumple los criterios tipados verificados. No se creó una habilidad ni una preferencia.')
+            return self._save(plan)
         if plan.get('observation_dependencies'):
             with self.lock, self._source_publication(plan):
                 records = plan.get('step_records', [])
@@ -2001,13 +2149,18 @@ class ActionLearning:
         return self._save(plan)
 
     @active_operation
-    def execute(self, key, approved=False, *, initiative_grant_id=None):
+    def execute(self, key, approved=False, *, initiative_grant_id=None, plan_hash=None):
         if approved is not True: raise ApprovalRequired('Revisa y aprueba los pasos concretos del plan.')
+        snapshot = self.get(key)
+        if (plan_hash is not None or snapshot.get('goal_progress_admissions') or snapshot.get('proposal_source') == 'goal_progress') and plan_hash != snapshot.get('plan_hash'):
+            raise ValueError('La aprobación no coincide con el hash exacto de la revisión mostrada.')
         if not self.gate.acquire(blocking=False): raise ValueError('Ya hay un plan ejecutándose.')
         try:
             with self.lock:
                 plan = self.get(key)
                 if plan['state'] in TERMINAL: return plan
+                if (plan_hash is not None or plan.get('goal_progress_admissions') or plan.get('proposal_source') == 'goal_progress') and plan_hash != plan.get('plan_hash'):
+                    raise ValueError('La revisión cambió durante la aprobación.')
                 if initiative_grant_id is None:
                     plan.pop('initiative_authorization', None)
                 elif (plan.get('initiative_authorization') or {}).get('grant_id') != initiative_grant_id:
@@ -2023,6 +2176,7 @@ class ActionLearning:
                     plan.update(state='waiting_dependency', dependency_approved_hash=plan['plan_hash'], message=dependency_error)
                     return self._save(plan)
                 event = self.events.setdefault(key, threading.Event())
+                self._assert_progress_inputs(plan, event)
                 steps = self._validate_steps(plan['steps'], allow_shell=terminal_requested(plan['request']))
                 self._records(plan)
                 if not self._reconcile(plan): return self._save(plan)
@@ -2058,8 +2212,15 @@ class ActionLearning:
                 return self._save(plan | {'state': 'cancelled', 'message': 'Plan cancelado. Los pasos realizados no se deshacen.'})
             with self.lock, self.db:
                 goal = goal_contract(plan['request'],plan.get('goal_spec'))
-                plan['goal_verification']=verify_goal(goal,self.commands.executor.workspace_root,event)
+                self._assert_progress_inputs(plan, event)
+                limits = {'max_file_bytes': self._goal_file_limit(plan)} if goal.get('criteria') else {}
+                plan['goal_verification']=verify_goal(goal,self.commands.executor.workspace_root,event, **limits)
                 if not plan['goal_verification']['passed']:
+                    if goal.get('criteria') and all(row['passed'] for row in plan['goal_verification']['checks']):
+                        plan.update(state='goal_pending', postconditions_passed=True,
+                            message='Los pasos se verificaron; el resultado todavía tiene criterios pendientes.')
+                        plan['goal_progress'] = self.assess_goal_progress(plan, event)
+                        return self._save(plan)
                     return self._save(plan | {'state':'failed','postconditions_passed':False,
                         'message':'Los pasos terminaron, pero el archivo final no cumple el contrato. Se conserva lo completado.'})
                 return self._learn(plan)
@@ -2116,7 +2277,7 @@ class ActionLearning:
         with self.lock:
             plan = self.get(key)
             if plan['state'] in TERMINAL: return plan
-            if plan['state'] not in ('running', 'pausing', 'paused', 'awaiting_approval', 'interrupted', 'waiting_dependency'):
+            if plan['state'] not in ('running', 'pausing', 'paused', 'awaiting_approval', 'interrupted', 'waiting_dependency', 'goal_pending'):
                 raise ValueError('Espera la planificación o usa Detener para cancelarla')
             self.pause_events.setdefault(key, threading.Event()).set()
             running = any(record.get('state') == 'running' for record in plan.get('step_records', []))

@@ -759,15 +759,16 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                     self._unsupported('Aprendizaje de acciones no disponible')
                     return
                 action = path.rsplit('/', 1)[-1]
-                fields = {'propose': {'text', 'operation_id', 'context', 'model', 'provider_name', 'inputs', 'project_id', 'selection_mode', 'conversation_id'},
-                          'prepare': {'text', 'steps', 'operation_id', 'project_id', 'conversation_id'},
-                          'execute': {'operation_id', 'approved'}, 'cancel': {'operation_id'}, 'pause': {'operation_id'},
-                          'resume': {'operation_id', 'approved'}, 'configure': {'id', 'changes'},
+                fields = {'propose': {'text', 'operation_id', 'context', 'model', 'provider_name', 'inputs', 'project_id', 'selection_mode', 'conversation_id', 'goal_spec'},
+                          'prepare': {'text', 'steps', 'operation_id', 'project_id', 'conversation_id', 'goal_spec'},
+                          'execute': {'operation_id', 'approved', 'plan_hash'}, 'cancel': {'operation_id'}, 'pause': {'operation_id'},
+                          'resume': {'operation_id', 'approved', 'plan_hash'}, 'configure': {'id', 'changes'},
                           'repair': {'operation_id', 'text', 'inputs', 'model', 'provider_name', 'selection_mode','goal_spec','goal_revision'},
                           'context': {'project_id', 'changes'}, 'compose': {'text', 'parts', 'operation_id', 'project_id'},
                           'remember': {'operation_id'}}
                 fields['dependencies'] = {'operation_id', 'dependencies', 'plan_hash'}
                 fields['execute-authorized'] = {'operation_id', 'grant_id', 'plan_hash'}
+                fields['goal-progress'] = {'operation_id', 'plan_hash', 'criterion_id', 'candidate_hash'}
                 fields['forget-context'] = {'project_id', 'source_id', 'session_id', 'forget'}
                 fields['lesson'] = {'operation_id', 'hypothesis', 'user_correction', 'verification_operation_id', 'project_id', 'task_id', 'context_dependencies', 'allow_provider'}
                 fields['forget-lesson'] = {'id'}
@@ -775,6 +776,9 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                 if action not in fields or set(body) - fields[action]: raise ValueError('Campos de aprendizaje inválidos')
                 if action == 'execute-authorized':
                     result = self.learning.execute_with_grant(body.get('operation_id'), body.get('grant_id'), body.get('plan_hash'))
+                elif action == 'goal-progress':
+                    result = self.learning.prepare_goal_progress(body.get('operation_id'), body.get('plan_hash'),
+                        body.get('criterion_id'), body.get('candidate_hash'))
                 elif action == 'lesson':
                     result = self.learning.skills.record_lesson(body)
                 elif action == 'forget-lesson':
@@ -797,17 +801,17 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                         record = self.demonstration.get(reference.get('demonstration_id'))
                         context = context | {'demonstration': planning_reference(record)}
                     result = self.learning.propose(body.get('text'), body.get('operation_id'), context, body.get('model', ''), body.get('provider_name', ''),
-                        inputs=body.get('inputs'), project_id=body.get('project_id', ''), selection_mode=body.get('selection_mode', 'manual'), conversation_id=body.get('conversation_id'))
+                        inputs=body.get('inputs'), project_id=body.get('project_id', ''), selection_mode=body.get('selection_mode', 'manual'), conversation_id=body.get('conversation_id'), goal_spec=body.get('goal_spec'))
                 elif action == 'prepare':
                     if body.get('conversation_id') and self.chats: self.chats.get(body['conversation_id'])
                     result = self.learning.prepare_steps(body.get('text'), body.get('steps'), body.get('operation_id'),
-                        body.get('project_id', ''), body.get('conversation_id'))
+                        body.get('project_id', ''), body.get('conversation_id'), goal_spec=body.get('goal_spec'))
                 elif action == 'execute':
-                    result = self.learning.execute(body.get('operation_id'), body.get('approved', False))
+                    result = self.learning.execute(body.get('operation_id'), body.get('approved', False), plan_hash=body.get('plan_hash'))
                 elif action == 'pause':
                     result = self.learning.pause(body.get('operation_id'))
                 elif action == 'resume':
-                    result = self.learning.resume(body.get('operation_id'), body.get('approved', False))
+                    result = self.learning.resume(body.get('operation_id'), body.get('approved', False), plan_hash=body.get('plan_hash'))
                 elif action == 'repair':
                     result = self.learning.repair(body.get('operation_id'), body.get('text', ''), inputs=body.get('inputs'),
                         model=body.get('model', ''), provider_name=body.get('provider_name', ''), selection_mode=body.get('selection_mode', 'manual'),

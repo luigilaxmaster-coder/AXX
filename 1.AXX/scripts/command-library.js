@@ -4,6 +4,7 @@
     if (!Axx?.companion || Axx.commandLibrary) return;
     const node = id => document.getElementById(id);
     const errorText = error => typeof error === 'string' ? error : error?.message || error?.code || 'No se pudo completar el comando.';
+    const goalCriteriaVerified = operation => {const criteria=operation?.goal_spec?.criteria||operation?.mission?.criteria||[],evaluations=operation?.goal_verification?.criteria||[];return criteria.every(criterion=>{const rows=evaluations.filter(row=>row.id===criterion.id&&row.kind===criterion.kind);return rows.length===1&&rows[0].status==='satisfied';});};
     const requestWords = raw => {
         let text = String(raw).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/^[¡¿\s]+/,'');
         for (let i=0;i<6;i++) {
@@ -28,6 +29,7 @@
     class CommandLibrary {
         generation = 0; searchGeneration = 0; observationRevision = 0; cancellingGeneration = null; busy = false; operation = null; pendingOperationId = null; commands = []; voiceDraft = null; actionContext = {}; actionContextChat = ''; actionContextAt = 0;
         compensationRevision = 0; compensationKey = ''; compensationReview = null; compensationApproval = null; compensationLoading = false;
+        reviewedPlanApproval = null;
         constructor() {
             this.installControls();
             this.installDispatch();
@@ -666,6 +668,7 @@
             node('command-library-result').textContent = JSON.stringify(operation, null, 2);
             this.renderCompensation(operation);
             const awaiting = operation?.state === 'awaiting_approval';
+            if(!awaiting){this.reviewedPlanApproval=null;node('command-library-goal')?.remove();}
             node(awaiting ? 'command-library-approval-actions' : 'command-library-controls').append(node('command-library-cancel'));
             node('command-library-approval').hidden = !awaiting;
             if (awaiting) this.renderApproval(operation);
@@ -676,13 +679,14 @@
             node('command-library-remember').hidden = !(operation?.state === 'succeeded' && operation.postconditions_passed && ['axx.desktop.notepad.text','axx.desktop.explorer.folder'].includes(operation.command_id));
             node('command-library-prepare').disabled = this.busy || !!this.operation || !this.commands.find(item => item.id === node('command-library-select').value)?.execution_enabled;
             if (Axx.desktop) {
-                const verified = operation?.state === 'succeeded' && operation.postconditions_passed === true && operation.mission?.completed !== false;
+                const verified = operation?.state === 'succeeded' && operation.postconditions_passed === true && operation.mission?.completed !== false && goalCriteriaVerified(operation);
                 Axx.desktop.lastOperation = verified ? operation : null;
                 node('desktop-action-result').textContent = JSON.stringify(operation, null, 2);
             }
             Axx.resident?.schedule();
         }
         renderApproval(operation) {
+            this.reviewedPlanApproval=operation.kind==='learned_plan'?{operation_id:operation.operation_id,plan_hash:operation.plan_hash}:null;
             const steps = operation.kind === 'learned_plan' ? operation.steps : [operation];
             const titles = {'axx.artifact.write':'Crear archivo en Axx/artifacts', 'axx.file.sha256':'Comprobar el contenido del archivo (SHA-256)',
                 'axx.file.compare':'Comparar dos archivos', 'axx.shell.powershell':'Ejecutar script de PowerShell', 'axx.shell.cmd':'Ejecutar comando de CMD',
@@ -694,6 +698,10 @@
             const labels = {path:'Archivo', other_path:'Segundo archivo', content:'Contenido que se guardará', script:'Código que se ejecutará',
                 url:'Dirección', query:'Búsqueda', engine:'Buscador', value:'Texto que se escribirá', window_title:'Título exacto del documento de Notepad', window_id:'Ventana', pid:'Proceso', control_id:'Control', app:'Aplicación', expected_title:'Ventana o página que se leerá'};
             const preview = node('command-library-preview'); preview.replaceChildren();
+            node('command-library-goal')?.remove();
+            if(operation.goal_spec){
+                const goal=document.createElement('details'),summary=document.createElement('summary'),intent=document.createElement('p'),criteria=document.createElement('pre'),hash=document.createElement('p');goal.id='command-library-goal';summary.textContent='Objetivo y criterios de esta revisión';intent.textContent=operation.goal_spec.intent;criteria.textContent=JSON.stringify(operation.goal_spec.criteria||[],null,2);hash.textContent='Revisión del objetivo: '+(operation.goal_revision??'No informada')+' · Hash del plan: '+(operation.plan_hash||'No informado');goal.append(summary,intent,criteria,hash);preview.before(goal);
+            }
             let completed = 0;
             steps.forEach((step, index) => {
                 const done = operation.step_records?.[index]?.state === 'succeeded';
@@ -911,6 +919,8 @@
         async executePlan() {
             const operation = this.operation, serial = this.generation;
             if (!operation || this.busy) return;
+            const shown=this.reviewedPlanApproval,approvedHash=shown?.operation_id===operation.operation_id?shown.plan_hash:undefined;
+            if(operation.plan_hash&&approvedHash!==operation.plan_hash){this.status('La versión del plan cambió. Consulta y revisa sus criterios y pasos antes de aprobar.');return;}
             const origin = operation.conversation_id || Axx.chatWorkspace?.active?.id;
             this.busy = true; operation.state = 'running'; ++this.observationRevision;
             this.renderOperation(operation); this.status('Ejecutando los pasos y comprobando sus resultados…');
@@ -922,12 +932,12 @@
                 }).catch(() => {});
             }, 1000);
             try {
-                const plan = await this.request('POST', '/axx-api/learning/execute', { operation_id:operation.operation_id, approved:true });
+                const plan = await this.request('POST', '/axx-api/learning/execute', { operation_id:operation.operation_id, approved:true,...(approvedHash?{plan_hash:approvedHash}:{}) });
                 if (serial !== this.generation) return;
                 this.lastOperation = plan; this.operation = null; this.busy = false;
                 this.renderOperation(plan); this.status(plan.message || plan.state);
-                const verified = plan.state === 'succeeded' && plan.postconditions_passed === true && plan.mission?.completed !== false;
-                let message = plan.mission?.completed===false&&plan.state==='succeeded'?'Entrega pendiente. Revisa las evidencias actuales de la misión.':plan.message || plan.state;
+                const verified = plan.state === 'succeeded' && plan.postconditions_passed === true && plan.mission?.completed !== false && goalCriteriaVerified(plan);
+                let message = plan.state==='succeeded'&&(plan.mission?.completed===false||!goalCriteriaVerified(plan))?'Objetivo pendiente de verificación. Revisa los criterios y las evidencias actuales de la misión.':plan.message || plan.state;
                 for (const result of plan.results || []) {
                     if (result.evidence?.verification === 'os_handoff') message += '\nWindows aceptó abrir: ' + (result.output?.label || result.evidence.target);
                     if (result.evidence?.sha256 && plan.mission?.completed!==false) message += '\nArchivo verificado: ' + result.evidence.path;
@@ -959,7 +969,7 @@
             if (this.busy || !origin || task?.kind !== 'learned_plan' || task.conversation_id!==origin) return;
             this.busy = true;
             try {
-                const result = await this.request('POST','/axx-api/learning/resume',{operation_id:task.operation_id,approved:false});
+                const result = await this.request('POST','/axx-api/learning/resume',{operation_id:task.operation_id,approved:false,...(task.plan_hash?{plan_hash:task.plan_hash}:{})});
                 if(result.operation_id!==task.operation_id||result.conversation_id!==origin)throw Error('La revisión no corresponde a la tarea seleccionada.');
                 if(serial!==this.generation||origin!==Axx.chatWorkspace?.active?.id)return;
                 this.lastOperation = result; this.operation = result.state === 'awaiting_approval' ? result : null;
@@ -985,7 +995,7 @@
             this.lastOperation = result.operation;
             this.operation = ['prepared', 'awaiting_approval', 'running'].includes(result.operation.state) ? result.operation : null;
             this.renderOperation(result.operation);
-            this.status(result.operation.mission?.completed===false&&result.operation.state==='succeeded'?'Estado observado: entrega pendiente. Revisa el bloqueo y las evidencias actuales.':'Estado observado: ' + result.operation.state + (result.operation.postconditions_passed === true ? ' · condiciones verificadas.' : '.'));
+            this.status(result.operation.state==='succeeded'&&(result.operation.mission?.completed===false||!goalCriteriaVerified(result.operation))?'Estado observado: objetivo pendiente. Revisa sus criterios y evidencias actuales.':'Estado observado: ' + result.operation.state + (result.operation.postconditions_passed === true ? ' · condiciones verificadas.' : '.'));
         }
         async reviewUnknown(operation) {
             if (this.busy || operation?.state !== 'unknown') return;

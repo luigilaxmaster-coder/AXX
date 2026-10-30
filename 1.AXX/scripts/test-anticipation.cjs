@@ -239,6 +239,26 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
   await page.evaluate(()=>{missionPlans[0].mission.completed=true;missionPlans[0].mission.verified_steps=[0,1];missionPlans[0].mission.pending_steps=[];return Axx.anticipation.refresh();});
   await page.waitForFunction(()=>document.getElementById('anticipation-missions').textContent.includes('Completada y verificada'));
   assert.equal(await page.locator('#anticipation-missions article>details').evaluate(node=>node.open),true,'Changed mission receipts preserve the user expansion');
+  const goalActionsBefore=await page.evaluate(()=>calls.filter(call=>call.method==='POST'&&call.route.startsWith('/axx-api/learning/')).length);
+  await page.evaluate(()=>{
+   window.originalMissionGoalFixture=structuredClone(missionPlans[0]);
+   const plan=missionPlans[0];plan.mission.state='goal_pending';
+   plan.mission.criteria=[{id:'text-result',kind:'text_exact',parameters:{path:'ensayo.txt',text:'SYNTHETIC_PRIVATE_CRITERION_TEXT'}},{id:'bundle-result',kind:'file_bundle',parameters:{paths:['ensayo.txt'],destination:'paquete'}},{id:'sheet-result',kind:'xlsx_from_csv',parameters:{source:'datos.csv',destination:'datos.xlsx',delimiter:',',numeric_column:'total'}}];
+   plan.goal_verification={passed:false,coverage:'typed_outcomes',criteria:[{id:'text-result',kind:'text_exact',status:'satisfied',reason_code:'SATISFIED'},{id:'bundle-result',kind:'file_bundle',status:'unsatisfied',reason_code:'OUTPUT_MISSING'},{id:'sheet-result',kind:'xlsx_from_csv',status:'indeterminate',reason_code:'INPUT_CHANGED <img src=x>'}]};
+   plan.mission.goal_progress={status:'ready',criterion_id:'bundle-result',prefix_length:2,criteria:plan.goal_verification.criteria,input_versions:[{path:'SYNTHETIC_PRIVATE_VERSION_PATH'}]};
+   return Axx.anticipation.refresh();
+  });
+  await page.waitForFunction(()=>document.getElementById('anticipation-missions').textContent.includes('OUTPUT_MISSING'));
+  const goalEvidence=await page.locator('#anticipation-missions').innerText();
+  assert.match(goalEvidence,/Objetivo pendiente de verificar · 2\/2 pasos verificados/,'A verified step prefix does not complete a pending goal');
+  assert.doesNotMatch(goalEvidence,/Completada y verificada|SYNTHETIC_PRIVATE_CRITERION_TEXT|SYNTHETIC_PRIVATE_VERSION_PATH/,'A pending goal stays pending and raw criterion parameters/input versions are not copied into the evidence summary');
+  for(const expected of ['Criterios de resultado','text-result · text_exact','Cumplido (satisfied) · SATISFIED','No cumplido (unsatisfied) · OUTPUT_MISSING','Sin determinar (indeterminate) · INPUT_CHANGED <img src=x>','Cobertura de evaluación','typed_outcomes','Avance del objetivo','ready','Evaluación del avance','Prefijo verificado del avance','2 pasos','Presupuesto ocupado: 1/2'])assert.ok(goalEvidence.includes(expected),expected);
+  assert.equal(await page.locator('#anticipation-missions img').count(),0,'Goal evaluation metadata is rendered as text');
+  assert.equal(await page.evaluate(()=>calls.filter(call=>call.method==='POST'&&call.route.startsWith('/axx-api/learning/')).length),goalActionsBefore,'Reading goal criteria and evaluation cannot advance or execute a mission');
+  await page.evaluate(()=>{missionPlans[0].mission.state='succeeded';return Axx.anticipation.refresh();});
+  await page.waitForFunction(()=>document.getElementById('anticipation-missions').textContent.includes('Objetivo pendiente de verificar'));
+  assert.doesNotMatch(await page.locator('#anticipation-missions').innerText(),/Completada y verificada/,'Indeterminate or unsatisfied criteria override inconsistent completion metadata');
+  await page.evaluate(()=>{missionPlans[0]=originalMissionGoalFixture;delete window.originalMissionGoalFixture;return Axx.anticipation.refresh();});
   await page.evaluate(()=>{
    data.profile='copiloto';data.sources.events=true;
    data.suggestions=[{suggestion_id:'suggestion-a',task_id:'task-a',routine_id:'verify_artifact',plan_hash:'exact-hash-a',verification_scope:'integrity_only',semantic_verified:false,verifier_reason:'Sin inspector del formato',title:'Verificar <img src=x>',state:'AWAITING_APPROVAL',visible:true,plan:{command_id:'axx.artifact.verify',inputs:{path:'ensayo.txt'},source_operation_id:'writer-a',expected_sha256:'a'.repeat(64)},initiative_chain:{root_event_id:'artifact-a',depth:1,budget:1,stop_condition:'verification_terminal'},assessment:{likelihood:{score:1,method:'registered_generated_artifact_rule'}},provenance:{actor:'axx',origin:'direct_instruction',causation_id:'writer-a',human_preference_evidence:false}}];return Axx.anticipation.refresh(true);

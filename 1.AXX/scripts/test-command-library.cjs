@@ -27,7 +27,7 @@ const { chromium } = bundledRequire('playwright');
         isNative: () => true, resident: { schedule() {} },
         app: { toast: text => notices.push({ role: 'toast', text }), bridge: { listen: async (event, callback) => { window.events[event] = callback; } } },
         voice13: { target: { field: document.getElementById('chat-input') }, applyPending(text) { this.target.field.value = text; } },
-        companion: { send: async raw => { fallback.push(raw); }, submit: async function () { const field = document.getElementById('chat-input'), text = field.value; field.value = ''; return this.send(text); }, message: (role, text) => notices.push({ role, text }), localNotice: text => notices.push({ role: 'assistant', text }), action: state => actions.push(state), openFeature: id => { window.opened = id; }, openChat() {} },
+        companion: { renderChat() {}, send: async raw => { fallback.push(raw); }, submit: async function () { const field = document.getElementById('chat-input'), text = field.value; field.value = ''; return this.send(text); }, message: (role, text) => notices.push({ role, text }), localNotice: text => notices.push({ role: 'assistant', text }), action: state => actions.push(state), openFeature: id => { window.opened = id; }, openChat() {} },
         backendRequest: async (method, route, body) => {
           calls.push({ method, route, body });
           if (window.errorNext) { const error = window.errorNext; window.errorNext = null; throw new Error(error); }
@@ -274,24 +274,40 @@ const { chromium } = bundledRequire('playwright');
     assert.equal(await page.evaluate(()=>Axx.commandLibrary.busy),false);
     results.push('A resolver response arriving after navigation cannot prepare the old request in the new chat');
 
-    await page.evaluate(()=>{
+    await page.evaluate(async()=>{
       Axx.chatWorkspace.active.id='origin-chat';
-      Axx.commandLibrary.operation={kind:'learned_plan',operation_id:'owned-plan',conversation_id:'origin-chat',state:'awaiting_approval',steps:[]};
+      Axx.commandLibrary.operation={kind:'learned_plan',operation_id:'owned-plan',conversation_id:'origin-chat',state:'awaiting_approval',plan_hash:'f'.repeat(64),goal_revision:1,goal_spec:{intent:'Deliver <img src=x>',criteria:[{id:'result',kind:'text_exact',parameters:{path:'result.txt',text:'Exact'}}]},steps:[]};
+      Axx.commandLibrary.renderOperation(Axx.commandLibrary.operation);
+      window.goalReviewRenderedAsText=document.getElementById('command-library-goal').querySelectorAll('img').length===0&&document.getElementById('command-library-goal').textContent.includes('Deliver <img src=x>');
+      Axx.commandLibrary.operation.plan_hash='e'.repeat(64);
+      window.beforeUnshownHash=calls.length;
+      await Axx.commandLibrary.executePlan();
+      window.afterUnshownHash=calls.length;
+      Axx.commandLibrary.operation.plan_hash='f'.repeat(64);
+      Axx.commandLibrary.renderOperation(Axx.commandLibrary.operation);
       const backend=Axx.backendRequest;
       Axx.backendRequest=async(method,route,body)=>{
+        if(route==='/axx-api/learning/resume'){window.reviewedResumeBody=structuredClone(body);return {...Axx.commandLibrary.operation,state:'awaiting_approval'};}
         if(route==='/axx-api/learning/execute'){
+          window.approvedPlanBody=structuredClone(body);
           await new Promise(resolve=>{window.releasePlan=resolve;});
-          return {kind:'learned_plan',operation_id:body.operation_id,conversation_id:'origin-chat',state:'succeeded',postconditions_passed:true,message:'Private plan output',results:[]};
+          return {kind:'learned_plan',operation_id:body.operation_id,conversation_id:'origin-chat',state:'succeeded',postconditions_passed:true,goal_spec:{criteria:[{id:'result',kind:'text_exact'}]},goal_verification:{criteria:[{id:'result',kind:'text_exact',status:'indeterminate',reason_code:'UNAVAILABLE'}]},mission:{completed:true},message:'Private plan output',results:[]};
         }
         return backend(method,route,body);
       };
       window.noticesBeforePlanSwitch=notices.length;
+      await Axx.commandLibrary.resumePlan();
       window.originPlan=Axx.commandLibrary.executePlan();
     });
     await page.waitForFunction(()=>typeof releasePlan==='function');
+    assert.equal(await page.evaluate(()=>afterUnshownHash),await page.evaluate(()=>beforeUnshownHash),'A changed hash cannot execute without a new displayed review');
+    assert.equal(await page.evaluate(()=>goalReviewRenderedAsText),true,'The actual approval surface exposes the fixed goal as text');
+    assert.deepEqual(await page.evaluate(()=>approvedPlanBody),{operation_id:'owned-plan',approved:true,plan_hash:'f'.repeat(64)},'Approval is bound to the displayed plan hash');
+    assert.deepEqual(await page.evaluate(()=>reviewedResumeBody),{operation_id:'owned-plan',approved:false,plan_hash:'f'.repeat(64)},'Resume requests review for the known hash without approving');
     await page.evaluate(async()=>{Axx.chatWorkspace.active.id='other-chat';releasePlan();await originPlan;});
     assert.equal(await page.evaluate(()=>notices.length),await page.evaluate(()=>noticesBeforePlanSwitch));
     assert.equal(await page.evaluate(()=>Axx.commandLibrary.lastOperation.conversation_id),'origin-chat');
+    assert.notEqual(await page.evaluate(()=>actions.at(-1)),'success','Indeterminate criteria cannot produce success feedback even with completed step metadata');
     results.push('A learned plan completing in another chat does not insert or speak its private output there');
     const spotify = await page.evaluate(async()=>{
       const library=Axx.commandLibrary, old={features:Axx.FEATURES,actions:Axx.actions,music:Axx.nativeMusic,media:Axx.media16,home:Axx.home18,visible:Axx.app.setVisible};
