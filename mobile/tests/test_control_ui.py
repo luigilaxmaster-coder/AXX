@@ -6,16 +6,16 @@ from playwright.sync_api import sync_playwright
 from mobile.tests.test_ui import ROOT,NATIVE_FIXTURE
 
 CONTROL_FIXTURE='''
-window.inputPackets=[];window.inputActive=false;window.failInput=false;window.inputLease=0;window.controlCalls=[];window.failRenew=0;
+window.inputPackets=[];window.inputActive=false;window.failInput=false;window.inputLease=0;window.controlCalls=[];window.failRenew=0;window.inputButtons=new Set();window.inputKeys=new Set();
 const old=Capacitor.Plugins.AxxTransport.request;
 Capacitor.Plugins.AxxTransport.request=async({path,body})=>{
  if(!path.startsWith('/v1/control/'))return old({path,body});
  controlCalls.push({path,body});
  if(path.endsWith('/acquire')){inputActive=true;inputLease++;}
  if(path.endsWith('/renew')&&failRenew>0){failRenew--;throw Error('temporary network timeout');}
- if(path.endsWith('/release'))inputActive=false;
- if(path.endsWith('/events')){inputPackets.push(body);if(failInput)throw Error('lost acknowledgement');}
- return {data:{boot_id:'boot',ttl_ms:3000,lease:{lease_id:'lease-'+inputLease,state:inputActive?'granted':'released',last_seq:0},native:{active:inputActive,reason:'released',cursor:{x:10,y:20},keys:[],buttons:[],monitors:[]}}};
+ if(path.endsWith('/release')){inputActive=false;inputButtons.clear();inputKeys.clear();}
+ if(path.endsWith('/events')){inputPackets.push(body);for(const e of body.events){const held=e.type==='button'?inputButtons:e.type==='key'?inputKeys:null;if(held)held[e.down?'add':'delete'](e.button||e.key);}if(failInput)throw Error('lost acknowledgement');}
+ return {data:{boot_id:'boot',ttl_ms:3000,lease:{lease_id:'lease-'+inputLease,state:inputActive?'granted':'released',last_seq:0},native:{active:inputActive,reason:'released',cursor:{x:10,y:20},keys:[...inputKeys],buttons:[...inputButtons],monitors:[]}}};
 };
 '''
 
@@ -74,6 +74,33 @@ class RemoteControlUI(unittest.TestCase):
    page.wait_for_function('()=>inputPackets.length===2')
    self.assertEqual(page.evaluate('inputPackets.map(p=>[p.lease_id,p.seq])'),[['lease-1',1],['lease-2',1]])
    self.assertEqual(page.evaluate('inputPackets[1].events[0].button'),'right')
+
+ def test_unconfirmed_down_and_queued_up_cancel_instead_of_renewing(self):
+  with sync_playwright() as p:
+   page=self.open(p)
+   page.evaluate('''()=>{const old=Capacitor.Plugins.AxxTransport.request;Capacitor.Plugins.AxxTransport.request=async o=>{const response=await old(o);if(o.path.endsWith('/events'))await new Promise(resolve=>window.finishDownAck=resolve);return response;};}''')
+   page.locator('#control-drag').click();page.wait_for_function('()=>!!window.finishDownAck')
+   page.locator('#control-drag').click();page.evaluate('failRenew=1;controlCalls=[]')
+   page.wait_for_timeout(1300)
+   self.assertFalse(page.evaluate('inputActive'),'A lease must not renew with an unconfirmed down and an unsent up')
+   self.assertEqual(page.evaluate('[...inputButtons]'),[])
+   self.assertEqual(page.evaluate('inputPackets.length'),1)
+   self.assertEqual(page.evaluate("controlCalls.filter(c=>c.path.endsWith('/renew')).length"),1)
+   page.evaluate('finishDownAck()');page.wait_for_timeout(100)
+   self.assertFalse(page.evaluate('inputActive'))
+
+ def test_native_held_or_missing_state_prevents_recovery(self):
+  with sync_playwright() as p:
+   for stage in ['before','recovery']:
+    for held in ['button','key','missing']:
+     with self.subTest(stage=stage,held=held):
+      page=self.open(p)
+      page.evaluate('''kind=>{const old=Capacitor.Plugins.AxxTransport.request;window.sawHeldState=false;Capacitor.Plugins.AxxTransport.request=async o=>{const response=await old(o);if(o.path.endsWith('/renew')){if(kind==='button')response.data.native.buttons=['left'];else if(kind==='key')response.data.native.keys=['Control'];else{delete response.data.native.keys;delete response.data.native.buttons;}sawHeldState=true;}return response;};}''',held)
+      if stage=='before':page.wait_for_function('()=>sawHeldState')
+      page.evaluate('failRenew=1;controlCalls=[]')
+      page.wait_for_timeout(1300)
+      self.assertFalse(page.evaluate('inputActive'))
+      self.assertEqual(page.evaluate("controlCalls.filter(c=>c.path.endsWith('/renew')).length"),1 if stage=='before' else 2)
 
  def test_lost_capture_and_background_release_input_without_reacquiring(self):
   with sync_playwright() as p:
