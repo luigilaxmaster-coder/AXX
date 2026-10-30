@@ -216,7 +216,7 @@ class MossSpeechService:
             self.output_dir.mkdir(parents=True, exist_ok=True)
             env = os.environ.copy()
             env.pop('AXX_HOST_TOKEN', None)
-            args = [str(self.python), '-u', str(self.script), str(self.models), str(self.personal_samples), str(self.output_dir)]
+            args = [str(self.python), '-B', '-u', str(self.script), str(self.models), str(self.personal_samples), str(self.output_dir)]
             process, job = spawn_managed_process(args, cwd=str(self.root), env=env, stdin=subprocess.PIPE,
                                                  stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
             responses = queue.Queue(maxsize=512)

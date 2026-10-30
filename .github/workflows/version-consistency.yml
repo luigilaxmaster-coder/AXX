@@ -64,6 +64,7 @@ jobs:
         run: python scripts/evaluate_reasoning.py --output build/reasoning-evaluation.json
       - name: Native acceptance harness guards (no hardware)
         run: |
+          python -m unittest backend.tests.test_moss_stream -q
           node scripts/test-installed-reasoning.cjs --self-test
           node scripts/test-installed-stale-lesson.cjs --self-test
           node scripts/test-installed-acoustic.cjs --self-test
