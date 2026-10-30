@@ -16,7 +16,7 @@ class ReleaseTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        for name in ("package.json", "package-lock.json", "src-tauri/Cargo.toml",
+        for name in ("LICENSE", "package.json", "package-lock.json", "src-tauri/Cargo.toml",
                      "src-tauri/Cargo.lock", "src-tauri/tauri.conf.json", "README.md", "release.json", "1.AXX/Axx.html"):
             target = self.root / name
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -150,6 +150,38 @@ class ReleaseTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "README"):
             release.check(self.root)
 
+    def test_readme_history_tracks_updates_without_claiming_candidate_is_published(self):
+        notes = self.root / 'docs/releases'
+        notes.mkdir(parents=True)
+        published = release.read_json(self.root / 'release.json')['version']
+        next_version = '.'.join([*published.split('.')[:2], str(int(published.split('.')[2]) + 1)])
+        for value in (published, next_version, '99.0.0'):
+            (notes / (value + '.md')).write_text('# Axx ' + value, encoding='utf-8')
+        release.sync(self.root, next_version)
+        text = (self.root / 'README.md').read_text(encoding='utf-8')
+        self.assertIn(f'| **{next_version}** | Fuente candidata |', text)
+        self.assertIn(f'| **{published}** | Publicada · Windows x64 |', text)
+        self.assertIn(f'href="docs/releases/{next_version}.md">Notas de la versión', text)
+        self.assertIn(f'/download/v{published}/Axx_{published}_x64-setup.exe', text)
+        self.assertNotIn('| **99.0.0** |', text)
+        release.sync(self.root, next_version)
+        self.assertEqual((self.root / 'README.md').read_text(encoding='utf-8'), text)
+
+    def test_new_notes_require_readme_resynchronization(self):
+        notes = self.root / 'docs/releases'
+        notes.mkdir(parents=True)
+        (notes / (self.current + '.md')).write_text('# Actualización', encoding='utf-8')
+        with self.assertRaisesRegex(ValueError, 'README'):
+            release.check(self.root)
+        release.sync(self.root)
+        self.assertEqual(release.check(self.root), self.current)
+
+    def test_project_mit_license_bytes_are_part_of_delivery(self):
+        _, build, installed = self.receipt()
+        (self.root / 'LICENSE').write_text('Changed license', encoding='utf-8')
+        with self.assertRaisesRegex(ValueError, 'Source changed'):
+            release.validate_receipts(self.root, build, installed)
+
     def test_stale_ui_version_is_rejected(self):
         path = self.root / "1.AXX/Axx.html"
         path.write_text(path.read_text(encoding="utf-8").replace(f"Axx.VERSION = '{self.current}'", "Axx.VERSION = '0.0.0'"), encoding="utf-8")
@@ -220,6 +252,7 @@ class ReleaseTests(unittest.TestCase):
         copy.write_bytes(b'value = 1\n')
         copied_notice = checkout / 'src-tauri/resources/license-notices/example/LICENSE'
         copied_notice.write_bytes(b'License notice\n')
+        (checkout / 'LICENSE').write_bytes((self.root / 'LICENSE').read_bytes().replace(b'\r\n', b'\n').replace(b'\n', b'\r\n'))
         self.assertEqual(release.validate_receipts(checkout, b, i), installer)
         copy.write_bytes(b'value = 2\n')
         with self.assertRaisesRegex(ValueError, 'Source changed'):

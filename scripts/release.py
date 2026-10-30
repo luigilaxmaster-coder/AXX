@@ -77,6 +77,18 @@ Backend dependencies are installed with the app and do not require extraction on
     text = replace_once(r"(?s)## Download Axx for Windows\n.*?(?=---)", lambda _: block, text)
     text = replace_once(r'Source%20Version-v[^" ]+-informational', f"Source%20Version-v{current}-informational", text)
     text = replace_once(r'alt="Source version [^"]+"', f'alt="Source version {current}"', text)
+    text = replace_once(r'<a href="docs/releases/[0-9.]+\.md">Notas de la versión</a>',
+                        f'<a href="docs/releases/{current}.md">Notas de la versión</a>', text)
+    notes = sorted((p for p in (root / 'docs/releases').glob('*.md')
+                    if re.fullmatch(r'\d+\.\d+\.\d+', p.stem)
+                    and tuple(map(int, p.stem.split('.'))) <= tuple(map(int, current.split('.')))),
+                   key=lambda p: tuple(map(int, p.stem.split('.'))), reverse=True)
+    history = ['<!-- release:history:start -->', '| Versión | Estado | Cambios y validación |', '| --- | --- | --- |']
+    for note in notes[:8]:
+        state = 'Publicada · Windows x64' if note.stem == published else 'Fuente candidata' if note.stem == current else 'Notas archivadas'
+        history.append(f'| **{note.stem}** | {state} | [Notas detalladas](docs/releases/{note.name}) |')
+    history.append('<!-- release:history:end -->')
+    text = replace_once(r'(?s)<!-- release:history:start -->.*?<!-- release:history:end -->', '\n'.join(history), text)
     text = replace_once(r"^> \*\*Axx is under active development\.\*\*.*$",
                         f"> **Axx is under active development.** {status} Validation is recorded per feature; a working UI or build does not by itself certify every hardware-dependent behavior.", text)
     return text
@@ -139,7 +151,7 @@ def check(root: Path) -> str:
 
 
 def source_inventory(root: Path) -> set[Path]:
-    paths = {root / p for p in ("axx-backend.spec", "scripts/backend_bundle.py", "scripts/build-windows.ps1", "scripts/setup-freellmapi.ps1", "scripts/configure-native-gateway.py", "scripts/anythingmcp-local.py", "src-tauri/tauri.conf.json",
+    paths = {root / p for p in ("LICENSE", "axx-backend.spec", "scripts/backend_bundle.py", "scripts/build-windows.ps1", "scripts/setup-freellmapi.ps1", "scripts/configure-native-gateway.py", "scripts/anythingmcp-local.py", "src-tauri/tauri.conf.json",
                                 "src-tauri/Cargo.toml", "src-tauri/windows/backend-bundle.nsh", "src-tauri/resources/ai-memory.exe", "requirements-telegram.txt",
                                 "backend/telegram/webapp.html", "backend/telegram/webapp.css", "backend/telegram/webapp.js",
                                 "mobile/www/js/desktop-avatar.js", "mobile/js/avatar-renderer.js")}
@@ -187,7 +199,7 @@ def validate_receipts(root: Path, build_path: Path, installed_path: Path) -> Pat
             continue
         built = built_root / name
         # Check the exact build bytes first; another checkout may differ only in line endings.
-        if ((name.suffix.lower() not in text_sources and 'license-notices' not in name.parts)
+        if ((name.suffix.lower() not in text_sources and 'license-notices' not in name.parts and name != Path('LICENSE'))
                 or not built.is_file() or digest(built) != sha.lower()
                 or (root / name).read_bytes().replace(b'\r\n', b'\n') != built.read_bytes().replace(b'\r\n', b'\n')):
             raise ValueError(f"Source changed since build: {name}")

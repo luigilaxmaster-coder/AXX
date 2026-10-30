@@ -1,5 +1,6 @@
 """Negative release tests: appearance drift, stale builds/evidence and missing checks."""
 import json
+import hashlib
 import shutil
 import tempfile
 import unittest
@@ -16,6 +17,7 @@ class CompanionContractTests(unittest.TestCase):
         names=set(contract.read(contract.ROOT/'mobile/design-baseline.json')['protected'])
         names={name.split('#')[0] for name in names}|{'package.json','1.AXX/scripts/transfer.js','1.AXX/scripts/test-transfer-ui.py','backend/mobile/gateway.py','mobile/companion-contract.json','mobile/design-baseline.json','mobile/package.json','mobile/package-lock.json','mobile/android/app/build.gradle','scripts/companion_contract.py','scripts/validate_companion.py','scripts/test_companion_contract.py','scripts/release.py','requirements-mobile.txt','requirements-companion-tests.txt'}
         names.update(contract.SHARED_MEMORY_INPUTS)
+        names.add('LICENSE')
         for name in names:
             target=self.root/name;target.parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(contract.ROOT/name,target)
 
@@ -56,6 +58,23 @@ class CompanionContractTests(unittest.TestCase):
     def test_new_mobile_source_invalidates_old_evidence(self):
         path,_=self.receipt();(self.root/'mobile/js/future.js').write_text('/* added after validation */',encoding='utf-8')
         with self.assertRaisesRegex(ValueError,'evidence is stale'):contract.validate_receipt(self.root,path)
+
+    def test_project_license_change_invalidates_old_evidence(self):
+        path,_=self.receipt()
+        (self.root/'LICENSE').write_text('Changed project license',encoding='utf-8')
+        with self.assertRaisesRegex(ValueError,'stale'):contract.validate_receipt(self.root,path)
+
+    def test_phone_license_must_match_its_source(self):
+        www=self.root/'mobile/www'; (www/'js').mkdir(parents=True)
+        renderer=contract.renderer_source(self.root)
+        (www/'js/desktop-avatar.js').write_bytes(renderer.encode('utf-8'))
+        (www/'companion-build.json').write_text(json.dumps({'versions':contract.versions(self.root),
+            'contract_sha256':contract.sha((self.root/'mobile/companion-contract.json').read_text(encoding='utf-8')),
+            'renderer_sha256':hashlib.sha256(renderer.encode('utf-8')).hexdigest()}),encoding='utf-8')
+        shutil.copyfile(self.root/'LICENSE',www/'AXX-LICENSE')
+        self.assertEqual(contract.check_contract(self.root,built=True),contract.versions(self.root))
+        (www/'AXX-LICENSE').write_text('Wrong license',encoding='utf-8')
+        with self.assertRaisesRegex(ValueError,'project license'):contract.check_contract(self.root,built=True)
 
     def test_shared_memory_authority_and_mirror_drift_invalidates_evidence(self):
         for name in contract.SHARED_MEMORY_INPUTS:

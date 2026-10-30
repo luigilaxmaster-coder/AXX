@@ -1,9 +1,9 @@
 [package]
 name = "axx"
-version = "0.22.32"
+version = "0.22.33"
 description = "Axx Desktop Assistant"
 authors = ["Axx Team"]
-license = ""
+license = "MIT"
 repository = ""
 edition = "2024"
 rust-version = "1.90"

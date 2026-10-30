@@ -1,6 +1,7 @@
 import {mkdir, copyFile, cp, readFile, writeFile} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
 await mkdir(new URL('www', import.meta.url), {recursive:true});
+await copyFile(new URL('../LICENSE', import.meta.url), new URL('www/AXX-LICENSE', import.meta.url));
 await copyFile(new URL('client.html', import.meta.url), new URL('www/index.html', import.meta.url));
 for (const name of ['css', 'icons']) await cp(new URL(name, import.meta.url), new URL('www/'+name, import.meta.url), {recursive:true});
 await mkdir(new URL('www/js', import.meta.url), {recursive:true});

@@ -1,5 +1,21 @@
 # Change log
 
+## 0.22.33 — Telegram, compatibilidad y MIT
+
+- Secuencias de Telegram con aprobación por paso y limpieza dentro del olvido coordinado.
+- Huella de entorno en las referencias aprobadas; primer binding al ejecutable Blender y custodia durante el despacho.
+- README reorganizado, historial de versiones sincronizado y licencia MIT para el código original.
+
+[Notas, estado de entrega y límites](docs/releases/0.22.33.md).
+
+## 0.22.32 — Recursos y continuidad de misiones
+
+- Recursos explícitos por proyecto, correcciones de la misma misión desde el móvil y conciliación sin repetir efectos.
+- Limpieza de contenido olvidado y evaluación offline de esfuerzo declarado, sin ahorro humano demostrado.
+- Windows instalado y publicado con hash confirmado; Android conserva aceptación independiente.
+
+[Notas y verificación](docs/releases/0.22.32.md).
+
 ## 0.22.24 — 2026-10-29 · Instrucciones por función
 
 - Centraliza módulos de comportamiento con versión, presupuesto y modos separados.

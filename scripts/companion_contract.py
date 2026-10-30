@@ -14,7 +14,8 @@ SHARED_MEMORY_INPUTS = ('backend/memory/task_memory.py', 'backend/chat_store.py'
     'backend/action_learning.py', 'backend/memory/skill_memory.py', 'backend/capability_workshop.py',
     'backend/commands.py', 'backend/procedure_library.py', 'backend/anticipation.py',
     '1.AXX/scripts/capability-workshop.js', '1.AXX/scripts/command-library.js', '1.AXX/scripts/anticipation.js', 'resources/procedure-library.zip',
-    '1.AXX/scripts/skill-library.js', 'backend/goal_criteria.py')
+    '1.AXX/scripts/skill-library.js', 'backend/goal_criteria.py', 'backend/memory/procedural_memory.py',
+    'backend/actions/cli_blender.py', 'backend/actions/blender_scene.py', 'backend/actions/process_runner.py')
 
 def read(path):
     return json.loads(path.read_text(encoding='utf-8-sig'))
@@ -87,11 +88,14 @@ def check_contract(root=ROOT, built=False):
             raise ValueError('Phone build provenance is stale')
         if build['renderer_sha256'] != hashlib.sha256(extracted.encode()).hexdigest():
             raise ValueError('Phone renderer differs from its build provenance')
+        if (www / 'AXX-LICENSE').read_bytes() != (root / 'LICENSE').read_bytes():
+            raise ValueError('Phone project license differs from its source')
     return versions(root)
 
 def input_hashes(root):
     paths = {root / p for p in ('package.json', '1.AXX/Axx.html', '1.AXX/scripts/transfer.js', '1.AXX/scripts/test-transfer-ui.py', 'scripts/companion_contract.py', 'scripts/validate_companion.py', 'scripts/test_companion_contract.py', 'scripts/release.py', 'requirements-mobile.txt', 'requirements-companion-tests.txt')}
     paths.update(root / name for name in SHARED_MEMORY_INPUTS)
+    paths.add(root / 'LICENSE')
     for base in ('mobile', 'backend/mobile'):
         for path in (root / base).rglob('*'):
             relative = path.relative_to(root)

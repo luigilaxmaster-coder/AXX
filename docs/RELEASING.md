@@ -18,6 +18,10 @@ manifests, Tauri configuration, Cargo manifests, Axx UI version and README sourc
 badge. It keeps the published download on its confirmed version until publication succeeds.
 Write the release notes in `docs/releases/X.Y.Z.md`; include measured behavior,
 required setup and outstanding hardware checks.
+Run `sync` again after adding notes: it refreshes the README notes link and its
+managed history. Only the confirmed release metadata marks a download published.
+Keep the root MIT license and third-party notices; both Windows and Android
+packaging include the project license and their receipts cover its source bytes.
 
 ## 2. Build, install and verify
 

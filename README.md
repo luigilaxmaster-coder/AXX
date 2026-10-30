@@ -1,4 +1,5 @@
-# Axx · Asistente residente para Windows
+<h1 align="center">Axx</h1>
+<p align="center"><strong>Asistente residente · Windows y compañero Android</strong></p>
 
 <p align="center">
   <img src="docs/images/showcase/v0.22.23/01-axx-desktop.png" alt="Axx: avatar 3D del proyecto, con presentación editorial sobre fondo oscuro" width="100%" />
@@ -10,15 +11,23 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Source%20Version-v0.22.32-informational" alt="Source version 0.22.32" />
+  <img src="https://img.shields.io/badge/Source%20Version-v0.22.33-informational?style=flat-square" alt="Source version 0.22.33" />
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-36b8a5?style=flat-square" alt="Licencia MIT del código original de Axx" /></a>
+  <img src="https://img.shields.io/badge/Windows-x64-242b38?style=flat-square" alt="Windows x64" />
   <a href="https://github.com/luigilaxmaster-coder/AXX/actions/workflows/version-consistency.yml">Integración continua</a> ·
-  <a href="docs/releases/0.22.26.md">Notas de la versión</a> ·
+  <a href="docs/releases/0.22.33.md">Notas de la versión</a> ·
   <a href="docs/COMMAND-TRAINING.md">Práctica y aceptación</a>
 </p>
 
-[Archivos entre dispositivos](docs/mobile/TRANSFER.md) · [Empezar](#empezar) · [Funciones](#funciones) · [Modelos](#modelos) · [Magic Pen](#magic-pen) · [Control del PC](#control-del-pc) · [Arquitectura](#arquitectura) · [Validación](#pruebas-y-estado) · [Desarrollo](#desarrollo)
+<p align="center">
+  <a href="#download-axx-for-windows"><strong>Descargar</strong></a> ·
+  <a href="#empezar">Empezar</a> · <a href="#funciones">Funciones</a> ·
+  <a href="#perfiles">Perfiles</a> · <a href="#actualizaciones">Actualizaciones</a> ·
+  <a href="#pruebas-y-estado">Verificación</a> · <a href="#desarrollo">Desarrollo</a> ·
+  <a href="LICENSE">MIT</a>
+</p>
 
-> **Axx is under active development.** Source and published Windows installer are both **v0.22.32**. Validation is recorded per feature; a working UI or build does not by itself certify every hardware-dependent behavior.
+> **Axx is under active development.** Source is **v0.22.33**; the published Windows installer is **v0.22.32**. Delivery of the newer source is pending publication. Validation is recorded per feature; a working UI or build does not by itself certify every hardware-dependent behavior.
 
 ## Download Axx for Windows
 
@@ -29,12 +38,17 @@ Run the installer and open Axx. Python and Node are not required. Start with **A
 
 Backend dependencies are installed with the app and do not require extraction on every launch. Windows may still scan them during startup. The native host allows up to 90 seconds for backend readiness and reports a startup error if that limit is exceeded.
 
-Source and published Windows installer are both **v0.22.32**. Android APKs remain local test artifacts until separately published. See [mobile setup and validation](docs/mobile/README.md) and the [version and release procedure](docs/RELEASING.md).
+Source is **v0.22.33**; the published Windows installer is **v0.22.32**. Delivery of the newer source is pending publication. Android APKs remain local test artifacts until separately published. See [mobile setup and validation](docs/mobile/README.md) and the [version and release procedure](docs/RELEASING.md).
 <!-- release:download:end -->
 
 ---
 
 ## Empezar
+
+| Conversar | Trabajar | Conectar |
+| :--- | :--- | :--- |
+| Texto, dictado y conversación con el modelo elegido. | Comandos y planes con parámetros visibles, aprobación y recibos. | Android y Telegram con identidad y permisos propios. |
+| [Chats y voz](docs/VOICE-CONVERSATION.md) | [Comandos](docs/COMANDOS-DESDE-CHAT.md) | [Android](docs/mobile/README.md) · [Telegram](docs/TELEGRAM.md) |
 
 1. **Instala y abre Axx.** Espera a que el servicio local termine de arrancar. El instalador incluye el backend; no necesitas preparar un entorno de desarrollo.
 2. **Elige cómo conversar.** En **Conectar IA**, selecciona una conexión, elige su modelo y comprueba una respuesta. Los comandos directos del equipo tienen su propia ruta tipada.
@@ -81,6 +95,19 @@ crea en artifacts el archivo nuevo prueba-axx.txt con el texto exacto HOLA_AXX y
 El tercer ejemplo crea un archivo y requiere revisión. Usa un nombre nuevo para cada ensayo. Buscar un video no significa reproducirlo; detectar una aplicación tampoco demuestra que sus controles estén disponibles.
 
 Las secuencias conservan las cláusulas y su orden. Las comillas y el contenido literal de una orden de escritura no se convierten en instrucciones adicionales. El planificador dispone de **dos inferencias como máximo**, incluida una corrección de preparación; un plan inválido o incompleto no debe iniciar efectos. [Serie de escenarios reproducibles](docs/COMMAND-TRAINING.md).
+
+## Perfiles
+
+Tres políticas sobre la misma memoria y el mismo ejecutor:
+
+| Discreto | Copiloto | Full |
+| :--- | :--- | :--- |
+| Reduce la iniciativa espontánea. | Propone y prepara; conserva las aprobaciones necesarias. | Admite iniciativa cubierta por permisos vigentes. |
+
+Elegir Full no concede permisos nuevos. Observar, conservar contexto, enviar a un
+proveedor y ejecutar siguen siendo decisiones separadas. La planificación general
+desde observaciones mantiene el bloqueo de aislamiento/M15.
+[Alcance implementado y pendientes](docs/anticipation/IMPLEMENTATION-STATUS.md).
 
 ## Modelos
 
@@ -188,9 +215,13 @@ El escaneo óptico del QR, los gestos remotos restantes y el audio mantienen ace
 
 ## Pruebas y estado
 
-El instalador Windows **0.22.31** incluye olvido por conversación, procedencia documental y atención agrupada por misión. La entrega fue instalada y su descarga se publicó después de verificar los hashes. Las [notas de aceptación y límites](docs/releases/0.22.31.md) distinguen los recorridos comprobados de las funciones y dispositivos sin certificar.
+Cada versión conserva sus pruebas, aceptación y límites en las [notas de entrega](docs/releases/).
+El bloque de descarga indica la versión publicada; una fuente candidata se identifica
+por separado. Los cambios y pendientes actuales están en el
+[informe técnico de alcance](docs/anticipation/IMPLEMENTATION-STATUS.md).
 
-La versión 0.22.32 añade selección explícita de recursos, continuidad móvil y evaluación de esfuerzo declarado en las herramientas de fuente. El [informe técnico de alcance](docs/anticipation/IMPLEMENTATION-STATUS.md) distingue esos contratos de las ampliaciones todavía pendientes; no declara terminada toda la especificación de los adjuntos.
+<details>
+<summary><strong>Comprobaciones históricas por función y versión</strong></summary>
 
 | Área | Evidencia disponible | Alcance que no debe inferirse |
 | --- | --- | --- |
@@ -209,7 +240,32 @@ La versión 0.22.32 añade selección explícita de recursos, continuidad móvil
 | **Convertidor/PDF** | Operaciones habilitadas con validación de entradas, salida y manifiesto; alcance descrito por dirección. | CAD/BIM, OCR y conservación visual completa de PDF no se deducen del catálogo. |
 | **Android · 0.2.4** | Evidencia de A21s, sincronización, teclado y consulta del PC registrada por separado. | Emparejamiento no acredita control físico ni audio. |
 
-La [batería de práctica](docs/COMMAND-TRAINING.md) cubre reconocimiento, contenido literal, planificación, autocorrección, comprobación final, fallo intermedio y ausencia de repetición. La integración continua ejecuta las regresiones en cada push y pull request. [Notas de 0.22.23](docs/releases/0.22.23.md) · [Historial completo](CHANGELOG.md).
+</details>
+
+La [batería de práctica](docs/COMMAND-TRAINING.md) cubre reconocimiento, contenido
+literal, planificación, corrección y comprobación final. La CI se ejecuta en cada
+push y pull request; sus pruebas de fuente no sustituyen la aceptación instalada.
+
+## Actualizaciones
+
+Este registro se sincroniza con las notas de versión al ejecutar
+`python scripts/release.py sync`. La descarga cambia sólo después de que GitHub
+confirme el hash del instalador verificado.
+
+<!-- release:history:start -->
+| Versión | Estado | Cambios y validación |
+| --- | --- | --- |
+| **0.22.33** | Fuente candidata | [Notas detalladas](docs/releases/0.22.33.md) |
+| **0.22.32** | Publicada · Windows x64 | [Notas detalladas](docs/releases/0.22.32.md) |
+| **0.22.31** | Notas archivadas | [Notas detalladas](docs/releases/0.22.31.md) |
+| **0.22.30** | Notas archivadas | [Notas detalladas](docs/releases/0.22.30.md) |
+| **0.22.29** | Notas archivadas | [Notas detalladas](docs/releases/0.22.29.md) |
+| **0.22.28** | Notas archivadas | [Notas detalladas](docs/releases/0.22.28.md) |
+| **0.22.27** | Notas archivadas | [Notas detalladas](docs/releases/0.22.27.md) |
+| **0.22.26** | Notas archivadas | [Notas detalladas](docs/releases/0.22.26.md) |
+<!-- release:history:end -->
+
+[Todas las notas](docs/releases/) · [Historial ampliado](CHANGELOG.md) · [Cómo se entrega una versión](docs/RELEASING.md)
 
 <details>
 <summary>Investigación aislada y medios históricos</summary>
@@ -301,4 +357,8 @@ No sobrescribir un asset publicado con bytes diferentes. Un push de código no a
 
 Los avisos de los componentes de terceros se conservan en [license-notices](src-tauri/resources/license-notices/) y [licenses](src-tauri/resources/licenses/), junto con las licencias específicas de los componentes correspondientes. El instalador verifica sus avisos durante la aceptación.
 
-El repositorio no declara aquí una licencia general que conceda permiso para redistribuir todo el proyecto. Consulta al propietario y las condiciones de cada dependencia antes de redistribuir código, binarios o recursos.
+El código original de Axx se distribuye bajo la **[licencia MIT](LICENSE)**.
+Los componentes y recursos de terceros conservan sus propias licencias,
+atribuciones y condiciones; la licencia de Axx no las sustituye. El empaquetado
+de la fuente actual configura la inclusión del texto MIT en Windows y Android;
+cada artefacto conserva su verificación por separado.

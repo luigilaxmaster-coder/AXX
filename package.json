@@ -1,7 +1,8 @@
 {
   "name": "axx-desktop",
-  "version": "0.22.32",
+  "version": "0.22.33",
   "private": true,
+  "license": "MIT",
   "description": "Axx Windows desktop distribution",
   "scripts": {
     "tauri": "tauri",

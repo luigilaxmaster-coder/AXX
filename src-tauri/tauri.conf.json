@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Axx",
-  "version": "0.22.32",
+  "version": "0.22.33",
   "identifier": "com.axx.desktop",
   "build": {
     "frontendDist": "../1.AXX"
@@ -36,11 +36,14 @@
     }
   },
   "bundle": {
+    "license": "MIT",
+    "licenseFile": "../LICENSE",
     "active": true,
     "targets": [
       "nsis"
     ],
     "resources": [
+      "../LICENSE",
       "resources/axx-backend.exe",
       "resources/_internal/",
       "resources/ai-memory.exe",
