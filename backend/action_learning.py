@@ -464,15 +464,16 @@ class ActionLearning:
 
     def get(self, key):
         if not isinstance(key, str): raise ValueError('Identificador inválido')
-        with self.lock:
+        # Policy may read SQLite while computing the budget. Acquire its lock
+        # before writing, and protect the final memory projection as well.
+        with self.lock, getattr(self.anticipation, 'lock', nullcontext()), self.db:
             row = self.db.execute('SELECT payload FROM learning_plans WHERE id=?', (key,)).fetchone()
-        if not row: raise ValueError('Plan desconocido')
-        plan = json.loads(row[0])
-        with self.lock, self.db:
+            if not row: raise ValueError('Plan desconocido')
+            plan = json.loads(row[0])
             self._store_model_budget(plan)
             self._model_budget_view(plan)
             self._project_compensations(plan, self.db)
-        return self._memory_view(plan | {'mission': self._mission(plan)}, self.db)
+            return self._memory_view(plan | {'mission': self._mission(plan)}, self.db)
 
     def _model_limit(self, plan):
         limit = plan.get('model_call_limit', 2)
@@ -729,8 +730,8 @@ class ActionLearning:
                 self._store_model_budget(plan)
                 self._model_budget_view(plan)
                 self._project_compensations(plan, self.db)
-        plans = [self._memory_view(plan | {'mission': self._mission(plan)}, self.db) for plan in plans]
-        return [plan for plan in plans if plan.get('project_id', '') == project_id][:100]
+            plans = [self._memory_view(plan | {'mission': self._mission(plan)}, self.db) for plan in plans]
+            return [plan for plan in plans if plan.get('project_id', '') == project_id][:100]
 
     def _matches(self, text, project_id='', task_id=None):
         phrase = normalized(text)
