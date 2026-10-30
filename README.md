@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Source%20Version-v0.22.31-informational" alt="Source version 0.22.31" />
+  <img src="https://img.shields.io/badge/Source%20Version-v0.22.32-informational" alt="Source version 0.22.32" />
   <a href="https://github.com/luigilaxmaster-coder/AXX/actions/workflows/version-consistency.yml">Integración continua</a> ·
   <a href="docs/releases/0.22.26.md">Notas de la versión</a> ·
   <a href="docs/COMMAND-TRAINING.md">Práctica y aceptación</a>
@@ -18,7 +18,7 @@
 
 [Archivos entre dispositivos](docs/mobile/TRANSFER.md) · [Empezar](#empezar) · [Funciones](#funciones) · [Modelos](#modelos) · [Magic Pen](#magic-pen) · [Control del PC](#control-del-pc) · [Arquitectura](#arquitectura) · [Validación](#pruebas-y-estado) · [Desarrollo](#desarrollo)
 
-> **Axx is under active development.** Source and published Windows installer are both **v0.22.31**. Validation is recorded per feature; a working UI or build does not by itself certify every hardware-dependent behavior.
+> **Axx is under active development.** Source is **v0.22.32**; the published Windows installer is **v0.22.31**. Delivery of the newer source is pending publication. Validation is recorded per feature; a working UI or build does not by itself certify every hardware-dependent behavior.
 
 ## Download Axx for Windows
 
@@ -29,7 +29,7 @@ Run the installer and open Axx. Python and Node are not required. Start with **A
 
 Backend dependencies are installed with the app and do not require extraction on every launch. Windows may still scan them during startup. The native host allows up to 90 seconds for backend readiness and reports a startup error if that limit is exceeded.
 
-Source and published Windows installer are both **v0.22.31**. Android APKs remain local test artifacts until separately published. See [mobile setup and validation](docs/mobile/README.md) and the [version and release procedure](docs/RELEASING.md).
+Source is **v0.22.32**; the published Windows installer is **v0.22.31**. Delivery of the newer source is pending publication. Android APKs remain local test artifacts until separately published. See [mobile setup and validation](docs/mobile/README.md) and the [version and release procedure](docs/RELEASING.md).
 <!-- release:download:end -->
 
 ---
@@ -178,7 +178,7 @@ El taller puede proponer flujos y transformaciones puras, validarlas y mantener 
 
 ## Android
 
-Android mantiene su versión independiente. La fuente recupera **0.2.11/code32**, correspondiente al APK ya instalado en Samsung A21s: el usuario confirmó 65 segundos de control, movimiento al inicio/final y DETENER con Windows 0.22.30 R3. [Registro y límites de esa aceptación](docs/mobile/TRACKPAD-20261029.md). Reconciliar esa fuente con los cambios posteriores de Windows no genera otro APK ni acredita una instalación nueva; los recibos históricos no sustituyen el gate de la integración final. Clics, arrastre, desplazamiento, voz, batería y temperatura conservan comprobación separada.
+Android mantiene su versión independiente. La fuente candidata es **0.2.12/code33**, con [continuidad de misiones](docs/mobile/MISSIONS.md); su build, firma, instalación y aceptación se comprueban por separado. La aceptación histórica corresponde a **0.2.11/code32** en Samsung A21s: el usuario confirmó 65 segundos de control, movimiento al inicio/final y DETENER con Windows 0.22.30 R3. [Registro y límites de esa aceptación](docs/mobile/TRACKPAD-20261029.md). Los recibos históricos no sustituyen el gate de la integración final ni acreditan este APK nuevo. Clics, arrastre, desplazamiento, voz, batería y temperatura conservan comprobación separada.
 
 La instalación histórica de **0.2.8** verificó firma/hash, conservación de datos y reconexión tras reinicio. Añadió una caché de geometría idéntica para reducir el trabajo de CPU sin bajar calidad; [medición y regresiones de imagen](docs/mobile/PERFORMANCE-20261029.md). Se conservan la corrección de los 24 casos del estudio, los 120 escenarios y las doce referencias de diseño. En 0.2.7 se comprobaron 12 combinaciones nativas de tema/texto/orientación con teclado, sincronización de color en ambos sentidos, consulta de Windows y persistencia tras reiniciar en Samsung A21s. El enlace permite compartir apariencia y trabajar con las funciones móviles habilitadas, sin conceder automáticamente acceso a mouse, teclado, audio o tareas del PC. En la versión 0.2.5 se verificaron en Samsung A21s copias de 1.049.652 bytes hacia Windows por LAN y Tailscale, guardado en Descargas con SHA-256 coincidente y persistencia del enlace tras reiniciar Axx. Ambas pruebas usaron la misma Wi-Fi. [Alcance de la prueba física](docs/mobile/TRANSFER-ACCEPTANCE-20261029.md); dos conexiones a Internet distintas, voz y segundo plano siguen pendientes de aceptación.
 
@@ -189,6 +189,8 @@ El escaneo óptico del QR, los gestos remotos restantes y el audio mantienen ace
 ## Pruebas y estado
 
 El instalador Windows **0.22.31** incluye olvido por conversación, procedencia documental y atención agrupada por misión. La entrega fue instalada y su descarga se publicó después de verificar los hashes. Las [notas de aceptación y límites](docs/releases/0.22.31.md) distinguen los recorridos comprobados de las funciones y dispositivos sin certificar.
+
+La fuente candidata 0.22.32 añade selección explícita de recursos, continuidad móvil y evaluación de esfuerzo declarado. El [informe técnico de alcance](docs/anticipation/IMPLEMENTATION-STATUS.md) distingue esos contratos de las ampliaciones todavía pendientes; no declara terminada toda la especificación de los adjuntos.
 
 | Área | Evidencia disponible | Alcance que no debe inferirse |
 | --- | --- | --- |
