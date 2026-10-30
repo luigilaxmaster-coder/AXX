@@ -14,6 +14,7 @@ from backend.actions.executor import ActionExecutor
 from backend.commands import CommandService
 from backend.memory.procedural_memory import get_action_env_fingerprint
 from backend.memory.skill_memory import validate_schema, NeedsInput
+from backend.anticipation import AnticipationService
 
 
 class LocalModel:
@@ -31,6 +32,199 @@ class LocalModel:
             raise RuntimeError('The local test did not release the model')
         return {'ok': True, 'message': {'content': json.dumps(self.answer)},
                 'route': {'provider_name': 'offline-fixture', 'model': 'fixture'}}
+
+
+class SourcePublicationTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp.name)
+        self.now = time.time()
+        self.executor = ActionExecutor(self.root / 'state.db', self.root / 'artifacts')
+        self.commands = CommandService(self.executor)
+        self.model = LocalModel()
+        self.model.supports_cancel_event = True
+        self.model.route = lambda request, cancel_event=None: {'ok': True,
+            'message': {'content': json.dumps({'title': 'PRIVATE_LATE_ECHO', 'steps': [
+                {'command_id': 'axx.artifact.write', 'inputs': {'path': 'source-output.txt', 'content': 'PRIVATE_LATE_ECHO'}}]})},
+            'route': {'provider_name': 'offline-fixture', 'model': 'fixture'}}
+        self.learning = ActionLearning(self.commands, self.model)
+        self.service = AnticipationService(self.commands, clock=lambda: self.now)
+        self.learning.anticipation = self.service
+        self.commands.learning = self.learning
+        self.patchers = [patch.object(self.service, '_clipboard_available', return_value=True),
+            patch.object(self.service, '_provider_context_available', return_value=True),
+            patch('backend.action_learning.SOURCE_PLANNING_READY', True),
+            patch.object(self.service, '_clipboard_snapshot', return_value=(
+                {'sequence_number': 1, 'characters': 17, 'content_fingerprint': 'synthetic'},
+                {'text': 'PRIVATE_SOURCE_RAW'}, False))]
+        for patcher in self.patchers: patcher.start()
+        self.target = {'id': 'clipboard-source', 'source': 'clipboard', 'task_id': 'source-task',
+            'observe': True, 'retain': True, 'send_to_provider': True, 'project_id': 'project-a'}
+        self.service.configure({'profile': 'copiloto', 'sources': {'clipboard': True}, 'observation_targets': [self.target]})
+        self.service.tick()
+        self.plan, _ = self.learning._new_plan('Preparar tarea sintética', 'source-plan', {}, 'project-a')
+        self.plan.update(conversation_id='source-task', operational_context={'context_meta': {}, 'project_id': 'project-a'},
+            planning_settings={'provider_name': '', 'model': '', 'selection_mode': 'manual'})
+        self.learning._save(self.plan)
+
+    def tearDown(self):
+        self.learning.close(); self.service.close(); self.commands.close(); self.executor.close()
+        for patcher in reversed(self.patchers): patcher.stop()
+        self.temp.cleanup()
+
+    def response(self):
+        return self.learning._infer(self.plan, 'plan', self.learning._prompt(self.plan['request'], {}, 'project-a', 'source-task'))
+
+    def revoke(self):
+        self.service.configure({'observation_targets': [self.target | {'retain': False, 'send_to_provider': False}]})
+
+    def assert_no_echo(self):
+        payload = '\n'.join(row[0] for row in self.learning.db.execute('SELECT payload FROM learning_plans'))
+        for text in ('PRIVATE_LATE_ECHO', 'PRIVATE_SOURCE_RAW'):
+            self.assertNotIn(text, payload)
+            self.assertNotIn(text, json.dumps(self.learning.get('source-plan')))
+        self.assertEqual(self.executor.list_operations(), [])
+        self.assertFalse(self.learning.db.execute("SELECT 1 FROM skill_versions WHERE json_extract(payload,'$.title')='PRIVATE_LATE_ECHO'").fetchone())
+
+    def test_revoke_after_response_before_ready_never_publishes_echo(self):
+        data = self.learning._model_data(self.response())
+        self.plan['steps'] = data['steps']
+        self.revoke()
+        with self.assertRaises(NeedsInput):
+            self.learning._ready(self.plan, data['title'])
+        self.plan.update(model_data=data, skill_candidate={'title': 'PRIVATE_LATE_ECHO'}, message='PRIVATE_LATE_ECHO')
+        saved = self.learning._save(self.plan)
+        self.assertTrue(saved['context_invalidated'])
+        self.assertIsNone(saved['approved_hash'])
+        self.assert_no_echo()
+
+    def test_revoke_before_first_save_write_restores_durable_snapshot(self):
+        data = self.learning._model_data(self.response())
+        self.plan.update(model_data=data, title='PRIVATE_LATE_ECHO', steps=data['steps'], skill_candidate=data)
+        original = self.learning._save_current
+        calls = []
+        def intercepted(plan, source_recheck=lambda: None):
+            if not calls:
+                calls.append(True); self.revoke()
+            return original(plan, source_recheck)
+        with patch.object(self.learning, '_save_current', side_effect=intercepted):
+            saved = self.learning._save(self.plan)
+        self.assertEqual(saved['state'], 'needs_input')
+        self.assert_no_echo()
+
+    def test_expiry_before_commit_rolls_back_new_proposal(self):
+        data = self.learning._model_data(self.response())
+        self.plan.update(model_data=data, title='PRIVATE_LATE_ECHO', steps=data['steps'])
+        original = self.learning._save_current
+        checks = []
+        def intercepted(plan, source_recheck=lambda: None):
+            def expire_before_commit():
+                checks.append(True)
+                if len(checks) == 3: self.now += 61
+                source_recheck()
+            return original(plan, expire_before_commit)
+        with patch.object(self.learning, '_save_current', side_effect=intercepted):
+            saved = self.learning._save(self.plan)
+        self.assertTrue(saved['context_invalidated'])
+        self.assert_no_echo()
+
+    def test_authorized_retained_plan_persists_but_never_learns_new_skill_or_capability(self):
+        data = self.learning._model_data(self.response())
+        self.plan.update(model_data=data, steps=data['steps'])
+        self.learning._ready(self.plan, data['title'])
+        saved = self.learning._save(self.plan)
+        self.assertEqual(saved['state'], 'awaiting_approval')
+        self.assertIn('PRIVATE_LATE_ECHO', json.dumps(self.learning.get('source-plan')))
+        with patch.object(self.learning.skills, 'insert', side_effect=AssertionError('No automatic source-derived skills')), \
+                patch.object(self.learning, 'update_context', side_effect=AssertionError('No reusable source-derived context')):
+            completed = self.learning.execute('source-plan', approved=True)
+            self.assertEqual(completed['state'], 'succeeded', completed)
+            self.assertTrue(completed['postconditions_passed'])
+        self.assertEqual((self.executor.workspace_root / 'source-output.txt').read_text(), 'PRIVATE_LATE_ECHO')
+        with self.assertRaisesRegex(NeedsInput, 'comandos existentes'):
+            self.learning._build_capability(self.plan, {'kind': 'python_transform', 'goal': 'PRIVATE_LATE_ECHO'})
+
+    def test_old_source_response_cannot_be_resent_as_ordinary_repair_after_revoke(self):
+        with patch.object(self.model, 'route', wraps=self.model.route) as route:
+            self.response()
+            self.revoke()
+            with self.assertRaises(NeedsInput):
+                self.learning._infer(self.plan, 'repair', [
+                    {'role': 'system', 'content': 'synthetic repair'},
+                    {'role': 'user', 'content': 'PRIVATE_LATE_ECHO from previous attempt'}])
+        self.assertEqual(route.call_count, 1)
+        self.assert_no_echo()
+
+    def test_revocation_at_route_save_aborts_before_backend_and_refunds_unattempted_call(self):
+        original = self.learning._save
+        def revoke_before_network(plan):
+            if plan.get('active_inference_request_id'):
+                self.revoke()
+            return original(plan)
+        with patch.object(self.learning, '_save', side_effect=revoke_before_network), \
+                patch.object(self.model, 'route', wraps=self.model.route) as route:
+            with self.assertRaises(NeedsInput): self.response()
+        route.assert_not_called()
+        self.assertEqual(self.learning.get('source-plan')['model_calls_used'], 0)
+        self.assert_no_echo()
+
+    def test_repair_retains_reviewable_plan_without_inserting_source_echo_skill(self):
+        data = self.learning._model_data(self.response())
+        self.plan.update(model_data=data, preparation={'kind': 'repair', 'prefix': [],
+            'previous': {'skill_versions': [], 'plan_hash': 'previous'}, 'correction': 'synthetic correction'})
+        with patch.object(self.learning.skills, 'insert', side_effect=AssertionError('No premature source-derived skill')):
+            self.learning._prepare_repair(self.plan)
+        self.assertEqual(self.plan['state'], 'awaiting_approval')
+        self.assertEqual(self.plan['skill_versions'], [])
+
+    def test_ready_releases_policy_lock_before_command_catalog_validation(self):
+        self.response()
+        for references in (False, True):
+            with self.subTest(observation_dependencies=references):
+                plan = copy.deepcopy(self.plan)
+                if not references:
+                    plan.pop('observation_dependencies', None)
+                plan['steps'] = [{'command_id': 'axx.system.telemetry', 'inputs': {}}]
+                command_held = threading.Event()
+                validating = threading.Event()
+                checked_policy = threading.Event()
+                policy_acquired, errors = [], []
+                original_validate = self.learning._validate_steps
+
+                def dispatch_order():
+                    with self.commands.lock:
+                        command_held.set()
+                        if not validating.wait(3):
+                            errors.append('Preparation did not reach catalog validation')
+                        acquired = self.service.lock.acquire(timeout=2)
+                        policy_acquired.append(acquired)
+                        if acquired:
+                            self.service.lock.release()
+                        checked_policy.set()
+
+                def validate(*args, **kwargs):
+                    validating.set()
+                    if not checked_policy.wait(3):
+                        raise AssertionError('Dispatch did not complete policy admission')
+                    return original_validate(*args, **kwargs)
+
+                def ready():
+                    try:
+                        self.learning._ready(plan, 'Synthetic lock-order check')
+                    except Exception as exc:
+                        errors.append(repr(exc))
+
+                dispatcher = threading.Thread(target=dispatch_order, daemon=True)
+                preparer = threading.Thread(target=ready, daemon=True)
+                with patch.object(self.learning, '_validate_steps', side_effect=validate):
+                    dispatcher.start()
+                    self.assertTrue(command_held.wait(3))
+                    preparer.start()
+                    dispatcher.join(5); preparer.join(5)
+                self.assertFalse(dispatcher.is_alive() or preparer.is_alive())
+                self.assertEqual(errors, [])
+                self.assertEqual(policy_acquired, [True], 'Preparation held policy while waiting for commands')
+                self.assertEqual(self.executor.list_operations(), [])
 
 
 class PlanningContextTests(unittest.TestCase):

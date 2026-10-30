@@ -7,6 +7,7 @@ from backend.prompts import compose
 import hashlib
 from functools import wraps
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager, ExitStack, nullcontext
 import json
 import logging
 from pathlib import Path
@@ -25,6 +26,11 @@ from .actions.command_language import command_sequence
 
 TERMINAL = {'succeeded', 'failed', 'cancelled', 'blocked', 'needs_input', 'expired', 'unknown'}
 SOURCE_PLANNING_READY = False
+SOURCE_CONTEXT_INVALID = 'El contexto observado cambió o perdió su permiso; se descartó la propuesta nueva. Los efectos ya verificados se conservan.'
+
+
+class SourceContextRevoked(NeedsInput):
+    pass
 ALLOWED = {key: value for key, value in ADAPTERS.items()
            if not key.startswith(('axx.shell.','axx.computer.')) and key != 'axx.process.run'
            and not key.startswith('axx.desktop.pointer.')
@@ -175,8 +181,52 @@ class ActionLearning:
             self.recovery_thread = threading.Thread(target=recover, name='axx-skill-recovery', daemon=True)
             self.recovery_thread.start()
 
+    @contextmanager
+    def _source_publication(self, plan):
+        references = plan.get('observation_dependencies') or []
+        if not references:
+            with getattr(self.anticipation, 'lock', nullcontext()):
+                yield lambda: None
+            return
+        factory = getattr(self.anticipation, 'provider_context_publication_guard', None)
+        if not callable(factory):
+            raise SourceContextRevoked(SOURCE_CONTEXT_INVALID)
+        with ExitStack() as stack:
+            try:
+                check = stack.enter_context(factory(plan.get('conversation_id') or plan['operation_id'], references,
+                    project_id=plan.get('project_id', '')))
+            except ValueError:
+                raise SourceContextRevoked(SOURCE_CONTEXT_INVALID) from None
+            def recheck():
+                try: check()
+                except ValueError: raise SourceContextRevoked(SOURCE_CONTEXT_INVALID) from None
+            recheck()
+            yield recheck
+
     def _save(self, plan):
+        with self.lock:
+            try:
+                with self._source_publication(plan) as recheck:
+                    return self._save_current(plan, recheck)
+            except SourceContextRevoked:
+                row = self.db.execute('SELECT payload FROM learning_plans WHERE id=?', (plan['operation_id'],)).fetchone()
+                if not row:
+                    raise SourceContextRevoked(SOURCE_CONTEXT_INVALID) from None
+                snapshot = json.loads(row[0])
+                plan.clear(); plan.update(snapshot)
+                for field in ('model_data', 'skill_candidate', 'active_inference_request_id'):
+                    plan.pop(field, None)
+                plan.update(context_invalidated=True, approved_hash=None, message=SOURCE_CONTEXT_INVALID)
+                if plan.get('state') != 'succeeded':
+                    plan.update(state='needs_input', preparation_complete=False)
+                # Only the earlier durable snapshot and this static control
+                # message are published. Never serialize the rejected object.
+                with getattr(self.anticipation, 'lock', nullcontext()):
+                    return self._save_current(plan)
+
+    def _save_current(self, plan, source_recheck=lambda: None):
         with self.lock, self.db:
+            source_recheck()
             self._store_model_budget(plan)
             self._model_budget_view(plan)
             if hasattr(self, 'skills') and isinstance(plan.get('operational_context'), dict):
@@ -207,8 +257,10 @@ class ActionLearning:
                 if plan['state'] == 'running': plan['state'] = 'pausing'
             self._project_compensations(plan, self.db)
             plan['mission'] = self._mission(plan)
+            source_recheck()
             self.db.execute('INSERT INTO learning_plans VALUES (?,?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload',
                             (plan['operation_id'], json.dumps(plan, ensure_ascii=False)))
+            source_recheck()
             self.change_revision += 1
         return plan
 
@@ -483,6 +535,8 @@ class ActionLearning:
 
     @staticmethod
     def _dependency_error(plan, read_plan):
+        if any(item.get('available_current') is not True for item in plan.get('artifact_compensations', [])):
+            return 'Un entregable de esta misión está apartado o pendiente de conciliación; restaura y verifica antes de continuar.'
         for dependency in plan.get('mission_dependencies', []):
             source = read_plan(dependency['operation_id'])
             if (source.get('goal_revision', 1) != dependency['goal_revision']
@@ -498,7 +552,7 @@ class ActionLearning:
             (SELECT 1 FROM json_each(json_extract(payload,'$.step_records')) r
              WHERE json_extract(r.value,'$.operation_id')=?) LIMIT 1""", (operation_id,)).fetchone()
         if not row: return
-        plan = json.loads(row[0])
+        plan = self._project_compensations(json.loads(row[0]), self.commands.db)
         if self._plan_hash(plan) != plan.get('approved_hash'):
             raise ValueError('El contenido actual del plan no coincide con la revisión aprobada.')
         self._assert_revalidation_plan(plan, db=self.commands.db)
@@ -963,6 +1017,12 @@ class ActionLearning:
         return messages,images,refs
 
     def _infer(self, plan, task, messages, request_suffix=''):
+        # Repair/content messages can contain a previous source-derived result.
+        # An empty current observer must never silently turn that history into
+        # an ordinary request without its original authorization.
+        with self.lock, self._source_publication(plan):
+            if plan.get('context_invalidated'):
+                raise SourceContextRevoked(SOURCE_CONTEXT_INVALID)
         messages,images,refs = self._source_prompt(plan,messages)
         event = None
         if refs:
@@ -988,6 +1048,9 @@ class ActionLearning:
         reserved=self._reserve_model_call(plan, request_id, task, single_request=single_request)
         plan['active_inference_request_id'] = request_id
         self._save(plan)
+        if plan.get('context_invalidated') or source_cancel is not None and source_cancel.is_set():
+            self._settle_model_call(plan, request_id, {'ok': False, 'error': {'upstream_attempted': False}}, single_request=single_request)
+            raise SourceContextRevoked(SOURCE_CONTEXT_INVALID)
         with self.lock:
             if self.closing: raise ValueError('La sesión se está cerrando')
             self.active_inference_ids.add(request_id)
@@ -1036,6 +1099,15 @@ class ActionLearning:
         return response
 
     def _ready(self, plan, title):
+        with self.lock:
+            # Catalog validation takes commands.lock. Never hold policy.lock
+            # across it: dispatch already acquires commands -> policy. The
+            # durable publication is revalidated atomically by _save.
+            with self._source_publication(plan):
+                pass
+            return self._ready_current(plan, title)
+
+    def _ready_current(self, plan, title):
         if not isinstance(title, str) or not 1 <= len(title) <= 120: raise ValueError('Título de plan inválido')
         plan['steps'] = self._validate_steps(plan['steps'], allow_shell=terminal_requested(plan['request']))
         validate_goal_steps(plan['goal_spec'],plan['steps'],self.commands.executor.workspace_root)
@@ -1214,6 +1286,8 @@ class ActionLearning:
         return data
 
     def _build_capability(self, plan, request):
+        if plan.get('observation_dependencies'):
+            raise NeedsInput('El contexto observado permite preparar comandos existentes; solicita la nueva capacidad explícitamente sin adjuntar ese contexto.')
         request = bounded_object(request,8000)
         if set(request) != {'kind','goal'} or request['kind'] not in ('python_transform','source_proposal'):
             raise ValueError('Carencia de capacidad inválida')
@@ -1304,7 +1378,7 @@ class ActionLearning:
             return self._finish_planning(plan)
 
     @active_operation
-    def prepare_steps(self, text, steps, operation_id=None, project_id='', conversation_id=None):
+    def prepare_steps(self, text, steps, operation_id=None, project_id='', conversation_id=None, *, _mission_dependencies=()):
         """Explicit typed proposals share approval, checkpoint and execution with model plans."""
         if not isinstance(text, str) or not text.strip() or len(text) > 12000:
             raise ValueError('Indica un objetivo de tarea válido')
@@ -1316,9 +1390,14 @@ class ActionLearning:
             request_context={'conversation_id': conversation_id}, parts=steps,
             operational_context={'project_id':project_id,'context_meta':{}})
         if not created: return plan
+        if _mission_dependencies:
+            plan['mission_dependencies'] = json.loads(json.dumps(_mission_dependencies, allow_nan=False))
         plan.update(steps=steps, conversation_id=conversation_id, proposal_source='typed_request')
         try:
             self._ready(plan, text[:120])
+            dependency_error = self._dependency_error(plan, self.get)
+            if dependency_error:
+                plan.update(state='waiting_dependency', message=dependency_error, approved_hash=None)
         except NeedsInput as exc:
             plan.update(state='needs_input',message=str(exc),preparation_complete=False)
         return self._save(plan)
@@ -1535,8 +1614,11 @@ class ActionLearning:
                  'context_dependencies': plan.get('context_dependencies', []),
                  'provenance': {'source': 'repair', 'operation_id': plan['operation_id'], 'parent_version': previous['version'] if previous else None,
                                 'previous_plan_hash': preparation['previous']['plan_hash'], 'correction': preparation['correction'], 'route': plan.get('route', {})}}
-        self.skills.insert(skill)
-        plan['skill_versions'] = [{'id': action_id, 'version': version, 'inputs': {}, 'step_start': 0, 'step_count': len(plan['steps'])}]
+        if not plan.get('observation_dependencies'):
+            self.skills.insert(skill)
+            plan['skill_versions'] = [{'id': action_id, 'version': version, 'inputs': {}, 'step_start': 0, 'step_count': len(plan['steps'])}]
+        else:
+            plan['skill_versions'] = []  # Review the concrete repaired suffix; do not retain an echo as a reusable skill.
         self._dependencies(plan)
         plan['plan_hash'] = self._plan_hash(plan)
 
@@ -1693,6 +1775,17 @@ class ActionLearning:
                 except Exception: pass  # Metrics never change an execution receipt.
 
     def _learn(self, plan):
+        if plan.get('observation_dependencies'):
+            with self.lock, self._source_publication(plan):
+                records = plan.get('step_records', [])
+                if not records or not all((record.get('result') or {}).get('state') == 'succeeded'
+                        and (record.get('result') or {}).get('postconditions_passed') is True
+                        and (record.get('result') or {}).get('evidence') for record in records):
+                    raise ValueError('Los resultados derivados del contexto todavía no tienen recibos verificados')
+                plan.update(state='succeeded', postconditions_passed=True,
+                    effect_verified=all(bool(record['result'].get('evidence')) for record in plan['step_records']),
+                    message='Pasos ejecutados y comprobados. No se creó una habilidad reutilizable a partir del contexto observado.')
+                return self._save(plan)
         if plan.get('revalidation'):
             self._assert_revalidation_plan(plan)
             ref = plan['skill_versions'][0]

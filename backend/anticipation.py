@@ -577,6 +577,10 @@ class AnticipationService:
 
     def _checkpoint_grant(self, item, source, *, bound=True):
         """Select future-only permission; final resources are checked at dispatch."""
+        from .action_learning import ActionLearning
+        source = ActionLearning._project_compensations(source, self.db)
+        if any(row.get('available_current') is not True for row in source.get('artifact_compensations', [])):
+            return None
         for row in self.db.execute('SELECT payload FROM anticipation_grants'):
             grant = json.loads(row[0])
             if (grant.get('capability') != MISSION_CAPABILITY or grant.get('task_id') != item['task_id']
@@ -944,9 +948,10 @@ class AnticipationService:
 
     @staticmethod
     def _provider_context_available(source):
-        # A model can echo observed content into its result. Keep the entire
-        # provider path closed until both input and result persistence are ephemeral.
-        return False
+        # Publication and retention are reviewed together. The shared readiness
+        # flag remains false until integration review; microphone is local only.
+        from .action_learning import SOURCE_PLANNING_READY
+        return source in ('window', 'clipboard') and SOURCE_PLANNING_READY is True
 
     def attach_transcription(self, transcription):
         # ASR is created later during startup. No change to the public /v1 API.
@@ -1226,6 +1231,19 @@ class AnticipationService:
             self.provider_context_leases[event] = {'refs': copy.deepcopy(refs), 'timer': timer}
             timer.start()
             return event
+
+    @contextmanager
+    def provider_context_publication_guard(self, task_id, refs, project_id='', application_id='', device_id='host'):
+        """Caller holds its learning lock before this policy lock and SQL writes.
+
+        Only bounded local publication belongs inside; never inference or an
+        executor call. Recheck inside the transaction immediately before commit.
+        """
+        with self.lock:
+            def recheck():
+                return self.validate_provider_context_refs(task_id, refs, project_id, application_id, device_id)
+            recheck()
+            yield recheck
 
     def release_provider_context(self, event):
         with self.lock:
@@ -1580,7 +1598,7 @@ class AnticipationService:
                     'retention_scope': 'metadata_only', 'raw_content_ttl_seconds': RAW_SOURCE_TTL_SECONDS,
                     'observation_history_max_events': MAX_CONTEXT_SOURCE_EVENTS,
                     'observation_history_scope': 'Only new retained window/clipboard/microphone metadata, globally, in addition to retention_days; not a state.db quota or command-journal limit.',
-                    'reason': 'M15 abierto: input físico proactivo bloqueado. Las fuentes locales requieren selección y consentimientos explícitos; ventana y portapapeles solo conservan metadatos. El envío de su contenido sigue deshabilitado hasta completar la privacidad de los resultados.'}}
+                    'reason': 'M15 abierto: input físico proactivo bloqueado. Ventana y portapapeles requieren observar, conservar contexto y permitir envío explícitamente; su disponibilidad se informa por capacidad. Las capturas caducan en RAM en 60 segundos; tareas y resultados autorizados pueden repetir ese contexto. El micrófono sigue siendo local.'}}
 
     def configure(self, body):
         if not isinstance(body, dict) or set(body) - set(DEFAULTS):
@@ -2110,9 +2128,10 @@ class AnticipationService:
             if result.get('state') != 'succeeded' or result.get('postconditions_passed') is not True:
                 break
             last = index
+        history = [{'operation_id': record.get('operation_id'), 'state': record.get('state'),
+                    'verified': (record.get('result') or {}).get('postconditions_passed') is True} for record in records]
         return {'last_verified_step': last, 'next_step': last + 1,
-                'records_hash': digest([{'operation_id': record.get('operation_id'), 'state': record.get('state'),
-                    'verified': (record.get('result') or {}).get('postconditions_passed') is True} for record in records])}
+                'records_hash': digest({'records': history, 'compensations': plan['artifact_compensations']}) if plan.get('artifact_compensations') else digest(history)}
 
     def _preparation_scope_allowed(self, task, config=None):
         # shortcut: multi-resource plans use task scopes; enable folder scopes after resolving every target.
@@ -2175,10 +2194,13 @@ class AnticipationService:
         if learning is None or learning.closed or learning.closing:
             return
         with self.lock:
-            plans = [json.loads(row[0]) for row in self.db.execute('SELECT payload FROM learning_plans')]
+            from .action_learning import ActionLearning
+            plans = [ActionLearning._project_compensations(json.loads(row[0]), self.db) for row in self.db.execute('SELECT payload FROM learning_plans')]
         groups = {}
         for source in plans:
             if source.get('revalidation'):
+                continue
+            if any(row.get('available_current') is not True for row in source.get('artifact_compensations', [])):
                 continue
             task = source.get('conversation_id') or source['operation_id']
             path = str(self.commands.executor.workspace_root)
@@ -2199,7 +2221,7 @@ class AnticipationService:
                     with self.lock, self.db:
                         self._preparation_candidate(task, 'resume_incomplete_task', 'Preparar reanudación de la tarea', plan, profile, options,
                             [{'operation_id': source['operation_id'], **checkpoint}])
-            if source.get('state') != 'succeeded' or source.get('postconditions_passed') is not True:
+            if source.get('state') != 'succeeded' or not ActionLearning._mission(source)['completed']:
                 continue
             with self.lock:
                 initiated = self.db.execute("SELECT 1 FROM anticipation_suggestions WHERE json_extract(payload,'$.learning_plan_id')=? LIMIT 1", (source['operation_id'],)).fetchone()
@@ -2258,7 +2280,10 @@ class AnticipationService:
         source_row = self.db.execute('SELECT payload FROM learning_plans WHERE id=?', (plan['learning_operation_id'],)).fetchone()
         if not source_row:
             raise ValueError('La tarea de origen ya no existe')
-        source = json.loads(source_row[0])
+        from .action_learning import ActionLearning
+        source = ActionLearning._project_compensations(json.loads(source_row[0]), self.db)
+        if any(row.get('available_current') is not True for row in source.get('artifact_compensations', [])):
+            raise StaleContext('Un entregable de origen está apartado o pendiente de conciliación')
         task = source.get('conversation_id') or source['operation_id']
         if task != item['task_id'] or source.get('plan_hash') != plan['source_plan_hash'] or learning._plan_hash(source) != source.get('plan_hash'):
             raise StaleContext('La tarea de origen o sus pasos cambiaron')
@@ -2270,8 +2295,21 @@ class AnticipationService:
             return learning, source, None
         refs = [ref for ref in source.get('skill_versions', []) if ref['id'] == plan['skill_id']
             and ref['version'] == plan['skill_version'] and digest(ref['inputs']) == plan['inputs_hash']]
-        if source['state'] != 'succeeded' or len(refs) != 1:
+        if source['state'] != 'succeeded' or not ActionLearning._mission(source)['completed'] or len(refs) != 1:
             raise ValueError('La rutina ya no tiene parámetros verificados inequívocos')
+        evidence = set()
+        for key in plan.get('evidence_ids', []):
+            row = self.db.execute('SELECT payload FROM learning_plans WHERE id=?', (key,)).fetchone()
+            if not row:
+                continue
+            candidate = ActionLearning._project_compensations(json.loads(row[0]), self.db)
+            if ((candidate.get('conversation_id') or candidate['operation_id']) == item['task_id']
+                    and ActionLearning._mission(candidate)['completed']
+                    and any(ref['id'] == plan['skill_id'] and ref['version'] == plan['skill_version']
+                        and digest(ref['inputs']) == plan['inputs_hash'] for ref in candidate.get('skill_versions', []))):
+                evidence.add(key)
+        if len(evidence) < 3:
+            raise StaleContext('La rutina ya no conserva tres resultados vigentes verificados')
         from .memory.skill_memory import read_skill_state
         skill = read_skill_state(self.db, plan['skill_id'], plan['skill_version'], project_id=source.get('project_id', ''), task_id=item['task_id'])
         if not skill.get('environment_matches') or not skill.get('effect_verified'):
@@ -2442,6 +2480,15 @@ class AnticipationService:
             if item['state'] != 'EXECUTING' or item.get('cancel_requested'):
                 raise ValueError('La preparación fue cancelada antes de empezar')
             learning, source, steps = self._check(item)
+            dependencies = []
+            if steps is not None:
+                for source_id in item['plan'].get('evidence_ids', [source['operation_id']]):
+                    row = self.db.execute('SELECT payload FROM learning_plans WHERE id=?', (source_id,)).fetchone()
+                    if not row:
+                        raise StaleContext('Una evidencia de origen ya no existe')
+                    evidence = json.loads(row[0])
+                    dependencies.append({'operation_id': source_id, 'goal_revision': evidence.get('goal_revision', 1),
+                        'steps_hash': learning._hash(evidence.get('steps', []))})
             plan_id = source['operation_id'] if steps is None else 'ant-plan-' + item['suggestion_id'].split('-', 1)[1]
             item['learning_plan_id'] = plan_id
             with self.db:
@@ -2455,7 +2502,7 @@ class AnticipationService:
                 raise ValueError('La preparación fue cancelada antes de usar el planificador')
         result = (learning.resume(source['operation_id'], approved=False) if steps is None else
             learning.prepare_steps(item['title'], steps, operation_id=plan_id,
-                project_id=source.get('project_id', ''), conversation_id=item['task_id']))
+                project_id=source.get('project_id', ''), conversation_id=item['task_id'], _mission_dependencies=dependencies))
         with self.lock:
             try:
                 cancelled = self._get(item['suggestion_id']).get('cancel_requested')
