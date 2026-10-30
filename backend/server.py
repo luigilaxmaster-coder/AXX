@@ -147,23 +147,33 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
             pass
         self.close_connection = True
 
+    def _discard_rejected_body(self):
+        length = self.headers.get('Content-Length', '')
+        if not length.isdecimal() or self.headers.get('Transfer-Encoding'):
+            return
+        previous = self.connection.gettimeout()
+        try:
+            self.connection.settimeout(0.5)
+            self.rfile.read(min(int(length), 16384))
+        except (OSError, ValueError):
+            pass
+        finally:
+            self.connection.settimeout(previous)
+
     def _authorized(self):
         expected_hosts = {f'127.0.0.1:{self.server.server_port}', f'localhost:{self.server.server_port}'}
         if self.headers.get('Host') not in expected_hosts:
+            self._discard_rejected_body()
             self._send_json(403, {'error': {'code': 'FORBIDDEN', 'message': 'Invalid loopback host'}})
             return False
         # The UI uses native IPC. Browser-origin requests never access this private service.
         if self.headers.get('Origin'):
+            self._discard_rejected_body()
             self._send_json(403, {'error': {'code': 'FORBIDDEN', 'message': 'Use the native host bridge'}})
             return False
         value = self.headers.get('Authorization', '')
         if not secrets.compare_digest(value, 'Bearer ' + self.server.host_token):
-            length = self.headers.get('Content-Length')
-            if length and length.isdecimal():
-                try:
-                    self.rfile.read(min(int(length), MAX_BODY))
-                except Exception:
-                    pass
+            self._discard_rejected_body()
             self._send_json(401, {'error': {'code': 'UNAUTHORIZED', 'message': 'Native host authentication required'}})
             return False
         return True
@@ -514,6 +524,14 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                 self._send_json(200, result)
                 return
             if TelegramHTTP(self).post(path, body):
+                return
+            if path in ('/axx-api/telegram/review', '/axx-api/telegram/decision'):
+                fields = {'peer_id', 'operation_id'} if path.endswith('/review') else {'peer_id', 'token', 'decision'}
+                if not self.telegram or set(body) != fields or type(body.get('peer_id')) is not int or body['peer_id'] <= 0:
+                    raise ValueError('Invalid Telegram confirmation request')
+                result = (self.telegram.review_operation(body['peer_id'], body['operation_id']) if path.endswith('/review')
+                          else self.telegram.decide_operation(body['peer_id'], body['token'], body['decision']))
+                self._send_json(200, result)
                 return
             if path == '/axx-api/telegram/input':
                 if not self.telegram:

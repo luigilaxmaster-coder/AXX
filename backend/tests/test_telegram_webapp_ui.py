@@ -38,7 +38,8 @@ class TelegramWebAppUITests(unittest.TestCase):
         })();""")
         self.addCleanup(context.close)
         page = context.new_page()
-        fixture = {'calls': [], 'effects': set(), 'fail_first': fail_first, 'mutations': [], 'errors': {}, 'sessions': []}
+        fixture = {'calls': [], 'effects': set(), 'fail_first': fail_first, 'mutations': [], 'errors': {}, 'sessions': [],
+                   'chat_result': None, 'review_expiry': 2000000000}
         if session_error:
             fixture['errors']['/api/session'] = session_error
         state = {'worker_running': True, 'messages': 'not_verified', 'voice_notes': 'not_implemented',
@@ -86,7 +87,15 @@ class TelegramWebAppUITests(unittest.TestCase):
             elif path == '/api/activity':
                 request_route.fulfill(status=200, json={'items': [{'id': 'f27038d4-1e3a-41d1-8085-15f51c59ff70',
                     'state': 'awaiting_approval', 'created_at': 1, 'command_id': '<img src=x onerror=alert(1)>',
-                    'can_cancel': True, 'postconditions_passed': False}]})
+                    'can_cancel': True, 'review_available': True, 'postconditions_passed': False}]})
+            elif path == '/api/review':
+                fixture['mutations'].append((path, json.loads(request.post_data)))
+                request_route.fulfill(status=200, json={'state': 'awaiting_approval', 'title': 'Abrir archivo',
+                    'description': 'Revisar', 'risk': 'local', 'inputs': {'path': '<img src=x onerror=alert(1)>'},
+                    'expires_at': fixture['review_expiry'], 'token': 'x' * 43, 'can_confirm': True})
+            elif path == '/api/decision':
+                fixture['mutations'].append((path, json.loads(request.post_data)))
+                request_route.fulfill(status=200, json={'state': 'succeeded', 'postconditions_passed': True, 'text': 'Verificado'})
             elif path == '/api/cancel':
                 fixture['mutations'].append((path, json.loads(request.post_data)))
                 request_route.fulfill(status=200, json={'state': 'cancel_requested'})
@@ -99,7 +108,7 @@ class TelegramWebAppUITests(unittest.TestCase):
                     fixture['fail_first'] = False
                     request_route.abort('failed')
                 else:
-                    request_route.fulfill(status=200, json={'state': 'succeeded', 'text': '<img src=x onerror=alert(1)> respuesta'})
+                    request_route.fulfill(status=200, json=fixture['chat_result'] or {'state': 'succeeded', 'text': '<img src=x onerror=alert(1)> respuesta'})
             else:
                 request_route.fulfill(status=404, json={'error': 'fixture route missing'})
         page.route('**/*', route)
@@ -112,6 +121,34 @@ class TelegramWebAppUITests(unittest.TestCase):
         self.assertTrue(page.locator('#send').is_disabled())
         self.assertIn('Abre esta app', page.locator('#connection').inner_text())
         self.assertEqual(fixture['calls'], [])
+
+    def test_review_displays_exact_inputs_and_confirms_once(self):
+        page, fixture = self.page()
+        page.wait_for_selector('#send:not([disabled])', state='attached')
+        page.get_by_role('button', name='Actividad', exact=True).click()
+        page.get_by_role('button', name='Revisar orden').click()
+        page.wait_for_selector('#review-card:not([hidden])')
+        self.assertIn('<img src=x onerror=alert(1)>', page.locator('#review-inputs').inner_text())
+        self.assertEqual(page.locator('#review-inputs img').count(), 0)
+        page.locator('#review-confirm').click()
+        page.wait_for_function("() => document.querySelector('#error').textContent.includes('Verificado')")
+        decisions = [body for path, body in fixture['mutations'] if path == '/api/decision']
+        self.assertEqual(decisions, [{'token': 'x' * 43, 'decision': 'confirm', 'csrf': 'fixture-csrf'}])
+
+    def test_chat_opens_review_and_expiry_blocks_decision(self):
+        page, fixture = self.page()
+        fixture['chat_result'] = {'state': 'awaiting_approval', 'text': 'Revisa la orden',
+                                  'operation_id': 'f27038d4-1e3a-41d1-8085-15f51c59ff70'}
+        fixture['review_expiry'] = 1
+        page.wait_for_selector('#send:not([disabled])', state='attached')
+        page.get_by_role('button', name='Chat', exact=True).click()
+        page.locator('#draft').fill('Abrir archivo')
+        page.locator('#send').click()
+        page.wait_for_selector('#review-card:not([hidden])')
+        self.assertTrue(page.locator('#activity').is_visible())
+        self.assertTrue(page.locator('#review-confirm').is_disabled())
+        self.assertIn('venció', page.locator('#review-reason').inner_text())
+        self.assertEqual([path for path, _ in fixture['mutations'] if path == '/api/decision'], [])
 
     def test_navigation_status_diagnostics_and_escaped_api_text(self):
         page, _ = self.page()

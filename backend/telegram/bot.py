@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
+from datetime import datetime
 import hashlib
 import json
 from pathlib import Path
@@ -16,7 +17,7 @@ import urllib.request
 
 from backend.auth.chatgpt_auth import _dpapi_decrypt, _dpapi_encrypt
 from backend.telegram.bot_config import load_bot
-from backend.telegram.config import _file_lease, account_path, load_account
+from backend.telegram.config import _file_lease, account_path, load_account, confirmation_policy
 from backend.telegram.pairing import PairingStore
 from backend.telegram.service import status_text
 from backend.telegram.worker import NoRedirect, chunks
@@ -85,7 +86,7 @@ def bot_request(token, method, body, timeout=15):
 
 
 def local_request(endpoint_file, route, body=None):
-    if route not in {'/axx-api/telegram/status', '/axx-api/telegram/bot-input'}:
+    if route not in {'/axx-api/telegram/status', '/axx-api/telegram/bot-input', '/axx-api/telegram/review', '/axx-api/telegram/decision'}:
         raise ValueError('Invalid local route')
     raw = Path(endpoint_file).read_bytes()
     if len(raw) > 16384:
@@ -174,6 +175,44 @@ class BotWorker:
                 body['reply_markup'] = markup
             bot_request(self.config['token'], 'sendMessage', body)
 
+    def review(self, operation_id):
+        try:
+            result = local_request(self.endpoint_file, '/axx-api/telegram/review',
+                                   {'peer_id': self.account['owner_id'], 'operation_id': operation_id})
+        except Exception:
+            self.send('No se pudo revisar la orden. Puede haber vencido o cambiado; consulta la actividad en la PC antes de repetir.')
+            return
+        if not isinstance(result.get('inputs'), dict):
+            self.send('No se pudo revisar esta orden. Consulta la operación en tu PC.')
+            return
+        expires = result.get('expires_at')
+        try:
+            expires = datetime.fromtimestamp(float(expires)).astimezone().strftime('%d/%m/%Y %H:%M:%S %Z')
+        except (TypeError, ValueError, OverflowError, OSError):
+            expires = 'no disponible'
+        plan_hash = result.get('plan_hash')
+        fingerprint = plan_hash[:12] if isinstance(plan_hash, str) and re.fullmatch(r'[0-9a-fA-F]{64}', plan_hash) else 'no disponible'
+        risk = {'read': 'Consulta', 'desktop_open': 'Abrir aplicación/página', 'system_command': 'Comando del sistema'}.get(result.get('risk'), 'Requiere revisión en la PC')
+        text = ('Revisa esta orden antes de decidir.\n'
+                + str(result.get('title', 'Acción en tu PC')) + '\n'
+                + str(result.get('description', '')) + '\nRiesgo: ' + risk
+                + '\nParámetros completos:\n' + json.dumps(result['inputs'], ensure_ascii=False, indent=2)
+                + '\nVence: ' + expires + '\nOperación: ' + operation_id + '\nHuella: ' + fingerprint)
+        token = result.get('token')
+        rows = []
+        if result.get('can_confirm') is True and isinstance(token, str) and re.fullmatch(r'[A-Za-z0-9_-]{20,61}', token):
+            rows.append([{'text': 'Confirmar', 'callback_data': 'tc:' + token}, {'text': 'Cancelar', 'callback_data': 'tx:' + token}])
+        else:
+            text += '\n' + str(result.get('reason') or 'Esta orden debe revisarse en la PC.')
+        if isinstance(operation_id, str) and re.fullmatch(r'[0-9a-f-]{36}', operation_id):
+            rows.append([{'text': 'Revisar de nuevo', 'callback_data': 'tr:' + operation_id}])
+        markup = {'inline_keyboard': rows} if rows else None
+        parts = list(chunks(text))
+        for part in parts[:-1]:
+            self.send(part)
+        if parts:
+            self.send(parts[-1], markup)
+
     def persist(self, updates):
         if not isinstance(updates, list):
             raise ValueError('Invalid updates')
@@ -214,10 +253,25 @@ class BotWorker:
                     names = {'conversation': 'Conversar por texto', 'voice_notes': 'Notas de voz',
                              'files': 'Archivos', 'pc_commands': 'Acciones en la PC', 'private_calls': 'Llamadas'}
                     lines = ['Lo que permites:'] + [names[key] + ': ' + ('Permitido' if value is True else 'No permitido') for key, value in grants.items()]
+                    lines.append('Confirmar desde Telegram: ' + ('Permitido' if confirmation_policy(self.data_dir)['enabled'] else 'No permitido'))
                     lines.append('Se cambian en Axx de tu PC: Herramientas → Asistencia → Telegram. Un permiso no significa que la función ya esté lista.')
                     self.send('\n'.join(lines), menu(load_bot(self.data_dir)['public_url']))
                 elif choice == 'help':
-                    self.send('1. Deja Axx abierto en tu PC.\n2. Toca Estado para ver qué está disponible.\n3. Toca Abrir Axx para abrir la Mini App.\nLos permisos se cambian en tu PC. El chat con IA depende de tu proveedor y las llamadas todavía están en reparación.', menu(load_bot(self.data_dir)['public_url']))
+                    self.send('1. Deja Axx abierto en tu PC y habilita Confirmar comandos desde Telegram.\n2. Prueba «abre calculadora» o «información del sistema».\n3. Revisa la tarjeta y pulsa Confirmar o Cancelar. El botón vence en dos minutos.\nToca Abrir Axx para ver la actividad en la Mini App. Las órdenes reservadas requieren la PC; las llamadas siguen en reparación.', menu(load_bot(self.data_dir)['public_url']))
+                elif isinstance(choice, str) and re.fullmatch(r'tr:[0-9a-f-]{36}', choice):
+                    self.review(choice[3:])
+                elif isinstance(choice, str) and re.fullmatch(r't[cx]:[A-Za-z0-9_-]{20,61}', choice):
+                    try:
+                        result = local_request(self.endpoint_file, '/axx-api/telegram/decision',
+                                               {'peer_id': self.account['owner_id'], 'token': choice[3:],
+                                                'decision': 'confirm' if choice[1] == 'c' else 'cancel'})
+                    except Exception:
+                        self.send('No se pudo confirmar. Puede haber vencido o cambiado; consulta la actividad en la PC antes de repetir.')
+                        return
+                    if result.get('state') == 'succeeded' and result.get('postconditions_passed') is not True:
+                        self.send('El resultado no está confirmado. Consulta la operación antes de repetir.')
+                    else:
+                        self.send(str(result.get('text') or 'Consulta el estado de la operación.'))
                 return
             message = update['message']
             text = message.get('text')
@@ -244,7 +298,10 @@ class BotWorker:
                 reply = result.get('text')
                 if not isinstance(reply, str):
                     raise ValueError('Invalid local response')
-                self.send(reply)
+                if result.get('state') == 'awaiting_approval' and isinstance(result.get('operation_id'), str):
+                    self.review(result['operation_id'])
+                else:
+                    self.send(reply)
             else:
                 self.send('El mensaje debe tener entre 1 y 12000 caracteres.')
         except Exception:

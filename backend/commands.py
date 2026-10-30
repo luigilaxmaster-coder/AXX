@@ -6,6 +6,7 @@ Only an explicitly supplied, reviewed PowerShell script may be evaluated as code
 from __future__ import annotations
 
 import hashlib
+import hmac
 from contextlib import nullcontext
 import json
 import math
@@ -785,7 +786,77 @@ class CommandService:
             self.db.execute('UPDATE command_runs SET expires_at=? WHERE operation_id=?', (time.time() + 300, operation_id))
             return self._save(result | {'state': 'awaiting_approval' if result['requires_approval'] else 'prepared', 'error': None})
 
-    def execute(self, operation_id, approved=False, *, allow_parallel_read=False):
+    def remote_review(self, operation_id):
+        """Review only fixed, PC-policy-safe commands; this grants no authority."""
+        with self.lock:
+            result = self.get(operation_id)
+            if not result:
+                raise ValueError('Operación desconocida')
+            row = self.db.execute('SELECT expires_at FROM command_runs WHERE operation_id=?', (operation_id,)).fetchone()
+            expires_at = row[0]
+            command_id = result['command_id']
+            current = self.commands.get(command_id, {})
+            adapter = self.adapters.get(command_id, {})
+            static = command_id in ADAPTERS and current.get('source', {}).get('kind') == 'local_adapter'
+            reserved = operation_id.startswith('learn-')
+            if not reserved and self.db.execute("SELECT 1 FROM sqlite_master WHERE name='learning_plans'").fetchone():
+                reserved = bool(self.db.execute("""SELECT 1 FROM learning_plans WHERE EXISTS
+                    (SELECT 1 FROM json_each(json_extract(payload,'$.step_records')) r
+                     WHERE json_extract(r.value,'$.operation_id')=?) LIMIT 1""", (operation_id,)).fetchone())
+            requires_pc = current.get('requires_approval', True) or current.get('risk') not in ('read', 'desktop_open')
+            catalog = {'risk': current.get('risk'), 'requires_approval': current.get('requires_approval'),
+                       'execution_enabled': current.get('execution_enabled'), 'tool': adapter.get('tool')}
+            snapshot = {key: result.get(key) for key in ('operation_id','command_id','inputs','source','conversation_id','command_mode','delivery_mode')}
+            snapshot['catalog'] = catalog
+            plan_hash = hashlib.sha256(json.dumps(snapshot, sort_keys=True, separators=(',', ':'), ensure_ascii=False, allow_nan=False).encode('utf-8')).hexdigest()
+            if reserved:
+                reason = 'PLAN_RESERVED'
+            elif not static or not current.get('execution_enabled') or not adapter.get('tool'):
+                reason = 'NOT_STATIC_EXECUTABLE'
+            elif requires_pc:
+                reason = 'PC_APPROVAL_REQUIRED'
+            elif result.get('cancel_requested') or result['state'] not in ('prepared', 'awaiting_approval'):
+                reason = 'NOT_REVIEWABLE'
+            elif time.time() > expires_at:
+                reason = 'EXPIRED'
+            else:
+                reason = None
+            return {'operation_id': operation_id, 'state': result['state'], 'title': current.get('title', ''),
+                    'description': current.get('description', ''), 'risk': current.get('risk'),
+                    'inputs': result['inputs'], 'plan_hash': plan_hash, 'expires_at': expires_at,
+                    'eligible': reason is None, 'reason': reason}
+
+    def confirm_remote(self, operation_id, plan_hash, authorization_check):
+        if not isinstance(plan_hash, str) or not re.fullmatch(r'[0-9a-f]{64}', plan_hash) or not callable(authorization_check):
+            raise ValueError('Confirmación remota inválida')
+
+        def claim(current, dispatch=False):
+            review = self.remote_review(operation_id)
+            if dispatch and current['state'] == 'running' and review['reason'] == 'NOT_REVIEWABLE':
+                # The running state was set by this invocation, under the existing gate.
+                self._remote_validate_running(current, review, plan_hash)
+            elif not review['eligible'] or not hmac.compare_digest(review['plan_hash'], plan_hash):
+                raise ValueError('La revisión remota ya no coincide con la operación')
+            try:
+                allowed = authorization_check()
+            except Exception:
+                raise ValueError('Autorización remota revocada') from None
+            if allowed is False:
+                raise ValueError('Autorización remota revocada')
+
+        return self.execute(operation_id, approved=False, _remote_claim=claim)
+
+    def _remote_validate_running(self, current, review, plan_hash):
+        # Validate mutable policy and TTL again without treating running as reviewable.
+        command_id = current['command_id']
+        command = self.commands.get(command_id, {})
+        if (command_id not in ADAPTERS or command.get('source', {}).get('kind') != 'local_adapter'
+                or not command.get('execution_enabled') or command.get('requires_approval', True)
+                or command.get('risk') not in ('read', 'desktop_open') or current.get('cancel_requested')
+                or time.time() > review['expires_at'] or not hmac.compare_digest(review['plan_hash'], plan_hash)):
+            raise ValueError('La revisión remota ya no coincide con la operación')
+
+    def execute(self, operation_id, approved=False, *, allow_parallel_read=False, _remote_claim=None):
         if type(allow_parallel_read) is not bool:
             raise ValueError('allow_parallel_read debe ser booleano')
         with self.lock:
@@ -803,6 +874,9 @@ class CommandService:
                 result = self.get(operation_id)
                 if not result:
                     raise ValueError('Operación desconocida; prepara el comando primero')
+                if _remote_claim is not None:
+                    _remote_claim(result)
+                    approved = True
                 if result['state'] in TERMINAL:
                     return result | {'replayed': True}
                 expiry = self.db.execute('SELECT expires_at FROM command_runs WHERE operation_id=?', (operation_id,)).fetchone()[0]
@@ -829,6 +903,8 @@ class CommandService:
                         if current['cancel_requested']:
                             return self._save(current | {'state': 'cancelled', 'error': {'code': 'CANCELLED', 'message': 'Cancelado antes de ejecutar.'}})
                         try:
+                            if _remote_claim is not None:
+                                _remote_claim(current, dispatch=True)
                             self._guard_learning_command(current)
                         except ValueError as exc:
                             raise ActionExecutionError(str(exc)) from exc

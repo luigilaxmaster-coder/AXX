@@ -58,6 +58,13 @@ class TelegramHTTPTests(unittest.TestCase):
         finally:
             server.server_close()
 
+    def test_rejected_post_bodies_are_drained_without_dispatch(self):
+        payload = {'peer_id': 22, 'operation_id': 'x' * 5000}
+        for _ in range(30):
+            code, _ = self.request('POST', '/axx-api/telegram/review', payload, origin='https://attacker.example')
+            self.assertEqual(code, 403)
+        self.telegram.review_operation.assert_not_called()
+
     def test_status_requires_native_token(self):
         code, _ = self.request('GET', '/axx-api/telegram/status', auth=False)
         self.assertEqual(code, 401)
@@ -66,6 +73,22 @@ class TelegramHTTPTests(unittest.TestCase):
         self.assertEqual(code, 200)
         self.assertEqual(value, {'state': 'unavailable', 'capabilities': {}})
         self.telegram.status.assert_called_once_with()
+
+    def test_confirmation_routes_require_native_auth_and_exact_payload(self):
+        review = '/axx-api/telegram/review'
+        body = {'peer_id': 22, 'operation_id': '00000000-0000-4000-8000-000000000001'}
+        self.telegram.review_operation.return_value = {'can_confirm': False}
+        self.assertEqual(self.request('POST', review, body, auth=False)[0], 401)
+        self.assertEqual(self.request('POST', review, body, origin='https://untrusted.example')[0], 403)
+        self.assertEqual(self.request('POST', review, dict(body, approved=True))[0], 400)
+        self.assertEqual(self.request('POST', review, dict(body, peer_id=True))[0], 400)
+        self.telegram.review_operation.assert_not_called()
+        self.assertEqual(self.request('POST', review, body)[0], 200)
+        self.telegram.review_operation.assert_called_once_with(22, body['operation_id'])
+        self.telegram.decide_operation.return_value = {'state': 'unknown'}
+        self.assertEqual(self.request('POST', '/axx-api/telegram/decision',
+                                      {'peer_id': 22, 'token': 'x' * 32, 'decision': 'confirm'})[0], 200)
+        self.telegram.decide_operation.assert_called_once_with(22, 'x' * 32, 'confirm')
 
     def test_input_blocks_unauthorized_origin_and_host_before_admission(self):
         payload = {'account_id': 11, 'peer_id': 22, 'message_id': 1, 'sent_at': 1,

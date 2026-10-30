@@ -84,6 +84,57 @@ class BotWorkerTests(unittest.TestCase):
         self.assertNotIn('web_app', json.dumps(menu('')))
         self.assertIn('web_app', json.dumps(menu('https://axx.example.org/')))
 
+    def test_review_card_and_callback_are_owner_only(self):
+        operation = 'f27038d4-1e3a-41d1-8085-15f51c59ff70'
+        token = 'x' * 43
+        sent, routes = [], []
+        def local(_endpoint, path, body=None):
+            routes.append((path, body))
+            if path.endswith('bot-input'):
+                return {'state': 'awaiting_approval', 'operation_id': operation, 'text': 'revisar'}
+            if path.endswith('review'):
+                return {'title': 'Acción', 'description': 'Descripción', 'risk': 'write', 'inputs': {'target': 'archivo'}, 'expires_at': 10, 'can_confirm': True, 'token': token}
+            return {'state': 'succeeded', 'postconditions_passed': True, 'text': 'Verificado'}
+        with patch('backend.telegram.bot.local_request', side_effect=local), \
+             patch('backend.telegram.bot.bot_request', side_effect=lambda _token, _method, body, **kwargs: sent.append(body)):
+            self.worker.process(1, message())
+            buttons = sent[-1]['reply_markup']['inline_keyboard'][0]
+            self.assertEqual(buttons[0]['callback_data'], 'tc:' + token)
+            self.assertEqual(sent[-1]['reply_markup']['inline_keyboard'][1][0]['callback_data'], 'tr:' + operation)
+            self.assertIn('archivo', sent[-1]['text'])
+            item = message(2)
+            callback = {'update_id': 2, 'callback_query': {'id': '2', 'from': item['message']['from'], 'message': item['message'], 'data': 'tc:' + token}}
+            wrong = message(3, owner=23)
+            self.worker.process(3, {'update_id': 3, 'callback_query': {'from': wrong['message']['from'], 'message': wrong['message'], 'data': 'tc:' + token}})
+            self.worker.process(2, callback)
+        self.assertEqual([path for path, _ in routes], ['/axx-api/telegram/bot-input', '/axx-api/telegram/review', '/axx-api/telegram/decision'])
+        self.assertEqual(routes[-1][1]['decision'], 'confirm')
+        self.assertEqual(sent[-1]['text'], 'Verificado')
+
+    def test_expired_decision_reports_safe_uncertain_result(self):
+        token = 'x' * 43
+        item = message(2)
+        callback = {'update_id': 2, 'callback_query': {'id': '2', 'from': item['message']['from'],
+                    'message': item['message'], 'data': 'tc:' + token}}
+        sent = []
+        with patch('backend.telegram.bot.local_request', side_effect=RuntimeError('secret-marker')), \
+             patch('backend.telegram.bot.bot_request', side_effect=lambda _token, _method, body, **kwargs: sent.append(body)):
+            self.worker.process(2, callback)
+        self.assertIn('consulta la actividad', sent[0]['text'])
+        self.assertNotIn('secret-marker', sent[0]['text'])
+        self.assertNotIn(token, sent[0]['text'])
+
+    def test_review_without_permission_only_offers_review_again(self):
+        operation = 'f27038d4-1e3a-41d1-8085-15f51c59ff70'
+        sent = []
+        result = {'title': 'Orden', 'description': '', 'risk': 'write', 'inputs': {},
+                  'can_confirm': False, 'token': 'x' * 43}
+        with patch('backend.telegram.bot.local_request', return_value=result), \
+             patch('backend.telegram.bot.bot_request', side_effect=lambda _token, _method, body, **kwargs: sent.append(body)):
+            self.worker.review(operation)
+        buttons = sent[0]['reply_markup']['inline_keyboard']
+        self.assertEqual(buttons, [[{'text': 'Revisar de nuevo', 'callback_data': 'tr:' + operation}]])
+
     def test_status_permissions_and_help_use_plain_language_without_raw_json(self):
         requests = []
         state = {'worker_running': True, 'messages': 'not_verified', 'voice_notes': 'not_implemented',

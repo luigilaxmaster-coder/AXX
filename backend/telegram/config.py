@@ -4,6 +4,8 @@ import os
 from pathlib import Path
 import re
 import tempfile
+import hashlib
+import secrets
 from contextlib import contextmanager
 
 from backend.auth.chatgpt_auth import _dpapi_decrypt, _dpapi_encrypt
@@ -86,6 +88,63 @@ def update_permissions(enabled, grants, data_dir=None):
         account['enabled'] = enabled
         account['grants'] = grants
         _save_account(account, data_dir)
+
+
+def confirmation_policy(data_dir=None):
+    """Keep the new remote permission separate from legacy account credentials."""
+    try:
+        target = account_path(data_dir).with_name('confirmations.dpapi')
+        raw = target.read_bytes()
+        if len(raw) > 16384:
+            return {'enabled': False}
+        value = json.loads(_dpapi_decrypt(raw))
+        account = load_account(data_dir)
+        if (not isinstance(value, dict) or set(value) != {'enabled', 'account_id', 'owner_id', 'session_hash', 'revision'}
+                or type(value['enabled']) is not bool
+                or type(value['account_id']) is not int or type(value['owner_id']) is not int
+                or value['account_id'] != account['account_id'] or value['owner_id'] != account['owner_id']
+                or value['session_hash'] != hashlib.sha256(account['session'].encode()).hexdigest()
+                or not isinstance(value['revision'], str) or not re.fullmatch(r'[0-9a-f]{32}', value['revision'])):
+            return {'enabled': False}
+        return value
+    except (OSError, ValueError, RuntimeError, KeyError, TypeError):
+        return {'enabled': False}
+
+
+def set_confirmation_policy(enabled, data_dir=None):
+    if type(enabled) is not bool:
+        raise ValueError('Invalid remote confirmation permission')
+    account = load_account(data_dir)
+    if enabled and (not account['enabled'] or not account['grants']['pc_commands']):
+        raise ValueError('Enable PC commands before remote confirmations')
+    value = {'enabled': enabled, 'account_id': account['account_id'], 'owner_id': account['owner_id'],
+             'session_hash': hashlib.sha256(account['session'].encode()).hexdigest(), 'revision': secrets.token_hex(16)}
+    target = account_path(data_dir).with_name('confirmations.dpapi')
+    encrypted = _dpapi_encrypt(json.dumps(value).encode())
+    with _file_lease(target.with_suffix('.lock'), 'TELEGRAM_CONFIRMATION_CONFIG_IN_USE'):
+        name = None
+        try:
+            with tempfile.NamedTemporaryFile(dir=target.parent, prefix='.confirmations-', delete=False) as stream:
+                name = stream.name
+                stream.write(encrypted)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(name, target)
+        finally:
+            if name and os.path.exists(name):
+                os.unlink(name)
+    return {'enabled': enabled}
+
+
+def confirmation_fingerprint(data_dir=None):
+    policy = confirmation_policy(data_dir)
+    account = load_account(data_dir)
+    if (not policy['enabled'] or policy['account_id'] != account['account_id'] or policy['owner_id'] != account['owner_id']
+            or policy['session_hash'] != hashlib.sha256(account['session'].encode()).hexdigest()
+            or not account['enabled'] or not account['grants']['pc_commands']):
+        raise ValueError('Remote confirmation permission is disabled')
+    # Any account rewrite, including revoke then re-enable, invalidates old reviews.
+    return hashlib.sha256(policy['revision'].encode() + account_path(data_dir).read_bytes()).hexdigest()
 
 
 def _save_account(value, data_dir=None, *, create_only=False):

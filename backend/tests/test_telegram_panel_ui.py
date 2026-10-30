@@ -40,7 +40,7 @@ class TelegramPanelUITests(unittest.TestCase):
         routes = {'/axx-api/telegram/desktop/status': state,
                   '/axx-api/telegram/pairing/status': {'bindings': [{'id': ID}]},
                   '/axx-api/telegram/status': {'worker_running': True}}
-        html = '''<!doctype html><html><head><style>body{background:#111d2b;color:#eef;font:16px sans-serif}button,input{font:inherit;margin:5px}#telegram-panel{max-width:720px;margin:20px auto;padding:20px;background:#26364a}label{display:block}#tg-permissions{display:grid;gap:3px} [hidden]{display:none!important}</style></head><body><div id="fixture-banner">PREVISUALIZACIÓN SIMULADA</div><div id="panel" data-view="settings"><div id="view-settings"></div></div><input id="flow-search"><div id="flow-grid"></div><div id="dock"></div><script src="/stub.js"></script><script src="/panel.js"></script></body></html>'''
+        html = '''<!doctype html><html><head><meta charset="utf-8"><style>body{background:#111d2b;color:#eef;font:16px sans-serif}button,input{font:inherit;margin:5px}#telegram-panel{max-width:720px;margin:20px auto;padding:20px;background:#26364a}label{display:block}#tg-permissions{display:grid;gap:3px} [hidden]{display:none!important}</style></head><body><div id="fixture-banner">PREVISUALIZACIÓN SIMULADA</div><div id="panel" data-view="settings"><div id="view-settings"></div></div><input id="flow-search"><div id="flow-grid"></div><div id="dock"></div><script src="/stub.js"></script><script src="/panel.js"></script></body></html>'''
         stub = '''window.Axx={FEATURES:[],isNative:()=>NATIVE,companion:{openFeature(id){window.opened=id;return id}},flow:{nav:{category:'assist'},select(id){Axx.companion.openFeature(id)},renderLibrary(){const query=document.querySelector('#flow-search').value.toLowerCase();document.querySelector('#flow-grid').replaceChildren();if(query)for(const f of Axx.FEATURES.filter(x=>(x.title+' '+x.description).toLowerCase().includes(query))){const b=document.createElement('button');b.dataset.tool=f.id;b.textContent=f.title;b.onclick=()=>this.select(f.id);document.querySelector('#flow-grid').append(b)}}},backendRequest:async(method,path,body)=>{const r=await fetch('/ipc',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({method,path,body})});if(!r.ok)throw Error('fixture failure');return await r.json()}};'''.replace('NATIVE', 'true' if native else 'false')
         def route(handler):
             req = handler.request
@@ -161,6 +161,23 @@ class TelegramPanelUITests(unittest.TestCase):
         self.assertEqual(page.locator('#telegram-panel').count(), 0)
         self.assertEqual(fixture['calls'], [])
         self.assertEqual(fixture['unexpected'], [])
+
+    def test_remote_confirmation_needs_own_pc_permission_and_explicit_save(self):
+        page, fixture, state = self.page()
+        page.evaluate('Axx.telegramPanel.open()')
+        page.wait_for_function("() => document.querySelector('#tg-account-status').textContent.includes('guardada')")
+        page.locator('#tg-remote-confirmations').check()
+        page.locator('#tg-save-confirmations').click()
+        page.wait_for_function("() => document.querySelector('#tg-panel-status').textContent.includes('Primero activa')")
+        page.wait_for_function("() => !document.querySelector('#telegram-panel').hasAttribute('aria-busy')")
+        self.assertFalse(any(c['path'].endswith('/configure_confirmations') for c in fixture['calls']))
+        state['account']['grants']['pc_commands'] = True
+        page.evaluate('Axx.telegramPanel.refresh()')
+        page.wait_for_function("() => document.querySelector('[data-tg-grant=pc_commands]').checked")
+        page.locator('#tg-save-confirmations').click()
+        page.wait_for_function("() => !document.querySelector('#telegram-panel').hasAttribute('aria-busy')")
+        self.assertEqual([c['body'] for c in fixture['calls'] if c['path'].endswith('/configure_confirmations')], [{'enabled': True}])
+        self.assertIn('remota guardado', page.locator('#tg-panel-status').inner_text())
 
 
 if __name__ == '__main__':

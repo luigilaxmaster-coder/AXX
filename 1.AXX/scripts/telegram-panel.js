@@ -27,6 +27,9 @@
       </div>
       <div class="quick-row"><button type="button" id="tg-save-permissions">Guardar permisos</button><button type="button" id="tg-pause">Pausar</button><button type="button" id="tg-resume">Reanudar</button></div>
       <p class="micro-copy">Pausar corta el acceso. Cambiar permisos o pausar pide volver a escanear el QR 2; tus datos se conservan.</p>
+      <label><input type="checkbox" id="tg-remote-confirmations"> Confirmar comandos desde Telegram</label>
+      <p class="micro-copy">Permite confirmar consultas y abrir aplicaciones después de revisar cada orden. Los comandos que requieren aprobación en la PC siguen reservados a la PC.</p>
+      <button type="button" id="tg-save-confirmations">Guardar confirmación remota</button>
       <h4>3. Abre Axx en tu teléfono</h4><p class="micro-copy">Ahora usa tu cuenta personal. Con la cámara del teléfono, escanea el segundo QR. En Telegram, toca Iniciar y luego Abrir Axx.</p>
       <button type="button" id="tg-prepare-bot" hidden>Preparar el bot y su dirección</button>
       <div class="quick-row"><button type="button" id="tg-pair-create" class="primary">Mostrar QR para teléfono</button><button type="button" id="tg-pair-revoke-all">Desvincular todos</button></div>
@@ -51,7 +54,7 @@
     $('view-settings')?.append(card);
     for (const label of card.querySelectorAll('label')) { label.style.display = 'block'; label.style.marginBlock = '10px'; }
     const api = (method, route, body) => Axx.backendRequest(method, '/axx-api/telegram/' + route, body);
-    let busy = false, info = null, pairExpiry = 0, poll = null, permissionsDirty = false, botDirty = false;
+    let busy = false, info = null, pairExpiry = 0, poll = null, permissionsDirty = false, botDirty = false, confirmationDirty = false;
     function message(text) { $('tg-panel-status').textContent = text; }
     function qrImage(image, value) {
         if (typeof value === 'string' && /^[A-Za-z0-9+/=]+$/.test(value)) { image.src = 'data:image/svg+xml;base64,' + value; image.hidden = false; }
@@ -83,6 +86,8 @@
             $('tg-enabled').checked = !!account.enabled;
             for (const node of card.querySelectorAll('[data-tg-grant]')) node.checked = account.grants?.[node.dataset.tgGrant] === true;
         }
+        if (!confirmationDirty) $('tg-remote-confirmations').checked = value.remote_confirmations === true;
+        $('tg-save-confirmations').disabled = !account.configured;
         $('tg-bot-status').textContent = bot.configured ? `Bot configurado${bot.username ? ': @' + bot.username : ''}.` : 'Bot no configurado.';
         if (value.bot_job?.state === 'running') $('tg-bot-status').textContent = 'Comprobando y guardando el bot…';
         else if (value.bot_job?.state === 'failed') $('tg-bot-status').textContent = 'No se pudo terminar el guardado del bot. Revisa el token, la dirección HTTPS y la conexión.';
@@ -129,6 +134,14 @@
     for (const node of card.querySelectorAll('[data-tg-grant], #tg-enabled')) node.onchange = () => { permissionsDirty = true; };
     $('tg-public-url').oninput = $('tg-bot-enabled').onchange = () => { botDirty = true; };
     $('tg-save-permissions').onclick = () => void run(async () => { const grants = Object.fromEntries([...card.querySelectorAll('[data-tg-grant]')].map(node => [node.dataset.tgGrant, node.checked])); await api('POST', 'desktop/update_permissions', { enabled: $('tg-enabled').checked, grants }); permissionsDirty = false; message('Permisos guardados.'); });
+    $('tg-remote-confirmations').onchange = () => { confirmationDirty = true; };
+    $('tg-save-confirmations').onclick = () => void run(async () => {
+        if ($('tg-remote-confirmations').checked && (!info?.account?.enabled || !info.account.grants?.pc_commands)) {
+            message('Primero activa Telegram y Acciones en esta PC, y guarda esos permisos.'); return;
+        }
+        await api('POST', 'desktop/configure_confirmations', { enabled: $('tg-remote-confirmations').checked });
+        confirmationDirty = false; message('Permiso de confirmación remota guardado. Cada orden requiere su propia confirmación.');
+    });
     $('tg-pause').onclick = () => void run(async () => { await api('POST', 'desktop/pause', {}); message('Canal pausado.'); });
     $('tg-resume').onclick = () => void run(async () => { await api('POST', 'desktop/resume', {}); message('Canal reanudado.'); });
     $('tg-refresh').onclick = () => void run(async () => {
