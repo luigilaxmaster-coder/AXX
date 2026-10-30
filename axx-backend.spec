@@ -1,13 +1,25 @@
 # -*- mode: python ; coding: utf-8 -*-
-from PyInstaller.utils.hooks import collect_submodules, collect_dynamic_libs, collect_data_files
+from PyInstaller.utils.hooks import collect_submodules, collect_dynamic_libs, collect_data_files, copy_metadata
+from importlib.metadata import distribution
 from pathlib import Path
 
 # offline_asr uses vad_filter=False; unused VAD weights are not distributed.
+telegram_licenses = []
+for package in ('telethon', 'py-tgcalls', 'ntgcalls'):
+    dist = distribution(package)
+    files = [item for item in dist.files or () if '/licenses/' in str(item).replace('\\', '/')]
+    if not any(Path(str(item)).name == 'LICENSE' for item in files):
+        raise RuntimeError(f'Missing installed license for {package}')
+    if package == 'ntgcalls' and not any(Path(str(item)).name == 'THIRD_PARTY_NOTICES.md' for item in files):
+        raise RuntimeError('Missing NTgCalls third-party notices')
+    telegram_licenses += [(str(dist.locate_file(item)), f'licenses/telegram/{package}') for item in files]
+
 a = Analysis(
     ['backend/server.py'],
     pathex=[SPECPATH, str(Path(SPECPATH) / 'vendor' / 'cli_anything_blender')],
     binaries=collect_dynamic_libs('ctranslate2') + collect_dynamic_libs('av') + collect_dynamic_libs('tokenizers')
-        + collect_dynamic_libs('ifcopenshell', search_patterns=['ifcopenshell_parse_schema_*.dll']),
+        + collect_dynamic_libs('ifcopenshell', search_patterns=['ifcopenshell_parse_schema_*.dll'])
+        + collect_dynamic_libs('pytgcalls'),
     datas=[('resources/providers.default.json', 'resources'),
            ('resources/application-profiles.json', 'resources'),
            ('resources/model-candidates.json', 'resources'),
@@ -18,6 +30,11 @@ a = Analysis(
            ('backend/speech/moss_worker.py', 'speech'),
            ('resources/piper_worker.py', 'speech'),
            ('backend/speech/speech_text.py', 'speech'),
+           ('backend/telegram/webapp.html', 'backend/telegram'),
+           ('backend/telegram/webapp.js', 'backend/telegram'),
+           ('backend/telegram/webapp.css', 'backend/telegram'),
+           ('mobile/www/js/desktop-avatar.js', 'mobile/www/js'),
+           ('mobile/js/avatar-renderer.js', 'mobile/js'),
            ('backend/actions/uia_worker.ps1', 'backend/actions'),
            ('backend/actions/uia_observer.ps1', 'backend/actions'),
            ('resources/command-library.json', 'resources'),
@@ -27,15 +44,19 @@ a = Analysis(
            ('vendor/cli_anything_blender/UPSTREAM.json', 'licenses/cli-anything'),
            ('resources/models/faster-whisper-tiny', 'models/faster-whisper-tiny')]
            + collect_data_files('faster_whisper', excludes=['assets/*.onnx']) + collect_data_files('mcp') + collect_data_files('jsonschema_specifications')
-           + collect_data_files('rapidocr_onnxruntime', excludes=['models/*']),
+           + collect_data_files('rapidocr_onnxruntime', excludes=['models/*'])
+           + collect_data_files('telethon') + collect_data_files('pytgcalls')
+           + sum((copy_metadata(package) for package in ('telethon', 'py-tgcalls', 'ntgcalls')), [])
+           + telegram_licenses,
     hiddenimports=collect_submodules('backend', filter=lambda name: '.tests' not in name and '.test_' not in name)
-        + collect_submodules('mcp', filter=lambda name: not name.startswith('mcp.cli')) + collect_submodules('uvicorn') + [
+        + collect_submodules('mcp', filter=lambda name: not name.startswith('mcp.cli')) + collect_submodules('uvicorn')
+        + collect_submodules('telethon') + collect_submodules('pytgcalls') + [
         'cli_anything.blender.core.scene', 'cli_anything.blender.core.objects',
         'cli_anything.blender.core.lighting', 'cli_anything.blender.core.render',
         'cli_anything.blender.utils.bpy_gen', 'faster_whisper', 'ctranslate2',
         'av', 'numpy', 'tokenizers', 'huggingface_hub', 'pypdf', 'qrcode', 'qrcode.image.svg', 'websocket',
         'win32com.client', 'win32api', 'win32security', 'pythoncom', 'pywintypes', 'playwright.async_api', 'psutil', 'jsonschema', 'httpx', 'anyio',
-        'ifcopenshell', 'ifcopenshell.util.unit', 'rapidocr_onnxruntime', 'onnxruntime'],
+        'ifcopenshell', 'ifcopenshell.util.unit', 'rapidocr_onnxruntime', 'onnxruntime', 'ntgcalls', 'tkinter'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

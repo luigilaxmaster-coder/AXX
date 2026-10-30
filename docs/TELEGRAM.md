@@ -1,0 +1,76 @@
+# Usar Axx desde Telegram
+
+Esta guía describe la integración en el código actual. Tener la cuenta guardada
+no demuestra que el canal o las llamadas funcionen: cada capacidad debe comprobarse
+por separado en la versión instalada. Axx debe estar abierto en la PC, que también
+debe permanecer encendida y conectada a Internet.
+
+## Conectar y usar
+
+1. En Axx en la PC, abre **Herramientas → Asistencia → Telegram**. Si tu cuenta
+   ya está guardada en esta PC, no necesitas repetir el primer QR.
+2. Si aún no está guardada, pulsa **Conectar con QR**. En la cuenta de Telegram
+   dedicada a Axx, abre **Ajustes → Dispositivos → Vincular dispositivo de
+   escritorio** y escanea el **QR 1**. Si Telegram pide tu contraseña de
+   verificación en dos pasos, introdúcela en la ventana de Axx de la PC.
+3. Elige lo que permites, activa Telegram y pulsa **Guardar permisos**.
+   Cambiar permisos después de vincular el teléfono requiere escanear otra vez el QR 2.
+4. Para abrir la Mini App en tu teléfono, pulsa **Mostrar QR para teléfono**.
+   Escanea el **QR 2** con la cámara, toca **Iniciar** en el bot y después
+   **Abrir Axx**. Si el QR vence, genera otro. Esta etapa requiere tener el bot
+   y la dirección HTTPS de la Mini App configurados.
+5. Usa **Comprobar conexión** para consultar si el proceso está activo.
+   Eso no sustituye una prueba real enviando un mensaje.
+6. En la Mini App puedes consultar el estado y la actividad disponible. Los
+   comandos y acciones mantienen los permisos y las aprobaciones de la PC.
+   Si un envío queda pendiente, consulta su estado antes de reintentarlo.
+
+Si es la primera configuración y faltan datos de aplicación o del bot, abre
+**Opciones avanzadas** en ese mismo panel. Los datos se introducen solo en la PC:
+`api_id`, `api_hash`, ID numérico de tu cuenta personal, token del bot y dirección
+HTTPS de la Mini App. La cuenta personal autorizada debe ser distinta de la
+cuenta dedicada a Axx. Dejar vacío el token al editar conserva el token guardado.
+No pegues códigos, contraseñas ni tokens en el chat.
+
+Para detener el acceso, pulsa **Pausar**. Puedes reanudarlo después. Para retirar
+el acceso de un teléfono, usa **Desvincular** junto a él; **Desvincular todos**
+revoca las vinculaciones de la Mini App. Estas acciones conservan la cuenta y
+los datos guardados en la PC y no deshacen una acción ya realizada. Revocar una
+sesión de Telegram desde sus ajustes de dispositivos es una acción independiente.
+
+## Lo que está pendiente
+
+- **Llamadas privadas:** todavía no están operativas. Las pruebas recibieron audio,
+  pero no confirmaron que el teléfono escuchara el audio saliente; una prueba de
+  archivo terminó con un tiempo de espera en la limpieza. No se ha comprobado una
+  conversación de voz bidireccional ni su interrupción. El canal de mensajes puede
+  rechazar una llamada y avisar al propietario de que está en reparación.
+- **Notas de voz y archivos:** pendientes de implementación y aceptación. El
+  canal responde que los adjuntos aún no están habilitados.
+- **Chat con IA:** se conserva el proveedor seleccionado en el escritorio. Si
+  su acceso remoto no está disponible o no ha pasado las comprobaciones de
+  aislamiento, la conversación queda bloqueada; Axx no cambia de proveedor ni
+  activa uno de pago por su cuenta.
+- **Acciones en la PC:** utilizan los comandos, permisos y aprobaciones existentes.
+  Una función configurada o un permiso concedido no prueban que el resultado de
+  una acción haya sido verificado.
+
+## Referencia técnica
+
+La cuenta de usuario de Telegram y el bot auxiliar son canales distintos. La
+sesión de usuario se protege con DPAPI en `%LOCALAPPDATA%\Axx\telegram` y el
+trabajador admite únicamente mensajes privados del propietario autorizado. La
+bandeja conserva identificadores de operación; no reejecuta automáticamente un
+despacho o una entrega de resultado inciertos. Las acciones sensibles continúan
+requiriendo aprobación en la PC.
+
+La Mini App requiere una dirección HTTPS configurada para el bot. La fachada se
+mantiene separada del backend nativo y verifica la identidad firmada por Telegram;
+el QR de vinculación es de un solo uso y caduca. No expongas el backend nativo
+completo a Internet. La conexión del teléfono o del bot no demuestra por sí sola
+que la conversación, los archivos o las llamadas funcionen.
+
+Las pruebas automatizadas y las pruebas reales tienen alcances diferentes. La
+entrega de una versión de escritorio requiere además seguir `docs/RELEASING.md`
+y el protocolo de compatibilidad móvil del proyecto. No publiques evidencias
+que contengan credenciales, códigos, muestras de voz o estado privado.
