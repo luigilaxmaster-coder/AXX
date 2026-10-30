@@ -1144,7 +1144,7 @@ class AnticipationService:
     def _provider_source(self, target, state, task_id, context):
         if (target['source'] not in ('window', 'clipboard') or target['task_id'] != task_id
                 or not self._provider_context_available(target['source'])
-                or not target['send_to_provider'] or self._source_target(target['id']) != target
+                or not target['retain'] or not target['send_to_provider'] or self._source_target(target['id']) != target
                 or any(target.get(key) and target[key] != context.get(key) for key in CONTEXT_KEYS)
                 or state.get('consent_digest') != digest(target) or not state.get('cancelled') or state['cancelled'].is_set()):
             return False
@@ -1247,15 +1247,18 @@ class AnticipationService:
                 'last_observed_at': last, 'next_observation_at': last + options.get('cadence_seconds', 30) if active and last is not None else None,
                 'error': state.get('error') or (None if active else 'Fuente desactivada, fuera de ámbito/horario o autorización caducada.'),
                 'metadata_retained': target['retain'], 'provider_sent': False, 'baseline': state.get('snapshot') is not None,
-                'retention_scope': 'metadata_only', 'provider_allowed': target['send_to_provider'] and self._provider_context_available(target['source']),
-                'context_ready': bool(state.get('raw')) and target['send_to_provider'] and self._provider_context_available(target['source']) and active,
+                'retention_scope': 'metadata_only', 'derived_plans_allowed': target['retain'],
+                'provider_allowed': target['retain'] and target['send_to_provider'] and self._provider_context_available(target['source']),
+                'context_ready': bool(state.get('raw')) and target['retain'] and target['send_to_provider'] and self._provider_context_available(target['source']) and active,
                 'raw_expires_at': state.get('raw', {}).get('expires_at'),
                 'raw_content_ttl_seconds': RAW_SOURCE_TTL_SECONDS if target['source'] in ('window', 'clipboard', 'microphone') else 0,
                 'truncated': state.get('truncated', False), 'samples': state.get('samples', 0), 'events': state.get('events', 0)})
         return result
 
     def _folder_snapshot(self, target, options):
+        from .actions.artifact_compensation import reserved_path
         root = directory(target['root'])
+        if reserved_path(root):return {},False
         snapshot, truncated = {}, False
         with os.scandir(root) as entries:
             for index, entry in enumerate(entries):
@@ -1401,7 +1404,7 @@ class AnticipationService:
             self.source_generation += 1
             state['generation'] = self.source_generation
         state['snapshot'] = metadata
-        if target['send_to_provider'] and self._provider_context_available(target['source']) and content:
+        if target['retain'] and target['send_to_provider'] and self._provider_context_available(target['source']) and content:
             lifetime = min(RAW_SOURCE_TTL_SECONDS, target['expires_at'] - self.clock()) if target['expires_at'] is not None else RAW_SOURCE_TTL_SECONDS
             old = state.get('raw', {})
             state['raw'] = {'observation_id': old.get('observation_id') if not changed and old else uuid.uuid4().hex,
@@ -1698,6 +1701,8 @@ class AnticipationService:
                         target.setdefault(key, False)
                         if type(target[key]) is not bool:
                             raise ValueError('Los consentimientos deben ser booleanos independientes')
+                    if target['send_to_provider'] and not target['retain']:
+                        raise ValueError('Sin conservar contexto no se guardan ni ejecutan planes derivados; no se envía contenido al modelo.')
                     if target['send_to_provider'] and target['source'] not in ('clipboard', 'window'):
                         raise ValueError('Envío a proveedores no implementado para estas fuentes; no se autorizará implícitamente')
                     if target['send_to_provider'] and not (self._window_available() if target['source'] == 'window' else self._clipboard_available()):
@@ -1713,6 +1718,9 @@ class AnticipationService:
                         if any(key in target for key in ('process_name', 'window_id', 'pid', 'process_started')):
                             raise ValueError('Una carpeta no selecciona un proceso')
                         target['root'] = directory(target.get('root'))
+                        from .actions.artifact_compensation import reserved_path
+                        if reserved_path(target['root']):
+                            raise ValueError('La cuarentena de archivos es interna; no admite iniciativas de observación.')
                     elif target['source'] == 'application':
                         process = target.get('process_name')
                         if (any(key in target for key in ('root', 'window_id', 'pid', 'process_started')) or not isinstance(process, str) or not 5 <= len(process) <= 80 or not process.casefold().endswith('.exe')
@@ -2030,6 +2038,8 @@ class AnticipationService:
         return provenance
 
     def _propose(self, event, profile, options):
+        from .actions.artifact_compensation import reserved_path
+        if reserved_path(event['path']):return None
         verifier = self._verifier(event['path'])
         identity = list(fingerprint(Path(event['path']).stat()))
         # Journal receipts and an opted-in folder can describe the same generation.

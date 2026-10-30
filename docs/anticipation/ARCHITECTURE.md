@@ -26,6 +26,8 @@ Los grants deben declarar tarea/ámbito, capacidad o categoría, destino, restri
 
 **Observar**, **conservar** y **enviar a un proveedor** son permisos distintos por fuente. Pantalla/ventana, aplicaciones, carpetas, micrófono y portapapeles son controles independientes. No guardar capturas/audio/contenido por haber permitido interpretación transitoria. Lo aprendido debe poder inspeccionarse y eliminarse. La interfaz muestra fuentes activas y una pausa global puede detener también observación.
 
+Decisión humana: con **Conservar contexto desactivado**, no se guardan ni ejecutan planes derivados. El envío al modelo exige también retención autorizada, porque su respuesta puede repetir el contenido observado. Quitar la retención revoca el envío y sus leases activos; observar localmente no concede ese permiso. Conservar contexto puede permitir metadatos y resultados de tareas; no convierte las capturas originales en archivos durables.
+
 ## Persistencia, identidad y estados
 
 Reutilizar la base SQLite existente con tablas aditivas y transacciones acotadas; los claims de cuota y presupuesto de inferencia adquieren primero BEGIN IMMEDIATE. Separar configuración persistente, eventos mínimos, rutinas/versiones, suppressions, sugerencias, grants y recibos de ejecución; no duplicar el journal del ejecutor. No persistir secretos ni contenido bruto por defecto.
@@ -65,7 +67,7 @@ Hay dos estados distintos. El candidato estable **R4 / Windows 0.22.28**, fuente
 
 Los recibos privados están en `C:\Users\luigi\.codex\worktrees\anticipation-stable\axx2\build\release-0.22.28-r4\`. `installed-files.json` registra concordancia de binarios; `native-api-profiles.json` acredita los tres perfiles por API y declara expresamente `physical_input_tested:false` y `visible_acceptance_tested:false`. `native-plan-guard.json` pasa la defensa de IDs de pasos reservados. El SHA-256 del EXE de esos recibos es `83c48efc512a4a04b2efa74d3e5d3fbc22163863ba31d8efaa8cc1a191daaf02`.
 
-`restore-observation.json` contiene observación nativa de solo lectura; no aprueba ocultación ni atajo. La confirmación humana previa de Invocar/avatar pertenece a otro candidato. Los cuatro pasos humanos de R4 siguen pendientes del dueño de entrega. `build/companion-validation-final.json` del worktree estable pasa para aquella fuente; P1 requiere un gate nuevo concordante. Publicación Windows pendiente de aceptación y de resolver la excepción Tiny; no se afirma publicación ni autorización para distribuir pesos o estado privado. Android conserva su ciclo separado.
+`restore-observation.json` contiene observación nativa de solo lectura. La prueba física humana de R4 **falló al ocultar o reaparecer con el botón**. La confirmación anterior de Invocar/avatar no aprueba esa transición. La carrera NTFS de sustitución de un directorio antes de la escritura se reprodujo también sobre la lógica presente en el estable; impide publicar R4 sin corregir y repetir sus recibos. El companion estable no acredita P1 ni corrige esos fallos. Publicación Windows pendiente de nueva aceptación y de resolver la excepción Tiny; no se afirma publicación ni autorización para distribuir pesos o estado privado. Android conserva su ciclo separado.
 
 ## Trazabilidad de la fuente P1
 
@@ -87,6 +89,8 @@ Los recibos privados están en `C:\Users\luigi\.codex\worktrees\anticipation-sta
 | UI, compatibilidad y entrega | Selector, tarjetas, misión, grants, contexto, incidentes y revalidación sobre las superficies existentes | Pruebas de renderer y backend no reemplazan revisión visual nativa. Se conservan `/v1`, TLS, emparejamiento y baseline de diseño; el gate companion y la entrega final corresponden al dueño único. |
 
 ## Persistencia, concurrencia y recuperación actuales
+
+Los archivos nuevos creados exclusivamente por Axx pueden apartarse a `.axx-quarantine` y restaurarse mediante comandos con aprobación normal y recibo exacto. Sólo se admite NTFS local con identidad, contenido e instancia de creación demostrados; no hay compensación retroactiva de archivos previos ni borrado. Los directorios se mantienen abiertos sin compartir eliminación durante creación y traslado. Claims vivos y CAS por operación/revisión impiden que una conciliación tardía sobrescriba otra más reciente. Un resultado incierto se concilia leyendo posiciones e identidad, sin repetir el traslado. La cuarentena no es una fuente de observación ni un destino de escritura genérico. Las misiones mantienen sus recibos históricos, pero dejan de contarse como completadas y bloquean dependencias mientras el archivo esté apartado o su restauración no esté verificada.
 
 `anticipation_*`, contexto/habilidades/incidentes, presupuestos de misión y reservas de almacenamiento usan la SQLite existente. El claim de cuota adquiere `BEGIN IMMEDIATE` antes de leer límites, escanear metadatos y reservar; otro servicio no puede consumir simultáneamente el mismo saldo. La reserva liga operación, parámetros, grant, raíz y destino. No se libera por timeout: necesita recibo terminal y escaneo completo; `unknown` requiere la revisión manual ya existente antes de reconciliar. No se eliminan archivos del usuario para recuperar espacio.
 

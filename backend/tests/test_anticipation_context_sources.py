@@ -106,7 +106,7 @@ class ContextSourceTests(unittest.TestCase):
         self.mocks[2].assert_not_called(); self.mocks[3].assert_not_called()
         self.assertFalse(self.service.status()['sources']['screen'])
         self.assertFalse(self.service.status()['sources']['clipboard'])
-        self.configure(observe=False, provider=True)
+        self.configure(observe=False, retain=True, provider=True)
         self.service.tick()
         self.mocks[2].assert_not_called()
         self.assertEqual(self.service.provider_context_for_task('source-task')['observations'], [])
@@ -122,7 +122,7 @@ class ContextSourceTests(unittest.TestCase):
             for source in ('clipboard', 'window'):
                 self.assertFalse(self.service.status()['capabilities']['provider_context'][source])
                 with self.subTest(source=source), self.assertRaisesRegex(ValueError, 'SOURCE_PROVIDER_UNAVAILABLE'):
-                    self.configure(source, provider=True)
+                    self.configure(source, retain=True, provider=True)
                 self.configure(source, retain=True)
                 self.service.tick()
                 self.assertEqual(self.service.provider_context_for_task('source-task')['observations'], [])
@@ -139,6 +139,28 @@ class ContextSourceTests(unittest.TestCase):
         for fields in ({'root': str(self.root)}, {'window_id': 42}, {'pid': 7}, {'process_name': 'notepad.exe'}):
             with self.subTest(fields=fields), self.assertRaises(ValueError):
                 self.service.configure({'observation_targets': [target | fields]})
+
+    def test_no_retention_forbids_derived_plans_and_revokes_active_model_lease(self):
+        with self.assertRaisesRegex(ValueError, 'Sin conservar contexto'):
+            self.configure(provider=True)
+        target = self.configure(retain=True, provider=True)
+        self.service.tick()
+        context = self.service.provider_context_for_task('source-task')
+        self.assertTrue(context['refs'])
+        lease = self.service.acquire_provider_context('source-task', context['refs'])
+        self.service.configure({'observation_targets': [target | {'retain': False, 'send_to_provider': False}]})
+        self.assertTrue(lease.is_set())
+        with self.assertRaises(ValueError):
+            self.service.validate_provider_context_refs('source-task', context['refs'])
+        self.advance()
+        self.assertEqual(self.service.provider_context_for_task('source-task')['observations'], [])
+        self.assertNotIn('raw', self.service.source_state['fixture-source'])
+        runtime = self.service.status()['source_runtime'][0]
+        self.assertFalse(runtime['derived_plans_allowed'])
+        self.assertFalse(runtime['provider_allowed'])
+        self.assertEqual(self.service.suggestions(), [])
+        self.assertEqual(self.executor.list_operations(), [])
+        self.assert_private_not_durable([self.clip['text']])
 
     def test_clipboard_observe_and_metadata_retention_are_independent(self):
         for retain in (False, True):
@@ -235,7 +257,7 @@ class ContextSourceTests(unittest.TestCase):
         self.assertNotIn('controls', event['resource'])
 
     def test_capture_failure_clears_own_uia_and_hides_private_diagnostic(self):
-        self.configure('window', provider=True)
+        self.configure('window', retain=True, provider=True)
         reader = self.window
         def fails(*args, **kwargs):
             reader(*args, **kwargs)
@@ -250,7 +272,7 @@ class ContextSourceTests(unittest.TestCase):
         self.assert_private_not_durable(['PRIVATE_PARSER_FRAGMENT', self.window_title])
 
     def test_process_reuse_and_blocked_process_abstain_before_capture(self):
-        self.configure('window', provider=True)
+        self.configure('window', retain=True, provider=True)
         for values in ({'process_name': 'powershell.exe'}, {'process_started': 'changed'}):
             with self.subTest(values=values):
                 with patch('backend.actions.windows_automation.' + next(iter(values)), return_value=next(iter(values.values()))):
@@ -277,7 +299,7 @@ class ContextSourceTests(unittest.TestCase):
     def test_context_leases_expire_on_change_revoke_pause_stop_forget_and_close(self):
         for mutation in ('changed', 'revoke', 'pause', 'stop', 'forget', 'close'):
             with self.subTest(mutation=mutation):
-                self.configure(provider=True)
+                self.configure(retain=True, provider=True)
                 self.service.tick()
                 context = self.service.provider_context_for_task('source-task')
                 lease = self.service.acquire_provider_context('source-task', context['refs'])
@@ -306,7 +328,7 @@ class ContextSourceTests(unittest.TestCase):
                     self.service.configure({'paused': False, 'observation_paused': False})
 
     def test_wall_and_monotonic_ttl_expire_raw_without_poll_or_persistence(self):
-        self.configure(provider=True)
+        self.configure(retain=True, provider=True)
         self.service.tick()
         context = self.service.provider_context_for_task('source-task')
         lease = self.service.acquire_provider_context('source-task', context['refs'])
@@ -316,7 +338,7 @@ class ContextSourceTests(unittest.TestCase):
         self.assertNotIn('raw', self.service.source_state['fixture-source'])
         self.service.configure({'observation_targets': []})
         with patch('backend.anticipation.RAW_SOURCE_TTL_SECONDS', .05):
-            self.configure(provider=True)
+            self.configure(retain=True, provider=True)
             self.service.tick()
             context = self.service.provider_context_for_task('source-task')
             lease = self.service.acquire_provider_context('source-task', context['refs'])
@@ -325,7 +347,7 @@ class ContextSourceTests(unittest.TestCase):
         self.assert_private_not_durable([self.clip['text']])
 
     def test_raw_context_limit_and_ref_validation_are_fail_closed(self):
-        target = self.configure(provider=True)
+        target = self.configure(retain=True, provider=True)
         for invalid in ([{'target_id': [], 'consent_digest': '', 'observation_id': '', 'generation': 1}],
                 [None], 'wrong', [{}]):
             with self.subTest(invalid=invalid), self.assertRaises(ValueError):
@@ -343,7 +365,7 @@ class ContextSourceTests(unittest.TestCase):
     def test_worker_revoke_cancels_without_policy_lock_and_discards_late_result(self):
         for mutation in ('revoke', 'stop', 'close'):
             with self.subTest(mutation=mutation):
-                self.configure(provider=True)
+                self.configure(retain=True, provider=True)
                 entered, release = threading.Event(), threading.Event()
                 cancellations, errors = [], []
                 def held(*, max_characters, cancelled):
@@ -376,7 +398,7 @@ class ContextSourceTests(unittest.TestCase):
                     self.service.configure({'paused': False})
 
     def test_late_window_uia_after_revocation_is_cleaned_without_publishing(self):
-        self.configure('window', provider=True)
+        self.configure('window', retain=True, provider=True)
         entered, release = threading.Event(), threading.Event()
         original = self.window
         def late(*args, **kwargs):

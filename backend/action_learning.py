@@ -205,6 +205,7 @@ class ActionLearning:
             if self.pause_events.get(plan['operation_id'], threading.Event()).is_set():
                 plan['pause_requested'] = True
                 if plan['state'] == 'running': plan['state'] = 'pausing'
+            self._project_compensations(plan, self.db)
             plan['mission'] = self._mission(plan)
             self.db.execute('INSERT INTO learning_plans VALUES (?,?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload',
                             (plan['operation_id'], json.dumps(plan, ensure_ascii=False)))
@@ -220,6 +221,7 @@ class ActionLearning:
         with self.lock, self.db:
             self._store_model_budget(plan)
             self._model_budget_view(plan)
+            self._project_compensations(plan, self.db)
         return plan | {'mission': self._mission(plan)}
 
     def _model_limit(self, plan):
@@ -318,18 +320,37 @@ class ActionLearning:
         return reserve
 
     @staticmethod
+    def _project_compensations(plan, db):
+        from .actions.artifact_compensation import project_relationship
+        projected = []
+        for index, record in enumerate(plan.get('step_records', [])):
+            operation_id = record.get('operation_id')
+            if not operation_id: continue
+            relation = project_relationship(db, {'operation_id': operation_id}).get('compensation')
+            if relation:
+                projected.append({'step': index, 'operation_id': operation_id, **relation})
+        plan['artifact_compensations'] = projected
+        return plan
+
+    @staticmethod
     def _mission(plan):
         """A view of the durable plan and receipts, never a second task or completion judge."""
         records = plan.get('step_records', [])
+        unavailable = {item['step']: item for item in plan.get('artifact_compensations', [])
+                       if item.get('available_current') is not True}
         verified = [index for index, record in enumerate(records)
                     if (record.get('result') or {}).get('state') == 'succeeded'
-                    and (record.get('result') or {}).get('postconditions_passed') is True]
+                    and (record.get('result') or {}).get('postconditions_passed') is True
+                    and index not in unavailable]
         pending = [index for index in range(len(plan.get('steps', []))) if index not in verified]
         goal = plan.get('goal_spec') or {}
         blockers = [{'step': index, 'state': record.get('state'),
                      'error': (record.get('result') or {}).get('error')}
                     for index, record in enumerate(records)
                     if record.get('state') in ('failed', 'unknown', 'blocked')]
+        blockers.extend({'step': index, 'state': item['state'],
+                         'message': 'El archivo fue apartado o su restauración aún no está verificada.'}
+                        for index, item in unavailable.items())
         if plan.get('state') in ('waiting_capacity', 'waiting_capability', 'needs_input', 'blocked', 'interrupted'):
             blockers.append({'state': plan['state'], 'message': plan.get('message', '')})
         complete = (plan.get('state') == 'succeeded' and plan.get('postconditions_passed') is True
@@ -341,6 +362,7 @@ class ActionLearning:
                 'deliverables': goal.get('objects', []), 'destination': goal.get('destination', ''),
                 'success_conditions': goal.get('checks', []), 'dependencies': plan.get('dependencies', {}),
                 'mission_dependencies': plan.get('mission_dependencies', []),
+                'artifact_compensations': plan.get('artifact_compensations', []),
                 'verified_steps': verified, 'pending_steps': pending, 'blockers': blockers,
                 'permission': {'exact_plan_approved': bool(plan.get('approved_hash') and plan.get('approved_hash') == plan.get('plan_hash')),
                                'automatic_future_plans_authorized': False},
@@ -364,6 +386,7 @@ class ActionLearning:
             for plan in plans:
                 self._store_model_budget(plan)
                 self._model_budget_view(plan)
+                self._project_compensations(plan, self.db)
         plans = [plan | {'mission': self._mission(plan)} for plan in plans]
         return [plan for plan in plans if plan.get('project_id', '') == project_id][:100]
 
@@ -486,7 +509,7 @@ class ActionLearning:
         def read(key):
             source = self.commands.db.execute('SELECT payload FROM learning_plans WHERE id=?', (key,)).fetchone()
             if not source: raise ValueError('La misión dependiente ya no está disponible.')
-            return json.loads(source[0])
+            return self._project_compensations(json.loads(source[0]), self.commands.db)
         error = error or self._dependency_error(plan, read)
         if error: raise ValueError(error)
         if plan.get('initiative_authorization'):

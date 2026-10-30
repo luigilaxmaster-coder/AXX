@@ -800,12 +800,23 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                     'cancel': {'operation_id'},
                     'reconcile': {'operation_id'},
                     'review': {'operation_id', 'reviewed'},
+                    'compensation-preview': {'source_operation_id'},
+                    'compensation-prepare': {'source_operation_id', 'source_receipt_hash', 'expected_revision', 'action', 'operation_id'},
                 }
                 action = path.rsplit('/', 1)[-1]
                 if action not in fields or set(body) - fields[action]:
                     raise ValueError('Unsupported command request fields')
                 if action == 'resolve':
                     result = self.commands.resolve(body.get('text'), body.get('source', 'text'), body.get('context'), body.get('project_id', ''))
+                elif action == 'compensation-preview':
+                    if set(body) != {'source_operation_id'}:
+                        raise ValueError('La vista previa requiere una operación de origen exacta')
+                    result = self.commands.compensation_preview(body['source_operation_id'])
+                elif action == 'compensation-prepare':
+                    if not {'source_operation_id', 'source_receipt_hash', 'expected_revision'} <= set(body):
+                        raise ValueError('Revisa el recibo y la revisión de la compensación antes de prepararla')
+                    result = self.commands.prepare_compensation(body['source_operation_id'], body['source_receipt_hash'],
+                        body['expected_revision'], body.get('action', 'quarantine'), body.get('operation_id'))
                 elif action == 'prepare':
                     if body.get('conversation_id') and self.chats:
                         body['command_mode'] = self.chats.get(body['conversation_id'])['mode']

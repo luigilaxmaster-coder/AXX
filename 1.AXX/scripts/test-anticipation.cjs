@@ -343,7 +343,7 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
   assert.deepEqual(await page.evaluate(()=>{const target=data.observation_targets[0];return [target.source,target.task_id,target.project_id,target.observe,target.retain,target.send_to_provider,Object.hasOwn(target,'root'),Object.hasOwn(target,'process_name'),Object.hasOwn(target,'window_id')];}),['clipboard','task-a','Proyecto A',true,false,false,false,false,false]);
   assert.equal(await page.evaluate(()=>data.sources.clipboard),false,'Saving a target does not enable its source');
   await page.evaluate(()=>{data.capabilities.provider_context={window:true,clipboard:true};return Axx.anticipation.refresh();});
-  assert.equal(await page.locator('#anticipation-target-provider').isDisabled(),false);
+  assert.equal(await page.locator('#anticipation-target-provider').isDisabled(),true,'Without retention no source-derived model plan can be persisted or executed');
   assert.equal(await page.locator('#anticipation-target-provider').isChecked(),false,'An available provider transport never implies consent');
   await page.evaluate(()=>{const input=document.getElementById('anticipation-target-provider');input.checked=true;input.dispatchEvent(new Event('input',{bubbles:true}));document.getElementById('anticipation-target-form').requestSubmit();});
   await page.waitForFunction(()=>data.observation_targets.length===2);
@@ -371,6 +371,7 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
   await page.waitForFunction(()=>document.querySelectorAll('#anticipation-target-window option').length===3);
   assert.equal(await page.locator('#anticipation-target-window img').count(),0,'Window titles render as text');
   await page.selectOption('#anticipation-target-window','321');
+  await page.locator('#anticipation-target-retain').check();
   await page.locator('#anticipation-target-provider').check();
   await page.selectOption('#anticipation-target-window','654');
   assert.equal(await page.locator('#anticipation-target-provider').isChecked(),false,'Changing the chosen window clears its provider consent');
@@ -398,6 +399,12 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
   await page.evaluate(()=>{window.releaseWindowObservation();delete window.releaseWindowObservation;});
   await page.waitForFunction(()=>document.getElementById('anticipation-status').textContent.includes('Cambió la selección'));
   assert.equal(await page.evaluate(()=>data.observation_targets.length),4,'Escape invalidates a pending source authorization without saving it after cancellation');
+  await page.locator('#anticipation-target-retain').check();
+  await page.locator('#anticipation-target-provider').check();
+  await page.locator('#anticipation-target-retain').uncheck();
+  assert.equal(await page.locator('#anticipation-target-provider').isChecked(),false);
+  assert.equal(await page.locator('#anticipation-target-provider').isDisabled(),true);
+  await page.locator('#anticipation-target-retain').check();
   await page.locator('#anticipation-target-provider').check();
   await page.evaluate(()=>{window.missionProject='Otro proyecto';return Axx.anticipation.refresh();});
   assert.equal(await page.locator('#anticipation-target-provider').isChecked(),false);

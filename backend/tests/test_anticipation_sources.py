@@ -19,6 +19,19 @@ from backend.commands import CommandService
 
 
 class AnticipationSourceTests(unittest.TestCase):
+    def test_internal_quarantine_cannot_be_an_observation_target_or_initiative(self):
+        from backend.actions.artifact_compensation import quarantine_root
+        root=quarantine_root(self.executor.workspace_root);root.mkdir()
+        path=root/'owned-backup.artifact';path.write_text('synthetic backup')
+        with self.assertRaisesRegex(ValueError,'cuarentena'):
+            self.configure_folder(observation_targets=[{'id':'internal','source':'folder','task_id':'source-task',
+                'root':str(root),'observe':True}])
+        with patch('os.scandir',side_effect=AssertionError('Internal backups must not be observed')):
+            self.assertEqual(self.service._folder_snapshot({'root':str(root)},DEFAULTS['profiles']['copiloto']),({},False))
+        with patch.object(self.service,'_verifier',side_effect=AssertionError('No initiative for compensation')):
+            self.assertIsNone(self.service._propose({'path':str(path)},'copiloto',DEFAULTS['profiles']['copiloto']))
+        self.assertEqual(path.read_text(),'synthetic backup')
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
@@ -188,15 +201,17 @@ class AnticipationSourceTests(unittest.TestCase):
         for number in range(3):
             (self.folder / ('file-' + str(number))).write_text('read only')
         accepted = self.service.accept
+        elapsed = [1000.0]
         def slow_receipt(*args, **kwargs):
             result = accepted(*args, **kwargs)
-            time.sleep(0.12)
+            elapsed[0] += .12
             return result
-        with patch.object(self.service, 'accept', side_effect=slow_receipt):
-            self.assertEqual(len(self.advance()), 1)
-        self.assertEqual(sum(item['state'] == 'AWAITING_APPROVAL' for item in self.service.suggestions()), 2)
-        self.assertEqual(len(self.executor.list_operations()), 1)
-        self.advance()
+        with patch('backend.anticipation.time.perf_counter', side_effect=lambda: elapsed[0]):
+            with patch.object(self.service, 'accept', side_effect=slow_receipt):
+                self.assertEqual(len(self.advance()), 1)
+            self.assertEqual(sum(item['state'] == 'AWAITING_APPROVAL' for item in self.service.suggestions()), 2)
+            self.assertEqual(len(self.executor.list_operations()), 1)
+            self.advance()
         self.assertEqual(sum(item['state'] == 'VERIFIED' for item in self.service.suggestions()), 3)
 
     def test_application_source_uses_existing_metadata_reader_and_discards_titles(self):

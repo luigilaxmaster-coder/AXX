@@ -1,5 +1,6 @@
 """Mission views use the existing persisted plan and actual executor receipts."""
 from pathlib import Path
+import os
 import tempfile
 import threading
 import unittest
@@ -11,6 +12,65 @@ from backend.commands import CommandService
 
 
 class MissionTests(unittest.TestCase):
+    @unittest.skipUnless(os.name == 'nt', 'Native NTFS compensation')
+    def test_quarantined_delivery_blocks_dependency_until_verified_restore_without_repeating_source(self):
+        with tempfile.TemporaryDirectory() as directory:
+            executor = ActionExecutor(Path(directory) / 'state.db', Path(directory) / 'artifacts')
+            commands = CommandService(executor)
+            learning = ActionLearning(commands, None)
+            try:
+                source = learning.prepare_steps('Crear origen', [{'command_id': 'axx.artifact.write',
+                    'inputs': {'path': 'source.txt', 'content': 'origen'}}], project_id='a')
+                completed = learning.execute(source['operation_id'], approved=True)
+                self.assertTrue(completed['mission']['completed'])
+                operation = completed['step_records'][0]['operation_id']
+                original = commands.db.execute('SELECT result_json FROM command_runs WHERE operation_id=?', (operation,)).fetchone()[0]
+                def compensate(key):
+                    preview = commands.compensation_preview(operation)
+                    self.assertTrue(preview['available'], preview)
+                    prepared = commands.prepare_compensation(operation, preview['source_receipt_hash'],
+                        preview['compensation']['revision'], action=preview['action'], operation_id=key)
+                    result = commands.execute(prepared['operation_id'], approved=True)
+                    self.assertEqual(result['state'], 'succeeded', result)
+                compensate('quarantine-source')
+                current = learning.get(source['operation_id'])
+                self.assertEqual(current['state'], 'succeeded')
+                self.assertFalse(current['mission']['completed'])
+                self.assertEqual(current['mission']['pending_steps'], [0])
+                self.assertEqual(current['mission']['blockers'][0]['state'], 'quarantined')
+                self.assertFalse(learning.list_plans('a')[0]['mission']['completed'])
+                guarded = learning.prepare_steps('Comprobar dependencia antes del efecto', [{'command_id': 'axx.artifact.write',
+                    'inputs': {'path': 'guarded.txt', 'content': 'no debe escribirse'}}], project_id='a')
+                guarded = learning.link_dependencies(guarded['operation_id'], [source['operation_id']], guarded['plan_hash'])
+                guarded.update(state='running', approved_hash=guarded['plan_hash'])
+                record = guarded['step_records'][0]
+                record.update(state='running', resolved_inputs=guarded['steps'][0]['inputs'])
+                learning._save(guarded)
+                commands.prepare('axx.artifact.write', guarded['steps'][0]['inputs'], operation_id=record['operation_id'])
+                rejected = commands.execute(record['operation_id'], approved=True)
+                self.assertEqual(rejected['error']['code'], 'DISPATCH_REJECTED', rejected)
+                self.assertFalse((executor.workspace_root / 'guarded.txt').exists())
+                target = learning.prepare_steps('Crear entrega', [{'command_id': 'axx.artifact.write',
+                    'inputs': {'path': 'target.txt', 'content': 'entrega'}}], project_id='a')
+                target = learning.link_dependencies(target['operation_id'], [source['operation_id']], target['plan_hash'])
+                waiting = learning.execute(target['operation_id'], approved=True)
+                self.assertEqual(waiting['state'], 'waiting_dependency')
+                self.assertFalse((executor.workspace_root / 'target.txt').exists())
+                compensate('restore-source')
+                restored = learning.get(source['operation_id'])
+                self.assertTrue(restored['mission']['completed'])
+                self.assertTrue(restored['mission']['artifact_compensations'][0]['verification']['verified_at'])
+                results = learning.retry_dependencies()
+                self.assertEqual(len(results), 1)
+                self.assertTrue(results[0]['mission']['completed'], results)
+                self.assertEqual((executor.workspace_root / 'source.txt').read_text(), 'origen')
+                self.assertEqual((executor.workspace_root / 'target.txt').read_text(), 'entrega')
+                self.assertEqual(commands.db.execute('SELECT result_json FROM command_runs WHERE operation_id=?', (operation,)).fetchone()[0], original)
+                self.assertEqual(sum(row['tool_name'] == 'file_artifact_writer' and row['state'] == 'succeeded'
+                                     for row in executor.list_operations()), 2)
+            finally:
+                learning.close(); commands.close(); executor.close()
+
     def test_dispatch_rechecks_transitively_expired_context_after_admission(self):
         with tempfile.TemporaryDirectory() as directory:
             executor = ActionExecutor(Path(directory) / 'state.db', Path(directory) / 'artifacts')

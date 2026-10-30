@@ -1,5 +1,6 @@
 """Actual authenticated loopback HTTP -> catalog -> executor, without external services."""
 import json
+import os
 from pathlib import Path
 import tempfile
 import threading
@@ -16,6 +17,31 @@ from backend.server import AxxBridgeHandler, ThreadedHTTPServer
 
 
 class CommandsHttpTests(unittest.TestCase):
+    @unittest.skipUnless(os.name=='nt', 'Compensation requires local NTFS handles')
+    def test_compensation_http_preserves_approval_identity_and_reversible_bytes(self):
+        status,prepared=self.request('commands/prepare',{'command_id':'axx.artifact.write',
+            'operation_id':'http-source','inputs':{'path':'api-original.txt','content':'Synthetic reversible file'}})
+        self.assertEqual(status,200,prepared)
+        status,source=self.request('commands/execute',{'operation_id':'http-source','approved':True})
+        self.assertEqual(source['state'],'succeeded',source)
+        original=self.executor.workspace_root/'api-original.txt'
+        self.assertEqual(self.request('commands/compensation-preview',{'source_operation_id':'http-source'},auth=False)[0],401)
+        self.assertEqual(self.request('commands/compensation-preview',{'source_operation_id':'http-source','path':str(original)})[0],400)
+        for action in ('quarantine','restore'):
+            status,preview=self.request('commands/compensation-preview',{'source_operation_id':'http-source'})
+            self.assertEqual(status,200,preview);self.assertTrue(preview['available'],preview)
+            self.assertEqual(preview['action'],action)
+            status,pending=self.request('commands/compensation-prepare',{'source_operation_id':'http-source',
+                'source_receipt_hash':preview['source_receipt_hash'],'expected_revision':preview['compensation']['revision'],
+                'action':action,'operation_id':'http-'+action})
+            self.assertEqual(status,200,pending);self.assertEqual(pending['state'],'awaiting_approval')
+            self.assertEqual(original.exists(),action=='quarantine')
+            status,done=self.request('commands/execute',{'operation_id':pending['operation_id'],'approved':True})
+            self.assertEqual(status,200,done);self.assertEqual(done['state'],'succeeded',done)
+            self.assertEqual(original.exists(),action=='restore')
+        self.assertEqual(original.read_text(),'Synthetic reversible file')
+        self.assertEqual(self.commands.get('http-source')['state'],'succeeded')
+
     def test_prompt_composition_requires_host_and_cannot_accept_privileged_text(self):
         request = {'mode': 'voice', 'preferences': {'style': 'formal', 'language': 'es'}}
         self.assertEqual(self.request('prompts/compose', request, auth=False)[0], 401)
