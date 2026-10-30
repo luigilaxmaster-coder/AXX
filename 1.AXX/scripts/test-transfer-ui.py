@@ -75,6 +75,50 @@ class TransferPanel(unittest.TestCase):
             self.assertEqual(page.locator('#tf-roots').input_value(),'C:\\Keep-this-draft')
             self.assertEqual(page.evaluate('savedGrants.length'),1)
 
+    def test_new_link_cannot_redirect_ready_results_or_a_stale_send_callback(self):
+        with sync_playwright() as p:
+            page=self.open(p);self.same_name_phones(page)
+            page.evaluate('''()=>{window.sends=[];const prior=Axx.backendRequest;Axx.backendRequest=async(m,p,b)=>{
+              if(p.endsWith('/files/search'))return {files:[{file_ref:'file-A',name:'A.txt',relative_path:'A.txt',size:4,modified_at:1700000000}]};
+              if(p.endsWith('/transfers/create')){sends.push(b);return {state:'ready',name:'A.txt'};}return prior(m,p,b);};}''')
+            page.locator('#tf-tab-send').click();page.locator('#tf-query').fill('A.txt');page.locator('#tf-search-form button').click()
+            page.locator('#tf-results button').wait_for()
+            page.evaluate("window.staleSend=document.querySelector('#tf-results button').onclick;phoneRows.push({device_id:'phone-NEW333',name:'SM-A217M',created_at:1700000200,permissions:{read:true,write:true},roots:[]})")
+            page.locator('#tf-refresh').click();page.locator('#tf-device option[value="phone-NEW333"]').wait_for(state='attached')
+            self.assertEqual(page.locator('#tf-device').input_value(),'phone-NEW222')
+            page.locator('#tf-results button').click();page.wait_for_function('()=>sends.length===1')
+            self.assertEqual(page.evaluate('sends[0].device_id'),'phone-NEW222')
+            page.wait_for_timeout(100)
+            page.locator('#tf-device').select_option('phone-OLD111')
+            self.assertEqual(page.locator('#tf-results button').count(),0)
+            page.evaluate('staleSend()')
+            page.wait_for_function("()=>document.querySelector('#tf-status').textContent.includes('Vuelve a elegir el archivo')")
+            self.assertEqual(page.evaluate('sends.length'),1)
+
+    def test_missing_or_revoked_link_keeps_its_draft_and_blocks_cross_device_save(self):
+        with sync_playwright() as p:
+            for revoked in [False,True]:
+                with self.subTest(revoked=revoked):
+                    page=self.open(p);self.same_name_phones(page);draft=r'C:\Unsent-for-A'
+                    page.locator('#tf-roots').fill(draft)
+                    page.evaluate('''revoked=>{window.originalLink=phoneRows[1];if(revoked)originalLink.revoked=true;else phoneRows=phoneRows.filter(row=>row!==originalLink);}''',revoked)
+                    page.locator('#tf-refresh').click()
+                    page.wait_for_function("()=>document.querySelector('#tf-device option:checked')?.disabled===true")
+                    self.assertEqual(page.locator('#tf-device').input_value(),'phone-NEW222')
+                    self.assertEqual(page.locator('#tf-roots').input_value(),draft)
+                    self.assertTrue(page.locator('#tf-permissions button').is_disabled())
+                    page.locator('#tf-permissions').dispatch_event('submit')
+                    page.wait_for_function("()=>document.querySelector('#tf-status').textContent.includes('Selecciona un teléfono válido')")
+                    self.assertEqual(page.evaluate('savedGrants.length'),0)
+                    page.locator('#tf-device').select_option('phone-OLD111')
+                    self.assertEqual(page.locator('#tf-roots').input_value(),page.evaluate('phoneRows[0].roots[0]'))
+                    page.evaluate('originalLink.revoked=false;if(!phoneRows.includes(originalLink))phoneRows.push(originalLink)')
+                    page.locator('#tf-refresh').click()
+                    page.wait_for_function("()=>!document.querySelector('#tf-device option[value=\\\"phone-NEW222\\\"]').disabled")
+                    page.locator('#tf-device').select_option('phone-NEW222')
+                    self.assertEqual(page.locator('#tf-roots').input_value(),draft)
+                    self.assertEqual(page.evaluate('savedGrants.length'),0)
+
     def test_visible_tools_entry_opens_received_files_from_all_phones(self):
         with sync_playwright() as p:
             page=self.open(p,"localStorage.setItem('axx.flow.favorites',JSON.stringify(['notes','calculator']));")
