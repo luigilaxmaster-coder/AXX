@@ -41,7 +41,7 @@ assert.deepEqual(reviewResolution.steps,[{command_id:'axx.desktop.list_windows',
     const page = await browser.newPage({ viewport: { width: 1440, height: 960 } });
     page.setDefaultTimeout(10000);
     const errors = [];
-    page.on('pageerror', e => errors.push(e.message));
+    page.on('pageerror', e => { errors.push(e.message); if(process.env.AXX_TEST_ERROR_STACK)process.stderr.write(e.stack+'\n'); });
     await page.addInitScript(() => {
       // This suite verifies explicit provider/model eligibility. Do not inherit
       // the separate automatic discovery flow from fresh-install preferences.
@@ -827,6 +827,30 @@ assert.deepEqual(reviewResolution.steps,[{command_id:'axx.desktop.list_windows',
     });
     if(glVisibility.available){assert(glVisibility.before.pixels>100&&glVisibility.before.mask>0);assert.deepEqual(glVisibility.hidden,{pixels:0,mask:0,hit:false});assert(glVisibility.restored.pixels>100&&glVisibility.restored.mask>0);results.push('WebGL framebuffer and offscreen hitmask stay empty through hidden draw/resize/capture and redraw immediately on restore');}
     else console.log('SKIP: WebGL2 unavailable; software renderer visibility validated separately');
+    const publicVisibility=await page.evaluate(async()=>{
+      const app=Axx.app,original=app.renderer,oldCanvas=original.canvas,parking=document.createElement('div'),results=[];original.stopLoop?.();original.stop?.();
+      const flush=async()=>{for(let i=0;i<30&&app.maskInFlight;i++)await new Promise(resolve=>setTimeout(resolve,10));app.lastHitSignature='';await app.updateHitMap();};
+      try{for(const kind of ['software','webgl']){
+        const canvas=document.createElement('canvas');canvas.id='avatar';oldCanvas.replaceWith(canvas);parking.append(oldCanvas);
+        if(kind==='webgl'&&!canvas.getContext('webgl2',{alpha:true,antialias:true,premultipliedAlpha:true,preserveDrawingBuffer:true,powerPreference:'high-performance'})){canvas.replaceWith(oldCanvas);results.push({kind,available:false});continue;}
+        const renderer=new (kind==='software'?Axx.SoftwareRenderer:Axx.LiquidRenderer)(canvas,{...app.store.data.settings,staticMode:true});renderer.stopLoop?.();renderer.stop?.();app.renderer=renderer;
+        const alpha=()=>{let pixels;if(renderer.gl){const gl=renderer.gl;pixels=new Uint8Array(canvas.width*canvas.height*4);gl.bindFramebuffer(gl.FRAMEBUFFER,null);gl.readPixels(0,0,canvas.width,canvas.height,gl.RGBA,gl.UNSIGNED_BYTE,pixels);}else pixels=renderer.ctx.getImageData(0,0,canvas.width,canvas.height).data;return pixels.reduce((n,v,i)=>n+(i%4===3&&v>0?1:0),0);};
+        try{app.setVisible(true);Axx.resident.fold();Axx.flow.nav.step=2;Axx.flow.render();document.getElementById('flow-root').classList.remove('flow-invisible');await Axx.resident.layout();renderer.draw(0);const before=alpha();
+          const nativeHides=()=>__contractCalls.filter(call=>call.name==='window_action'&&call.args.action==='hide').length,beforeHide=nativeHides();
+          document.getElementById('hide-avatar').click();await flush();
+          const buttonHidesHost=nativeHides()-beforeHide;app.setVisible(true);app.hide();await flush();const appHidesHost=nativeHides()-beforeHide;
+          const restore=document.getElementById('restore'),rect=restore.getBoundingClientRect(),x=rect.x+rect.width/2,y=rect.y+rect.height/2,map=__contractCalls.filter(call=>call.name==='hit_map').at(-1)?.args.map;
+          const hidden={pixels:alpha(),bits:renderer.hitMask().bits.filter(Boolean).length,controls:[...document.querySelectorAll('button,input,textarea,select,summary')].filter(node=>node.id!=='restore'&&node.getClientRects().length&&getComputedStyle(node).visibility!=='hidden'&&Number(getComputedStyle(node).opacity)!==0).map(node=>node.id||node.tagName),restoreVisible:!!restore.getClientRects().length,restoreMapped:map?.regions.some(region=>x>=region.x&&x<region.x+region.width&&y>=region.y&&y<region.y+region.height),onlyRestoreMapped:map?.regions.every(region=>region.x>=rect.x-1&&region.y>=rect.y-1&&region.x+region.width<=rect.right+1&&region.y+region.height<=rect.bottom+1),nativeBits:map?.bits.filter(Boolean).length};
+          const restored=[];for(const entry of kind==='software'?['restore','summon-main','summon-key','summon-settings','context-summon','companion','home','event']:['core']){app.setVisible(false);if(entry==='core')app.setVisible(true);else if(entry==='companion')Axx.companion.summon();else if(entry==='home')Axx.home18.call();else if(entry==='event')__contractEvents['axx-show'].forEach(fn=>fn({payload:{follow:false}}));else document.getElementById(entry).click();await flush();restored.push({entry,visible:app.machine.visible,hidden:!!(renderer.hidden||renderer.isHidden),pixels:alpha(),nativeBits:__contractCalls.filter(call=>call.name==='hit_map').at(-1)?.args.map.bits.filter(Boolean).length});}
+          results.push({kind,available:true,before,hidden,restored,buttonHidesHost,appHidesHost});
+        }finally{app.setVisible(true);renderer.stopLoop?.();renderer.stop?.();canvas.replaceWith(oldCanvas);parking.append(canvas);app.renderer=original;}
+      }}finally{app.renderer=original;app.setVisible(true);original.startLoop();Axx.resident.fold();}
+      return results;
+    });
+    for(const result of publicVisibility.filter(result=>result.available)){assert(result.before>100);assert.equal(result.buttonHidesHost,0,'The resident hide button must retain the native host for restore');assert.equal(result.appHidesHost,0,'App.hide must not send window.hide in resident mode');assert.deepEqual(result.hidden,{pixels:0,bits:0,controls:[],restoreVisible:true,restoreMapped:true,onlyRestoreMapped:true,nativeBits:0},JSON.stringify(result));for(const entry of result.restored){assert.equal(entry.visible,true,JSON.stringify(result));assert.equal(entry.hidden,false);assert(entry.pixels>100);assert(entry.nativeBits>0);}}
+    const nonresidentHide=await page.evaluate(()=>{const resident=Axx.resident,before=__contractCalls.filter(call=>call.name==='window_action'&&call.args.action==='hide').length;try{Axx.resident=null;Axx.app.hide();return __contractCalls.filter(call=>call.name==='window_action'&&call.args.action==='hide').length-before;}finally{Axx.resident=resident;Axx.app.setVisible(true);}});
+    assert.equal(nonresidentHide,1,'The non-resident native view preserves its existing window-hide request');
+    results.push('Software UI hide/restore/summon buttons and native events plus core software/WebGL visibility synchronously clear alpha and hide controls except restore with the native map, independently of RAF');
     await page.evaluate(() => Axx.companion.hide());
     assert.equal(await page.evaluate(() => document.body.classList.contains('avatar-hidden')), true);
     await page.locator('#restore').click();

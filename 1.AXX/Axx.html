@@ -7259,7 +7259,7 @@ var Axx;
         closePanel() { if (!this.panelName)
             return; clearTimeout(this.panelFocusTimer); this.panelFocusTimer = null; this.panelFocusAbort?.abort(); this.panelFocusAbort = null; this.panelName = null; el('panel').hidden = true; this.restoreFocus?.focus?.(); if (this.bridge.available && !Axx.quickReply?.active)
             this.bridge.action('close_panel').catch(e => this.toast(this.errorText(e))); this.updateHitMap(); }
-        setVisible(visible) { this.machine.visible = visible; el('stage').hidden = !visible; this.renderer.setHidden(!visible); document.body.classList.toggle('avatar-hidden', !visible); el('restore').hidden = visible; if (visible) {
+        setVisible(visible) { this.machine.visible = visible; document.body.classList.toggle('avatar-hidden', !visible); el('stage').hidden = !visible; el('flow-root')?.classList.toggle('flow-invisible', !visible); this.renderer.setHidden(!visible); el('restore').hidden = visible; this.lastHitSignature = ''; this.maskVisibilityPending = true; if (visible) {
             document.body.classList.remove('presentation');
             this.renderer.interact();
         }
@@ -7268,7 +7268,7 @@ var Axx;
             this.stopAudio();
         } Axx.quickReply?.refresh(); Axx.anticipation?.render(); Axx.resident?.schedule(); void this.updateHitMap(); if (this.bridge.available && visible)
             this.bridge.action('show').catch(e => this.toast(this.errorText(e))); }
-        hide() { el('context-menu').hidden = true; this.setVisible(false); if (this.bridge.available)
+        hide() { el('context-menu').hidden = true; this.setVisible(false); if (this.bridge.available && !Axx.resident)
             this.bridge.action('hide').catch(e => this.toast(this.errorText(e))); }
         applySettings() {
             const s = this.appearancePreview || this.store.data.settings;
@@ -7652,6 +7652,7 @@ var Axx;
             if (!this.bridge.available || this.maskInFlight || !this.ready || document.hidden)
                 return;
             this.maskInFlight = true;
+            this.maskVisibilityPending = false;
             try {
                 const regions = Axx.resident ? Axx.resident.interactiveRegions() : [];
                 if (!Axx.resident)
@@ -7681,6 +7682,7 @@ var Axx;
             }
             finally {
                 this.maskInFlight = false;
+                if (this.maskVisibilityPending) void this.updateHitMap();
             }
         }
         diagnosticMode = false;
@@ -8075,7 +8077,7 @@ var Axx;
             click('context-summon', () => { node('context-menu').hidden = true; this.summon(); });
             click('context-hide', () => this.hide());
             click('hide-avatar', () => this.hide());
-            click('restore', () => { this.app.setVisible(true); this.summon(); });
+            click('restore', () => this.summon());
             click('reset-position', () => this.center());
             node('feature-search').oninput = () => this.renderCatalog();
             document.querySelectorAll('[data-say]').forEach(b => { b.onclick = () => { this.openChat(); void this.send(b.dataset.say); }; });
@@ -19114,6 +19116,13 @@ var Axx;
         constructor() {
             document.documentElement.classList.add('axx-resident');
             document.body.classList.add('axx-resident');
+            // The invoker must remain outside the surfaces it restores.
+            document.body.append(document.getElementById('restore'));
+            // Visibility belongs to the resident surface, including controls
+            // created after hiding. Keep each component's own state untouched.
+            const visibility = document.createElement('style');
+            visibility.textContent = 'body.axx-resident.avatar-hidden > :not(#restore):not(script):not(style):not(link){display:none!important}';
+            document.head.append(visibility);
             this.panelPositions = this.loadPanelPositions();
             this.ensureResizeHandles();
             document.getElementById('reset-desktop-layout')?.addEventListener('click', () => this.resetLayout());
@@ -19311,7 +19320,7 @@ var Axx;
             document.body.style.setProperty('--resident-size', this.size + 'px');
         }
         tap() { Axx.quickReply?.close(); if(Axx.flow.nav.step!==2)Axx.flow.fold(); Axx.flow.tap(); const isOpen = (Axx.flow.nav.step !== 0); this.invoked = isOpen; document.body.classList.toggle('resident-invoked', isOpen); this.schedule(); }
-        summon(follow = true) { this.geometry = null; this.invoked = true; document.body.classList.add('resident-invoked'); Axx.home18.wake(); Axx.companion.data.prefs.follow = follow; Axx.flow.compactTools(); this.activity(); this.schedule(); }
+        summon(follow = true) { Axx.app.setVisible(true); this.geometry = null; this.invoked = true; document.body.classList.add('resident-invoked'); Axx.home18.wake(); Axx.companion.data.prefs.follow = follow; Axx.flow.compactTools(); this.activity(); this.schedule(); }
         home(move = false) { this.geometry = null; this.fold(); Axx.companion.data.prefs.follow = false; this.activity(); if (move) void Axx.app.bridge.action('recenter'); }
         fold(render = true) {
             this.invoked = false; document.body.classList.remove('resident-invoked');
@@ -19676,6 +19685,7 @@ var Axx;
         interactiveRegions() {
             const regions = [];
             for (const n of document.querySelectorAll('#quick-actions,#quick-compose,#quick-reply,#anticipation-card,#mp-canvas,#mp-toolbar,#mp-more-panel,#mp-widget,#panel,#dock-shell,#flow-sheet,#flow-pill,#flow-fan>button,#flow-all,#reach-tray,#reach-preview,#ink-review,#v13-dock,#v13-settings,#v13-pad,#reader-mini,.organic-satellite,dialog[open],button,input,textarea,select,summary,.resident-resize-handle')) {
+                if (!Axx.app.machine.visible && n.id !== 'restore') continue;
                 if (n.id === 'a11-main-button' || n.hidden || n.closest('[inert]') || !n.getClientRects().length) continue;
                 // These bounded surfaces already own their input. Descendant
                 // rectangles can extend outside their scroll clip and must not
