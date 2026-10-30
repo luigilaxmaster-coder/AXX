@@ -141,7 +141,7 @@ def source_inventory(root: Path) -> set[Path]:
     paths = {root / p for p in ("axx-backend.spec", "scripts/setup-freellmapi.ps1", "scripts/configure-native-gateway.py", "scripts/anythingmcp-local.py", "src-tauri/tauri.conf.json",
                                 "src-tauri/Cargo.toml", "src-tauri/resources/ai-memory.exe", "requirements-telegram.txt",
                                 "backend/telegram/webapp.html", "backend/telegram/webapp.css", "backend/telegram/webapp.js",
-                                "mobile/js/desktop-avatar.js", "mobile/js/avatar-renderer.js")}
+                                "mobile/www/js/desktop-avatar.js", "mobile/js/avatar-renderer.js")}
     paths.update(p for p in (root / "1.AXX").rglob("*") if p.is_file() and
                  p.suffix in (".html", ".js", ".css", ".json", ".png", ".ico", ".svg", ".woff", ".woff2"))
     paths.update(p for p in (root / "src-tauri/resources/license-notices").rglob("*") if p.is_file())

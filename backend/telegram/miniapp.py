@@ -202,7 +202,7 @@ class MiniAppFacade:
                         assets = {'/': (facade.asset_path, 'text/html; charset=utf-8'),
                                   '/app.js': (facade.asset_path.with_name('webapp.js'), 'application/javascript; charset=utf-8'),
                                   '/app.css': (facade.asset_path.with_name('webapp.css'), 'text/css; charset=utf-8'),
-                                  '/desktop-avatar.js': (asset_root / 'mobile/js/desktop-avatar.js', 'application/javascript; charset=utf-8'),
+                                  '/desktop-avatar.js': (asset_root / 'mobile/www/js/desktop-avatar.js', 'application/javascript; charset=utf-8'),
                                   '/avatar-renderer.js': (asset_root / 'mobile/js/avatar-renderer.js', 'application/javascript; charset=utf-8')}
                         target, mime = assets[self.path]
                         html = target.read_bytes()

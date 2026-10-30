@@ -24,7 +24,7 @@ class ReleaseTests(unittest.TestCase):
         self.current = release.check(self.root)
 
     def receipt(self):
-        for name in ("axx-backend.spec", "scripts/setup-freellmapi.ps1", "scripts/configure-native-gateway.py", "scripts/anythingmcp-local.py", "src-tauri/resources/ai-memory.exe", "requirements-telegram.txt", "backend/telegram/webapp.html", "backend/telegram/webapp.css", "backend/telegram/webapp.js", "mobile/js/desktop-avatar.js", "mobile/js/avatar-renderer.js"):
+        for name in ("axx-backend.spec", "scripts/setup-freellmapi.ps1", "scripts/configure-native-gateway.py", "scripts/anythingmcp-local.py", "src-tauri/resources/ai-memory.exe", "requirements-telegram.txt", "backend/telegram/webapp.html", "backend/telegram/webapp.css", "backend/telegram/webapp.js", "mobile/www/js/desktop-avatar.js", "mobile/js/avatar-renderer.js"):
             path = self.root / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(b"unit test source fixture")
@@ -100,7 +100,7 @@ class ReleaseTests(unittest.TestCase):
 
     def test_telegram_assets_are_required_and_tampering_is_rejected(self):
         for name in ('backend/telegram/webapp.html', 'backend/telegram/webapp.css', 'backend/telegram/webapp.js',
-                     'mobile/js/desktop-avatar.js', 'mobile/js/avatar-renderer.js', 'requirements-telegram.txt'):
+                     'mobile/www/js/desktop-avatar.js', 'mobile/js/avatar-renderer.js', 'requirements-telegram.txt'):
             with self.subTest(name=name):
                 _, b, i = self.receipt()
                 self.assertIn((self.root / name).resolve(), release.source_inventory(self.root))

@@ -33,7 +33,7 @@ a = Analysis(
            ('backend/telegram/webapp.html', 'backend/telegram'),
            ('backend/telegram/webapp.js', 'backend/telegram'),
            ('backend/telegram/webapp.css', 'backend/telegram'),
-           ('mobile/js/desktop-avatar.js', 'mobile/js'),
+           ('mobile/www/js/desktop-avatar.js', 'mobile/www/js'),
            ('mobile/js/avatar-renderer.js', 'mobile/js'),
            ('backend/actions/uia_worker.ps1', 'backend/actions'),
            ('backend/actions/uia_observer.ps1', 'backend/actions'),

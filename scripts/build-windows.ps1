@@ -31,7 +31,9 @@ try {
         $modelPath = Join-Path 'resources\models\faster-whisper-tiny' $file.name
         if ((Get-FileHash -LiteralPath $modelPath -Algorithm SHA256).Hash -ne $file.sha256) { throw "ASR model hash differs: $modelPath" }
     }
-    $telegramAssets = @('backend\telegram\webapp.html', 'backend\telegram\webapp.css', 'backend\telegram\webapp.js', 'mobile\js\desktop-avatar.js', 'mobile\js\avatar-renderer.js')
+    & node mobile/build.mjs
+    if ($LASTEXITCODE -ne 0) { throw 'Desktop avatar extraction failed; see mobile/build.mjs' }
+    $telegramAssets = @('backend\telegram\webapp.html', 'backend\telegram\webapp.css', 'backend\telegram\webapp.js', 'mobile\www\js\desktop-avatar.js', 'mobile\js\avatar-renderer.js')
     $sourceFiles = @(Get-ChildItem -LiteralPath '1.AXX' -File -Recurse | Where-Object { $_.Extension -in '.html','.js','.css','.json','.png','.ico','.svg','.woff','.woff2' } | ForEach-Object FullName) + @('axx-backend.spec', 'scripts\setup-freellmapi.ps1', 'src-tauri\tauri.conf.json', 'src-tauri\Cargo.toml', 'src-tauri\resources\ai-memory.exe') + $telegramAssets
     $sourceFiles += @(Get-ChildItem backend,src-tauri\src,resources,vendor -File -Recurse | Where-Object { $_.Extension -in '.ps1','.py','.rs','.json','.bin','.txt','.zip' -and $_.FullName -notmatch '\\(__pycache__|tests)\\' -and $_.Name -notlike 'test_*.py' } | ForEach-Object FullName)
     $sourceFiles += @(Get-ChildItem -LiteralPath 'src-tauri\resources\license-notices' -File -Recurse | ForEach-Object FullName)
