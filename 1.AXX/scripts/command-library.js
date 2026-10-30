@@ -27,6 +27,7 @@
     };
     class CommandLibrary {
         generation = 0; searchGeneration = 0; observationRevision = 0; cancellingGeneration = null; busy = false; operation = null; pendingOperationId = null; commands = []; voiceDraft = null; actionContext = {}; actionContextChat = ''; actionContextAt = 0;
+        compensationRevision = 0; compensationKey = ''; compensationReview = null; compensationApproval = null; compensationLoading = false;
         constructor() {
             this.installControls();
             this.installDispatch();
@@ -34,8 +35,10 @@
             this.markVoiceProvenance();
             if (Axx.isNative() && !Axx.desktop) void Axx.app.bridge.listen('axx-cancel', () => { void this.cancel(); });
             document.addEventListener('keydown', event => {
-                if (event.key === 'Escape' && (this.busy || this.operation)) void this.cancel();
+                if (event.key === 'Escape' && (this.busy || this.operation || this.compensationReview || this.compensationLoading)) void this.cancel();
             }, true);
+            const renderChat = Axx.companion.renderChat.bind(Axx.companion);
+            Axx.companion.renderChat = (...args) => { const chat = Axx.chatWorkspace?.active?.id || null; if (this.compensationChat !== chat) { this.compensationChat = chat; this.clearCompensation(); } return renderChat(...args); };
         }
         status(text) {
             node('command-library-status').textContent = text;
@@ -85,6 +88,7 @@
                 <div id="command-library-approval-actions"><button id="command-library-approve" type="button">Aprobar y ejecutar</button></div>
               </section>
               <div id="command-library-controls"><button id="command-library-cancel" type="button" disabled>Cancelar tarea</button><button id="command-library-recover" type="button" disabled>Consultar resultado</button><button id="command-library-remember" type="button" hidden>Guardar procedimiento verificado</button></div>
+              <div id="command-library-compensation" hidden><p id="command-library-compensation-status" role="status" style="white-space:pre-line"></p><div class="quick-row"><button id="command-library-compensation-review" type="button" hidden>Revisar archivo nuevo</button><button id="command-library-compensation-prepare" type="button" hidden>Preparar compensación</button></div><details id="command-library-compensation-details" hidden><summary>Detalles de la compensación</summary><pre id="command-library-compensation-raw" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre></details></div>
               <p id="command-library-status" role="status">${Axx.isNative() ? 'Lista para consultar el backend de Axx.' : 'El catálogo ejecutable requiere Axx para Windows. Puedes seguir usando las herramientas locales.'}</p>
               <p>Busca una acción y revisa sus parámetros. Las recetas documentadas permanecen bloqueadas hasta disponer de un adaptador validado.</p>
               <p id="command-library-counts">Consulta el catálogo para ver su disponibilidad.</p>
@@ -104,6 +108,8 @@
             node('command-library-next').onclick=()=>void this.search(undefined,(this.offset||0)+30).catch(e=>this.report(e));
             node('command-library-parameters').onsubmit = event => { event.preventDefault(); void this.fromSelection().catch(e => this.report(e)); };
             node('command-library-approve').onclick = () => { void this.approve().catch(e => this.report(e)); };
+            node('command-library-compensation-review').onclick = () => { void this.reviewCompensation().catch(e => this.status(errorText(e))); };
+            node('command-library-compensation-prepare').onclick = () => { void this.prepareCompensation().catch(e => this.status(errorText(e))); };
             node('command-library-remember').onclick = () => {
                 const operation = this.lastOperation;
                 if (!operation || this.busy || this.operation) return;
@@ -558,6 +564,93 @@
                 } finally { if (serial === this.generation && !this.operation) this.busy = false; }
             };
         }
+        isCompensation(operation) { return ['axx.artifact.quarantine','axx.artifact.restore'].includes(operation?.command_id); }
+        clearCompensation() {
+            ++this.compensationRevision; this.compensationKey=''; this.compensationReview=null; this.compensationApproval=null; this.compensationDisplay=null; this.compensationLoading=false;
+            node('command-library-compensation').hidden=true; node('command-library-compensation-prepare').hidden=true;
+            node('command-library-compensation-status').textContent=''; node('command-library-compensation-raw').textContent='';
+            if(this.isCompensation(this.operation))node('command-library-approve').disabled=true;
+        }
+        compensationSource(operation) {
+            if(!Axx.isNative()||!operation?.operation_id)return null;
+            if(operation.conversation_id&&operation.conversation_id!==Axx.chatWorkspace?.active?.id)return null;
+            if(this.isCompensation(operation)&&typeof operation.source_operation_id==='string')return operation.source_operation_id;
+            return operation.command_id==='axx.artifact.write'&&operation.state==='succeeded'&&operation.postconditions_passed===true&&operation.evidence?.creation_receipt?.verified===true?operation.operation_id:null;
+        }
+        compensationFingerprint(preview) { return JSON.stringify([preview.source_operation_id,preview.task_id,preview.action,preview.source_receipt_hash,preview.artifact,preview.compensation]); }
+        async compensationPreview(source, operation) {
+            const preview=await this.request('POST','/axx-api/commands/compensation-preview',{source_operation_id:source});
+            if(preview.available!==true)return preview;
+            if(preview.capability?.native_available!==true||preview.source_operation_id!==source||preview.task_id!==(operation.conversation_id||source)||!['quarantine','restore'].includes(preview.action)||!/^([a-f0-9]{64})$/.test(preview.source_receipt_hash)||typeof preview.artifact?.path!=='string'||!preview.artifact.path||!Number.isSafeInteger(preview.artifact.bytes)||preview.artifact.bytes<0||!/^([a-f0-9]{64})$/.test(preview.artifact.sha256)||!preview.artifact.identity||!Number.isSafeInteger(preview.compensation?.revision)||preview.compensation.revision<0)throw Error('El backend no confirmó el archivo y su revisión de compensación.');
+            return preview;
+        }
+        compensationApprovalMatches(operation, review=this.compensationApproval) {
+            const preview=review?.preview;
+            return !!(review&&review.operation_id===operation?.operation_id&&review.chat===(Axx.chatWorkspace?.active?.id||null)&&preview&&operation.command_id==='axx.artifact.'+preview.action&&operation.source_operation_id===preview.source_operation_id&&operation.inputs?.source_operation_id===preview.source_operation_id&&operation.inputs?.source_receipt_hash===preview.source_receipt_hash&&operation.inputs?.expected_revision===preview.compensation.revision&&(operation.compensation?.revision===undefined||operation.compensation.revision===preview.compensation.revision));
+        }
+        compensationDescription(preview) {
+            const path=preview.artifact.path,name=path.split(/[\\/]/).at(-1),action=preview.action==='quarantine'?'Apartar archivo nuevo':'Restaurar archivo apartado';
+            return action+'\nArchivo: '+name+'\n'+(preview.action==='quarantine'?'Ubicación actual: ':'Restaurar en: ')+path+'\n'+(preview.action==='quarantine'?'Moverá este archivo nuevo a la cuarentena de Axx, conservando sus bytes.':'Devolverá el archivo apartado a su ruta original sin sobrescribir otro archivo.');
+        }
+        compensationPresentation(operation) {
+            if(!this.isCompensation(operation))return null;
+            const cached=this.compensationApprovalMatches(operation)?this.compensationApproval:this.compensationDisplay?.operation_id===operation.operation_id&&this.compensationDisplay.chat===(Axx.chatWorkspace?.active?.id||null)?this.compensationDisplay:null;
+            const path=cached?.preview?.artifact?.path||operation.output?.original_path,name=typeof path==='string'?path.split(/[\\/]/).at(-1):null,action=operation.command_id.endsWith('.quarantine')?'Apartar archivo nuevo':'Restaurar archivo apartado';
+            return {title:action+(name?' · '+name:''),description:operation.state==='unknown'?'Resultado pendiente de conciliación'+(path?'\nArchivo: '+name+'\nRuta original: '+path:'')+'\nSe comprobarán ambas ubicaciones sin repetir el movimiento.':path?this.compensationDescription({artifact:{path},action:operation.command_id.endsWith('.quarantine')?'quarantine':'restore'}):action+'\nComprobando la ruta del archivo desde su recibo.',canApprove:this.compensationApprovalMatches(operation),technical:{command_id:operation.command_id,inputs:operation.inputs,...(cached?{compensation_preview:cached.preview}:{})}};
+        }
+        showCompensationReview(preview, operation) {
+            this.compensationReview={preview,operation_id:operation.operation_id,source_operation_id:preview.source_operation_id,chat:Axx.chatWorkspace?.active?.id||null,generation:this.generation};
+            node('command-library-compensation').hidden=false; node('command-library-compensation-status').textContent=this.compensationDescription(preview);
+            node('command-library-compensation-prepare').textContent='Preparar: '+(preview.action==='quarantine'?'Apartar archivo nuevo':'Restaurar archivo apartado');
+            node('command-library-compensation-prepare').hidden=false;node('command-library-compensation-prepare').disabled=false;
+            node('command-library-compensation-details').hidden=false;node('command-library-compensation-raw').textContent=JSON.stringify(preview,null,2);node('command-library-cancel').disabled=false;
+        }
+        renderCompensation(operation) {
+            const source=this.compensationSource(operation),chat=Axx.chatWorkspace?.active?.id||null,key=JSON.stringify([operation?.operation_id,operation?.state,source,chat,operation?.compensation]);
+            if(key===this.compensationKey)return;
+            const retained=this.compensationApprovalMatches(operation)?this.compensationApproval:null;
+            this.clearCompensation();this.compensationKey=key;if(retained)this.compensationApproval=retained;
+            if(retained&&operation.state==='awaiting_approval')return;
+            if(!source||this.busy||!['succeeded','failed','cancelled','expired','unknown','awaiting_approval'].includes(operation.state))return;
+            const token=this.compensationRevision,serial=this.generation;this.compensationLoading=true;
+            void this.compensationPreview(source,operation).then(preview=>{
+                if(token!==this.compensationRevision||serial!==this.generation||chat!==(Axx.chatWorkspace?.active?.id||null))return;
+                if(preview.source_operation_id===source&&preview.task_id===(operation.conversation_id||source)&&typeof preview.artifact?.path==='string'&&this.isCompensation(operation))this.compensationDisplay={operation_id:operation.operation_id,preview,chat};
+                if(operation.state==='unknown'){if(this.compensationDisplay)this.renderOperation(operation);return;}
+                if(preview.available!==true||preview.capability?.native_available!==true)return;
+                if(operation.state==='awaiting_approval'){
+                    const review={operation_id:operation.operation_id,preview,chat};
+                    if(!this.compensationApprovalMatches(operation,review))return;
+                    this.compensationApproval=review;this.renderOperation(operation);return;
+                }
+                const button=node('command-library-compensation-review');button.textContent=preview.action==='quarantine'?'Revisar archivo nuevo':'Revisar archivo apartado';button.hidden=false;button.disabled=false;
+                node('command-library-compensation').hidden=false;node('command-library-compensation-status').textContent='Compensación disponible para este archivo nuevo con prueba de creación vigente. No modifica el recibo original.';
+            }).catch(error=>{if(token===this.compensationRevision)node('command-library-compensation-status').textContent=errorText(error);}).finally(()=>{if(token===this.compensationRevision)this.compensationLoading=false;});
+        }
+        async reviewCompensation() {
+            if(this.compensationLoading){this.clearCompensation();this.busy=false;return;}
+            if(this.busy||this.operation)return;
+            const operation=this.lastOperation,source=this.compensationSource(operation);if(!source)return;
+            const token=++this.compensationRevision,serial=this.generation,chat=Axx.chatWorkspace?.active?.id||null;this.compensationLoading=true;this.busy=true;this.compensationReview=null;
+            node('command-library-compensation-review').disabled=true;node('command-library-compensation-prepare').hidden=true;node('command-library-cancel').disabled=false;
+            try{const preview=await this.compensationPreview(source,operation);if(token!==this.compensationRevision||serial!==this.generation||chat!==(Axx.chatWorkspace?.active?.id||null)||this.lastOperation?.operation_id!==operation.operation_id)return;
+                if(preview.available!==true){node('command-library-compensation-status').textContent='El archivo cambió o requiere conciliación; no se preparó ninguna compensación.';return;}
+                this.showCompensationReview(preview,operation);
+            }finally{if(serial===this.generation){this.busy=false;node('command-library-compensation-review').disabled=false;}if(token===this.compensationRevision)this.compensationLoading=false;}
+        }
+        async prepareCompensation() {
+            if(this.compensationLoading){this.clearCompensation();this.busy=false;return;}
+            if(this.busy||this.operation)return;
+            const review=this.compensationReview,operation=this.lastOperation;if(!review||review.operation_id!==operation?.operation_id||review.generation!==this.generation||review.chat!==(Axx.chatWorkspace?.active?.id||null))return;
+            const token=++this.compensationRevision,serial=this.generation;this.compensationReview=null;this.compensationLoading=true;this.busy=true;node('command-library-compensation-prepare').disabled=true;
+            try{const fresh=await this.compensationPreview(review.source_operation_id,operation);
+                if(token!==this.compensationRevision||serial!==this.generation||review.chat!==(Axx.chatWorkspace?.active?.id||null)||this.lastOperation?.operation_id!==operation.operation_id)return;
+                if(fresh.available!==true){node('command-library-compensation-prepare').hidden=true;node('command-library-compensation-status').textContent='La prueba del archivo cambió; consulta de nuevo el recibo antes de preparar.';return;}
+                if(this.compensationFingerprint(fresh)!==this.compensationFingerprint(review.preview)){this.showCompensationReview(fresh,operation);this.status('La revisión cambió. Revisa la nueva ruta y el efecto antes de volver a preparar.');return;}
+                this.busy=false;this.compensationLoading=false;
+                return await this.prepareRequest('/axx-api/commands/compensation-prepare',{source_operation_id:review.source_operation_id,source_receipt_hash:fresh.source_receipt_hash,expected_revision:fresh.compensation.revision,action:fresh.action},{compensation:{preview:fresh,chat:review.chat}});
+            }finally{if(serial===this.generation){this.busy=false;node('command-library-compensation-prepare').disabled=false;}if(token===this.compensationRevision)this.compensationLoading=false;}
+        }
         markVoiceProvenance() {
             const voice = Axx.voice13;
             if (!voice?.applyPending) return;
@@ -571,14 +664,15 @@
         }
         renderOperation(operation) {
             node('command-library-result').textContent = JSON.stringify(operation, null, 2);
+            this.renderCompensation(operation);
             const awaiting = operation?.state === 'awaiting_approval';
             node(awaiting ? 'command-library-approval-actions' : 'command-library-controls').append(node('command-library-cancel'));
             node('command-library-approval').hidden = !awaiting;
             if (awaiting) this.renderApproval(operation);
-            node('command-library-approve').disabled = !awaiting || this.busy;
-            node('command-library-cancel').disabled = !this.busy && !this.operation;
+            node('command-library-approve').disabled = !awaiting || this.busy || this.isCompensation(operation)&&!this.compensationApprovalMatches(operation);
+            node('command-library-cancel').disabled = this.isCompensation(operation)&&operation.state==='unknown'||!this.busy && !this.operation && !this.compensationReview && !this.compensationLoading;
             node('command-library-recover').disabled = this.busy || this.cancellingGeneration === this.generation || !operation?.operation_id;
-            node('command-library-recover').textContent = operation?.state === 'unknown' && operation.evidence?.reconciliation_required ? 'Revisar efecto sin repetir' : 'Consultar resultado';
+            node('command-library-recover').textContent = operation?.state === 'unknown' && this.isCompensation(operation) ? 'Conciliar sin repetir' : operation?.state === 'unknown' && operation.evidence?.reconciliation_required ? 'Revisar efecto sin repetir' : 'Consultar resultado';
             node('command-library-remember').hidden = !(operation?.state === 'succeeded' && operation.postconditions_passed && ['axx.desktop.notepad.text','axx.desktop.explorer.folder'].includes(operation.command_id));
             node('command-library-prepare').disabled = this.busy || !!this.operation || !this.commands.find(item => item.id === node('command-library-select').value)?.execution_enabled;
             if (Axx.desktop) {
@@ -605,8 +699,11 @@
                 const done = operation.step_records?.[index]?.state === 'succeeded';
                 if (done) completed++;
                 const item = document.createElement('li'), title = document.createElement('strong');
-                title.textContent = (done ? 'Completado · ' : '') + (titles[step.command_id] || this.commands.find(c => c.id === step.command_id)?.title || step.command_id);
+                title.textContent = (done ? 'Completado · ' : '') + (this.isCompensation(step)?step.command_id.endsWith('.quarantine')?'Apartar archivo nuevo':'Restaurar archivo apartado':titles[step.command_id] || this.commands.find(c => c.id === step.command_id)?.title || step.command_id);
                 item.append(title);
+                if(this.isCompensation(step)){
+                    const text=document.createElement('p');text.style.whiteSpace='pre-line';text.textContent=this.compensationApprovalMatches(operation)?this.compensationDescription(this.compensationApproval.preview):'Comprobando el archivo y su revisión antes de permitir la aprobación.';item.append(text);preview.append(item);return;
+                }
                 if (step.delivery_mode) { const mode = document.createElement('p'); mode.textContent = 'Entorno: ' + ({background:'segundo plano',foreground:'escritorio activo',isolated:'aislado'}[step.delivery_mode] || step.delivery_mode); item.append(mode); }
                 if (done) { const note = document.createElement('p'); note.textContent = 'Se conserva el resultado. Este paso no se repetirá.'; item.append(note); }
                 for (const [key, value] of Object.entries(step.inputs || {})) {
@@ -623,13 +720,14 @@
             const pending = steps.length - completed;
             node('command-library-approval-summary').textContent = (operation.title ? operation.title + ' · ' : '') + `${pending} ${pending === 1 ? 'paso pendiente' : 'pasos pendientes'}` + (completed ? ` · ${completed} ya completado(s)` : '') + '.';
             node('command-library-approve').textContent = this.busy ? 'Ejecutando…' : `Aprobar y ejecutar ${pending === 1 ? '1 paso' : pending + ' pasos'}`;
-            node('command-library-raw').textContent = JSON.stringify({operation_id:operation.operation_id, steps}, null, 2);
+            node('command-library-raw').textContent = JSON.stringify({operation_id:operation.operation_id, steps,...(this.compensationApprovalMatches(operation)?{compensation_preview:this.compensationApproval.preview}:{})}, null, 2);
         }
         async prepare(commandId, inputs, source, deliveryMode) {
             return this.prepareRequest('/axx-api/commands/prepare', { command_id: commandId, inputs, source, ...(deliveryMode ? {delivery_mode:deliveryMode} : {}) });
         }
-        async prepareRequest(path, body) {
+        async prepareRequest(path, body, options = {}) {
             if (this.busy || this.operation) throw new Error('Ya hay un comando pendiente.');
+            this.clearCompensation();
             const serial = ++this.generation; this.busy = true;
             ++this.observationRevision;
             const operationId = Axx.newId(); this.pendingOperationId = operationId;
@@ -641,6 +739,12 @@
                 const operation = await this.request('POST', path, { ...body, operation_id: operationId });
                 if (serial !== this.generation) return;
                 if (operation.operation_id !== operationId) throw new Error('La preparación no corresponde al comando solicitado.');
+                if(path==='/axx-api/commands/compensation-prepare'){
+                    if(options.compensation?.chat!==(Axx.chatWorkspace?.active?.id||null)){await this.request('POST','/axx-api/commands/cancel',{operation_id:operationId});return;}
+                    const review={...options.compensation,operation_id:operationId};
+                    if(operation.state!=='awaiting_approval'||operation.requires_approval!==true||!this.compensationApprovalMatches(operation,review))throw Error('La compensación debe conservar su revisión y requerir aprobación explícita.');
+                    this.compensationApproval=review;
+                }
                 this.pendingOperationId = null;
                 return await this.adopt(operation);
             } catch (error) {
@@ -660,6 +764,7 @@
         }
         async approve() {
             if (!this.operation || this.operation.state !== 'awaiting_approval' || this.busy) return;
+            if(this.isCompensation(this.operation)&&!this.compensationApprovalMatches(this.operation))throw Error('La vista del archivo cambió o pertenece a otro chat. Vuelve a consultar su revisión.');
             if (this.operation.kind === 'learned_plan') return this.executePlan();
             const origin = this.operation.conversation_id || Axx.chatWorkspace?.active?.id;
             const message = await this.execute(true);
@@ -668,6 +773,7 @@
         async execute(approved) {
             const operation = this.operation;
             if (!operation || this.busy) throw new Error('No hay un comando preparado para ejecutar.');
+            if(this.isCompensation(operation)&&(operation.state!=='awaiting_approval'||approved!==true||!this.compensationApprovalMatches(operation)))throw Error('La compensación requiere una vista vigente y aprobación explícita.');
             ++this.observationRevision;
             const serial = this.generation; this.busy = true; this.renderOperation(operation); this.status('Ejecutando y comprobando el resultado.');
             try {
@@ -864,16 +970,16 @@
             if (this.busy || this.cancellingGeneration === this.generation) return;
             const operation = this.operation || this.lastOperation;
             if (!operation?.operation_id) return;
-            const serial = this.generation;
+            const serial = this.generation,origin=Axx.chatWorkspace?.active?.id||null;
             const revision = ++this.observationRevision;
             let result;
-            try { result = operation.state === 'unknown' && operation.evidence?.reconciliation_required
+            try { result = operation.state === 'unknown' && (this.isCompensation(operation)||operation.evidence?.reconciliation_required)
                 ? { operation: await this.request('POST', '/axx-api/commands/reconcile', {operation_id:operation.operation_id}) }
                 : operation.kind === 'learned_plan'
                 ? { operation: await this.request('GET', '/axx-api/learning/plan?id=' + encodeURIComponent(operation.operation_id)) }
                 : await this.request('GET', '/axx-api/commands/operations?operation_id=' + encodeURIComponent(operation.operation_id)); }
             catch (error) { if (serial !== this.generation || revision !== this.observationRevision) return; throw error; }
-            if (serial !== this.generation || revision !== this.observationRevision || this.busy) return;
+            if (serial !== this.generation || revision !== this.observationRevision || this.busy || this.isCompensation(operation)&&origin!==(Axx.chatWorkspace?.active?.id||null)) return;
             if (!result.operation || result.operation.operation_id !== operation.operation_id) throw new Error('El backend no confirmó el estado de este comando.');
             this.lastOperation = result.operation;
             this.operation = ['prepared', 'awaiting_approval', 'running'].includes(result.operation.state) ? result.operation : null;
@@ -882,6 +988,7 @@
         }
         async reviewUnknown(operation) {
             if (this.busy || operation?.state !== 'unknown') return;
+            if(this.isCompensation(operation)){if((this.operation||this.lastOperation)?.operation_id!==operation.operation_id)return;return this.recover();}
             this.busy = true;
             try {
                 const result = await this.request('POST','/axx-api/commands/review',{operation_id:operation.operation_id,reviewed:true});
@@ -896,12 +1003,15 @@
             if (this.cancellingGeneration === this.generation) return;
             const operation = this.operation;
             const operationId = operation?.operation_id || this.pendingOperationId;
+            const previewOnly=(this.compensationReview||this.compensationLoading)&&!operationId;
+            this.clearCompensation();
             ++this.generation; this.busy = false; this.operation = null; this.pendingOperationId = null;
             const serial = this.generation, revision = ++this.observationRevision;
             node('command-library-approval').hidden = true; node('command-library-approve').disabled = true; node('command-library-cancel').disabled = true;
             if (!Axx.isNative()) return;
             if (send) { this.cancellingGeneration = serial; node('command-library-recover').disabled = true; }
             this.status('Cancelación solicitada. Se descartan las respuestas tardías.');
+            if(previewOnly){this.cancellingGeneration=null;node('command-library-recover').disabled=!this.lastOperation?.operation_id;this.status('Revisión del archivo descartada. El recibo original se conserva.');return;}
             if (send) {
                 try {
                     const result = await this.request('POST', operation?.kind === 'learned_plan' ? '/axx-api/learning/cancel' : '/axx-api/commands/cancel', operationId ? { operation_id: operationId } : {});

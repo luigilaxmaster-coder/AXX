@@ -202,6 +202,7 @@
     let dismissedResult=null;
     function operationCard(op) {
         const box=$('cw-operation');box.replaceChildren();
+        const compensation=lib.compensationPresentation?.(op);
         const terminal=op&&['succeeded','failed','blocked','cancelled','expired'].includes(op.state);
         box.hidden=!op||(terminal&&op.conversation_id!==active?.id);if(box.hidden)return;
         const compact=['succeeded','cancelled'].includes(op.state);
@@ -211,19 +212,20 @@
             const pendingComputerGoal=op.command_id==='axx.computer.act'&&op.output?.goal_verified===false;
             const status=document.createElement('strong');status.textContent=op.state==='cancelled'?'Cancelado':pendingComputerGoal?(op.evidence?.verification==='computer_region_changed'?'Cambio visual observado':'Entrada entregada; objetivo pendiente'):op.postconditions_passed?'Completado':'Resultado recibido';
             if(pendingComputerGoal)status.style.whiteSpace='normal';
-            const title=document.createElement('span');title.className='cw-result-title';title.textContent=op.title||lib.commands?.find(c=>c.id===op.command_id)?.title||'Acción';title.title=title.textContent;
+            const title=document.createElement('span');title.className='cw-result-title';title.textContent=compensation?.title||op.title||lib.commands?.find(c=>c.id===op.command_id)?.title||'Acción';title.title=title.textContent;
             const details=button('Ver detalles',()=>{lib.open();lib.renderOperation(op);});
             const dismiss=button('×',()=>{dismissedResult=op.operation_id;box.hidden=true;});dismiss.setAttribute('aria-label','Ocultar resultado');
             box.append(status,title,details,dismiss);return;
         }
         const label=document.createElement('strong');label.textContent=({awaiting_approval:'TU APROBACIÓN',prepared:'ACCIÓN PREPARADA',running:'EN CURSO',paused:'PAUSADO',pausing:'PAUSA SOLICITADA',interrupted:'INTERRUMPIDO',unknown:'RESULTADO POR COMPROBAR',preparing:'PREPARANDO',succeeded:'COMPLETADO Y VERIFICADO',failed:'NO SE COMPLETÓ',blocked:'ACCIÓN BLOQUEADA',cancelled:'CANCELADO',expired:'APROBACIÓN VENCIDA'})[op.state]||op.state;if(op.state==='succeeded'&&!op.postconditions_passed)label.textContent='RESULTADO RECIBIDO';box.append(label);
-        const detail=document.createElement('p');detail.textContent=(op.title||lib.commands?.find(c=>c.id===op.command_id)?.title||op.command_id||'Comando')+(op.conversation_id&&op.conversation_id!==active?.id?' · de otro chat':'');box.append(detail);
+        const detail=document.createElement('p');detail.textContent=(compensation?.description||op.title||lib.commands?.find(c=>c.id===op.command_id)?.title||op.command_id||'Comando')+(op.conversation_id&&op.conversation_id!==active?.id?' · de otro chat':'');if(compensation)detail.style.whiteSpace='pre-line';box.append(detail);
         const parameters=op.steps?.length?op.steps:op.inputs||{};
         if(op.goal_spec){const goal=document.createElement('p');goal.textContent='Objetivo: '+op.goal_spec.intent;box.append(goal);}
-        if(Object.keys(parameters).length){const args=document.createElement('pre');args.textContent=JSON.stringify(parameters,null,2);box.append(args);}
+        if(compensation){const details=document.createElement('details'),summary=document.createElement('summary'),args=document.createElement('pre');summary.textContent='Detalles de la compensación';args.textContent=JSON.stringify(compensation.technical,null,2);details.append(summary,args);box.append(details);}
+        else if(Object.keys(parameters).length){const args=document.createElement('pre');args.textContent=JSON.stringify(parameters,null,2);box.append(args);}
         if(op.conversation_id&&op.conversation_id!==active?.id)box.append(button('Ir al chat de origen',()=>select(op.conversation_id)));
-        if(!terminal&&op.state==='prepared'){const b=button('Ejecutar acción preparada',()=>lib.execute(true));b.className='cw-primary';box.append(b);}
-        if(op.state==='awaiting_approval'){const b=button('Aprobar y ejecutar',()=>lib.approve());b.className='cw-primary';box.append(b);}
+        if(!terminal&&op.state==='prepared'&&!compensation){const b=button('Ejecutar acción preparada',()=>lib.execute(true));b.className='cw-primary';box.append(b);}
+        if(op.state==='awaiting_approval'){const b=button('Aprobar y ejecutar',()=>lib.approve());b.className='cw-primary';b.disabled=!!compensation&&!compensation.canApprove;box.append(b);}
         if(op.kind==='learned_plan'){
             const progress=document.createElement('p'),records=op.step_records||[];
             progress.textContent=`${records.filter(step=>step.state==='succeeded').length}/${op.steps?.length||0} pasos verificados`;
@@ -238,16 +240,19 @@
             if(op.state==='pausing')progress.textContent+=' · pausa al terminar el paso actual';
         }
         if(op.state==='unknown'){
+            if(compensation)box.append(button('Conciliar sin repetir',()=>lib.recover()));
+            else {
             const uncertain=op.kind==='learned_plan'?(op.results||[]).filter(item=>item.state==='unknown'):[op];
             for(const item of uncertain.filter(item=>!item.evidence?.manual_reviewed)){
                 const note=document.createElement('p');note.textContent='Comprueba el resultado en la aplicación. Marcarlo revisado permite preparar otra acción; no confirma éxito ni repite ésta.';box.append(note);
                 box.append(button('Ya revisé el efecto: permitir otra acción',()=>lib.reviewUnknown(item)));
             }
+            }
         }
-        if(op.state==='expired'&&op.kind!=='learned_plan'&&op.command_id){const note=document.createElement('p');note.textContent='La preparación venció o Axx se reinició. Revisa el destino y prepara la acción de nuevo.';box.append(note,button('Preparar de nuevo',()=>lib.prepare(op.command_id,op.inputs||{},op.source||'text')));}
-        if(!terminal)box.append(button('Cancelar comando',()=>lib.cancel()));
+        if(op.state==='expired'&&op.kind!=='learned_plan'&&op.command_id&&!compensation){const note=document.createElement('p');note.textContent='La preparación venció o Axx se reinició. Revisa el destino y prepara la acción de nuevo.';box.append(note,button('Preparar de nuevo',()=>lib.prepare(op.command_id,op.inputs||{},op.source||'text')));}
+        if(!terminal&&!(compensation&&op.state==='unknown'))box.append(button('Cancelar comando',()=>lib.cancel()));
         box.append(button('Revisar detalles',()=>{lib.open();lib.renderOperation(op);}));
-        if(!terminal&&op.state!=='awaiting_approval')box.append(button('Consultar resultado',()=>lib.recover()));
+        if(!terminal&&op.state!=='awaiting_approval'&&!(compensation&&op.state==='unknown'))box.append(button('Consultar resultado',()=>lib.recover()));
     }
     const render=lib.renderOperation.bind(lib);lib.renderOperation=function(op){render(op);operationCard(op);};
     const request=lib.request.bind(lib);lib.request=function(method,path,body){

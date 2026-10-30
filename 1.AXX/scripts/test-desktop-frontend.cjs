@@ -94,13 +94,26 @@ assert.deepEqual(reviewResolution.steps,[{command_id:'axx.desktop.list_windows',
           const operation_id = body.operation_id;
           return window.__contractCommands[operation_id] = { operation_id, command_id: body.command_id, inputs: body.inputs, state: body.command_id === 'axx.artifact.write' ? 'awaiting_approval' : 'prepared' };
         }
+        if(path==='/axx-api/commands/compensation-preview'){
+          if(window.__holdCompensationPreview){window.__holdCompensationPreview=false;await new Promise(resolve=>{window.__releaseCompensationPreview=resolve;});}
+          return structuredClone(window.__compensationPreview);
+        }
+        if(path==='/axx-api/commands/compensation-prepare'){
+          const preview=window.__compensationPreview;if(body.source_operation_id!==preview.source_operation_id||body.source_receipt_hash!==preview.source_receipt_hash||body.expected_revision!==preview.compensation.revision||body.action!==preview.action)throw Error('COMPENSATION_PREVIEW_CHANGED');
+          return window.__contractCommands[body.operation_id]={operation_id:body.operation_id,command_id:'axx.artifact.'+body.action,source_operation_id:body.source_operation_id,inputs:{source_operation_id:body.source_operation_id,source_receipt_hash:body.source_receipt_hash,expected_revision:body.expected_revision},conversation_id:window.__compensationSource.conversation_id,state:window.__compensationBadApproval?'prepared':'awaiting_approval',requires_approval:!window.__compensationBadApproval};
+        }
         if (path === '/axx-api/recipes/prepare') {
           const recipe = window.__contractRecipes.find(record => record.intent_key === body.intent_key);
           if (!recipe || Object.keys(body.inputs).some(key => !(key in recipe.schema))) throw new Error('Parámetros de receta desconocidos');
           return window.__contractCommands[body.operation_id] = { operation_id: body.operation_id, command_id: 'axx.system.telemetry', inputs: {}, state: 'prepared' };
         }
-        if (path === '/axx-api/commands/execute') return { ...window.__contractCommands[body.operation_id], state: 'succeeded', postconditions_passed: true, output: { ready_for_action: true }, action_operation_id: 'fixture-action-' + body.operation_id, evidence: { fixture: true } };
-        if (path === '/axx-api/commands/cancel') return { cancelled: true };
+        if (path === '/axx-api/commands/execute') {
+          const operation=window.__contractCommands[body.operation_id];
+          if(operation?.source_operation_id){if(body.approved!==true)throw Error('Approval required');const preview=window.__compensationPreview;preview.compensation.revision++;preview.compensation.state=operation.command_id.endsWith('.quarantine')?'quarantined':'present';preview.action=preview.compensation.state==='quarantined'?'restore':'quarantine';return window.__contractCommands[body.operation_id]={...operation,state:'succeeded',postconditions_passed:true,output:{source_operation_id:operation.source_operation_id,original_path:preview.artifact.path,current_path:preview.artifact.path,state:preview.compensation.state,revision:preview.compensation.revision},evidence:{no_bytes_deleted:true}};}
+          return { ...operation, state: 'succeeded', postconditions_passed: true, output: { ready_for_action: true }, action_operation_id: 'fixture-action-' + body.operation_id, evidence: { fixture: true } };
+        }
+        if(path==='/axx-api/commands/reconcile'){const operation=window.__contractCommands[body.operation_id];return window.__contractCommands[body.operation_id]={...operation,state:'succeeded',postconditions_passed:true,output:{source_operation_id:operation.source_operation_id,original_path:window.__compensationPreview.artifact.path,state:'quarantined'},evidence:{reconciled:true,redispatched:false}};}
+        if (path === '/axx-api/commands/cancel') {const operation=window.__contractCommands[body.operation_id];if(operation?.source_operation_id)return window.__contractCommands[body.operation_id]={...operation,state:'cancelled'};return { cancelled: true };}
         if (path === '/axx-api/learning/prepare') return window.__contractPlan = {...body,kind:'learned_plan',state:'awaiting_approval',message:'Revisa los dos pasos.',step_records:body.steps.map((_,i)=>({step_id:String(i),state:'pending'}))};
         if (path === '/axx-api/learning/actions') return {actions:[]};
         if (path.startsWith('/axx-api/learning/plan?id=')) return structuredClone(window.__contractPlan);
@@ -564,6 +577,76 @@ assert.deepEqual(reviewResolution.steps,[{command_id:'axx.desktop.list_windows',
     assert.match(await page.locator('#command-library-counts').textContent(), /Habilitadas: 1/);
     assert.equal(await page.evaluate(() => Axx.FORMS.length), 24);
     results.push('The command library opens inside the original files tool and exposes live availability without replacing the avatar');
+    await page.evaluate(()=>{
+      const lib=Axx.commandLibrary,chat=Axx.chatWorkspace.active.id;
+      window.__compensationSource={operation_id:'created-proof',command_id:'axx.artifact.write',state:'succeeded',postconditions_passed:true,conversation_id:chat,inputs:{path:'nuevo.txt',content:'Fixture'},output:{path:'C:\\ensayo\\nuevo.txt'},evidence:{creation_receipt:{verified:true}}};
+      window.__compensationOriginal=JSON.stringify(__compensationSource);
+      window.__compensationPreview={source_operation_id:'created-proof',available:true,action:'quarantine',source_receipt_hash:'e'.repeat(64),task_id:chat,artifact:{path:'C:\\ensayo\\nuevo.txt',bytes:7,sha256:'f'.repeat(64),identity:{volume:'fixture',file_id:'owned',modified:'1'}},compensation:{state:'present',revision:0,quarantine_path:'C:\\ensayo\\.axx-quarantine\\opaque.artifact'},capability:{native_available:true,filesystem_scope:'local_ntfs_only',creation_receipt_required:true}};
+      lib.operation=null;lib.busy=false;lib.lastOperation=__compensationSource;lib.renderOperation(__compensationSource);
+      window.__compensationExecBefore=__contractCalls.filter(call=>call.args?.path==='/axx-api/commands/execute').length;
+    });
+    await page.waitForFunction(()=>!document.getElementById('command-library-compensation-review').hidden&&!Axx.commandLibrary.compensationLoading);
+    await page.locator('#command-library-compensation-review').click();
+    await page.waitForFunction(()=>!document.getElementById('command-library-compensation-prepare').hidden);
+    assert.match(await page.locator('#command-library-compensation-status').textContent(),/Apartar archivo nuevo[\s\S]*nuevo.txt[\s\S]*C:\\ensayo\\nuevo.txt/);
+    assert.doesNotMatch(await page.locator('#command-library-compensation-status').textContent(),/created-proof|eeeeeeee/,'The human review uses the actual filename/path, with IDs and hashes in details');
+    await page.locator('#command-library-compensation-prepare').click();
+    await page.waitForFunction(()=>Axx.commandLibrary.operation?.command_id==='axx.artifact.quarantine');
+    assert.equal(await page.evaluate(()=>__contractCalls.filter(call=>call.args?.path==='/axx-api/commands/execute').length),await page.evaluate(()=>__compensationExecBefore),'Preview and preparation never execute compensation');
+    assert.match(await page.locator('#cw-operation>p').first().textContent(),/Apartar archivo nuevo[\s\S]*nuevo.txt/);
+    assert.equal(await page.locator('#cw-operation>pre').count(),0,'Opaque command inputs are confined to Details');
+    await page.evaluate(()=>{Axx.commandLibrary.clearCompensation();Axx.commandLibrary.renderOperation(Axx.commandLibrary.operation);});
+    await page.waitForFunction(()=>Axx.commandLibrary.compensationApprovalMatches(Axx.commandLibrary.operation));
+    assert.match(await page.locator('#command-library-preview').textContent(),/C:\\ensayo\\nuevo.txt/,'Reopening approval refreshes its trusted path without stale RAM preview');
+    await page.locator('#cw-operation button').filter({hasText:'Aprobar y ejecutar'}).click();
+    await page.waitForFunction(()=>Axx.commandLibrary.lastOperation?.state==='succeeded'&&Axx.commandLibrary.lastOperation.command_id==='axx.artifact.quarantine');
+    assert.equal(await page.evaluate(()=>__contractCalls.filter(call=>call.args?.path==='/axx-api/commands/execute').at(-1).args.body.approved),true);
+    assert.equal(await page.evaluate(()=>JSON.stringify(__compensationSource)===__compensationOriginal),true,'The historical creation receipt is never rewritten');
+    await page.evaluate(()=>Axx.commandLibrary.open());
+    await page.waitForFunction(()=>document.getElementById('command-library-compensation-review').textContent==='Revisar archivo apartado'&&!Axx.commandLibrary.compensationLoading);
+    await page.locator('#command-library-compensation-review').click();
+    await page.waitForFunction(()=>Axx.commandLibrary.compensationReview?.preview.action==='restore');
+    const compensationPrepares=await page.evaluate(()=>__contractCalls.filter(call=>call.args?.path==='/axx-api/commands/compensation-prepare').length);
+    await page.evaluate(()=>{__compensationPreview.compensation.revision=3;});
+    await page.locator('#command-library-compensation-prepare').click();
+    await page.waitForFunction(()=>document.getElementById('command-library-status').textContent.includes('La revisión cambió'));
+    assert.equal(await page.evaluate(()=>__contractCalls.filter(call=>call.args?.path==='/axx-api/commands/compensation-prepare').length),compensationPrepares,'A changed revision must be shown again before preparation');
+    await page.evaluate(()=>{window.__holdCompensationPreview=true;window.__doubleCompensation=Axx.commandLibrary.prepareCompensation();void Axx.commandLibrary.prepareCompensation();});
+    await page.waitForFunction(()=>typeof window.__releaseCompensationPreview==='function');
+    await page.evaluate(async()=>{__releaseCompensationPreview();delete window.__releaseCompensationPreview;await __doubleCompensation;});
+    assert.equal(await page.evaluate(()=>Axx.commandLibrary.compensationReview),null,'A double invocation invalidates its preview');
+    assert.equal(await page.evaluate(()=>__contractCalls.filter(call=>call.args?.path==='/axx-api/commands/compensation-prepare').length),compensationPrepares);
+    await page.evaluate(()=>{const lib=Axx.commandLibrary;lib.renderOperation(lib.lastOperation);});
+    await page.waitForFunction(()=>!Axx.commandLibrary.compensationLoading);
+    await page.evaluate(()=>{window.__holdCompensationPreview=true;window.__cancelCompensation=Axx.commandLibrary.reviewCompensation();});
+    await page.waitForFunction(()=>typeof window.__releaseCompensationPreview==='function');
+    const cancelRequests=await page.evaluate(()=>__contractCalls.filter(call=>call.args?.path==='/axx-api/commands/cancel').length);
+    await page.evaluate(()=>Axx.commandLibrary.cancel());
+    await page.evaluate(async()=>{__releaseCompensationPreview();delete window.__releaseCompensationPreview;await __cancelCompensation;});
+    assert.equal(await page.evaluate(()=>__contractCalls.filter(call=>call.args?.path==='/axx-api/commands/cancel').length),cancelRequests,'Discarding a preview never invokes global command cancellation');
+    assert.equal(await page.evaluate(()=>Axx.commandLibrary.compensationReview),null);
+    await page.evaluate(()=>{const lib=Axx.commandLibrary;lib.lastOperation={...__compensationSource,evidence:{}};lib.renderOperation(lib.lastOperation);});
+    assert.equal(await page.locator('#command-library-compensation').isVisible(),false,'Historical writes without creation proof expose no action');
+    await page.evaluate(()=>{__compensationPreview.capability.native_available=false;__compensationPreview.available=false;const lib=Axx.commandLibrary;lib.lastOperation=__compensationSource;lib.renderOperation(lib.lastOperation);});
+    await page.waitForFunction(()=>!Axx.commandLibrary.compensationLoading);
+    assert.equal(await page.locator('#command-library-compensation-review').isVisible(),false,'Unsupported platforms expose no quarantine button');
+    await page.evaluate(()=>{__compensationPreview.capability.native_available=true;__compensationPreview.available=true;const lib=Axx.commandLibrary;lib.clearCompensation();lib.renderOperation(lib.lastOperation);});
+    await page.waitForFunction(()=>!Axx.commandLibrary.compensationLoading);
+    await page.evaluate(()=>{window.__holdCompensationPreview=true;window.__staleCompensation=Axx.commandLibrary.reviewCompensation();});
+    await page.waitForFunction(()=>typeof window.__releaseCompensationPreview==='function');
+    await page.evaluate(()=>{window.__compensationChat=Axx.chatWorkspace.active.id;Axx.chatWorkspace.active.id='different-compensation-chat';Axx.companion.renderChat();});
+    await page.evaluate(async()=>{__releaseCompensationPreview();delete window.__releaseCompensationPreview;await __staleCompensation;});
+    assert.equal(await page.evaluate(()=>Axx.commandLibrary.compensationReview),null,'A changed chat discards late filename/path previews');
+    await page.evaluate(()=>{Axx.chatWorkspace.active.id=__compensationChat;Axx.companion.renderChat();const lib=Axx.commandLibrary;const operation={operation_id:'uncertain-compensation',command_id:'axx.artifact.quarantine',source_operation_id:'created-proof',conversation_id:__compensationChat,state:'unknown',inputs:{source_operation_id:'created-proof',source_receipt_hash:'e'.repeat(64),expected_revision:3},evidence:{}};__contractCommands[operation.operation_id]=operation;__compensationPreview.available=false;__compensationPreview.action=null;__compensationPreview.compensation.state='unknown';lib.lastOperation=operation;lib.operation=null;lib.renderOperation(operation);Axx.companion.openChat();});
+    await page.waitForFunction(()=>document.getElementById('cw-operation').textContent.includes('Conciliar sin repetir'));
+    assert.equal(await page.locator('#cw-operation button').filter({hasText:'permitir otra acción'}).count(),0);
+    assert.equal(await page.locator('#cw-operation button').filter({hasText:'Cancelar comando'}).count(),0);
+    const compensationExecuteBeforeReconcile=await page.evaluate(()=>__contractCalls.filter(call=>call.args?.path==='/axx-api/commands/execute').length);
+    await page.locator('#cw-operation button').filter({hasText:'Conciliar sin repetir'}).click();
+    await page.waitForFunction(()=>Axx.commandLibrary.lastOperation.state==='succeeded');
+    assert.equal(await page.evaluate(()=>__contractCalls.filter(call=>call.args?.path==='/axx-api/commands/execute').length),compensationExecuteBeforeReconcile,'Reconcile observes the effect without redispatch');
+    assert.equal(await page.evaluate(()=>__contractCalls.some(call=>call.args?.path==='/axx-api/commands/review'&&call.args.body.operation_id==='uncertain-compensation')),false);
+    results.push('Receipt-bound NTFS compensation exposes filename/path/effect, preserves explicit approval and original receipts, refreshes stale/double/cancel/chat previews, and reconciles unknown without redispatch');
     await page.evaluate(() => { Axx.companion.openFeature('settings'); Axx.companion.openChat(false); });
     await page.waitForFunction(() => Axx.app.panelFocusTimer === null && document.activeElement === document.getElementById('chat-input'));
     const untouchedDraft = await page.locator('#chat-input').inputValue();
