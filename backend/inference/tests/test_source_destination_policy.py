@@ -364,7 +364,7 @@ class SourceDestinationPolicyTests(unittest.TestCase):
                     def hold_policy():
                         if requested.wait(3):
                             with fixture.service.lock:
-                                held.set(); release.wait(3)
+                                held.set(); release.wait()
                     holder = threading.Thread(target=hold_policy)
                     holder.start()
                     def validate(**permission):
