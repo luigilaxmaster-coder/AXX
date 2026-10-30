@@ -46,6 +46,7 @@ class MossStreamTests(unittest.TestCase):
         (sources / 'speech_text.py').write_text('VALUE = 1\n')
         worker = sources / 'worker.py'
         worker.write_text('import speech_text, sys\nprint(\'{"ready":true}\', flush=True)\nsys.stdin.read()\n')
+        self.service.root = sources
         self.service.python, self.service.script = Path(sys.executable), worker
         process, _, _ = self.service._ensure_worker()
         self.assertIsNone(process.poll())
