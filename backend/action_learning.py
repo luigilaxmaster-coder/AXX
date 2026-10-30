@@ -5,6 +5,7 @@ only after every concrete step passes the executor's postconditions.
 """
 from backend.prompts import compose
 import hashlib
+import copy
 from functools import wraps
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing, contextmanager, ExitStack, nullcontext
@@ -24,6 +25,8 @@ from .memory.procedural_memory import get_action_env_fingerprint
 from .memory.skill_memory import SkillMemory, NeedsInput, PARAMETER, bind, bounded_object, project_key, validate_schema, read_context_state, read_skill_state
 from .goal_contract import (contract as goal_contract, verify as verify_goal, validate_steps as validate_goal_steps,
                             evaluate_criteria, propose_goal_step, assert_input_versions, input_version_lease)
+from .goal_criteria import capture_input_version
+from .actions.tools import artifact_path_error
 from .actions.command_language import command_sequence
 from .inference.adapter import SourceDestinationPolicy
 from .memory import task_memory, selection_policy
@@ -361,8 +364,11 @@ class ActionLearning:
             return plan
         except ValueError:
             view = json.loads(json.dumps(plan))
-            for field in ('model_data', 'skill_candidate', 'inference_records', 'operational_context', 'revisions', 'preparation', 'goal_progress', 'route_history'):
+            bound_resources = 'resource_bindings' in view or 'resource_binding_selectors' in view
+            for field in ('model_data', 'skill_candidate', 'inference_records', 'operational_context', 'revisions', 'preparation', 'goal_progress', 'route_history', 'resource_bindings', 'resource_binding_selectors'):
                 view.pop(field, None)
+            if bound_resources:
+                view['skill_versions'] = [dict(ref, inputs={}) for ref in view.get('skill_versions', [])]
             view.update(memory_forgotten=True, title='Aprendizaje de sesión olvidado', request='', learned_action_id=None,
                         approved_hash=None, goal_spec={'intent': 'Aprendizaje olvidado', 'checks': [], 'criteria': []})
             view['steps'] = [{'command_id': step['command_id'], 'inputs': {}, 'memory_forgotten': True} for step in plan.get('steps', [])]
@@ -380,11 +386,18 @@ class ActionLearning:
             row = self.db.execute('SELECT payload FROM learning_plans WHERE id=?', (rejected['operation_id'],)).fetchone()
             if not row: raise MemoryScopeRevoked('La memoria cambió antes de preparar la tarea')
             plan = json.loads(row[0])
+            bound_resources = 'resource_bindings' in plan or 'resource_binding_selectors' in plan
             plan.update(memory_forgotten=True, context_invalidated=True, approved_hash=None,
                         message='El resultado anterior fue descartado tras cambiar la memoria; los recibos se conservan.')
             if plan.get('state') not in TERMINAL: plan.update(state='cancelled', cancel_requested=True)
-            for field in ('model_data', 'skill_candidate', 'inference_records', 'operational_context', 'revisions', 'goal_progress'):
+            for field in ('model_data', 'skill_candidate', 'inference_records', 'operational_context', 'revisions', 'goal_progress', 'resource_bindings', 'resource_binding_selectors'):
                 plan.pop(field, None)
+            if bound_resources:
+                plan['inputs'] = {}
+                plan['goal_spec'] = {'intent': 'Aprendizaje olvidado', 'checks': [], 'criteria': []}
+                plan['steps'] = [dict(step, inputs={}) for step in plan.get('steps', [])]
+                plan['skill_versions'] = [dict(ref, inputs={}) for ref in plan.get('skill_versions', [])]
+                for record in plan.get('step_records', []): record.pop('resolved_inputs', None)
             if 'preparation' in plan: plan['preparation'] = {'kind': 'forgotten'}
             for record in plan.get('step_records', []):
                 observed = self.commands.get(record['operation_id'])
@@ -436,6 +449,9 @@ class ActionLearning:
             if not self.db.in_transaction: self.db.execute('BEGIN IMMEDIATE')
             self._assert_memory(plan)
             source_recheck()
+            if plan.get('resource_bindings') and plan.get('preparation_complete') and plan['state'] == 'awaiting_approval':
+                if not self.db.in_transaction: self.db.execute('BEGIN IMMEDIATE')
+                self._assert_resource_bindings(plan, db=self.db, check_files=False)
             self.db.execute('INSERT INTO learning_plans VALUES (?,?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload',
                             (plan['operation_id'], json.dumps(plan, ensure_ascii=False)))
             source_recheck()
@@ -782,6 +798,8 @@ class ActionLearning:
             for plan in plans:
                 copied = plan.get('operational_context', {}).get('context_meta', {})
                 if not (any(ref in references for ref in plan.get('context_dependencies', [])) or any(
+                        all(binding.get(key) == ref.get(key) for key in ('project_id', 'field', 'revision'))
+                        for binding in plan.get('resource_bindings', {}).values() for ref in references) or any(
                         ref['project_id'] == plan.get('project_id', '') and copied.get(ref['field'], {}).get('revision') == ref['revision'] for ref in references)): continue
                 if plan['state'] in TERMINAL:
                     self._save(plan); continue
@@ -845,13 +863,18 @@ class ActionLearning:
             return self._project_compensations(json.loads(source[0]), self.commands.db)
         error = error or self._dependency_error(plan, read)
         if error: raise ValueError(error)
-        self._assert_progress_inputs(plan, self.events.setdefault(plan['operation_id'], threading.Event()))
+        resource_inputs = None
+        if plan.get('resource_bindings'):
+            command = self.commands.get(operation_id)
+            if command['command_id'] != 'axx.file.compare': raise NeedsInput('El comando no corresponde a la comparación revisada.')
+            resource_inputs = command['inputs']
+        self._assert_progress_inputs(plan, self.events.setdefault(plan['operation_id'], threading.Event()), db=self.commands.db, resource_inputs=resource_inputs)
         if plan.get('initiative_authorization'):
             if not self.anticipation: raise ValueError('La política de iniciativa no está disponible.')
             index = next(i for i, record in enumerate(plan['step_records']) if record['operation_id'] == operation_id)
             command = self.commands.get(operation_id)
             self.anticipation.authorize_mission_step(plan, plan['steps'][index], command['inputs'], operation_id, claim=True)
-        return self._progress_input_lease(plan, self.events.setdefault(plan['operation_id'], threading.Event()))
+        return self._progress_input_lease(plan, self.events.setdefault(plan['operation_id'], threading.Event()), db=self.commands.db, resource_inputs=resource_inputs)
 
     @active_operation
     def execute_with_grant(self, key, grant_id, plan_hash, *, memory_scope=None, memory_context_id=None):
@@ -1201,7 +1224,7 @@ class ActionLearning:
         return hashlib.sha256(json.dumps(value, sort_keys=True, ensure_ascii=False, allow_nan=False).encode()).hexdigest()
 
     def _new_plan(self, text, operation_id, inputs, project_id, request_context=None, parts=None, *, operational_context=None, goal_spec=None,
-                  memory_scope=None, memory_context_id=None, conversation_id=None, document_references=None):
+                  memory_scope=None, memory_context_id=None, conversation_id=None, document_references=None, resource_bindings=None):
         if not isinstance(text, str) or not 1 <= len(text.strip()) <= 4000:
             raise ValueError('Describe una acción en menos de 4.000 caracteres.')
         key = operation_id or str(uuid.uuid4())
@@ -1217,12 +1240,15 @@ class ActionLearning:
         if memory_scope is not None: request['memory_scope'] = memory_scope
         if memory_context_id is not None: request['memory_context_id'] = memory_context_id
         if document_references: request['document_references'] = document_references
+        if resource_bindings is not None:
+            resource_bindings = bounded_object(resource_bindings, 4000)
+            request['resource_bindings'] = resource_bindings
         signature = self._hash(request)
         with self.lock:
             row = self.db.execute('SELECT payload FROM learning_plans WHERE id=?', (key,)).fetchone()
             if row:
                 old = json.loads(row[0])
-                if 'request_hash' not in old and (old['state'] == 'cancelled' or
+                if resource_bindings is None and 'request_hash' not in old and (old['state'] == 'cancelled' or
                         old.get('request') == text and inputs == old.get('inputs', {}) and project_id == old.get('project_id', '') and not request_context and parts is None and not document_references):
                     self._assert_request(old, memory_scope, memory_context_id)
                     return old, False
@@ -1244,6 +1270,7 @@ class ActionLearning:
                     'operational_context': self.context(project_id) if operational_context is None else bounded_object(operational_context, 48000)}
             plan.update(goal_spec=goal, goal_revision=1, approval_version=2)
             if document_references: plan['document_references'] = document_references
+            if resource_bindings is not None: plan['resource_binding_selectors'] = resource_bindings
             if conversation_id is not None:
                 plan.update(conversation_id=conversation_id, memory_scope=captured, memory_context_id=memory_context_id)
                 if explicit_memory: plan['memory_scope_explicit'] = True
@@ -1302,7 +1329,12 @@ class ActionLearning:
         if self.workshop: self.workshop.assert_skill_available(skill)
         elif str(skill.get('id', '')).startswith('workshop.cap.'):
             raise ValueError('El taller de capacidades no está disponible')
-        context = plan['operational_context'] = self._planning_context(plan['project_id'], plan.get('conversation_id'))
+        explicit_resources = 'resource_binding_selectors' in plan
+        if explicit_resources:
+            self._assert_resource_skill(skill)
+        context = plan['operational_context'] = ({'project_id': plan['project_id'], 'context_meta': {},
+            'defaults': {}, 'aliases': {}, 'last_inputs': {}, 'last_skill_id': ''} if explicit_resources else
+            self._planning_context(plan['project_id'], plan.get('conversation_id')))
         metadata = context.get('context_meta', {})
         defaults = dict(context['defaults']) if metadata.get('defaults', {}).get('status') != 'stale' else {}
         for name in ('current_file', 'current_folder', 'current_application', 'current_project'):
@@ -1346,6 +1378,116 @@ class ActionLearning:
                                        'step_start': len(plan['steps']), 'step_count': len(steps)})
         plan['steps'].extend(steps)
         return steps
+
+    @staticmethod
+    def _resource_selectors(value):
+        if not isinstance(value, dict) or set(value) != {'path', 'other_path'}:
+            raise NeedsInput('Asigna explícitamente path y other_path a dos proyectos y revisiones confirmadas.')
+        selectors = {}
+        for role in ('path', 'other_path'):
+            ref = value[role]
+            if (not isinstance(ref, dict) or set(ref) != {'project_id', 'field', 'revision'}
+                    or ref.get('field') != 'current_file' or type(ref.get('revision')) is not int or ref['revision'] < 0):
+                raise NeedsInput('Cada recurso requiere sólo project_id, current_file y su revisión exacta.')
+            try: project_key(ref['project_id'])
+            except ValueError as exc: raise NeedsInput(str(exc)) from exc
+            selectors[role] = dict(ref)
+        if selectors['path']['project_id'] == selectors['other_path']['project_id']:
+            raise NeedsInput('Elige dos contextos de proyecto distintos para estos dos recursos.')
+        return selectors
+
+    @staticmethod
+    def _assert_resource_skill(skill):
+        schema = validate_schema(skill.get('schema', {}))
+        expected = [{'command_id': 'axx.file.compare', 'inputs': {'path': '{{path}}', 'other_path': '{{other_path}}'}}]
+        if (skill.get('inference') or set(schema['properties']) != {'path', 'other_path'}
+                or set(schema['required']) != {'path', 'other_path'}
+                or any(spec.get('type') != 'string' or 'default' in spec for spec in schema['properties'].values())
+                or skill.get('templates') != expected):
+            raise NeedsInput('El binding explícito requiere una habilidad de comparación con dos parámetros string completos, sin inferencia ni defaults.')
+
+    def _resource_metadata(self, selector, db):
+        context = read_context_state(db, selector['project_id'])
+        meta = context.get('context_meta', {}).get('current_file', {})
+        value, scope = context.get('current_file'), meta.get('memory_scope')
+        if (meta.get('kind') != 'confirmed_user' or meta.get('status') != 'active'
+                or meta.get('revision') != selector['revision'] or not isinstance(value, str)
+                or not isinstance(scope, dict) or set(scope) != {'task_id', 'generation'}):
+            raise NeedsInput('Confirma de nuevo el archivo y la revisión en su proyecto de origen.')
+        owner = scope['task_id']
+        if any(meta.get(key) not in (None, owner) for key in ('task_id', 'origin_task_id')):
+            raise NeedsInput('La atribución del archivo no coincide con su memoria de origen.')
+        known = db.execute('SELECT 1 FROM memory_task_scopes WHERE task_id=?', (owner,)).fetchone()
+        if not known and db.execute("SELECT 1 FROM sqlite_master WHERE name='chat_conversations'").fetchone():
+            known = db.execute('SELECT 1 FROM chat_conversations WHERE id=?', (owner,)).fetchone()
+        if not known: raise NeedsInput('Confirma el recurso desde una tarea de origen ya existente.')
+        try:
+            task_memory.assert_current(db, scope, task_id=owner)
+            dependencies = task_memory.assert_dependencies(db, meta.get('memory_dependencies', []))
+        except ValueError as exc:
+            raise NeedsInput('El origen de memoria del recurso ya no está vigente.') from exc
+        expiry = meta.get('expires_at')
+        if expiry is not None and expiry <= time.time(): raise NeedsInput('La confirmación del recurso caducó.')
+        path, root = Path(value), self.commands.executor.workspace_root
+        if not path.is_absolute() or artifact_path_error(value): raise NeedsInput('El recurso debe ser un archivo local absoluto dentro del workspace.')
+        try:
+            relative = path.relative_to(root).as_posix()
+        except ValueError as exc:
+            raise NeedsInput('El recurso debe permanecer dentro del workspace autorizado.') from exc
+        return selector | {'task_id': owner, 'memory_scope': copy.deepcopy(scope),
+            'memory_dependencies': dependencies, 'expires_at': expiry}, relative
+
+    def _capture_resource_bindings(self, plan):
+        selectors = self._resource_selectors(plan['resource_binding_selectors'])
+        with self.lock:
+            captured = {role: self._resource_metadata(ref, self.db) for role, ref in selectors.items()}
+            # Even an unsuccessful later capture consumed these original
+            # references. Never persist derived metadata without its M9 fence.
+            self._inherit_memory(plan, *(metadata for metadata, _ in captured.values()))
+        resources = {}
+        event = self.events.setdefault(plan['operation_id'], threading.Event())
+        for role, (metadata, relative) in captured.items():
+            try:
+                version = capture_input_version(relative, self.commands.executor.workspace_root, event, max_file_bytes=self._goal_file_limit(plan))
+            except (ValueError, OSError) as exc:
+                raise NeedsInput('No se pudo capturar una versión regular y acotada del recurso: ' + str(exc)) from exc
+            resources[role] = metadata | {'input_version': version}
+        plan['resource_bindings'] = resources
+        with self.lock:
+            self._assert_resource_bindings(plan, db=self.db)
+        return {role: str(self.commands.executor.workspace_root / binding['input_version']['path']) for role, binding in resources.items()}
+
+    def _assert_resource_bindings(self, plan, *, db=None, inputs=None, check_files=True):
+        if 'resource_binding_selectors' not in plan and 'resource_bindings' not in plan: return
+        db = self.db if db is None else db
+        resources = plan.get('resource_bindings')
+        selectors = self._resource_selectors(plan.get('resource_binding_selectors'))
+        if not isinstance(resources, dict) or set(resources) != {'path', 'other_path'}:
+            raise NeedsInput('El binding de recursos quedó incompleto; prepara una propuesta explícita nueva.')
+        versions, expected = [], {}
+        for role, selector in selectors.items():
+            binding = resources[role]
+            metadata, relative = self._resource_metadata(selector, db)
+            if not isinstance(binding, dict) or {key: value for key, value in binding.items() if key != 'input_version'} != metadata:
+                raise NeedsInput('El origen, revisión o vigencia del recurso cambió; prepara una propuesta nueva.')
+            version = binding.get('input_version', {})
+            if version.get('path') != relative:
+                raise NeedsInput('La ruta ya no corresponde a la selección revisada.')
+            versions.append(version)
+            expected[role] = str(self.commands.executor.workspace_root / relative)
+        if (versions[0].get('path', '').casefold() == versions[1].get('path', '').casefold()
+                or (versions[0].get('device'), versions[0].get('inode')) == (versions[1].get('device'), versions[1].get('inode'))):
+            raise NeedsInput('Selecciona dos archivos físicamente distintos.')
+        if check_files:
+            try:
+                assert_input_versions(versions, self.commands.executor.workspace_root, self.events.setdefault(plan['operation_id'], threading.Event()),
+                    max_file_bytes=self._goal_file_limit(plan))
+            except (ValueError, OSError) as exc:
+                raise NeedsInput('La versión de un recurso cambió; prepara una propuesta explícita nueva.') from exc
+        if inputs is not None and inputs != expected:
+            raise NeedsInput('Los parámetros de despacho no coinciden con los dos recursos revisados.')
+        if plan.get('steps') and (len(plan['steps']) != 1 or plan['steps'][0] != {'command_id': 'axx.file.compare', 'inputs': expected}):
+            raise NeedsInput('La comparación concreta no coincide con el binding revisado.')
 
     def _source_prompt(self, plan, messages):
         read = getattr(self.anticipation, 'provider_context_for_task', None)
@@ -1566,7 +1708,7 @@ class ActionLearning:
             payload['goal_revision'] = plan.get('goal_revision',1)
         if plan.get('approval_version') == 2:
             payload['approval_version'] = 2
-            for key in ('skill_candidate', 'document_references'):
+            for key in ('skill_candidate', 'document_references', 'resource_bindings'):
                 if plan.get(key): payload[key] = plan[key]
         return self._hash(payload)
 
@@ -1584,6 +1726,10 @@ class ActionLearning:
             return self._save(plan)
 
     def _prepare_plan(self, plan):
+        if 'resource_binding_selectors' in plan:
+            plan.update(state='needs_input', approved_hash=None,
+                message='Este binding conserva su selección y versiones originales. Prepara una propuesta explícita nueva; no se usará un proveedor para repararlo.')
+            return self._finish_planning(plan)
         plan.update(steps=[], skill_versions=[], preparation_complete=False, state='planning')
         plan.pop('skill_candidate', None)
         preparation = plan['preparation']
@@ -1775,7 +1921,7 @@ class ActionLearning:
 
     @active_operation
     def propose(self, text, operation_id=None, context=None, model='', provider_name='', inputs=None, project_id='', selection_mode='manual', conversation_id=None, goal_spec=None,
-                memory_scope=None, memory_context_id=None, document_references=None):
+                memory_scope=None, memory_context_id=None, document_references=None, resource_bindings=None):
         if conversation_id is not None:
             from .chat_store import ident
             ident(conversation_id)
@@ -1784,7 +1930,8 @@ class ActionLearning:
             raise ValueError('Modelo inválido')
         if selection_mode not in ('manual', 'automatic_free'): raise ValueError('Selección de modelo inválida')
         plan, fresh = self._new_plan(text, operation_id, inputs, project_id, context, goal_spec=goal_spec,
-            conversation_id=conversation_id, memory_scope=memory_scope, memory_context_id=memory_context_id, document_references=document_references)
+            conversation_id=conversation_id, memory_scope=memory_scope, memory_context_id=memory_context_id,
+            document_references=document_references, resource_bindings=resource_bindings)
         if not fresh and plan.get('conversation_id') != conversation_id:
             raise ValueError('El plan pertenece a otra conversación')
         if not fresh: return plan
@@ -1792,6 +1939,21 @@ class ActionLearning:
         plan['operational_context'] = self._planning_context(project_id, conversation_id)
         plan['planning_settings'] = {'model': model, 'provider_name': provider_name, 'selection_mode': selection_mode}
         try:
+            if resource_bindings is not None:
+                plan['preparation'] = {'kind': 'resource_bindings'}
+                if plan['inputs']:
+                    raise NeedsInput('No combines parámetros literales, defaults o aliases con el binding explícito de recursos.')
+                try: saved = self.skills.get(text, project_id=project_id, task_id=conversation_id)
+                except ValueError as exc: raise NeedsInput('Selecciona el ID exacto de una habilidad de comparación admitida.') from exc
+                if text != saved['id']:
+                    raise NeedsInput('El binding explícito requiere el ID exacto de la habilidad, sin aliases ni repetición.')
+                self._assert_resource_skill(saved)
+                supplied = self._capture_resource_bindings(plan)
+                self._bind(saved, supplied, plan)
+                plan.update(learned_action_id=saved['id'], learned_trigger=saved['trigger'])
+                self._ready(plan, saved['title'])
+                self._assert_resource_bindings(plan)
+                return self._finish_planning(plan)
             saved = self._select(text, project_id, plan['operational_context'], conversation_id)
             plan['preparation'] = {'kind': 'propose', 'context': context,
                 'selection': {'key': saved['id'], 'version': saved['version']} if saved else None,
@@ -1839,17 +2001,23 @@ class ActionLearning:
                 project_id=plan.get('project_id', ''))['max_file_bytes']
         return 40 * 1024 * 1024
 
-    def _assert_progress_inputs(self, plan, cancelled):
+    def _assert_progress_inputs(self, plan, cancelled, *, db=None, resource_inputs=None):
+        self._assert_resource_bindings(plan, db=db, inputs=resource_inputs)
         for admission in plan.get('goal_progress_admissions', []):
             assert_input_versions(admission['input_versions'], self.commands.executor.workspace_root,
                 cancelled, max_file_bytes=self._goal_file_limit(plan))
 
     @contextmanager
-    def _progress_input_lease(self, plan, cancelled):
+    def _progress_input_lease(self, plan, cancelled, *, db=None, resource_inputs=None):
         with ExitStack() as leases:
+            if plan.get('resource_bindings'):
+                leases.enter_context(input_version_lease([plan['resource_bindings'][role]['input_version'] for role in ('path', 'other_path')],
+                    self.commands.executor.workspace_root, cancelled, max_file_bytes=self._goal_file_limit(plan)))
             for admission in plan.get('goal_progress_admissions', []):
                 leases.enter_context(input_version_lease(admission['input_versions'],
                     self.commands.executor.workspace_root, cancelled, max_file_bytes=self._goal_file_limit(plan)))
+            if plan.get('resource_bindings'):
+                self._assert_resource_bindings(plan, db=db, inputs=resource_inputs, check_files=False)
             yield
 
     def assess_goal_progress(self, plan, cancelled=None):
@@ -1914,6 +2082,8 @@ class ActionLearning:
         try:
             plan = self.get(key)
             self._assert_request(plan, memory_scope, memory_context_id)
+            if 'resource_binding_selectors' in plan:
+                raise NeedsInput('Los recursos explícitos conservan sus versiones revisadas. Prepara una propuesta nueva; no se repararán con un proveedor.')
             if (not isinstance(plan_hash, str) or plan.get('plan_hash') != plan_hash
                     or plan['state'] != 'goal_pending' or plan.get('pause_requested') or plan.get('cancel_requested')):
                 raise ValueError('La misión cambió, está pausada o requiere conciliación antes de avanzar.')
@@ -2095,6 +2265,8 @@ class ActionLearning:
         try:
             plan = self.get(key)
             self._assert_request(plan, memory_scope, memory_context_id)
+            if 'resource_binding_selectors' in plan:
+                raise NeedsInput('Los recursos explícitos conservan sus versiones revisadas. Prepara una propuesta nueva; no se repararán con un proveedor.')
             if plan.get('revalidation'):
                 raise NeedsInput('El ensayo conserva su versión y parámetros revisados. Prepara otro ensayo explícito con los parámetros actuales; no se usará un proveedor para repararlo.')
             new_goal=None
@@ -2143,6 +2315,8 @@ class ActionLearning:
             self.gate.release()
 
     def _prepare_repair(self, plan):
+        if 'resource_binding_selectors' in plan:
+            raise NeedsInput('Prepara una propuesta explícita nueva para cambiar estos recursos.')
         preparation = plan['preparation']
         prefix = preparation['prefix']
         if 'model_data' not in plan:
@@ -2455,7 +2629,8 @@ class ActionLearning:
         plan['learned_action_id'] = refs[0]['id'] if len(refs) == 1 else None
         context_update = {'last_result': {'operation_id': plan['operation_id'], 'title': plan['title'],
                                          'skills': [{'id': ref['id'], 'version': ref['version']} for ref in refs]}}
-        if len(refs) == 1: context_update.update(last_skill_id=refs[0]['id'], last_inputs=refs[0]['inputs'])
+        if len(refs) == 1 and not plan.get('resource_bindings'):
+            context_update.update(last_skill_id=refs[0]['id'], last_inputs=refs[0]['inputs'])
         context_update['context_meta'] = {field:{'kind':'inferred','origin':'verified_task_result',
             **({'task_id':plan['conversation_id']} if plan.get('conversation_id') else {}),
             'depends_on':[{'field':ref['field'],'revision':ref['revision']} for ref in plan.get('context_dependencies', [])
@@ -2475,7 +2650,7 @@ class ActionLearning:
         if approved is not True: raise ApprovalRequired('Revisa y aprueba los pasos concretos del plan.')
         snapshot = self.get(key)
         self._assert_request(snapshot, memory_scope, memory_context_id)
-        if (plan_hash is not None or snapshot.get('goal_progress_admissions') or snapshot.get('proposal_source') == 'goal_progress') and plan_hash != snapshot.get('plan_hash'):
+        if (plan_hash is not None or snapshot.get('goal_progress_admissions') or snapshot.get('resource_bindings') or snapshot.get('proposal_source') == 'goal_progress') and plan_hash != snapshot.get('plan_hash'):
             raise ValueError('La aprobación no coincide con el hash exacto de la revisión mostrada.')
         if not self.gate.acquire(blocking=False): raise ValueError('Ya hay un plan ejecutándose.')
         try:
@@ -2483,7 +2658,7 @@ class ActionLearning:
                 plan = self.get(key)
                 self._assert_memory(plan)
                 if plan['state'] in TERMINAL: return plan
-                if (plan_hash is not None or plan.get('goal_progress_admissions') or plan.get('proposal_source') == 'goal_progress') and plan_hash != plan.get('plan_hash'):
+                if (plan_hash is not None or plan.get('goal_progress_admissions') or plan.get('resource_bindings') or plan.get('proposal_source') == 'goal_progress') and plan_hash != plan.get('plan_hash'):
                     raise ValueError('La revisión cambió durante la aprobación.')
                 if initiative_grant_id is None:
                     plan.pop('initiative_authorization', None)
@@ -2528,9 +2703,21 @@ class ActionLearning:
                         return self._save(plan | {'state': 'paused', 'pause_requested': True,
                             'message': 'Pausado antes del siguiente despacho; no se repiten los pasos confirmados.'})
                     uncertain = any(result['state'] in ('unknown', 'running') for result in failures)
-                    plan.update(state='cancelled' if event.is_set() else ('unknown' if uncertain else 'failed'),
+                    resource_review = False
+                    if plan.get('resource_bindings'):
+                        plan.update(approved_hash=None, context_invalidated=True)
+                        if not uncertain:
+                            with self.lock:
+                                try: self._assert_resource_bindings(plan, db=self.db, check_files=False)
+                                except NeedsInput: resource_review = True
+                            # A rejected admission has a command receipt, but
+                            # no executor evidence of a failed comparison.
+                            resource_review = resource_review or not any(self.commands.executor.get_operation(
+                                'cmd-' + hashlib.sha256(record['operation_id'].encode()).hexdigest())
+                                for record in plan['step_records'])
+                    plan.update(state='cancelled' if event.is_set() else ('unknown' if uncertain else 'needs_input' if resource_review else 'failed'),
                                 message='Un paso no se verificó. Se detuvo el plan; los efectos inciertos no se repiten.')
-                    self._record_outcome(plan, 'failed')
+                    if not resource_review: self._record_outcome(plan, 'failed')
                     return self._save(plan)
             if event.is_set():
                 return self._save(plan | {'state': 'cancelled', 'message': 'Plan cancelado. Los pasos realizados no se deshacen.'})
@@ -2551,8 +2738,11 @@ class ActionLearning:
         except Exception as exc:
             if 'plan' not in locals(): raise
             uncertain = any(record['state'] == 'running' for record in plan.get('step_records', []))
-            plan.update(state='unknown' if uncertain else 'failed', postconditions_passed=False, message='El plan se detuvo: ' + str(exc)[:1500])
-            self._record_outcome(plan, 'failed')
+            review = isinstance(exc, NeedsInput) and bool(plan.get('resource_bindings')) and not uncertain
+            plan.update(state='needs_input' if review else ('unknown' if uncertain else 'failed'),
+                postconditions_passed=False, message='El plan se detuvo: ' + str(exc)[:1500])
+            if review: plan['approved_hash'] = None
+            else: self._record_outcome(plan, 'failed')
             return self._save(plan)
         finally:
             self.gate.release()
@@ -2567,6 +2757,7 @@ class ActionLearning:
                 if 'resolved_inputs' not in record:
                     record['resolved_inputs'] = resolve_inputs(step, plan['step_records'])
                 inputs = self.commands._validate_inputs(step['command_id'], record['resolved_inputs'], require_new=False)
+                if plan.get('resource_bindings'): self._assert_resource_bindings(plan, inputs=inputs)
                 if plan.get('revalidation'):
                     self._revalidation_resources(step['command_id'], inputs, require_existing=True, require_new=True)
                 plan['active_operation_id'] = operation_id

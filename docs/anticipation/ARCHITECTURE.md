@@ -16,6 +16,8 @@ El [olvido por sesión y las correcciones naturales](SCOPED-MEMORY.md) invalidan
 
 El [recorrido documental hasta una habilidad comprobada](DOCUMENT-SKILLS.md) conserva identidades de fuente, sella el candidato y requiere ensayo y aprobación propios. La transferencia verificada con archivos no certifica la demostración semántica general de aplicaciones.
 
+La [selección explícita de recursos por proyecto](RESOURCE-BINDINGS.md) está en integración como incremento de M4: conserva los dos orígenes y versiones en la revisión de un comparador existente. No completa la resolución semántica entre aplicaciones ni pertenece al artefacto 0.22.31 actualmente en verificación.
+
 ## Perfiles, ámbitos y permisos
 
 | Perfil | Iniciativa predeterminada | Efecto sobre una orden explícita |

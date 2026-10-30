@@ -4,6 +4,7 @@
     if (!Axx?.companion || Axx.commandLibrary) return;
     const node = id => document.getElementById(id);
     const errorText = error => typeof error === 'string' ? error : error?.message || error?.code || 'No se pudo completar el comando.';
+    const visualOperationJSON = value => JSON.stringify(value,(key,item)=>['memory_context_id','context_id','memory_scope','memory_dependencies'].includes(key)?undefined:item,2);
     const goalCriteriaVerified = operation => {const criteria=operation?.goal_spec?.criteria||operation?.mission?.criteria||[],evaluations=operation?.goal_verification?.criteria||[];return criteria.every(criterion=>{const rows=evaluations.filter(row=>row.id===criterion.id&&row.kind===criterion.kind);return rows.length===1&&rows[0].status==='satisfied';});};
     const requestWords = raw => {
         let text = String(raw).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/^[¡¿\s]+/,'');
@@ -727,8 +728,18 @@
                 return result;
             };
         }
+        renderResourceBindings(operation) {
+            const previous=node('command-library-resource-bindings'),bindings=operation?.resource_bindings;
+            if(!bindings||!bindings.path||!bindings.other_path){previous?.remove();return;}
+            const rows=['path','other_path'].map(role=>{const ref=bindings[role],version=ref.input_version||{};return {role,project_id:ref.project_id,field:ref.field,revision:ref.revision,path:version.path,sha256:version.sha256,bytes:version.bytes,expires_at:ref.expires_at};}),key=JSON.stringify([operation.operation_id,rows]);
+            if(previous?.dataset.renderKey===key)return;
+            const details=document.createElement('details'),summary=document.createElement('summary');details.id='command-library-resource-bindings';details.dataset.renderKey=key;details.dataset.operationId=operation.operation_id;details.open=previous?.dataset.operationId===operation.operation_id&&previous.open;summary.textContent='Archivos de proyecto fijados en esta revisión';details.append(summary);
+            for(const ref of rows){const title=document.createElement('strong'),text=document.createElement('p');title.textContent=ref.role==='path'?'Primer archivo (path)':'Segundo archivo (other_path)';text.style.whiteSpace='pre-line';text.style.overflowWrap='anywhere';text.textContent='Proyecto: '+(ref.project_id||'Personal')+' · Campo: '+ref.field+' · Revisión: '+ref.revision+'\nRuta: '+(ref.path||'No informada')+'\nSHA-256: '+(ref.sha256||'No informado')+'\nTamaño: '+(Number.isSafeInteger(ref.bytes)&&ref.bytes>=0?ref.bytes+' bytes':'No informado')+'\nCaducidad: '+(ref.expires_at==null?'Sin caducidad registrada':new Date(ref.expires_at*1000).toLocaleString());details.append(title,text);}
+            const note=document.createElement('p');note.textContent='Estos orígenes y versiones están fijados al plan. Cambiarlos requiere preparar y aprobar otro plan.';details.append(note);previous?.remove();node('command-library-approval').after(details);
+        }
         renderOperation(operation) {
-            node('command-library-result').textContent = JSON.stringify(operation, null, 2);
+            node('command-library-result').textContent = visualOperationJSON(operation);
+            this.renderResourceBindings(operation);
             this.renderCompensation(operation);
             const awaiting = operation?.state === 'awaiting_approval';
             if(!awaiting){this.reviewedPlanApproval=null;node('command-library-goal')?.remove();}
@@ -744,7 +755,7 @@
             if (Axx.desktop) {
                 const verified = operation?.state === 'succeeded' && operation.postconditions_passed === true && operation.mission?.completed !== false && goalCriteriaVerified(operation);
                 Axx.desktop.lastOperation = verified ? operation : null;
-                node('desktop-action-result').textContent = JSON.stringify(operation, null, 2);
+                node('desktop-action-result').textContent = visualOperationJSON(operation);
             }
             Axx.resident?.schedule();
         }
@@ -792,7 +803,7 @@
             const pending = steps.length - completed;
             node('command-library-approval-summary').textContent = (operation.title ? operation.title + ' · ' : '') + `${pending} ${pending === 1 ? 'paso pendiente' : 'pasos pendientes'}` + (completed ? ` · ${completed} ya completado(s)` : '') + '.';
             node('command-library-approve').textContent = this.busy ? 'Ejecutando…' : `Aprobar y ejecutar ${pending === 1 ? '1 paso' : pending + ' pasos'}`;
-            node('command-library-raw').textContent = JSON.stringify({operation_id:operation.operation_id, steps,...(this.compensationApprovalMatches(operation)?{compensation_preview:this.compensationApproval.preview}:{})}, null, 2);
+            node('command-library-raw').textContent = visualOperationJSON({operation_id:operation.operation_id,steps,...(operation.resource_bindings?{resource_bindings:operation.resource_bindings}:{}),...(this.compensationApprovalMatches(operation)?{compensation_preview:this.compensationApproval.preview}:{})});
         }
         async prepare(commandId, inputs, source, deliveryMode,memoryToken=this.captureMemory()) {
             this.checkMemory(memoryToken);return this.prepareRequest('/axx-api/commands/prepare', { command_id: commandId, inputs, source, ...(deliveryMode ? {delivery_mode:deliveryMode} : {}) },{memoryToken});
@@ -951,9 +962,14 @@
         }
         async planAction(text, options = {}) {
             const memory=options.memoryToken===undefined?this.captureMemory():options.memoryToken;this.checkMemory(memory,true);
+            if(Object.hasOwn(options,'resource_bindings')&&Object.hasOwn(options,'steps'))throw Error('Prepara referencias de proyecto con el ID exacto de una habilidad, sin una lista de pasos.');
+            const resourceBindings=Object.hasOwn(options,'resource_bindings')?{resource_bindings:structuredClone(options.resource_bindings)}:{};
+            const resourceCurrent=()=>!Object.hasOwn(resourceBindings,'resource_bindings')||typeof options.resourceReviewCurrent!=='function'||options.resourceReviewCurrent()===true;
+            if(!resourceCurrent())return;
             if (this.busy || this.operation) { Axx.companion.localNotice('Hay una acción pendiente. Revisa el resultado o cancélala antes de preparar otra.'); return; }
             const serial = ++this.generation, id = Axx.newId();
             const origin = Axx.chatWorkspace?.active?.id,projectId=Axx.skillLibrary?.project()||'';
+            const discardResourcePlanning=()=>{let removed=false;if(this.operation?.operation_id===id&&this.operation.state==='planning'){this.operation=null;removed=true;}if(this.lastOperation?.operation_id===id&&this.lastOperation.state==='planning'){this.lastOperation=null;removed=true;}if(removed){this.renderOperation(this.operation||this.lastOperation);if(projectId===(Axx.skillLibrary?.project()||'')&&(!memory||Axx.chatWorkspace?.isMemoryTokenCurrent(memory,true)))this.status('La selección de archivos cambió. Consulta el plan anterior en tareas o prepara una revisión nueva.');}};
             this.busy = true; ++this.observationRevision;
             this.operation = this.lastOperation = { kind:'learned_plan', operation_id:id, command_id:'axx.learned', state:'planning', conversation_id:origin };
             this.status('Buscando una habilidad y preparando la acción…'); this.renderOperation(this.operation);
@@ -964,10 +980,11 @@
                     text,steps:options.steps,operation_id:id,conversation_id:origin,project_id:projectId,
                     ...(options.document_references ? {document_references:structuredClone(options.document_references)} : {})
                 },memory) : await this.request('POST', '/axx-api/learning/propose', { text, operation_id:id, conversation_id:origin, context:{...this.actionContext, ...options.context},
-                    inputs:options.inputs, project_id:projectId, selection_mode:prefs.selection_mode || 'manual',
+                    inputs:options.inputs, project_id:projectId,...resourceBindings, selection_mode:prefs.selection_mode || 'manual',
                     model:prefs.model || '', provider_name:prefs.provider === 'chatgpt' ? '@codex' : prefs.provider === 'bridge' ? prefs.apiConnection || '' : '',
                     ...(options.document_references ? {document_references:structuredClone(options.document_references)} : {}) },memory);
                 if (serial !== this.generation) return;
+                if(!resourceCurrent()){discardResourcePlanning();return;}
                 this.checkMemory(memory,true);
                 if(projectId!==(Axx.skillLibrary?.project()||'')){this.operation=this.lastOperation=null;this.renderOperation(null);return;}
                 this.lastOperation = plan; this.operation = plan.state === 'awaiting_approval' ? plan : null;
@@ -982,6 +999,7 @@
                 else if (plan.capability_missing === true && this.isActionRequest(text)) await Axx.capabilityWorkshop?.propose(text, 'source_proposal', plan.document_references || []);
             } catch (error) {
                 if (serial !== this.generation) return;
+                if(!resourceCurrent()){discardResourcePlanning();return;}
                 try { this.checkMemory(memory,true);if(projectId!==(Axx.skillLibrary?.project()||'')){this.operation=this.lastOperation=null;this.renderOperation(null);return;} }
                 catch { this.operation = this.lastOperation = null; this.renderOperation(null); return; }
                 this.operation = null; this.report(error);

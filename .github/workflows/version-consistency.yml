@@ -32,6 +32,10 @@ jobs:
         run: node 1.AXX/scripts/test-mission-attention.cjs
       - name: Mission attention real file and HTTP UI flow
         run: node 1.AXX/scripts/test-mission-attention-integration.cjs
+      - name: Explicit resource selection and review contracts
+        run: node 1.AXX/scripts/test-resource-bindings.cjs
+      - name: Resource origins, file leases and authenticated binding
+        run: python -m unittest backend.tests.test_resource_bindings backend.tests.test_resource_binding_http -q
       - name: Mission attention policy and durable admission
         run: python -m unittest backend.tests.test_mission_attention backend.tests.test_anticipation backend.tests.test_anticipation_http -q
       - name: Inference routing and worker regressions

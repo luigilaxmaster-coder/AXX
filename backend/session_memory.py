@@ -80,7 +80,14 @@ def _retire_plans(learning, task_id, memory, chat):
                 message='El aprendizaje y el contexto de esta tarea ya no se reutilizan; sus recibos se conservan.')
             if plan.get('state') not in ('succeeded', 'failed', 'unknown', 'cancelled', 'expired', 'blocked'):
                 plan.update(state='cancelled', cancel_requested=True)
-            for field in ('model_data', 'skill_candidate', 'inference_records', 'operational_context', 'revisions', 'goal_progress'):
+            if 'resource_bindings' in plan or 'resource_binding_selectors' in plan:
+                plan['inputs'] = {}
+                for step in plan.get('steps', []): step['inputs'] = {}
+                for reference in plan.get('skill_versions', []): reference.pop('inputs', None)
+                for record in plan.get('step_records', []): record.pop('resolved_inputs', None)
+                plan['goal_spec'] = {'intent': 'Aprendizaje olvidado', 'checks': [], 'criteria': []}
+                plan['mission'] = learning._mission(plan)
+            for field in ('model_data', 'skill_candidate', 'inference_records', 'operational_context', 'revisions', 'goal_progress', 'resource_bindings', 'resource_binding_selectors'):
                 plan.pop(field, None)
             if 'preparation' in plan: plan['preparation'] = {'kind': 'forgotten'}
             learning.db.execute('UPDATE learning_plans SET payload=? WHERE id=?',

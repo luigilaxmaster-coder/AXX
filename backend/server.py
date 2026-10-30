@@ -843,7 +843,7 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                     self._unsupported('Aprendizaje de acciones no disponible')
                     return
                 action = path.rsplit('/', 1)[-1]
-                fields = {'propose': {'text', 'operation_id', 'context', 'model', 'provider_name', 'inputs', 'project_id', 'selection_mode', 'conversation_id', 'goal_spec', 'document_references'},
+                fields = {'propose': {'text', 'operation_id', 'context', 'model', 'provider_name', 'inputs', 'project_id', 'selection_mode', 'conversation_id', 'goal_spec', 'document_references', 'resource_bindings'},
                           'prepare': {'text', 'steps', 'operation_id', 'project_id', 'conversation_id', 'goal_spec', 'document_references'},
                           'execute': {'operation_id', 'approved', 'plan_hash'}, 'cancel': {'operation_id'}, 'pause': {'operation_id'},
                           'resume': {'operation_id', 'approved', 'plan_hash'}, 'configure': {'id', 'changes'},
@@ -893,6 +893,10 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                 elif action == 'bind-capability':
                     result=self.learning.bind_capability(body.get('operation_id'),body.get('id'),body.get('revision'),body.get('digest'),body.get('goal_revision'),**memory_kwargs)
                 elif action == 'propose':
+                    resource_kwargs = {}
+                    if 'resource_bindings' in body:
+                        if not isinstance(body['resource_bindings'], dict): raise ValueError('Selecciona los recursos por proyecto y revisión')
+                        resource_kwargs['resource_bindings'] = copy.deepcopy(body['resource_bindings'])
                     if body.get('conversation_id') and self.chats:
                         self.chats.get(body['conversation_id'])
                     context = body.get('context')
@@ -902,7 +906,7 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                         record = self.demonstration.get(reference.get('demonstration_id'))
                         context = context | {'demonstration': planning_reference(record)}
                     result = self.learning.propose(body.get('text'), body.get('operation_id'), context, body.get('model', ''), body.get('provider_name', ''),
-                        inputs=body.get('inputs'), project_id=body.get('project_id', ''), selection_mode=body.get('selection_mode', 'manual'), conversation_id=conversation_id, goal_spec=body.get('goal_spec'),**memory_kwargs,**document_kwargs)
+                        inputs=body.get('inputs'), project_id=body.get('project_id', ''), selection_mode=body.get('selection_mode', 'manual'), conversation_id=conversation_id, goal_spec=body.get('goal_spec'),**memory_kwargs,**document_kwargs,**resource_kwargs)
                 elif action == 'prepare':
                     if body.get('conversation_id') and self.chats: self.chats.get(body['conversation_id'])
                     result = self.learning.prepare_steps(body.get('text'), body.get('steps'), body.get('operation_id'),

@@ -185,6 +185,17 @@ def _version(relative, root, cancelled, maximum):
             'device': after.st_dev, 'inode': after.st_ino, 'mtime_ns': after.st_mtime_ns}
 
 
+def capture_input_version(relative, root, cancelled, *, max_file_bytes=file_inspection.MAX_BYTES):
+    """Capture one existing workspace file using the same bounded M1 identity."""
+    _limit(max_file_bytes)
+    root, relative = _root(root), _relative(relative)
+    path = _safe(root, relative)
+    with _scope(root, [path]):
+        if not path.exists() or path.stat().st_nlink != 1:
+            raise CriterionProblem('INPUT_INVALID')
+        return _version(relative, root, cancelled, max_file_bytes)
+
+
 def assert_input_versions(versions, root, cancelled, *, max_file_bytes=file_inspection.MAX_BYTES):
     _limit(max_file_bytes)
     if not isinstance(versions, list) or len(versions) > 100:
