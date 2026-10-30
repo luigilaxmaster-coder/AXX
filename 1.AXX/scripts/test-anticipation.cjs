@@ -15,6 +15,15 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
    window.Axx={isNative:()=>true,newId:()=> 'fixture-'+(++serial),chatWorkspace:{active:{id:'task-a',title:'Proyecto A'},busy:false},skillLibrary:{project:()=>window.missionProject},resident:{schedule(){},drag:null},app:{updateHitMap(){},bridge:{listen:async(id,fn)=>{events[id]=fn;}}},companion:{renderChat(){},openChat(){window.openedChat=true;},speakReply:text=>spoken.push(text)},commandLibrary:{busy:false,operation:null,renderOperation(plan){window.reviewedPlan=plan;}},
     backendRequest:async(method,route,body)=>{
      calls.push({method,route,body:structuredClone(body)});const action=route.split('/').at(-1);
+     if(route==='/axx-api/anticipation/microphone/begin'){
+      if(window.microphoneBusy)return {error:{code:'BUSY',message:'Reconocimiento ocupado'}};
+      const lease={capture_id:'mic-'+(++serial),expires_at:Date.now()/1000+(window.microphoneLeaseSeconds||60),max_capture_seconds:10,raw_ttl_seconds:60};
+      window.microphoneLeases.push(lease);
+      if(window.delayMicrophoneBegin){window.delayMicrophoneBegin=false;await new Promise(resolve=>{window.releaseMicrophoneBegin=resolve;});}
+      return lease;
+     }
+     if(route==='/axx-api/anticipation/microphone/submit')return window.microphoneSubmitBusy?{error:{code:'BUSY',message:'Reconocimiento ocupado'}}:{accepted:true,capture_id:window.microphoneWrongReceipt?'foreign-capture':body.capture_id,characters:0,audio_duration_seconds:0,retained:false,provider_sent:false,raw_content_retained:false};
+     if(route==='/axx-api/anticipation/microphone/stop')return {stopped:true};
      if(route==='/axx-api/commands/prepare'){const operation={...body,state:'prepared',requires_approval:false};window.sourceCommands[body.operation_id]=operation;return operation;}
      if(route==='/axx-api/commands/execute'){
       const operation=sourceCommands[body.operation_id];let output;
@@ -59,6 +68,15 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
      throw Error('Unsupported test route: '+route);
     }};
    window.sourceCommands={};window.sourceWindows=[{window_id:321,pid:41,title:'Documento <img src=x> A'},{window_id:654,pid:42,title:'Documento B'}];
+   window.microphoneLeases=[];window.microphoneStarts=[];
+   Axx.nativeVoice={activeCapture:null,sessions:[],attach(owner,options){
+    const native=this,session={owner,pending:false,recorder:null,binding:null,generation:0};this.sessions.push(session);owner.available=true;
+    owner.start=async(lang,binding)=>{if(native.activeCapture||session.pending)return 'busy';session.generation++;session.binding=binding;microphoneStarts.push(binding.capture_id);native.activeCapture=session;
+     if(window.microphoneDenied){owner.stop();const error=new DOMException('Denied','NotAllowedError');owner.onError?.('Denied',error,binding);return 'unavailable';}
+     session.recorder={state:'recording'};owner.state='listening';owner.onState?.();return 'started';};
+    owner.stop=()=>{session.generation++;const binding=session.binding;session.binding=null;session.pending=false;session.recorder=null;if(native.activeCapture===session)native.activeCapture=null;owner.state='idle';owner.onState?.();if(binding)void options.cancelCapture(binding);};
+    owner.finish=async()=>{const binding=session.binding,generation=session.generation;session.recorder=null;session.pending=true;owner.state='stopping';owner.onState?.();try{const result=await options.submitAudio({audio_base64:'SYNTHETIC_AUDIO',mime:'audio/webm',language:'es'},binding);if(generation!==session.generation)return;session.pending=false;session.binding=null;owner.onResult?.(result,binding);owner.state='idle';owner.onState?.();if(native.activeCapture===session)native.activeCapture=null;}catch(error){if(generation!==session.generation)return;owner.stop();owner.onError?.(error.message,error,binding);}};
+   }};
    Axx.commandLibrary.prepareRequest=async function(route,body){if(this.busy||this.operation)throw Error('Comando pendiente');this.busy=true;try{const operation=await Axx.backendRequest('POST',route,{...body,operation_id:Axx.newId()});this.lastOperation=operation;this.lastOperation=await Axx.backendRequest('POST','/axx-api/commands/execute',{operation_id:operation.operation_id});return '';}finally{this.busy=false;}};
   });
   await page.addScriptTag({path:path.join(__dirname,'anticipation.js')});
@@ -263,7 +281,7 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
   assert.match(await page.locator('#anticipation-why').innerText(),/Desactualizado/);
   await page.evaluate(()=>{delete data.suggestions[0].context_state;});
   await page.evaluate(()=>{
-   data.suggestions[0].state='AWAITING_APPROVAL';Axx.nativeVoice={activeCapture:{}};return Axx.anticipation.refresh();
+   data.suggestions[0].state='AWAITING_APPROVAL';Axx.nativeVoice.activeCapture={};return Axx.anticipation.refresh();
   });
   assert.equal(await page.locator('#anticipation-card').isVisible(),false,'Do not interrupt dictation');
   await page.evaluate(()=>{Axx.nativeVoice.activeCapture=null;Axx.symbiosis={liveActive:true};return Axx.anticipation.refresh();});
@@ -388,8 +406,94 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
   await page.evaluate(()=>{Axx.chatWorkspace.active={id:'task-b'};return Axx.anticipation.refresh();});
   assert.equal(await page.locator('#anticipation-targets article').count(),0,'Source controls cannot leak into another chat');
   assert.equal(await page.evaluate(()=>calls.some(c=>c.body?.approved===true||c.body?.command_id&& !['axx.desktop.list_windows','axx.desktop.window.observe'].includes(c.body.command_id))),false,'Source selection uses only explicit read commands, without approval bypass, focus or input');
+  assert.equal(await page.locator('#anticipation-microphone').isDisabled(),true);
+  assert.equal(await page.evaluate(()=>microphoneStarts.length),0,'Microphone is opt-in and unavailable adapters never request media');
+  await page.evaluate(()=>{window.originalDateNow=Date.now;window.microphoneNow=0;Date.now=()=>originalDateNow()+microphoneNow;Axx.chatWorkspace.active={id:'task-mic'};window.missionProject='Mic project';data.profile='copiloto';data.paused=false;data.observation_paused=false;data.capabilities.microphone=true;data.sources.microphone=false;data.observation_targets=[];data.source_runtime=[];return Axx.anticipation.refresh();});
+  await page.selectOption('#anticipation-target-source','microphone');
+  assert.equal(await page.locator('#anticipation-target-provider').isDisabled(),true,'Local microphone content cannot be sent to providers');
+  assert.equal(await page.locator('#anticipation-target-root').isDisabled(),true);
+  await page.evaluate(()=>document.getElementById('anticipation-target-form').requestSubmit());
+  await page.waitForFunction(()=>data.observation_targets.length===1);
+  assert.deepEqual(await page.evaluate(()=>{const t=data.observation_targets[0];return [t.source,t.task_id,t.project_id,t.observe,t.retain,t.send_to_provider,Object.hasOwn(t,'root'),Object.hasOwn(t,'process_name')];}),['microphone','task-mic','Mic project',true,false,false,false,false]);
+  assert.equal(await page.evaluate(()=>microphoneStarts.length),0,'A target alone cannot enable recording');
+  await page.evaluate(()=>{data.source_runtime=[{id:data.observation_targets[0].id,active:false,samples:0,events:0}];return Axx.anticipation.refresh();});
+  await page.locator('#anticipation-microphone').check();
+  await page.waitForFunction(()=>data.sources.microphone===true);
+  assert.equal(await page.evaluate(()=>microphoneStarts.length),0,'Inactive profile or schedule runtime cannot start a clip');
+  await page.evaluate(()=>{data.source_runtime[0].active=true;window.foreignCapture={owner:{state:'listening'}};Axx.nativeVoice.activeCapture=foreignCapture;return Axx.anticipation.refresh();});
+  assert.equal(await page.evaluate(()=>microphoneLeases.length),0,'A user capture blocks even lease admission');
+  await page.evaluate(()=>{Axx.nativeVoice.activeCapture=null;return Axx.anticipation.refresh();});
+  await page.waitForFunction(()=>microphoneStarts.length===1);
+  const firstMicrophone=await page.evaluate(()=>microphoneLeases[0].capture_id);
+  await page.evaluate(()=>Axx.nativeVoice.sessions[0].owner.finish());
+  await page.waitForFunction(()=>document.getElementById('anticipation-microphone-status').textContent.includes('Caracteres: 0'));
+  assert.equal(await page.evaluate(id=>calls.some(c=>c.route.endsWith('/microphone/stop')&&c.body.capture_id===id),firstMicrophone),false,'Success does not cancel or erase its accepted observation');
+  assert.equal(await page.evaluate(()=>calls.some(c=>c.route==='/axx-api/speech/transcribe'||c.route==='/axx-api/speech/cancel')),false,'Context hooks never use the legacy transcript or global cancellation routes');
+  await page.evaluate(()=>{microphoneNow+=31000;window.microphoneDenied=true;return Axx.anticipation.refresh();});
+  await page.waitForFunction(()=>!document.getElementById('anticipation-microphone-rearm').hidden);
+  const deniedAttempts=await page.evaluate(()=>microphoneStarts.length);
+  await page.evaluate(()=>{microphoneNow+=31000;return Axx.anticipation.refresh();});
+  assert.equal(await page.evaluate(()=>microphoneStarts.length),deniedAttempts,'A denied Windows permission cannot open repeated prompts on status polling');
+  await page.evaluate(()=>{window.microphoneDenied=false;});
+  await page.locator('#anticipation-microphone-rearm').click();
+  await page.waitForFunction(()=>microphoneStarts.length===3);
+  const revokedMicrophone=await page.evaluate(()=>microphoneLeases.at(-1).capture_id);
+  await page.evaluate(()=>{data.observation_targets[0].observe=false;return Axx.anticipation.refresh();});
+  await page.waitForFunction(id=>calls.some(c=>c.route.endsWith('/microphone/stop')&&c.body.capture_id===id),revokedMicrophone);
+  assert.equal(await page.evaluate(()=>Axx.nativeVoice.activeCapture),null);
+  await page.evaluate(()=>{data.observation_targets[0].observe=true;microphoneNow+=31000;window.delayMicrophoneBegin=true;return Axx.anticipation.refresh();});
+  await page.waitForFunction(()=>typeof window.releaseMicrophoneBegin==='function');
+  const staleMicrophone=await page.evaluate(()=>microphoneLeases.at(-1).capture_id);
+  await page.evaluate(()=>{Axx.chatWorkspace.active={id:'task-other'};return Axx.anticipation.refresh();});
+  await page.evaluate(()=>{releaseMicrophoneBegin();delete window.releaseMicrophoneBegin;});
+  await page.waitForFunction(id=>calls.some(c=>c.route.endsWith('/microphone/stop')&&c.body.capture_id===id),staleMicrophone);
+  assert.equal(await page.evaluate(()=>microphoneStarts.length),3,'A late begin response cannot request media after switching chats');
+  await page.evaluate(()=>{Axx.chatWorkspace.active={id:'task-mic'};microphoneNow+=31000;window.microphoneLeaseSeconds=.08;return Axx.anticipation.refresh();});
+  await page.waitForFunction(()=>microphoneStarts.length===4);
+  const expiredMicrophone=await page.evaluate(()=>microphoneLeases.at(-1).capture_id);
+  await page.waitForFunction(id=>calls.some(c=>c.route.endsWith('/microphone/stop')&&c.body.capture_id===id),expiredMicrophone);
+  await page.evaluate(()=>{window.microphoneLeaseSeconds=60;Axx.nativeVoice.activeCapture=foreignCapture;return Axx.anticipation.cancel();});
+  assert.equal(await page.evaluate(()=>Axx.nativeVoice.activeCapture===foreignCapture),true,'Late lease cancellation and Escape never release a later user capture');
+  await page.evaluate(()=>{Axx.nativeVoice.activeCapture=null;window.microphoneBusy=true;});
+  await page.locator('#anticipation-microphone').uncheck();await page.locator('#anticipation-microphone').check();
+  await page.waitForFunction(()=>document.getElementById('anticipation-microphone-status').textContent.includes('ocupado'));
+  assert.equal(await page.evaluate(()=>microphoneStarts.length),4,'An occupied ASR cannot request microphone media');
+  await page.evaluate(()=>{window.microphoneBusy=false;});
+  await page.locator('#anticipation-microphone').uncheck();await page.locator('#anticipation-microphone').check();
+  await page.waitForFunction(()=>microphoneStarts.length===5);
+  const racedMicrophone=await page.evaluate(()=>microphoneLeases.at(-1).capture_id);
+  await page.evaluate(()=>{window.microphoneSubmitBusy=true;Axx.nativeVoice.activeCapture=foreignCapture;return Axx.nativeVoice.sessions[0].owner.finish();});
+  await page.waitForFunction(id=>calls.some(c=>c.route.endsWith('/microphone/stop')&&c.body.capture_id===id),racedMicrophone);
+  assert.equal(await page.evaluate(()=>Axx.nativeVoice.activeCapture===foreignCapture),true,'A BUSY submit cancels only its own lease and preserves the user ASR owner');
+  assert.equal(await page.evaluate(()=>calls.some(c=>c.route==='/axx-api/speech/cancel'||c.route==='/axx-api/speech/transcribe')),false);
+  assert.equal(await page.evaluate(()=>calls.filter(c=>c.route.endsWith('/microphone/submit')).every(c=>!Object.hasOwn(c.body,'task')&&!Object.hasOwn(c.body,'text'))),true);
+  await page.evaluate(()=>{Axx.nativeVoice.activeCapture=null;window.microphoneSubmitBusy=false;});
+  await page.locator('#anticipation-microphone').uncheck();await page.locator('#anticipation-microphone').check();
+  await page.waitForFunction(()=>microphoneStarts.length===6);
+  const hiddenMicrophone=await page.evaluate(()=>microphoneLeases.at(-1).capture_id);
+  await page.evaluate(()=>{Object.defineProperty(document,'hidden',{configurable:true,value:true});document.dispatchEvent(new Event('visibilitychange'));});
+  await page.waitForFunction(id=>calls.some(c=>c.route.endsWith('/microphone/stop')&&c.body.capture_id===id),hiddenMicrophone);
+  await page.evaluate(()=>{microphoneNow+=31000;return Axx.anticipation.refresh();});
+  assert.equal(await page.evaluate(()=>microphoneStarts.length),6,'A hidden page cannot continue listening or start another clip');
+  await page.evaluate(()=>{delete document.hidden;document.dispatchEvent(new Event('visibilitychange'));});
+  await page.waitForFunction(()=>microphoneStarts.length===7);
+  await page.evaluate(()=>{data.observation_targets[0].application_id='editor.exe';return Axx.anticipation.refresh();});
+  assert.match(await page.locator('#anticipation-microphone-status').textContent(),/Falta comprobar la aplicación activa/);
+  assert.equal(await page.evaluate(()=>data.observation_targets[0].application_id),'editor.exe','An unverified application scope stays intact and does not become host-wide');
+  assert.equal(await page.evaluate(()=>Axx.nativeVoice.activeCapture),null);
+  await page.evaluate(()=>{data.observation_targets[0].application_id='';data.observation_targets[0].device_id='phone';microphoneNow+=31000;return Axx.anticipation.refresh();});
+  assert.equal(await page.evaluate(()=>microphoneStarts.length),7,'The desktop controller cannot claim a phone microphone');
+  assert.match(await page.locator('#anticipation-settings').textContent(),/Whisper y TTS quedan fuera de esta cuota/);
+  await page.evaluate(()=>{data.observation_targets[0].device_id='host';window.microphoneWrongReceipt=true;});
+  await page.locator('#anticipation-microphone').uncheck();await page.locator('#anticipation-microphone').check();
+  await page.waitForFunction(()=>microphoneStarts.length===8);
+  const mismatchedMicrophone=await page.evaluate(()=>microphoneLeases.at(-1).capture_id);
+  await page.evaluate(()=>Axx.nativeVoice.sessions[0].owner.finish());
+  await page.waitForFunction(id=>calls.some(c=>c.route.endsWith('/microphone/stop')&&c.body.capture_id===id),mismatchedMicrophone);
+  assert.equal(await page.evaluate(()=>calls.some(c=>c.route.endsWith('/microphone/stop')&&c.body.capture_id==='foreign-capture')),false,'A mismatched result never changes the captured lease used for cancellation');
+  await page.evaluate(()=>{Date.now=originalDateNow;Axx.nativeVoice.activeCapture=null;data.sources.microphone=false;return Axx.anticipation.refresh();});
   assert.deepEqual(errors,[]);
   const html=fs.readFileSync(path.join(__dirname,'../Axx.html'),'utf8');assert.match(html,/scripts\/anticipation\.js/);assert.match(html,/Axx\.anticipation\?\.layout\(g,size,add\)/);
-  console.log('PASS: scoped Full mission grants, exact hashes, resource limits, explicit window identity and clipboard sources, independent metadata/provider consent, source races, strict receipts, dependencies, Why, task races, busy deferral, Esc and suppression (controlled IPC)');
+  console.log('PASS: scoped Full mission grants, exact hashes, LLM resource limits, explicit window/clipboard/local-microphone sources, metadata-only microphone hooks, denied/busy/stale/hidden/TTL capture guards, independent provider consent, strict receipts, dependencies, Why, task races, Esc and suppression (controlled IPC)');
  }finally{await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});

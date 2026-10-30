@@ -4,7 +4,7 @@
  if (!Axx?.isNative() || !Axx.chatWorkspace || !document.getElementById('view-settings')) return;
  const $ = id => document.getElementById(id), names = {discreto:'Discreto',copiloto:'Copiloto',full:'Full'};
  const presetModes={discreto:'OFF',copiloto:'SUGGEST',full:'EXECUTE'},modeNames={OFF:'Solo responder',SHADOW:'Evaluar en silencio',SUGGEST:'Sugerir',PREPARE:'Preparar',EXECUTE:'Ejecutar con permiso'};
- const resourceFields=[['max_events_tick','Eventos por ciclo',1,100],['max_entries_scan','Entradas por exploración',1,2000],['max_file_bytes','Tamaño máximo por archivo, bytes',1024,536870912],['max_tick_ms','Tiempo por ciclo, ms',50,5000],['max_cpu_ms_tick','CPU por ciclo, ms',10,1000],['max_process_rss_bytes','Umbral de admisión RSS del backend e hijos propios, bytes',1,9007199254740991,true],['max_storage_bytes','Cuota por raíz: uso observado y reservas, bytes',1,9007199254740991,true],['model_call_limit','Máximo de inferencias por misión',0,2]];
+ const resourceFields=[['max_events_tick','Eventos por ciclo',1,100],['max_entries_scan','Entradas por exploración',1,2000],['max_file_bytes','Tamaño máximo por archivo, bytes',1024,536870912],['max_tick_ms','Tiempo por ciclo, ms',50,5000],['max_cpu_ms_tick','CPU por ciclo, ms',10,1000],['max_process_rss_bytes','Umbral de admisión RSS del backend e hijos propios, bytes',1,9007199254740991,true],['max_storage_bytes','Cuota por raíz: uso observado y reservas, bytes',1,9007199254740991,true],['model_call_limit','Máximo de llamadas LLM del planificador y Taller por misión',0,2]];
  const weekdays=['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'];
  const verificationLabels={integrity_only:'Integridad verificada',pdf_structure_and_text_readability:'Inspección PDF completada',media_metadata:'Metadatos comprobados',image_ocr:'Lectura OCR completada'};
  const verificationScopes={integrity_only:'Integridad por hash',pdf_structure_and_text_readability:'Estructura y legibilidad del texto PDF',media_metadata:'Metadatos multimedia',image_ocr:'Texto mediante OCR'};
@@ -36,15 +36,16 @@
  <details><summary>Observación y memoria</summary><p id="anticipation-sources"></p><label><input id="anticipation-events" type="checkbox"> Procesar eventos autorizados de Axx</label>
  <label><input id="anticipation-folders" type="checkbox"> Habilitar observación de carpetas seleccionadas</label><label><input id="anticipation-applications" type="checkbox"> Habilitar observación de aplicaciones seleccionadas</label>
  <label><input id="anticipation-screen" type="checkbox" disabled> Habilitar observación de ventanas seleccionadas</label><label><input id="anticipation-clipboard" type="checkbox" disabled> Habilitar observación del portapapeles</label>
+ <label><input id="anticipation-microphone" type="checkbox" disabled> Habilitar clips locales de micrófono de este chat</label><p id="anticipation-microphone-status" role="status"></p><button id="anticipation-microphone-rearm" type="button" hidden>Reactivar micrófono de contexto</button>
  <details><summary>Fuentes locales de este chat</summary><p>La fuente debe estar habilitada y tener un ámbito autorizado. Observar, conservar metadatos y enviar contenido son decisiones separadas.</p>
- <form id="anticipation-target-form"><label class="setting">Fuente<select id="anticipation-target-source"><option value="folder">Carpeta</option><option value="application">Aplicación</option><option value="window" disabled>Ventana seleccionada</option><option value="clipboard" disabled>Portapapeles</option></select></label>
+ <form id="anticipation-target-form"><label class="setting">Fuente<select id="anticipation-target-source"><option value="folder">Carpeta</option><option value="application">Aplicación</option><option value="window" disabled>Ventana seleccionada</option><option value="clipboard" disabled>Portapapeles</option><option value="microphone" disabled>Micrófono local · clips de hasta 10 segundos</option></select></label>
  <label class="setting" id="anticipation-target-folder">Carpeta absoluta<input id="anticipation-target-root" maxlength="4096" required></label><label class="setting" id="anticipation-target-app" hidden>Proceso exacto<input id="anticipation-target-process" maxlength="80" placeholder="programa.exe" disabled></label>
  <div id="anticipation-target-window-fields" hidden><button id="anticipation-target-find-windows" type="button">Buscar ventanas</button><label class="setting">Ventana<select id="anticipation-target-window" disabled><option value="">Busca y selecciona una ventana</option></select></label><p id="anticipation-target-window-status" role="status"></p></div>
  <label class="setting">Proyecto, opcional<input id="anticipation-target-project" maxlength="128"></label><label class="setting">ID de aplicación, opcional<input id="anticipation-target-application" maxlength="128"></label><label class="setting">Dispositivo<input id="anticipation-target-device" maxlength="128" value="host" required></label>
  <label class="setting">Vigencia<select id="anticipation-target-expiry"><option value="3600">Una hora</option><option value="86400">Un día</option><option value="persistent">Hasta revocación</option></select></label>
  <label><input id="anticipation-target-observe" type="checkbox" checked> Observar dentro de este ámbito</label><label><input id="anticipation-target-retain" type="checkbox"> Conservar metadatos de actividad</label><label><input id="anticipation-target-provider" type="checkbox" disabled> Permitir usar contenido transitorio con el modelo configurado</label><p id="anticipation-target-provider-status">Envío al proveedor no disponible para esta fuente.</p><p>El texto y la imagen son transitorios en memoria durante un máximo de 60 segundos. Conservar metadatos no guarda textos ni capturas. El envío al proveedor requiere su permiso separado.</p><button type="submit">Guardar fuente en este chat</button></form>
  <div id="anticipation-targets"></div><p id="anticipation-source-runtime" role="status"></p><div id="anticipation-source-observations"></div></details>
- <p>Las fuentes se habilitan sólo si el backend dispone del adaptador local. El micrófono de anticipación sigue sin estar disponible. Las autorizaciones de voz, foco y Computer Use se administran por separado.</p>
+ <p>Las fuentes se habilitan sólo si el backend dispone del adaptador local. El micrófono produce clips locales de hasta diez segundos en el host y en el chat/proyecto activos; cede ante tu dictado y no interpreta comandos ni escribe en el chat. Sólo captura mientras esta página permanece visible. Los ámbitos de aplicación requieren comprobar la aplicación activa antes de capturar. Las autorizaciones de voz, foco y Computer Use se administran por separado.</p>
  <p>Los eventos se procesan localmente. Activar Full no autoriza capturas ni el envío de contenido a proveedores.</p>
  <details><summary>Alcance de los verificadores</summary><div id="anticipation-verifiers"></div><p>Un hash comprueba integridad. No acredita contenido, apariencia ni cumplimiento del objetivo.</p></details>
  <button id="anticipation-forget" type="button">Borrar memoria de anticipación de este chat</button><div id="anticipation-history"></div><pre id="anticipation-metrics" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre></details>`;
@@ -59,7 +60,7 @@
    <details><summary>Frecuencia, horario y recursos</summary><label class="setting">Intervalo de observación, segundos<input name="cadence_seconds" type="number" min="5" max="3600" required></label>
    <label><input name="schedule_enabled" type="checkbox"> Usar un horario</label><div data-schedule><label class="setting">Zona horaria IANA<input name="schedule_timezone" maxlength="80" required></label><label class="setting">Desde<input name="schedule_start" type="time" required></label><label class="setting">Hasta<input name="schedule_end" type="time" required></label>
    <fieldset><legend>Días</legend>${weekdays.map((day,i)=>`<label><input type="checkbox" name="schedule_days" value="${i}">${day}</label>`).join('')}</fieldset></div>
-   ${resourceFields.map(([key,label,min,max,nullable])=>`<label class="setting">${label}<input name="resource_${key}" type="number" min="${min}" max="${max}" ${nullable?'placeholder="Sin límite adicional"':'required'}></label>`).join('')}<p>RSS y cuota vacíos significan sin límite adicional. Son controles de admisión; no limitan Windows, WebView ni procesos externos. El presupuesto incluye planificación, reparación, contenido y Taller: cuenta solicitudes observables de Axx y la cota conocida de su gateway, sin cuantificar llamadas internas del proveedor.</p></details>
+   ${resourceFields.map(([key,label,min,max,nullable])=>`<label class="setting">${label}<input name="resource_${key}" type="number" min="${min}" max="${max}" ${nullable?'placeholder="Sin límite adicional"':'required'}></label>`).join('')}<p>RSS y cuota vacíos significan sin límite adicional. Son controles de admisión; no limitan Windows, WebView ni procesos externos. El presupuesto LLM incluye planificación, reparación, contenido y Taller; Whisper y TTS quedan fuera de esta cuota. Cuenta solicitudes observables de Axx y la cota conocida de su gateway, sin cuantificar llamadas internas del proveedor.</p></details>
    <button type="submit">Guardar ${name}</button></form>`;
   $('anticipation-profiles').append(details);
  }
@@ -79,7 +80,7 @@
  function syncSchedule(form){for(const input of form.querySelectorAll('[data-schedule] input'))input.disabled=!form.elements.schedule_enabled.checked;}
  const api=async(action,body,method='POST')=>{
   const value=await Axx.backendRequest(method,'/axx-api/anticipation/'+action,body);
-  if(!value||typeof value!=='object'||value.error)throw Error(value?.error?.message||'No se pudo consultar la anticipación.');
+  if(!value||typeof value!=='object'||value.error){const error=Error(value?.error?.message||'No se pudo consultar la anticipación.');error.code=value?.error?.code;throw error;}
   return value;
  };
  const notice=e=>{$('anticipation-status').textContent=e.message||String(e);};
@@ -97,7 +98,7 @@
   let failure;
   try{await fn();await refresh(true);}catch(e){failure=e;}finally{mutation=false;renderSettings(!!failure);renderCard();if(failure)notice(failure);}
  }
- async function configure(patch){await api('configure',patch);stopped=false;}
+ async function configure(patch){stopMicrophone();await api('configure',patch);stopped=false;}
  const stale=row=>row.context_state==='stale'||row.state==='EXPIRED'||!row.preparation_complete&&['DETECTED','PREPARED','AWAITING_APPROVAL'].includes(row.state)&&Number.isFinite(row.expires_at)&&row.expires_at*1000<=Date.now();
  function explanation(row){
   const details=document.createElement('details');details.className='anticipation-evidence';details.dataset.suggestionId=row.suggestion_id;
@@ -218,11 +219,61 @@
   if(capability?.workspace_root&&!$('anticipation-grant-root').value&&!$('anticipation-grant-root').readOnly)$('anticipation-grant-root').value=capability.workspace_root;
   const selected=new Set([...host.querySelectorAll('input:checked:not(:disabled)')].map(input=>input.value));$('anticipation-mission-parameters').textContent=JSON.stringify(Object.fromEntries(commands.filter(command=>selected.has(command.command_id)).map(command=>[command.command_id,command.parameters||{}])),null,2);renderMissionGrantPlans();
  }
+ const microphone={lease:null,starting:false,revision:0,blocked:false,status:'',lastId:null,next:new Map(),stops:new Set(),timer:null};
+ const microphoneOwner={state:'idle',onState(){if(['starting','listening','stopping'].includes(this.state)){microphone.status=this.state==='stopping'?'Procesando clip de contexto local…':'Captura local de contexto · máximo 10 segundos.';renderMicrophoneStatus();}},onResult(metadata,binding){
+  if(microphone.lease?.capture_id!==binding.capture_id)return;
+  clearTimeout(microphone.timer);microphone.timer=null;microphone.lease=null;microphone.status='Muestra local procesada · Caracteres: '+metadata.characters+' · '+(metadata.retained?'Metadatos conservados.':'Metadatos transitorios.');renderMicrophoneStatus();void refresh();
+ },onError(message,error,binding){if(binding?.capture_id!==microphone.lastId)return;microphone.blocked=error?.code!=='BUSY';microphone.status=error?.code==='BUSY'?'El reconocimiento local está ocupado; se aplaza la muestra.':'El micrófono de contexto se detuvo. Revisa sus permisos y reactívalo explícitamente.';renderMicrophoneStatus();}};
+ async function stopMicrophoneLease(id){if(microphone.stops.has(id))return;microphone.stops.add(id);if(microphone.stops.size>128)microphone.stops.delete(microphone.stops.values().next().value);try{await api('microphone/stop',{capture_id:id});}catch{microphone.stops.delete(id);}}
+ function stopMicrophone(message=''){
+  const lease=microphone.lease;microphone.lease=null;microphone.starting=false;++microphone.revision;clearTimeout(microphone.timer);microphone.timer=null;
+  if(lease){microphoneOwner.stop?.();void stopMicrophoneLease(lease.capture_id);}
+  if(message){microphone.status=message;renderMicrophoneStatus();}
+ }
+ if(Axx.nativeVoice?.attach)Axx.nativeVoice.attach(microphoneOwner,{preempt:false,maxCaptureMs:10000,submitAudio:async(payload,binding)=>{
+  if(microphone.lease?.capture_id!==binding.capture_id)throw Error('La captura de contexto ya no está vigente.');
+  payload.capture_id=binding.capture_id;const result=await api('microphone/submit',payload);
+  if(result.capture_id!==binding.capture_id||result.provider_sent===true||result.raw_content_retained===true)throw Error('El resultado no confirma la captura local autorizada.');
+  return result;
+ },cancelCapture:binding=>{if(microphone.lease?.capture_id===binding.capture_id){microphone.lease=null;microphone.starting=false;++microphone.revision;clearTimeout(microphone.timer);microphone.timer=null;microphone.status='Captura de contexto detenida.';renderMicrophoneStatus();}return stopMicrophoneLease(binding.capture_id);}});
+ function renderMicrophoneStatus(){
+  const available=snapshot?.capabilities?.microphone===true;
+  const scoped=(snapshot?.observation_targets||[]).filter(target=>target.source==='microphone'&&target.task_id===task()&&(target.project_id||'')===project()&&target.observe===true),missingApplication=scoped.length>0&&scoped.every(target=>!!target.application_id);
+  $('anticipation-microphone-status').textContent=available?(missingApplication?'Falta comprobar la aplicación activa de este ámbito. El micrófono actual admite el chat/proyecto del host; esta fuente no capturará.':microphone.status||'Clips locales sólo con una fuente y un ámbito autorizados; espera tu dictado si está ocupado.'):(snapshot?.capabilities?.microphone_unavailable_reason||'El micrófono de contexto no está disponible en este backend.');
+  $('anticipation-microphone-rearm').hidden=!microphone.blocked||!available;
+ }
+ function microphoneUserBusy(){
+  const native=Axx.nativeVoice,c=Axx.companion,s=Axx.symbiosis;
+  return !!(native?.activeCapture&&native.activeCapture.owner!==microphoneOwner||native?.sessions?.some(session=>session.owner!==microphoneOwner&&(session.pending||session.recorder?.state==='recording'))||c?.pending||c?.externalBusy||c?.dictating||c?.dictationStarting||c?.speaking||s?.liveActive||Axx.liveConversation?.active||['starting','listening','stopping'].includes(s?.dictation?.state)||Axx.voice13?.status==='listening'||[s?.reader,Axx.voice13?.reader].some(reader=>['starting','speaking','paused'].includes(reader?.state))||window.speechSynthesis?.speaking);
+ }
+ function microphoneTarget(){
+  if(!snapshot||snapshot.capabilities?.microphone!==true||snapshot.sources?.microphone!==true||snapshot.paused||snapshot.observation_paused||stopped||document.hidden||!task()||!microphoneOwner.available)return null;
+  return (snapshot.observation_targets||[]).find(target=>target.source==='microphone'&&target.task_id===task()&&(target.project_id||'')===project()&&!target.application_id&&target.device_id==='host'&&target.observe===true&&target.send_to_provider!==true&&(target.expires_at===null||target.expires_at*1000>Date.now())&&(snapshot.source_runtime||[]).some(runtime=>runtime.id===target.id&&runtime.active===true))||null;
+ }
+ const microphoneKey=target=>JSON.stringify([task(),project(),target,snapshot?.profile,snapshot?.profiles,snapshot?.scopes,snapshot?.sources,snapshot?.paused,snapshot?.observation_paused]);
+ async function syncMicrophone(){
+  const target=microphoneTarget();
+  if(microphone.lease){if(!target||microphone.lease.key!==microphoneKey(target)||microphoneUserBusy())stopMicrophone('Captura de contexto detenida por cambio de ámbito, pausa u otra voz activa.');return;}
+  if(!target||microphone.blocked||microphone.starting||mutation||microphoneUserBusy()||(microphone.next.get(target.id)||0)>Date.now())return;
+  const revision=++microphone.revision,key=microphoneKey(target),scope=sourceScope();let pendingLease=null;microphone.starting=true;
+  microphone.next.set(target.id,Date.now()+1000*Math.max(5,preferences().cadence_seconds||30));
+  try{
+   const lease=pendingLease=await api('microphone/begin',{target_id:target.id,task_id:task(),project_id:project(),application_id:'',device_id:'host'});
+   if(typeof lease.capture_id!=='string'||!Number.isFinite(lease.expires_at)||lease.expires_at*1000<=Date.now()||lease.max_capture_seconds!==10||lease.raw_ttl_seconds!==60)throw Error('El backend no confirmó un clip local acotado.');
+   if(revision!==microphone.revision||scope!==sourceScope()||!microphoneTarget()||key!==microphoneKey(microphoneTarget())||microphoneUserBusy()){void stopMicrophoneLease(lease.capture_id);return;}
+   microphone.lease={...lease,key,target_id:target.id};microphone.lastId=lease.capture_id;
+   microphone.timer=setTimeout(()=>{if(microphone.lease?.capture_id===lease.capture_id)stopMicrophone('La captura de contexto caducó.');},Math.min(60000,Math.max(0,lease.expires_at*1000-Date.now())));
+   const result=await microphoneOwner.start(Axx.symbiosis?.prefs?.language||'es',Object.freeze({capture_id:lease.capture_id}));
+   if(revision!==microphone.revision)return;
+   if(result!=='started'){stopMicrophone();microphone.blocked=result==='unavailable';microphone.status=result==='busy'?'Otra captura está activa; se aplaza la muestra.':'El micrófono no está disponible; reactívalo después de revisar sus permisos.';renderMicrophoneStatus();}
+  }catch(error){if(pendingLease?.capture_id)void stopMicrophoneLease(pendingLease.capture_id);if(revision===microphone.revision){stopMicrophone();microphone.status=error.code==='BUSY'?'El reconocimiento local está ocupado; se aplaza la muestra.':'No se pudo iniciar el clip local de contexto.';renderMicrophoneStatus();}}
+  finally{if(revision===microphone.revision)microphone.starting=false;}
+ }
  const sourceScope=()=>JSON.stringify([task(),project()]);
  const providerAvailable=source=>['window','clipboard'].includes(source)&&snapshot?.capabilities?.[source==='window'?'screen':source]===true&&snapshot.capabilities.provider_context?.[source]===true;
  function clearSourceProvider(){const input=$('anticipation-target-provider');input.checked=false;delete input.dataset.consent;}
  function clearTargetWindows(){++sourceRevision;targetWindows=[];$('anticipation-target-window').replaceChildren(new Option('Busca y selecciona una ventana',''));$('anticipation-target-window-status').textContent='';clearSourceProvider();}
- function syncSourceScope(){const selected=sourceScope();if(sourceContext===selected)return;sourceContext=selected;$('anticipation-target-form').reset();$('anticipation-target-project').value=project();clearTargetWindows();syncTargetSource();}
+ function syncSourceScope(){const selected=sourceScope();if(sourceContext===selected)return;stopMicrophone();sourceContext=selected;$('anticipation-target-form').reset();$('anticipation-target-project').value=project();clearTargetWindows();syncTargetSource();}
  function syncTargetSource(){
   const source=$('anticipation-target-source').value,folder=source==='folder',application=source==='application',windowSource=source==='window';
   $('anticipation-target-folder').hidden=!folder;$('anticipation-target-app').hidden=!application;$('anticipation-target-window-fields').hidden=!windowSource;
@@ -249,17 +300,19 @@
   for(const row of targetWindows)$('anticipation-target-window').add(new Option(row.title.slice(0,2048)+' · PID '+row.pid,String(row.window_id)));
   $('anticipation-target-window-status').textContent=targetWindows.length?'Selecciona una ventana. Al guardar se comprobará de nuevo su identidad, sin cambiar el foco.':'No se recibieron ventanas disponibles.';
  }
- function sourceMetadata(resource){const result={};for(const key of ['path','size','identity_hash','process_name','window_id','pid','foreground','sequence','format','bytes','width','height','text_length','content_length']){const value=resource?.[key];if(['string','number','boolean'].includes(typeof value))result[key]=typeof value==='string'?value.slice(0,4096):value;}return result;}
+ function sourceMetadata(resource){const result={};for(const key of ['path','size','identity_hash','process_name','window_id','pid','foreground','sequence','sequence_number','format','bytes','width','height','text_length','content_length','characters','audio_duration_seconds']){const value=resource?.[key];if(['string','number','boolean'].includes(typeof value))result[key]=typeof value==='string'?value.slice(0,4096):value;}return result;}
  function renderSources(){
   syncSourceScope();
-  for(const source of ['folders','applications','screen','clipboard']){const input=$('anticipation-'+source);input.checked=snapshot.sources?.[source]===true;if(['screen','clipboard'].includes(source))input.disabled=snapshot.capabilities?.[source]!==true;}
-  for(const source of ['window','clipboard'])$('anticipation-target-source').querySelector('option[value="'+source+'"]').disabled=snapshot.capabilities?.[source==='window'?'screen':source]!==true;
+  for(const source of ['folders','applications','screen','clipboard','microphone']){const input=$('anticipation-'+source);input.checked=snapshot.sources?.[source]===true;if(['screen','clipboard','microphone'].includes(source))input.disabled=snapshot.capabilities?.[source]!==true;}
+  for(const source of ['window','clipboard','microphone'])$('anticipation-target-source').querySelector('option[value="'+source+'"]').disabled=snapshot.capabilities?.[source==='window'?'screen':source]!==true;
+  renderMicrophoneStatus();
   syncTargetSource();
   const targets=snapshot.observation_targets||[],host=$('anticipation-targets'),key=JSON.stringify([task(),targets,snapshot.capabilities?.provider_context,snapshot.capabilities?.screen,snapshot.capabilities?.clipboard,mutation]);
+  for(const id of microphone.next.keys())if(!targets.some(target=>target.id===id))microphone.next.delete(id);
   if(host.dataset.renderKey!==key){
    host.dataset.renderKey=key;host.replaceChildren();
    for(const target of targets.filter(t=>t.task_id===task())){
-    const article=document.createElement('article'),description=document.createElement('p');description.textContent=({folder:'Carpeta: '+target.root,application:'Aplicación: '+target.process_name,window:'Ventana seleccionada · HWND '+target.window_id+' · PID '+target.pid,clipboard:'Portapapeles'})[target.source]+' · Proyecto: '+(target.project_id||'Personal')+' · Dispositivo: '+target.device_id;
+    const article=document.createElement('article'),description=document.createElement('p');description.textContent=({folder:'Carpeta: '+target.root,application:'Aplicación: '+target.process_name,window:'Ventana seleccionada · HWND '+target.window_id+' · PID '+target.pid,clipboard:'Portapapeles',microphone:'Micrófono local · clips de hasta 10 segundos'})[target.source]+' · Proyecto: '+(target.project_id||'Personal')+' · Dispositivo: '+target.device_id;
     const observe=document.createElement('input'),retain=document.createElement('input'),provider=document.createElement('input'),observeLabel=document.createElement('label'),retainLabel=document.createElement('label'),providerLabel=document.createElement('label');observe.type=retain.type=provider.type='checkbox';observe.checked=target.observe;retain.checked=target.retain;provider.checked=target.send_to_provider===true;provider.disabled=!providerAvailable(target.source)&&!provider.checked;
     observeLabel.append(observe,document.createTextNode(' Observar'));retainLabel.append(retain,document.createTextNode(' Conservar metadatos de actividad'));providerLabel.append(provider,document.createTextNode(' Permitir contenido transitorio con el modelo configurado'));
     const update=event=>{if(event.target===provider&&provider.checked&&(!event.isTrusted||!providerAvailable(target.source))){provider.checked=false;return;}void run(()=>configure({observation_targets:targets.map(t=>t.id===target.id?{...t,observe:observe.checked,retain:retain.checked,send_to_provider:provider.checked}:t)}));};observe.onchange=retain.onchange=provider.onchange=update;
@@ -301,7 +354,7 @@
    form.dataset.dirty='false';
   }
   $('anticipation-events').checked=snapshot.sources?.events===true;
-  $('anticipation-sources').textContent='Fuentes habilitadas: '+(['events','folders','applications','screen','clipboard'].filter(key=>snapshot.sources?.[key]).map(key=>({events:'eventos autorizados',folders:'carpetas seleccionadas',applications:'aplicaciones seleccionadas',screen:'ventanas seleccionadas',clipboard:'portapapeles'})[key]).join(', ')||'ninguna')+(snapshot.observation_paused?' · Observación pausada.':'.');
+  $('anticipation-sources').textContent='Fuentes habilitadas: '+(['events','folders','applications','screen','clipboard','microphone'].filter(key=>snapshot.sources?.[key]).map(key=>({events:'eventos autorizados',folders:'carpetas seleccionadas',applications:'aplicaciones seleccionadas',screen:'ventanas seleccionadas',clipboard:'portapapeles',microphone:'micrófono local'})[key]).join(', ')||'ninguna')+(snapshot.observation_paused?' · Observación pausada.':'.');
   renderSources();
   renderPermissions();
   const usage=snapshot.resource_usage,memory=usage?.memory,date=at=>Number.isFinite(at)?new Date(at*1000).toLocaleString():'Fecha no informada';const resourceStatus=[memory?.known===true?'RSS observado del backend e hijos propios: '+memory.rss_bytes+' bytes · '+date(memory.observed_at):'RSS del backend e hijos propios: medición no disponible.'];for(const root of usage?.storage||[])resourceStatus.push(root.root+' · '+(root.known===true?'Último uso observado: '+root.used_bytes+' bytes · '+date(root.observed_at)+' · Reservado: '+root.reserved_bytes+' bytes':'Uso no disponible'));$('anticipation-resource-status').textContent=resourceStatus.join('\n');
@@ -377,11 +430,11 @@
   try{
    const value=await api('status',{task_id:selected});
    if(token!==revision||selected!==task())return;
-   snapshot=value;renderSettings(fill);renderCard();void loadMissions();
-  }catch(e){if(token===revision){snapshot=null;hide();notice(e);}}
+   snapshot=value;renderSettings(fill);renderCard();void loadMissions();void syncMicrophone();
+  }catch(e){if(token===revision){snapshot=null;hide();stopMicrophone();notice(e);}}
   finally{if(token===revision)loading=false;}
  }
- async function stop(id){stopped=true;hide();++sourceRevision;clearSourceProvider();++revision;loading=false;await api('cancel',id?{suggestion_id:id}:{});await refresh();}
+ async function stop(id){stopped=true;hide();stopMicrophone('Captura de contexto detenida.');++sourceRevision;clearSourceProvider();++revision;loading=false;await api('cancel',id?{suggestion_id:id}:{});await refresh();}
  function layout(g,size,add){
   renderCard();if(card.hidden)return;
   const width=Math.min(Math.round(280*(Axx.interfaceTheme?.widgetScale||1)),g.workWidth-24);
@@ -396,7 +449,8 @@
  $('anticipation-pause').onclick=()=>void run(()=>configure({paused:!snapshot?.paused}));
  $('anticipation-observation').onclick=()=>void run(()=>configure({observation_paused:!snapshot?.observation_paused}));
  $('anticipation-events').onchange=()=>void run(()=>configure({sources:{events:$('anticipation-events').checked}}));
- for(const source of ['folders','applications','screen','clipboard'])$('anticipation-'+source).onchange=()=>void run(()=>{if(['screen','clipboard'].includes(source)&&snapshot?.capabilities?.[source]!==true)throw Error('El adaptador local de esta fuente no está disponible.');return configure({sources:{[source]:$('anticipation-'+source).checked}});});
+ for(const source of ['folders','applications','screen','clipboard','microphone'])$('anticipation-'+source).onchange=event=>void run(()=>{if(['screen','clipboard','microphone'].includes(source)&&snapshot?.capabilities?.[source]!==true)throw Error('El adaptador local de esta fuente no está disponible.');if(source==='microphone'&&event.isTrusted&&$('anticipation-microphone').checked){microphone.blocked=false;microphone.status='';microphone.next.clear();}return configure({sources:{[source]:$('anticipation-'+source).checked}});});
+ $('anticipation-microphone-rearm').onclick=event=>{if(!event.isTrusted)return;microphone.blocked=false;microphone.status='';microphone.next.clear();renderMicrophoneStatus();void syncMicrophone();};
  $('anticipation-target-source').onchange=()=>{clearTargetWindows();syncTargetSource();};
  $('anticipation-target-window').onchange=()=>{++sourceRevision;clearSourceProvider();};
  $('anticipation-target-find-windows').onclick=()=>void run(findSourceWindows);
@@ -406,7 +460,7 @@
   if(!task())throw Error('Selecciona el chat que autoriza esta fuente.');
   const source=$('anticipation-target-source').value,expiry=$('anticipation-target-expiry').value,targets=snapshot?.observation_targets||[],scope=sourceScope();
   if(targets.length>=32)throw Error('Se permiten hasta 32 fuentes seleccionadas.');
-  if(['window','clipboard'].includes(source)&&snapshot?.capabilities?.[source==='window'?'screen':source]!==true)throw Error('El adaptador local de esta fuente no está disponible.');
+  if(['window','clipboard','microphone'].includes(source)&&snapshot?.capabilities?.[source==='window'?'screen':source]!==true)throw Error('El adaptador local de esta fuente no está disponible.');
   const target={id:Axx.newId(),source,task_id:task(),project_id:$('anticipation-target-project').value.trim(),application_id:$('anticipation-target-application').value.trim(),device_id:$('anticipation-target-device').value.trim(),observe:$('anticipation-target-observe').checked,retain:$('anticipation-target-retain').checked,send_to_provider:providerAvailable(source)&&$('anticipation-target-provider').checked&&$('anticipation-target-provider').dataset.consent===scope,expires_at:expiry==='persistent'?null:Date.now()/1000+Number(expiry),...(source==='folder'?{root:$('anticipation-target-root').value.trim()}:source==='application'?{process_name:$('anticipation-target-process').value.trim()}:{})};
   if(source==='application'&&!/^[A-Za-z0-9_. -]{1,76}\.exe$/i.test(target.process_name))throw Error('Indica el nombre exacto de un proceso .exe.');
   if(source==='window'){
@@ -459,10 +513,10 @@
  document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!e.repeat)void stop().catch(notice);},true);
  void Axx.app?.bridge?.listen?.('axx-cancel',()=>{void stop().catch(notice);});
  const renderChat=Axx.companion.renderChat.bind(Axx.companion);
- Axx.companion.renderChat=function(...args){const value=renderChat(...args);if(origin!==task()){snapshot=null;hide();void refresh();}else renderCard();return value;};
+ Axx.companion.renderChat=function(...args){const value=renderChat(...args);if(origin!==task()||sourceContext!==sourceScope()){snapshot=null;hide();void refresh();}else renderCard();return value;};
  const timer=setInterval(()=>void refresh(),3000);
- document.addEventListener('visibilitychange',()=>{if(document.hidden)hide();else void refresh();});
- window.addEventListener('pagehide',()=>{clearInterval(timer);++revision;hide();});
+ document.addEventListener('visibilitychange',()=>{if(document.hidden){hide();stopMicrophone();}else void refresh();});
+ window.addEventListener('pagehide',()=>{clearInterval(timer);++revision;hide();stopMicrophone();});
  Axx.anticipation={refresh,render:renderCard,layout,cancel:stop,allowSurprises,get state(){return snapshot;},get current(){return current;}};
  void refresh(true);
 })(window.Axx);

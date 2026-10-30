@@ -40,6 +40,11 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
         if(name==='desktop_layout')return {...desktop,...args};
         if(name==='backend_request'){
           requests.push(args.path);
+          if(args.path==='/axx-api/anticipation/status'&&window.microphoneContextData)return structuredClone(microphoneContextData);
+          if(args.path==='/axx-api/anticipation/configure'&&window.microphoneContextData){if(args.body.sources)Object.assign(microphoneContextData.sources,args.body.sources);return structuredClone(microphoneContextData);}
+          if(args.path==='/axx-api/anticipation/microphone/begin'){window.contextBegin=args.body;return {capture_id:'full-context-clip',expires_at:Date.now()/1000+60,max_capture_seconds:10,raw_ttl_seconds:60};}
+          if(args.path==='/axx-api/anticipation/microphone/submit'){window.contextSubmit=args.body;return {accepted:true,capture_id:args.body.capture_id,characters:0,audio_duration_seconds:0,retained:false,raw_content_retained:false,provider_sent:false};}
+          if(args.path==='/axx-api/anticipation/microphone/stop'){window.contextStopped=args.body.capture_id;return {stopped:true};}
           if(args.path==='/axx-api/speech/transcribe') {await new Promise(r=>window.releaseTranscript=r);return {text:'Hola desde el dictado'};}
           if(args.path==='/axx-api/speech/cancel'&&holdCancel){await new Promise(resolve=>window.releaseCancel=resolve);return {};}
           if(args.path==='/axx-api/speech/voices') {if(window.failVoiceList)throw Error('fixture voice list failed');return {available:true,voices:window.fixtureVoices||[]};}
@@ -470,9 +475,37 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
       }finally{window.FileReader=FileReaderBase;for(const session of [legacy.local,speculative.local,successor.local])session.stop();}
     });
     assert.deepEqual(ownership,{first:'started',busy:'busy',untouched:true,explicit:'started',legacyPreempts:true,started:'started',selfBusy:'busy',pendingUntouched:true,naturalClean:true,metricsPreserved:true,finalHandoff:true,errorHandoff:true,staleStopSafe:true,encodingCancelled:true,unavailable:'unavailable',failed:'unavailable',errorClean:true},'Non-preemptive capture must preserve existing recording/ASR; all completion paths release only their own audio and owner');
+    const contextCapture=await page.evaluate(async()=>{
+      const native=Axx.nativeVoice,wait=async test=>{for(let n=0;n<150;n++){if(test())return;await new Promise(resolve=>setTimeout(resolve,10));}throw Error('Context capture fixture timed out');};
+      const beforeASR=requests.filter(path=>path==='/axx-api/speech/transcribe').length,beforeCancel=requests.filter(path=>path==='/axx-api/speech/cancel').length,results=[],cancelled=[];
+      let body,immutable=false,invalid=false,finals=0;
+      const owner={state:'idle',onFinal(){finals++;},onResult(data){results.push(data);}};
+      native.attach(owner,{preempt:false,maxCaptureMs:30,submitAudio:async(payload,binding)=>{body=payload;immutable=Object.isFrozen(binding);return invalid?{text:'PRIVATE_TRANSCRIPT'}:{accepted:true,characters:0,audio_duration_seconds:0,retained:false,text:'PRIVATE_TRANSCRIPT'};},cancelCapture:binding=>{cancelled.push(binding.capture_id);}});
+      const local=native.sessions.at(-1),previousCancel=native.cancelPromise;native.cancelPromise=new Promise(()=>{});try{await owner.start('es',{capture_id:'context-silent'});await wait(()=>results.length===1&&native.activeCapture===null);}finally{native.cancelPromise=previousCancel;}
+      const cleaned=local.clip===null&&local.bytes===0&&local.chunks.length===0&&body.audio_base64==='';
+      const successor={state:'idle'};native.attach(successor);let handoff;owner.onResult=()=>{handoff=successor.start('es');};await owner.start('es',{capture_id:'context-completed-handoff'});await wait(()=>!!handoff);await handoff;await wait(()=>successor.state==='listening');const successHandoff=native.activeCapture?.owner===successor&&cancelled.length===0;successor.stop();
+      invalid=true;await owner.start('es',{capture_id:'context-invalid'});await wait(()=>cancelled.includes('context-invalid'));
+      invalid=false;await owner.start('es',{capture_id:'context-cancel'});owner.stop();await wait(()=>cancelled.includes('context-cancel'));
+      let rejected=false;try{native.attach({state:'idle'},{preempt:false,maxCaptureMs:10001,submitAudio:()=>{},cancelCapture:()=>{}});}catch{rejected=true;}
+      return{results,finals,immutable,cleaned,successHandoff,cancelled,rejected,legacyASR:requests.filter(path=>path==='/axx-api/speech/transcribe').length-beforeASR,globalCancel:requests.filter(path=>path==='/axx-api/speech/cancel').length-beforeCancel};
+    });
+    assert.deepEqual(contextCapture,{results:[{accepted:true,characters:0,audio_duration_seconds:0,retained:false}],finals:0,immutable:true,cleaned:true,successHandoff:true,cancelled:['context-invalid','context-cancel'],rejected:true,legacyASR:0,globalCancel:0},'Context hooks consume only checked metadata, accept silence, enforce clip bounds and cancel only their captured lease');
+    await page.evaluate(()=>{
+      const project=Axx.skillLibrary?.project()||Axx.companion.data?.prefs?.skillProject||'',task_id=Axx.chatWorkspace.active.id,prefs=(mode,interruptions)=>({mode,interruptions,cooldown_seconds:60,max_interruptions_hour:3,retention_days:30,cadence_seconds:30,schedule:null,resources:{max_events_tick:25,max_entries_scan:500,max_file_bytes:41943040,max_tick_ms:1000,max_cpu_ms_tick:250,max_process_rss_bytes:null,max_storage_bytes:null,model_call_limit:2}});
+      window.contextLegacyASR=requests.filter(path=>path==='/axx-api/speech/transcribe').length;window.contextLegacyCancel=requests.filter(path=>path==='/axx-api/speech/cancel').length;window.contextMessages=Axx.companion.data.messages.length;window.contextDraft=document.getElementById('chat-input').value;
+      window.microphoneContextData={profile:'copiloto',paused:false,observation_paused:false,profiles:{discreto:prefs('OFF','silent'),copiloto:prefs('SUGGEST','cards'),full:prefs('EXECUTE','cards')},sources:{events:false,microphone:false},observation_targets:[{id:'full-ui-microphone',source:'microphone',task_id,project_id:project,application_id:'',device_id:'host',observe:true,retain:false,send_to_provider:false,expires_at:null}],source_runtime:[{id:'full-ui-microphone',active:true,samples:0,events:0}],source_observations:[],capabilities:{microphone:true,provider_context:{}},suggestions:[],grants:[],scopes:[]};
+      return Axx.anticipation.refresh();
+    });
+    await page.evaluate(()=>{const input=document.getElementById('anticipation-microphone');input.checked=true;input.dispatchEvent(new Event('change'));});
+    await page.waitForFunction(()=>Axx.nativeVoice.activeCapture?.options?.submitAudio&&Axx.nativeVoice.activeCapture.recorder?.state==='recording');
+    assert.equal(await page.evaluate(()=>Axx.nativeVoice.activeCapture.options.maxCaptureMs),10000,'The real controller uses the bounded native capture hook');
+    await page.evaluate(()=>{window.contextLocal=Axx.nativeVoice.activeCapture;contextLocal.owner.finish();});
+    await page.waitForFunction(()=>document.getElementById('anticipation-microphone-status').textContent.includes('Caracteres: 0'));
+    assert.deepEqual(await page.evaluate(()=>({clean:contextLocal.clip===null&&contextLocal.chunks.length===0&&contextLocal.bytes===0&&contextLocal.stream===null&&Axx.nativeVoice.activeCapture===null,legacyASR:requests.filter(path=>path==='/axx-api/speech/transcribe').length-contextLegacyASR,legacyCancel:requests.filter(path=>path==='/axx-api/speech/cancel').length-contextLegacyCancel,chatUnchanged:Axx.companion.data.messages.length===contextMessages&&document.getElementById('chat-input').value===contextDraft,onFinal:typeof contextLocal.owner.onFinal,stopped:window.contextStopped||null,bodyCleared:contextSubmit.audio_base64==='',captureId:contextSubmit.capture_id})),{clean:true,legacyASR:0,legacyCancel:0,chatUnchanged:true,onFinal:'undefined',stopped:null,bodyCleared:true,captureId:'full-context-clip'},'The real anticipation controller and native recorder consume a silent metadata receipt without chat, commands, legacy ASR or successful-result cancellation');
+    await page.evaluate(()=>{microphoneContextData.sources.microphone=false;return Axx.anticipation.refresh();});
     assert.deepEqual(errors,[]);
     const output=path.resolve(__dirname,'../../build/quick-reply-'+require('../../package.json').version);fs.mkdirSync(output,{recursive:true});
     await page.screenshot({path:path.join(output,'dictation.png')});
-    console.log('PASS: shared Axxmorcito/Xxx default selection, persisted voice, loading/ready/error states, missing voice, dictation geometry/owner/draft, live blur retention, quiet and short utterance VAD, steady-noise rejection, visible input meter, unavailable exact device, cancellation barriers, non-preemptive capture/ASR ownership, payload cleanup and callback handoff, single command shortcut and always-active rearm');
+    console.log('PASS: shared Axxmorcito/Xxx default selection, persisted voice, loading/ready/error states, dictation geometry/owner/draft, live blur retention, calibrated quiet/short/noisy VAD, exact device failures, cancellation barriers, non-preemptive ownership, payload cleanup and handoff, real anticipation microphone metadata/silence path without legacy ASR/chat, shortcut and rearm');
   }finally{await browser?.close();await new Promise(r=>server.close(r));}
 })().catch(e=>{console.error(e);process.exitCode=1;});

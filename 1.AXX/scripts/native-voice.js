@@ -238,11 +238,12 @@
 
     class LocalDictation {
         generation = 0; recorder = null; stream = null; chunks = []; bytes = 0; pending = false; timer = null; borrowedMeter = false; vadTimer = null; vadCtx = null; clip = null;
-        constructor(owner, options) { this.owner = owner; this.preempt = options.preempt !== false; }
+        constructor(owner, options) { this.owner = owner; this.options = Object.freeze({ ...options }); this.preempt = options.preempt !== false; this.binding = null; }
         change(value) { this.owner.state = value; this.owner.onState?.(); Axx.resident?.activity(); }
-        async start(lang) {
+        async start(lang, binding) {
             // Speculative owners must leave both capture and local ASR untouched.
             if (!this.preempt && (this.pending || state.activeCapture || this.recorder?.state === 'recording')) return 'busy';
+            if (this.options.submitAudio && (!binding || typeof binding.capture_id !== 'string' || !/^[A-Za-z0-9_.:-]{1,128}$/.test(binding.capture_id))) throw new TypeError('Falta el lease interno de captura.');
             if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
                 if (this.preempt) this.fail(this.generation, new Error('La captura de audio local no está disponible.'));
                 return 'unavailable';
@@ -251,10 +252,11 @@
             if (state.activeCapture && state.activeCapture !== this) state.activeCapture.stop();
             // A previous owner's callback may hand the microphone to a successor.
             if (state.activeCapture && state.activeCapture !== this) return 'busy';
+            this.binding = this.options.submitAudio ? Object.freeze({ capture_id: binding.capture_id }) : null;
             state.activeCapture = this;
             this.change('starting');
             try {
-                await state.cancelPromise;
+                if (!this.options.submitAudio) await state.cancelPromise;
                 if(id!==this.generation)return 'unavailable';
                 const meter = this.owner === Axx.voice13?.capture ? Axx.voice13.meter : null;
                 const borrowedMeter = !!meter?.active; this.borrowedMeter = borrowedMeter;
@@ -276,13 +278,15 @@
                     this.recorder = null; this.chunks = []; this.bytes = 0; this.release();
                     void this.submit(blob, id);
                 };
-                recorder.start(500); this.timer = setTimeout(() => this.finish(), 55000);
+                recorder.start(500); this.timer = setTimeout(() => this.finish(), this.options.maxCaptureMs || 55000);
                 return 'started';
             } catch (error) {
                 const message = error?.name === 'NotFoundError' || error?.name === 'OverconstrainedError' ? 'El micrófono seleccionado no está disponible. Elige otro en Voz, ritmo y privacidad.'
                     : error?.name === 'NotAllowedError' ? 'Windows no permitió acceder al micrófono. Revisa el permiso de micrófono para Axx.'
                     : error?.name === 'NotReadableError' ? 'No se puede leer el micrófono. Revisa si está desconectado u ocupado por otra aplicación.' : error;
-                this.fail(id, typeof message === 'string' ? new Error(message) : message);
+                const failure = typeof message === 'string' ? new Error(message) : message;
+                if (failure !== error && error?.name) failure.name = error.name;
+                this.fail(id, failure);
                 return 'unavailable';
             }
         }
@@ -335,7 +339,7 @@
         clearClip(clip = this.clip) { if (!clip) return; if (clip.reader?.readyState === 1) clip.reader.abort(); clip.reader = null; if (clip.payload) clip.payload.audio_base64 = ''; clip.blob = clip.audio = clip.payload = null; if (this.clip === clip) this.clip = null; }
         finish() { if (this.recorder?.state === 'recording') { this.change('stopping'); this.recorder.stop(); this.release(); } }
         async submit(blob, id = this.generation) {
-            const clip = { blob, audio: null, payload: null, reader: null }; blob = null;
+            const clip = { blob, audio: null, payload: null, reader: null, binding: this.binding }; blob = null;
             if (id !== this.generation) { this.clearClip(clip); return; }
             this.clip = clip;
             this.pending = true;
@@ -344,13 +348,21 @@
                 this.owner.onInterim?.('Procesando el audio localmente…');
                 if (id !== this.generation) return;
                 clip.audio = await base64(clip); if (id !== this.generation) return;
-                await state.cancelPromise; if(id!==this.generation)return;
+                if (!this.options.submitAudio) await state.cancelPromise; if(id!==this.generation)return;
                 const language = this.lang?.toLowerCase().startsWith('es') ? 'es' : this.lang?.toLowerCase().startsWith('en') ? 'en' : 'auto';
                 const began=performance.now();
-                clip.payload = { audio_base64: clip.audio, mime: clip.blob.type, language, task: 'transcribe' };
-                const data = await Axx.backendRequest('POST', '/axx-api/speech/transcribe', clip.payload);
+                clip.payload = { audio_base64: clip.audio, mime: clip.blob.type, language, ...(this.options.submitAudio ? {} : { task: 'transcribe' }) };
+                const data = this.options.submitAudio ? await this.options.submitAudio(clip.payload, clip.binding) : await Axx.backendRequest('POST', '/axx-api/speech/transcribe', clip.payload);
                 if (id !== this.generation) return;
                 this.pending = false;
+                if (this.options.submitAudio) {
+                    if (!data || data.accepted !== true || !Number.isSafeInteger(data.characters) || data.characters < 0 || typeof data.audio_duration_seconds !== 'number' || !Number.isFinite(data.audio_duration_seconds) || data.audio_duration_seconds < 0 || data.audio_duration_seconds > 11 || typeof data.retained !== 'boolean') throw new Error('No se recibieron metadatos válidos de la captura local.');
+                    const metadata = { accepted: true, characters: data.characters, audio_duration_seconds: data.audio_duration_seconds, retained: data.retained };
+                    if (this.binding === clip.binding) this.binding = null;
+                    this.clearClip(clip); this.owner.onResult?.(metadata, clip.binding);
+                    if (id !== this.generation) return;
+                    this.owner.onInterim?.(''); this.change('idle'); this.owner.onEnded?.(clip.binding); return;
+                }
                 state.lastRecognition={duration_ms:Math.round(performance.now()-began),speech_end_at_ms:this.lastVoiceAt || null,
                     completed_at_ms:performance.now(),timings_ms:data.timings_ms ? {...data.timings_ms} : null};
                 if (typeof data.text !== 'string' || !data.text.trim()) throw new Error('No se reconoció una frase. El destino no se ha modificado.');
@@ -364,19 +376,20 @@
                 this.clearClip(clip);
                 if (id === this.generation) {
                     this.pending = false; this.chunks = []; this.bytes = 0; this.release();
+                    if (this.binding === clip.binding) this.binding = null;
                     if (state.activeCapture === this) state.activeCapture = null;
                 }
             }
         }
-        fail(id, error) { if (id !== this.generation) return; this.stop(false); this.change('error'); this.owner.onInterim?.(''); this.owner.onError?.(error instanceof Error ? error.message : String(error)); }
-        stop(notify = true) { this.generation++; if (this.pending) cancelWorker(); this.pending = false; this.clearClip(); const recorder = this.recorder; this.recorder = null; if (recorder) { recorder.ondataavailable = recorder.onstop = recorder.onerror = recorder.onstart = null; if (recorder.state !== 'inactive') recorder.stop(); } this.release(); this.chunks = []; this.bytes = 0; if (state.activeCapture === this) state.activeCapture = null; if (notify) this.change('idle'); }
+        fail(id, error) { if (id !== this.generation) return; const binding = this.binding; this.stop(false); this.change('error'); this.owner.onInterim?.(''); this.owner.onError?.(error instanceof Error ? error.message : String(error), error, binding); }
+        stop(notify = true) { this.generation++; const binding = this.binding; this.binding = null; if (binding && this.options.cancelCapture) void Promise.resolve().then(() => this.options.cancelCapture(binding)).catch(() => {}); else if (this.pending && !this.options.submitAudio) cancelWorker(); this.pending = false; this.clearClip(); const recorder = this.recorder; this.recorder = null; if (recorder) { recorder.ondataavailable = recorder.onstop = recorder.onerror = recorder.onstart = null; if (recorder.state !== 'inactive') recorder.stop(); } this.release(); this.chunks = []; this.bytes = 0; if (state.activeCapture === this) state.activeCapture = null; if (notify) this.change('idle'); }
     }
     state.sessions = [];
     state.attach = (owner, options = {}) => {
-        if (!options || typeof options !== 'object' || Array.isArray(options) || Object.keys(options).some(key => key !== 'preempt') || 'preempt' in options && typeof options.preempt !== 'boolean') throw new TypeError('Opciones internas de captura inválidas.');
+        if (!options || typeof options !== 'object' || Array.isArray(options) || Object.keys(options).some(key => !['preempt','maxCaptureMs','submitAudio','cancelCapture'].includes(key)) || 'preempt' in options && typeof options.preempt !== 'boolean' || 'maxCaptureMs' in options && (!Number.isInteger(options.maxCaptureMs) || options.maxCaptureMs < 1 || options.maxCaptureMs > 10000) || 'submitAudio' in options && (typeof options.submitAudio !== 'function' || options.preempt !== false || typeof options.cancelCapture !== 'function' || !options.maxCaptureMs) || 'cancelCapture' in options && (typeof options.cancelCapture !== 'function' || typeof options.submitAudio !== 'function')) throw new TypeError('Opciones internas de captura inválidas.');
         const local = new LocalDictation(owner, options); state.sessions.push(local);
         Object.defineProperty(owner, 'available', { configurable: true, get: () => !!navigator.mediaDevices?.getUserMedia && typeof MediaRecorder !== 'undefined' });
-        owner.start = lang => local.start(lang); owner.finish = () => local.finish();
+        owner.start = (lang, binding) => local.start(lang, binding); owner.finish = () => local.finish();
         owner.stop = () => local.stop();
     };
     for (const owner of [Axx.voice13?.capture, Axx.symbiosis?.dictation, Axx.flow?.capture]) if (owner) state.attach(owner);
