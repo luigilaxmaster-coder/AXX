@@ -424,9 +424,55 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
     assert.equal(await page.evaluate(()=>fixtureTracks.every(t=>t.readyState==='ended')),true);
     await page.waitForFunction(()=>!document.getElementById('quick-compose').getAnimations().length);const quick=await page.locator('#quick-compose').boundingBox();assert.ok(quick.width<=320&&quick.height<=56);
     await page.evaluate(()=>Axx.quickReply.close());
+    const ownership=await page.evaluate(async()=>{
+      const native=Axx.nativeVoice,wait=async test=>{for(let n=0;n<150;n++){if(test())return;await new Promise(resolve=>setTimeout(resolve,10));}throw Error('Ownership fixture timed out');};
+      const attach=options=>{const owner={state:'idle'};native.attach(owner,options);return{owner,local:native.sessions.at(-1)};};
+      const clean=local=>local.chunks.length===0&&local.bytes===0&&local.recorder===null&&local.stream===null&&local.clip===null&&!local.pending;
+      fixtureInput='silence';
+      const legacy=attach(),speculative=attach({preempt:false}),successor=attach();
+      const first=await legacy.owner.start('es'),stream=legacy.local.stream,beforeMic=micRequests,beforeCancel=requests.filter(path=>path==='/axx-api/speech/cancel').length;
+      const busy=await speculative.owner.start('es');
+      const untouched=micRequests===beforeMic&&requests.filter(path=>path==='/axx-api/speech/cancel').length===beforeCancel&&native.activeCapture===legacy.local&&stream.getTracks().every(track=>track.readyState==='live');
+      const explicit=await successor.owner.start('es');
+      const legacyPreempts=clean(legacy.local)&&stream.getTracks().every(track=>track.readyState==='ended')&&native.activeCapture===successor.local;
+      successor.owner.stop();
+      const started=await speculative.owner.start('es');await wait(()=>speculative.owner.state==='listening');
+      releaseTranscript=null;speculative.owner.finish();await wait(()=>typeof releaseTranscript==='function');
+      const pendingClip=speculative.local.clip,pendingBody=pendingClip.payload,pendingMic=micRequests,pendingCancel=requests.filter(path=>path==='/axx-api/speech/cancel').length;
+      const selfBusy=await speculative.owner.start('es');
+      const pendingUntouched=micRequests===pendingMic&&requests.filter(path=>path==='/axx-api/speech/cancel').length===pendingCancel&&native.activeCapture===speculative.local&&speculative.local.pending;
+      releaseTranscript();await wait(()=>clean(speculative.local)&&native.activeCapture===null);
+      const naturalClean=clean(speculative.local)&&pendingClip.blob===null&&pendingClip.audio===null&&pendingClip.payload===null&&pendingBody.audio_base64==='';
+      const metricsPreserved=Number.isFinite(native.lastRecognition?.duration_ms);
+      let handoff;
+      legacy.owner.onFinal=()=>{handoff=successor.owner.start('es');throw Error('Controlled callback after handoff');};
+      await legacy.owner.start('es');await wait(()=>legacy.owner.state==='listening');releaseTranscript=null;legacy.owner.finish();await wait(()=>typeof releaseTranscript==='function');releaseTranscript();await wait(()=>!!handoff);await handoff;await wait(()=>successor.owner.state==='listening');
+      const finalHandoff=clean(legacy.local)&&native.activeCapture===successor.local&&successor.local.stream.getTracks().every(track=>track.readyState==='live');
+      successor.owner.stop();delete legacy.owner.onFinal;
+      legacy.owner.onError=()=>{handoff=successor.owner.start('es');};handoff=null;
+      await legacy.owner.start('es');await wait(()=>legacy.owner.state==='listening');legacy.local.recorder.onerror();await wait(()=>!!handoff);await handoff;await wait(()=>successor.owner.state==='listening');
+      const errorHandoff=clean(legacy.local)&&native.activeCapture===successor.local&&successor.local.stream.getTracks().every(track=>track.readyState==='live');
+      successor.owner.stop();delete legacy.owner.onError;
+      await legacy.owner.start('es');const obsoleteStop=legacy.local.recorder.onstop;legacy.owner.stop();await legacy.owner.start('es');const replacement=legacy.local.stream;obsoleteStop();
+      const staleStopSafe=native.activeCapture===legacy.local&&legacy.local.stream===replacement&&replacement.getTracks().every(track=>track.readyState==='live');legacy.owner.stop();
+      const FileReaderBase=window.FileReader,readers=[];
+      try{
+        window.FileReader=class{readyState=0;constructor(){readers.push(this);}readAsDataURL(){this.readyState=1;}abort(){this.readyState=2;this.aborted=true;this.onabort?.();}};
+        const beforeASR=requests.filter(path=>path==='/axx-api/speech/transcribe').length;
+        await legacy.owner.start('es');await wait(()=>legacy.owner.state==='listening');legacy.owner.finish();await wait(()=>legacy.local.clip?.reader?.readyState===1);
+        const cancelledClip=legacy.local.clip;legacy.owner.stop();await successor.owner.start('es');await wait(()=>successor.owner.state==='listening');await new Promise(resolve=>setTimeout(resolve,20));
+        const encodingCancelled=readers[0].aborted&&clean(legacy.local)&&cancelledClip.blob===null&&cancelledClip.audio===null&&cancelledClip.reader===null&&native.activeCapture===successor.local&&requests.filter(path=>path==='/axx-api/speech/transcribe').length===beforeASR;
+        successor.owner.stop();
+        const getUserMedia=navigator.mediaDevices.getUserMedia;navigator.mediaDevices.getUserMedia=undefined;
+        let unavailable;try{unavailable=await speculative.owner.start('es');}finally{navigator.mediaDevices.getUserMedia=getUserMedia;}
+        failDevice=true;let failed;try{failed=await speculative.owner.start('es');}finally{failDevice=false;}
+        return{first,busy,untouched,explicit,legacyPreempts,started,selfBusy,pendingUntouched,naturalClean,metricsPreserved,finalHandoff,errorHandoff,staleStopSafe,encodingCancelled,unavailable,failed,errorClean:clean(speculative.local)&&native.activeCapture===null};
+      }finally{window.FileReader=FileReaderBase;for(const session of [legacy.local,speculative.local,successor.local])session.stop();}
+    });
+    assert.deepEqual(ownership,{first:'started',busy:'busy',untouched:true,explicit:'started',legacyPreempts:true,started:'started',selfBusy:'busy',pendingUntouched:true,naturalClean:true,metricsPreserved:true,finalHandoff:true,errorHandoff:true,staleStopSafe:true,encodingCancelled:true,unavailable:'unavailable',failed:'unavailable',errorClean:true},'Non-preemptive capture must preserve existing recording/ASR; all completion paths release only their own audio and owner');
     assert.deepEqual(errors,[]);
     const output=path.resolve(__dirname,'../../build/quick-reply-'+require('../../package.json').version);fs.mkdirSync(output,{recursive:true});
     await page.screenshot({path:path.join(output,'dictation.png')});
-    console.log('PASS: shared Axxmorcito/Xxx default selection, persisted voice, loading/ready/error states, missing voice, dictation geometry/owner/draft, live blur retention, quiet and short utterance VAD, steady-noise rejection, visible input meter, unavailable exact device, cancellation barriers, single command shortcut and always-active rearm');
+    console.log('PASS: shared Axxmorcito/Xxx default selection, persisted voice, loading/ready/error states, missing voice, dictation geometry/owner/draft, live blur retention, quiet and short utterance VAD, steady-noise rejection, visible input meter, unavailable exact device, cancellation barriers, non-preemptive capture/ASR ownership, payload cleanup and callback handoff, single command shortcut and always-active rearm');
   }finally{await browser?.close();await new Promise(r=>server.close(r));}
 })().catch(e=>{console.error(e);process.exitCode=1;});

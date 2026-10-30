@@ -51,7 +51,13 @@
         })().catch(() => {
             if (ticket === state.prepareTicket) showVoiceStatus('No se pudo preparar ' + label + '. Pulsa Actualizar voces para reintentar.', 'error'); });
     };
-    const base64 = blob => new Promise((resolve, reject) => { const reader = new FileReader(); reader.onerror = () => reject(new Error('No se pudo leer el audio capturado.')); reader.onload = () => resolve(String(reader.result).split(',')[1]); reader.readAsDataURL(blob); });
+    const base64 = clip => new Promise((resolve, reject) => {
+        const reader = clip.reader = new FileReader();
+        const clear = () => { if (clip.reader === reader) clip.reader = null; reader.onload = reader.onerror = reader.onabort = null; };
+        reader.onerror = reader.onabort = () => { clear(); reject(new Error('No se pudo leer el audio capturado.')); };
+        reader.onload = () => { const value = String(reader.result).split(',')[1]; clear(); resolve(value); };
+        reader.readAsDataURL(clip.blob);
+    });
     state.refreshVoices = async (force = false) => {
         if (force) state.voicePromise = null;
         if (!state.voicePromise) showVoiceStatus('Buscando las voces instaladas…', 'loading');
@@ -231,21 +237,30 @@
     for (const [object, method] of [[Axx.symbiosis, 'refreshVoices'], [Axx.voice13, 'voices']]) if (object) object[method] = () => { void state.refreshVoices().catch(() => {}); };
 
     class LocalDictation {
-        generation = 0; recorder = null; stream = null; chunks = []; bytes = 0; pending = false; timer = null; borrowedMeter = false; vadTimer = null; vadCtx = null;
-        constructor(owner) { this.owner = owner; }
+        generation = 0; recorder = null; stream = null; chunks = []; bytes = 0; pending = false; timer = null; borrowedMeter = false; vadTimer = null; vadCtx = null; clip = null;
+        constructor(owner, options) { this.owner = owner; this.preempt = options.preempt !== false; }
         change(value) { this.owner.state = value; this.owner.onState?.(); Axx.resident?.activity(); }
         async start(lang) {
+            // Speculative owners must leave both capture and local ASR untouched.
+            if (!this.preempt && (this.pending || state.activeCapture || this.recorder?.state === 'recording')) return 'busy';
+            if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+                if (this.preempt) this.fail(this.generation, new Error('La captura de audio local no está disponible.'));
+                return 'unavailable';
+            }
             this.stop(false); const id = this.generation; this.lang = lang; this.lastVoiceAt = 0;
-            if (state.activeCapture && state.activeCapture !== this) state.activeCapture.stop(); state.activeCapture = this;
+            if (state.activeCapture && state.activeCapture !== this) state.activeCapture.stop();
+            // A previous owner's callback may hand the microphone to a successor.
+            if (state.activeCapture && state.activeCapture !== this) return 'busy';
+            state.activeCapture = this;
             this.change('starting');
             try {
                 await state.cancelPromise;
-                if(id!==this.generation)return;
+                if(id!==this.generation)return 'unavailable';
                 const meter = this.owner === Axx.voice13?.capture ? Axx.voice13.meter : null;
                 const borrowedMeter = !!meter?.active; this.borrowedMeter = borrowedMeter;
                 const device = this.owner === Axx.quickReply?.capture || this.owner === Axx.symbiosis?.dictation && Axx.symbiosis.use === 'live' ? state.liveDeviceId : '';
                 const stream = borrowedMeter ? meter.stream : await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, ...(device ? {deviceId:{exact:device}} : {}) }, video: false });
-                if (id !== this.generation) { if (!borrowedMeter) stream.getTracks().forEach(track => track.stop()); return; }
+                if (id !== this.generation) { if (!borrowedMeter) stream.getTracks().forEach(track => track.stop()); return 'unavailable'; }
                 this.stream = stream;
                 for(const track of stream.getAudioTracks())track.addEventListener('ended',()=>{if(id===this.generation&&this.recorder?.state==='recording')this.fail(id,new Error('El micrófono se desconectó. Elige otra entrada y vuelve a iniciar.'));},{once:true});
                 const mime = ['audio/webm;codecs=opus', 'audio/ogg;codecs=opus', 'audio/mp4'].find(type => MediaRecorder.isTypeSupported(type));
@@ -254,13 +269,21 @@
                 recorder.ondataavailable = event => { if (id !== this.generation || !event.data.size) return; this.chunks.push(event.data); this.bytes += event.data.size; if (this.bytes >= 1000000) this.finish(); };
                 recorder.onstart = () => { if (id === this.generation) void this.startVad(stream, id).then(() => { if (id === this.generation) this.change('listening'); }).catch(error => this.fail(id, error)); };
                 recorder.onerror = () => this.fail(id, new Error('La captura de audio local se interrumpió.'));
-                recorder.onstop = () => { this.release(); if (id === this.generation) void this.submit(new Blob(this.chunks, { type: mime }), id); };
+                recorder.onstop = () => {
+                    if (id !== this.generation || this.recorder !== recorder) return;
+                    const blob = new Blob(this.chunks, { type: mime });
+                    recorder.ondataavailable = recorder.onstop = recorder.onerror = recorder.onstart = null;
+                    this.recorder = null; this.chunks = []; this.bytes = 0; this.release();
+                    void this.submit(blob, id);
+                };
                 recorder.start(500); this.timer = setTimeout(() => this.finish(), 55000);
+                return 'started';
             } catch (error) {
                 const message = error?.name === 'NotFoundError' || error?.name === 'OverconstrainedError' ? 'El micrófono seleccionado no está disponible. Elige otro en Voz, ritmo y privacidad.'
                     : error?.name === 'NotAllowedError' ? 'Windows no permitió acceder al micrófono. Revisa el permiso de micrófono para Axx.'
                     : error?.name === 'NotReadableError' ? 'No se puede leer el micrófono. Revisa si está desconectado u ocupado por otra aplicación.' : error;
                 this.fail(id, typeof message === 'string' ? new Error(message) : message);
+                return 'unavailable';
             }
         }
         async startVad(stream, id) {
@@ -309,35 +332,51 @@
                 await calibrated;
         }
         release() { clearTimeout(this.timer); this.timer = null; clearInterval(this.vadTimer); this.vadTimer = null; clearTimeout(this.resumeTimer); this.resumeTimer=null; this.resumeCancelled?.(); this.resumeCancelled=null; this.calibrationCancelled?.(); this.calibrationCancelled=null; if (this.vadCtx) { void this.vadCtx.close().catch(() => {}); this.vadCtx = null; } if (this.stream && this.borrowedMeter) Axx.voice13?.meter.stop(); else this.stream?.getTracks().forEach(track => track.stop()); this.stream = null; this.borrowedMeter = false; if(state.inputLevel?.owner===this.owner)state.inputLevel=null; }
+        clearClip(clip = this.clip) { if (!clip) return; if (clip.reader?.readyState === 1) clip.reader.abort(); clip.reader = null; if (clip.payload) clip.payload.audio_base64 = ''; clip.blob = clip.audio = clip.payload = null; if (this.clip === clip) this.clip = null; }
         finish() { if (this.recorder?.state === 'recording') { this.change('stopping'); this.recorder.stop(); this.release(); } }
         async submit(blob, id = this.generation) {
-            if (blob.size === 0 || blob.size > 1400000) { this.fail(id, new Error('El clip está vacío o supera 1,4 MB. Graba una frase más corta.')); return; }
-            this.pending = true; this.owner.onInterim?.('Procesando el audio localmente…');
+            const clip = { blob, audio: null, payload: null, reader: null }; blob = null;
+            if (id !== this.generation) { this.clearClip(clip); return; }
+            this.clip = clip;
+            this.pending = true;
             try {
-                const audio = await base64(blob); if (id !== this.generation) return;
+                if (clip.blob.size === 0 || clip.blob.size > 1400000) throw new Error('El clip está vacío o supera 1,4 MB. Graba una frase más corta.');
+                this.owner.onInterim?.('Procesando el audio localmente…');
+                if (id !== this.generation) return;
+                clip.audio = await base64(clip); if (id !== this.generation) return;
                 await state.cancelPromise; if(id!==this.generation)return;
                 const language = this.lang?.toLowerCase().startsWith('es') ? 'es' : this.lang?.toLowerCase().startsWith('en') ? 'en' : 'auto';
                 const began=performance.now();
-                const data = await Axx.backendRequest('POST', '/axx-api/speech/transcribe', { audio_base64: audio, mime: blob.type, language, task: 'transcribe' });
+                clip.payload = { audio_base64: clip.audio, mime: clip.blob.type, language, task: 'transcribe' };
+                const data = await Axx.backendRequest('POST', '/axx-api/speech/transcribe', clip.payload);
                 if (id !== this.generation) return;
                 this.pending = false;
                 state.lastRecognition={duration_ms:Math.round(performance.now()-began),speech_end_at_ms:this.lastVoiceAt || null,
                     completed_at_ms:performance.now(),timings_ms:data.timings_ms ? {...data.timings_ms} : null};
                 if (typeof data.text !== 'string' || !data.text.trim()) throw new Error('No se reconoció una frase. El destino no se ha modificado.');
+                this.clearClip(clip);
                 this.owner.onFinal?.(data.text);
                 // A voice command may transfer the microphone to another session.
                 if (id !== this.generation) return;
                 this.owner.onInterim?.(''); this.change('idle'); this.owner.onEnded?.();
             } catch (error) { this.fail(id, error); }
+            finally {
+                this.clearClip(clip);
+                if (id === this.generation) {
+                    this.pending = false; this.chunks = []; this.bytes = 0; this.release();
+                    if (state.activeCapture === this) state.activeCapture = null;
+                }
+            }
         }
-        fail(id, error) { if (id !== this.generation) return; this.stop(); this.change('error'); this.owner.onInterim?.(''); this.owner.onError?.(error instanceof Error ? error.message : String(error)); }
-        stop(notify = true) { this.generation++; if (this.pending) cancelWorker(); this.pending = false; const recorder = this.recorder; this.recorder = null; if (recorder) { recorder.ondataavailable = recorder.onstop = recorder.onerror = recorder.onstart = null; if (recorder.state !== 'inactive') recorder.stop(); } this.release(); this.chunks = []; if (state.activeCapture === this) state.activeCapture = null; if (notify) this.change('idle'); }
+        fail(id, error) { if (id !== this.generation) return; this.stop(false); this.change('error'); this.owner.onInterim?.(''); this.owner.onError?.(error instanceof Error ? error.message : String(error)); }
+        stop(notify = true) { this.generation++; if (this.pending) cancelWorker(); this.pending = false; this.clearClip(); const recorder = this.recorder; this.recorder = null; if (recorder) { recorder.ondataavailable = recorder.onstop = recorder.onerror = recorder.onstart = null; if (recorder.state !== 'inactive') recorder.stop(); } this.release(); this.chunks = []; this.bytes = 0; if (state.activeCapture === this) state.activeCapture = null; if (notify) this.change('idle'); }
     }
     state.sessions = [];
-    state.attach = owner => {
-        const local = new LocalDictation(owner); state.sessions.push(local);
+    state.attach = (owner, options = {}) => {
+        if (!options || typeof options !== 'object' || Array.isArray(options) || Object.keys(options).some(key => key !== 'preempt') || 'preempt' in options && typeof options.preempt !== 'boolean') throw new TypeError('Opciones internas de captura inválidas.');
+        const local = new LocalDictation(owner, options); state.sessions.push(local);
         Object.defineProperty(owner, 'available', { configurable: true, get: () => !!navigator.mediaDevices?.getUserMedia && typeof MediaRecorder !== 'undefined' });
-        owner.start = lang => { void local.start(lang); }; owner.finish = () => local.finish();
+        owner.start = lang => local.start(lang); owner.finish = () => local.finish();
         owner.stop = () => local.stop();
     };
     for (const owner of [Axx.voice13?.capture, Axx.symbiosis?.dictation, Axx.flow?.capture]) if (owner) state.attach(owner);
