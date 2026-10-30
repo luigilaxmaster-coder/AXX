@@ -8,11 +8,15 @@ from playwright.sync_api import sync_playwright
 from mobile.tests.test_ui import ROOT
 from mobile.tests.test_companion_ui import FIXTURE
 from mobile.tests.test_control_ui import CONTROL_FIXTURE
+from mobile.tests.test_mission_continuity_ui import MISSION_FIXTURE
 
 PROJECT=Path(__file__).resolve().parents[2]
 CONTRACT=json.loads((PROJECT/'mobile/companion-contract.json').read_text(encoding='utf-8'))
-SCREEN_FIXTURE=FIXTURE+CONTROL_FIXTURE+'''
+SCREEN_FIXTURE=FIXTURE+CONTROL_FIXTURE+MISSION_FIXTURE+'''
 snapshot.appearance.studio.living=false;
+missionDetail.goal_spec.destination='project-a/'+('long-document-name-'.repeat(8))+'report.txt';
+missionDetail.goal_spec.criteria[0].parameters.path=missionDetail.goal_spec.destination;
+missionDetail.mission.destination=missionDetail.goal_spec.destination;
 Capacitor.Plugins.AxxFiles={capacity:async()=>({max_size:10737418240,free_bytes:8589934592}),list:async()=>({files:[]})};
 const screenRequest=Capacitor.Plugins.AxxTransport.request;
 Capacitor.Plugins.AxxTransport.request=async a=>a.path==='/v1/files/status'?{data:{max_size:10737418240,permissions:{read:false,write:false},transfers:[]}}:screenRequest(a);
@@ -59,6 +63,36 @@ def inspect_case(page, profile):
         }''',label))
     for pane in panes:
         page.locator('[data-pane='+pane+']').click();geometry(pane)
+    page.locator('[data-pane=work]').click()
+    for selector in ('#work-activity', '#mission-continuity'):
+        if not page.locator(selector).evaluate('(node)=>node.open'):
+            page.locator(selector+' > summary').click()
+    if page.locator('#mission-editor').is_hidden():
+        page.get_by_role('button',name='Abrir misión',exact=True).click()
+    page.get_by_label('Corrección que debe preparar la PC',exact=True).fill('Screen contract correction')
+    page.locator('#mission-review').click()
+    page.locator('#mission-review-json').wait_for(state='visible')
+    geometry('mission-review')
+    issues.extend(page.evaluate('''()=>{
+      const problems=[],panel=document.querySelector('#mission-continuity'),bounds=panel.getBoundingClientRect();
+      for(const selector of ['#mission-continuity','#mission-editor','#mission-reviewed']){
+        const node=document.querySelector(selector);
+        if(node.scrollWidth>node.clientWidth+1)problems.push('mission: horizontal overflow '+selector);
+      }
+      for(const node of panel.querySelectorAll('button:not([hidden]),textarea')){
+        const r=node.getBoundingClientRect();
+        if(r.left<bounds.left-1||r.right>bounds.right+1)problems.push('mission: control outside panel '+node.id);
+        if(node.tagName==='BUTTON'&&(r.height<44||r.width<44))problems.push('mission: touch target below 44 CSS px '+node.id);
+      }
+      return problems;
+    }'''))
+    page.locator('#mission-correction').focus()
+    page.set_viewport_size({'width':profile['width'],'height':CONTRACT['keyboard_height']})
+    geometry('mission-keyboard')
+    if page.get_by_label('Corrección que debe preparar la PC',exact=True).input_value()!='Screen contract correction':
+        issues.append('mission-keyboard: draft lost')
+    page.locator('#mission-correction').blur()
+    page.set_viewport_size({'width':profile['width'],'height':profile['height']})
     page.locator('[data-pane=axx]').click()
     button=page.locator('#open-chat').bounding_box()
     nav=page.locator('.live-nav').bounding_box()

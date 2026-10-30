@@ -99,6 +99,8 @@ preparar y tras el efecto final, consulta los mismos IDs y comprueba recibos,
 contador del ejecutor y SHA-256 independiente. Las pruebas de interfaz usan un
 DOM y transporte controlados. Los casos de navegador recorren Actividad, la
 revisión del objetivo, la pérdida de respuesta y el texto ampliado con teclado;
-no acreditan APK, teclado físico, voz ni dispositivos reales. La entrega exige
+la matriz existente de 120 escenarios también abre la misión y su revisión,
+conserva el borrador bajo teclado y comprueba anchos y controles táctiles.
+Estos ensayos no acreditan APK, teclado físico, voz ni dispositivos reales. La entrega exige
 gate conjunto, APK/hash/firma, actualización
 en sitio y aceptación física por separado.

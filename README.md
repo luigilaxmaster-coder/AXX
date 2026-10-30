@@ -18,18 +18,18 @@
 
 [Archivos entre dispositivos](docs/mobile/TRANSFER.md) · [Empezar](#empezar) · [Funciones](#funciones) · [Modelos](#modelos) · [Magic Pen](#magic-pen) · [Control del PC](#control-del-pc) · [Arquitectura](#arquitectura) · [Validación](#pruebas-y-estado) · [Desarrollo](#desarrollo)
 
-> **Axx is under active development.** Source is **v0.22.31**; the published Windows installer is **v0.22.30**. Delivery of the newer source is pending publication. Validation is recorded per feature; a working UI or build does not by itself certify every hardware-dependent behavior.
+> **Axx is under active development.** Source and published Windows installer are both **v0.22.31**. Validation is recorded per feature; a working UI or build does not by itself certify every hardware-dependent behavior.
 
 ## Download Axx for Windows
 
 <!-- release:download:start -->
-**[Download Windows x64 test installer · v0.22.30](https://github.com/luigilaxmaster-coder/AXX/releases/download/v0.22.30/Axx_0.22.30_x64-setup.exe)** · [Release files](https://github.com/luigilaxmaster-coder/AXX/releases/tag/v0.22.30) · [SHA-256](https://github.com/luigilaxmaster-coder/AXX/releases/download/v0.22.30/SHA256SUMS.txt)
+**[Download Windows x64 test installer · v0.22.31](https://github.com/luigilaxmaster-coder/AXX/releases/download/v0.22.31/Axx_0.22.31_x64-setup.exe)** · [Release files](https://github.com/luigilaxmaster-coder/AXX/releases/tag/v0.22.31) · [SHA-256](https://github.com/luigilaxmaster-coder/AXX/releases/download/v0.22.31/SHA256SUMS.txt)
 
 Run the installer and open Axx. Python and Node are not required. Start with **Automático gratis · Sin claves**; Axx checks available free routes, whose availability can change. Personal API keys are optional in Settings. Credentials and conversation history are not included in the installer. Windows may need Internet to install WebView2. The installer is unsigned.
 
 Backend dependencies are installed with the app and do not require extraction on every launch. Windows may still scan them during startup. The native host allows up to 90 seconds for backend readiness and reports a startup error if that limit is exceeded.
 
-Source is **v0.22.31**; the published Windows installer is **v0.22.30**. Delivery of the newer source is pending publication. Android APKs remain local test artifacts until separately published. See [mobile setup and validation](docs/mobile/README.md) and the [version and release procedure](docs/RELEASING.md).
+Source and published Windows installer are both **v0.22.31**. Android APKs remain local test artifacts until separately published. See [mobile setup and validation](docs/mobile/README.md) and the [version and release procedure](docs/RELEASING.md).
 <!-- release:download:end -->
 
 ---
@@ -188,10 +188,12 @@ El escaneo óptico del QR, los gestos remotos restantes y el audio mantienen ace
 
 ## Pruebas y estado
 
-Las ampliaciones de olvido por conversación, procedencia documental y atención agrupada por misión se incorporan a la fuente 0.22.31; el instalador 0.22.30 no las contiene. La descarga vigente se indica arriba. Un cambio de fuente no acredita por sí solo instalación ni aceptación de todos los comportamientos.
+El instalador Windows **0.22.31** incluye olvido por conversación, procedencia documental y atención agrupada por misión. La entrega fue instalada y su descarga se publicó después de verificar los hashes. Las [notas de aceptación y límites](docs/releases/0.22.31.md) distinguen los recorridos comprobados de las funciones y dispositivos sin certificar.
 
 | Área | Evidencia disponible | Alcance que no debe inferirse |
 | --- | --- | --- |
+| **Razonamiento y memoria · 0.22.31** | Propuesta documental con el modelo configurado, aprobación y comparación real, reutilización tras reiniciar con cero llamadas al modelo, olvido con revocación, exclusión de lecciones obsoletas y 24 lecturas concurrentes aprobadas en la app instalada. | Un perfil y equipo concretos; no certifica todos los modelos ni un benchmark completo de calidad. |
+| **Voz e integridad · 0.22.31** | Síntesis MOSS nueva sin escribir bytecode en el paquete; reproducción y captura físicas comprobadas. Voz y Claridad conservadas. | La transcripción acústica no coincidió con todas las palabras esperadas; no se certifica dictado humano ni reconocimiento perfecto. |
 | **Barra · 0.22.23** | Enviar con clic de ratón, Intro, respuesta compacta y segunda orden sin volver a enfocar, probados en el instalador final. | No certifica todos los dispositivos de entrada o configuraciones de pantalla. |
 | **Secuencias · 0.22.23** | Desde la barra: abrir YouTube y buscar Faint; crear un archivo nuevo, calcular su SHA256 y comprobar el contenido final. Pasos ordenados y recibos verificados. | Buscar no acredita reproducción. Las acciones conservan su revisión. |
 | **Modelo/API · 0.22.23** | La selección guardada sobrevivió a la reinstalación y preparó el plan de archivo con dos inferencias. Respuesta API sintética comprobada durante la aceptación. | La ruta configurada no certifica la identidad interna de los pesos del proveedor ni todos sus modelos. |

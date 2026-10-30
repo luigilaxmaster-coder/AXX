@@ -17,7 +17,7 @@ function mission(id='mission-a',overrides={}){
 function fixture(storage=new Map()){
   const nodes=new Map(),listeners=new Map();
   class Element{
-    constructor(tag){this.tagName=tag.toUpperCase();this.children=[];this.events={};this.attributes={};this.hidden=false;this.disabled=false;this.value='';this.open=false;this._text='';}
+    constructor(tag){this.tagName=tag.toUpperCase();this.children=[];this.events={};this.attributes={};this.style={};this.hidden=false;this.disabled=false;this.value='';this.open=false;this._text='';}
     set id(id){this._id=id;nodes.set(id,this);}get id(){return this._id;}
     set textContent(text){this._text=String(text);this.children=[];}get textContent(){return this._text+this.children.map(child=>child.textContent).join('');}
     append(...children){this.children.push(...children);for(const child of children)child.parentNode=this;}

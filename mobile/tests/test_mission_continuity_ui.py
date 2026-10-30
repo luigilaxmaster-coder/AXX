@@ -8,7 +8,7 @@ from mobile.tests.test_companion_ui import FIXTURE as BASE_FIXTURE
 from mobile.tests.test_ui import ROOT
 
 
-FIXTURE = BASE_FIXTURE + r'''
+MISSION_FIXTURE = r'''
 window.missionPin='a'.repeat(64);
 Capacitor.Plugins.AxxTransport.profile=async()=>({paired:true,device_id:'device',endpoint:'https://192.168.0.10:4443',fingerprint:missionPin,scopes});
 snapshot.capabilities={avatar_customization:true,mission_continuity:true};
@@ -42,6 +42,8 @@ Capacitor.Plugins.AxxTransport.request=async args=>{
  throw Error('Unexpected mission fixture route');
 };
 '''
+
+FIXTURE = BASE_FIXTURE + MISSION_FIXTURE
 
 
 class MobileMissionUI(unittest.TestCase):

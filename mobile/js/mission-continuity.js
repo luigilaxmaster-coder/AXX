@@ -25,6 +25,7 @@
   const refreshButton=button('Actualizar misiones','mission-refresh',()=>void refresh());
   const reviewButton=button('Revisar corrección','mission-review',reviewCorrection);
   const prepareButton=button('Preparar en la misma misión','mission-prepare',()=>void prepare());prepareButton.className='primary';
+  prepareButton.style.minWidth='min-content';
   const checkButton=button('Consultar corrección pendiente','mission-reconcile',()=>void reconcile(true));
   const forgetButton=button('Olvidar seguimiento','mission-forget',()=>{
     if(!pending||!window.confirm('Esto elimina solo el seguimiento local. No cancela la corrección ni los efectos en la PC. Revisa esa PC antes de volver a enviarla.'))return;

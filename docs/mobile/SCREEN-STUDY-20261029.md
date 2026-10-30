@@ -90,3 +90,17 @@ El objetivo para futuras adaptaciones es conservar funcionalidad al 200 % de tex
 ## Lo que este estudio no acredita
 
 No acredita todos los modelos comerciales, versiones de WebView/WebKit, fuentes, lectores de pantalla, teclados, bisagras, espacios de color ni funciones nativas. No existe build iOS entregada aquí. Las 24 incidencias se conservan en este informe histórico; su corrección y la conservación de la apariencia se documentan por separado.
+
+## Ampliación del editor de misiones · 30 de octubre
+
+La misma matriz de 120 combinaciones abre ahora Actividad → Misiones de la PC,
+su editor y la revisión exacta del objetivo, con un destino largo. Comprueba
+desbordamientos, controles de al menos 44 CSS px y conservación de la corrección
+al reducir la altura a 299 px. No envía la corrección ni ejecuta efectos.
+
+La primera ejecución encontró 16 combinaciones con desbordamiento: el botón
+principal podía encogerse por debajo de su palabra más ancha. Se conserva su
+ancho intrínseco mínimo en el componente nuevo; no se modifican CSS compartido,
+referencias visuales ni hashes protegidos. La repetición pasó las 120
+combinaciones y las pruebas existentes de geometría aprobada y snapshots v1.
+Esto acredita el navegador con transporte declarado, no un APK ni teclado nativo.
