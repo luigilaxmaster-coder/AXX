@@ -122,6 +122,23 @@ class WindowTitleScopeTests(unittest.TestCase):
                 uia.close_window(10, 20, expected_title='Selected title', expected_process_started='birth')
         self.user.PostMessageW.assert_not_called()
 
+    def test_close_rejects_title_changed_during_process_name_check(self):
+        current_title = {'value': 'Selected title'}
+        self.user.GetWindowTextLengthW.side_effect = lambda _hwnd: len(current_title['value'])
+        def title(_hwnd, buffer, _maximum):
+            buffer.value = current_title['value']
+            return len(buffer.value)
+        self.user.GetWindowTextW.side_effect = title
+        def process_name(_pid):
+            current_title['value'] = 'Different title'
+            return 'fixture.exe'
+        self.user.PostMessageW.return_value = True
+        with patch.object(uia, 'list_windows', side_effect=[[{'window_id': 10, 'pid': 20, 'title': 'Selected title'}], []]), \
+             patch.object(uia, 'process_name', side_effect=process_name):
+            with self.assertRaises(ValueError):
+                uia.close_window(10, 20, expected_title='Selected title', expected_process_started='birth')
+        self.user.PostMessageW.assert_not_called()
+
 
 class TargetedVisionTests(unittest.TestCase):
     def frame(self):

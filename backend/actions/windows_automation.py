@@ -316,8 +316,6 @@ def close_window(window_id, expected_pid, cancelled=None, expected_title=None, e
     if expected_title is not None:
         if not isinstance(expected_title, str) or not expected_title.strip() or len(expected_title) > 2048:
             raise ValueError('Falta el título observado de la ventana.')
-        if read_window_title(window_id, expected_pid, birth, cancelled) != expected_title:
-            raise ValueError('El título de la ventana cambió; solicita el cierre de nuevo.')
     if expected_pid == os.getpid() or process_name(expected_pid) in {'explorer.exe', 'axx.exe', 'axx-backend.exe'}:
         raise ValueError('Esta ventana no se cierra mediante el comando general.')
     if cancelled is not None and cancelled.is_set():
@@ -327,6 +325,8 @@ def close_window(window_id, expected_pid, cancelled=None, expected_title=None, e
             or not user.GetWindowThreadProcessId(wintypes.HWND(window_id), ctypes.byref(pid))
             or pid.value != expected_pid or process_started(expected_pid) != birth):
         raise ValueError('La ventana cambió antes de solicitar el cierre.')
+    if expected_title is not None and read_window_title(window_id, expected_pid, birth, cancelled) != expected_title:
+        raise ValueError('El título de la ventana cambió; solicita el cierre de nuevo.')
     if cancelled is not None and cancelled.is_set():
         raise ValueError('Cierre cancelado antes de solicitarlo.')
     if not user.PostMessageW(wintypes.HWND(window_id), 0x0010, 0, 0):
