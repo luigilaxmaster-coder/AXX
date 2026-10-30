@@ -1,6 +1,7 @@
 """Desktop dispatch regression: user commands reach tools, not inference."""
 import os
 from pathlib import Path
+import subprocess
 import tempfile
 import threading
 import time
@@ -39,8 +40,19 @@ class DesktopCommandTests(unittest.TestCase):
                 result = self.service.resolve(text)
                 self.assertEqual(result.get('command_id'), command)
                 self.assertEqual(result['inputs'], inputs)
-        for text in ('cómo abrir YouTube', 'no abras YouTube', 'resume: abre YouTube', 'abre calculadora && whoami'):
-            self.assertNotEqual(self.service.resolve(text).get('match'), 'exact')
+        # Grammar rejection must not depend on the host's Start menu inventory.
+        with patch('backend.actions.windows_apps.installed_apps', return_value=[]), \
+             patch('backend.application_catalog.installed_apps', return_value=[]):
+            for text in ('cómo abrir YouTube', 'no abras YouTube', 'resume: abre YouTube', 'abre calculadora && whoami'):
+                self.assertNotEqual(self.service.resolve(text).get('match'), 'exact')
+
+    def test_inventory_timeout_does_not_resolve_an_unobserved_application(self):
+        with patch('backend.actions.windows_apps.installed_apps', return_value=[]), \
+             patch('backend.application_catalog.installed_apps',
+                   side_effect=subprocess.TimeoutExpired('Get-StartApps', 12)) as inventory:
+            self.assertEqual(self.service.resolve('abre aplicacion-no-observada')['match'], 'unsupported')
+        inventory.assert_called_once_with()
+        self.assertEqual(self.executor.list_operations(), [])
 
     def test_spotify_commands_never_become_youtube_searches(self):
         for text in ('pausa Spotify', 'siguiente en Spotify'):
@@ -340,8 +352,9 @@ class DesktopCommandTests(unittest.TestCase):
 
     @unittest.skipUnless(os.name == 'nt', 'Windows PowerShell integration')
     def test_real_powershell_output_and_error(self):
-        for script, state in [("Write-Output 'hola áxx'", 'succeeded'),
-                              ("Set-Content -LiteralPath 'shell-unicode.txt' -Value 'hola áxx' -Encoding UTF8; Get-Content -LiteralPath 'shell-unicode.txt' -Encoding UTF8", 'succeeded'),
+        # Exercise the intended built-ins without depending on unrelated module discovery.
+        for script, state in [("Microsoft.PowerShell.Utility\\Write-Output 'hola áxx'", 'succeeded'),
+                              ("Microsoft.PowerShell.Management\\Set-Content -LiteralPath 'shell-unicode.txt' -Value 'hola áxx' -Encoding UTF8; Microsoft.PowerShell.Management\\Get-Content -LiteralPath 'shell-unicode.txt' -Encoding UTF8", 'succeeded'),
                               ("throw 'fixture failure'", 'failed')]:
             pending = self.service.prepare('axx.shell.powershell', {'script': script})
             result = self.service.execute(pending['operation_id'], True)

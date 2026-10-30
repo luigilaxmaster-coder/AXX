@@ -8,6 +8,7 @@ from pathlib import Path
 import tempfile
 import threading
 import time
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -506,11 +507,18 @@ class ContextSourceTests(unittest.TestCase):
         self.assertTrue(lease.is_set())
         self.assertNotIn('raw', self.service.source_state['fixture-source'])
         self.service.configure({'observation_targets': []})
-        with patch('backend.anticipation.RAW_SOURCE_TTL_SECONDS', .05):
+        # Admission cost must not consume the expiry phase this fixture tests.
+        monotonic = [time.monotonic()]
+        clock = SimpleNamespace(monotonic=lambda: monotonic[0], time=time.time,
+            perf_counter=time.perf_counter, process_time=time.process_time)
+        with patch('backend.anticipation.RAW_SOURCE_TTL_SECONDS', .05), patch('backend.anticipation.time', clock):
             self.configure(retain=True, provider=True)
             self.service.tick()
             context = self.service.provider_context_for_task('source-task')
+            self.assertEqual(len(context['refs']), 1)
             lease = self.service.acquire_provider_context('source-task', context['refs'])
+            self.assertFalse(lease.is_set())
+            monotonic[0] += .06
             self.assertTrue(lease.wait(1))
             self.assertEqual(self.service.provider_context_for_task('source-task')['observations'], [])
         self.assert_private_not_durable([self.clip['text']])
