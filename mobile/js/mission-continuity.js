@@ -19,7 +19,7 @@
   const reviewedLabel=element('label','Contenido exacto revisado');reviewedLabel.htmlFor='mission-review-json';
   const reviewed=element('textarea',undefined,'mission-review-json');reviewed.readOnly=true;reviewed.rows=10;
   reviewPanel.append(element('summary','Revisión exacta antes de preparar'),reviewedLabel,reviewed);
-  let online=false,snapshot=null,snapshotKey='',detail=null,binding=null,selection=0,epoch=0,review=null,draftKey='',pending=null,checking=false,sending=false,loading=false,stale=false;
+  let online=false,snapshot=null,snapshotKey='',detail=null,binding=null,selection=0,selectedOperation='',epoch=0,review=null,draftKey='',pending=null,checking=false,sending=false,loading=false,stale=false;
   try{pending=JSON.parse(localStorage.getItem(namespace+'pending')||'null');}catch{}
   if(pending&&(!pending.body?.command_id||!pending.binding?.device_id||!pending.binding?.fingerprint))pending=null;
   const refreshButton=button('Actualizar misiones','mission-refresh',()=>void refresh());
@@ -44,6 +44,30 @@
   const missionContext=value=>canonical({operation_id:value.operation_id,conversation_id:value.conversation_id,goal_revision:value.goal_revision,plan_hash:value.plan_hash,memory_scope:value.memory_scope,memory_context_id:value.memory_context_id,goal_spec:value.goal_spec});
   const validDetail=value=>value?.executor==='pc'&&typeof value.operation_id==='string'&&value.conversation_id===snapshot?.conversation_id&&Number.isSafeInteger(value.goal_revision)&&value.goal_revision>0&&typeof value.plan_hash==='string'&&value.plan_hash.length>0;
   const current=(ticket,original)=>ticket===epoch&&available()&&sameBinding(original,binding)&&snapshot.device_id===original.device_id&&snapshot.fingerprint===original.fingerprint;
+  function forgetContent(operationId,original){
+    if(selectedOperation===operationId&&sameBinding(binding||{},original)){
+      epoch++;selection++;selectedOperation='';detail=null;review=null;draftKey='';stale=true;
+      goal.value=reason.value=reviewed.value='';identity.textContent=destination.textContent=progress.textContent='';
+      editor.hidden=reviewPanel.hidden=true;
+    }
+    let failed=false;
+    if(pending?.body.operation_id===operationId&&sameBinding(pending.binding,original)){
+      pending={binding:clone(original),body:Object.fromEntries(['command_id','operation_id','conversation_id','plan_hash','goal_revision'].map(key=>[key,pending.body[key]])),memory_forgotten:true};
+      try{localStorage.setItem(namespace+'pending',JSON.stringify(pending));}
+      catch{failed=true;try{localStorage.removeItem(namespace+'pending');}catch{}}
+    }
+    try{
+      for(const key of Array.from({length:localStorage.length},(_,index)=>localStorage.key(index))){
+        if(!key?.startsWith(namespace+'draft.'))continue;
+        let source;try{source=JSON.parse(key.slice((namespace+'draft.').length));}catch{continue;}
+        if(Array.isArray(source)&&source[1]===operationId&&sameBinding(source[0]||{},original)){
+          try{localStorage.removeItem(key);}catch{failed=true;}
+        }
+      }
+    }catch{failed=true;}
+    if(failed){const error=Object.assign(Error('Local forgetting incomplete'),{code:'forget_storage'});status.textContent=errorMessage(error);paint();throw error;}
+    status.textContent='La memoria de esta misión se olvidó; se depuró su contenido local.';
+  }
   function paint(){
     panel.hidden=snapshot?.capabilities?.mission_continuity!==true;
     refreshButton.disabled=!available()||loading;
@@ -53,6 +77,7 @@
     pcButton.disabled=!detail;
   }
   function errorMessage(error){
+    if(error?.code==='forget_storage')return 'No se pudo depurar todo el contenido local. Revisa el almacenamiento de este teléfono; no repitas la operación.';
     const text=String(error?.code||'')+' '+String(error?.message||error||'');
     if(/memory|forgot|context|olvid/i.test(text))return 'La memoria o el contexto cambió. Vuelve a abrir la misión; se conserva tu borrador.';
     if(/scope|permission|denied|403|unauthor|tools.control/i.test(text))return 'Aprueba el acceso a herramientas y al historial de este chat en la PC.';
@@ -104,14 +129,15 @@
   }
   async function openMission(operationId){
     const ticket=++epoch,selected=++selection,original={device_id:snapshot?.device_id,fingerprint:snapshot?.fingerprint};
-    review=null;detail=null;draftKey='';editor.hidden=true;binding=original;paint();
+    selectedOperation=operationId;review=null;detail=null;draftKey='';goal.value=reason.value=reviewed.value='';editor.hidden=true;binding=original;paint();
     if(!available())return;
     status.textContent='Consultando la misión de la PC…';
     try{
       const result=await api('mission?operation_id='+encodeURIComponent(operationId),undefined,original);
       if(!current(ticket,original)||selected!==selection)return;
-      if(!validDetail(result)||result.operation_id!==operationId)throw Error('context');
-      if(result.memory_forgotten){status.textContent='La memoria se olvidó. Revisa la misión en la PC.';return;}
+      if(result?.executor!=='pc'||result.operation_id!==operationId||result.conversation_id!==snapshot.conversation_id)throw Error('context');
+      if(result.memory_forgotten){forgetContent(operationId,original);list.replaceChildren();status.textContent='La memoria se olvidó. Se depuraron los borradores de esta misión; revisa su estado en la PC.';return;}
+      if(!validDetail(result))throw Error('context');
       showDetail(result,original);
     }catch(error){if(current(ticket,original))status.textContent=errorMessage(error);}
     finally{paint();}
@@ -126,6 +152,10 @@
       list.replaceChildren();
       for(const mission of result.missions){
         const row=element('div');row.className='task';
+        if(mission.memory_forgotten){
+          forgetContent(mission.operation_id,original);
+          row.append(element('strong','Misión '+mission.operation_id+' · memoria olvidada'),button('Abrir misión',undefined,()=>void openMission(mission.operation_id)));list.append(row);continue;
+        }
         const destination=mission.mission?.destination??mission.destination??'Sin destino declarado';
         row.append(element('strong',mission.mission?.objective||mission.title||mission.operation_id),element('p','Destino completo: '+(typeof destination==='string'?destination:JSON.stringify(destination))),element('small','Misión '+mission.operation_id+' · revisión '+mission.goal_revision+' · hash '+mission.plan_hash),button('Abrir misión',undefined,()=>void openMission(mission.operation_id)));list.append(row);
         if(detail?.operation_id===mission.operation_id&&(mission.memory_forgotten||detail.plan_hash!==mission.plan_hash||detail.goal_revision!==mission.goal_revision)){if(!stale)epoch++;stale=true;review=null;reviewPanel.hidden=true;status.textContent='La revisión o memoria de la PC cambió. Abre la misión de nuevo; se conserva el borrador de la revisión anterior.';}
@@ -150,7 +180,7 @@
     const body=operation.body;
     if(!result){status.textContent='La PC aún no conoce este envío. Su resultado sigue pendiente; no se repite.';return;}
     if(result.executor!=='pc'||result.command_id!==body.command_id||result.operation_id!==body.operation_id||result.conversation_id!==body.conversation_id||result.from_plan_hash!==body.plan_hash||result.from_goal_revision!==body.goal_revision)throw Error('context');
-    if(result.memory_forgotten===true){status.textContent='El contexto original ya no está disponible. Se conserva el seguimiento pendiente; revisa esa misión en la PC.';return;}
+    if(result.memory_forgotten===true){forgetContent(body.operation_id,operation.binding);list.replaceChildren();status.textContent='El contexto original ya no está disponible. Se depuró su contenido local; sólo queda el seguimiento de sus identificadores. Revisa esa misión en la PC.';paint();return;}
     if(result.state==='confirmed'){
       const confirmed=result.receipt;
       if(!confirmed||typeof confirmed.id!=='string'||!confirmed.id||typeof confirmed.request_hash!=='string'||!confirmed.request_hash||confirmed.origin_device_id!==operation.binding.device_id||confirmed.from_plan_hash!==body.plan_hash||confirmed.from_goal_revision!==body.goal_revision||typeof confirmed.plan_hash!=='string'||!confirmed.plan_hash||!Number.isSafeInteger(confirmed.goal_revision)||confirmed.goal_revision<=body.goal_revision)throw Error('context');
@@ -170,6 +200,7 @@
     try{
       const fresh=await api('mission?operation_id='+encodeURIComponent(source.operation_id),undefined,original);
       if(!current(ticket,original))return;
+      if(fresh?.memory_forgotten&&fresh.operation_id===source.operation_id&&fresh.conversation_id===source.conversation_id){forgetContent(source.operation_id,original);list.replaceChildren();status.textContent='La memoria se olvidó. Se depuraron los borradores; no se envió la corrección.';return;}
       if(!validDetail(fresh)||fresh.memory_forgotten||fresh.can_correct!==true||missionContext(fresh)!==captured.context){stale=true;review=null;reviewPanel.hidden=true;status.textContent='Cambió la misión, su revisión o la memoria. Reábrela antes de revisar otra corrección; se conserva el borrador.';return;}
       const body={command_id:crypto.randomUUID(),operation_id:source.operation_id,conversation_id:source.conversation_id,plan_hash:source.plan_hash,goal_revision:source.goal_revision,text:captured.text,goal_spec:captured.goal_spec,memory_scope:clone(source.memory_scope),memory_context_id:source.memory_context_id};
       const operation={binding:original,body,draft:{goal:captured.goalText,text:captured.reasonText}};
@@ -193,11 +224,12 @@
   panel.addEventListener('toggle',()=>{if(panel.open)void refresh();});
   window.addEventListener('axxSnapshot',event=>{
     const next=event.detail,key=canonical([next.device_id,next.fingerprint,next.conversation_id,next.scopes?.includes('tools.control')===true,next.capabilities?.mission_continuity===true]);
-    if(snapshotKey&&snapshotKey!==key){epoch++;selection++;review=null;detail=null;draftKey='';editor.hidden=true;list.replaceChildren();reviewPanel.hidden=true;status.textContent='Cambió el enlace o el chat compartido. Abre la misión de nuevo; se conservan borradores y seguimientos.';}
+    if(snapshotKey&&snapshotKey!==key){epoch++;selection++;selectedOperation='';review=null;detail=null;draftKey='';goal.value=reason.value=reviewed.value='';editor.hidden=true;list.replaceChildren();reviewPanel.hidden=true;status.textContent='Cambió el enlace o el chat compartido. Abre la misión de nuevo; se conservan borradores y seguimientos.';}
     snapshot=next;snapshotKey=key;online=true;binding={device_id:next.device_id,fingerprint:next.fingerprint};
     if(!available())status.textContent='Comparte el historial de este chat y aprueba herramientas en la PC para ver sus misiones.';
     paint();if(panel.open&&available())void refresh();
   });
   window.addEventListener('axxOffline',()=>{online=false;epoch++;review=null;reviewPanel.hidden=true;paint();});
+  if(pending?.memory_forgotten)try{forgetContent(pending.body.operation_id,pending.binding);}catch{}
   paint();
 })();

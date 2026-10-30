@@ -109,3 +109,12 @@ La regresión JVM del transporte recorre también identificadores con puntos y
 dos puntos, su codificación por URI y el rechazo de inyecciones de URL/query.
 La gramática anterior rechazaba identificadores que el backend sí admite;
 las fixtures de navegador no cubrían ese paso nativo.
+
+Cuando la PC comunica `memory_forgotten`, el cliente depura todos los borradores
+de la misma operación y enlace, limpia la vista y retira el cuerpo/draft del
+seguimiento pendiente. Sólo conserva enlace e IDs de comando, misión y
+conversación, hash/revisión anteriores y la marca de olvido. No reenvía el POST.
+La invalidación de callbacks se limita a la misión seleccionada afectada;
+los borradores de otro proyecto permanecen. Un fallo de almacenamiento se
+informa como depuración incompleta. Un teléfono desconectado necesita volver a
+comunicar para recibir el aviso; esto no borra copias externas.

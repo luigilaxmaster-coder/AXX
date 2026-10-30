@@ -2,7 +2,7 @@
 
 Este informe conserva el alcance original de los adjuntos. Distingue contratos
 implementados de generalizaciones y aceptaciones pendientes. La fuente candidata
-es Windows 0.22.32 / Android 0.2.12-code33; la descarga confirmada anterior es
+es Windows 0.22.32 / Android 0.2.13-code34; la descarga confirmada anterior es
 [Windows 0.22.31](../releases/0.22.31.md). Cambiar fuentes no actualiza por sí solo
 una instalación ni permite reutilizar sus recibos para otro binario.
 

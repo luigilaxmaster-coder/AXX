@@ -150,6 +150,36 @@ class MobileMissionUI(unittest.TestCase):
         self.assertLess(field['y'], pane['y'] + pane['height'])
         self.assertEqual(self.page.locator('#mission-status').get_attribute('aria-live'), 'polite')
 
+    def test_known_forgetting_purges_owned_content_and_keeps_pending_identity(self):
+        self.edit_destination()
+        self.page.locator('#mission-correction').fill('FORGOTTEN_BROWSER_CONTENT_7294')
+        self.page.locator('#mission-review').click()
+        self.page.evaluate("localStorage.setItem('fixture.mission.loseAck','1')")
+        self.page.locator('#mission-prepare').click()
+        self.page.wait_for_function("()=>localStorage.getItem('fixture.mission.postCount')==='1' && !!localStorage.getItem('axx.missionContinuity.pending')")
+        command = self.page.evaluate("JSON.parse(localStorage.getItem('axx.missionContinuity.pending')).body.command_id")
+        self.page.evaluate("""()=>{
+          missionReceipt={...missionReceipt,state:'outcome_unknown',memory_forgotten:true};delete missionReceipt.receipt;
+          missionDetail={...missionDetail,memory_forgotten:true,can_correct:false};
+          localStorage.setItem('fixture.mission.receipt',JSON.stringify(missionReceipt));
+          localStorage.setItem('fixture.mission.detail',JSON.stringify(missionDetail));
+        }""")
+        self.page.locator('#mission-reconcile').click()
+        self.page.wait_for_function("()=>JSON.parse(localStorage.getItem('axx.missionContinuity.pending')||'null')?.memory_forgotten===true")
+        owned = self.page.evaluate("()=>Object.entries(localStorage).filter(([key])=>key.startsWith('axx.missionContinuity.'))")
+        self.assertNotIn('FORGOTTEN_BROWSER_CONTENT_7294', json.dumps(owned))
+        self.assertNotIn('PRIVATE_MISSION_CONTEXT', json.dumps(owned))
+        pending = self.page.evaluate("JSON.parse(localStorage.getItem('axx.missionContinuity.pending'))")
+        self.assertEqual(set(pending['body']), {'command_id', 'operation_id', 'conversation_id', 'plan_hash', 'goal_revision'})
+        self.assertEqual(pending['body']['command_id'], command)
+        self.assertTrue(self.page.locator('#mission-editor').is_hidden())
+        self.assertEqual(self.page.locator('#mission-goal').input_value(), '')
+        self.assertEqual(self.page.locator('#mission-correction').input_value(), '')
+        self.page.reload()
+        self.page.locator('#sync-status[data-state=complete]').wait_for()
+        self.assertEqual(self.page.evaluate("Number(localStorage.getItem('fixture.mission.postCount'))"), 1)
+        self.assertEqual(self.page.evaluate("JSON.parse(localStorage.getItem('axx.missionContinuity.pending')).body.command_id"), command)
+
 
 if __name__ == '__main__':
     unittest.main()

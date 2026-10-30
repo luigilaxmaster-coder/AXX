@@ -29,7 +29,7 @@ function fixture(storage=new Map()){
   }
   const activity=new Element('details');activity.id='work-activity';
   const state={profile:{paired:true,device_id:'phone-original',fingerprint:'a'.repeat(64)},missions:[mission()],calls:[],post:null,getReceipt:null,getDetail:null,profileHook:null,storageFailure:false};
-  const localStorage={getItem:key=>storage.get(key)??null,setItem(key,value){if(state.storageFailure)throw Error('storage unavailable');storage.set(key,String(value));},removeItem:key=>storage.delete(key)};
+  const localStorage={get length(){return storage.size;},key:index=>[...storage.keys()][index]??null,getItem:key=>storage.get(key)??null,setItem(key,value){if(state.storageFailure)throw Error('storage unavailable');storage.set(key,String(value));},removeItem:key=>storage.delete(key)};
   const envelope=(body,extra={})=>({command_id:body.command_id,operation_id:body.operation_id,conversation_id:body.conversation_id,from_plan_hash:body.plan_hash,from_goal_revision:body.goal_revision,executor:'pc',state:'confirmed',
     receipt:{id:'derived-correction-id',request_hash:'canonical-request-hash',origin_device_id:'phone-original',from_plan_hash:body.plan_hash,from_goal_revision:body.goal_revision,plan_hash:'review-in-pc-hash',goal_revision:body.goal_revision+1,state:'awaiting_approval'},...extra});
   const transport={profile:async()=>{if(state.profileHook)await state.profileHook();return copy(state.profile);},request:async args=>{
@@ -95,7 +95,7 @@ async function exactLabelsAndStableDrafts(){
 async function staleRevisionAndMemory(){
   for(const update of [value=>value.goal_revision++,value=>value.plan_hash='different',value=>value.memory_scope.generation++,value=>value.memory_context_id='new-token',value=>value.memory_forgotten=true,value=>value.can_correct=false]){
     const f=fixture();await f.open();f.review();update(f.state.missions[0]);f.by('mission-prepare').click();await tick();
-    assert.equal(f.state.calls.filter(call=>call.method==='POST').length,0);assert.equal(f.by('mission-prepare').disabled,true);assert.match(f.by('mission-status').textContent,/Cambió la misión/);
+    assert.equal(f.state.calls.filter(call=>call.method==='POST').length,0);assert.equal(f.by('mission-prepare').disabled,true);assert.match(f.by('mission-status').textContent,f.state.missions[0].memory_forgotten?/La memoria se olvidó/:/Cambió la misión/);
   }
   const f=fixture();await f.open();f.review();f.state.missions[0].goal_revision++;f.by('mission-refresh').click();await tick();assert.equal(f.by('mission-prepare').disabled,true);assert.match(f.by('mission-status').textContent,/revisión o memoria de la PC cambió/);
 }
@@ -131,9 +131,9 @@ async function reconcileOriginalWhilePcMultitasks(){
     const scoped=fixture();await scoped.open();scoped.review();scoped.state.post=()=>{throw Error('lost ACK');};scoped.by('mission-prepare').click();await tick();const saved=scoped.storage.get(pendingKey);
     scoped.snapshot({conversation_id:'other-shared-chat'});await tick();
     scoped.state.getReceipt=body=>{if(blocked==='permission')throw Error('permission denied for original chat');return scoped.envelope(body,{state:'outcome_unknown',memory_forgotten:true,receipt:undefined});};
-    scoped.by('mission-reconcile').click();await tick();assert.equal(scoped.storage.get(pendingKey),saved);assert.doesNotMatch(scoped.by('mission-status').textContent,/Preparado/);
+    scoped.by('mission-reconcile').click();await tick();if(blocked==='permission')assert.equal(scoped.storage.get(pendingKey),saved);else assert.equal(JSON.parse(scoped.storage.get(pendingKey)).body.goal_spec,undefined);assert.doesNotMatch(scoped.by('mission-status').textContent,/Preparado/);
     if(blocked==='forgotten')assert.match(scoped.by('mission-status').textContent,/contexto original ya no está disponible/);
-    const count=scoped.state.calls.length;scoped.snapshot({conversation_id:'other-shared-chat',scopes:['query']});scoped.by('mission-reconcile').click();await tick();assert.equal(scoped.state.calls.length,count);assert.equal(scoped.storage.get(pendingKey),saved);
+    const scopedTracking=scoped.storage.get(pendingKey),count=scoped.state.calls.length;scoped.snapshot({conversation_id:'other-shared-chat',scopes:['query']});scoped.by('mission-reconcile').click();await tick();assert.equal(scoped.state.calls.length,count);assert.equal(scoped.storage.get(pendingKey),scopedTracking);
   }
 }
 async function deniedAndForgotten(){
@@ -142,13 +142,52 @@ async function deniedAndForgotten(){
   const deniedRead=fixture();await deniedRead.open();deniedRead.review();deniedRead.state.getDetail=()=>{throw Error('permission denied');};deniedRead.by('mission-prepare').click();await tick();assert.equal(deniedRead.state.calls.some(call=>call.method==='POST'),false);assert.match(deniedRead.by('mission-status').textContent,/Aprueba el acceso/);
   const unavailableStorage=fixture();await unavailableStorage.open();unavailableStorage.review();unavailableStorage.state.storageFailure=true;unavailableStorage.by('mission-prepare').click();await tick();assert.equal(unavailableStorage.state.calls.some(call=>call.method==='POST'),false);
 }
+async function forgottenContentLeavesOnlyReconciliationHeaders(){
+  const f=fixture(),canary='FORGOTTEN_MOBILE_CONTENT_4391';await f.open();
+  f.edit('mission-correction',canary);f.by('mission-review').click();
+  f.state.post=()=>{throw Error('lost ACK');};f.by('mission-prepare').click();await tick();
+  const original=JSON.parse(f.storage.get(pendingKey)),otherKey='axx.missionContinuity.draft.'+JSON.stringify([original.binding,'other-mission',1,'other-hash']);
+  f.storage.set(otherKey,'unrelated draft');
+  assert.ok([...f.storage.values()].some(value=>value.includes(canary)),'Authorized draft was persisted before forgetting');
+  f.state.getReceipt=body=>f.envelope(body,{state:'outcome_unknown',memory_forgotten:true,receipt:undefined});
+  f.by('mission-reconcile').click();await tick();
+  assert.equal([...f.storage.entries()].some(([key,value])=>(key+value).includes(canary)),false,'Known forgetting removes the owned mobile content');
+  assert.equal([...f.storage.keys()].some(key=>key.includes('opaque-private-memory-token')),false,'All revisions of the original draft lose their source binding');
+  const pending=JSON.parse(f.storage.get(pendingKey));
+  assert.deepEqual(Object.keys(pending.body).sort(),['command_id','conversation_id','goal_revision','operation_id','plan_hash']);
+  assert.equal(pending.body.command_id,original.body.command_id);assert.equal(pending.body.operation_id,original.body.operation_id);
+  assert.equal(pending.draft,undefined);assert.equal(f.storage.get(otherKey),'unrelated draft');
+  assert.equal(f.by('mission-goal').value,'');assert.equal(f.by('mission-correction').value,'');assert.equal(f.by('mission-review-json').value,'');
+  assert.equal(f.by('mission-editor').hidden,true);assert.equal(f.state.calls.filter(call=>call.method==='POST').length,1);
+  const loaded=fixture(f.storage);loaded.snapshot();await tick();assert.equal(loaded.state.calls.filter(call=>call.method==='POST').length,0);
+}
+async function forgettingFencesHeldReadsAndPreservesOtherProject(){
+  for(const active of ['original','other-project']){
+    const f=fixture();await f.open();f.edit('mission-correction','FORGOTTEN_PROJECT_A');f.by('mission-review').click();
+    f.state.post=()=>{throw Error('lost ACK');};f.by('mission-prepare').click();await tick();
+    let held,otherGoal;
+    if(active==='original'){
+      held=deferred();f.state.getDetail=()=>held.promise;f.buttons(f.by('mission-list').children[0],'Abrir misión')[0].click();await tick();
+    }else{
+      f.state.missions.push(mission('mission-b',{conversation_id:'other-shared-chat',memory_scope:{task_id:'other-shared-chat',policy:'internal',generation:0},memory_context_id:'other-private-context'}));
+      f.snapshot({conversation_id:'other-shared-chat'});await tick();f.buttons(f.by('mission-list').children[0],'Abrir misión')[0].click();await tick();
+      f.edit('mission-correction','KEEP_PROJECT_B');otherGoal=f.by('mission-goal').value;
+    }
+    f.state.getReceipt=body=>f.envelope(body,{state:'outcome_unknown',memory_forgotten:true,receipt:undefined});
+    f.by('mission-reconcile').click();await tick();if(held){held.resolve(mission());await tick();}
+    assert.equal([...f.storage.values()].some(value=>value.includes('FORGOTTEN_PROJECT_A')),false);
+    if(held){assert.equal(f.by('mission-editor').hidden,true);assert.equal(f.by('mission-goal').value,'');}
+    else{assert.equal(f.by('mission-goal').value,otherGoal);assert.equal(f.by('mission-correction').value,'KEEP_PROJECT_B');assert.ok([...f.storage.values()].some(value=>value.includes('KEEP_PROJECT_B')));}
+    assert.equal(f.state.calls.filter(call=>call.method==='POST').length,1);
+  }
+}
 async function heldCallbacks(){
   const f=fixture();f.state.missions.push(mission('mission-b'));await f.open();
   const held=deferred();f.state.getDetail=id=>id==='mission-a'?held.promise:copy(f.state.missions.find(value=>value.operation_id===id));
   f.buttons(f.by('mission-list').children[0],'Abrir misión')[0].click();await tick();f.buttons(f.by('mission-list').children[1],'Abrir misión')[0].click();await tick();assert.match(f.by('mission-identity').textContent,/mission-b/);held.resolve(mission('mission-a'));await tick();assert.match(f.by('mission-identity').textContent,/mission-b/);
   const post=fixture();await post.open();post.review();const response=deferred();let body;post.state.post=value=>{body=copy(value);return response.promise;};post.by('mission-prepare').click();await tick();post.edit('mission-correction','Borrador nuevo durante respuesta antigua');response.resolve(post.envelope(body));await tick();assert.ok(post.storage.has(pendingKey));assert.equal(post.by('mission-correction').value,'Borrador nuevo durante respuesta antigua');assert.doesNotMatch(post.by('mission-status').textContent,/Preparado/);
   for(const change of [value=>value.goal_revision++,value=>value.memory_forgotten=true]){
-    const changed=fixture();await changed.open();changed.review();const response=deferred();let original;changed.state.post=value=>{original=copy(value);return response.promise;};changed.by('mission-prepare').click();await tick();change(changed.state.missions[0]);changed.by('mission-refresh').click();await tick();response.resolve(changed.envelope(original));await tick();assert.ok(changed.storage.has(pendingKey));assert.match(changed.by('mission-status').textContent,/revisión o memoria/);assert.doesNotMatch(changed.by('mission-status').textContent,/Preparado/);
+    const changed=fixture();await changed.open();changed.review();const response=deferred();let original;changed.state.post=value=>{original=copy(value);return response.promise;};changed.by('mission-prepare').click();await tick();change(changed.state.missions[0]);changed.by('mission-refresh').click();await tick();response.resolve(changed.envelope(original));await tick();assert.ok(changed.storage.has(pendingKey));assert.match(changed.by('mission-status').textContent,changed.state.missions[0].memory_forgotten?/memoria de esta misión se olvidó/:/revisión o memoria/);assert.doesNotMatch(changed.by('mission-status').textContent,/Preparado/);
   }
   const switchPc=fixture();await switchPc.open();switchPc.review();const failure=deferred();switchPc.state.post=()=>failure.promise;switchPc.by('mission-prepare').click();await tick();switchPc.state.profile={paired:true,device_id:'other',fingerprint:'c'.repeat(64)};switchPc.snapshot();await tick();const status=switchPc.by('mission-status').textContent;failure.reject(Error('OLD_PRIVATE_ERROR'));await tick();assert.equal(switchPc.by('mission-status').textContent,status);assert.ok(switchPc.storage.has(pendingKey));
 }
@@ -165,4 +204,4 @@ function wiring(){
   assert.match(fs.readFileSync(path.join(__dirname,'../build.mjs'),'utf8'),/copyFile\(new URL\('js\/mission-continuity.js'/);
   const live=fs.readFileSync(path.join(__dirname,'../js/live-client.js'),'utf8');assert.match(live,/fingerprint:currentFingerprint,conversation_id:snapshot.conversation_id/);assert.equal(live.includes('axx.missionContinuity.'),false,'Legacy pairing cleanup cannot erase mission drafts or tracking');
 }
-(async()=>{for(const test of [reachableSameMission,exactLabelsAndStableDrafts,staleRevisionAndMemory,lostAckAndReload,bindingChangePreservesTracking,reconcileOriginalWhilePcMultitasks,deniedAndForgotten,heldCallbacks,receiptMustMatch]){await test();console.log('PASS '+test.name);}wiring();console.log('PASS operational wiring; controlled VM only');})().catch(error=>{console.error(error);process.exitCode=1;});
+(async()=>{for(const test of [reachableSameMission,exactLabelsAndStableDrafts,staleRevisionAndMemory,lostAckAndReload,bindingChangePreservesTracking,reconcileOriginalWhilePcMultitasks,deniedAndForgotten,forgottenContentLeavesOnlyReconciliationHeaders,forgettingFencesHeldReadsAndPreservesOtherProject,heldCallbacks,receiptMustMatch]){await test();console.log('PASS '+test.name);}wiring();console.log('PASS operational wiring; controlled VM only');})().catch(error=>{console.error(error);process.exitCode=1;});
