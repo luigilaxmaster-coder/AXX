@@ -43,7 +43,10 @@
  <div id="anticipation-target-window-fields" hidden><button id="anticipation-target-find-windows" type="button">Buscar ventanas</button><label class="setting">Ventana<select id="anticipation-target-window" disabled><option value="">Busca y selecciona una ventana</option></select></label><p id="anticipation-target-window-status" role="status"></p></div>
  <label class="setting">Proyecto, opcional<input id="anticipation-target-project" maxlength="128"></label><label class="setting">ID de aplicación, opcional<input id="anticipation-target-application" maxlength="128"></label><label class="setting">Dispositivo<input id="anticipation-target-device" maxlength="128" value="host" required></label>
  <label class="setting">Vigencia<select id="anticipation-target-expiry"><option value="3600">Una hora</option><option value="86400">Un día</option><option value="persistent">Hasta revocación</option></select></label>
- <label><input id="anticipation-target-observe" type="checkbox" checked> Observar dentro de este ámbito</label><label><input id="anticipation-target-retain" type="checkbox"> Conservar contexto para crear planes</label><label><input id="anticipation-target-provider" type="checkbox" disabled> Permitir usar contenido transitorio con el modelo configurado</label><p id="anticipation-target-provider-status">Envío al proveedor no disponible para esta fuente.</p><p>Sin conservar contexto no se guardan ni ejecutan planes derivados. Al activarlo pueden conservarse metadatos y resultados de tareas, que podrían repetir contenido observado. Los textos y capturas originales son transitorios durante un máximo de 60 segundos. El envío al proveedor requiere además su permiso separado.</p><button type="submit">Guardar fuente en este chat</button></form>
+ <label><input id="anticipation-target-observe" type="checkbox" checked> Observar dentro de este ámbito</label><label><input id="anticipation-target-retain" type="checkbox"> Conservar contexto para crear planes</label>
+ <fieldset><legend>Destinos permitidos para esta fuente</legend><div id="anticipation-target-destinations"></div><p id="anticipation-destination-status" role="status"></p><button id="anticipation-destinations-refresh" type="button">Actualizar destinos</button></fieldset>
+ <p>Sin destinos seleccionados no se autoriza ningún envío. Esta lista no activa envíos ni cambia los permisos de la conexión. Varias fuentes sólo pueden compartir los destinos permitidos por todas.</p>
+ <label><input id="anticipation-target-provider" type="checkbox" disabled> Permitir usar contenido transitorio con los destinos seleccionados</label><p id="anticipation-target-provider-status">Envío al proveedor no disponible para esta fuente.</p><p>Sin conservar contexto no se guardan ni ejecutan planes derivados. Al activarlo pueden conservarse metadatos y resultados de tareas, que podrían repetir contenido observado. Los textos y capturas originales son transitorios durante un máximo de 60 segundos. El envío al proveedor requiere además su permiso separado.</p><button type="submit">Guardar fuente en este chat</button></form>
  <div id="anticipation-targets"></div><p id="anticipation-source-runtime" role="status"></p><div id="anticipation-source-observations"></div></details>
  <p>Las fuentes se habilitan sólo si el backend dispone del adaptador local. El micrófono produce clips locales de hasta diez segundos en el host y en el chat/proyecto activos; cede ante tu dictado y no interpreta comandos ni escribe en el chat. Sólo captura mientras esta página permanece visible. Los ámbitos de aplicación requieren comprobar la aplicación activa antes de capturar. Las autorizaciones de voz, foco y Computer Use se administran por separado.</p>
  <p>Los eventos se procesan localmente. Activar Full no autoriza capturas ni el envío de contenido a proveedores.</p>
@@ -270,17 +273,57 @@
   finally{if(revision===microphone.revision)microphone.starting=false;}
  }
  const sourceScope=()=>JSON.stringify([task(),project()]);
+ let destinationCatalog=[],destinationContext='',destinationRevision=0,destinationState='',destinationDraft=[];
+ const destinationSupported=source=>['window','clipboard'].includes(source);
+ const destinationsEligible=ids=>ids.length>0&&ids.every(id=>destinationCatalog.some(row=>row.profile_id===id&&row.source_context_eligible===true));
+ const destinationReasons={disabled:'Conexión deshabilitada',sensitive_not_allowed:'Sin permiso de contenido sensible en la conexión',unsupported_transport:'Transporte no disponible para esta función',gateway_not_supported:'Intermediario no disponible para esta función',candidate_only:'Candidato sin conexión guardada'};
+ function clearDestinationDraft(){destinationDraft=[];}
+ function destinationControls(host,source,ids,update){
+  const key=JSON.stringify([source,ids,destinationCatalog,destinationState,mutation]);if(host.dataset.key===key)return;host.dataset.key=key;host.replaceChildren();
+  if(!destinationSupported(source)){host.textContent='Destinos no disponibles para esta fuente.';return;}
+  const rows=[...destinationCatalog,...ids.filter(id=>!destinationCatalog.some(row=>row.profile_id===id)).map(profile_id=>({profile_id,label:'Destino no disponible · '+profile_id,source_context_eligible:false}))];
+  for(const row of rows){
+   const label=document.createElement('label'),input=document.createElement('input'),selected=ids.includes(row.profile_id);input.type='checkbox';input.value=row.profile_id;input.checked=selected;input.dataset.sourceDestination='true';input.disabled=mutation||!selected&&row.source_context_eligible!==true;
+   label.append(input,document.createTextNode(' '+row.label+(row.source_context_eligible===true?'':' · '+(destinationReasons[row.source_context_reason]||'No disponible'))));
+   input.onchange=event=>{const next=input.checked?[...ids,row.profile_id]:ids.filter(id=>id!==row.profile_id);if(!event.isTrusted||input.checked&&(row.source_context_eligible!==true||next.length>16)){input.checked=selected;notice(Error('Selecciona explícitamente hasta dieciséis destinos disponibles.'));return;}update(next);};host.append(label);
+  }
+  if(!rows.length)host.textContent='Sin conexiones disponibles para seleccionar.';
+ }
+ async function loadSourceDestinations(){
+  const scope=sourceScope(),token=++destinationRevision;destinationContext=scope;destinationState='loading';if(snapshot)renderSources();
+  try{
+   const value=await Axx.backendRequest('GET','/axx-api/providers');
+   if(token!==destinationRevision||scope!==sourceScope())return false;
+   if(value?.error||!Array.isArray(value?.providers))throw Error(value?.error?.message||'No se pudo consultar el catálogo de destinos.');
+   const seen=new Set();destinationCatalog=value.providers.map(row=>{if(!row||typeof row.profile_id!=='string'||!/^[a-f0-9]{32}$/.test(row.profile_id)||seen.has(row.profile_id)||typeof row.source_context_eligible!=='boolean')throw Error('El catálogo no ofrece identidades de destino válidas.');seen.add(row.profile_id);return {profile_id:row.profile_id,source_context_eligible:row.source_context_eligible,source_context_reason:row.source_context_reason,label:[row.name,row.model,row.base_url].filter(value=>typeof value==='string').map(value=>value.slice(0,1024)).join(' · ')};});
+   destinationState='ready';
+  }catch(error){if(token!==destinationRevision||scope!==sourceScope())return false;destinationCatalog=[];destinationState='failed';throw error;}
+  finally{if(token===destinationRevision&&scope===sourceScope()&&snapshot)renderSources();}
+  return true;
+ }
+ function validateDestinations(ids,previous=[]){if(ids.length>16||new Set(ids).size!==ids.length||ids.some(id=>!previous.includes(id)&&!destinationCatalog.some(row=>row.profile_id===id&&row.source_context_eligible===true)))throw Error('Un destino ya no está autorizado; actualiza la lista y revisa la selección.');}
+ function currentSourceTarget(target,scope){const targets=snapshot?.observation_targets||[],current=targets.find(row=>row.id===target.id);if(scope!==sourceScope()||target.task_id!==task()||!current||JSON.stringify(current)!==JSON.stringify(target))throw Error('La fuente cambió o fue revocada; revisa sus permisos.');return targets;}
+ async function saveSourceDestinations(target,ids,scope){
+  currentSourceTarget(target,scope);const previous=target.allowed_profile_ids||[],token=sourceRevision;
+  if(ids.some(id=>!previous.includes(id)))await loadSourceDestinations();
+  if(token!==sourceRevision)throw Error('Cambió la selección o se canceló; revisa los destinos.');
+  const targets=currentSourceTarget(target,scope);validateDestinations(ids,previous);
+  await configure({observation_targets:targets.map(row=>row.id===target.id?{...row,allowed_profile_ids:ids,send_to_provider:ids.length>0&&row.send_to_provider===true}:row)});
+ }
  const providerAvailable=source=>['window','clipboard'].includes(source)&&snapshot?.capabilities?.[source==='window'?'screen':source]===true&&snapshot.capabilities.provider_context?.[source]===true;
  function clearSourceProvider(){const input=$('anticipation-target-provider');input.checked=false;delete input.dataset.consent;}
- function clearTargetWindows(){++sourceRevision;targetWindows=[];$('anticipation-target-window').replaceChildren(new Option('Busca y selecciona una ventana',''));$('anticipation-target-window-status').textContent='';clearSourceProvider();}
- function syncSourceScope(){const selected=sourceScope();if(sourceContext===selected)return;stopMicrophone();sourceContext=selected;$('anticipation-target-form').reset();$('anticipation-target-project').value=project();clearTargetWindows();syncTargetSource();}
+ function clearTargetWindows(){++sourceRevision;targetWindows=[];$('anticipation-target-window').replaceChildren(new Option('Busca y selecciona una ventana',''));$('anticipation-target-window-status').textContent='';clearSourceProvider();clearDestinationDraft();}
+ function syncSourceScope(){const selected=sourceScope();if(sourceContext===selected)return;stopMicrophone();sourceContext=selected;++destinationRevision;destinationContext='';destinationCatalog=[];destinationState='';$('anticipation-target-form').reset();$('anticipation-target-project').value=project();clearTargetWindows();syncTargetSource();}
  function syncTargetSource(){
   const source=$('anticipation-target-source').value,folder=source==='folder',application=source==='application',windowSource=source==='window';
   $('anticipation-target-folder').hidden=!folder;$('anticipation-target-app').hidden=!application;$('anticipation-target-window-fields').hidden=!windowSource;
   $('anticipation-target-root').disabled=!folder;$('anticipation-target-root').required=folder;$('anticipation-target-process').disabled=!application;$('anticipation-target-process').required=application;
   $('anticipation-target-window').disabled=!windowSource;$('anticipation-target-window').required=windowSource;$('anticipation-target-find-windows').disabled=mutation||snapshot?.capabilities?.screen!==true;
-  const available=providerAvailable(source)&&$('anticipation-target-retain').checked;$('anticipation-target-provider').disabled=!available;if(!available)clearSourceProvider();
-  $('anticipation-target-provider-status').textContent=available?'Puede enviar texto o imagen transitorios de esta fuente al proveedor del modelo configurado con su permiso separado.':providerAvailable(source)?'Activa «Conservar contexto» antes de autorizar contenido para el modelo.':'Envío al proveedor no disponible para esta fuente.';
+  destinationControls($('anticipation-target-destinations'),source,destinationDraft,ids=>{destinationDraft=ids;clearSourceProvider();syncTargetSource();});
+  $('anticipation-destination-status').textContent=destinationState==='loading'?'Consultando destinos…':destinationState==='failed'?'Catálogo no disponible. Puedes actualizarlo; no se seleccionará ningún destino automáticamente.':'Selecciona conexiones concretas; el modelo activo y sus alternativas no se marcan automáticamente.';
+  $('anticipation-destinations-refresh').disabled=mutation||destinationState==='loading';
+  const available=providerAvailable(source)&&$('anticipation-target-retain').checked&&destinationsEligible(destinationDraft);$('anticipation-target-provider').disabled=!available;if(!available)clearSourceProvider();
+  $('anticipation-target-provider-status').textContent=available?'Puede autorizar contenido transitorio sólo para los destinos seleccionados.':providerAvailable(source)?'Conserva contexto y selecciona al menos un destino antes de autorizar contenido para el modelo.':'Envío al proveedor no disponible para esta fuente.';
  }
  async function sourceRead(commandId,inputs,scope){
   const library=Axx.commandLibrary;if(!library?.prepareRequest||library.busy||library.operation)throw Error('Revisa o cancela el comando pendiente antes de consultar ventanas.');
@@ -308,17 +351,18 @@
   for(const source of ['window','clipboard','microphone'])$('anticipation-target-source').querySelector('option[value="'+source+'"]').disabled=snapshot.capabilities?.[source==='window'?'screen':source]!==true;
   renderMicrophoneStatus();
   syncTargetSource();
-  const targets=snapshot.observation_targets||[],host=$('anticipation-targets'),key=JSON.stringify([task(),targets,snapshot.capabilities?.provider_context,snapshot.capabilities?.screen,snapshot.capabilities?.clipboard,mutation]);
+  const targets=snapshot.observation_targets||[],host=$('anticipation-targets'),key=JSON.stringify([task(),targets,snapshot.capabilities?.provider_context,snapshot.capabilities?.screen,snapshot.capabilities?.clipboard,mutation,destinationCatalog,destinationState]);
   for(const id of microphone.next.keys())if(!targets.some(target=>target.id===id))microphone.next.delete(id);
   if(host.dataset.renderKey!==key){
    host.dataset.renderKey=key;host.replaceChildren();
    for(const target of targets.filter(t=>t.task_id===task())){
     const article=document.createElement('article'),description=document.createElement('p');description.textContent=({folder:'Carpeta: '+target.root,application:'Aplicación: '+target.process_name,window:'Ventana seleccionada · HWND '+target.window_id+' · PID '+target.pid,clipboard:'Portapapeles',microphone:'Micrófono local · clips de hasta 10 segundos'})[target.source]+' · Proyecto: '+(target.project_id||'Personal')+' · Dispositivo: '+target.device_id;
-    const observe=document.createElement('input'),retain=document.createElement('input'),provider=document.createElement('input'),observeLabel=document.createElement('label'),retainLabel=document.createElement('label'),providerLabel=document.createElement('label');observe.type=retain.type=provider.type='checkbox';observe.checked=target.observe;retain.checked=target.retain;provider.checked=target.send_to_provider===true;provider.disabled=(!target.retain||!providerAvailable(target.source))&&!provider.checked;
-    observeLabel.append(observe,document.createTextNode(' Observar'));retainLabel.append(retain,document.createTextNode(' Conservar contexto para crear planes'));providerLabel.append(provider,document.createTextNode(' Permitir contenido transitorio con el modelo configurado'));
-    const update=event=>{if(!retain.checked)provider.checked=false;if(event.target===provider&&provider.checked&&(!event.isTrusted||!retain.checked||!providerAvailable(target.source))){provider.checked=false;return;}void run(()=>configure({observation_targets:targets.map(t=>t.id===target.id?{...t,observe:observe.checked,retain:retain.checked,send_to_provider:provider.checked}:t)}));};observe.onchange=retain.onchange=provider.onchange=update;
-    const expiry=document.createElement('p');expiry.textContent='Vigencia: '+(target.expires_at===null?'Hasta revocación':new Date(target.expires_at*1000).toLocaleString())+' · '+(target.send_to_provider===true?'Contenido transitorio autorizado para el modelo configurado':'Sin envío al proveedor');
-    article.append(description,observeLabel,retainLabel,providerLabel,expiry,button('Quitar fuente',()=>configure({observation_targets:targets.filter(t=>t.id!==target.id)})));host.append(article);
+    const observe=document.createElement('input'),retain=document.createElement('input'),provider=document.createElement('input'),observeLabel=document.createElement('label'),retainLabel=document.createElement('label'),providerLabel=document.createElement('label');observe.type=retain.type=provider.type='checkbox';observe.checked=target.observe;retain.checked=target.retain;provider.checked=target.send_to_provider===true;provider.disabled=(!target.retain||!destinationsEligible(target.allowed_profile_ids||[])||!providerAvailable(target.source))&&!provider.checked;
+    observeLabel.append(observe,document.createTextNode(' Observar'));retainLabel.append(retain,document.createTextNode(' Conservar contexto para crear planes'));providerLabel.append(provider,document.createTextNode(' Permitir contenido transitorio con los destinos seleccionados'));
+    const update=event=>{if(!retain.checked)provider.checked=false;if(event.target===provider&&provider.checked&&(!event.isTrusted||!retain.checked||!destinationsEligible(target.allowed_profile_ids||[])||!providerAvailable(target.source))){provider.checked=false;return;}void run(()=>configure({observation_targets:currentSourceTarget(target,scope).map(t=>t.id===target.id?{...t,observe:observe.checked,retain:retain.checked,send_to_provider:provider.checked}:t)}));};observe.onchange=retain.onchange=provider.onchange=update;
+    const destinations=document.createElement('fieldset'),legend=document.createElement('legend'),options=document.createElement('div'),scope=sourceScope();legend.textContent='Destinos permitidos para esta fuente';destinations.append(legend,options);destinationControls(options,target.source,target.allowed_profile_ids||[],ids=>void run(()=>saveSourceDestinations(target,ids,scope)));
+    const expiry=document.createElement('p');expiry.textContent='Vigencia: '+(target.expires_at===null?'Hasta revocación':new Date(target.expires_at*1000).toLocaleString())+' · '+(target.send_to_provider===true?(target.allowed_profile_ids?.length?'Contenido transitorio autorizado sólo para destinos seleccionados':'Falta seleccionar un destino: este permiso no autoriza envíos'):'Sin envío al proveedor');
+    article.append(description,observeLabel,retainLabel,providerLabel,expiry,button('Quitar fuente',()=>configure({observation_targets:currentSourceTarget(target,scope).filter(t=>t.id!==target.id)})),destinations);host.append(article);
    }
   }
   const runtime=(snapshot.source_runtime||[]).filter(r=>targets.some(t=>t.id===r.id&&t.task_id===task()));
@@ -431,11 +475,12 @@
   try{
    const value=await api('status',{task_id:selected});
    if(token!==revision||selected!==task())return;
-   snapshot=value;renderSettings(fill);renderCard();void loadMissions();void syncMicrophone();
+   if(snapshot&&JSON.stringify(snapshot.observation_targets)!==JSON.stringify(value.observation_targets))++sourceRevision;
+   snapshot=value;renderSettings(fill);renderCard();void loadMissions();void syncMicrophone();if(destinationContext!==sourceScope())void loadSourceDestinations().catch(notice);
   }catch(e){if(token===revision){snapshot=null;hide();stopMicrophone();notice(e);}}
   finally{if(token===revision)loading=false;}
  }
- async function stop(id){stopped=true;hide();stopMicrophone('Captura de contexto detenida.');++sourceRevision;clearSourceProvider();++revision;loading=false;await api('cancel',id?{suggestion_id:id}:{});await refresh();}
+ async function stop(id){stopped=true;hide();stopMicrophone('Captura de contexto detenida.');++sourceRevision;++destinationRevision;destinationContext='';clearSourceProvider();clearDestinationDraft();++revision;loading=false;await api('cancel',id?{suggestion_id:id}:{});await refresh();}
  function layout(g,size,add){
   renderCard();if(card.hidden)return;
   const width=Math.min(Math.round(280*(Axx.interfaceTheme?.widgetScale||1)),g.workWidth-24);
@@ -453,16 +498,19 @@
  for(const source of ['folders','applications','screen','clipboard','microphone'])$('anticipation-'+source).onchange=event=>void run(()=>{if(['screen','clipboard','microphone'].includes(source)&&snapshot?.capabilities?.[source]!==true)throw Error('El adaptador local de esta fuente no está disponible.');if(source==='microphone'&&event.isTrusted&&$('anticipation-microphone').checked){microphone.blocked=false;microphone.status='';microphone.next.clear();}return configure({sources:{[source]:$('anticipation-'+source).checked}});});
  $('anticipation-microphone-rearm').onclick=event=>{if(!event.isTrusted)return;microphone.blocked=false;microphone.status='';microphone.next.clear();renderMicrophoneStatus();void syncMicrophone();};
  $('anticipation-target-source').onchange=()=>{clearTargetWindows();syncTargetSource();};
- $('anticipation-target-window').onchange=()=>{++sourceRevision;clearSourceProvider();};
+ $('anticipation-target-window').onchange=()=>{++sourceRevision;clearSourceProvider();clearDestinationDraft();syncTargetSource();};
+ $('anticipation-destinations-refresh').onclick=()=>void loadSourceDestinations().catch(notice);
  $('anticipation-target-find-windows').onclick=()=>void run(findSourceWindows);
- $('anticipation-target-form').oninput=event=>{++sourceRevision;const input=$('anticipation-target-provider');if(event.target===input){if(event.isTrusted&&input.checked&&$('anticipation-target-retain').checked&&providerAvailable($('anticipation-target-source').value))input.dataset.consent=sourceScope();else delete input.dataset.consent;}else clearSourceProvider();syncTargetSource();};
+ $('anticipation-target-form').oninput=event=>{++sourceRevision;const input=$('anticipation-target-provider');if(event.target===input){if(event.isTrusted&&input.checked&&$('anticipation-target-retain').checked&&providerAvailable($('anticipation-target-source').value))input.dataset.consent=sourceScope();else delete input.dataset.consent;}else{clearSourceProvider();if(['anticipation-target-root','anticipation-target-process','anticipation-target-project','anticipation-target-application','anticipation-target-device'].includes(event.target.id))clearDestinationDraft();}syncTargetSource();};
  const sourceDraft=()=>JSON.stringify([...$('anticipation-target-form').querySelectorAll('input,select')].map(field=>[field.id,field.value,field.type==='checkbox'?field.checked:null]));
  $('anticipation-target-form').onsubmit=e=>{e.preventDefault();void run(async()=>{
   if(!task())throw Error('Selecciona el chat que autoriza esta fuente.');
   const source=$('anticipation-target-source').value,expiry=$('anticipation-target-expiry').value,targets=snapshot?.observation_targets||[],scope=sourceScope();
   if(targets.length>=32)throw Error('Se permiten hasta 32 fuentes seleccionadas.');
   if(['window','clipboard','microphone'].includes(source)&&snapshot?.capabilities?.[source==='window'?'screen':source]!==true)throw Error('El adaptador local de esta fuente no está disponible.');
-  const target={id:Axx.newId(),source,task_id:task(),project_id:$('anticipation-target-project').value.trim(),application_id:$('anticipation-target-application').value.trim(),device_id:$('anticipation-target-device').value.trim(),observe:$('anticipation-target-observe').checked,retain:$('anticipation-target-retain').checked,send_to_provider:$('anticipation-target-retain').checked&&providerAvailable(source)&&$('anticipation-target-provider').checked&&$('anticipation-target-provider').dataset.consent===scope,expires_at:expiry==='persistent'?null:Date.now()/1000+Number(expiry),...(source==='folder'?{root:$('anticipation-target-root').value.trim()}:source==='application'?{process_name:$('anticipation-target-process').value.trim()}:{})};
+  const ids=destinationSupported(source)?[...destinationDraft]:[],selectionRevision=sourceRevision,selectionDraft=sourceDraft();
+  if(ids.length){await loadSourceDestinations();if(selectionRevision!==sourceRevision||selectionDraft!==sourceDraft()||scope!==sourceScope())throw Error('Cambió la selección; revisa los destinos antes de guardar.');validateDestinations(ids);}
+  const target={id:Axx.newId(),source,task_id:task(),project_id:$('anticipation-target-project').value.trim(),application_id:$('anticipation-target-application').value.trim(),device_id:$('anticipation-target-device').value.trim(),observe:$('anticipation-target-observe').checked,retain:$('anticipation-target-retain').checked,allowed_profile_ids:ids,send_to_provider:ids.length>0&&$('anticipation-target-retain').checked&&providerAvailable(source)&&$('anticipation-target-provider').checked&&$('anticipation-target-provider').dataset.consent===scope,expires_at:expiry==='persistent'?null:Date.now()/1000+Number(expiry),...(source==='folder'?{root:$('anticipation-target-root').value.trim()}:source==='application'?{process_name:$('anticipation-target-process').value.trim()}:{})};
   if(source==='application'&&!/^[A-Za-z0-9_. -]{1,76}\.exe$/i.test(target.process_name))throw Error('Indica el nombre exacto de un proceso .exe.');
   if(source==='window'){
    const selected=targetWindows.find(row=>String(row.window_id)===$('anticipation-target-window').value),token=sourceRevision,draft=sourceDraft();if(!selected)throw Error('Busca y selecciona una ventana disponible.');
@@ -472,8 +520,9 @@
    Object.assign(target,{window_id:selected.window_id,pid:selected.pid,process_started:identity.process_started});
   }
   if(scope!==sourceScope())throw Error('Cambió el chat o proyecto; selecciona de nuevo la fuente.');
+  if(JSON.stringify(targets)!==JSON.stringify(snapshot?.observation_targets||[]))throw Error('La lista de fuentes cambió; revísala antes de guardar.');
   await configure({observation_targets:[...targets,target]});
-  clearSourceProvider();
+  clearSourceProvider();clearDestinationDraft();
  });};
  $('anticipation-mission').addEventListener('toggle',()=>{if($('anticipation-mission').open)void loadMissions();});
  $('anticipation-mission-permission').addEventListener('toggle',()=>{if($('anticipation-mission-permission').open)void loadMissions();});
@@ -517,7 +566,7 @@
  Axx.companion.renderChat=function(...args){const value=renderChat(...args);if(origin!==task()||sourceContext!==sourceScope()){snapshot=null;hide();void refresh();}else renderCard();return value;};
  const timer=setInterval(()=>void refresh(),3000);
  document.addEventListener('visibilitychange',()=>{if(document.hidden){hide();stopMicrophone();}else void refresh();});
- window.addEventListener('pagehide',()=>{clearInterval(timer);++revision;hide();stopMicrophone();});
+ window.addEventListener('pagehide',()=>{clearInterval(timer);++revision;++destinationRevision;hide();stopMicrophone();});
  Axx.anticipation={refresh,render(){renderCard();if(Axx.app.machine?.visible===false)stopMicrophone();},layout,cancel:stop,allowSurprises,get state(){return snapshot;},get current(){return current;}};
  void refresh(true);
 })(window.Axx);

@@ -13,7 +13,7 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
     page.setDefaultTimeout(20000);
     page.on('pageerror',e=>errors.push(e.message));
     await page.addInitScript(()=>{
-      window.testProviders=[];window.savedCalls=[];window.candidateCalls=[];window.modelCommandRequests=[];window.probeCalls=[];
+      window.testProviders=[];window.savedCalls=[];window.discoverCalls=[];window.candidateCalls=[];window.modelCommandRequests=[];window.probeCalls=[];
       window.__TAURI__={core:{invoke:async(name,args)=>{
         const desktop={workWidth:1920,workHeight:1080,spaceLeft:1000,spaceRight:920,spaceAbove:540,spaceBelow:540};
         if(name==='native_status')return {native:true,backendReady:false,shortcut:'Alt+Shift+A',desktop};
@@ -28,7 +28,7 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
           if(args.path==='/axx-api/model-candidates/evaluate'){window.candidateCalls.push(args.body);return {passed:true,proof_mode:window.candidateProof||'simulated',latency_ms:12};}
           if(args.path==='/axx-api/model-candidates/apply'){window.candidateCalls.push({apply:args.body});return {applied:true};}
           if(args.path==='/axx-api/providers')return {providers:window.testProviders};
-          if(args.path==='/axx-api/providers/discover')return {models:window.testModels || ['fixture-model','second-model']};
+          if(args.path==='/axx-api/providers/discover'){window.discoverCalls.push(args.body);return {models:window.testModels || ['fixture-model','second-model']};}
           if(args.path==='/axx-api/chat'){window.probeCalls.push(args.body);return {choices:[{message:{content:'AXX_API_OK'}}],axx_router:{provider:window.wrongProbeRoute?'other':args.body.provider_name,configured_model:args.body.model}};}
           if(args.path==='/axx-api/providers/save'){
             window.savedCalls.push(args.body);
@@ -83,17 +83,57 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
     await page.locator('#provider-key').fill('FIXTURE-ONLY-KEY');
     await page.locator('#provider-discover').click();
     await page.waitForFunction(()=>document.getElementById('provider-model').value==='fixture-model');
+    assert.equal(await page.evaluate(()=>discoverCalls.some(call=>Object.hasOwn(call,'allow_sensitive'))),false,'No discovery caller carries a sensitive-content decision');
     assert.equal(await page.locator('#provider-key').inputValue(),'FIXTURE-ONLY-KEY');
     assert.equal(await page.locator('#provider-model').evaluate(el=>el.tagName),'SELECT');
     await page.locator('#provider-model').selectOption('second-model');
     await page.locator('#provider-model').selectOption('fixture-model');
     await page.locator('#provider-billing').check();
+    assert.equal(await page.locator('#provider-sensitive').isChecked(),false,'Connections start without sensitive-content permission');
     await page.locator('#provider-save').click();
     await page.waitForFunction(()=>document.getElementById('provider-status').textContent.includes('Modelo seleccionado'));
     assert.equal(await page.locator('#provider-key').inputValue(),'');
     assert.equal(await page.evaluate(()=>Axx.companion.data.prefs.model),'fixture-model');
     assert.equal(await page.evaluate(()=>Axx.companion.data.prefs.apiConnection),'My Groq');
     assert.equal(await page.evaluate(()=>JSON.stringify({...localStorage}).includes('FIXTURE-ONLY-KEY')),false);
+    assert.equal(await page.evaluate(()=>savedCalls.at(-1).allow_sensitive),false,'Default saves explicitly deny sensitive content');
+    const saveSensitive=async expected=>{const before=await page.evaluate(()=>savedCalls.length);await page.locator('#provider-save').click();await page.waitForFunction(count=>savedCalls.length>count,before);await page.waitForFunction(()=>!document.getElementById('provider-save').disabled);assert.equal(await page.evaluate(()=>savedCalls.at(-1).allow_sensitive),expected);};
+    await page.evaluate(()=>{const input=document.getElementById('provider-sensitive');input.checked=true;input.dispatchEvent(new Event('change'));});
+    assert.equal(await page.locator('#provider-sensitive').isChecked(),false,'Synthetic events cannot create a sensitive-content decision');
+    await page.locator('#provider-sensitive').check();
+    await saveSensitive(true);
+    await page.locator('#provider-saved').selectOption('My Groq');
+    assert.equal(await page.locator('#provider-sensitive').isChecked(),true,'An existing permission is displayed for the same saved identity');
+    await page.locator('#provider-model').selectOption('__manual__');
+    assert.equal(await page.locator('#provider-sensitive').isChecked(),false,'Changing model identity immediately clears inherited permission');
+    await page.locator('#provider-model-manual').fill('new-fixture-model');
+    await saveSensitive(false);
+    await page.locator('#provider-sensitive').check();
+    await saveSensitive(true);
+    await page.evaluate(()=>{window.testModels=['discovered-fixture'];});
+    await page.locator('#provider-discover').click();
+    await page.waitForFunction(()=>document.getElementById('provider-model').value==='discovered-fixture');
+    assert.equal(await page.locator('#provider-sensitive').isChecked(),false,'Discovering a replacement model immediately clears the visible old permission');
+    await page.evaluate(()=>{delete window.testModels;});
+    await page.locator('#provider-sensitive').check();
+    await page.locator('#provider-route').evaluate(el=>{for(let node=el;node;node=node.parentElement)if(node.tagName==='DETAILS')node.open=true;});
+    await page.locator('#provider-route').selectOption('direct');
+    assert.equal(await page.locator('#provider-sensitive').isChecked(),false,'Route identity changes clear permission');
+    await page.locator('#provider-sensitive').check();
+    await page.locator('#provider-name').fill('Renamed fixture');
+    assert.equal(await page.locator('#provider-sensitive').isChecked(),false,'Connection name identity changes clear permission');
+    await page.locator('#provider-name').fill('My Groq');
+    await page.locator('#provider-model').selectOption('__manual__');
+    await page.locator('#provider-model-manual').fill('fixture-model');
+    await page.locator('#provider-sensitive').check();
+    await page.locator('#provider-url').fill('https://other.example/v1');
+    assert.equal(await page.locator('#provider-sensitive').isChecked(),false,'Endpoint changes clear permission');
+    await page.locator('#provider-url').fill('https://api.groq.com/openai/v1');
+    await page.locator('#provider-sensitive').check();
+    await page.evaluate(()=>{const input=document.getElementById('provider-protocol');input.value='anthropic';input.dispatchEvent(new Event('change'));});
+    assert.equal(await page.locator('#provider-sensitive').isChecked(),false,'Protocol changes clear permission');
+    await page.evaluate(()=>{const input=document.getElementById('provider-protocol');input.value='openai';input.dispatchEvent(new Event('change'));});
+    await saveSensitive(false);
     await page.locator('#provider-probe').click();
     await page.waitForFunction(()=>document.getElementById('provider-probe-result').textContent.includes('Respuesta recibida'));
     assert.equal(await page.locator('#provider-active-state').textContent(),'Respuesta comprobada');
@@ -210,6 +250,6 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
     await page.locator('#provider-name').fill('Ollama en mi equipo');
     await page.locator('#provider-model').selectOption('__manual__');
     await page.locator('#provider-model-manual').fill('qwen3:4b');
-    console.log('PASS: provider presets, discovery, save, protected credentials, edit/disable, candidate pending states and real-only evaluation activation');
+    console.log('PASS: provider presets, discovery, explicit sensitive permission, identity changes without inherited consent, save, protected credentials, edit/disable, candidate pending states and real-only evaluation activation');
   }finally{await browser.close();server.close();}
 })().catch(e=>{console.error(e);process.exitCode=1});

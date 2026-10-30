@@ -13,8 +13,10 @@ jobs:
       - run: python scripts/release.py check
       - run: python -m unittest discover -s scripts -p test_release.py -v
       - run: python -m pip install Pillow==12.1.1 -r requirements-mobile.txt
+      - name: Inference routing and worker regressions
+        run: python -m unittest discover -s backend/inference/tests -q
       - name: Planning, privacy and command regressions
-        run: python -m unittest backend.tests.test_prompts backend.tests.test_command_language backend.tests.test_command_sequences backend.tests.test_action_learning backend.tests.test_goal_cycle backend.tests.test_command_library backend.tests.test_provider_settings backend.tests.test_mission_model_budget backend.inference.tests.test_automatic_selection backend.inference.tests.test_adapter_cancellation backend.tests.test_source_dispatch backend.tests.test_anticipation_context_sources -q
+        run: python -m unittest backend.tests.test_prompts backend.tests.test_command_language backend.tests.test_command_sequences backend.tests.test_action_learning backend.tests.test_goal_cycle backend.tests.test_command_library backend.tests.test_provider_settings backend.tests.test_mission_model_budget backend.tests.test_planning_context backend.tests.test_source_destinations backend.tests.test_source_dispatch backend.tests.test_anticipation_context_sources -q
       - name: Telegram and desktop command regressions
         run: python -m unittest backend.tests.test_commands_remote_confirmation backend.tests.test_telegram_confirmation backend.tests.test_telegram_confirmation_integration backend.tests.test_telegram_bot backend.tests.test_telegram_bot_setup backend.tests.test_telegram_catalog backend.tests.test_telegram_service backend.tests.test_telegram_daemon backend.tests.test_telegram_miniapp backend.tests.test_telegram_http backend.tests.test_window_title_scope backend.tests.test_desktop_commands -q
       - name: Prompt browser contracts

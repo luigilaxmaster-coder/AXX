@@ -15,6 +15,8 @@ from backend.commands import CommandService
 from backend.memory.procedural_memory import get_action_env_fingerprint
 from backend.memory.skill_memory import validate_schema, NeedsInput
 from backend.anticipation import AnticipationService
+from backend.inference.router import profile_id
+from backend.tests.test_anticipation_context_sources import SOURCE_PROVIDER
 
 
 class LocalModel:
@@ -44,7 +46,9 @@ class SourcePublicationTests(unittest.TestCase):
         self.model = LocalModel()
         self.model.supports_cancel_event = True
         self.model.supports_dispatch_observer = True
-        self.model.route = lambda request, cancel_event=None, dispatch_observer=None: {'ok': True,
+        self.model.supports_source_destination_policy = True
+        self.model.config = {'providers': [SOURCE_PROVIDER]}
+        self.model.route = lambda request, cancel_event=None, dispatch_observer=None, source_policy=None: {'ok': True,
             'message': {'content': json.dumps({'title': 'PRIVATE_LATE_ECHO', 'steps': [
                 {'command_id': 'axx.artifact.write', 'inputs': {'path': 'source-output.txt', 'content': 'PRIVATE_LATE_ECHO'}}]})},
             'route': {'provider_name': 'offline-fixture', 'model': 'fixture'}}
@@ -60,7 +64,8 @@ class SourcePublicationTests(unittest.TestCase):
                 {'text': 'PRIVATE_SOURCE_RAW'}, False))]
         for patcher in self.patchers: patcher.start()
         self.target = {'id': 'clipboard-source', 'source': 'clipboard', 'task_id': 'source-task',
-            'observe': True, 'retain': True, 'send_to_provider': True, 'project_id': 'project-a'}
+            'observe': True, 'retain': True, 'send_to_provider': True, 'project_id': 'project-a',
+            'allowed_profile_ids': [profile_id(SOURCE_PROVIDER)]}
         self.service.configure({'profile': 'copiloto', 'sources': {'clipboard': True}, 'observation_targets': [self.target]})
         self.service.tick()
         self.plan, _ = self.learning._new_plan('Preparar tarea sintética', 'source-plan', {}, 'project-a')
@@ -348,7 +353,7 @@ class SourcePublicationTests(unittest.TestCase):
             return source | {key: [row for row in source[key] if row['target_id'] == new_target['id']]
                 for key in ('refs', 'observations')}
 
-        def cancel_old(request, cancel_event=None, dispatch_observer=None):
+        def cancel_old(request, cancel_event=None, dispatch_observer=None, source_policy=None):
             self.assertEqual({ref['target_id'] for ref in self.plan['observation_dependencies']},
                 {self.target['id'], new_target['id']})
             self.assertTrue(all(ref in self.plan['observation_dependencies'] for ref in old_refs))

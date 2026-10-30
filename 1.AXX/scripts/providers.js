@@ -103,6 +103,8 @@
       <p id="provider-catalog-status" class="micro-copy" role="status"></p>
       <label class="setting"><span><input id="provider-enabled" type="checkbox" checked /> Habilitar esta conexión</span></label>
       <label class="setting"><span><input id="provider-billing" type="checkbox" /> Autorizar el uso de mi cuota o saldo en este proveedor</span></label>
+      <label class="setting"><span><input id="provider-sensitive" type="checkbox" /> Permitir contenido sensible en esta conexión</span></label>
+      <p class="micro-copy">Este permiso no autoriza observar ni capturar fuentes. Cada fuente necesita sus propios destinos y permisos; el envío de contexto sigue sujeto a su disponibilidad.</p>
       <details><summary>Aptitud para Automático · gratuito</summary>
         <label class="setting">Coste de esta ruta<select id="provider-cost"><option value="unknown">Sin verificar</option><option value="direct_local">Modelo local directo</option><option value="free_tier">Cuota gratuita sin cobro posterior</option><option value="paid">De pago</option></select></label>
         <label class="setting">Conexión<select id="provider-route"><option value="unknown">Sin verificar</option><option value="direct">Directa al proveedor</option><option value="proxy">Intermediario / proxy</option></select></label>
@@ -245,14 +247,20 @@
       }catch(error){$('provider-probe-result').textContent='No se comprobó la respuesta: '+(error.message||String(error));throw error;}
       finally{clearTimeout(timer);}
     });
-    const payload = () => ({ provider: $('provider-kind').value, name: $('provider-name').value.trim(),
+    const sensitiveIdentity = () => JSON.stringify(['provider-kind','provider-name','provider-url','provider-model','provider-model-manual','provider-protocol','provider-route'].map(id=>$(id).value.trim()));
+    const clearSensitive = () => { $('provider-sensitive').checked=false;delete $('provider-sensitive').dataset.consent; };
+    const syncSensitive = () => {const input=$('provider-sensitive');if(input.dataset.consent!==sensitiveIdentity())clearSensitive();};
+    $('provider-sensitive').onchange = event => {const input=$('provider-sensitive');if(event.isTrusted&&input.checked)input.dataset.consent=sensitiveIdentity();else clearSensitive();};
+    for(const id of ['provider-kind','provider-name','provider-url','provider-model','provider-model-manual','provider-protocol','provider-route'])for(const event of ['input','change'])$(id).addEventListener(event,syncSensitive);
+    const payload = () => {syncSensitive();return ({ provider: $('provider-kind').value, name: $('provider-name').value.trim(),
       base_url: $('provider-url').value.trim(), model: ($('provider-model').value === '__manual__' ? $('provider-model-manual').value : $('provider-model').value).trim(),
       protocol: $('provider-protocol').value, api_key: $('provider-key').value.trim(),
-      enabled: $('provider-enabled').checked, billing_allowed: $('provider-billing').checked,
+      enabled: $('provider-enabled').checked, billing_allowed: $('provider-billing').checked, allow_sensitive: $('provider-sensitive').checked,
       cost_evidence: $('provider-cost').value, route_kind: $('provider-route').value, free_confirmed: $('provider-free').checked,
       context_window: Number($('provider-context').value) || undefined, image_context_tokens: Number($('provider-image-context').value) || undefined,
       capabilities: [...$('provider-capabilities').selectedOptions].map(o => o.value), tasks: [...$('provider-tasks').selectedOptions].map(o => o.value),
-      task_priority: Object.fromEntries([...$('provider-tasks').selectedOptions].map(o => [o.value, Number($('provider-priority').value)])) });
+      task_priority: Object.fromEntries([...$('provider-tasks').selectedOptions].map(o => [o.value, Number($('provider-priority').value)])) });};
+    const discoveryPayload = () => {const {allow_sensitive,...discovery}=payload();return discovery;};
     $('provider-selection-mode').value = Axx.companion.data.prefs.selection_mode || 'automatic_free';
     const refresh = async () => {
       const selected = $('provider-saved').value || Axx.companion.data.prefs.apiConnection;
@@ -349,6 +357,7 @@
       finally { busy = false; if (clearKey) { $('provider-key').value = ''; $('gateway-dashboard').value = ''; } controls.forEach(([control, disabled]) => control.disabled = disabled); renderConnection(); }
     };
     const platform = () => {
+      clearSensitive();
       $('provider-url').value = presets[$('provider-kind').value];
       $('provider-protocol-row').hidden = $('provider-kind').value !== 'custom';
       $('provider-key').value = ''; $('provider-model').value = ''; $('provider-billing').checked = false;
@@ -376,14 +385,16 @@
       for (const option of $('provider-capabilities').options) option.selected = (p.capabilities || []).includes(option.value);
       for (const option of $('provider-tasks').options) option.selected = (p.tasks || []).includes(option.value);
       $('provider-enabled').checked = p.enabled; modelProfile(); status(p.has_key ? 'Clave guardada. Déjala vacía para conservarla.' : 'Conexión sin clave guardada.');
+      $('provider-sensitive').checked=p.allow_sensitive===true;if(p.allow_sensitive===true)$('provider-sensitive').dataset.consent=sensitiveIdentity();
     };
     $('provider-model').onchange = () => { $('provider-manual-row').hidden = $('provider-model').value !== '__manual__'; modelProfile(); };
     const discover = async () => {
       status('Consultando el servidor…');
-      const result = await Axx.backendRequest('POST', '/axx-api/providers/discover', payload());
+      const result = await Axx.backendRequest('POST', '/axx-api/providers/discover', discoveryPayload());
       const previous = payload().model;
       $('provider-model').replaceChildren(new Option(result.models.length ? 'Selecciona un modelo' : 'No hay modelos instalados', ''), ...result.models.map(m => new Option(m, m)), new Option('Escribir ID manualmente…', '__manual__'));
       $('provider-model').value = result.models.includes(previous) ? previous : result.models[0] || '';
+      syncSensitive();
       $('provider-manual-row').hidden = true;
       const message = result.models.length ? `${result.models.length} modelos disponibles. Abre la lista y elige uno.` : $('provider-kind').value === 'ollama' ? 'Ollama está conectado, pero no tiene modelos instalados. Para usar una clave de API elige Ollama Cloud; para uso local instala primero un modelo en Ollama.' : 'El servidor no devolvió modelos. Puedes introducir el ID manualmente.';
       $('provider-catalog-status').textContent = message; status(message); modelProfile();
@@ -393,7 +404,7 @@
       $('ollama-quick-status').textContent = 'Consultando Ollama local…';
       $('provider-kind').value = 'ollama'; platform();
       $('provider-name').value = 'Ollama local';
-      const result = await Axx.backendRequest('POST', '/axx-api/providers/discover', payload());
+      const result = await Axx.backendRequest('POST', '/axx-api/providers/discover', discoveryPayload());
       $('ollama-quick-model').replaceChildren(new Option(result.models.length ? 'Elige un modelo' : 'No hay modelos instalados', ''), ...result.models.map(model => new Option(model, model)));
       modelProfile(true);
       $('ollama-quick-status').textContent = result.models.length ? `${result.models.length} modelos detectados. Elige uno para usarlo en el chat.` : 'Ollama responde, pero no tiene modelos instalados.';

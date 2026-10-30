@@ -24,6 +24,7 @@ from .memory.procedural_memory import get_action_env_fingerprint
 from .memory.skill_memory import SkillMemory, NeedsInput, PARAMETER, bind, bounded_object, project_key, validate_schema, read_context_state, read_skill_state
 from .goal_contract import contract as goal_contract, verify as verify_goal, validate_steps as validate_goal_steps
 from .actions.command_language import command_sequence
+from .inference.adapter import SourceDestinationPolicy
 
 TERMINAL = {'succeeded', 'failed', 'cancelled', 'blocked', 'needs_input', 'expired', 'unknown'}
 SOURCE_PLANNING_READY = False
@@ -206,7 +207,15 @@ class ActionLearning:
             except ValueError:
                 raise SourceContextRevoked(SOURCE_CONTEXT_INVALID) from None
             def recheck():
-                try: check()
+                try:
+                    check()
+                    admitted = plan.get('observation_destination_ids')
+                    if admitted:
+                        current = self.anticipation.allowed_provider_profile_ids(
+                            plan.get('conversation_id') or plan['operation_id'], references,
+                            project_id=plan.get('project_id', ''), **plan['planning_settings'])
+                        if not set(admitted).issubset(current):
+                            raise ValueError('Source destination configuration changed')
                 except ValueError: raise SourceContextRevoked(SOURCE_CONTEXT_INVALID) from None
             recheck()
             yield recheck
@@ -1157,6 +1166,21 @@ class ActionLearning:
         if source_cancel is not None and (settings['provider_name'] == '@codex'
                 or not getattr(backend, 'supports_dispatch_observer', False)):
             raise NeedsInput('Este proveedor no admite el recibo de envío observado; no se envió su contenido.')
+        source_policy = None
+        if source_cancel is not None:
+            if not getattr(backend, 'supports_source_destination_policy', False):
+                raise NeedsInput('Este proveedor no admite destinos de contexto consentidos; no se reservó una llamada.')
+            # Capture the complete causal set and selection: later repair or
+            # UI edits cannot replace the dependencies of an admitted request.
+            refs = json.loads(json.dumps(plan['observation_dependencies']))
+            selection = dict(settings)
+            task_id, project_id = plan.get('conversation_id') or plan['operation_id'], plan.get('project_id', '')
+            def revalidate_destination(*, deadline_mono=None, cancelled=None):
+                return self.anticipation.allowed_provider_profile_ids(task_id, refs, project_id=project_id,
+                    deadline_mono=deadline_mono, cancelled=cancelled, **selection)
+            allowed = revalidate_destination()
+            source_policy = SourceDestinationPolicy(allowed, revalidate_destination)
+            plan['observation_destination_ids'] = list(allowed)
         request_id = 'skill-' + uuid.uuid4().hex
         single_request=settings['provider_name']=='@codex'
         reserved=self._reserve_model_call(plan, request_id, task, single_request=single_request)
@@ -1183,6 +1207,7 @@ class ActionLearning:
                 'generation': {'temperature': 0.1, 'max_tokens': 3000}}
             kwargs = {'cancel_event':source_cancel} if source_cancel is not None else {}
             if dispatch_observer is not None: kwargs['dispatch_observer'] = dispatch_observer
+            if source_policy is not None: kwargs['source_policy'] = source_policy
             if source_cancel is not None:request['sensitivity']='approved_sensitive'
             if images:
                 if settings['provider_name']=='@codex':request['images']=list(images)

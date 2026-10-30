@@ -38,6 +38,22 @@ def profile_id(provider):
     return hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()[:32]
 
 
+def source_context_reason(provider):
+    """Configured recipient eligibility, never an observation permission."""
+    if provider.get('enabled') is not True:
+        return 'disabled'
+    if provider.get('candidate_only') is True:
+        return 'candidate_only'
+    if provider.get('kind') == 'freellmapi':
+        return 'gateway_not_supported'
+    if (provider.get('route_kind') != 'direct' or provider.get('protocol', 'openai') not in ('openai', 'anthropic')
+            or urllib.parse.urlsplit(provider.get('base_url', '')).scheme not in ('http', 'https')):
+        return 'unsupported_transport'
+    if provider.get('allow_sensitive') is not True:
+        return 'sensitive_not_allowed'
+    return 'eligible'
+
+
 def automatic_free(provider):
     if provider.get('candidate_only') is True:
         return False
@@ -673,7 +689,7 @@ class Router:
             raise ValueError('The gateway has no verified attempt bound')
         return provider
 
-    def _automatic_candidates(self, request, task, needs_tools, image_count, deadline_time):
+    def _automatic_candidates(self, request, task, needs_tools, image_count, deadline_time, source_profile_ids=None):
         required = {'text'}
         if needs_tools:
             required.add('tools')
@@ -686,6 +702,9 @@ class Router:
         candidates = []
         attempt_limit = min(self.max_attempts, request.get('axx_attempt_budget', self.max_attempts))
         for provider in self.providers:
+            if source_profile_ids is not None and (profile_id(provider) not in source_profile_ids
+                    or source_context_reason(provider) != 'eligible'):
+                continue
             if not automatic_free(provider) or status[provider['name']]['state'] != 'ready_locally':
                 continue
             if provider.get('kind') == 'freellmapi':
@@ -714,10 +733,14 @@ class Router:
             candidates.append((-quality, provider.get('task_priority', {}).get(task, 50), len(candidates), provider))
         return [candidate[-1] for candidate in sorted(candidates, key=lambda item: item[:3])]
 
-    def chat(self, request: dict, deadline_time: float | None = None, *, http_receipts: list | None = None) -> dict:
+    def chat(self, request: dict, deadline_time: float | None = None, *, http_receipts: list | None = None,
+             source_profile_ids=None, source_attempt_guard=None) -> dict:
         accounting = {'upstream_attempts': 0, 'attempt_budget_used': 0}
         try:
-            return self._chat(request, deadline_time, accounting, http_receipts)
+            if source_profile_ids is not None and (not isinstance(source_profile_ids, tuple)
+                    or not 1 <= len(source_profile_ids) <= 16 or not callable(source_attempt_guard)):
+                raise RequestError('Invalid internal source destination policy')
+            return self._chat(request, deadline_time, accounting, http_receipts, source_profile_ids, source_attempt_guard)
         except Exception as exc:
             # Counts describe this router's dispatches; gateway cost is a
             # conservative downstream bound, never an invented completion count.
@@ -726,7 +749,8 @@ class Router:
             exc.attempt_budget_used = accounting['attempt_budget_used']
             raise
 
-    def _chat(self, request: dict, deadline_time: float | None, accounting: dict, http_receipts=None) -> dict:
+    def _chat(self, request: dict, deadline_time: float | None, accounting: dict, http_receipts=None,
+              source_profile_ids=None, source_attempt_guard=None) -> dict:
         """Executes sequential failover with strict global deadline (H01-H10)."""
         self.validate_request(request)
         attempt_limit = min(self.max_attempts, request.get('axx_attempt_budget', self.max_attempts))
@@ -743,13 +767,17 @@ class Router:
                           for part in m['content'] if isinstance(part, dict) and part.get('type') == 'image_url')
         needs_vision = bool(image_count)
         automatic = request.get('selection_mode', 'manual') == 'automatic_free'
-        providers = self._automatic_candidates(request, req_task, needs_tools, image_count, deadline_time) if automatic else self.providers
+        providers = self._automatic_candidates(request, req_task, needs_tools, image_count, deadline_time,
+                                               source_profile_ids) if automatic else self.providers
 
         attempts = 0
         attempt_budget_used = 0
         last_error = None
 
         for p in providers:
+            if source_profile_ids is not None and (profile_id(p) not in source_profile_ids
+                    or source_context_reason(p) != 'eligible'):
+                continue
             # Check remaining global deadline budget
             time_left = deadline_time - time.monotonic()
             if time_left <= 0:
@@ -799,6 +827,13 @@ class Router:
                 continue
 
             # Atomic quota reservation
+            if source_profile_ids is not None:
+                # The host grant is this attempt's admission point. It is not
+                # an assertion that a remote dispatch can later be undone.
+                source_attempt_guard(profile_id(p))
+                time_left = deadline_time - time.monotonic()
+                if time_left <= 0:
+                    raise UpstreamError(504, message='Global inference deadline exceeded before source admission')
             if not self._reserve(p):
                 continue
 

@@ -1151,6 +1151,7 @@ class AnticipationService:
     def _provider_source(self, target, state, task_id, context):
         if (target['source'] not in ('window', 'clipboard') or target['task_id'] != task_id
                 or not self._provider_context_available(target['source'])
+                or not target.get('allowed_profile_ids')
                 or not target['retain'] or not target['send_to_provider'] or self._source_target(target['id']) != target
                 or any(target.get(key) and target[key] != context.get(key) for key in CONTEXT_KEYS)
                 or state.get('consent_digest') != digest(target) or not state.get('cancelled') or state['cancelled'].is_set()):
@@ -1208,6 +1209,55 @@ class AnticipationService:
                                    'observation_id': raw.get('observation_id'), 'generation': state.get('generation')}):
                     raise ValueError('SOURCE_CONTEXT_STALE: el consentimiento, contexto u observación cambió')
             return True
+
+    def _source_destination_catalog(self):
+        # Configuration is replaced as a snapshot by the adapter. Do not take
+        # its lock under policy.lock: admission takes adapter -> policy.
+        from .inference.router import profile_id
+        adapter = getattr(getattr(self.commands, 'learning', None), 'adapter', None)
+        config = getattr(adapter, 'config', {})
+        return {profile_id(row): copy.deepcopy(row) for row in config.get('providers', [])}
+
+    @contextmanager
+    def _source_admission_lock(self, deadline_mono=None, cancelled=None):
+        if deadline_mono is None:
+            with self.lock:
+                yield
+            return
+        if type(deadline_mono) not in (int, float) or not math.isfinite(deadline_mono):
+            raise ValueError('SOURCE_DESTINATION_UNAUTHORIZED: plazo inválido')
+        while True:
+            remaining = deadline_mono - time.monotonic()
+            if remaining <= 0 or cancelled is not None and cancelled():
+                raise ValueError('SOURCE_DESTINATION_UNAUTHORIZED: admisión cancelada o caducada')
+            if self.lock.acquire(timeout=min(.02, remaining)):
+                break
+        try:
+            if time.monotonic() >= deadline_mono or cancelled is not None and cancelled():
+                raise ValueError('SOURCE_DESTINATION_UNAUTHORIZED: admisión cancelada o caducada')
+            yield
+        finally:
+            self.lock.release()
+
+    def allowed_provider_profile_ids(self, task_id, refs, *, provider_name='', model='', selection_mode='manual',
+                                     project_id='', application_id='', device_id='host', deadline_mono=None, cancelled=None):
+        """Intersection of current causal source permissions, before reservation."""
+        from .inference.router import source_context_reason
+        with self._source_admission_lock(deadline_mono, cancelled):
+            self.validate_provider_context_refs(task_id, refs, project_id, application_id, device_id)
+            targets = {target['id']: target for target in self._config()['observation_targets']}
+            allowed = None
+            for ref in refs:
+                current = set(targets[ref['target_id']].get('allowed_profile_ids', []))
+                allowed = current if allowed is None else allowed & current
+            catalog = self._source_destination_catalog()
+            allowed = {key for key in (allowed or ()) if key in catalog and source_context_reason(catalog[key]) == 'eligible'
+                       and (selection_mode == 'automatic_free' or
+                            (not provider_name or provider_name == catalog[key]['name'])
+                            and (not model or model == catalog[key]['model']))}
+            if not allowed:
+                raise ValueError('SOURCE_DESTINATION_UNAUTHORIZED: ningún destino consentido coincide con esta solicitud')
+            return tuple(sorted(allowed))
 
     def acquire_provider_context(self, task_id, refs, project_id='', application_id='', device_id='host'):
         with self.lock:
@@ -1771,7 +1821,7 @@ class AnticipationService:
                     raise ValueError('Selecciona hasta 32 fuentes explícitas')
                 checked, ids = [], set()
                 for raw in targets:
-                    allowed = {'id', 'source', 'task_id', *CONTEXT_KEYS, 'root', 'process_name', 'window_id', 'pid', 'process_started', 'observe', 'retain', 'send_to_provider', 'expires_at'}
+                    allowed = {'id', 'source', 'task_id', *CONTEXT_KEYS, 'root', 'process_name', 'window_id', 'pid', 'process_started', 'observe', 'retain', 'send_to_provider', 'expires_at', 'allowed_profile_ids'}
                     if not isinstance(raw, dict) or set(raw) - allowed or raw.get('source') not in SOURCE_FLAGS:
                         raise ValueError('Fuente seleccionada inválida')
                     target = copy.deepcopy(raw)
@@ -1794,6 +1844,23 @@ class AnticipationService:
                         target.setdefault(key, False)
                         if type(target[key]) is not bool:
                             raise ValueError('Los consentimientos deben ser booleanos independientes')
+                    destinations = target.setdefault('allowed_profile_ids', [])
+                    if (not isinstance(destinations, list) or len(destinations) > 16
+                            or any(not isinstance(key, str) or not re.fullmatch('[0-9a-f]{32}', key) for key in destinations)
+                            or len(set(destinations)) != len(destinations)):
+                        raise ValueError('SOURCE_DESTINATION_UNAUTHORIZED: selecciona hasta 16 destinos canónicos distintos')
+                    destinations.sort()
+                    if destinations and target['source'] not in ('window', 'clipboard'):
+                        raise ValueError('SOURCE_DESTINATION_UNAUTHORIZED: esta fuente no admite envío')
+                    from .inference.router import source_context_reason
+                    catalog = self._source_destination_catalog()
+                    previous = next((old for old in config['observation_targets'] if old['id'] == target['id']), {})
+                    previous_ids = set(previous.get('allowed_profile_ids', []))
+                    if any(key not in previous_ids and (key not in catalog or source_context_reason(catalog[key]) != 'eligible')
+                           for key in destinations):
+                        raise ValueError('SOURCE_DESTINATION_UNAUTHORIZED: el destino nuevo no está disponible para estas fuentes')
+                    if target['send_to_provider'] and not destinations:
+                        raise ValueError('SOURCE_DESTINATION_UNAUTHORIZED: elige explícitamente un destino antes de enviar')
                     if target['send_to_provider'] and not target['retain']:
                         raise ValueError('Sin conservar contexto no se guardan ni ejecutan planes derivados; no se envía contenido al modelo.')
                     if target['send_to_provider'] and target['source'] not in ('clipboard', 'window'):

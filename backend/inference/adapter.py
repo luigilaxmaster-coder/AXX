@@ -4,18 +4,66 @@ import json
 import copy
 import math
 import os
+import queue
+import re
 from pathlib import Path
 import subprocess
 import sys
 import threading
 import time
 import uuid
-from .router import Router, RouterError, RequestError, UpstreamError, parse_strict_json, http_transport, profile_id
+from .router import Router, RouterError, RequestError, UpstreamError, parse_strict_json, http_transport, profile_id, source_context_reason
 from .process_manager import spawn_managed_process, terminate_process_tree
 
 MAX_WORKER_INPUT = 3 * 1024 * 1024
 MAX_WORKER_OUTPUT = 8 * 1024 * 1024
 MAX_WORKER_ERROR = 64 * 1024
+SOURCE_CHANNEL = b'AXX-SOURCE-1\n'
+MAX_SOURCE_FRAME = 512
+
+
+def _source_json(raw):
+    def unique(pairs):
+        if len({key for key, _ in pairs}) != len(pairs):
+            raise ValueError('Duplicate source protocol keys')
+        return dict(pairs)
+    def constant(_):
+        raise ValueError('Non-finite source protocol value')
+    return json.loads(raw.decode('utf8'), object_pairs_hook=unique, parse_constant=constant)
+
+
+class SourceDestinationPolicy:
+    """In-process authority; never accepted from a request/model JSON field."""
+    __slots__ = ('_allowed_profile_ids', '_revalidate')
+    def __init__(self, allowed_profile_ids, revalidate):
+        ids = tuple(sorted(set(allowed_profile_ids)))
+        if (not 1 <= len(ids) <= 16 or not all(isinstance(key, str) and re.fullmatch('[0-9a-f]{32}', key) for key in ids)
+                or not callable(revalidate)):
+            raise ValueError('SOURCE_DESTINATION_UNAUTHORIZED: política interna inválida')
+        self._allowed_profile_ids, self._revalidate = ids, revalidate
+
+    @property
+    def allowed_profile_ids(self):
+        return self._allowed_profile_ids
+
+    def authorize(self, identity=None, *, deadline_mono=None, cancelled=None):
+        def check():
+            if cancelled is not None and cancelled():
+                raise RouterError('Source request cancelled', code='CANCELLED')
+            if deadline_mono is not None and time.monotonic() >= deadline_mono:
+                raise RouterError('Source admission deadline exceeded', code='DEADLINE_EXCEEDED')
+        check()
+        try:
+            current = set(self._revalidate(deadline_mono=deadline_mono, cancelled=cancelled)) & set(self.allowed_profile_ids)
+        except ValueError:
+            check()
+            raise RouterError('SOURCE_DESTINATION_UNAUTHORIZED: consentimiento sin vigencia',
+                              code='SOURCE_DESTINATION_UNAUTHORIZED') from None
+        check()
+        if not current or identity is not None and identity not in current:
+            raise RouterError('SOURCE_DESTINATION_UNAUTHORIZED: destino sin consentimiento vigente',
+                              code='SOURCE_DESTINATION_UNAUTHORIZED')
+        return tuple(sorted(current))
 
 
 def _attempt_details(source):
@@ -36,22 +84,25 @@ def _attempt_details(source):
 
 
 class ActiveRequest:
-    def __init__(self, request_id, deadline_mono, cancel_event=None, dispatch_observer=None):
+    def __init__(self, request_id, deadline_mono, cancel_event=None, dispatch_observer=None, source_policy=None):
         self.request_id, self.deadline_mono = request_id, deadline_mono
         self.cancelled, self.completed = False, False
         self.terminal_state = self.process = self.job = None
         self.lock = threading.Lock()
         self.cancel_event = cancel_event
         self.dispatch_observer = dispatch_observer
+        self.source_policy = source_policy
 
     def is_cancelled(self):
         return self.cancelled or (self.cancel_event is not None and self.cancel_event.is_set())
 
 def worker_main(state_path: str) -> int:
-    """Same executable entry point; exactly one bounded stdin/stdout JSON object."""
+    """Legacy terminal JSON, or opt-in source admission on the same pipes."""
     router, dispatched, http_receipts = None, False, []
     try:
-        raw = sys.stdin.buffer.read(MAX_WORKER_INPUT + 1)
+        first = sys.stdin.buffer.readline(MAX_WORKER_INPUT + 1)
+        source_channel = first == SOURCE_CHANNEL
+        raw = sys.stdin.buffer.readline(MAX_WORKER_INPUT + 1) if source_channel else first + sys.stdin.buffer.read(max(0, MAX_WORKER_INPUT + 1 - len(first)))
         if len(raw) > MAX_WORKER_INPUT:
             raise RequestError('Worker input exceeds size limit')
         data = parse_strict_json(raw)
@@ -64,8 +115,37 @@ def worker_main(state_path: str) -> int:
         if type(seconds) not in (int, float) or not math.isfinite(seconds) or not 0 < seconds <= 70:
             raise RequestError('Invalid worker deadline')
         router = Router(config, state=state_path)
+        source_options = {}
+        if source_channel:
+            policy = data.get('source_policy')
+            if (not isinstance(policy, dict) or set(policy) != {'version', 'allowed_profile_ids'} or type(policy['version']) is not int or policy['version'] != 1
+                    or not isinstance(policy['allowed_profile_ids'], list) or not 1 <= len(policy['allowed_profile_ids']) <= 16
+                    or any(not isinstance(key, str) or not re.fullmatch('[0-9a-f]{32}', key) for key in policy['allowed_profile_ids'])
+                    or len(set(policy['allowed_profile_ids'])) != len(policy['allowed_profile_ids'])):
+                raise RequestError('Invalid internal source destination policy')
+            ordinal = 0
+            def admit(identity):
+                nonlocal ordinal
+                ordinal += 1
+                if ordinal > 16:
+                    raise RequestError('Source admission frame limit exceeded')
+                frame = {'source_attempt': 1, 'ordinal': ordinal, 'profile_id': identity, 'nonce': uuid.uuid4().hex}
+                sys.stdout.buffer.write(json.dumps(frame).encode('utf8') + b'\n'); sys.stdout.buffer.flush()
+                raw_reply = sys.stdin.buffer.readline(MAX_SOURCE_FRAME + 1)
+                if len(raw_reply) > MAX_SOURCE_FRAME or not raw_reply.endswith(b'\n'):
+                    raise RouterError('Source admission channel closed', code='SOURCE_DESTINATION_UNAUTHORIZED')
+                try: reply = _source_json(raw_reply)
+                except Exception: reply = None
+                if (not isinstance(reply, dict) or reply.get('permitted') is not True
+                        or type(reply.get('source_attempt')) is not int or type(reply.get('ordinal')) is not int
+                        or reply != dict(frame, permitted=True)):
+                    raise RouterError('Source attempt was not authorized', code='SOURCE_DESTINATION_UNAUTHORIZED')
+            source_options = {'source_profile_ids': tuple(policy['allowed_profile_ids']), 'source_attempt_guard': admit}
+        elif 'source_policy' in data:
+            raise RequestError('Source policy requires the dedicated admission channel')
+        request, deadline = data['request'], time.monotonic() + seconds
         dispatched = True
-        result = router.chat(data['request'], deadline_time=time.monotonic() + seconds, http_receipts=http_receipts)
+        result = router.chat(request, deadline_time=deadline, http_receipts=http_receipts, **source_options)
         response, code = {'ok': True, 'result': result}, 0
     except Exception as exc:
         error_code = getattr(exc, 'code', 'PROCESS_FAILURE')
@@ -92,6 +172,7 @@ def worker_main(state_path: str) -> int:
 class InferenceAdapter:
     supports_cancel_event = True
     supports_dispatch_observer = True
+    supports_source_destination_policy = True
 
     def __init__(self, config: dict, state_path: str | Path = 'state.db', *, router_instance: Router | None = None):
         if config.get('allow_paid', False) is not False:
@@ -113,6 +194,9 @@ class InferenceAdapter:
 
     def update_config(self, new_config: dict):
         with self.lock:
+            for active in self.active_requests.values():
+                if active.source_policy is not None:
+                    active.cancelled = True
             self.config = new_config
             if self.router:
                 try:
@@ -208,8 +292,12 @@ class InferenceAdapter:
         command += ['--state', str(self.state_path)]
         worker_config = copy.deepcopy(self.config if config_override is None else config_override)
         # Clock subtraction can round a valid 70 s budget slightly above the protocol cap.
-        data = json.dumps({'config': worker_config, 'request': request,
-                          'remaining_seconds': min(70., max(.001, active.deadline_mono - time.monotonic()))},
+        envelope = {'config': worker_config, 'request': request,
+                    'remaining_seconds': min(70., max(.001, active.deadline_mono - time.monotonic()))}
+        if active.source_policy is not None:
+            active.source_policy.authorize(deadline_mono=active.deadline_mono, cancelled=active.is_cancelled)
+            envelope['source_policy'] = {'version': 1, 'allowed_profile_ids': list(active.source_policy.allowed_profile_ids)}
+        data = json.dumps(envelope,
                          allow_nan=False).encode('utf-8')
         if len(data) > MAX_WORKER_INPUT:
             raise RequestError('Worker input exceeds size limit')
@@ -228,6 +316,8 @@ class InferenceAdapter:
         with active.lock:
             active.process, active.job = proc, job
         output, errors, overflow = bytearray(), bytearray(), threading.Event()
+        admissions, invalid_frame = queue.Queue(maxsize=1), threading.Event()
+        last_ordinal, nonces = 0, set()
         def collect(pipe, target, limit):
             try:
                 while True:
@@ -240,9 +330,38 @@ class InferenceAdapter:
                     target.extend(chunk)
             finally:
                 pipe.close()
-        readers = [threading.Thread(target=collect, args=(proc.stdout, output, MAX_WORKER_OUTPUT), daemon=True),
+        def collect_source():
+            total = 0
+            try:
+                while True:
+                    line = proc.stdout.readline(MAX_WORKER_OUTPUT + 1)
+                    if not line:
+                        break
+                    total += len(line)
+                    if total > MAX_WORKER_OUTPUT or not line.endswith(b'\n'):
+                        overflow.set(); break
+                    value = _source_json(line)
+                    if isinstance(value, dict) and type(value.get('ok')) is bool:
+                        if output:
+                            invalid_frame.set(); break
+                        output.extend(line)
+                    elif (len(line) <= MAX_SOURCE_FRAME and not output and isinstance(value, dict)
+                            and set(value) == {'source_attempt', 'ordinal', 'profile_id', 'nonce'}):
+                        admissions.put_nowait(value)
+                    else:
+                        invalid_frame.set(); break
+            except Exception:
+                invalid_frame.set()
+            finally:
+                proc.stdout.close()
+        stdout_reader = (threading.Thread(target=collect_source, daemon=True) if active.source_policy is not None
+                         else threading.Thread(target=collect, args=(proc.stdout, output, MAX_WORKER_OUTPUT), daemon=True))
+        readers = [stdout_reader,
                    threading.Thread(target=collect, args=(proc.stderr, errors, MAX_WORKER_ERROR), daemon=True)]
         write_errors = []
+        initial_write_complete = threading.Event()
+        acknowledgements, acknowledgement_pending = queue.Queue(maxsize=1), threading.Event()
+        writer_stop = threading.Event()
         def write_input():
             try:
                 # A cancellation during process creation must not deliver a request
@@ -250,14 +369,41 @@ class InferenceAdapter:
                 if active.is_cancelled():
                     proc.stdin.close()
                     return
-                proc.stdin.write(data)
-                proc.stdin.close()
+                proc.stdin.write(SOURCE_CHANNEL + data + b'\n' if active.source_policy is not None else data)
+                if active.source_policy is None:
+                    proc.stdin.close()
+                else:
+                    proc.stdin.flush()
+                initial_write_complete.set()
+                if active.source_policy is not None:
+                    while not writer_stop.is_set():
+                        try:
+                            reply = acknowledgements.get(timeout=.02)
+                        except queue.Empty:
+                            if proc.poll() is not None:
+                                break
+                            continue
+                        try:
+                            if writer_stop.is_set() or active.is_cancelled() or time.monotonic() >= active.deadline_mono:
+                                break
+                            # One writer keeps blocked pipe writes outside the host deadline/cancellation loop.
+                            proc.stdin.write(reply)
+                            proc.stdin.flush()
+                        finally:
+                            acknowledgement_pending.clear()
             except (OSError, ValueError) as exc:
                 write_errors.append(exc)
-                try:
-                    proc.stdin.close()
-                except (OSError, ValueError):
-                    pass
+                if active.source_policy is None:
+                    try:
+                        proc.stdin.close()
+                    except (OSError, ValueError):
+                        pass
+            finally:
+                if active.source_policy is not None:
+                    try:
+                        proc.stdin.close()
+                    except (OSError, ValueError):
+                        pass
         writer = threading.Thread(target=write_input, daemon=True)
         for reader in readers:
             reader.start()
@@ -268,6 +414,47 @@ class InferenceAdapter:
                     return {'ok': False, 'error': {'code': 'CANCELLED', 'message': 'Request cancelled', 'retryable': False}}
                 if overflow.is_set():
                     raise RouterError('Worker output exceeds size limit', code='INVALID_RESPONSE')
+                if invalid_frame.is_set():
+                    raise RouterError('Invalid source admission frame', code='INVALID_RESPONSE')
+                try:
+                    # An early frame must not block the deadline loop behind an unfinished pipe write.
+                    frame = admissions.get_nowait() if initial_write_complete.is_set() and not acknowledgement_pending.is_set() else None
+                except queue.Empty:
+                    frame = None
+                if frame is not None:
+                    if (type(frame.get('source_attempt')) is not int or frame['source_attempt'] != 1
+                            or type(frame.get('ordinal')) is not int or frame['ordinal'] != last_ordinal + 1 or frame['ordinal'] > 16
+                            or not isinstance(frame.get('nonce'), str) or not re.fullmatch('[0-9a-f]{32}', frame['nonce'])
+                            or frame['nonce'] in nonces or not isinstance(frame.get('profile_id'), str)
+                            or not re.fullmatch('[0-9a-f]{32}', frame['profile_id'])):
+                        raise RouterError('Invalid source admission frame', code='INVALID_RESPONSE')
+                    last_ordinal = frame['ordinal']; nonces.add(frame['nonce'])
+                    permitted = False
+                    try:
+                        with self.lock:
+                            config_snapshot = self.config
+                            current = {profile_id(p): p for p in config_snapshot.get('providers', [])}
+                        original = {profile_id(p): p for p in worker_config.get('providers', [])}
+                        identity = frame['profile_id']
+                        if (identity in current and identity in original and source_context_reason(current[identity]) == 'eligible'
+                                and source_context_reason(original[identity]) == 'eligible'):
+                            # Policy acquisition is bounded/cancelable and must
+                            # never retain the adapter lock while it waits.
+                            active.source_policy.authorize(identity, deadline_mono=active.deadline_mono, cancelled=active.is_cancelled)
+                            with self.lock:
+                                permitted = (self.config is config_snapshot and not active.is_cancelled()
+                                    and time.monotonic() < active.deadline_mono)
+                    except Exception:
+                        pass
+                    # Never assume that initial flush proves the child drained
+                    # its pipe. Enqueue without waiting; only the existing
+                    # writer may touch stdin, including close during cleanup.
+                    acknowledgement_pending.set()
+                    try:
+                        acknowledgements.put_nowait(json.dumps(dict(frame, permitted=permitted)).encode('utf8') + b'\n')
+                    except queue.Full:
+                        acknowledgement_pending.clear()
+                        raise RouterError('Source acknowledgement queue exceeded its limit', code='INVALID_RESPONSE') from None
                 if time.monotonic() >= active.deadline_mono:
                     raise RouterError('Inference wall deadline exceeded', code='DEADLINE_EXCEEDED')
                 if write_errors:
@@ -278,6 +465,8 @@ class InferenceAdapter:
                 reader.join(timeout=max(0, read_deadline - time.monotonic()))
             if overflow.is_set():
                 raise RouterError('Worker output exceeds size limit', code='INVALID_RESPONSE')
+            if invalid_frame.is_set() or not admissions.empty():
+                raise RouterError('Invalid source admission frame', code='INVALID_RESPONSE')
             if not output:
                 raise RouterError('Inference worker exited without a result')
             result = parse_strict_json(bytes(output))
@@ -292,12 +481,12 @@ class InferenceAdapter:
                     'at': time.time(), 'endpoint_receipts': receipts}, accounting)
             return result
         finally:
+            writer_stop.set()
             if proc.poll() is None:
                 terminate_process_tree(proc, job)
             if job:
                 job.close()
-            # Killing the worker closes its stdin read end, releasing a blocked writer.
-            # All pipe cleanup shares a one-second budget beyond the inference deadline.
+            # Worker termination releases blocked writes; join pipe threads for at most one further second.
             cleanup_deadline = time.monotonic() + 1
             for pipe_thread in [writer, *readers]:
                 pipe_thread.join(timeout=max(0, cleanup_deadline - time.monotonic()))
@@ -308,7 +497,7 @@ class InferenceAdapter:
                           _candidate_override=provider_override)
 
     def route(self, envelope: dict, *, _candidate_provider=None, _candidate_override=None, cancel_event=None,
-              dispatch_observer=None) -> dict:
+              dispatch_observer=None, source_policy=None) -> dict:
         request_id = str(uuid.uuid4())
         if not isinstance(envelope, dict):
             return self._error(request_id, 'INVALID_REQUEST', 'Envelope must be an object', upstream_attempted=False)
@@ -317,6 +506,9 @@ class InferenceAdapter:
             return self._error(str(request_id)[:128], 'INVALID_REQUEST', 'Invalid internal cancellation event', upstream_attempted=False)
         if dispatch_observer is not None and not callable(dispatch_observer):
             return self._error(str(request_id)[:128], 'INVALID_REQUEST', 'Invalid internal dispatch observer', upstream_attempted=False)
+        if source_policy is not None and (type(source_policy) is not SourceDestinationPolicy
+                or envelope.get('sensitivity') != 'approved_sensitive' or cancel_event is None):
+            return self._error(str(request_id)[:128], 'INVALID_REQUEST', 'Invalid internal source destination policy', upstream_attempted=False)
         conversation_id, deadline_ms = envelope.get('conversation_id', 'default'), envelope.get('deadline_ms', 70000)
         if (not isinstance(request_id, str) or not 1 <= len(request_id) <= 128
                 or not isinstance(conversation_id, str) or not 1 <= len(conversation_id) <= 128
@@ -327,7 +519,7 @@ class InferenceAdapter:
             return self._error(request_id, 'INVALID_REQUEST', 'upstream_attempt_budget must be an integer between 1 and 10', upstream_attempted=False)
         if envelope.get('sensitivity', 'public') not in ('public', 'approved_sensitive'):
             return self._error(request_id, 'INVALID_REQUEST', 'Local-only content cannot use remote inference', upstream_attempted=False)
-        active = ActiveRequest(request_id, time.monotonic() + deadline_ms / 1000, cancel_event, dispatch_observer)
+        active = ActiveRequest(request_id, time.monotonic() + deadline_ms / 1000, cancel_event, dispatch_observer, source_policy)
         with self.lock:
             if active.is_cancelled():
                 return self._error(request_id, 'CANCELLED', 'Request cancelled before registration', upstream_attempted=False)
@@ -373,6 +565,22 @@ class InferenceAdapter:
                 if key in generation:
                     request[key] = generation[key]
             self.router.validate_request(request)
+            source_options = {}
+            if source_policy is not None:
+                source_policy.authorize(deadline_mono=active.deadline_mono, cancelled=active.is_cancelled)
+                def admit(identity):
+                    with self.lock:
+                        if active.is_cancelled() or time.monotonic() >= active.deadline_mono:
+                            raise RouterError('Source request cancelled', code='CANCELLED')
+                        config_snapshot = self.config
+                        current = next((p for p in config_snapshot.get('providers', []) if profile_id(p) == identity), None)
+                        if current is None or source_context_reason(current) != 'eligible':
+                            raise RouterError('SOURCE_DESTINATION_UNAUTHORIZED', code='SOURCE_DESTINATION_UNAUTHORIZED')
+                    source_policy.authorize(identity, deadline_mono=active.deadline_mono, cancelled=active.is_cancelled)
+                    with self.lock:
+                        if self.config is not config_snapshot or active.is_cancelled() or time.monotonic() >= active.deadline_mono:
+                            raise RouterError('Source request cancelled', code='CANCELLED')
+                source_options = {'source_profile_ids': source_policy.allowed_profile_ids, 'source_attempt_guard': admit}
             if active.is_cancelled():
                 return self._error(request_id, 'CANCELLED', 'Request cancelled before dispatch', upstream_attempted=False)
             # Injection is reserved for deterministic offline tests.
@@ -384,11 +592,11 @@ class InferenceAdapter:
                 self._observe_dispatch(active, {'stage': 'runtime_delivered', 'code': 'INLINE_TEST',
                     'at': time.time(), 'endpoint_receipts': []})
                 if candidate_config is None:
-                    raw_result = self.router.chat(request, deadline_time=active.deadline_mono)
+                    raw_result = self.router.chat(request, deadline_time=active.deadline_mono, **source_options)
                 else:
                     candidate_router = Router(candidate_config, state=self.state_path, transport=self.router.transport)
                     try:
-                        raw_result = candidate_router.chat(request, deadline_time=active.deadline_mono)
+                        raw_result = candidate_router.chat(request, deadline_time=active.deadline_mono, **source_options)
                     finally:
                         candidate_router.close()
             else:
