@@ -84,8 +84,9 @@ async function main() {
       assert.equal(operation.conversation_id, receipt.chat, 'The operation belongs to another chat');
       receipt.pending_operation = operation.operation_id; save();
       await page.evaluate(item => Axx.commandLibrary.adopt(item), operation);
-      await page.locator('#command-library-approve').waitFor({state:'visible'});
-      await page.locator('#command-library-approve').click();
+      const approval = page.getByRole('button', {name:/^Aprobar y ejecutar(?: \d+ pasos?)?$/});
+      await approval.waitFor({state:'visible'});
+      await approval.click();
       await page.waitForFunction(id => !Axx.commandLibrary.busy && Axx.commandLibrary.lastOperation?.operation_id === id
         && !['prepared','planning','awaiting_approval','running'].includes(Axx.commandLibrary.lastOperation.state), operation.operation_id, {timeout:120000});
       const result = await page.evaluate(() => Axx.commandLibrary.lastOperation);
