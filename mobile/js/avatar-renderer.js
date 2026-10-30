@@ -61,6 +61,30 @@
       gl.enableVertexAttribArray(this.normal);gl.vertexAttribPointer(this.normal,3,gl.FLOAT,false,24,12);
       gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,buffers.indices);gl.drawElements(gl.TRIANGLES,buffers.count,gl.UNSIGNED_SHORT,0);
     }
+    droplets(){
+      if(!this.accelerated)return super.droplets();
+      if(this.controlMorph.weights[0]<.6||this.digitMorph.weights[0]<.97)return;
+      if(this.transition.weights[11]<.1&&Axx.MOTION_PROFILES[this.state].dropletCount===0)return;
+      const g=this.bead;
+      if(!this.beadBase){
+        // Only the immutable sphere is cached; motion, radius and final Float32 stores stay unchanged.
+        this.beadBase=new Float32Array(g.positions.length);
+        for(let v=0;v<=g.v;v++)for(let u=0;u<=g.u;u++){
+          const k=(v*(g.u+1)+u)*3;
+          Axx.softwareShape(0,u/g.u,v/g.v,0,0,this.sample);this.beadBase.set(this.sample,k);
+        }
+      }
+      const m=this.motion.snapshot();
+      for(let j=0;j<3;j++){
+        const a=m.phase*.20+j*2.15+.5,cx=Math.cos(a)*1.46,cy=Math.sin(a)*1.21,cz=.24+Math.sin(a+.5)*.40,r=j===0?.103:j===1?.071:.048;
+        for(let k=0;k<g.positions.length;k+=3){
+          g.positions[k]=cx+this.beadBase[k]*r;
+          g.positions[k+1]=cy+this.beadBase[k+1]*r;
+          g.positions[k+2]=cz+this.beadBase[k+2]*r;
+        }
+        this.project(g);
+      }
+    }
     draw(time){
       // The desktop's diagnostic wireframe stays on its original rasterizer.
       if(!this.accelerated||this.gl.isContextLost()||this.studio.view===3)return super.draw(time);

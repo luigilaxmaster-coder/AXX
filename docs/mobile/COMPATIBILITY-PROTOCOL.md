@@ -93,3 +93,5 @@ La matriz exigida cubre los diez formatos del estudio: 280/320/339/390/440 en ve
 La [corrección responsive de Android 0.2.7](SCREEN-FIXES-20261029.md) conserva las doce referencias previas de apariencia y añade su comparación de geometría, colores, tipografía y bordes al gate. El informe original de fallos se mantiene como histórico, junto al resultado corregido. Pasar estos escenarios de navegador no certifica un iPhone o plegable físico.
 
 El gate acredita fuente, contratos y navegador. APK/AAB, firma, instalación, micrófono/altavoz, QR óptico, input físico, bisagra, safe areas nativas, WebKit y rendimiento GPU real requieren recibos separados. Ninguna prueba individual acredita todas las funciones de todos los teléfonos.
+
+Las optimizaciones del renderer deben conservar calidad y aportar regresiones de imagen. La [caché de gotas de Android 0.2.8](PERFORMANCE-20261029.md) exige 81 comparaciones exactas de píxeles contra el recorrido original y comprueba que no se repite la geometría base ni se reduce calidad/adaptación. La medición física de tiempo de dibujo se mantiene separada de una garantía de FPS sostenidos.
