@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Source%20Version-v0.22.30-informational" alt="Source version 0.22.30" />
+  <img src="https://img.shields.io/badge/Source%20Version-v0.22.31-informational" alt="Source version 0.22.31" />
   <a href="https://github.com/luigilaxmaster-coder/AXX/actions/workflows/version-consistency.yml">Integración continua</a> ·
   <a href="docs/releases/0.22.26.md">Notas de la versión</a> ·
   <a href="docs/COMMAND-TRAINING.md">Práctica y aceptación</a>
@@ -18,7 +18,7 @@
 
 [Archivos entre dispositivos](docs/mobile/TRANSFER.md) · [Empezar](#empezar) · [Funciones](#funciones) · [Modelos](#modelos) · [Magic Pen](#magic-pen) · [Control del PC](#control-del-pc) · [Arquitectura](#arquitectura) · [Validación](#pruebas-y-estado) · [Desarrollo](#desarrollo)
 
-> **Axx is under active development.** Source and published Windows installer are both **v0.22.30**. Validation is recorded per feature; a working UI or build does not by itself certify every hardware-dependent behavior.
+> **Axx is under active development.** Source is **v0.22.31**; the published Windows installer is **v0.22.30**. Delivery of the newer source is pending publication. Validation is recorded per feature; a working UI or build does not by itself certify every hardware-dependent behavior.
 
 ## Download Axx for Windows
 
@@ -29,7 +29,7 @@ Run the installer and open Axx. Python and Node are not required. Start with **A
 
 The packaged backend may take longer on its first launch while Windows extracts and scans it. The native host allows up to 90 seconds for backend readiness and reports a startup error if that limit is exceeded.
 
-Source and published Windows installer are both **v0.22.30**. Android APKs remain local test artifacts until separately published. See [mobile setup and validation](docs/mobile/README.md) and the [version and release procedure](docs/RELEASING.md).
+Source is **v0.22.31**; the published Windows installer is **v0.22.30**. Delivery of the newer source is pending publication. Android APKs remain local test artifacts until separately published. See [mobile setup and validation](docs/mobile/README.md) and the [version and release procedure](docs/RELEASING.md).
 <!-- release:download:end -->
 
 ---
@@ -188,7 +188,7 @@ El escaneo óptico del QR, los gestos remotos restantes y el audio mantienen ace
 
 ## Pruebas y estado
 
-Los cambios posteriores de olvido por conversación, procedencia documental y atención agrupada por misión siguen en ramas de desarrollo y no están incluidos en el instalador Windows 0.22.30. Compartir el número de versión en los manifiestos no acredita la entrega de esos cambios.
+Las ampliaciones de olvido por conversación, procedencia documental y atención agrupada por misión se incorporan a la fuente 0.22.31; el instalador 0.22.30 no las contiene. La descarga vigente se indica arriba. Un cambio de fuente no acredita por sí solo instalación ni aceptación de todos los comportamientos.
 
 | Área | Evidencia disponible | Alcance que no debe inferirse |
 | --- | --- | --- |

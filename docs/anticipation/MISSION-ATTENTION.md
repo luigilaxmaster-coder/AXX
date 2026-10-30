@@ -1,6 +1,6 @@
 # Atención por misión
 
-Esta unidad amplía M10 sobre las misiones y superficies existentes. La fuente nueva aún requiere su entrega Windows; la aceptación de 0.22.30 y del APK 0.2.11 no acredita esta implementación.
+Esta unidad amplía M10 sobre las misiones y superficies existentes. Cada entrega Windows necesita sus propios recibos; la aceptación de 0.22.30 y del APK 0.2.11 no acredita esta implementación.
 
 ## Estado y exposición
 
