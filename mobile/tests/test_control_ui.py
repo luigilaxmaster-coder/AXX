@@ -6,13 +6,15 @@ from playwright.sync_api import sync_playwright
 from mobile.tests.test_ui import ROOT,NATIVE_FIXTURE
 
 CONTROL_FIXTURE='''
-window.inputPackets=[];window.inputActive=false;window.failInput=false;window.inputLease=0;window.controlCalls=[];window.failRenew=0;window.inputButtons=new Set();window.inputKeys=new Set();
+window.inputPackets=[];window.inputActive=false;window.failInput=false;window.inputLease=0;window.controlCalls=[];window.failRenew=0;window.inputButtons=new Set();window.inputKeys=new Set();window.inputDeadline=0;
 const old=Capacitor.Plugins.AxxTransport.request;
 Capacitor.Plugins.AxxTransport.request=async({path,body})=>{
  if(!path.startsWith('/v1/control/'))return old({path,body});
  controlCalls.push({path,body});
- if(path.endsWith('/acquire')){inputActive=true;inputLease++;}
+ if(inputActive&&performance.now()>=inputDeadline){inputActive=false;inputButtons.clear();inputKeys.clear();}
+ if(path.endsWith('/acquire')){inputActive=true;inputLease++;inputDeadline=performance.now()+3000;}
  if(path.endsWith('/renew')&&failRenew>0){failRenew--;throw Error('temporary network timeout');}
+ if(path.endsWith('/renew')&&inputActive)inputDeadline=performance.now()+3000;
  if(path.endsWith('/release')){inputActive=false;inputButtons.clear();inputKeys.clear();}
  if(path.endsWith('/events')){inputPackets.push(body);for(const e of body.events){const held=e.type==='button'?inputButtons:e.type==='key'?inputKeys:null;if(held)held[e.down?'add':'delete'](e.button||e.key);}if(failInput)throw Error('lost acknowledgement');}
  return {data:{boot_id:'boot',ttl_ms:3000,lease:{lease_id:'lease-'+inputLease,state:inputActive?'granted':'released',last_seq:0},native:{active:inputActive,reason:'released',cursor:{x:10,y:20},keys:[...inputKeys],buttons:[...inputButtons],monitors:[]}}};
@@ -20,13 +22,55 @@ Capacitor.Plugins.AxxTransport.request=async({path,body})=>{
 '''
 
 class RemoteControlUI(unittest.TestCase):
- def open(self,p):
+ def prepare(self,p,script=''):
   browser=p.chromium.launch()
   page=browser.new_page(viewport={'width':339,'height':673},reduced_motion='reduce')
   page.route('https://axx.test/**',lambda route:route.fulfill(path=str(ROOT/(route.request.url.split('https://axx.test/',1)[1] or 'index.html'))))
-  page.add_init_script(NATIVE_FIXTURE+CONTROL_FIXTURE);page.goto('https://axx.test/')
-  page.locator('[data-pane=pc]').click();page.locator('#control-open-pad').click();page.locator('#control-acquire').click();page.locator('#control-stop').wait_for()
+  page.add_init_script(NATIVE_FIXTURE+CONTROL_FIXTURE+script);page.goto('https://axx.test/')
+  page.locator('[data-pane=pc]').click();page.locator('#control-open-pad').click()
   return page
+
+ def open(self,p):
+  page=self.prepare(p);page.locator('#control-acquire').click();page.locator('#control-stop').wait_for()
+  return page
+
+ def test_expired_acquire_snapshot_never_enables_input(self):
+  with sync_playwright() as p:
+   page=self.prepare(p,'''const oldAcquire=Capacitor.Plugins.AxxTransport.request;window.delayedAcquireDone=false;Capacitor.Plugins.AxxTransport.request=async o=>{const response=await oldAcquire(o);if(o.path.endsWith('/acquire')){await new Promise(resolve=>setTimeout(resolve,3200));delayedAcquireDone=true;}return response;};''')
+   page.evaluate('''()=>{window.staleEnabled=false;new MutationObserver(()=>{if(document.querySelector('#control-surface').dataset.connected==='true')staleEnabled=true;}).observe(document.querySelector('#control-surface'),{attributes:true,attributeFilter:['data-connected']});}''')
+   page.locator('#control-acquire').click();page.wait_for_function('()=>delayedAcquireDone',timeout=6000);page.wait_for_timeout(150)
+   self.assertFalse(page.evaluate('staleEnabled'))
+   self.assertTrue(page.locator('#control-stop').is_hidden())
+   self.assertEqual(page.evaluate('inputPackets.length'),0)
+   self.assertEqual(page.evaluate("controlCalls.filter(c=>c.path.endsWith('/acquire')).length"),1)
+
+ def test_cold_start_checks_same_lease_before_enabling_input(self):
+  with sync_playwright() as p:
+   page=self.prepare(p,'''const oldAcquire=Capacitor.Plugins.AxxTransport.request;Capacitor.Plugins.AxxTransport.request=async o=>{if(o.path.endsWith('/acquire'))await new Promise(resolve=>setTimeout(resolve,3200));return oldAcquire(o);};''')
+   page.evaluate('''()=>{window.renewCountAtEnable=null;new MutationObserver(()=>{if(renewCountAtEnable===null&&document.querySelector('#control-surface').dataset.connected==='true')renewCountAtEnable=controlCalls.filter(c=>c.path.endsWith('/renew')).length;}).observe(document.querySelector('#control-surface'),{attributes:true,attributeFilter:['data-connected']});}''')
+   page.locator('#control-acquire').click();page.locator('#control-stop').wait_for(timeout=6500)
+   self.assertGreaterEqual(page.evaluate('renewCountAtEnable'),1)
+   self.assertEqual(page.evaluate('inputLease'),1)
+
+ def test_late_renewal_never_revives_an_expired_client_window(self):
+  with sync_playwright() as p:
+   page=self.open(p)
+   page.evaluate('''()=>{const old=Capacitor.Plugins.AxxTransport.request;let delayed=false;window.lateRenewDone=false;Capacitor.Plugins.AxxTransport.request=async o=>{const response=await old(o);if(o.path.endsWith('/renew')&&!delayed){delayed=true;await new Promise(resolve=>setTimeout(resolve,3200));lateRenewDone=true;}return response;};}''')
+   page.wait_for_timeout(3200)
+   self.assertTrue(page.locator('#control-stop').is_hidden())
+   page.wait_for_function('()=>lateRenewDone',timeout=5000);page.wait_for_timeout(100)
+   self.assertTrue(page.locator('#control-stop').is_hidden())
+   self.assertEqual(page.evaluate('inputPackets.length'),0)
+   self.assertEqual(page.evaluate("controlCalls.filter(c=>c.path.endsWith('/acquire')).length"),1)
+
+ def test_session_renews_across_multiple_watchdog_periods_without_reacquiring(self):
+  with sync_playwright() as p:
+   page=self.open(p);page.wait_for_timeout(6500)
+   self.assertTrue(page.evaluate('inputActive'))
+   self.assertFalse(page.locator('#control-stop').is_hidden())
+   self.assertEqual(page.evaluate("controlCalls.filter(c=>c.path.endsWith('/acquire')).length"),1)
+   self.assertGreaterEqual(page.evaluate("controlCalls.filter(c=>c.path.endsWith('/renew')).length"),7)
+   page.locator('#control-stop').click();page.wait_for_function('()=>!inputActive')
 
  def test_one_failed_renewal_recovers_same_lease_without_replaying_input(self):
   with sync_playwright() as p:
@@ -54,6 +98,37 @@ class RemoteControlUI(unittest.TestCase):
    page.locator('#control-acquire').click();page.locator('#control-stop').wait_for()
    self.assertEqual(page.evaluate('inputLease'),2)
    self.assertEqual(page.evaluate('inputPackets.length'),0)
+
+ def test_slow_native_renewal_finishes_before_three_second_lease_expiry(self):
+  with sync_playwright() as p:
+   page=self.open(p)
+   page.evaluate('''()=>{const old=Capacitor.Plugins.AxxTransport.request;let first=true,deadline=performance.now()+3000;window.slowRenewDone=false;Capacitor.Plugins.AxxTransport.request=async o=>{if(o.path.endsWith('/renew')){if(first){first=false;await new Promise(resolve=>setTimeout(resolve,2200));if(performance.now()>=deadline)inputActive=false;slowRenewDone=true;}deadline=performance.now()+3000;}return old(o);};}''')
+   page.wait_for_function('()=>slowRenewDone',timeout=5000)
+   self.assertTrue(page.evaluate('inputActive'))
+   self.assertEqual(page.locator('#control-surface').get_attribute('data-connected'),'true')
+   self.assertEqual(page.evaluate("controlCalls.filter(c=>c.path.endsWith('/acquire')).length"),1)
+
+ def test_server_window_keeps_repeated_slow_processing_inside_native_deadline(self):
+  with sync_playwright() as p:
+   page=self.open(p)
+   page.evaluate('''()=>{const old=Capacitor.Plugins.AxxTransport.request;window.slowCompleted=0;Capacitor.Plugins.AxxTransport.request=async o=>{const started=performance.now();if(o.path.endsWith('/renew'))await new Promise(resolve=>setTimeout(resolve,1800));const response=await old(o);if(o.path.endsWith('/renew')){response.data.request_window_ms=Math.floor(performance.now()-started+3000);slowCompleted++;}return response;};}''')
+   page.wait_for_function('()=>slowCompleted>=3',timeout=11000)
+   self.assertTrue(page.evaluate('inputActive'))
+   self.assertEqual(page.locator('#control-surface').get_attribute('data-connected'),'true')
+   self.assertEqual(page.evaluate("controlCalls.filter(c=>c.path.endsWith('/acquire')).length"),1)
+   page.locator('#control-stop').click();page.wait_for_function('()=>!inputActive')
+
+ def test_invalid_server_window_stops_without_retry_or_input(self):
+  with sync_playwright() as p:
+   page=self.open(p);page.evaluate('()=>{window.baseControlRequest=Capacitor.Plugins.AxxTransport.request;}')
+   for bad in [-1,'3000',1000000000,0]:
+    with self.subTest(bad=bad):
+     page.evaluate('''bad=>{controlCalls=[];Capacitor.Plugins.AxxTransport.request=async o=>{const response=await baseControlRequest(o);if(o.path.endsWith('/renew'))response.data.request_window_ms=bad;return response;};}''',bad)
+     page.wait_for_function('()=>!inputActive',timeout=5000)
+     self.assertEqual(page.evaluate("controlCalls.filter(c=>c.path.endsWith('/renew')).length"),1)
+     self.assertEqual(page.evaluate('inputPackets.length'),0)
+     page.evaluate('()=>{Capacitor.Plugins.AxxTransport.request=baseControlRequest;}')
+     page.locator('#control-acquire').click();page.locator('#control-stop').wait_for()
 
  def test_renewal_failure_with_drag_releases_instead_of_recovering_held_input(self):
   with sync_playwright() as p:
@@ -93,10 +168,10 @@ class RemoteControlUI(unittest.TestCase):
 
  def test_changed_identity_during_recovery_never_reacquires_or_replays(self):
   with sync_playwright() as p:
-   for identity in ['boot','lease']:
+   for identity in ['boot','lease','released']:
     with self.subTest(identity=identity):
      page=self.open(p)
-     page.evaluate('''identity=>{failRenew=1;const old=Capacitor.Plugins.AxxTransport.request;Capacitor.Plugins.AxxTransport.request=async o=>{const response=await old(o);if(o.path.endsWith('/renew')){if(identity==='boot')response.data.boot_id='different-boot';else response.data.lease.lease_id='different-lease';}return response;};}''',identity)
+     page.evaluate('''identity=>{failRenew=1;const old=Capacitor.Plugins.AxxTransport.request;Capacitor.Plugins.AxxTransport.request=async o=>{const response=await old(o);if(o.path.endsWith('/renew')){if(identity==='boot')response.data.boot_id='different-boot';else if(identity==='lease')response.data.lease.lease_id='different-lease';else response.data.lease.state='released';}return response;};}''',identity)
      page.wait_for_function("()=>document.querySelector('#control-status').textContent.includes('Reconectar')")
      self.assertTrue(page.locator('#control-stop').is_hidden())
      self.assertEqual(page.locator('#control-surface').get_attribute('data-connected'),'false')
