@@ -1,8 +1,10 @@
 # Selección explícita de recursos por proyecto
 
-Incremento de M4 sobre el contexto y las habilidades existentes. La fuente está
-en integración; todavía requiere sus pruebas finales y una entrega propia.
-No forma parte del artefacto 0.22.31 que otro chat está verificando.
+Incremento de M4 sobre el contexto y las habilidades existentes, incorporado en
+Windows 0.22.32. Las pruebas de archivos, HTTP y navegador acreditan los
+contratos descritos; la aceptación física específica de la selección entre
+dos proyectos permanece separada de las comprobaciones generales del avatar.
+No forma parte del artefacto 0.22.31.
 
 ## Recorrido
 

@@ -1,8 +1,11 @@
 # Integración de razonamiento y autonomía · estado técnico
 
 Este informe conserva el alcance original de los adjuntos. Distingue contratos
-implementados de generalizaciones y aceptaciones pendientes. La fuente candidata
-es Windows 0.22.32 / Android 0.2.13-code34; la descarga confirmada anterior es
+implementados de generalizaciones y aceptaciones pendientes. Windows 0.22.32
+está instalado y tiene aceptación manual de avatar, herramientas, ocultar,
+invocar, atajo, Telegram y conservación de voz/Claridad. Android 0.2.13-code34
+está compilado y firmado, sin instalación ni aceptación física por falta de
+dispositivo conectado. La descarga confirmada anterior es
 [Windows 0.22.31](../releases/0.22.31.md). Cambiar fuentes no actualiza por sí solo
 una instalación ni permite reutilizar sus recibos para otro binario.
 
@@ -37,7 +40,7 @@ y procedencia, no autoridad para cambiar permisos.
 | M8 · Recuperación/deshacer | Journal y conciliación sin reenvío; compensación revisada para un archivo nuevo propio en NTFS. Detener y compensar son operaciones distintas. | Compensaciones verificables para otras operaciones; no restaurar versiones sobre cambios posteriores del usuario. |
 | M9 · Memoria editable/olvido | Ámbitos, generaciones, preferencias explícitas, dependencias transitivas, limpieza reanudable y proyección cerrada de auditoría. | Procedencia irrecuperable en registros heredados y aceptación integrada adicional. No promete borrar copias externas ni efectos históricos. |
 | M10 · Atención independiente | Agrupación por misión/revisión, presupuesto durable de interrupciones, descartar/silenciar/restaurar. | Utilidad humana y todos los recorridos físicos nuevos; una solicitud de voz no prueba reproducción audible. |
-| M11 · Continuidad PC/móvil | Misma misión, corrección exacta, propietario durable, una sola admisión y conciliación de respuestas perdidas. La PC es el ejecutor. | Binarios nuevos, instalación con datos y aceptación física de esta extensión. El control de .2.11 no acredita M11 nuevo. |
+| M11 · Continuidad PC/móvil | Misma misión, corrección exacta, propietario durable, una sola admisión y conciliación de respuestas perdidas. La PC .32 es el ejecutor instalado; el APK .13 está firmado. El aviso de olvido depura contenido local conservando IDs. | Instalación Android con datos y aceptación física de esta extensión. El control de .2.11 no acredita M11 nuevo. |
 | M12 · Trabajo humano | Feedback idempotente y evaluador offline de pares declarados con costes, fracasos, datos ausentes y salida atómica. | Pares humanos equivalentes reales, revisión del contenido de recibos, utilidad observada y holdout independiente. No hay cronómetro automático ni ahorro humano demostrado. |
 
 ## Continuidad de misiones: contrato técnico

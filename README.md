@@ -190,7 +190,7 @@ El escaneo óptico del QR, los gestos remotos restantes y el audio mantienen ace
 
 El instalador Windows **0.22.31** incluye olvido por conversación, procedencia documental y atención agrupada por misión. La entrega fue instalada y su descarga se publicó después de verificar los hashes. Las [notas de aceptación y límites](docs/releases/0.22.31.md) distinguen los recorridos comprobados de las funciones y dispositivos sin certificar.
 
-La fuente candidata 0.22.32 añade selección explícita de recursos, continuidad móvil y evaluación de esfuerzo declarado. El [informe técnico de alcance](docs/anticipation/IMPLEMENTATION-STATUS.md) distingue esos contratos de las ampliaciones todavía pendientes; no declara terminada toda la especificación de los adjuntos.
+La versión 0.22.32 añade selección explícita de recursos, continuidad móvil y evaluación de esfuerzo declarado en las herramientas de fuente. El [informe técnico de alcance](docs/anticipation/IMPLEMENTATION-STATUS.md) distingue esos contratos de las ampliaciones todavía pendientes; no declara terminada toda la especificación de los adjuntos.
 
 | Área | Evidencia disponible | Alcance que no debe inferirse |
 | --- | --- | --- |
