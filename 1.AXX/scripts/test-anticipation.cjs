@@ -63,7 +63,7 @@ const {chromium}=requirePlaywright();
      if(action==='feedback'){
       if(body.action==='shown'){data.metrics.shown++;return {shown:true};}
       if(body.action==='useful'){if(!row.feedback.corrections)row.feedback.usefulness='confirmed';return row;}
-      if(body.action==='correction'){row.feedback.usefulness='corrected';row.feedback.corrections++;return row;}
+      if(body.action==='correction'){row.feedback.usefulness='corrected';if(!row.feedback.corrections)row.feedback.corrections=1;return row;}
       row.state=({dismiss:'DISMISSED',suppress:'SUPPRESSED',restore:'DETECTED'})[body.action];return row;
      }
      if(action==='cancel'){for(const row of data.suggestions)if(!body.suggestion_id||row.suggestion_id===body.suggestion_id)row.state='CANCELLED';return {cancelled:true};}
@@ -290,7 +290,10 @@ const {chromium}=requirePlaywright();
   assert.match(await page.locator('#anticipation-why').innerText(),/Confirmaste la utilidad/);
   await page.locator('#anticipation-why button').filter({hasText:'Necesita corrección'}).click();
   await page.waitForFunction(()=>Axx.anticipation.state.suggestions[0].feedback.usefulness==='corrected');
-  assert.match(await page.locator('#anticipation-why').innerText(),/Corregido por ti/);
+  assert.match(await page.locator('#anticipation-why').innerText(),/Corrección solicitada[\s\S]*no confirma que ya se haya corregido/);
+  await page.locator('#anticipation-why button').filter({hasText:'Necesita corrección'}).click();
+  await page.waitForFunction(()=>calls.filter(c=>c.body?.action==='correction').length===2);
+  assert.equal(await page.evaluate(()=>Axx.anticipation.state.suggestions[0].feedback.corrections),1);
   assert.doesNotMatch(await page.locator('#anticipation-why').innerText(),/Confirmaste la utilidad/,'A correction supersedes prior positive utility feedback');
   await page.evaluate(()=>{data.suggestions[0].result={state:'succeeded',postconditions_passed:false};return Axx.anticipation.refresh();});
   assert.match(await page.locator('#anticipation-phase').innerText(),/falta evidencia/,'Receipt without postconditions is not rendered verified');

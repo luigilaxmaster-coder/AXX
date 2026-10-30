@@ -1212,6 +1212,7 @@ class AnticipationService:
         metrics.update(attention_interruptions=admissions[0], attention_presented=admissions[1], attention_response_acknowledgements=admissions[2],
             attention_budget_used_last_hour=self._attention_charge_count())
         metrics.update(model_calls=0, model_calls_scope='Only LLM calls initiated by anticipation rules; excludes local ASR/TTS and planner mission ledgers.',
+            correction_feedback_basis='Correction-required signals per suggestion; legacy totals may include repeated feedback. Not edits performed or measured human effort.',
             coverage={'numerator': metrics['evaluated_proposed'], 'denominator': metrics['eligible'], 'universe': 'Candidates evaluated since P1 eligibility counters were introduced.'},
             verification_latency_ms=distribution([row['wall_ms'] for row in measurements if row['kind'] == 'verification']),
             tick_latency_ms=distribution([row['wall_ms'] for row in measurements if row['kind'] == 'tick']),
@@ -3290,8 +3291,10 @@ class AnticipationService:
             if action in ('useful', 'correction'):
                 feedback = item.setdefault('feedback', {'acceptance': 'none', 'usefulness': 'unknown', 'corrections': 0})
                 if action == 'correction':
-                    feedback.update(usefulness='corrected', corrections=feedback.get('corrections', 0) + 1)
-                    self._stats(item['task_id'], item['routine_id'], 'explicit_corrections')
+                    feedback['usefulness'] = 'corrected'
+                    if not feedback.get('corrections'):
+                        feedback['corrections'] = 1
+                        self._stats(item['task_id'], item['routine_id'], 'explicit_corrections')
                 elif not feedback.get('corrections') and feedback.get('usefulness') != 'confirmed':
                     feedback['usefulness'] = 'confirmed'
                     self._stats(item['task_id'], item['routine_id'], 'explicit_useful_feedback')

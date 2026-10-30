@@ -47,6 +47,13 @@ Reutilizar la base SQLite existente con tablas aditivas y transacciones acotadas
 
 La procedencia distingue trabajo de Axx iniciado por orden, sugerencia aceptada y rutina autónoma. Un efecto técnicamente verificado no prueba preferencia humana ni utilidad. Aceptación, utilidad explícita y corrección tienen señales y contadores distintos. El primer recorrido tiene profundidad/presupuesto de iniciativa uno y termina en su verificación; sus propias salidas no vuelven a alimentar una cadena ilimitada.
 
+«Necesita corrección» registra una señal por propuesta, incluso con reintentos,
+dos conexiones o reinicio. No acredita una corrección ejecutada ni mide su coste
+humano. Los totales heredados se conservan; pueden incluir pulsaciones repetidas
+del comportamiento anterior. `correction_feedback_basis` declara este límite.
+El tiempo humano, las tareas equivalentes manual/Axx y un holdout independiente
+siguen requiriendo sus propias observaciones; no se deducen de estos contadores.
+
 Estados de efecto exigidos: `INTENDED → DISPATCHED → EXECUTED → VERIFIED`, o `FAILED`/`UNCERTAIN`. El recibo de despacho no basta para `VERIFIED`: exige postcondiciones observadas. La UI presenta solo estados respaldados: `DETECTED`, `PREPARED`, `AWAITING_APPROVAL`, `EXECUTING`, `VERIFIED`, `FAILED` e incertidumbre explícita cuando corresponda.
 
 Cooldown por rutina, presupuesto de interrupciones y límites por tarea evitan ruido. Descartar afecta a la instancia; «no volver a sugerir» persiste sobre la identidad de rutina, incluso tras cambiar de versión. Ignorar una tarjeta no autoriza nada.

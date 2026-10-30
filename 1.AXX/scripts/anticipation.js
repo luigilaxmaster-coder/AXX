@@ -188,7 +188,7 @@
   if(row.approval==='manual'&&row.accepted_hash===row.plan_hash)add('Confirmado por ti','Aceptaste esta versión exacta del plan.');
   else if(grant)add('Permiso registrado',grant.root+' · '+(grant.revoked?'Revocado':grant.expires_at===null?'Hasta revocación':new Date(grant.expires_at*1000).toLocaleString())+'. Se revalida antes de ejecutar.');
   else add('Autorización','Esta propuesta no adjunta una aceptación exacta ni un permiso persistente registrado.');
-  if(row.feedback?.corrections>0||row.feedback?.usefulness==='corrected')add('Corregido por ti','El resultado recibió correcciones; la aceptación no acredita utilidad completa.');
+  if(row.feedback?.corrections>0||row.feedback?.usefulness==='corrected')add('Corrección solicitada','Indicaste que el resultado necesita corrección. Esto no confirma que ya se haya corregido.');
   else if(row.feedback?.usefulness==='confirmed')add('Confirmado por ti','Confirmaste la utilidad del resultado.');
   else add('Utilidad','Sin confirmación de utilidad. Aceptar un plan no confirma su resultado.');
   if(stale(row))add('Desactualizado','El contexto o la vigencia de esta propuesta dejó de ser válido. Hace falta una preparación nueva.');

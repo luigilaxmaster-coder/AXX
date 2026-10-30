@@ -550,6 +550,52 @@ class AnticipationTests(unittest.TestCase):
         self.assertEqual(corrected['feedback']['corrections'], 1)
         self.assertEqual(self.service.feedback(item['suggestion_id'], 'useful')['feedback']['usefulness'], 'corrected')
 
+    def test_correction_required_feedback_is_one_signal_across_retries_restart_and_connections(self):
+        self.configure()
+        item = self.propose()
+        self.service.accept(item['suggestion_id'], item['plan_hash'])
+        operations = self.executor.list_operations()
+        other = AnticipationService(self.commands)
+        barrier, errors = threading.Barrier(2), []
+        def report(service):
+            try:
+                barrier.wait(5)
+                service.feedback(item['suggestion_id'], 'correction')
+            except BaseException as error:
+                errors.append(error)
+                barrier.abort()
+        workers = [threading.Thread(target=report, args=(service,), daemon=True) for service in (self.service, other)]
+        try:
+            for worker in workers: worker.start()
+            for worker in workers: worker.join(10)
+            self.assertFalse(any(worker.is_alive() for worker in workers))
+            self.assertEqual(errors, [])
+        finally:
+            other.close()
+        self.restart()
+        for _ in range(3):
+            corrected = self.service.feedback(item['suggestion_id'], 'correction')
+        self.assertEqual(corrected['feedback']['corrections'], 1)
+        self.assertEqual(self.service.status()['metrics']['explicit_corrections'], 1)
+        self.assertEqual(self.service.feedback(item['suggestion_id'], 'useful')['feedback']['usefulness'], 'corrected')
+        self.assertEqual(self.executor.list_operations(), operations)
+        second = self.propose('task-b')
+        self.service.feedback(second['suggestion_id'], 'correction')
+        self.assertEqual(self.service.status()['metrics']['explicit_corrections'], 2)
+
+    def test_legacy_correction_totals_are_preserved_without_counting_new_replays(self):
+        self.configure()
+        item = self.propose()
+        with self.service._policy_transaction(immediate=True):
+            legacy = self.service._get(item['suggestion_id'])
+            legacy['feedback'].update(usefulness='corrected', corrections=7)
+            self.service._save(legacy)
+            for _ in range(7): self.service._stats(item['task_id'], item['routine_id'], 'explicit_corrections')
+        before = self.service.status()['metrics']['explicit_corrections']
+        result = self.service.feedback(item['suggestion_id'], 'correction')
+        self.assertEqual(result['feedback']['corrections'], 7)
+        self.assertEqual(self.service.status()['metrics']['explicit_corrections'], before)
+
     def test_anticipation_initiated_runs_never_inflate_routine_preference_evidence(self):
         self.enable_learning()
         self.configure()
