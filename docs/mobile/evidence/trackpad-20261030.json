@@ -26,8 +26,20 @@
     "backend_optional_window_commit": "f15d2b2",
     "remote_only_material_commits": ["5eb282e", "d389ad1"],
     "requires_both_material_commits": true,
-    "installed_patch_acceptance": "PENDING coordinated Windows delivery"
+    "installed_patch_acceptance": "R3 0.22.30 installed; continuity and Stop accepted by human report",
+    "accepted_source_main": "38cad3827bc07b983c4a342ab99864a5e2776624"
   },
-  "physical_trackpad_acceptance": "NOT_PERFORMED; 0.2.10 previously failed",
+  "physical_trackpad_acceptance": {
+    "result": "CONTINUITY_AND_STOP_HUMAN_ACCEPTED",
+    "recorded_at": "2026-10-30T12:45:18.691071+00:00",
+    "method": "direct human reply recorded by the Windows delivery owner; private receipt inspected",
+    "reported_duration_seconds": 65,
+    "movement_at_start_and_end": "accepted by human",
+    "stop": "accepted by human",
+    "automatic_measurement": false,
+    "click_drag_scroll_revalidated_in_this_trial": false,
+    "automatic_input_reauthorized": false,
+    "scope": "Samsung Android 0.2.11 with Windows 0.22.30 R3; no universal or indefinite-duration measurement claimed"
+  },
   "thermal_battery_trial": "NOT_STARTED"
 }
