@@ -46,6 +46,8 @@ jobs:
         run: python -m unittest backend.tests.test_goal_criteria backend.tests.test_goal_progress backend.tests.test_goal_progress_holdout backend.tests.test_goal_progress_input_race backend.tests.test_anticipation_goal_progress backend.tests.test_missions backend.tests.test_mission_dispatch -q
       - name: Scoped forgetting and memory corrections
         run: python -m unittest backend.tests.test_task_memory backend.tests.test_command_task_memory backend.tests.test_skill_task_memory backend.tests.test_chat_forgetting backend.tests.test_selection_policy backend.tests.test_session_memory backend.tests.test_workshop_task_memory backend.tests.test_anticipation_task_memory backend.tests.test_legacy_task_memory backend.tests.test_memory_http backend.tests.test_telegram_task_memory -q
+      - name: Forgotten mission public projection
+        run: python -m unittest backend.tests.test_forgotten_plan_projection -q
       - name: Document integrity, learning and verified reuse
         run: python -m unittest backend.tests.test_document_references backend.tests.test_reference_library backend.tests.test_procedure_integration backend.tests.test_document_skill_learning backend.tests.test_document_lesson_provenance backend.tests.test_workshop_document_provenance backend.tests.test_document_reference_http backend.tests.test_skill_learning backend.tests.test_skill_context backend.tests.test_revalidation backend.tests.test_skills_http backend.tests.test_capability_workshop backend.tests.test_capability_workshop_http -q
       - name: Connect memory and compatibility regressions

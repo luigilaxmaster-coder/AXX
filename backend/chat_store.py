@@ -375,6 +375,7 @@ class ChatStore:
                 if 'artifact_compensations' in tables:
                     from .actions.artifact_compensation import project_relationship
                     results = [project_relationship(db, result) for result in results]
+            learning_start = len(results)
             if 'learning_plans' in tables:
                 from .action_learning import ActionLearning
                 for row in db.execute('SELECT payload FROM learning_plans ORDER BY rowid DESC LIMIT 100'):
@@ -401,7 +402,7 @@ class ChatStore:
                         or (ref is None and type(created) not in (int, float))
                         or (type(created) in (int, float) and forgotten is not None and created <= forgotten)):
                     result['memory_forgotten'] = True
-            return results
+            return results[:learning_start] + [ActionLearning._memory_view(result, db) for result in results[learning_start:]]
 
     def forget_task(self, task_id, scope_ref):
         """Invalidate reusable chat memory after the coordinator commits its barrier."""
