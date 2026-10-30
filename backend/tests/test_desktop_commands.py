@@ -340,7 +340,9 @@ class DesktopCommandTests(unittest.TestCase):
 
     @unittest.skipUnless(os.name == 'nt', 'Windows PowerShell integration')
     def test_real_powershell_output_and_error(self):
-        for script, state in [("Write-Output 'hola áxx'", 'succeeded'), ("throw 'fixture failure'", 'failed')]:
+        for script, state in [("Write-Output 'hola áxx'", 'succeeded'),
+                              ("Set-Content -LiteralPath 'shell-unicode.txt' -Value 'hola áxx' -Encoding UTF8; Get-Content -LiteralPath 'shell-unicode.txt' -Encoding UTF8", 'succeeded'),
+                              ("throw 'fixture failure'", 'failed')]:
             pending = self.service.prepare('axx.shell.powershell', {'script': script})
             result = self.service.execute(pending['operation_id'], True)
             self.assertEqual(result['state'], state, result)
@@ -348,12 +350,14 @@ class DesktopCommandTests(unittest.TestCase):
                 self.assertIn('hola áxx', result['output']['stdout'])
             else:
                 self.assertIn('fixture failure', result['output']['stderr'])
+        self.assertEqual((self.executor.workspace_root / 'shell-unicode.txt').read_text(encoding='utf-8-sig').strip(), 'hola áxx')
 
     @unittest.skipUnless(os.name == 'nt', 'Windows PowerShell integration')
     def test_shell_timeout_output_bound_and_filtered_environment(self):
-        cases = [('Start-Sleep -Seconds 20', .15, 'superó el límite'),
-                 ("Write-Output ('x' * 150000)", 10, '64 KiB'),
-                 ("Write-Output $env:AXX_TEST_SECRET", 10, None)]
+        # Test the guards independently of cmdlet latency on CI hosts.
+        cases = [('[System.Threading.Thread]::Sleep(20000)', .15, 'superó el límite'),
+                 ("[Console]::Out.Write('x' * 150000); [Console]::Out.Flush()", 10, '64 KiB'),
+                 ("[Console]::Out.Write('ENV_FILTER_OK:' + [Environment]::GetEnvironmentVariable('AXX_TEST_SECRET'))", 10, None)]
         for script, timeout, error in cases:
             with self.subTest(script=script), patch('backend.actions.desktop.SHELL_TIMEOUT', timeout), patch.dict(os.environ, {'AXX_TEST_SECRET': 'PRIVATE-FIXTURE'}):
                 pending = self.service.prepare('axx.shell.powershell', {'script': script})
@@ -361,12 +365,19 @@ class DesktopCommandTests(unittest.TestCase):
                 if error:
                     self.assertEqual(result['state'], 'failed')
                     self.assertIn(error, result['error']['message'])
+                    if error == '64 KiB':
+                        self.assertEqual(len(result['output']['stdout'].encode('utf-8')), 65536)
+                        self.assertTrue(result['output']['output_truncated'])
+                        self.assertEqual(result['output']['status'], 'output_limit')
+                else:
+                    self.assertEqual(result['state'], 'succeeded', result)
+                    self.assertEqual(result['output']['stdout'], 'ENV_FILTER_OK:')
                 self.assertLessEqual(len(result['output']['stdout'].encode('utf-8')), 65536)
                 self.assertNotIn('PRIVATE-FIXTURE', result['output']['stdout'])
 
     @unittest.skipUnless(os.name == 'nt', 'Windows PowerShell integration')
     def test_cancel_running_powershell(self):
-        pending = self.service.prepare('axx.shell.powershell', {'script': "Set-Content -LiteralPath 'running.txt' -Value $PID; Start-Sleep -Seconds 30"})
+        pending = self.service.prepare('axx.shell.powershell', {'script': "[IO.File]::WriteAllText('running.txt',[string]$PID); [System.Threading.Thread]::Sleep(30000)"})
         results = []
         thread = threading.Thread(target=lambda: results.append(self.service.execute(pending['operation_id'], True)))
         thread.start()
@@ -380,6 +391,8 @@ class DesktopCommandTests(unittest.TestCase):
             thread.join(6)
             self.assertFalse(thread.is_alive())
             self.assertEqual(results[0]['state'], 'cancelled', results)
+            self.assertEqual(results[0]['output']['status'], 'cancelled')
+            self.assertIsNotNone(results[0]['output']['exit_code'])
         finally:
             self.service.cancel(pending['operation_id'])
             thread.join(35)

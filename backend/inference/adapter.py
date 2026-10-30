@@ -207,8 +207,9 @@ class InferenceAdapter:
                    else [sys.executable, '-m', 'backend.server', '--router-worker'])
         command += ['--state', str(self.state_path)]
         worker_config = copy.deepcopy(self.config if config_override is None else config_override)
+        # Clock subtraction can round a valid 70 s budget slightly above the protocol cap.
         data = json.dumps({'config': worker_config, 'request': request,
-                          'remaining_seconds': max(.001, active.deadline_mono - time.monotonic())},
+                          'remaining_seconds': min(70., max(.001, active.deadline_mono - time.monotonic()))},
                          allow_nan=False).encode('utf-8')
         if len(data) > MAX_WORKER_INPUT:
             raise RequestError('Worker input exceeds size limit')

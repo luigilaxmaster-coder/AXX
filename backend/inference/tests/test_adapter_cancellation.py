@@ -7,7 +7,7 @@ import threading
 import unittest
 from unittest.mock import patch
 
-from backend.inference.adapter import InferenceAdapter
+from backend.inference.adapter import ActiveRequest, InferenceAdapter, worker_main
 
 
 class AdapterCancellationTests(unittest.TestCase):
@@ -18,6 +18,40 @@ class AdapterCancellationTests(unittest.TestCase):
         self.addCleanup(self.adapter.close)
         self.event = threading.Event()
         self.request = {'request_id': 'cancel-test', 'messages': [{'role': 'user', 'content': 'test'}]}
+
+    def test_serialized_worker_budget_stays_within_protocol_after_clock_rounding(self):
+        clock = 442.007
+        self.assertGreater((clock + 70) - clock, 70)
+        encode = json.dumps
+        for budget in (1., 70.):
+            with self.subTest(budget=budget):
+                active = ActiveRequest('rounding-fixture', clock + budget, self.event)
+                with patch('backend.inference.adapter.time.monotonic', return_value=clock), \
+                     patch('backend.inference.adapter.json.dumps', wraps=encode) as encoded, \
+                     patch('backend.inference.adapter.spawn_managed_process', side_effect=OSError('fixture-before-spawn')) as spawn:
+                    with self.assertRaisesRegex(OSError, 'fixture-before-spawn'):
+                        self.adapter._worker_result(active, self.request)
+                remaining = encoded.call_args.args[0]['remaining_seconds']
+                self.assertGreater(remaining, 0)
+                self.assertLessEqual(remaining, budget)
+                self.assertEqual(remaining, budget)
+                self.assertEqual(active.deadline_mono, clock + budget)
+                spawn.assert_called_once()
+
+    def test_worker_still_rejects_budget_above_protocol_limit_before_routing(self):
+        payload = json.dumps({'config': {'allow_paid': False, 'providers': []}, 'request': self.request,
+                              'remaining_seconds': (442.007 + 70) - 442.007}).encode()
+        with io.TextIOWrapper(io.BytesIO(payload)) as stdin, io.TextIOWrapper(io.BytesIO()) as stdout, \
+             patch('backend.inference.adapter.sys.stdin', stdin), \
+             patch('backend.inference.adapter.sys.stdout', stdout), \
+             patch('backend.inference.adapter.Router') as router:
+            code = worker_main(str(Path(self.temp.name) / 'worker.db'))
+            response = json.loads(stdout.buffer.getvalue())
+        self.assertEqual(code, 1)
+        self.assertFalse(response['ok'])
+        self.assertEqual(response['error']['code'], 'INVALID_REQUEST')
+        self.assertIs(response['error']['upstream_attempted'], False)
+        router.assert_not_called()
 
     def test_pre_cancelled_request_never_registers_or_starts_worker(self):
         self.event.set()
