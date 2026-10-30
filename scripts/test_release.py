@@ -8,6 +8,7 @@ from subprocess import CompletedProcess
 from pathlib import Path
 
 import release
+from backend_bundle import inventory
 
 
 class ReleaseTests(unittest.TestCase):
@@ -24,7 +25,7 @@ class ReleaseTests(unittest.TestCase):
         self.current = release.check(self.root)
 
     def receipt(self):
-        for name in ("axx-backend.spec", "scripts/setup-freellmapi.ps1", "scripts/configure-native-gateway.py", "scripts/anythingmcp-local.py", "src-tauri/resources/ai-memory.exe", "requirements-telegram.txt", "backend/telegram/webapp.html", "backend/telegram/webapp.css", "backend/telegram/webapp.js", "mobile/www/js/desktop-avatar.js", "mobile/js/avatar-renderer.js"):
+        for name in ("axx-backend.spec", "scripts/backend_bundle.py", "scripts/build-windows.ps1", "scripts/setup-freellmapi.ps1", "scripts/configure-native-gateway.py", "scripts/anythingmcp-local.py", "src-tauri/resources/ai-memory.exe", "requirements-telegram.txt", "backend/telegram/webapp.html", "backend/telegram/webapp.css", "backend/telegram/webapp.js", "mobile/www/js/desktop-avatar.js", "mobile/js/avatar-renderer.js"):
             path = self.root / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(b"unit test source fixture")
@@ -42,6 +43,83 @@ class ReleaseTests(unittest.TestCase):
         release.write_json(b, build)
         release.write_json(i, installed)
         return installer, b, i
+
+    def onedir_receipt(self):
+        installer, b, i = self.receipt()
+        bundle_root = self.root / 'dist/axx-backend'
+        (bundle_root / '_internal').mkdir(parents=True)
+        (bundle_root / 'axx-backend.exe').write_bytes(b'backend executable')
+        (bundle_root / '_internal/python312.dll').write_bytes(b'python DLL fixture')
+        resources = self.root / 'src-tauri/resources'
+        shutil.copytree(bundle_root, resources, dirs_exist_ok=True)
+        app = self.root / 'installed'
+        shutil.copytree(bundle_root, app / 'resources')
+        bundle = inventory(bundle_root)
+        build = release.read_json(b)
+        backend = bundle_root / 'axx-backend.exe'
+        build['artifacts'].append({'path': str(backend), 'version': self.current,
+                                   'sha256': release.digest(backend), 'bytes': backend.stat().st_size})
+        build['backend_bundle'] = bundle
+        release.write_json(b, build)
+        (self.root / 'build').mkdir()
+        release.write_json(self.root / 'build/backend-build-receipt.json', {'bundle': bundle})
+        runtime = release.read_json(i)
+        runtime['executable'] = str(app / 'Axx.exe')
+        release.write_json(i, runtime)
+        proof = {'result': 'PASS', 'version': self.current, 'installed_directory': str(app),
+                 'backend_sha256': release.digest(backend),
+                 'backend_bundle': {'layout': 'onedir', 'manifest_sha256': bundle['manifest_sha256'],
+                                    'files_verified': len(bundle['files'])}}
+        release.write_json(i.with_name('installed-files.json'), proof)
+        return installer, b, i
+
+    def test_onedir_delivery_requires_complete_matching_proof(self):
+        installer, b, i = self.onedir_receipt()
+        self.assertEqual(release.validate_receipts(self.root, b, i), installer)
+        proof_path = i.with_name('installed-files.json')
+        proof = release.read_json(proof_path)
+        proof['backend_bundle']['manifest_sha256'] = '0' * 64
+        release.write_json(proof_path, proof)
+        with self.assertRaisesRegex(ValueError, 'does not match the build'):
+            release.validate_receipts(self.root, b, i)
+        proof_path.unlink()
+        with self.assertRaisesRegex(ValueError, 'installed-files.json'):
+            release.validate_receipts(self.root, b, i)
+
+    def test_onedir_delivery_rejects_tampered_build_or_installed_dependencies(self):
+        for relative in ('dist/axx-backend/_internal/python312.dll',
+                         'src-tauri/resources/_internal/python312.dll',
+                         'installed/resources/_internal/python312.dll'):
+            with self.subTest(relative=relative):
+                # Each failure must be observed independently, including staging.
+                installer, b, i = self.onedir_receipt()
+                dependency = self.root / relative
+                original = dependency.read_bytes()
+                dependency.write_bytes(b'tampered')
+                with self.assertRaisesRegex(ValueError, 'hashes or byte counts differ'):
+                    release.validate_receipts(self.root, b, i)
+                dependency.write_bytes(original)
+                self.assertEqual(release.validate_receipts(self.root, b, i), installer)
+                shutil.rmtree(self.root / 'dist')
+                shutil.rmtree(self.root / 'installed')
+                shutil.rmtree(self.root / 'build')
+
+    def test_onedir_delivery_rejects_missing_dependency_and_missing_manifest(self):
+        _, b, i = self.onedir_receipt()
+        (self.root / 'installed/resources/_internal/python312.dll').unlink()
+        with self.assertRaisesRegex(ValueError, 'no _internal files|inventory differs'):
+            release.validate_receipts(self.root, b, i)
+        build = release.read_json(b)
+        del build['backend_bundle']
+        release.write_json(b, build)
+        with self.assertRaisesRegex(ValueError, 'requires a complete bundle'):
+            release.validate_receipts(self.root, b, i)
+
+    def test_onedir_delivery_rejects_backend_receipt_mismatch(self):
+        _, b, i = self.onedir_receipt()
+        release.write_json(self.root / 'build/backend-build-receipt.json', {'bundle': {}})
+        with self.assertRaisesRegex(ValueError, 'Backend build receipt'):
+            release.validate_receipts(self.root, b, i)
 
     def test_bump_preserves_confirmed_download(self):
         published = release.read_json(self.root / "release.json")

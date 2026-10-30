@@ -1,69 +1,95 @@
-"""Verify installed resources and Tauri's documented-in-binary NSIS marker.
+"""Verify the installed backend bundle and Tauri's exact three-byte NSIS marker.
 
-Tauri patches the bundle marker while producing NSIS, then restores the release
-EXE to UNK. Compare against that exact three-byte transform; accept no other
-binary difference. This verifier never edits the installed or release files.
+This verifier never edits the installed or release files. Legacy onefile
+receipts verify the EXE only; onedir receipts must verify every dependency.
 """
 import argparse
 import hashlib
 import json
+import sys
 from pathlib import Path
 
-parser = argparse.ArgumentParser()
-parser.add_argument('--installed', type=Path, required=True)
-parser.add_argument('--build-result', type=Path, required=True)
-parser.add_argument('--output', type=Path, required=True)
-args = parser.parse_args()
-build = json.loads(args.build_result.read_text(encoding='utf-8-sig'))
-release_path = Path(build['artifacts'][1]['path'])
-release = release_path.read_bytes()
-installed_path = args.installed / 'Axx.exe'
-installed = installed_path.read_bytes()
-digest = lambda data: hashlib.sha256(data).hexdigest()
-if digest(release).lower() != build['artifacts'][1]['sha256'].lower():
-    raise RuntimeError('Release changed since build')
-if installed == release:
-    marker = 'identical-release'
-else:
-    # The namespace prefix can vary; this exact suffix is part of the Tauri
-    # bundle-type static. Require one occurrence and the entire resulting hash.
-    old, new = b'BUNDLE_TYPE_VAR_UNK', b'BUNDLE_TYPE_VAR_NSS'
-    if release.count(old) != 1:
-        raise RuntimeError('Expected one Tauri bundle marker')
-    expected = release.replace(old, new, 1)
-    if installed != expected:
-        raise RuntimeError('Installed EXE differs outside the exact NSIS bundle marker')
-    marker = 'Tauri UNK -> NSS; exactly three bytes'
-backend_path = args.installed / 'resources' / 'axx-backend.exe'
-backend_hash = digest(backend_path.read_bytes())
-if backend_hash.lower() != build['artifacts'][2]['sha256'].lower():
-    raise RuntimeError('Backend differs from verified build')
-memory_inputs = [value for name, value in build['source_hashes'].items()
-                 if name.replace('\\', '/').lower().endswith('src-tauri/resources/ai-memory.exe')]
-if len(memory_inputs) != 1:
-    raise RuntimeError('Expected one frozen ai-memory dependency hash in build receipt')
-memory_path = args.installed / 'resources' / 'ai-memory.exe'
-memory_hash = digest(memory_path.read_bytes())
-if memory_hash.lower() != memory_inputs[0].lower():
-    raise RuntimeError('ai-memory differs from frozen dependency verified during build')
-notice_count = 0
-for name, expected_hash in build['source_hashes'].items():
-    marker_path = 'src-tauri/resources/license-notices/'
-    normalized = name.replace('\\', '/')
-    if marker_path in normalized:
-        relative = normalized.split(marker_path, 1)[1]
-        notice = args.installed / 'resources' / 'license-notices' / relative
-        if digest(notice.read_bytes()).lower() != expected_hash.lower():
-            raise RuntimeError(f'Installed license notice differs: {relative}')
-        notice_count += 1
-if not notice_count:
-    raise RuntimeError('Build receipt contains no license notices')
-report = {'result': 'PASS', 'version': build['artifacts'][0]['version'],
-          'license_notices_verified': notice_count,
-          'installed_directory': str(args.installed.resolve()), 'tauri_bundle_marker': marker,
-          'installed_exe_sha256': digest(installed), 'release_exe_sha256': digest(release),
-          'backend_sha256': backend_hash, 'ai_memory_sha256': memory_hash,
-          'files': [{'path': str(p.resolve()), 'bytes': p.stat().st_size}
-                    for p in (installed_path, backend_path, memory_path)]}
-args.output.write_text(json.dumps(report, indent=2), encoding='utf-8')
-print(json.dumps(report, indent=2))
+# The installer deliberately uses python -I; import only this script's sibling.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from backend_bundle import verify as verify_backend_bundle
+
+
+def digest(data):
+    return hashlib.sha256(data).hexdigest()
+
+
+def verify_installed_files(installed_directory: Path, build: dict) -> dict:
+    release_path = Path(build['artifacts'][1]['path'])
+    release = release_path.read_bytes()
+    installed_path = installed_directory / 'Axx.exe'
+    installed = installed_path.read_bytes()
+    if digest(release).lower() != build['artifacts'][1]['sha256'].lower():
+        raise RuntimeError('Release changed since build')
+    if installed == release:
+        marker = 'identical-release'
+    else:
+        old, new = b'BUNDLE_TYPE_VAR_UNK', b'BUNDLE_TYPE_VAR_NSS'
+        if release.count(old) != 1:
+            raise RuntimeError('Expected one Tauri bundle marker')
+        expected = release.replace(old, new, 1)
+        if installed != expected:
+            raise RuntimeError('Installed EXE differs outside the exact NSIS bundle marker')
+        marker = 'Tauri UNK -> NSS; exactly three bytes'
+    resources = installed_directory / 'resources'
+    backend_path = resources / 'axx-backend.exe'
+    backend_hash = digest(backend_path.read_bytes())
+    if backend_hash.lower() != build['artifacts'][2]['sha256'].lower():
+        raise RuntimeError('Backend differs from verified build')
+    bundle = build.get('backend_bundle')
+    if 'backend_bundle' in build:
+        verify_backend_bundle(resources, bundle)
+    elif (resources / '_internal').exists() or Path(build['artifacts'][2]['path']).parent.name == 'axx-backend':
+        raise RuntimeError('ONEDIR backend requires a complete bundle build receipt')
+    memory_inputs = [value for name, value in build['source_hashes'].items()
+                     if name.replace('\\', '/').lower().endswith('src-tauri/resources/ai-memory.exe')]
+    if len(memory_inputs) != 1:
+        raise RuntimeError('Expected one frozen ai-memory dependency hash in build receipt')
+    memory_path = resources / 'ai-memory.exe'
+    memory_hash = digest(memory_path.read_bytes())
+    if memory_hash.lower() != memory_inputs[0].lower():
+        raise RuntimeError('ai-memory differs from frozen dependency verified during build')
+    notice_count = 0
+    for name, expected_hash in build['source_hashes'].items():
+        marker_path = 'src-tauri/resources/license-notices/'
+        normalized = name.replace('\\', '/')
+        if marker_path in normalized:
+            relative = normalized.split(marker_path, 1)[1]
+            notice = resources / 'license-notices' / relative
+            if digest(notice.read_bytes()).lower() != expected_hash.lower():
+                raise RuntimeError(f'Installed license notice differs: {relative}')
+            notice_count += 1
+    if not notice_count:
+        raise RuntimeError('Build receipt contains no license notices')
+    report = {'result': 'PASS', 'version': build['artifacts'][0]['version'],
+              'license_notices_verified': notice_count,
+              'installed_directory': str(installed_directory.resolve()), 'tauri_bundle_marker': marker,
+              'installed_exe_sha256': digest(installed), 'release_exe_sha256': digest(release),
+              'backend_sha256': backend_hash, 'ai_memory_sha256': memory_hash,
+              'files': [{'path': str(p.resolve()), 'bytes': p.stat().st_size}
+                        for p in (installed_path, backend_path, memory_path)]}
+    if bundle is not None:
+        report['backend_bundle'] = {'layout': bundle['layout'],
+                                    'manifest_sha256': bundle['manifest_sha256'],
+                                    'files_verified': len(bundle['files'])}
+    return report
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--installed', type=Path, required=True)
+    parser.add_argument('--build-result', type=Path, required=True)
+    parser.add_argument('--output', type=Path, required=True)
+    args = parser.parse_args()
+    build = json.loads(args.build_result.read_text(encoding='utf-8-sig'))
+    report = verify_installed_files(args.installed, build)
+    args.output.write_text(json.dumps(report, indent=2), encoding='utf-8')
+    print(json.dumps(report, indent=2))
+
+
+if __name__ == '__main__':
+    main()

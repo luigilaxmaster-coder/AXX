@@ -42,6 +42,7 @@
     ],
     "resources": [
       "resources/axx-backend.exe",
+      "resources/_internal/",
       "resources/ai-memory.exe",
       "resources/ai-memory-LICENSE",
       "resources/license-notices/"

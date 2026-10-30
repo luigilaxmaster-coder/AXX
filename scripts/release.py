@@ -13,6 +13,7 @@ import subprocess
 import sys
 import tomllib
 from pathlib import Path
+from backend_bundle import verify as verify_backend_bundle
 from companion_contract import validate_receipt as validate_companion_receipt
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -67,7 +68,7 @@ def render_readme(root: Path, current: str) -> str:
 
 Run the installer and open Axx. Python and Node are not required. Start with **Automático gratis · Sin claves**; Axx checks available free routes, whose availability can change. Personal API keys are optional in Settings. Credentials and conversation history are not included in the installer. Windows may need Internet to install WebView2. The installer is unsigned.
 
-The packaged backend may take longer on its first launch while Windows extracts and scans it. The native host allows up to 90 seconds for backend readiness and reports a startup error if that limit is exceeded.
+Backend dependencies are installed with the app and do not require extraction on every launch. Windows may still scan them during startup. The native host allows up to 90 seconds for backend readiness and reports a startup error if that limit is exceeded.
 
 {status} Android APKs remain local test artifacts until separately published. See [mobile setup and validation](docs/mobile/README.md) and the [version and release procedure](docs/RELEASING.md).
 <!-- release:download:end -->
@@ -138,7 +139,7 @@ def check(root: Path) -> str:
 
 
 def source_inventory(root: Path) -> set[Path]:
-    paths = {root / p for p in ("axx-backend.spec", "scripts/setup-freellmapi.ps1", "scripts/configure-native-gateway.py", "scripts/anythingmcp-local.py", "src-tauri/tauri.conf.json",
+    paths = {root / p for p in ("axx-backend.spec", "scripts/backend_bundle.py", "scripts/build-windows.ps1", "scripts/setup-freellmapi.ps1", "scripts/configure-native-gateway.py", "scripts/anythingmcp-local.py", "src-tauri/tauri.conf.json",
                                 "src-tauri/Cargo.toml", "src-tauri/resources/ai-memory.exe", "requirements-telegram.txt",
                                 "backend/telegram/webapp.html", "backend/telegram/webapp.css", "backend/telegram/webapp.js",
                                 "mobile/www/js/desktop-avatar.js", "mobile/js/avatar-renderer.js")}
@@ -197,7 +198,50 @@ def validate_receipts(root: Path, build_path: Path, installed_path: Path) -> Pat
             or not installed.get("backend", {}).get("authenticated_by_native_host")
             or installed.get("backend", {}).get("unauthenticated_http_status") != 401):
         raise ValueError("Installer has no matching successful installed runtime receipt")
+    validate_backend_delivery(root, built_root, build, installed, installed_path)
     return Path(item["path"])
+
+
+def validate_backend_delivery(root: Path, built_root: Path, build: dict,
+                              installed: dict, installed_path: Path) -> None:
+    """Require complete onedir evidence; never treat an EXE hash as DLL proof."""
+    if "backend_bundle" not in build:
+        if (any(Path(item["path"]).parent.name == "axx-backend" for item in build["artifacts"])
+                or (built_root / "dist/axx-backend/_internal").exists()
+                or (root / "src-tauri/resources/_internal").exists()):
+            raise ValueError("ONEDIR backend requires a complete bundle build receipt")
+        return
+    bundle = build["backend_bundle"]
+    backend_receipt = built_root / "build/backend-build-receipt.json"
+    if not backend_receipt.is_file() or read_json(backend_receipt).get("bundle") != bundle:
+        raise ValueError("Backend build receipt does not match the complete bundle manifest")
+    # Verify both the packaged build output and the resources actually fed to
+    # Tauri. When publishing from another checkout, check its staging too.
+    for directory in {built_root / "dist/axx-backend", built_root / "src-tauri/resources",
+                      root / "dist/axx-backend", root / "src-tauri/resources"}:
+        verify_backend_bundle(directory, bundle)
+    backend_artifacts = [item for item in build["artifacts"]
+                         if Path(item["path"]).name == "axx-backend.exe"]
+    entry = next(item for item in bundle["files"] if item["path"] == "axx-backend.exe")
+    if (len(backend_artifacts) != 1
+            or Path(backend_artifacts[0]["path"]).resolve() != (built_root / "dist/axx-backend/axx-backend.exe").resolve()
+            or backend_artifacts[0]["sha256"].lower() != entry["sha256"]
+            or backend_artifacts[0].get("bytes") != entry["bytes"]):
+        raise ValueError("Backend artifact does not match its complete bundle manifest")
+    proof_path = installed_path.with_name("installed-files.json")
+    if not proof_path.is_file():
+        raise ValueError("ONEDIR backend requires installed-files.json verification evidence")
+    proof = read_json(proof_path)
+    identity = {"layout": "onedir", "manifest_sha256": bundle["manifest_sha256"],
+                "files_verified": len(bundle["files"])}
+    executable = installed.get("executable")
+    if (proof.get("result") != "PASS" or proof.get("version") != installed["version"]
+            or proof.get("backend_bundle") != identity or not executable
+            or proof.get("backend_sha256") != entry["sha256"]
+            or not proof.get("installed_directory")
+            or Path(proof["installed_directory"]).resolve() != Path(executable).resolve().parent):
+        raise ValueError("Installed backend bundle verification does not match the build")
+    verify_backend_bundle(Path(proof["installed_directory"]) / "resources", bundle)
 
 
 def remote_release(tag: str):
