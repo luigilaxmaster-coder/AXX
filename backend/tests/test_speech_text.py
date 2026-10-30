@@ -37,7 +37,8 @@ class AttributedTranscriptionTests(unittest.TestCase):
             time.sleep(.005)
         self.fail('Synthetic ASR request was not admitted')
 
-    def test_late_cancel_of_completed_a_does_not_kill_b_in_reused_worker(self):
+    def test_late_cancel_and_external_event_of_completed_a_do_not_kill_b_in_reused_worker(self):
+        lease_event=threading.Event()
         script=("import json,os,sys,time\n"
                 "n=0\n"
                 "for line in sys.stdin.buffer:\n"
@@ -47,13 +48,14 @@ class AttributedTranscriptionTests(unittest.TestCase):
         def spawn(_command,**kwargs):
             return subprocess.Popen([sys.executable,'-u','-c',script],creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0),**kwargs),None
         with patch('backend.speech.offline_asr.spawn_managed_process',side_effect=spawn):
-            first=self.service.transcribe(self.body())
+            first=self.service.transcribe(self.body(),cancel_event=lease_event)
             results=[]
             thread=threading.Thread(target=lambda:results.append(self.service.transcribe(self.body('request-b','en'))))
             thread.start()
             try:
                 active=self.wait_active('request-b')
                 with patch('backend.speech.offline_asr.terminate_process_tree') as terminate:
+                    lease_event.set()
                     self.assertEqual(self.service.cancel('request-a'),0)
                     self.assertFalse(active.cancelled.is_set())
                     terminate.assert_not_called()
@@ -66,13 +68,13 @@ class AttributedTranscriptionTests(unittest.TestCase):
                 if thread.is_alive():self.service.cancel('request-b');thread.join(3)
 
     def test_busy_and_foreign_owner_never_preempt_admitted_request(self):
-        entered,release=threading.Event(),threading.Event();errors=[]
+        entered,release,lease_event=threading.Event(),threading.Event(),threading.Event();errors=[]
         def execute(request,**kwargs):
             entered.set()
             if not release.wait(3):raise AssertionError('Synthetic release timed out')
             return {'text':'synthetic'}
         def run():
-            try:self.service.transcribe(self.body(),context_owner='lease-a',deadline_mono=time.monotonic()+5)
+            try:self.service.transcribe(self.body(),context_owner='lease-a',deadline_mono=time.monotonic()+5,cancel_event=lease_event)
             except SpeechError as exc:errors.append(exc.code)
         with patch.object(self.service,'_execute',side_effect=execute) as worker:
             thread=threading.Thread(target=run);thread.start()
@@ -83,6 +85,7 @@ class AttributedTranscriptionTests(unittest.TestCase):
                 self.assertEqual(self.service.cancel('request-a',context_owner='lease-b'),0)
                 self.assertFalse(self.service._requests['request-a'].cancelled.is_set())
                 self.assertEqual(self.service.cancel('request-a',context_owner='lease-a'),1)
+                self.assertFalse(lease_event.is_set())
                 self.assertEqual(worker.call_count,1)
             finally:release.set();thread.join(3)
         self.assertEqual(errors,['CANCELLED'])
@@ -180,6 +183,9 @@ class AttributedTranscriptionTests(unittest.TestCase):
             with self.assertRaises(SpeechError) as caught:
                 self.service.transcribe(self.body(),context_owner='lease-a',deadline_mono=time.monotonic()+2)
             self.assertEqual(caught.exception.code,'BUSY');spawn.assert_not_called()
+            with self.assertRaises(SpeechError) as caught:
+                self.service.transcribe(self.body('event-only'),cancel_event=threading.Event())
+            self.assertEqual(caught.exception.code,'BUSY');spawn.assert_not_called()
         script="import sys,time\nfor line in sys.stdin.buffer:time.sleep(10)\n"
         children=[]
         def spawn(_command,**kwargs):
@@ -193,12 +199,46 @@ class AttributedTranscriptionTests(unittest.TestCase):
         self.assertIsNone(self.service._active)
         self.assertFalse(self.service.data_dir.exists())
 
+    def test_external_lease_event_unblocks_real_memory_pipe_and_kills_only_own_process(self):
+        children=[];errors=[];lease_event=threading.Event()
+        def spawn(_command,**kwargs):
+            process=subprocess.Popen([sys.executable,'-c','import time;time.sleep(30)'],
+                creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0),**kwargs)
+            children.append(process);return process,None
+        body=self.body('external-lease')
+        body['audio_base64']=base64.b64encode(b'RIFF0000WAVE'+b'\0'*(MAX_AUDIO-12)).decode()
+        def run():
+            try:self.service.transcribe(body,context_owner='lease-a',deadline_mono=time.monotonic()+5,cancel_event=lease_event)
+            except SpeechError as exc:errors.append(exc.code)
+        with patch('backend.speech.offline_asr.spawn_managed_process',side_effect=spawn):
+            thread=threading.Thread(target=run);thread.start()
+            try:
+                active=self.wait_active('external-lease')
+                until=time.monotonic()+2
+                while not any(row.name=='axx-asr-input' and row.is_alive() for row in threading.enumerate()) and time.monotonic()<until:time.sleep(.005)
+                self.assertTrue(self.service._io_lock.locked())
+                self.assertFalse(active.cancelled.is_set())
+                lease_event.set();thread.join(3)
+                self.assertFalse(thread.is_alive());self.assertEqual(errors,['CANCELLED'])
+                self.assertFalse(active.cancelled.is_set())
+                self.assertTrue(children and all(child.poll() is not None for child in children))
+                self.assertIsNone(self.service._worker);self.assertFalse(self.service._requests)
+                self.assertFalse(self.service.data_dir.exists())
+            finally:
+                lease_event.set()
+                if thread.is_alive():self.service.cancel_active();thread.join(3)
+
     def test_internal_owner_deadline_and_json_identity_limits_fail_before_worker(self):
         with patch.object(self.service,'_execute',return_value={'text':'synthetic'}) as execute:
             for value in (True,1,None,'../bad','x'*129,'asr-auto-client'):
                 with self.subTest(request_id=value),self.assertRaises(SpeechError):self.service.transcribe(self.body(value))
-            for fields in ({'context_owner':'forged'},{'deadline_mono':time.monotonic()+1}):
+            for fields in ({'context_owner':'forged'},{'deadline_mono':time.monotonic()+1},{'cancel_event':False}):
                 with self.subTest(fields=fields),self.assertRaises(SpeechError):self.service.transcribe(self.body()|fields)
+            for event in (True,object(),threading.Lock()):
+                with self.subTest(cancel_event=event),self.assertRaises(SpeechError):self.service.transcribe(self.body(),cancel_event=event)
+            cancelled=threading.Event();cancelled.set()
+            with self.assertRaises(SpeechError) as caught:self.service.transcribe(self.body(),cancel_event=cancelled)
+            self.assertEqual(caught.exception.code,'CANCELLED');self.assertFalse(self.service._used_request_ids)
             for deadline in (True,float('nan'),time.monotonic()-1,time.monotonic()+61,None):
                 with self.subTest(deadline=deadline),self.assertRaises(SpeechError):
                     self.service.transcribe(self.body(),context_owner='lease-a',deadline_mono=deadline)
