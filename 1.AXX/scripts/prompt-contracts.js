@@ -3,6 +3,9 @@
     'use strict';
     const cache = new Map(), samples = [], measurement = Symbol('promptMeasurement'), instrumented = new WeakSet();
     const label = value => typeof value === 'string' && value.length <= 200 ? value : null;
+    // Match backend/prompts.py's canonical modes; invalid input is never metric text.
+    const modes = new Set(['conversation', 'voice', 'planning', 'computer_use', 'perception', 'capability', 'translation', 'content']);
+    const timingMode = value => modes.has(label(value)) ? value : 'unknown';
     const translationOf = messages => {
         const first = messages.find(item => item.role === 'system')?.content || '';
         return typeof first === 'string' && /^Translate (?:the user's text|the following text) from ([A-Za-z-]{2,20}) to ([A-Za-z-]{2,20})\./.exec(first);
@@ -38,7 +41,7 @@
                     : [...current.content, {type: 'text', text: data}];
             }
             this.last = {version: compiled.version, mode: compiled.mode, characters: compiled.characters, sha256: compiled.sha256};
-            if (p[measurement]?.active) Object.assign(p[measurement].identity, {mode, prompt_version: label(compiled.version),
+            if (p[measurement]?.active) Object.assign(p[measurement].identity, {mode: timingMode(mode), prompt_version: label(compiled.version),
                 prompt_sha256: /^[a-f0-9]{64}$/i.test(compiled.sha256) ? compiled.sha256 : null});
             return [{role: 'system', content: compiled.text}, ...result];
         },
@@ -63,7 +66,7 @@
             brain.chat = async function (p, messages, signal, onDelta = () => {}) {
                 const started = performance.now();
                 // The private symbol survives the existing per-turn preference copies, never JSON transport.
-                const context = {active: true, identity: {mode: translationOf(messages) ? 'translation' : p.prompt_mode || (messages.some(item => Array.isArray(item.content)) ? 'perception' : 'content'),
+                const context = {active: true, identity: {mode: timingMode(translationOf(messages) ? 'translation' : p.prompt_mode || (messages.some(item => Array.isArray(item.content)) ? 'perception' : 'content')),
                     prompt_version: null, prompt_sha256: null, requested_provider: label(p.apiConnection || p.provider),
                     requested_model: label(p.model), selection_mode: label(p.selection_mode),
                     provider: null, reported_model: null, model_identity: null}};

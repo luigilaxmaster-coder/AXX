@@ -39,6 +39,29 @@ function fixture() {
     assert.ok(!JSON.stringify(f.summary()).includes('PRIVATE'));
     assert.deepEqual(Object.keys(f.Axx.promptContracts.lastTiming).sort(), ['first_text_ms', 'mode', 'outcome', 'total_ms']);
 
+    const invalidModes = fixture();
+    invalidModes.response(() => ({reason: 'stop'}));
+    for (const mode of ['PRIVATE MODE ' + 'x'.repeat(50000), 'VOICE', 'unknown PRIVATE', 123, {private: 'PRIVATE MODE'}]) {
+        await invalidModes.run({prompt_mode: mode});
+        assert.equal(invalidModes.Axx.promptContracts.lastTiming.mode, 'unknown');
+    }
+    assert.equal(invalidModes.summary().groups[0].mode, 'unknown');
+    assert.equal(invalidModes.summary().groups[0].count, 5);
+    assert.ok(!JSON.stringify(invalidModes.summary()).includes('PRIVATE'));
+    // A composition failure records the initial identity, before prepare can update it.
+    invalidModes.Axx.backendRequest = async () => {throw Error('Invalid prompt mode');};
+    await assert.rejects(invalidModes.run({prompt_mode: 'PRIVATE FAILURE ' + 'x'.repeat(50000)}), /Invalid prompt mode/);
+    assert.equal(invalidModes.Axx.promptContracts.lastTiming.mode, 'unknown');
+    assert.equal(invalidModes.summary().groups.at(-1).outcome, 'failed');
+    assert.ok(!JSON.stringify(invalidModes.summary()).includes('PRIVATE'));
+
+    const knownModes = fixture();
+    knownModes.response(() => ({reason: 'stop'}));
+    for (const mode of ['conversation', 'voice', 'planning', 'computer_use', 'perception', 'capability', 'translation', 'content']) {
+        await knownModes.run({prompt_mode: mode});
+        assert.equal(knownModes.Axx.promptContracts.lastTiming.mode, mode);
+    }
+
     const concurrent = fixture(), waiting = new Map();
     concurrent.response((p, signal, delta) => new Promise(resolve => waiting.set(p.prompt_mode, {delta, resolve})));
     const voice = concurrent.run({prompt_mode: 'voice'}), chat = concurrent.run({prompt_mode: 'conversation'});

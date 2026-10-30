@@ -25,7 +25,7 @@ class ReleaseTests(unittest.TestCase):
         self.current = release.check(self.root)
 
     def receipt(self):
-        for name in ("axx-backend.spec", "scripts/backend_bundle.py", "scripts/build-windows.ps1", "scripts/setup-freellmapi.ps1", "scripts/configure-native-gateway.py", "scripts/anythingmcp-local.py", "src-tauri/resources/ai-memory.exe", "requirements-telegram.txt", "backend/telegram/webapp.html", "backend/telegram/webapp.css", "backend/telegram/webapp.js", "mobile/www/js/desktop-avatar.js", "mobile/js/avatar-renderer.js"):
+        for name in ("axx-backend.spec", "scripts/backend_bundle.py", "scripts/build-windows.ps1", "scripts/setup-freellmapi.ps1", "scripts/configure-native-gateway.py", "scripts/anythingmcp-local.py", "src-tauri/windows/backend-bundle.nsh", "src-tauri/resources/ai-memory.exe", "requirements-telegram.txt", "backend/telegram/webapp.html", "backend/telegram/webapp.css", "backend/telegram/webapp.js", "mobile/www/js/desktop-avatar.js", "mobile/js/avatar-renderer.js"):
             path = self.root / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(b"unit test source fixture")
