@@ -512,15 +512,16 @@ class ActionLearning:
 
     def get(self, key):
         if not isinstance(key, str): raise ValueError('Identificador inválido')
-        with self.lock:
+        # Policy can read SQLite during the budget projection; serialize the
+        # complete read with policy and memory writers before starting SQL.
+        with self.lock, getattr(self.anticipation, 'lock', nullcontext()), self.db:
             row = self.db.execute('SELECT payload FROM learning_plans WHERE id=?', (key,)).fetchone()
-        if not row: raise ValueError('Plan desconocido')
-        plan = json.loads(row[0])
-        with self.lock, self.db:
+            if not row: raise ValueError('Plan desconocido')
+            plan = json.loads(row[0])
             self._store_model_budget(plan)
             self._model_budget_view(plan)
             self._project_compensations(plan, self.db)
-        return self._memory_view(plan | {'mission': self._mission(plan)}, self.db)
+            return self._memory_view(plan | {'mission': self._mission(plan)}, self.db)
 
     def _model_limit(self, plan):
         limit = plan.get('model_call_limit', 2)
@@ -772,9 +773,6 @@ class ActionLearning:
             from .chat_store import ident
             ident(conversation_id)
             if project_id is not None: raise ValueError('Selecciona proyecto o conversación, no ambos')
-            if (not self.db.execute("SELECT 1 FROM sqlite_master WHERE name='chat_conversations'").fetchone()
-                    or not self.db.execute('SELECT 1 FROM chat_conversations WHERE id=?', (conversation_id,)).fetchone()):
-                raise ValueError('Conversación desconocida')
         else:
             project_id = '' if project_id is None else project_id
             project_key(project_id)
@@ -782,6 +780,9 @@ class ActionLearning:
         # first SQL write, including subsequent rows in this transaction.
         with self.lock, getattr(self.anticipation, 'lock', nullcontext()), self.db:
             if conversation_id is not None:
+                if (not self.db.execute("SELECT 1 FROM sqlite_master WHERE name='chat_conversations'").fetchone()
+                        or not self.db.execute('SELECT 1 FROM chat_conversations WHERE id=?', (conversation_id,)).fetchone()):
+                    raise ValueError('Conversación desconocida')
                 rows = self.db.execute("SELECT payload FROM learning_plans WHERE json_extract(payload,'$.conversation_id')=? ORDER BY rowid DESC LIMIT 100", (conversation_id,))
             else:
                 rows = self.db.execute("SELECT payload FROM learning_plans WHERE COALESCE(json_extract(payload,'$.project_id'),'')=? ORDER BY rowid DESC LIMIT 100", (project_id,))
@@ -790,9 +791,9 @@ class ActionLearning:
                 self._store_model_budget(plan)
                 self._model_budget_view(plan)
                 self._project_compensations(plan, self.db)
-        plans = [self._memory_view(plan | {'mission': self._mission(plan)}, self.db) for plan in plans]
-        return [plan for plan in plans if (conversation_id is not None and plan.get('conversation_id') == conversation_id)
-                or (conversation_id is None and plan.get('project_id', '') == project_id)][:100]
+            plans = [self._memory_view(plan | {'mission': self._mission(plan)}, self.db) for plan in plans]
+            return [plan for plan in plans if (conversation_id is not None and plan.get('conversation_id') == conversation_id)
+                    or (conversation_id is None and plan.get('project_id', '') == project_id)][:100]
 
     def _matches(self, text, project_id='', task_id=None):
         phrase = normalized(text)

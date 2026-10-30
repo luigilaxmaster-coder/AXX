@@ -49,7 +49,7 @@ jobs:
       - name: Forgotten mission public projection
         run: python -m unittest backend.tests.test_forgotten_plan_projection -q
       - name: Mobile mission correction and durable ownership
-        run: python -m unittest backend.tests.test_mission_corrections backend.mobile.tests.test_missions backend.tests.test_mobile_mission_flow -q
+        run: python -m unittest backend.tests.test_learning_read_concurrency backend.tests.test_mission_corrections backend.mobile.tests.test_missions backend.tests.test_mobile_mission_flow -q
       - name: Mobile mission review and lost acknowledgement contracts
         run: node mobile/tests/test-mission-continuity.cjs
       - name: Document integrity, learning and verified reuse
