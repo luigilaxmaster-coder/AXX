@@ -188,10 +188,12 @@ El escaneo óptico del QR, los gestos remotos restantes y el audio mantienen ace
 
 ## Pruebas y estado
 
-Los cambios posteriores de olvido por conversación, procedencia documental y atención agrupada por misión siguen en ramas de desarrollo y no están incluidos en el instalador Windows 0.22.30. Compartir el número de versión en los manifiestos no acredita la entrega de esos cambios.
+El instalador Windows **0.22.31** incluye olvido por conversación, procedencia documental y atención agrupada por misión. La entrega fue instalada y su descarga se publicó después de verificar los hashes. Las [notas de aceptación y límites](docs/releases/0.22.31.md) distinguen los recorridos comprobados de las funciones y dispositivos sin certificar.
 
 | Área | Evidencia disponible | Alcance que no debe inferirse |
 | --- | --- | --- |
+| **Razonamiento y memoria · 0.22.31** | Propuesta documental con el modelo configurado, aprobación y comparación real, reutilización tras reiniciar con cero llamadas al modelo, olvido con revocación, exclusión de lecciones obsoletas y 24 lecturas concurrentes aprobadas en la app instalada. | Un perfil y equipo concretos; no certifica todos los modelos ni un benchmark completo de calidad. |
+| **Voz e integridad · 0.22.31** | Síntesis MOSS nueva sin escribir bytecode en el paquete; reproducción y captura físicas comprobadas. Voz y Claridad conservadas. | La transcripción acústica no coincidió con todas las palabras esperadas; no se certifica dictado humano ni reconocimiento perfecto. |
 | **Barra · 0.22.23** | Enviar con clic de ratón, Intro, respuesta compacta y segunda orden sin volver a enfocar, probados en el instalador final. | No certifica todos los dispositivos de entrada o configuraciones de pantalla. |
 | **Secuencias · 0.22.23** | Desde la barra: abrir YouTube y buscar Faint; crear un archivo nuevo, calcular su SHA256 y comprobar el contenido final. Pasos ordenados y recibos verificados. | Buscar no acredita reproducción. Las acciones conservan su revisión. |
 | **Modelo/API · 0.22.23** | La selección guardada sobrevivió a la reinstalación y preparó el plan de archivo con dos inferencias. Respuesta API sintética comprobada durante la aceptación. | La ruta configurada no certifica la identidad interna de los pesos del proveedor ni todos sus modelos. |
