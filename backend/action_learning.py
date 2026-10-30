@@ -10,6 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager, ExitStack, nullcontext
 import json
 import logging
+import math
 from pathlib import Path
 import re
 import sqlite3
@@ -128,6 +129,13 @@ class ActionLearning:
                 plan_id TEXT NOT NULL, request_id TEXT NOT NULL, kind TEXT NOT NULL, state TEXT NOT NULL,
                 charge INTEGER NOT NULL, confirmed INTEGER NOT NULL DEFAULT 0, created_at REAL NOT NULL,
                 settled_at REAL, PRIMARY KEY(plan_id,request_id))''')
+            if 'source_dispatch_json' not in {row[1] for row in self.budget_db.execute('PRAGMA table_info(mission_model_calls)')}:
+                self.budget_db.execute('ALTER TABLE mission_model_calls ADD COLUMN source_dispatch_json TEXT')
+            self.budget_db.execute('''CREATE INDEX IF NOT EXISTS mission_model_calls_source_task
+                ON mission_model_calls(json_extract(source_dispatch_json,'$.task_id'))''')
+            self.budget_db.execute('''CREATE INDEX IF NOT EXISTS mission_model_calls_source_expiry
+                ON mission_model_calls(json_extract(source_dispatch_json,'$.expires_at'))
+                WHERE source_dispatch_json IS NOT NULL''')
         self.skills = SkillMemory(self.db, self.lock)
         commands.mission_guard = self.assert_dispatch_context
 
@@ -337,7 +345,8 @@ class ActionLearning:
                     plan['model_call_limit'] = limit
                     raise ModelBudgetExceeded(f'Se agotó el presupuesto de {limit} inferencias de esta misión; no se despachó otra llamada.')
                 reserved = min(1 if single_request else 2, limit-occupied)
-                self.budget_db.execute('INSERT INTO mission_model_calls VALUES (?,?,?,?,?,?,?,?)',
+                self.budget_db.execute('''INSERT INTO mission_model_calls
+                    (plan_id,request_id,kind,state,charge,confirmed,created_at,settled_at) VALUES (?,?,?,?,?,?,?,?)''',
                     (plan['operation_id'],request_id,kind,'reserved',reserved,0,time.time(),None))
                 old_zero=[row[0] for row in self.budget_db.execute("SELECT rowid FROM mission_model_calls WHERE plan_id=? AND state='refunded' ORDER BY rowid DESC LIMIT -1 OFFSET 128",(plan['operation_id'],))]
                 if old_zero:
@@ -359,6 +368,92 @@ class ActionLearning:
             self.budget_db.execute("UPDATE mission_model_calls SET state=?,charge=?,confirmed=?,settled_at=? WHERE plan_id=? AND request_id=? AND state='reserved'",
                 (state,charge,confirmed,time.time(),plan['operation_id'],request_id))
         with self.lock: self._model_budget_view(plan)
+
+    def _source_dispatch_observer(self, plan, request_id):
+        """Attach metadata to the reserved request; callbacks never acquire policy/learning locks."""
+        from .inference.adapter import InferenceAdapter
+        with self.lock, self._source_publication(plan) as source_recheck:
+            refs = json.loads(json.dumps(plan.get('observation_dependencies') or []))
+            required = {'target_id', 'consent_digest', 'observation_id', 'generation'}
+            if (not refs or len(refs) > 4 or any(not isinstance(ref, dict)
+                    or set(ref) != required
+                    or any(not isinstance(ref[key], str) or not 1 <= len(ref[key]) <= 256
+                           for key in set(ref) - {'generation'})
+                    or type(ref['generation']) is not int or ref['generation'] < 0 for ref in refs)):
+                raise SourceContextRevoked(SOURCE_CONTEXT_INVALID)
+            config = self.anticipation._config()
+            days = min(options['retention_days'] for options in config['profiles'].values())
+            settings = plan['planning_settings']
+            selection = {'mode': settings['selection_mode'], 'provider_name': settings['provider_name'], 'model': settings['model']}
+            task_id, project_id = plan.get('conversation_id') or plan['operation_id'], plan.get('project_id', '')
+            if (not isinstance(task_id, str) or not 1 <= len(task_id) <= 128
+                    or not isinstance(project_id, str) or len(project_id) > 256
+                    or selection['mode'] not in ('manual', 'automatic_free')
+                    or not isinstance(selection['provider_name'], str) or len(selection['provider_name']) > 80
+                    or not isinstance(selection['model'], str) or len(selection['model']) > 200
+                    or type(days) is not int or not 1 <= days <= 365):
+                raise SourceContextRevoked(SOURCE_CONTEXT_INVALID)
+            created = time.time()
+            metadata = {'version': 1, 'task_id': task_id, 'project_id': project_id, 'refs': refs,
+                'selection': selection, 'send_state': 'not_sent', 'created_at': created,
+                'expires_at': created + days * 86400, 'endpoint_receipts': []}
+            # Snapshot configured identity only, never responder-supplied labels.
+            backend_config = json.loads(json.dumps(getattr(self.adapter, 'config', {'providers': []})))
+            plan_id = plan['operation_id']
+            with self.budget_lock, self.budget_db:
+                source_recheck()
+                changed = self.budget_db.execute('''UPDATE mission_model_calls SET source_dispatch_json=?
+                    WHERE plan_id=? AND request_id=? AND state='reserved' AND source_dispatch_json IS NULL''',
+                    (json.dumps(metadata, separators=(',', ':')), plan_id, request_id))
+                if changed.rowcount != 1:
+                    raise ValueError('SOURCE_DISPATCH_UNAVAILABLE')
+                source_recheck()
+
+        def observe(event):
+            if not isinstance(event, dict) or event.get('stage') not in ('unknown', 'runtime_delivered'):
+                raise ValueError('SOURCE_DISPATCH_INVALID')
+            delivered = event['stage'] == 'runtime_delivered'
+            expected = {'stage', 'code', 'at'} | ({'endpoint_receipts'} if delivered else set())
+            if (set(event) != expected or event['code'] not in (('WORKER_TERMINAL', 'INLINE_TEST') if delivered else ('CHANNEL_START',))
+                    or type(event['at']) not in (int, float) or not math.isfinite(event['at'])
+                    or not 0 < event['at'] <= time.time() + 5):
+                raise ValueError('SOURCE_DISPATCH_INVALID')
+            receipts = (InferenceAdapter._terminal_endpoint_receipts({'dispatch_receipt': {
+                'version': 1, 'endpoint_receipts': event['endpoint_receipts']}}, backend_config) if delivered else [])
+            if event['code'] == 'INLINE_TEST' and receipts:
+                raise ValueError('SOURCE_DISPATCH_INVALID')
+            # Own SQLite connection/lock only. No command, learning or policy
+            # access belongs here: this callback runs at the transport boundary.
+            with self.budget_lock, self.budget_db:
+                row = self.budget_db.execute('''SELECT source_dispatch_json FROM mission_model_calls
+                    WHERE plan_id=? AND request_id=?''', (plan_id, request_id)).fetchone()
+                if not row or row[0] is None:
+                    raise ValueError('SOURCE_DISPATCH_UNAVAILABLE')
+                current = json.loads(row[0])
+                if (any(current.get(key) != metadata[key] for key in ('version', 'task_id', 'project_id', 'refs', 'selection', 'expires_at'))
+                        or time.time() >= current['expires_at']):
+                    raise ValueError('SOURCE_DISPATCH_UNAVAILABLE')
+                current.setdefault('channel_started_at', event['at'])
+                if delivered:
+                    current.setdefault('runtime_received_at', event['at'])
+                    current.setdefault('runtime_evidence', 'worker_terminal' if event['code'] == 'WORKER_TERMINAL' else 'inline_test')
+                    merged = {item['ordinal']: item for item in current['endpoint_receipts']}
+                    for item in receipts:
+                        if item['ordinal'] in merged and merged[item['ordinal']] != item:
+                            raise ValueError('SOURCE_DISPATCH_INVALID')
+                        merged[item['ordinal']] = item
+                    current['endpoint_receipts'] = [merged[key] for key in sorted(merged)]
+                stage = 'upstream_confirmed' if current['endpoint_receipts'] else event['stage']
+                ranks = {'not_sent': 0, 'unknown': 1, 'runtime_delivered': 2, 'upstream_confirmed': 3}
+                if ranks[stage] > ranks[current['send_state']]: current['send_state'] = stage
+                encoded = json.dumps(current, separators=(',', ':'), allow_nan=False)
+                if len(encoded.encode('utf-8')) > 32768:
+                    raise ValueError('SOURCE_DISPATCH_INVALID')
+                changed = self.budget_db.execute('''UPDATE mission_model_calls SET source_dispatch_json=?
+                    WHERE plan_id=? AND request_id=? AND source_dispatch_json=?''', (encoded, plan_id, request_id, row[0]))
+                if changed.rowcount != 1:
+                    raise ValueError('SOURCE_DISPATCH_UNAVAILABLE')
+        return observe
 
     def _mission_model_callback(self, plan, kind, *, single_request=False):
         def reserve(request_id):
@@ -1059,6 +1154,9 @@ class ActionLearning:
             raise ValueError('No hay un proveedor disponible; no se reservó una llamada.')
         if source_cancel is not None and not getattr(backend,'supports_cancel_event',False):
             raise NeedsInput('Este proveedor no admite la cancelación del contexto temporal; no se envió su contenido.')
+        if source_cancel is not None and (settings['provider_name'] == '@codex'
+                or not getattr(backend, 'supports_dispatch_observer', False)):
+            raise NeedsInput('Este proveedor no admite el recibo de envío observado; no se envió su contenido.')
         request_id = 'skill-' + uuid.uuid4().hex
         single_request=settings['provider_name']=='@codex'
         reserved=self._reserve_model_call(plan, request_id, task, single_request=single_request)
@@ -1067,6 +1165,13 @@ class ActionLearning:
         if plan.get('context_invalidated') or source_cancel is not None and source_cancel.is_set():
             self._settle_model_call(plan, request_id, {'ok': False, 'error': {'upstream_attempted': False}}, single_request=single_request)
             raise SourceContextRevoked(SOURCE_CONTEXT_INVALID)
+        dispatch_observer = None
+        if source_cancel is not None:
+            try:
+                dispatch_observer = self._source_dispatch_observer(plan, request_id)
+            except BaseException:
+                self._settle_model_call(plan, request_id, {'ok': False, 'error': {'upstream_attempted': False}}, single_request=single_request)
+                raise
         with self.lock:
             if self.closing: raise ValueError('La sesión se está cerrando')
             self.active_inference_ids.add(request_id)
@@ -1077,6 +1182,7 @@ class ActionLearning:
                 'allow_paid':False,'deadline_ms':70000,'upstream_attempt_budget':reserved,'conversation_id':plan.get('conversation_id') or plan['operation_id'],
                 'generation': {'temperature': 0.1, 'max_tokens': 3000}}
             kwargs = {'cancel_event':source_cancel} if source_cancel is not None else {}
+            if dispatch_observer is not None: kwargs['dispatch_observer'] = dispatch_observer
             if source_cancel is not None:request['sensitivity']='approved_sensitive'
             if images:
                 if settings['provider_name']=='@codex':request['images']=list(images)

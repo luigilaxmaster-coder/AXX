@@ -133,7 +133,7 @@ def _optional_auth(p):
         return False
     return _is_loopback_http(p['base_url']) or (p.get('auth_optional') is True and _is_local_endpoint(p['base_url']))
 
-def http_transport(provider: dict, body: dict, timeout: float) -> dict:
+def http_transport(provider: dict, body: dict, timeout: float, *, response_observer=None) -> dict:
     """Standard HTTP transport with socket timeout and strict response parsing."""
     anthropic = provider.get('protocol') == 'anthropic'
     url = provider['base_url'].rstrip('/') + ('/messages' if anthropic else '/chat/completions')
@@ -158,6 +158,8 @@ def http_transport(provider: dict, body: dict, timeout: float) -> dict:
     req = urllib.request.Request(url, data=body_bytes, headers=headers, method='POST')
     try:
         with urllib.request.build_opener(NoRedirect()).open(req, timeout=timeout) as response:
+            if response_observer is not None:
+                response_observer(response.status)
             # Enforce 7 MiB maximum payload reading (H01/H05)
             raw = response.read(7 * 1024 * 1024 + 1)
             if len(raw) > 7 * 1024 * 1024:
@@ -178,6 +180,8 @@ def http_transport(provider: dict, body: dict, timeout: float) -> dict:
             except (ValueError, UnicodeError) as exc:
                 raise UpstreamError(502, message=f"Invalid response JSON: {exc}") from None
     except urllib.error.HTTPError as exc:
+        if response_observer is not None:
+            response_observer(exc.code)
         headers = exc.headers or {}
         retry_val = headers.get('Retry-After')
         body_text = ''
@@ -710,10 +714,10 @@ class Router:
             candidates.append((-quality, provider.get('task_priority', {}).get(task, 50), len(candidates), provider))
         return [candidate[-1] for candidate in sorted(candidates, key=lambda item: item[:3])]
 
-    def chat(self, request: dict, deadline_time: float | None = None) -> dict:
+    def chat(self, request: dict, deadline_time: float | None = None, *, http_receipts: list | None = None) -> dict:
         accounting = {'upstream_attempts': 0, 'attempt_budget_used': 0}
         try:
-            return self._chat(request, deadline_time, accounting)
+            return self._chat(request, deadline_time, accounting, http_receipts)
         except Exception as exc:
             # Counts describe this router's dispatches; gateway cost is a
             # conservative downstream bound, never an invented completion count.
@@ -722,7 +726,7 @@ class Router:
             exc.attempt_budget_used = accounting['attempt_budget_used']
             raise
 
-    def _chat(self, request: dict, deadline_time: float | None, accounting: dict) -> dict:
+    def _chat(self, request: dict, deadline_time: float | None, accounting: dict, http_receipts=None) -> dict:
         """Executes sequential failover with strict global deadline (H01-H10)."""
         self.validate_request(request)
         attempt_limit = min(self.max_attempts, request.get('axx_attempt_budget', self.max_attempts))
@@ -822,7 +826,20 @@ class Router:
                 if 'tools' in request and 'tools' in p.get('capabilities', []):
                     payload['tools'] = request['tools']
 
-                resp = self.transport(p, payload, timeout=call_timeout)
+                transport_options = {}
+                if http_receipts is not None and self.transport is http_transport:
+                    # The local transport owns this evidence. Response-supplied
+                    # model/provider fields and attempt counts cannot create it.
+                    configured = next(item for item in self.providers if item['name'] == p['name'])
+                    def received_headers(status):
+                        if type(status) is int and 100 <= status <= 599 and len(http_receipts) < 10:
+                            http_receipts.append({'ordinal': attempts, 'profile_id': profile_id(configured),
+                                'provider_name': configured['name'], 'configured_model': configured['model'],
+                                'endpoint_scope': 'gateway_endpoint' if configured.get('kind') == 'freellmapi' else 'configured_endpoint',
+                                'evidence_kind': 'http_response_headers', 'status': status, 'at': time.time(),
+                                'downstream_confirmed': False})
+                    transport_options['response_observer'] = received_headers
+                resp = self.transport(p, payload, timeout=call_timeout, **transport_options)
                 validated_resp = self._validate_response_message(resp)
 
                 elapsed = time.monotonic() - call_start

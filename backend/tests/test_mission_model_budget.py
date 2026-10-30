@@ -187,7 +187,8 @@ class MissionModelBudgetTests(unittest.TestCase):
     def test_refunded_zero_history_is_bounded_without_losing_holds_or_request_total(self):
         plan=self.plan()
         with self.learning.budget_db:
-            self.learning.budget_db.executemany('INSERT INTO mission_model_calls VALUES (?,?,?,?,?,?,?,?)',
+            self.learning.budget_db.executemany('''INSERT INTO mission_model_calls
+                (plan_id,request_id,kind,state,charge,confirmed,created_at,settled_at) VALUES (?,?,?,?,?,?,?,?)''',
                 ((plan['operation_id'],'zero-'+str(i),'plan','refunded',0,0,float(i),float(i)) for i in range(200)))
         self.learning._reserve_model_call(plan,'persistent-hold','plan')
         self.assertEqual(self.learning.db.execute('SELECT COUNT(*) FROM mission_model_calls').fetchone()[0],129)

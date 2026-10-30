@@ -10,7 +10,7 @@ import sys
 import threading
 import time
 import uuid
-from .router import Router, RouterError, RequestError, UpstreamError, parse_strict_json, http_transport
+from .router import Router, RouterError, RequestError, UpstreamError, parse_strict_json, http_transport, profile_id
 from .process_manager import spawn_managed_process, terminate_process_tree
 
 MAX_WORKER_INPUT = 3 * 1024 * 1024
@@ -36,19 +36,20 @@ def _attempt_details(source):
 
 
 class ActiveRequest:
-    def __init__(self, request_id, deadline_mono, cancel_event=None):
+    def __init__(self, request_id, deadline_mono, cancel_event=None, dispatch_observer=None):
         self.request_id, self.deadline_mono = request_id, deadline_mono
         self.cancelled, self.completed = False, False
         self.terminal_state = self.process = self.job = None
         self.lock = threading.Lock()
         self.cancel_event = cancel_event
+        self.dispatch_observer = dispatch_observer
 
     def is_cancelled(self):
         return self.cancelled or (self.cancel_event is not None and self.cancel_event.is_set())
 
 def worker_main(state_path: str) -> int:
     """Same executable entry point; exactly one bounded stdin/stdout JSON object."""
-    router, dispatched = None, False
+    router, dispatched, http_receipts = None, False, []
     try:
         raw = sys.stdin.buffer.read(MAX_WORKER_INPUT + 1)
         if len(raw) > MAX_WORKER_INPUT:
@@ -64,7 +65,7 @@ def worker_main(state_path: str) -> int:
             raise RequestError('Invalid worker deadline')
         router = Router(config, state=state_path)
         dispatched = True
-        result = router.chat(data['request'], deadline_time=time.monotonic() + seconds)
+        result = router.chat(data['request'], deadline_time=time.monotonic() + seconds, http_receipts=http_receipts)
         response, code = {'ok': True, 'result': result}, 0
     except Exception as exc:
         error_code = getattr(exc, 'code', 'PROCESS_FAILURE')
@@ -77,6 +78,9 @@ def worker_main(state_path: str) -> int:
     finally:
         if router:
             router.close()
+    # One bounded terminal envelope, not an acknowledgement stream. The worker
+    # does not receive source refs or know the mission ledger.
+    response['dispatch_receipt'] = {'version': 1, 'endpoint_receipts': http_receipts}
     encoded = json.dumps(response, ensure_ascii=False, allow_nan=False).encode('utf-8')
     if len(encoded) > MAX_WORKER_OUTPUT:
         encoded = b'{"ok":false,"error":{"code":"INVALID_RESPONSE","message":"Response exceeds worker limit","retryable":false}}'
@@ -87,6 +91,7 @@ def worker_main(state_path: str) -> int:
 
 class InferenceAdapter:
     supports_cancel_event = True
+    supports_dispatch_observer = True
 
     def __init__(self, config: dict, state_path: str | Path = 'state.db', *, router_instance: Router | None = None):
         if config.get('allow_paid', False) is not False:
@@ -155,6 +160,45 @@ class InferenceAdapter:
             'upstream_attempts': upstream_attempts, 'attempt_budget_used': attempt_budget_used}))
         return result
 
+    @staticmethod
+    def _observe_dispatch(active, event, accounting=None):
+        if active.dispatch_observer is None:
+            return
+        try:
+            active.dispatch_observer(event)
+        except Exception:
+            # Neither observer/SQLite diagnostics nor late model content may
+            # become a source-derived error message.
+            error = RouterError('Cannot persist source dispatch receipt', code='STATE_UNAVAILABLE')
+            for key, value in _attempt_details(accounting or {}).items():
+                setattr(error, key, value)
+            raise error from None
+
+    @staticmethod
+    def _terminal_endpoint_receipts(worker, config):
+        receipt = worker.get('dispatch_receipt', {'version': 1, 'endpoint_receipts': []})
+        if (not isinstance(receipt, dict) or set(receipt) != {'version', 'endpoint_receipts'}
+                or type(receipt['version']) is not int or receipt['version'] != 1
+                or not isinstance(receipt['endpoint_receipts'], list) or len(receipt['endpoint_receipts']) > 10):
+            raise RouterError('Invalid source dispatch receipt', code='INVALID_RESPONSE')
+        profiles = {profile_id(provider): provider for provider in config.get('providers', [])}
+        result = []
+        keys = {'ordinal', 'profile_id', 'provider_name', 'configured_model', 'endpoint_scope',
+                'evidence_kind', 'status', 'at', 'downstream_confirmed'}
+        for item in receipt['endpoint_receipts']:
+            identity = item.get('profile_id') if isinstance(item, dict) else None
+            provider = profiles.get(identity) if isinstance(identity, str) else None
+            if (not provider or set(item) != keys or type(item['ordinal']) is not int or not 1 <= item['ordinal'] <= 10
+                    or item['provider_name'] != provider['name'] or item['configured_model'] != provider['model']
+                    or item['endpoint_scope'] != ('gateway_endpoint' if provider.get('kind') == 'freellmapi' else 'configured_endpoint')
+                    or item['evidence_kind'] != 'http_response_headers' or item['downstream_confirmed'] is not False
+                    or type(item['status']) is not int or not 100 <= item['status'] <= 599
+                    or type(item['at']) not in (int, float) or not math.isfinite(item['at']) or not 0 < item['at'] <= time.time() + 5
+                    or result and item['ordinal'] <= result[-1]['ordinal']):
+                raise RouterError('Invalid source dispatch receipt', code='INVALID_RESPONSE')
+            result.append(dict(item))
+        return result
+
     def _worker_result(self, active, request, config_override=None):
         if active.is_cancelled():
             return {'ok': False, 'error': {'code': 'CANCELLED', 'message': 'Request cancelled before dispatch',
@@ -162,13 +206,18 @@ class InferenceAdapter:
         command = ([sys.executable, '--router-worker'] if getattr(sys, 'frozen', False)
                    else [sys.executable, '-m', 'backend.server', '--router-worker'])
         command += ['--state', str(self.state_path)]
-        data = json.dumps({'config': self.config if config_override is None else config_override, 'request': request,
+        worker_config = copy.deepcopy(self.config if config_override is None else config_override)
+        data = json.dumps({'config': worker_config, 'request': request,
                           'remaining_seconds': max(.001, active.deadline_mono - time.monotonic())},
                          allow_nan=False).encode('utf-8')
         if len(data) > MAX_WORKER_INPUT:
             raise RequestError('Worker input exceeds size limit')
         child_env = os.environ.copy()
         child_env.pop('AXX_HOST_TOKEN', None)
+        if active.is_cancelled():
+            return {'ok': False, 'error': {'code': 'CANCELLED', 'message': 'Request cancelled before dispatch',
+                                          'retryable': False, 'upstream_attempted': False}}
+        self._observe_dispatch(active, {'stage': 'unknown', 'code': 'CHANNEL_START', 'at': time.time()})
         if active.is_cancelled():
             return {'ok': False, 'error': {'code': 'CANCELLED', 'message': 'Request cancelled before dispatch',
                                           'retryable': False, 'upstream_attempted': False}}
@@ -235,6 +284,11 @@ class InferenceAdapter:
                 raise RouterError('Invalid inference worker envelope', code='INVALID_RESPONSE')
             if result['ok'] and proc.returncode != 0:
                 raise RouterError('Inference worker failed after producing output')
+            if active.dispatch_observer is not None:
+                receipts = self._terminal_endpoint_receipts(result, worker_config)
+                accounting = result.get('result', {}).get('axx_router', {}) if result['ok'] else result.get('error', {})
+                self._observe_dispatch(active, {'stage': 'runtime_delivered', 'code': 'WORKER_TERMINAL',
+                    'at': time.time(), 'endpoint_receipts': receipts}, accounting)
             return result
         finally:
             if proc.poll() is None:
@@ -252,13 +306,16 @@ class InferenceAdapter:
         return self.route(dict(envelope, selection_mode='automatic_free'), _candidate_provider=provider_name,
                           _candidate_override=provider_override)
 
-    def route(self, envelope: dict, *, _candidate_provider=None, _candidate_override=None, cancel_event=None) -> dict:
+    def route(self, envelope: dict, *, _candidate_provider=None, _candidate_override=None, cancel_event=None,
+              dispatch_observer=None) -> dict:
         request_id = str(uuid.uuid4())
         if not isinstance(envelope, dict):
             return self._error(request_id, 'INVALID_REQUEST', 'Envelope must be an object', upstream_attempted=False)
         request_id = envelope.get('request_id') or request_id
         if cancel_event is not None and not isinstance(cancel_event, threading.Event):
             return self._error(str(request_id)[:128], 'INVALID_REQUEST', 'Invalid internal cancellation event', upstream_attempted=False)
+        if dispatch_observer is not None and not callable(dispatch_observer):
+            return self._error(str(request_id)[:128], 'INVALID_REQUEST', 'Invalid internal dispatch observer', upstream_attempted=False)
         conversation_id, deadline_ms = envelope.get('conversation_id', 'default'), envelope.get('deadline_ms', 70000)
         if (not isinstance(request_id, str) or not 1 <= len(request_id) <= 128
                 or not isinstance(conversation_id, str) or not 1 <= len(conversation_id) <= 128
@@ -269,7 +326,7 @@ class InferenceAdapter:
             return self._error(request_id, 'INVALID_REQUEST', 'upstream_attempt_budget must be an integer between 1 and 10', upstream_attempted=False)
         if envelope.get('sensitivity', 'public') not in ('public', 'approved_sensitive'):
             return self._error(request_id, 'INVALID_REQUEST', 'Local-only content cannot use remote inference', upstream_attempted=False)
-        active = ActiveRequest(request_id, time.monotonic() + deadline_ms / 1000, cancel_event)
+        active = ActiveRequest(request_id, time.monotonic() + deadline_ms / 1000, cancel_event, dispatch_observer)
         with self.lock:
             if active.is_cancelled():
                 return self._error(request_id, 'CANCELLED', 'Request cancelled before registration', upstream_attempted=False)
@@ -320,6 +377,11 @@ class InferenceAdapter:
             # Injection is reserved for deterministic offline tests.
             dispatched = True
             if self.router.transport is not http_transport:
+                self._observe_dispatch(active, {'stage': 'unknown', 'code': 'CHANNEL_START', 'at': time.time()})
+                if active.is_cancelled():
+                    return self._error(request_id, 'CANCELLED', 'Request cancelled before dispatch', upstream_attempted=False)
+                self._observe_dispatch(active, {'stage': 'runtime_delivered', 'code': 'INLINE_TEST',
+                    'at': time.time(), 'endpoint_receipts': []})
                 if candidate_config is None:
                     raw_result = self.router.chat(request, deadline_time=active.deadline_mono)
                 else:

@@ -43,7 +43,8 @@ class SourcePublicationTests(unittest.TestCase):
         self.commands = CommandService(self.executor)
         self.model = LocalModel()
         self.model.supports_cancel_event = True
-        self.model.route = lambda request, cancel_event=None: {'ok': True,
+        self.model.supports_dispatch_observer = True
+        self.model.route = lambda request, cancel_event=None, dispatch_observer=None: {'ok': True,
             'message': {'content': json.dumps({'title': 'PRIVATE_LATE_ECHO', 'steps': [
                 {'command_id': 'axx.artifact.write', 'inputs': {'path': 'source-output.txt', 'content': 'PRIVATE_LATE_ECHO'}}]})},
             'route': {'provider_name': 'offline-fixture', 'model': 'fixture'}}
@@ -347,7 +348,7 @@ class SourcePublicationTests(unittest.TestCase):
             return source | {key: [row for row in source[key] if row['target_id'] == new_target['id']]
                 for key in ('refs', 'observations')}
 
-        def cancel_old(request, cancel_event=None):
+        def cancel_old(request, cancel_event=None, dispatch_observer=None):
             self.assertEqual({ref['target_id'] for ref in self.plan['observation_dependencies']},
                 {self.target['id'], new_target['id']})
             self.assertTrue(all(ref in self.plan['observation_dependencies'] for ref in old_refs))
