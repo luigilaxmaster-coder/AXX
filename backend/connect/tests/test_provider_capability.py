@@ -144,6 +144,17 @@ class CapabilityProviderTests(unittest.TestCase):
         self.assertNotIn('PRIVATE_OBSERVATION_SENTINEL',json.dumps(self.provider.history()))
         self.assertFalse(self.provider.get('cap-fixture')['response_retained'])
 
+    def test_source_error_echo_is_not_retained_in_provider_state(self):
+        thread,results=self.background(request(task='plan'),planning=True,cancel_event=threading.Event())
+        self.wait_started()
+        self.provider._notification({'method':'turn/completed','params':{'threadId':'thread-test',
+            'turn':{'id':'turn-test','status':'failed','error':{'message':'PRIVATE_ERROR_SENTINEL'}}}})
+        thread.join(2)
+        self.assertIsInstance(results.get('error'),ProviderError)
+        with self.provider.lock:
+            self.assertNotIn('PRIVATE_ERROR_SENTINEL',json.dumps(self.provider.live['cap-fixture']['error']))
+            self.assertNotIn('PRIVATE_ERROR_SENTINEL','\n'.join(self.provider.db.iterdump()))
+
     def test_invalid_images_and_source_cancellation_stop_before_dispatch(self):
         for changes in ({'images':['invalid'],'sensitivity':'approved_sensitive'},
                         {'images':['data:image/jpeg;base64,AA=='],'sensitivity':'approved_sensitive'},

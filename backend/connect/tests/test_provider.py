@@ -17,7 +17,7 @@ from unittest.mock import patch
 import urllib.error
 import urllib.request
 
-from backend.connect.provider import CodexProvider, ProviderError, _PipeWriter, _error_code, _safe_error, _runtime_environment
+from backend.connect.provider import CodexProvider, ProviderError, _PipeWriter, _WriteTask, _error_code, _safe_error, _runtime_environment
 
 
 class ControlledProvider(CodexProvider):
@@ -958,6 +958,19 @@ class ProviderTests(unittest.TestCase):
             self.assertEqual(stream.messages, [])
         finally:
             process.terminate(); writer.thread.join(1)
+
+    def test_completed_writer_discards_payload_and_accepts_the_next_message(self):
+        stream=ControlledPipe();process=ControlledProcess(stream)
+        writer=_PipeWriter(process,lambda *args:None)
+        try:
+            task=_WriteTask('PRIVATE_SYNTHETIC_PAYLOAD',time.monotonic()+1)
+            writer.jobs.put(task)
+            self.assertTrue(task.done.wait(1))
+            self.assertIsNone(task.payload)
+            writer.submit('next-message',1)
+            self.assertEqual(stream.messages,['PRIVATE_SYNTHETIC_PAYLOAD','next-message'])
+            self.assertTrue(writer.thread.is_alive())
+        finally:process.terminate();writer.thread.join(1)
 
     def test_shutdown_reserves_terminate_and_kill_inside_one_three_second_budget(self):
         class StubbornProcess(ControlledProcess):

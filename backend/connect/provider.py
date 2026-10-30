@@ -115,6 +115,7 @@ class _PipeWriter:
                 if self.process.poll() is not None:
                     return
                 continue
+            close_stdin = task.payload is None
             try:
                 if not self._claim(task):
                     pass
@@ -135,8 +136,9 @@ class _PipeWriter:
                     'El transporte terminó durante la escritura. Reconcilia las operaciones antes de repetir.')
                 self.failed(self.process, 'WRITE_OUTCOME_UNKNOWN', task.deadline)
             finally:
+                task.payload = None
                 task.done.set()
-            if task.payload is None or self.process.poll() is not None:
+            if close_stdin or self.process.poll() is not None:
                 return
 
 
@@ -259,6 +261,7 @@ class CodexProvider:
             persisted.update(response='', response_retained=False)
             if persisted.get('error'):
                 persisted['error']={'code':'SOURCE_INFERENCE_FAILED','message':'No terminó la consulta de contexto temporal.'}
+                run['error']=dict(persisted['error'])
         with self.db:
             self.db.execute('UPDATE connect_runs SET body_json=?,updated_at=? WHERE request_id=?',
                             (json.dumps(persisted, ensure_ascii=False), run['updated_at'], run['request_id']))
@@ -1120,6 +1123,7 @@ class CodexProvider:
             with self.lock:
                 run.pop('_source_images', None)
                 run.pop('_source_cancel', None)
+                run.pop('_notifications', None)
                 if run.get('_source_tainted') and run['state']!='completed':run['response']=''
                 run['_turn_ready'].set()
                 if not self.closed:
