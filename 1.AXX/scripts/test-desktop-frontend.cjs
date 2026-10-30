@@ -127,6 +127,7 @@ assert.deepEqual(reviewResolution.steps,[{command_id:'axx.desktop.list_windows',
         if (path === '/axx-api/recipes/execute') return { success: true, fixture: true, steps_executed: 1 };
         if (path === '/axx-api/chat/cancel') return { cancelled: true };
         if (path === '/axx-api/actions/cancel') return { cancelled: true };
+        if (path === '/axx-api/speech/status') return { asr: { available: true } };
         if (path === '/axx-api/speech/voices') return { available: true, engine: 'windows-sapi', voices: [{ name: 'Contract fixture voice', language: 'en-US', enabled: true }] };
         if (path === '/axx-api/speech/synthesize') return { engine: 'windows-sapi', voice: body.voice, language: 'en-US', audio_base64: window.__contractWav, mime: 'audio/wav', duration_seconds: .1, evidence: { sha256: 'CONTRACT_ONLY' } };
         if (path === '/axx-api/speech/transcribe') { if (window.__contractHoldAsr) await new Promise(resolve => setTimeout(resolve, 150)); return { text: 'Texto del contrato de ASR', engine: 'faster-whisper', model: 'tiny' }; }

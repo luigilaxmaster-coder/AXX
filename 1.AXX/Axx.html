@@ -15342,6 +15342,11 @@ convertida en palabras." aria-label="Transcripción del dictado"></textarea>
             } }, 18000);
             this.refresh();
             try {
+                if (Axx.nativeVoice) {
+                    await Axx.nativeVoice.requireTranscription();
+                    if (id !== this.generation)
+                        return;
+                }
                 const live = await this.meter.start();
                 if (id !== this.generation || !live)
                     return;

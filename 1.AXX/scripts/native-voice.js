@@ -10,6 +10,12 @@
     const privacyDetail = document.getElementById('v13-permission-state')?.nextElementSibling;
     if (privacyDetail?.tagName === 'P') privacyDetail.textContent = 'Dictado local con Whisper. El audio del micrófono no se envía a un proveedor de IA. Termina la captura para colocar la frase reconocida.';
     const cancelWorker = () => state.cancelPromise = Axx.backendRequest('POST', '/axx-api/speech/cancel', {}).catch(() => {});
+    state.requireTranscription = async () => {
+        const report = await Axx.backendRequest('GET', '/axx-api/speech/status');
+        if (report?.asr?.available !== true)
+            throw new Error('El modelo local de transcripción no está instalado o no está disponible. Instala un modelo local compatible y reinicia Axx antes de activar el micrófono.');
+        return report.asr;
+    };
     const showVoiceStatus = (message, phase = 'idle') => {
         for (const id of ['native-reader-engine', 'chat-voice-status', 'chat-live-voice-status', 'voice-panel-status']) {
             const info = document.getElementById(id);
@@ -256,7 +262,12 @@
             state.activeCapture = this;
             this.change('starting');
             try {
-                if (!this.options.submitAudio) await state.cancelPromise;
+                if (!this.options.submitAudio) {
+                    await state.cancelPromise;
+                    if (id !== this.generation) return 'unavailable';
+                    await state.requireTranscription();
+                    if (id !== this.generation) return 'unavailable';
+                }
                 if(id!==this.generation)return 'unavailable';
                 const meter = this.owner === Axx.voice13?.capture ? Axx.voice13.meter : null;
                 const borrowedMeter = !!meter?.active; this.borrowedMeter = borrowedMeter;
