@@ -29,7 +29,13 @@ class TelegramWebAppUITests(unittest.TestCase):
 
     def page(self, init=True, width=390, fail_first=False, permissions=None, conversation=None, reduced_motion='no-preference', fragment='', session_error=None):
         context = self.browser.new_context(viewport={'width': width, 'height': 780}, reduced_motion=reduced_motion)
-        context.grant_permissions(['clipboard-read', 'clipboard-write'], origin='https://miniapp.fixture.test')
+        context.add_init_script("""(() => {
+            let clipboardText = '';
+            Object.defineProperty(navigator, 'clipboard', {configurable: true, value: {
+                writeText: async value => { clipboardText = String(value); },
+                readText: async () => clipboardText
+            }});
+        })();""")
         self.addCleanup(context.close)
         page = context.new_page()
         fixture = {'calls': [], 'effects': set(), 'fail_first': fail_first, 'mutations': [], 'errors': {}, 'sessions': []}

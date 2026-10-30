@@ -64,6 +64,11 @@ La barra admite **Intro** y **Enviar**. Si otra acción requiere atención, expl
 | Pantalla y medios | Controles de captura/grabación y rutas multimedia disponibles; cada integración conserva sus límites. | [Manual](1.AXX/MANUAL-COMPLETO.md) |
 | Conexiones y capacidades | MCP, procedimientos y propuestas de flujos o transformaciones revisadas. | [MCP local](docs/MCP-LOCAL.md) · [Capacidades generadas](docs/GENERATED-COMMANDS.md) |
 | Android | Emparejamiento, texto, apariencia compartida y superficies remotas sujetas a autorización del PC. | [Axx Mobile](docs/mobile/README.md) |
+| Telegram | Configuración de cuenta, permisos, teléfono y comprobación desde la PC. Llamadas, notas de voz y archivos siguen pendientes de aceptación o implementación. | [Telegram en Axx](docs/TELEGRAM.md) |
+
+El instalador público no incluye modelos de voz. El dictado necesita un modelo
+local compatible; la actualización conserva los modelos ya instalados y no
+descarga otros automáticamente. [Configuración local de voz](docs/VOICE-CONVERSATION.md).
 
 ### Comandos que puedes practicar
 
