@@ -150,10 +150,14 @@ public class AxxTransportPlugin extends Plugin {
         return method.equals("GET") ? 8000 : 75000;
     }
 
+    static void validateOperation(String path, String method) {
+        if (path == null || !path.matches("/v1/[a-z/-]+(\\?[a-z_]+=(?:[a-zA-Z0-9_.:-]|%3[Aa])+)?") || !("GET".equals(method) || "POST".equals(method)))
+            throw new IllegalArgumentException("Invalid mobile operation");
+    }
+
     private JSONObject exchange(JSONObject profile, String path, String method, JSONObject body) throws Exception {
         URI endpoint = validateEndpoint(profile.getString("endpoint"));
-        if (!path.matches("/v1/[a-z/-]+(\\?[a-z_]+=[a-zA-Z0-9_-]+)?") || !(method.equals("GET") || method.equals("POST")))
-            throw new IllegalArgumentException("Invalid mobile operation");
+        validateOperation(path, method);
         var connection = (HttpsURLConnection) new URI(endpoint.getScheme(), null, endpoint.getHost(), endpoint.getPort(), null, null, null).resolve(path).toURL().openConnection();
         boolean reusable=false;
         long started=android.os.SystemClock.elapsedRealtime();

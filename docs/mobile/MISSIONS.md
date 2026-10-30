@@ -104,3 +104,8 @@ conserva el borrador bajo teclado y comprueba anchos y controles táctiles.
 Estos ensayos no acreditan APK, teclado físico, voz ni dispositivos reales. La entrega exige
 gate conjunto, APK/hash/firma, actualización
 en sitio y aceptación física por separado.
+
+La regresión JVM del transporte recorre también identificadores con puntos y
+dos puntos, su codificación por URI y el rechazo de inyecciones de URL/query.
+La gramática anterior rechazaba identificadores que el backend sí admite;
+las fixtures de navegador no cubrían ese paso nativo.

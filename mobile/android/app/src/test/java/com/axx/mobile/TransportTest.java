@@ -4,6 +4,31 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 public class TransportTest {
+    @Test public void missionQueriesKeepBackendIdentifiersWithoutAcceptingUrlInjection() {
+        for(String path:new String[]{"/v1/work/missions?conversation_id=chat.original%3Aone",
+                "/v1/work/missions?conversation_id=chat.original%3aone",
+                "/v1/work/missions?conversation_id=chat.original:one",
+                "/v1/work/mission?operation_id=plan.original-1",
+                "/v1/work/mission-correction?command_id=request_original-1",
+                "/v1/control/status"}) {
+            AxxTransportPlugin.validateOperation(path,"GET");
+            java.net.URI resolved=java.net.URI.create("https://192.168.0.10:4443").resolve(path);
+            assertEquals("192.168.0.10",resolved.getHost());
+            assertEquals("https",resolved.getScheme());
+        }
+        AxxTransportPlugin.validateOperation("/v1/work/mission-correct","POST");
+        for(String path:new String[]{null,"https://other.example/v1/work/mission", "//other.example/v1/work/mission",
+                "/v1/work/mission?operation_id=../outside", "/v1/work/mission?operation_id=plan#fragment",
+                "/v1/work/mission?operation_id=plan&command_id=other", "/v1/work/mission?operation_id=plan%26other",
+                "/v1/work/mission?operation_id=plan%2foutside", "/v1/work/mission?operation_id=plan%253Aother"}) {
+            try { AxxTransportPlugin.validateOperation(path,"GET"); fail("Unsafe operation accepted: "+path); }
+            catch (IllegalArgumentException correct) {}
+        }
+        for(String method:new String[]{null,"DELETE","get"}) {
+            try { AxxTransportPlugin.validateOperation("/v1/work/mission",method); fail("Unsupported method accepted"); }
+            catch (IllegalArgumentException correct) {}
+        }
+    }
     @Test public void controlTimeoutCoversTheNativeAcknowledgementBudget() {
         assertTrue(AxxTransportPlugin.readTimeout("/v1/control/acquire","POST") >= 3000+2000);
         for (String operation : new String[]{"events","renew","release","status"}) {
