@@ -13,7 +13,7 @@
     "mobile/css/live-client.css": "7c8cfb08c1cd3a43a8ee232ab5dbdf7a9b26ae9f03b3647553febce874f5c9ed",
     "mobile/css/remote-control.css": "f0dfc5ab87abab55f3af202faae238a7e50602d20f3efe9c7ee9f33d53303eac",
     "mobile/js/display.js": "92164b6865dd0fcf0649d54e1e4f028f575276375c8ba3a39fe4ae9bc03f8abc",
-    "mobile/js/avatar-renderer.js": "8e25ed3565ec2f0047136aa9cedce9dbcf9640cf003ece1c71fee6c1273fee54",
+    "mobile/js/avatar-renderer.js": "1e8be23b8527f4bbda31c599d5ee0395be86883fa740991b52360fa66c365a93",
     "mobile/android/app/src/main/res/values/styles.xml": "510791b095e832d9da1e96cbf10eaac56a663ef8d12dacb9d849c34325ae2a34",
     "1.AXX/scripts/chat-workspace.css": "b390739c2df337bd10ccd47bc6451a11cb92d601ea6502e3c2c7fc5c924b7649",
     "1.AXX/scripts/interface-theme.css": "0c95c98eeaaee6e90cd742e9f6075e597716fadbf5d8b5489b51afd93a950c4b",
@@ -27,5 +27,13 @@
     "max_observed_geometry_delta_css_px": 0,
     "reference_fixture": "mobile/tests/fixtures/approved-portrait-layout.json",
     "evidence": "docs/mobile/SCREEN-FIXES-20261029.md"
+  },
+  "performance_review": {
+    "date": "2026-10-29",
+    "authorization": "User requested better mobile performance without reducing graphics quality",
+    "previous_renderer_sha256": "8e25ed3565ec2f0047136aa9cedce9dbcf9640cf003ece1c71fee6c1273fee54",
+    "change": "Cache immutable Float32 sphere samples; retain original motion, three droplets, mesh, shaders, resolution, lighting and CPU fallback",
+    "regression_test": "mobile.tests.test_personalization.PersonalizationTests.test_cached_droplets_keep_exact_pixels_and_stop_repeating_base_geometry",
+    "evidence": "docs/mobile/PERFORMANCE-20261029.md"
   }
 }

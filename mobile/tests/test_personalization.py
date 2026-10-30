@@ -90,3 +90,34 @@ class PersonalizationTests(unittest.TestCase):
             self.assertEqual(result['mode'],'gpu')
             self.assertGreater(result['iou'],.97)
             self.assertLess(result['error'],3)
+
+    def test_cached_droplets_keep_exact_pixels_and_stop_repeating_base_geometry(self):
+        with sync_playwright() as p:
+            page=self.open(p)
+            result=page.evaluate('''()=>{
+              const host=document.createElement('div'),canvas=document.createElement('canvas');
+              host.style.cssText='position:fixed;left:-10000px;width:160px;height:160px';canvas.style.cssText='width:160px;height:160px';host.append(canvas);document.body.append(host);
+              const r=new Axx.MobileRenderer(canvas,Axx.normalizeSettings({...Axx.DEFAULT_SETTINGS,quality:'balanced'}));
+              const optimized=r.droplets,legacy=Axx.SoftwareRenderer.prototype.droplets,shape=Axx.softwareShape;
+              let calls=0,changedBytes=0,cases=0;
+              try{
+                r.setForm(11,true);Axx.softwareShape=(...args)=>{calls++;return shape(...args);};
+                r.project=()=>{};r.droplets();const first=calls;r.droplets();const repeated=calls-first;
+                delete r.project;Axx.softwareShape=shape;
+                for(let form=0;form<24;form++)for(const finish of ['obsidian','prism','smoke'])for(const view of form===11?[0,1,2,3]:[0]){
+                  r.setStudio({view});r.setForm(form,true);r.setFinish(finish);r.configure({...r.settings,palette:form%9});r.setState(form%2?'thinking':'idle');r.advanceMotion(.016);
+                  r.droplets=legacy;r.draw(1);const before=r.ctx.getImageData(0,0,canvas.width,canvas.height).data;
+                  r.droplets=optimized;r.draw(1);const after=r.ctx.getImageData(0,0,canvas.width,canvas.height).data;
+                  for(let i=0;i<before.length;i++)if(before[i]!==after[i])changedBytes++;
+                  cases++;
+                }
+                return {first,repeated,expected:(r.bead.u+1)*(r.bead.v+1),changedBytes,cases,mode:r.diagnostics().mode,quality:r.settings.quality,adaptive:r.adaptive};
+              }finally{Axx.softwareShape=shape;r.stop();r.observer?.disconnect();r.gl?.getExtension('WEBGL_lose_context')?.loseContext();host.remove();}
+            }''')
+            self.assertEqual(result['mode'],'gpu')
+            self.assertEqual(result['first'],result['expected'])
+            self.assertEqual(result['repeated'],0)
+            self.assertEqual(result['cases'],81)
+            self.assertEqual(result['changedBytes'],0)
+            self.assertEqual(result['quality'],'balanced')
+            self.assertEqual(result['adaptive'],1)
