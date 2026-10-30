@@ -118,12 +118,25 @@ el núcleo vuelve a verificar el plan y el permiso justo antes del despacho.
 
 ### Órdenes compuestas y enlaces
 
+Estas mejoras están en la fuente posterior a Windows 0.22.32; el instalador de
+esa versión no las contiene. Requieren la siguiente entrega instalada y su
+aceptación nativa, además de las pruebas de fuente.
+
 Puedes escribir `abre calculadora y abre bloc de notas` o `abre youtube y pon faint de linkin park`.
 El bot y la Mini App preparan el primer paso; cada paso requiere su propia tarjeta de
 aprobación. El siguiente solo se prepara tras un recibo comprobado del anterior.
 Denegar, un resultado incierto, un cambio de permisos o un reinicio detienen la
 continuación. Consulta Actividad antes de repetir una petición tras desconectarte.
 No se reanudan secuencias automáticamente.
+
+Denegar detiene la secuencia incluso si el paso anterior ya terminó. Detener o
+reiniciar elimina los parámetros pendientes de la secuencia. El olvido coordinado
+depura su payload, las respuestas operativas y las confirmaciones de los contextos
+afectados; conserva los IDs de conciliación y las otras sesiones. Si el almacén de
+Telegram falla, el olvido permanece incompleto y se reintenta al iniciar. Una
+preparación tardía no puede restaurar una secuencia olvidada. El historial manual
+de conversaciones mantiene el contrato de memoria existente; esto no borra copias
+externas de Telegram.
 
 Un enlace seguido de `ponme este video` prepara la apertura de esa URL exacta.
 Abrir una URL no demuestra reproducción. La reproducción por búsqueda usa el adaptador

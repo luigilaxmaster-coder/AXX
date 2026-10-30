@@ -68,7 +68,7 @@ class TelegramService:
             db.execute("UPDATE inbox SET state='unknown' WHERE state='running'")
             db.execute("UPDATE confirmations SET state='unknown' WHERE state='claimed'")
             db.execute("UPDATE confirmations SET state='expired' WHERE state='pending'")
-            db.execute("UPDATE sequences SET state='stopped' WHERE state='pending'")
+            db.execute("UPDATE sequences SET state='stopped',payload='{}' WHERE state='pending'")
 
     @contextmanager
     def _db(self):
@@ -273,14 +273,18 @@ class TelegramService:
                               'text': ('Resultado comprobado: ' + json.dumps(receipt.get('output'), ensure_ascii=False)[:6000]
                                        if verified else 'El resultado no está comprobado. Consulta Actividad antes de repetir la orden.')}
                 if decision=='confirm':self._inbox_memory(operation_id,manual=True)
-                result = self._advance_sequence(account, operation_id, result)
+                result = self._advance_sequence(account, operation_id, result, confirmed=decision == 'confirm')
+                if decision=='confirm':self._inbox_memory(operation_id,manual=True)
                 with self._db() as db:
                     db.execute("UPDATE confirmations SET state='done',response=? WHERE operation_id=?", (json.dumps(result, ensure_ascii=False), operation_id))
                     db.execute('UPDATE inbox SET state=?,response=? WHERE operation_id=?', (result['state'], json.dumps(result, ensure_ascii=False), operation_id))
+                if decision=='confirm':self._inbox_memory(operation_id,manual=True)
                 return result
             except Exception:
                 with self._db() as db:
-                    db.execute("UPDATE confirmations SET state='unknown' WHERE operation_id=?", (operation_id,))
+                    db.execute("UPDATE confirmations SET state='unknown',response=NULL WHERE operation_id=?", (operation_id,))
+                    db.execute("UPDATE inbox SET state='unknown',response=NULL WHERE operation_id=?", (operation_id,))
+                    db.execute("UPDATE sequences SET state='stopped',payload='{}' WHERE (root=? OR current=?) AND state!='forgotten'", (operation_id, operation_id))
                 return {'state': 'unknown', 'operation_id': operation_id, 'text': 'No se pudo confirmar el resultado. La orden no se reenviará; revisa Actividad.'}
         finally:
             self.lock.release()
@@ -441,6 +445,18 @@ class TelegramService:
         self._assert_chat(captured)
         return captured
 
+    def forget_contexts(self, context_ids):
+        counts = {'sequences': 0, 'responses': 0, 'confirmations': 0}
+        with self._db() as db:
+            for context in set(context_ids):
+                if not isinstance(context, str) or not context:
+                    raise ValueError('Invalid forgotten Telegram context')
+                owned = 'SELECT operation_id FROM inbox WHERE memory_context_id=?'
+                counts['sequences'] += db.execute("UPDATE sequences SET state='forgotten',payload='{}' WHERE root IN (" + owned + ') OR current IN (' + owned + ')', (context, context)).rowcount
+                counts['confirmations'] += db.execute("UPDATE confirmations SET state='expired',response=NULL WHERE operation_id IN (" + owned + ')', (context,)).rowcount
+                counts['responses'] += db.execute("UPDATE inbox SET state='unknown',response=NULL WHERE memory_context_id=?", (context,)).rowcount
+        return counts
+
     def _save_message(self, captured, mid, role, text):
         self.chats.mutate('save', {'id': captured['task_id'], 'memory_scope':copy.deepcopy(captured['memory_scope']),
             'memory_context_id':captured['memory_context_id'],'messages': [
@@ -517,6 +533,7 @@ class TelegramService:
         except Exception:
             with self._db() as db:
                 db.execute("UPDATE inbox SET state='unknown',response=NULL WHERE id=?", (key,))
+                db.execute("UPDATE sequences SET state='stopped',payload='{}' WHERE (root=? OR current=?) AND state!='forgotten'", (key, key))
             # Provider errors and messages can contain private data. Never echo them remotely.
             return {'state': 'unknown', 'operation_id': key,
                     'text': 'No se pudo confirmar el resultado. Consulta esta operación en Axx antes de repetir: '+key}
@@ -545,7 +562,7 @@ class TelegramService:
         self.adapter.cancel(operation_id)
         return {'state': 'cancel_requested', 'text': 'Cancelación solicitada. Los efectos ya completados se conservan.'}
 
-    def _advance_sequence(self, account, operation_id, result):
+    def _advance_sequence(self, account, operation_id, result, *, confirmed):
         with self._db() as db:
             row = db.execute("SELECT root,payload FROM sequences WHERE current=? AND state='pending'", (operation_id,)).fetchone()
         if not row:
@@ -553,12 +570,14 @@ class TelegramService:
         root, raw = row
         payload = json.loads(raw)
         with self._db() as db:
-            db.execute("UPDATE sequences SET state='stopped' WHERE root=?", (root,))
-        if result.get('state') != 'succeeded' or result.get('postconditions_passed') is not True:
+            claimed = db.execute("UPDATE sequences SET state='stopped',payload='{}' WHERE root=? AND state='pending'", (root,)).rowcount
+        if claimed != 1:
+            return result
+        if not confirmed or result.get('state') != 'succeeded' or result.get('postconditions_passed') is not True:
             return result | {'text': result['text'] + '\nSecuencia detenida. No se prepararán más pasos.'}
         if not payload['steps']:
             with self._db() as db:
-                db.execute("UPDATE sequences SET state='completed' WHERE root=?", (root,))
+                db.execute("UPDATE sequences SET state='completed' WHERE root=? AND state='stopped'", (root,))
             return result | {'text': result['text'] + '\nSecuencia terminada; todos sus pasos tienen resultado comprobado.'}
         if payload['epoch'] != confirmation_fingerprint(self.data_dir):
             return result | {'text': result['text'] + '\nSecuencia detenida: los permisos cambiaron.'}
@@ -571,9 +590,11 @@ class TelegramService:
                 (next_id,'running',next_id,time.time(),account['account_id'],account['owner_id'],captured['task_id'],json.dumps(captured['memory_scope']),captured['memory_context_id']))
         following = self._turn(account, chat, next_id, '', require_remote_review=True, captured=captured, resolved=step | {'match':'exact'})
         with self._db() as db:
-            db.execute('UPDATE inbox SET state=?,response=? WHERE id=?', (following['state'],json.dumps(following,ensure_ascii=False),next_id))
+            db.execute("UPDATE inbox SET state=?,response=? WHERE id=? AND state='running'", (following['state'],json.dumps(following,ensure_ascii=False),next_id))
             if following['state'] == 'awaiting_approval':
-                db.execute("UPDATE sequences SET current=?,payload=?,state='pending' WHERE root=?", (next_id,json.dumps(payload),root))
+                resumed = db.execute("UPDATE sequences SET current=?,payload=?,state='pending' WHERE root=? AND state='stopped'", (next_id,json.dumps(payload),root)).rowcount
+                if resumed != 1:
+                    return result | {'text': result['text'] + '\nSecuencia detenida: el contexto cambió.'}
         if following['state'] != 'awaiting_approval':
             return result | {'text':result['text'] + '\nSecuencia detenida. ' + following['text']}
         return result | {'next_operation_id':next_id, 'text':result['text'] + '\nRevisa el siguiente paso. Requiere una aprobación nueva.'}

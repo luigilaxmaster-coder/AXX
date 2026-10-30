@@ -80,6 +80,18 @@ class TelegramConfirmationIntegrationTests(unittest.TestCase):
             self.assertNotIn('next_operation_id', result)
             effect.assert_called_once()
 
+    def test_late_denial_never_advances_an_already_completed_step(self):
+        first = self.prepare('abre calculadora y abre bloc de notas')
+        token = self.service.review_operation(20, first)['token']
+        with patch.object(self.commands, 'cancel', return_value=self.effect), \
+             patch.object(self.executor, 'execute_action') as effect, \
+             patch.object(self.commands, 'prepare', wraps=self.commands.prepare) as prepare:
+            result = self.service.decide_operation(20, token, 'cancel')
+        self.assertNotIn('next_operation_id', result)
+        self.assertIn('Secuencia detenida', result['text'])
+        effect.assert_not_called()
+        prepare.assert_not_called()
+
     def test_permission_change_after_first_effect_stops_sequence(self):
         first = self.prepare('abre calculadora y abre bloc de notas')
         def completed_effect(*args, **kwargs):
@@ -91,6 +103,34 @@ class TelegramConfirmationIntegrationTests(unittest.TestCase):
             effect.assert_called_once()
             with self.service._db() as db:
                 self.assertEqual(db.execute('SELECT count(*) FROM inbox').fetchone()[0], 1)
+
+    def test_forget_during_next_preparation_cannot_restore_sequence_or_publish_receipt(self):
+        from backend.memory import task_memory
+        first = self.prepare('abre calculadora y abre bloc de notas')
+        token = self.service.review_operation(20, first)['token']
+        original_turn = self.service._turn
+        def forget_after_prepare(*args, **kwargs):
+            following = original_turn(*args, **kwargs)
+            captured = kwargs['captured']
+            with self.chats.db() as db:
+                db.execute('BEGIN IMMEDIATE')
+                ref = task_memory.begin_forget(db, captured['task_id'], 'forget-in-flight', captured['memory_scope']['generation'])
+            forgotten = self.chats.forget_task(captured['task_id'], ref)
+            self.service.forget_contexts(forgotten['old_connect_ids'])
+            with self.chats.db() as db:
+                task_memory.finish_forget(db, ref, forgotten)
+            return following
+        with patch.object(self.executor, 'execute_action', return_value=self.effect) as effect, \
+             patch.object(self.service, '_turn', side_effect=forget_after_prepare):
+            result = self.service.decide_operation(20, token, 'confirm')
+        effect.assert_called_once()
+        self.assertEqual(result['state'], 'unknown')
+        self.assertNotIn('next_operation_id', result)
+        self.assertNotIn('fixture', result['text'])
+        with self.service._db() as db:
+            self.assertEqual(db.execute('SELECT state,payload FROM sequences WHERE root=?', (first,)).fetchone(), ('forgotten', '{}'))
+            self.assertTrue(all(row[0] is None for row in db.execute('SELECT response FROM inbox')))
+            self.assertTrue(all(row[0] is None for row in db.execute('SELECT response FROM confirmations')))
 
     def test_status_distinguishes_admission_from_a_verified_effect(self):
         first = self.prepare()

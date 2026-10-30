@@ -125,7 +125,7 @@ def forget_session(learning, task_id, operation_id, memory_scope, **kwargs):
 
 
 def _forget_session(learning, task_id, operation_id, memory_scope, *, chats, provider=None, memory=None,
-                   memory_context_id=None, request_hash=None):
+                   memory_context_id=None, request_hash=None, telegram=None):
     task_id, operation_id = ident(task_id), ident(operation_id)
     ref = _scope(memory_scope, task_id)
     request_hash = request_hash or digest({'task_id': task_id, 'operation_id': operation_id,
@@ -193,6 +193,8 @@ def _forget_session(learning, task_id, operation_id, memory_scope, *, chats, pro
         chat_result = chat_result | {key:sorted(set(chat_result.get(key, [])) | set(shared_result.get(key, [])))
             for key in ('old_connect_ids', 'affected_task_ids')}
         chat_result['requires_review'] = chat_result.get('requires_review') or shared_result.get('requires_review')
+    if telegram is not None:
+        checkpoint('telegram', lambda: telegram.forget_contexts(chat_result.get('old_connect_ids', [])))
     checkpoint('plans', lambda: _retire_plans(learning, task_id, forgotten_memory, chat_result), atomic=True)
     if learning.anticipation:
         checkpoint('initiative', lambda: learning.anticipation.forget_task(task_id))
@@ -229,11 +231,11 @@ def _forget_session(learning, task_id, operation_id, memory_scope, *, chats, pro
     return result
 
 
-def retry_pending(learning, *, chats, provider=None, memory=None):
+def retry_pending(learning, *, chats, provider=None, memory=None, telegram=None):
     with learning.lock:
         pending = [(row[0], row[1], json.loads(row[2])) for row in learning.db.execute(
             'SELECT task_id,operation_id,result_json FROM memory_task_scopes WHERE forgetting=1 AND result_json IS NOT NULL')]
-    return [forget_session(learning, task, operation, progress['memory_scope'], chats=chats, provider=provider, memory=memory,
+    return [forget_session(learning, task, operation, progress['memory_scope'], chats=chats, provider=provider, memory=memory, telegram=telegram,
         memory_context_id=progress.get('memory_context_id'), request_hash=progress['request_hash'])
         for task, operation, progress in pending]
 
@@ -310,7 +312,7 @@ def preview_change(learning, text, task_id, *, project_id='', operation_id=None,
             'review_hash': digest(change), 'summary': labels[action], 'permissions_granted': False}
 
 
-def apply_change(learning, body, *, chats, provider=None, memory=None):
+def apply_change(learning, body, *, chats, provider=None, memory=None, telegram=None):
     if (not isinstance(body, dict) or set(body) != {'change', 'review_hash', 'confirmed'}
             or body['confirmed'] is not True or not isinstance(body['review_hash'], str)):
         raise ValueError('Confirma un cambio de memoria concreto')
@@ -323,7 +325,7 @@ def apply_change(learning, body, *, chats, provider=None, memory=None):
     action, target = change['action'], change['target']
     if action == 'forget_session':
         if target != {'task_id': task}: raise ValueError('Ámbito de olvido inválido')
-        return forget_session(learning, task, operation, ref, chats=chats, provider=provider, memory=memory,
+        return forget_session(learning, task, operation, ref, chats=chats, provider=provider, memory=memory, telegram=telegram,
                               memory_context_id=change['memory_context_id'], request_hash=body['review_hash'])
     if action not in ('restrict_project', 'retire_procedure', 'prefer_folder'):
         raise ValueError('Cambio de memoria desconocido')

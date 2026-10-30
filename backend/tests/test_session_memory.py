@@ -47,6 +47,43 @@ class SessionMemoryTests(unittest.TestCase):
 
     def scope(self, task): return task_memory.snapshot(self.learning.db, task)
 
+    def test_forget_scrubs_telegram_sequence_and_tokens_only_for_affected_context(self):
+        from backend.telegram.service import TelegramService
+        telegram = TelegramService(self.root, self.chats, self.commands, self.model, lambda: {})
+        source = self.chats.get(self.a)
+        self.chats.mutate('save', {'id': self.a, 'memory_scope': source['memory_scope'],
+            'memory_context_id': source['connect_id'], 'messages': [
+                {'id': 'source-note', 'role': 'user', 'text': 'SYNTHETIC_SOURCE', 'status': 'complete', 'at': self.chats.clock()}]})
+        derived = self.chats.mutate('create', {'title': 'Derived context'})['id']
+        chat = self.chats.get(derived)
+        self.chats.mutate('link', {'id': derived, 'source_id': self.a,
+            'memory_scope': chat['memory_scope'], 'memory_context_id': chat['connect_id']})
+        for task, operation in ((self.a, 'telegram-a'), (self.b, 'telegram-b'), (derived, 'telegram-derived')):
+            chat = self.chats.get(task)
+            with telegram._db() as db:
+                db.execute('INSERT INTO inbox(id,state,response,operation_id,created,task_id,memory_scope,memory_context_id) VALUES(?,?,?,?,?,?,?,?)',
+                    (operation, 'awaiting_approval', 'PRIVATE_' + operation, operation, 1,
+                     task, json.dumps(chat['memory_scope']), chat['connect_id']))
+                db.execute('INSERT INTO sequences VALUES(?,?,?,?)',
+                    (operation, operation, json.dumps({'steps': ['PRIVATE_' + operation]}), 'pending'))
+                db.execute('INSERT INTO confirmations VALUES(?,?,?,?,?,?,?,?,?)',
+                    (operation, 10, 20, 'epoch', 'hash', operation, 123, 'pending', 'PRIVATE_' + operation))
+        with patch.object(telegram, 'forget_contexts', side_effect=OSError('Synthetic busy store')):
+            with self.assertRaises(OSError):
+                self.learning.forget_session(self.a, 'forget-telegram', self.scope(self.a), chats=self.chats, telegram=telegram)
+        self.assertTrue(task_memory.state(self.learning.db, self.a)['forgetting'])
+        from backend.session_memory import retry_pending
+        result = retry_pending(self.learning, chats=self.chats, telegram=telegram)[0]
+        self.assertEqual(result['state'], 'applied')
+        with telegram._db() as db:
+            self.assertEqual(db.execute('SELECT state,payload FROM sequences WHERE root=?', ('telegram-a',)).fetchone(), ('forgotten', '{}'))
+            self.assertEqual(db.execute('SELECT state,response FROM inbox WHERE id=?', ('telegram-a',)).fetchone(), ('unknown', None))
+            self.assertEqual(db.execute('SELECT state,response FROM confirmations WHERE operation_id=?', ('telegram-a',)).fetchone(), ('expired', None))
+            self.assertEqual(db.execute('SELECT state,payload FROM sequences WHERE root=?', ('telegram-derived',)).fetchone(), ('forgotten', '{}'))
+            self.assertIsNone(db.execute('SELECT response FROM inbox WHERE id=?', ('telegram-derived',)).fetchone()[0])
+            self.assertIn('PRIVATE_telegram-b', db.execute('SELECT payload FROM sequences WHERE root=?', ('telegram-b',)).fetchone()[0])
+            self.assertEqual(db.execute('SELECT response FROM inbox WHERE id=?', ('telegram-b',)).fetchone()[0], 'PRIVATE_telegram-b')
+
     def completed(self, task, name, project):
         prepared = self.learning.prepare_steps('Crear ' + name, [{'command_id': 'axx.artifact.write',
             'inputs': {'path': name + '.txt', 'content': 'CANARY_' + name}}], conversation_id=task,

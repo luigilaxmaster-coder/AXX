@@ -879,7 +879,7 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                         target_skill_id=body.get('target_skill_id'),target_skill_version=body.get('target_skill_version'),
                         target_operation_id=body.get('target_operation_id'),folder=body.get('folder'),chats=self.chats,**memory_kwargs)
                 elif action == 'memory-apply':
-                    result=session_memory.apply_change(self.learning,body,chats=self.chats,provider=self.provider,memory=self.memory)
+                    result=session_memory.apply_change(self.learning,body,chats=self.chats,provider=self.provider,memory=self.memory,telegram=self.telegram)
                 elif action == 'execute-authorized':
                     result = self.learning.execute_with_grant(body.get('operation_id'), body.get('grant_id'), body.get('plan_hash'),**memory_kwargs)
                 elif action == 'goal-progress':
@@ -1496,10 +1496,6 @@ def run_server(host='127.0.0.1', port=4173, config_path='providers.json', state_
         services.append(connect)
         provider = CodexProvider(commands, state_path, state_dir, dispatcher=connect.dispatch)
         services.append(provider)
-        try:
-            session_memory.retry_pending(learning,chats=chats,provider=provider,memory=memory)
-        except Exception:
-            LOG.warning('Pending memory cleanup remains incomplete')
         workshop.provider = provider
         handler = type('ConfiguredAxxHandler', (AxxBridgeHandler,), {
             'chats': chats, 'adapter': adapter, 'executor': executor, 'commands': commands, 'computer_use':computer_use, 'learning': learning, 'workshop': workshop, 'demonstration': demonstration, 'freellmapi': freellmapi, 'model_candidates': model_candidates, 'keyless': keyless,
@@ -1521,6 +1517,10 @@ def run_server(host='127.0.0.1', port=4173, config_path='providers.json', state_
                                            appearance=lambda: server.mobile.appearance)
         handler.telegram.connection = server.core_bound
         services.append(handler.telegram)
+        try:
+            session_memory.retry_pending(learning,chats=chats,provider=provider,memory=memory,telegram=handler.telegram)
+        except Exception:
+            LOG.warning('Pending memory cleanup remains incomplete')
         from backend.telegram.desktop import DesktopTelegram
         from backend.telegram.pairing import PairingStore
         handler.telegram_desktop = DesktopTelegram(state_dir, handler.telegram)
