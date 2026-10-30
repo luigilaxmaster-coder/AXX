@@ -165,6 +165,8 @@ class ActionExecutor:
         op_id = operation_id or str(uuid.uuid4())
         inputs = dict(inputs)
         permitted = {'file_artifact_writer': {'path', 'content'}, 'system_telemetry': set(), 'process_state_inspector': {'pid'},
+                     'artifact_quarantine': {'source_operation_id', 'source_receipt_hash', 'expected_revision'},
+                     'artifact_restore': {'source_operation_id', 'source_receipt_hash', 'expected_revision'},
                      'blender_render_fixture': {'filename'}, 'desktop_open_url': {'url'}, 'desktop_open_app': {'app'},
                      'desktop_search': {'query', 'engine'}, 'desktop_powershell': {'script'}, 'desktop_cmd': {'script'},
                      'desktop_installed_app': {'app_id'}, 'desktop_list_apps': set(),

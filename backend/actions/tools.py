@@ -91,7 +91,7 @@ class FileArtifactTool(BaseTool):
     and asserts postconditions: file exists, byte length matches, sha256 matches.
     """
     name = "file_artifact_writer"
-    version = "1.1.0"
+    version = "1.2.0"
     description = "Writes a verified file artifact inside an authorized workspace folder"
 
     def verify_preconditions(self, inputs: dict) -> tuple[bool, str]:
@@ -101,6 +101,9 @@ class FileArtifactTool(BaseTool):
         path_error = artifact_path_error(path_str)
         if path_error:
             return False, path_error
+        from .artifact_compensation import reserved_path
+        if reserved_path(path_str):
+            return False, 'The artifact quarantine namespace is reserved'
         content = inputs.get('content')
         if not isinstance(content, (str, bytes)):
             return False, "Input 'content' must be string or bytes"
@@ -128,6 +131,22 @@ class FileArtifactTool(BaseTool):
         return True, "Preconditions satisfied"
 
     def execute(self, inputs: dict) -> ToolResult:
+        return self._execute_guarded(inputs, None)
+
+    def execute_in_workspace(self, inputs: dict, workspace_root: Path) -> ToolResult:
+        return self._execute_guarded(inputs, workspace_root)
+
+    def _execute_guarded(self, inputs, workspace_root):
+        from .artifact_compensation import protected_creation, reserved_path
+        if reserved_path(inputs.get('path', '')):
+            return ToolResult(False, error='The artifact quarantine namespace is reserved')
+        try:
+            with protected_creation(inputs['path'], workspace_root):
+                return self._execute_protected(inputs)
+        except (ValueError, OSError):
+            return ToolResult(False, error='ARTIFACT_CREATION_UNAVAILABLE: no se pudo mantener una raíz segura durante la creación')
+
+    def _execute_protected(self, inputs: dict) -> ToolResult:
         target = Path(inputs['path']).resolve()
         raw_data = inputs['content']
         data_bytes = raw_data.encode('utf-8') if isinstance(raw_data, str) else raw_data
@@ -138,14 +157,23 @@ class FileArtifactTool(BaseTool):
             path_error = artifact_path_error(inputs['path'])
             if path_error:
                 return ToolResult(success=False, error=path_error)
+            from .artifact_compensation import reserved_path
+            if reserved_path(inputs['path']) or reserved_path(target):
+                return ToolResult(success=False, error='The artifact quarantine namespace is reserved')
             target.parent.mkdir(parents=True, exist_ok=True)
+            computed_hash = hashlib.sha256(data_bytes).hexdigest()
+            creation = None
             with target.open('xb') as artifact:
                 artifact.write(data_bytes)
-            computed_hash = hashlib.sha256(data_bytes).hexdigest()
+                artifact.flush()
+                os.fsync(artifact.fileno())
+                from .artifact_compensation import creation_from_descriptor
+                creation = creation_from_descriptor(artifact.fileno(), target, computed_hash, len(data_bytes))
             return ToolResult(
                 success=True,
                 output={'path': str(target), 'bytes_written': len(data_bytes), 'sha256': computed_hash},
-                evidence={'path': str(target), 'sha256': computed_hash, 'size': len(data_bytes)}
+                evidence={'path': str(target), 'sha256': computed_hash, 'size': len(data_bytes),
+                          **({'creation_receipt': creation} if creation else {})}
             )
         except Exception as e:
             return ToolResult(success=False, error=str(e))
@@ -167,6 +195,16 @@ class FileArtifactTool(BaseTool):
         expected_hash = result.evidence.get('sha256')
         if actual_hash != expected_hash:
             return False, f"Postcondition failed: Hash mismatch ({actual_hash} != {expected_hash})"
+
+        creation = result.evidence.get('creation_receipt')
+        if creation:
+            from .artifact_compensation import observe_owned
+            try:
+                identity = observe_owned(target, creation)
+            except (ValueError, OSError):
+                result.evidence['effect_uncertain'] = True
+                return False, 'Creation identity could not be verified; compensation is unavailable'
+            creation.update(identity=identity, verified=True)
 
         return True, "Postconditions verified: File exists, size and SHA256 match perfectly"
 
@@ -572,6 +610,10 @@ from .application_tools import TOOLS as APPLICATION_TOOLS
 TOOL_REGISTRY.update(APPLICATION_TOOLS)
 from ..computer_use import TOOLS as COMPUTER_USE_TOOLS
 TOOL_REGISTRY.update(COMPUTER_USE_TOOLS)
+from .artifact_compensation import ArtifactCompensationTool
+for _compensation_action in ('quarantine', 'restore'):
+    _compensation_tool = ArtifactCompensationTool(_compensation_action)
+    TOOL_REGISTRY[_compensation_tool.name] = _compensation_tool
 
 
 def get_tool(name: str) -> BaseTool | None:

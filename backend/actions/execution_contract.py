@@ -9,6 +9,7 @@ MODES = ('background', 'foreground', 'isolated')
 # Only implementations with no global input, launch or clipboard path belong here.
 BACKGROUND_TOOLS = frozenset({
     'file_artifact_writer', 'file_inspection', 'system_telemetry', 'process_state_inspector',
+    'artifact_quarantine', 'artifact_restore',
     'architecture_status', 'desktop_list_apps', 'desktop_list_windows',
     'desktop_inspect_window', 'desktop_read_window', 'desktop_cli_anything_scan',
     'desktop_find_control', 'computer_observe', 'computer_find', 'file_find', 'file_bundle',

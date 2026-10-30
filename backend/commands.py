@@ -26,6 +26,7 @@ from .actions.execution_contract import delivery_policy, resolve_mode
 from .actions.computer_tools import ADAPTERS as COMPUTER_ADAPTERS
 from .actions.application_tools import ADAPTERS as APPLICATION_ADAPTERS, resolve_application_command
 from .computer_use import ADAPTERS as COMPUTER_USE_ADAPTERS
+from .actions import artifact_compensation as compensation
 from .procedure_library import ProcedureLibrary
 
 TERMINAL = {'succeeded', 'failed', 'blocked', 'cancelled', 'expired', 'unknown'}
@@ -34,6 +35,10 @@ TERMINAL = {'succeeded', 'failed', 'blocked', 'cancelled', 'expired', 'unknown'}
 class ApprovalRequired(ValueError):
     pass
 ADAPTERS = {
+    **{'axx.artifact.' + action: {'title': 'Apartar archivo nuevo en cuarentena' if action == 'quarantine' else 'Restaurar archivo desde cuarentena',
+        'tool': 'artifact_' + action, 'risk': 'workspace_write', 'requires_approval': True, 'aliases': [],
+        'description': 'Compensa una creación nueva verificada mediante su recibo e identidad; conserva los bytes y nunca sobrescribe originales.',
+        'parameters': compensation.PARAMETERS} for action in ('quarantine', 'restore')},
     'axx.desktop.window.find': {
         'title': 'Localizar botón por nombre', 'tool': 'desktop_find_control', 'risk': 'read',
         'description': 'Observa UIA y selecciona un botón único por nombre exacto. Se abstiene si falta, hay duplicados o el árbol está incompleto. No pulsa ni toma el foco.',
@@ -233,6 +238,7 @@ class CommandService:
         self.db = sqlite3.connect(str(executor.db_path), timeout=10, check_same_thread=False)
         self.db.row_factory = sqlite3.Row
         with self.db:
+            compensation.initialize(self.db)
             self.db.execute('''CREATE TABLE IF NOT EXISTS command_runs (
                 operation_id TEXT PRIMARY KEY, command_id TEXT NOT NULL, inputs_json TEXT NOT NULL,
                 source TEXT NOT NULL, state TEXT NOT NULL, result_json TEXT NOT NULL,
@@ -252,6 +258,10 @@ class CommandService:
                 'requires_approval': adapter.get('requires_approval', adapter['risk'] != 'read'), 'blocked_reason': None,
                 'source_status': 'IMPLEMENTADO_LOCAL', 'validation_level': 'IMPLEMENTADO_LOCAL',
                 'source': {'kind': 'local_adapter'}, 'delivery': delivery_policy(adapter['tool'])}
+            if command_id in compensation.COMMAND_ACTIONS and not compensation.native_available():
+                self.commands[command_id].update(execution_enabled=False, blocked_reason='Compensación nativa por identidad no disponible en esta plataforma')
+            if command_id == 'axx.artifact.write' and not compensation.native_available():
+                self.commands[command_id].update(execution_enabled=False, blocked_reason='La creación requiere una raíz protegida por handles Windows; no hay fallback inseguro por ruta')
         self.commands['axx.blender.fixture'] = {
             'id': 'axx.blender.fixture', 'title': 'Render de prueba en Blender', 'category': 'Axx local',
             'description': 'Adaptador existente pendiente de validación física para el catálogo.',
@@ -505,6 +515,10 @@ class CommandService:
     def _validate_inputs(self, command_id, inputs, require_new=True, check_files=True, deferred_fields=()):
         if not isinstance(inputs, dict):
             raise ValueError('Los parámetros deben ser un objeto JSON')
+        if command_id in compensation.COMMAND_ACTIONS:
+            if deferred_fields:
+                raise ValueError('La compensación requiere un recibo exacto; no acepta bindings diferidos')
+            return compensation.validate_inputs(inputs)
         if command_id.startswith(('axx.mcp.', 'axx.generated.')):
             if command_id.startswith('axx.generated.'):
                 from .generated_commands import validate_arguments
@@ -555,6 +569,8 @@ class CommandService:
         inputs = dict(inputs)
         if deferred_fields:
             return inputs  # Runtime resolves and validates the complete inputs before prepare.
+        if command_id in (*COMPUTER_ADAPTERS, *APPLICATION_ADAPTERS) and isinstance(inputs.get('destination'), str) and compensation.reserved_path(inputs['destination']):
+            raise ValueError('El espacio de cuarentena está reservado; elige otro destino')
         if command_id in APPLICATION_ADAPTERS or command_id in COMPUTER_ADAPTERS:
             if check_files:
                 from .actions.tools import get_tool
@@ -579,6 +595,8 @@ class CommandService:
                     if not Path(value).is_absolute() or artifact_path_error(value):
                         raise ValueError('Indica la ruta absoluta de un archivo local.')
         if command_id == 'axx.artifact.write':
+            if compensation.reserved_path(inputs.get('path', '')):
+                raise ValueError('El espacio de cuarentena está reservado; elige otro destino')
             raw = inputs['path']
             parts = raw.replace('\\', '/').split('/')
             reserved = {'CON', 'PRN', 'AUX', 'NUL', *(f'COM{i}' for i in range(1, 10)), *(f'LPT{i}' for i in range(1, 10))}
@@ -600,23 +618,51 @@ class CommandService:
         return result
 
     def _save(self, result):
+        result = dict(result)
+        result.pop('compensation', None)  # A current-state projection, never a rewritten historical receipt.
         result = self._recovery_view(result)
         self.db.execute('UPDATE command_runs SET state=?,result_json=? WHERE operation_id=?',
                         (result['state'], json.dumps(result, ensure_ascii=False), result['operation_id']))
         self.db.commit()
         self.change_revision += 1
-        return result
+        return compensation.project_relationship(self.db, result)
 
     def get(self, operation_id):
         if not isinstance(operation_id, str):
             raise ValueError('operation_id requerido')
         with self.lock:
             row = self.db.execute('SELECT result_json FROM command_runs WHERE operation_id=?', (operation_id,)).fetchone()
-            return self._recovery_view(json.loads(row[0])) if row else None
+            return compensation.project_relationship(self.db, self._recovery_view(json.loads(row[0]))) if row else None
 
     def operations(self):
         with self.lock:
-            return [self._recovery_view(json.loads(row[0])) for row in self.db.execute('SELECT result_json FROM command_runs ORDER BY created_at DESC LIMIT 50')]
+            return [compensation.project_relationship(self.db, self._recovery_view(json.loads(row[0]))) for row in self.db.execute('SELECT result_json FROM command_runs ORDER BY created_at DESC LIMIT 50')]
+
+    def compensation_preview(self, source_operation_id):
+        if not isinstance(source_operation_id, str) or not re.fullmatch(r'[A-Za-z0-9_.-]{1,128}', source_operation_id):
+            raise ValueError('COMPENSATION_INPUT_INVALID')
+        with self.executor.lock, self.lock:
+            if self.closed:
+                raise ValueError('Servicio cerrado')
+            return compensation.preview(self.db, self.executor.workspace_root, source_operation_id)
+
+    def prepare_compensation(self, source_operation_id, source_receipt_hash, expected_revision, action='quarantine', operation_id=None):
+        if action not in ('quarantine', 'restore'):
+            raise ValueError('COMPENSATION_ACTION_INVALID')
+        inputs = compensation.validate_inputs({'source_operation_id': source_operation_id,
+            'source_receipt_hash': source_receipt_hash, 'expected_revision': expected_revision})
+        with self.executor.lock, self.lock:
+            source = compensation.load_source(self.db, self.executor.workspace_root, source_operation_id)
+            if source['source_receipt_hash'] != source_receipt_hash:
+                raise ValueError('COMPENSATION_RECEIPT_CHANGED')
+            if operation_id and self.get(operation_id):
+                return self.prepare('axx.artifact.' + action, inputs, operation_id=operation_id, conversation_id=source['conversation_id'], delivery_mode='background')
+            preview = compensation.preview(self.db, self.executor.workspace_root, source_operation_id)
+            if (not preview['available'] or preview['action'] != action
+                    or preview['compensation']['revision'] != expected_revision):
+                raise ValueError('COMPENSATION_PREVIEW_CHANGED')
+            return self.prepare('axx.artifact.' + action, inputs, operation_id=operation_id,
+                conversation_id=source['conversation_id'], delivery_mode='background')
 
     def _guard_learning_command(self, command):
         if not command['operation_id'].startswith('learn-'): return
@@ -658,6 +704,12 @@ class CommandService:
         with self.lock:
             if self.closed:
                 raise ValueError('Servicio cerrado')
+            if command_id in compensation.COMMAND_ACTIONS:
+                compensation.validate_inputs(inputs)
+                source_receipt = compensation.load_source(self.db, self.executor.workspace_root, inputs['source_operation_id'])
+                if conversation_id not in (None, source_receipt['conversation_id']):
+                    raise ValueError('La compensación pertenece a otra conversación')
+                conversation_id = source_receipt['conversation_id']
             existing = self.get(op_id)
             # Compare before preconditions: idempotent replay must survive an artifact now existing.
             if existing:
@@ -706,6 +758,8 @@ class CommandService:
                       'state': state, 'requires_approval': approval, 'postconditions_passed': False,
                       'evidence': {}, 'output': None, 'cancel_requested': False,
                       'error': None if enabled else {'code': 'NOT_IMPLEMENTED', 'message': command['blocked_reason']}}
+            if command_id in compensation.COMMAND_ACTIONS:
+                result['source_operation_id'] = inputs['source_operation_id']
             now = time.time()
             self.db.execute('INSERT INTO command_runs VALUES (?,?,?,?,?,?,?,?)',
                 (op_id, command_id, json.dumps(inputs), source, state, json.dumps(result, ensure_ascii=False), now + 300, now))
@@ -830,6 +884,8 @@ class CommandService:
                 result = self.get(operation_id)
                 if not result or result['state'] != 'unknown':
                     raise ValueError('La operación no tiene un efecto incierto pendiente de revisión.')
+                if result['command_id'] in compensation.COMMAND_ACTIONS:
+                    raise ValueError('COMPENSATION_RECONCILE_REQUIRED: usa conciliar sin repetir; una revisión manual no autoriza otro movimiento')
                 if (result.get('evidence') or {}).get('manual_reviewed') is True:
                     return result  # Idempotent acknowledgement preserves its original time.
                 action_id = result.get('action_operation_id') or 'cmd-' + hashlib.sha256(operation_id.encode()).hexdigest()
@@ -861,6 +917,22 @@ class CommandService:
             with self.executor.lock, self.lock:
                 result = self.get(operation_id)
                 if not result or result['state'] != 'unknown': raise ValueError('La operación no está pendiente de reconciliación.')
+                if result['command_id'] in compensation.COMMAND_ACTIONS:
+                    action_id = result.get('action_operation_id') or 'cmd-' + hashlib.sha256(operation_id.encode()).hexdigest()
+                    action = self.executor.get_operation(action_id)
+                    if (not action or action['tool_name'] != self.adapters[result['command_id']]['tool']
+                            or action.get('inputs') != result['inputs'] or action['state'] not in ('unknown', 'running', 'succeeded')):
+                        raise ValueError('COMPENSATION_EXECUTOR_RECEIPT_CHANGED')
+                    with self.db:
+                        reconciled = compensation.reconcile_result(self.db, self.executor.workspace_root, result)
+                        reconciled.pop('compensation', None)
+                        action.update({key: reconciled.get(key) for key in ('state', 'postconditions_passed', 'output', 'evidence', 'effect_status')})
+                        action['error'] = None if reconciled.get('error') is None else reconciled['error']['message']
+                        self.db.execute('UPDATE operations SET state=?,result_json=?,evidence_json=? WHERE operation_id=?',
+                            (action['state'], json.dumps(action), json.dumps(action['evidence']), action_id))
+                        self.db.execute('UPDATE command_runs SET state=?,result_json=? WHERE operation_id=?',
+                            (reconciled['state'], json.dumps(reconciled, ensure_ascii=False), operation_id))
+                    return compensation.project_relationship(self.db, reconciled)
                 if result['command_id'] in READ_ONLY_COMMANDS:
                     # These immutable registered tools have no write effects. A failed
                     # observation is not success and must not lock every future action.
