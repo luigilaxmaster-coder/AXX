@@ -2,7 +2,10 @@
 from __future__ import annotations
 
 import json
+import hashlib
+import hmac
 import math
+import secrets
 from contextlib import contextmanager
 from pathlib import Path
 import sqlite3
@@ -13,7 +16,7 @@ import time
 import uuid
 
 from backend.prompts import compose
-from backend.telegram.config import load_account
+from backend.telegram.config import load_account, confirmation_policy, confirmation_fingerprint
 
 
 def status_text(status):
@@ -44,12 +47,17 @@ class TelegramService:
                     PRIMARY KEY(account,peer));
                 CREATE TABLE IF NOT EXISTS inbox(id TEXT PRIMARY KEY, state TEXT, response TEXT,
                     operation_id TEXT, created REAL);
+                CREATE TABLE IF NOT EXISTS confirmations(operation_id TEXT PRIMARY KEY, account INTEGER,
+                    owner INTEGER, epoch TEXT, plan_hash TEXT, token_hash TEXT UNIQUE, expires REAL,
+                    state TEXT, response TEXT);
             ''')
             columns = {row[1] for row in db.execute('PRAGMA table_info(inbox)')}
             for name in ('account', 'peer'):
                 if name not in columns:
                     db.execute('ALTER TABLE inbox ADD COLUMN '+name+' INTEGER')
             db.execute("UPDATE inbox SET state='unknown' WHERE state='running'")
+            db.execute("UPDATE confirmations SET state='unknown' WHERE state='claimed'")
+            db.execute("UPDATE confirmations SET state='expired' WHERE state='pending'")
 
     @contextmanager
     def _db(self):
@@ -88,6 +96,7 @@ class TelegramService:
         return {'permissions': {key: value is True for key, value in account['grants'].items()},
                 'conversation': {'state': state, 'reason_code': reason, 'provider': 'desktop_selected',
                                  'model': prefs.get('model') or None, 'message': message},
+                'remote_confirmations': confirmation_policy(self.data_dir)['enabled'],
                 'connection': {'core_bound': connection, 'account_running': self.process is not None and self.process.poll() is None,
                                'bot_running': self.bot_process is not None and self.bot_process.poll() is None, 'checked_at': time.time()},
                 'observed_at': time.time()}
@@ -113,8 +122,137 @@ class TelegramService:
                 if type(operation.get('postconditions_passed')) is bool:
                     item['postconditions_passed'] = operation['postconditions_passed']
                 item['can_cancel'] = bool(account['grants'].get('pc_commands') and state in ('prepared','awaiting_approval','running'))
+                if state in ('prepared', 'awaiting_approval') and callable(getattr(self.commands, 'remote_review', None)):
+                    try:
+                        review = self.commands.remote_review(operation_id)
+                        if isinstance(review, dict):
+                            item['review_available'] = True
+                            item['title'] = review.get('title', 'Acción en tu PC')
+                    except ValueError:
+                        pass
             items.append(item)
         return {'items': items}
+
+    def _owned_operation(self, owner_id, operation_id):
+        if (type(owner_id) is not int or owner_id <= 0 or not isinstance(operation_id, str)
+                or str(uuid.UUID(operation_id)) != operation_id):
+            raise ValueError('Invalid operation')
+        account = load_account(self.data_dir)
+        self._authorize({'account_id': account['account_id'], 'peer_id': owner_id})
+        with self._db() as db:
+            row = db.execute('SELECT 1 FROM inbox WHERE operation_id=? AND account=? AND peer=?',
+                             (operation_id, account['account_id'], owner_id)).fetchone()
+        if not row:
+            raise ValueError('Unknown operation')
+        return account
+
+    def review_operation(self, owner_id, operation_id):
+        account = self._owned_operation(owner_id, operation_id)
+        review = self.commands.remote_review(operation_id)
+        fields = ('operation_id', 'title', 'description', 'risk', 'inputs', 'plan_hash', 'expires_at', 'state')
+        result = {key: review[key] for key in fields if key in review}
+        reasons = {'PC_APPROVAL_REQUIRED': 'Esta orden solo puede aprobarse en la PC.',
+                   'PLAN_RESERVED': 'Esta orden pertenece a un plan; revísala en su plan de la PC.',
+                   'NOT_STATIC_EXECUTABLE': 'Este comando todavía no admite confirmación remota.',
+                   'NOT_REVIEWABLE': 'Esta orden ya se está ejecutando o terminó.',
+                   'EXPIRED': 'Esta orden venció. Envía una solicitud nueva.'}
+        result.update(can_confirm=False, reason=reasons.get(review.get('reason'), review.get('reason')))
+        if not account['grants'].get('pc_commands') or not confirmation_policy(self.data_dir)['enabled']:
+            return result | {'reason': 'Activa Confirmar desde Telegram en Herramientas → Telegram de tu PC.'}
+        if not review.get('eligible') or review.get('state') != 'awaiting_approval':
+            return result | {'reason': result.get('reason') or 'Esta operación requiere revisión en la PC o ya terminó.'}
+        # One Telegram message must show every reviewed parameter without truncation.
+        if len(json.dumps(result, ensure_ascii=False).encode('utf-16-le')) > 5500:
+            return result | {'reason': 'La orden es demasiado extensa. Revísala completa en la PC.'}
+        epoch = confirmation_fingerprint(self.data_dir)
+        token = secrets.token_urlsafe(24)
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        expires = min(float(review['expires_at']), time.time() + 120)
+        if expires <= time.time():
+            return result | {'reason': 'La orden ha vencido. Cancélala y envía una nueva solicitud.'}
+        with self._db() as db:
+            db.execute('BEGIN IMMEDIATE')
+            old = db.execute('SELECT state FROM confirmations WHERE operation_id=?', (operation_id,)).fetchone()
+            if old and old[0] in ('claimed', 'done', 'unknown'):
+                return result | {'reason': 'La confirmación ya se utilizó. Consulta el resultado sin repetirla.'}
+            db.execute("DELETE FROM confirmations WHERE expires<? AND state!='claimed'", (time.time() - 86400,))
+            db.execute('INSERT OR REPLACE INTO confirmations VALUES (?,?,?,?,?,?,?,?,?)',
+                       (operation_id, account['account_id'], owner_id, epoch, review['plan_hash'], token_hash, expires, 'pending', None))
+        return result | {'can_confirm': True, 'reason': None, 'token': token, 'expires_at': expires}
+
+    def decide_operation(self, owner_id, token, decision):
+        if (type(owner_id) is not int or owner_id <= 0 or not isinstance(token, str) or len(token) != 32 or
+                any(c not in 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_' for c in token)
+                or decision not in ('confirm', 'cancel')):
+            raise ValueError('Invalid confirmation')
+        account = load_account(self.data_dir)
+        self._authorize({'account_id': account['account_id'], 'peer_id': owner_id})
+        epoch = confirmation_fingerprint(self.data_dir)
+        digest = hashlib.sha256(token.encode()).hexdigest()
+        with self._db() as db:
+            row = db.execute('SELECT operation_id,account,owner,epoch,plan_hash,expires,state,response FROM confirmations WHERE token_hash=?', (digest,)).fetchone()
+        if not row or row[1:3] != (account['account_id'], owner_id) or not hmac.compare_digest(row[3], epoch):
+            raise ValueError('Confirmation expired or revoked')
+        operation_id, _, _, _, plan_hash, expires, state, response = row
+        self._owned_operation(owner_id, operation_id)
+        if state == 'done' and response:
+            return json.loads(response) | {'replayed': True}
+        if state != 'pending':
+            return {'state': 'unknown', 'operation_id': operation_id, 'text': 'La confirmación ya se utilizó. Consulta Actividad; no se repetirá la orden.'}
+        if expires <= time.time():
+            raise ValueError('Confirmation expired')
+        if not self.lock.acquire(blocking=False):
+            return {'state': 'busy', 'operation_id': operation_id, 'text': 'Axx está ocupado. La confirmación no se utilizó; puedes intentarlo después.'}
+        try:
+            fresh = self.commands.remote_review(operation_id)
+            if (not fresh.get('eligible') or fresh.get('state') != 'awaiting_approval'
+                    or not hmac.compare_digest(fresh.get('plan_hash', ''), plan_hash)):
+                raise ValueError('The reviewed operation changed')
+            with self._db() as db:
+                db.execute('BEGIN IMMEDIATE')
+                claimed = db.execute("UPDATE confirmations SET state='claimed' WHERE operation_id=? AND token_hash=? AND state='pending' AND expires>?", (operation_id, digest, time.time())).rowcount
+                if claimed != 1:
+                    return {'state': 'unknown', 'operation_id': operation_id, 'text': 'Otra confirmación ya atendió la orden. Consulta su resultado.'}
+
+            def authorize_dispatch():
+                latest = load_account(self.data_dir)
+                self._authorize({'account_id': account['account_id'], 'peer_id': owner_id})
+                if (latest['account_id'] != account['account_id'] or not latest['grants'].get('pc_commands')
+                        or not hmac.compare_digest(confirmation_fingerprint(self.data_dir), epoch)):
+                    raise ValueError('Remote permission revoked')
+                with self._db() as db:
+                    claim = db.execute("SELECT state,token_hash,expires FROM confirmations WHERE operation_id=?", (operation_id,)).fetchone()
+                if not claim or claim[:2] != ('claimed', digest) or claim[2] <= time.time():
+                    raise ValueError('Remote confirmation no longer valid')
+
+            try:
+                authorize_dispatch()
+                if decision == 'cancel':
+                    receipt = self.commands.cancel(operation_id)
+                    self.adapter.cancel(operation_id)
+                    state = receipt.get('state', 'unknown')
+                    result = {'state': 'cancel_requested' if state == 'running' else state,
+                              'operation_id': operation_id, 'postconditions_passed': receipt.get('postconditions_passed') is True,
+                              'text': 'Orden cancelada.' if state == 'cancelled' else
+                                      'Cancelación solicitada; la orden ya estaba en curso.' if state == 'running' else
+                                      'La orden ya terminó. Su estado y los efectos realizados se conservan.'}
+                else:
+                    receipt = self.commands.confirm_remote(operation_id, plan_hash, authorization_check=authorize_dispatch)
+                    verified = receipt.get('state') == 'succeeded' and receipt.get('postconditions_passed') is True
+                    result = {'state': receipt.get('state', 'unknown'), 'operation_id': operation_id,
+                              'postconditions_passed': verified,
+                              'text': ('Resultado comprobado: ' + json.dumps(receipt.get('output'), ensure_ascii=False)[:6000]
+                                       if verified else 'El resultado no está comprobado. Consulta Actividad antes de repetir la orden.')}
+                with self._db() as db:
+                    db.execute("UPDATE confirmations SET state='done',response=? WHERE operation_id=?", (json.dumps(result, ensure_ascii=False), operation_id))
+                    db.execute('UPDATE inbox SET state=?,response=? WHERE operation_id=?', (result['state'], json.dumps(result, ensure_ascii=False), operation_id))
+                return result
+            except Exception:
+                with self._db() as db:
+                    db.execute("UPDATE confirmations SET state='unknown' WHERE operation_id=?", (operation_id,))
+                return {'state': 'unknown', 'operation_id': operation_id, 'text': 'No se pudo confirmar el resultado. La orden no se reenviará; revisa Actividad.'}
+        finally:
+            self.lock.release()
 
     def history(self, owner_id):
         account = load_account(self.data_dir)
@@ -275,6 +413,7 @@ class TelegramService:
         if type(body['sent_at']) not in (int,float) or not math.isfinite(body['sent_at']) or body['sent_at'] > time.time()+60:
             raise ValueError('Invalid Telegram timestamp')
         account = self._authorize(body)
+        remote_review = confirmation_policy(self.data_dir)['enabled']
         text = body['text'].strip()
         key = str(uuid.uuid5(uuid.NAMESPACE_URL, 'axx-telegram:'+channel+':' + ':'.join(str(body[k]) for k in ('account_id','peer_id','message_id'))))
         if time.time()-body['sent_at'] > 120:
@@ -295,12 +434,12 @@ class TelegramService:
                            (key, 'running', None, key, time.time(), body['account_id'], body['peer_id']))
             if text == '/estado' or text.startswith('/cancelar '):
                 result = self._control(account, text)
-            elif not account['grants']['conversation']:
-                result = {'state': 'blocked', 'text': 'El permiso de conversación está desactivado en la PC.'}
+            elif not account['grants'].get('conversation') and not (account['grants'].get('pc_commands') and remote_review):
+                result = {'state': 'blocked', 'text': 'La conversación está desactivada. Activa la confirmación remota en la PC para enviar órdenes sin conversación.'}
             else:
                 chat = self._thread(account)
                 self._save_message(chat['id'], key+':user', 'user', text)
-                result = self._turn(account, chat, key, text)
+                result = self._turn(account, chat, key, text, require_remote_review=remote_review)
                 self._save_message(chat['id'], key+':assistant', 'assistant', result['text'])
             with self._db() as db:
                 db.execute('UPDATE inbox SET state=?,response=? WHERE id=?',
@@ -335,16 +474,19 @@ class TelegramService:
         self.adapter.cancel(operation_id)
         return {'state': 'cancel_requested', 'text': 'Cancelación solicitada. Los efectos ya completados se conservan.'}
 
-    def _turn(self, account, chat, key, text):
+    def _turn(self, account, chat, key, text, *, require_remote_review=False):
         resolved = self.commands.resolve(text, source='text')
         if resolved.get('match') == 'exact' and resolved.get('command_id'):
             if not account['grants']['pc_commands']:
                 return {'state':'blocked', 'text':'Activa el permiso de acciones en la PC para esta cuenta en los ajustes locales de Telegram.'}
+            if require_remote_review and not confirmation_policy(self.data_dir)['enabled']:
+                return {'state': 'blocked', 'text': 'El permiso de confirmación remota fue retirado. La orden no se ejecutó.'}
             prepared = self.commands.prepare(resolved['command_id'], resolved.get('inputs', {}),
-                source='text', operation_id=key, conversation_id=chat['id'], command_mode=chat['mode'])
+                source='text', operation_id=key, conversation_id=chat['id'],
+                command_mode='ask' if require_remote_review else chat['mode'])
             if prepared['state'] == 'awaiting_approval':
                 return {'state':'awaiting_approval', 'operation_id':key,
-                        'text':'Revisa y aprueba la orden en el chat Telegram de Axx en la PC. Operación: '+key}
+                        'text':'Orden preparada. Revisa su tarjeta para confirmar desde Telegram si está permitido, o apruébala en la PC. Operación: '+key}
             if prepared['state'] != 'prepared':
                 return {'state':prepared['state'], 'operation_id':key, 'text':'La orden no se ejecutó. Operación: '+key}
             latest = self._authorize({'account_id': account['account_id'], 'peer_id': account['owner_id']})
@@ -357,7 +499,9 @@ class TelegramService:
                     'text': ('Ejecutado y verificado: ' + json.dumps(receipt.get('output'), ensure_ascii=False)[:10000]
                              if verified else 'El efecto no está confirmado. Consulta la operación: '+key)}
         if text.startswith('/'):
-            return {'state':'blocked','text':'Comando no registrado. Disponibles: /estado y /cancelar <id>. Las aprobaciones se realizan en la PC.'}
+            return {'state':'blocked','text':'Comando no registrado. Disponibles: /estado y /cancelar <id>. Las órdenes compatibles se confirman en su tarjeta; las reservadas requieren la PC.'}
+        if not account['grants'].get('conversation'):
+            return {'state': 'blocked', 'text': 'La conversación está desactivada. Puedes enviar órdenes del catálogo permitido.'}
         prefs = dict(self.preferences() or {})
         if prefs.get('provider') != 'bridge':
             return {'state':'blocked','text':'Axx recibió tu mensaje. El chat con IA todavía no está disponible en Telegram: falta comprobar el aislamiento remoto del proveedor de tu PC. Se conserva tu proveedor. Puedes consultar /estado.'}

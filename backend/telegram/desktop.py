@@ -15,7 +15,7 @@ from backend.auth.chatgpt_auth import _dpapi_decrypt, _dpapi_encrypt
 from backend.mobile.pairing_qr import pairing_qr_base64
 from backend.telegram.bot_config import load_bot
 from backend.telegram.bot_setup import configure as configure_bot_remote
-from backend.telegram.config import GRANTS, _file_lease, _save_account, account_lease, account_path, load_account, update_permissions
+from backend.telegram.config import GRANTS, _file_lease, _save_account, account_lease, account_path, load_account, update_permissions, confirmation_policy, set_confirmation_policy
 
 LOG = logging.getLogger('axx.telegram.desktop')
 
@@ -124,7 +124,7 @@ class DesktopTelegram:
             bot_job = dict(self.bot_job)
         if qr.get('expires_at') and time.time() >= qr['expires_at']:
             qr.pop('image', None)
-        return {'app_configured': app_configured,
+        return {'app_configured': app_configured, 'remote_confirmations': confirmation_policy(self.data_dir)['enabled'],
                 'account': {'configured': bool(account), 'enabled': bool(account and account['enabled']),
                             'owner_id': account['owner_id'] if account else None,
                             'grants': dict(account['grants']) if account else {key: False for key in GRANTS}},
@@ -282,6 +282,11 @@ class DesktopTelegram:
         if not isinstance(body, dict) or set(body) != {'enabled', 'grants'} or type(body['enabled']) is not bool or not isinstance(body['grants'], dict) or set(body['grants']) != set(GRANTS) or any(type(body['grants'][key]) is not bool for key in GRANTS):
             raise ValueError('Invalid permissions')
         return {'enabled': body['enabled'], 'grants': dict(body['grants'])}
+
+    def configure_confirmations(self, body):
+        if not isinstance(body, dict) or set(body) != {'enabled'} or type(body['enabled']) is not bool:
+            raise ValueError('Invalid confirmation permission')
+        return set_confirmation_policy(body['enabled'], self.data_dir)
 
     def update_permissions(self, body):
         value = self.validate_permissions(body)

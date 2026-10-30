@@ -38,6 +38,40 @@ revoca las vinculaciones de la Mini App. Estas acciones conservan la cuenta y
 los datos guardados en la PC y no deshacen una acción ya realizada. Revocar una
 sesión de Telegram desde sus ajustes de dispositivos es una acción independiente.
 
+## Confirmar una orden desde Telegram
+
+Esta ampliación requiere una versión que la incluya. En la PC, activa **Acciones
+en esta PC** y guarda los permisos. Después marca **Confirmar comandos desde
+Telegram** y pulsa **Guardar confirmación remota**. Es un permiso nuevo que
+empieza desactivado; los permisos anteriores no se amplían automáticamente.
+
+1. Envía una orden compatible, por ejemplo `abre calculadora` o
+   `información del sistema`.
+2. Revisa la tarjeta: muestra la acción, los parámetros completos, el riesgo y
+   la hora de vencimiento. Abrir la tarjeta todavía no ejecuta la orden.
+3. Pulsa **Confirmar** para esa orden o **Cancelar**. En la Mini App, también
+   puedes encontrarla en **Actividad → Revisar orden**.
+4. Consulta el resultado. Solo se muestra como comprobado cuando el ejecutor
+   devuelve un recibo con su verificación.
+
+La confirmación dura como máximo dos minutos y se vincula a una operación,
+propietario y revisión exactos. Una nueva revisión invalida el botón anterior;
+reiniciar Axx, cambiar permisos o retirar la autorización también lo invalida.
+Si se pierde una respuesta, consulta Actividad: la orden no se vuelve a ejecutar
+automáticamente. **Revisar de nuevo** sirve para leer la orden y obtener otro
+botón, siempre que todavía esté pendiente y permitida.
+
+El alcance inicial incluye consultas y apertura de aplicaciones o páginas que
+el catálogo permite confirmar fuera de la PC. Shell, escrituras, controles
+sensibles, comandos generados y pasos reservados de planes mantienen la aprobación
+en la PC. No se cambia el proveedor de conversación para aprobar una orden.
+Con el permiso nuevo activo, las órdenes compatibles también funcionan con la
+conversación desactivada. Escribir solamente «sí» no confirma ninguna operación.
+
+La política se guarda aparte en `telegram/confirmations.dpapi`, sin reescribir
+credenciales. El registro de confirmaciones conserva solo el hash del desafío;
+el núcleo vuelve a verificar el plan y el permiso justo antes del despacho.
+
 ## Lo que está pendiente
 
 - **Llamadas privadas:** todavía no están operativas. Las pruebas recibieron audio,

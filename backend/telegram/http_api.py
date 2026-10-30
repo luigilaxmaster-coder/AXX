@@ -48,6 +48,7 @@ class TelegramHTTP:
                 if account['enabled'] and changed:
                     pairing.revoke_all(account)
             with_body = {'configure_app': manager.configure_app, 'start_qr': manager.start_qr,
+                         'configure_confirmations': manager.configure_confirmations,
                          'password': manager.password, 'configure_bot': manager.configure_bot,
                          'update_permissions': manager.update_permissions}
             without_body = {'cancel': manager.cancel, 'pause': manager.pause, 'resume': manager.resume}

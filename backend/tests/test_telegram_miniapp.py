@@ -82,6 +82,13 @@ class MiniAppTests(unittest.TestCase):
             self.assertIn('SameSite=Strict', cookie)
         return '; '.join(cookie.split(';')[0] for cookie in cookies), body['csrf']
 
+    def test_cross_origin_post_bodies_are_drained_without_session_creation(self):
+        for _ in range(30):
+            status, _, result = self.request('POST', '/api/session', {'init_data': 'x' * 5000}, {'Origin': 'https://evil.invalid'})
+            self.assertEqual((status, result['error']), (403, 'PERMISSION_DENIED'))
+        self.assertEqual(self.facade.sessions, {})
+        self.service.admit_miniapp.assert_not_called()
+
     def test_init_signature_expiry_identity_and_duplicates(self):
         self.assertTrue(validate_init_data(signed(), TOKEN, 7))
         for value in (signed(owner=8), signed(timestamp=int(time.time())-301),
@@ -144,6 +151,30 @@ class MiniAppTests(unittest.TestCase):
         status, _, result = self.request('POST', '/api/cancel', payload, headers)
         self.assertEqual((status, result), (200, {'state':'cancel_requested'}))
         self.service.cancel_operation.assert_called_once_with(7, operation)
+
+    def test_review_and_decision_are_session_bound_and_csrf_checked(self):
+        operation = str(uuid.uuid4())
+        token = 'x' * 43
+        self.service.review_operation.return_value = {'state': 'awaiting_approval', 'operation_id': operation,
+            'title': 'Orden', 'description': 'Descripción', 'risk': 'write', 'inputs': {'path': 'example'},
+            'plan_hash': 'hash', 'expires_at': time.time() + 60, 'token': token, 'can_confirm': True,
+            'secret': 'not forwarded'}
+        self.service.decide_operation.return_value = {'state': 'succeeded', 'text': 'ok', 'operation_id': operation,
+                                                       'postconditions_passed': True, 'secret': 'not forwarded'}
+        cookie, csrf = self.session()
+        headers = {'Cookie': cookie, 'Origin': ORIGIN}
+        review = {'operation_id': operation, 'csrf': csrf}
+        self.assertEqual(self.request('POST', '/api/review', {**review, 'csrf': 'bad'}, headers)[0], 403)
+        self.assertEqual(self.request('POST', '/api/review', {**review, 'approved': True}, headers)[0], 400)
+        status, _, result = self.request('POST', '/api/review', review, headers)
+        self.assertEqual(status, 200)
+        self.assertEqual(result['token'], token)
+        self.assertNotIn('secret', result)
+        self.assertEqual(self.request('POST', '/api/decision', {'token': token, 'decision': 'confirm', 'csrf': 'bad'}, headers)[0], 403)
+        status, _, result = self.request('POST', '/api/decision', {'token': token, 'decision': 'confirm', 'csrf': csrf}, headers)
+        self.assertEqual(status, 200)
+        self.assertNotIn('secret', result)
+        self.service.decide_operation.assert_called_once_with(7, token, 'confirm')
 
     def test_safe_error_codes_distinguish_session_and_core_failure(self):
         status, _, result = self.request('GET', '/api/state')

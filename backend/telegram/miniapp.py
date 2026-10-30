@@ -4,6 +4,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import hashlib
 import hmac
 import json
+import re
 from pathlib import Path
 import secrets
 import sys
@@ -133,6 +134,19 @@ class MiniAppFacade:
                 self.end_headers()
                 self.wfile.write(raw)
 
+            def _discard_rejected_body(self):
+                length = self.headers.get('Content-Length', '')
+                if not length.isdecimal() or self.headers.get('Transfer-Encoding'):
+                    return
+                previous = self.connection.gettimeout()
+                try:
+                    self.connection.settimeout(0.5)
+                    self.rfile.read(min(int(length), MAX_BODY))
+                except (OSError, ValueError):
+                    pass
+                finally:
+                    self.connection.settimeout(previous)
+
             def _body(self):
                 if self.headers.get('Transfer-Encoding') or self.headers.get_content_type() != 'application/json':
                     raise ValueError()
@@ -227,6 +241,7 @@ class MiniAppFacade:
                 try:
                     bot, account, origin = facade._config()
                     if self.headers.get('Origin') != origin:
+                        self._discard_rejected_body()
                         raise MiniAppError('PERMISSION_DENIED', 403)
                     body = self._body()
                     if self.path == '/api/session':
@@ -263,6 +278,30 @@ class MiniAppFacade:
                             session, csrf = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
                             facade.sessions[session] = {'until': now + 600, 'csrf': csrf, 'account': account['account_id'], 'owner': account['owner_id'], 'bot': hashlib.sha256(bot['token'].encode()).digest(), 'init': digest, 'binding': binding}
                         self._send(200, {'csrf': csrf}, cookie=session, bond_cookie=new_bond)
+                    elif self.path in ('/api/review', '/api/decision'):
+                        expected = {'operation_id', 'csrf'} if self.path == '/api/review' else {'token', 'decision', 'csrf'}
+                        if set(body) != expected:
+                            raise ValueError()
+                        session = self._session(bot, account)
+                        if not isinstance(body['csrf'], str) or not hmac.compare_digest(body['csrf'], session['csrf']):
+                            raise MiniAppError('PERMISSION_DENIED', 403)
+                        try:
+                            if self.path == '/api/review':
+                                operation_id = body['operation_id']
+                                if not isinstance(operation_id, str) or str(uuid.UUID(operation_id)) != operation_id:
+                                    raise ValueError()
+                                result = facade.service.review_operation(account['owner_id'], operation_id)
+                                fields = ('state', 'operation_id', 'title', 'description', 'risk', 'inputs', 'plan_hash', 'expires_at', 'token', 'can_confirm', 'reason')
+                                if result.get('can_confirm') is not True:
+                                    fields = tuple(key for key in fields if key != 'token')
+                            else:
+                                if not isinstance(body['token'], str) or not re.fullmatch(r'[A-Za-z0-9_-]{20,61}', body['token']) or body['decision'] not in ('confirm', 'cancel'):
+                                    raise ValueError()
+                                result = facade.service.decide_operation(account['owner_id'], body['token'], body['decision'])
+                                fields = ('state', 'text', 'operation_id', 'postconditions_passed')
+                        except ValueError:
+                            raise MiniAppError('PERMISSION_DENIED', 403) from None
+                        self._send(200, {key: result[key] for key in fields if key in result})
                     elif self.path == '/api/cancel':
                         if set(body) != {'operation_id', 'csrf'}:
                             raise ValueError()
