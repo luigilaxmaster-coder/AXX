@@ -5,6 +5,9 @@ Allows Axx to execute multi-step tool procedures deterministically with ZERO mod
 from __future__ import annotations
 
 import datetime as dt
+import copy
+from contextlib import contextmanager
+from functools import wraps
 import hashlib
 import json
 import logging
@@ -13,13 +16,23 @@ import platform
 import sqlite3
 import sys
 import time
+import threading
 import uuid
 
 from backend.actions.executor import ActionExecutor
 from backend.actions.tools import get_tool
 from .ai_memory_adapter import AiMemoryAdapter
+from . import task_memory
 
 LOG = logging.getLogger('axx.procedural_memory')
+
+def _locked(method):
+    """Serialize complete SQLite read phases on this repository's shared connection."""
+    @wraps(method)
+    def call(self, *args, **kwargs):
+        with self.lock:
+            return method(self, *args, **kwargs)
+    return call
 
 def get_current_env_fingerprint() -> str:
     """Returns fingerprint of host OS and Python environment."""
@@ -61,7 +74,10 @@ class Recipe:
         steps: list[dict],
         preconditions: list[str],
         postconditions: list[str],
-        verified_at: str | None = None
+        verified_at: str | None = None,
+        memory_scope: dict | None = None,
+        memory_context_id: str | None = None,
+        memory_dependencies: list[dict] | None = None
     ):
         self.id = id
         self.intent_key = intent_key
@@ -73,9 +89,15 @@ class Recipe:
         self.preconditions = preconditions
         self.postconditions = postconditions
         self.verified_at = verified_at
+        self.memory_scope = memory_scope
+        self.memory_context_id = memory_context_id
+        self.memory_dependencies = copy.deepcopy(memory_dependencies or [])
 
     def to_dict(self) -> dict:
         return {
+            **({'memory_scope': self.memory_scope} if self.memory_scope is not None else {}),
+            **({'memory_context_id': self.memory_context_id} if self.memory_context_id is not None else {}),
+            **({'memory_dependencies': self.memory_dependencies} if self.memory_dependencies else {}),
             'id': self.id,
             'intent_key': self.intent_key,
             'version': self.version,
@@ -97,14 +119,26 @@ class ProceduralMemory:
         # SQLite is the default authority. An unrelated MCP listener is never trusted
         # or contacted merely because it happens to occupy a localhost port.
         self.ai_memory = ai_memory
+        self.lock = threading.RLock()
         try:
             self._init_schema()
+            if ai_memory and callable(getattr(ai_memory, 'bind_task_memory', None)):
+                ai_memory.bind_task_memory(self.db_path)
         except Exception:
             self.db.close()
             raise
 
+    @_locked
     def _init_schema(self):
         with self.db:
+            task_memory.ensure(self.db)
+            self.db.execute('''CREATE TABLE IF NOT EXISTS recipe_memory_scopes (
+                recipe_id TEXT,version INTEGER,memory_scope_json TEXT,requires_review INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY(recipe_id,version))''')
+            if 'memory_context_id' not in {row[1] for row in self.db.execute('PRAGMA table_info(recipe_memory_scopes)')}:
+                self.db.execute('ALTER TABLE recipe_memory_scopes ADD COLUMN memory_context_id TEXT')
+            if 'memory_dependencies_json' not in {row[1] for row in self.db.execute('PRAGMA table_info(recipe_memory_scopes)')}:
+                self.db.execute("ALTER TABLE recipe_memory_scopes ADD COLUMN memory_dependencies_json TEXT NOT NULL DEFAULT '[]'")
             self.db.execute('''
                 CREATE TABLE IF NOT EXISTS recipes (
                     id TEXT PRIMARY KEY,
@@ -138,13 +172,69 @@ class ProceduralMemory:
             self.db.execute("UPDATE recipe_attempts SET outcome='unknown' WHERE outcome='running'")
             self.db.execute('CREATE TABLE IF NOT EXISTS recipe_versions (recipe_id TEXT,version INTEGER,recipe_json TEXT,PRIMARY KEY(recipe_id,version))')
 
+    @contextmanager
+    def _write(self):
+        with self.lock:
+            if self.db.in_transaction:
+                yield
+            else:
+                with self.db:
+                    self.db.execute('BEGIN IMMEDIATE')
+                    yield
+
+    @_locked
+    def _origin(self, recipe_id, version):
+        row = self.db.execute('SELECT memory_scope_json FROM recipe_memory_scopes WHERE recipe_id=? AND version=?',
+                              (recipe_id, version)).fetchone()
+        return json.loads(row[0]) if row and row[0] else None
+
+    @_locked
+    def _next_version(self, recipe_id):
+        row = self.db.execute('''SELECT MAX(version) FROM (
+            SELECT version FROM recipes WHERE id=? UNION ALL SELECT version FROM recipe_versions WHERE recipe_id=?
+            UNION ALL SELECT recipe_version FROM recipe_attempts WHERE recipe_id=?
+            UNION ALL SELECT version FROM recipe_memory_scopes WHERE recipe_id=?)''', (recipe_id, recipe_id, recipe_id, recipe_id)).fetchone()
+        return (row[0] or 0) + 1
+
+    @_locked
+    def _memory_context(self, recipe_id, version):
+        row = self.db.execute('SELECT memory_context_id FROM recipe_memory_scopes WHERE recipe_id=? AND version=?', (recipe_id, version)).fetchone()
+        return row[0] if row else None
+
+    @_locked
+    def _dependencies(self, recipe_id, version):
+        row = self.db.execute('SELECT memory_dependencies_json FROM recipe_memory_scopes WHERE recipe_id=? AND version=?',
+                              (recipe_id, version)).fetchone()
+        return json.loads(row[0]) if row else []
+
+    @_locked
+    def _assert_recipe_current(self, recipe):
+        row = self.db.execute('''SELECT r.version,r.status,COALESCE(s.requires_review,0) FROM recipes r
+            LEFT JOIN recipe_memory_scopes s ON s.recipe_id=r.id AND s.version=r.version WHERE r.id=?''', (recipe.id,)).fetchone()
+        if not row or row[0] != recipe.version or row[1] != recipe.status or row[2]:
+            raise ValueError('La receta cambió o necesita revisión de procedencia')
+        scope = self._origin(recipe.id, recipe.version)
+        context = self._memory_context(recipe.id, recipe.version)
+        dependencies = self._dependencies(recipe.id, recipe.version)
+        if scope != recipe.memory_scope or context != recipe.memory_context_id or dependencies != recipe.memory_dependencies:
+            raise ValueError('La procedencia de la receta cambió')
+        task_memory.assert_dependencies(self.db, dependencies)
+        if scope is not None: task_memory.assert_current(self.db, scope)
+        elif self.db.execute('SELECT 1 FROM memory_task_scopes WHERE generation>0 OR forgetting=1 LIMIT 1').fetchone():
+            raise ValueError('La receta heredada necesita revisión de procedencia')
+
+    @_locked
+    def _assert_request_current(self, scope, context):
+        return task_memory.assert_context(self.db, scope, context)
+
     def close(self):
-        if hasattr(self, 'db') and self.db:
-            try:
-                self.db.close()
-            except Exception:
-                pass
-            self.db = None
+        with self.lock:
+            if hasattr(self, 'db') and self.db:
+                try:
+                    self.db.close()
+                except Exception:
+                    pass
+                self.db = None
         if self.ai_memory:
             self.ai_memory.close()
 
@@ -163,7 +253,8 @@ class ProceduralMemory:
         preconditions: list[str] | None = None,
         postconditions: list[str] | None = None,
         status: str = 'verified',
-        env_fingerprint: str | None = None
+        env_fingerprint: str | None = None,
+        *, memory_scope: dict | None = None, memory_context_id: str | None = None, _memory_dependencies=()
     ) -> Recipe:
         """Registers a procedural recipe in SQLite and synchronizes to ai-memory."""
         if not isinstance(id, str) or not 1 <= len(id) <= 128 or not isinstance(intent_key, str) or not 1 <= len(intent_key) <= 128:
@@ -179,12 +270,12 @@ class ProceduralMemory:
         now_iso = dt.datetime.now(dt.timezone.utc).isoformat()
         pre = preconditions or []
         post = postconditions or []
+        dependencies = copy.deepcopy([] if _memory_dependencies == () else _memory_dependencies)
 
-        prior = self.db.execute('SELECT version FROM recipes WHERE id=?', (id,)).fetchone()
         recipe = Recipe(
             id=id,
             intent_key=intent_key,
-            version=prior[0] + 1 if prior else 1,
+            version=self._next_version(id),
             status=status,
             env_fingerprint=fp,
             schema=schema,
@@ -194,7 +285,13 @@ class ProceduralMemory:
             verified_at=now_iso if status == 'verified' else None
         )
 
-        with self.db:
+        with self._write():
+            scope = task_memory.assert_context(self.db, memory_scope, memory_context_id)
+            dependencies = task_memory.assert_dependencies(self.db, dependencies)
+            if recipe.version != self._next_version(id): raise ValueError('La versión de la receta cambió')
+            recipe.memory_scope = scope
+            recipe.memory_context_id = memory_context_id
+            recipe.memory_dependencies = dependencies
             self.db.execute('INSERT OR IGNORE INTO recipe_versions(recipe_id,version,recipe_json) VALUES(?,?,?)',
                             (recipe.id,recipe.version,json.dumps(recipe.to_dict())))
             self.db.execute(
@@ -223,6 +320,9 @@ class ProceduralMemory:
                     recipe.verified_at
                 )
             )
+            self.db.execute('''INSERT INTO recipe_memory_scopes(recipe_id,version,memory_scope_json,memory_context_id,memory_dependencies_json)
+                VALUES(?,?,?,?,?)''', (id, recipe.version, json.dumps(scope) if scope is not None else None,
+                                      memory_context_id, json.dumps(dependencies)))
 
         # Sync to ai-memory if available
         markdown_body = f"""# Recipe: {recipe.id}
@@ -242,10 +342,16 @@ class ProceduralMemory:
         markdown_body += '\n```json\n' + json.dumps({'axx_recipe': memory_record},
             ensure_ascii=False, sort_keys=True, indent=2, allow_nan=False) + '\n```\n'
         if self.ai_memory:
-            self.ai_memory.write_recipe_page(recipe.id, markdown_body)
-
+            try: self._assert_recipe_current(recipe)
+            except ValueError: pass
+            else: self.ai_memory.write_recipe_page(recipe.id, markdown_body,
+                **({'memory_scope': scope} if scope is not None else {}),
+                **({'memory_context_id': memory_context_id} if memory_context_id is not None else {}))
+        self._assert_recipe_current(recipe)
+        self._assert_request_current(scope, memory_context_id)
         return recipe
 
+    @_locked
     def find_recipe(self, intent_key: str, env_fingerprint: str | None = None) -> Recipe | None:
         """Retrieves a verified recipe matching intent and environment."""
         if not isinstance(intent_key, str):
@@ -255,14 +361,11 @@ class ProceduralMemory:
             '''SELECT id, intent_key, version, status, env_fingerprint, schema_json, steps_json, preconditions_json, postconditions_json, verified_at
                FROM recipes
                WHERE intent_key=? AND status='verified' AND (env_fingerprint=? OR env_fingerprint='*')
-               ORDER BY version DESC LIMIT 1''',
+               ORDER BY version DESC''',
             (intent_key, fp)
         )
-        row = cur.fetchone()
-        if not row:
-            return None
-
-        return Recipe(
+        for row in cur.fetchall():
+            recipe = Recipe(
             id=row[0],
             intent_key=row[1],
             version=row[2],
@@ -272,15 +375,42 @@ class ProceduralMemory:
             steps=json.loads(row[6]),
             preconditions=json.loads(row[7]),
             postconditions=json.loads(row[8]),
-            verified_at=row[9]
-        )
+                verified_at=row[9], memory_scope=self._origin(row[0], row[2]), memory_context_id=self._memory_context(row[0], row[2])
+            )
+            try:
+                recipe.memory_dependencies = self._dependencies(recipe.id, recipe.version)
+                self._assert_recipe_current(recipe)
+            except ValueError: continue
+            return recipe
+        return None
 
+    @_locked
     def list_recipes(self) -> list[dict]:
         rows = self.db.execute('SELECT id,intent_key,version,status,env_fingerprint,verified_at FROM recipes ORDER BY intent_key').fetchall()
-        return [dict(zip(('id','intent_key','version','status','env_fingerprint','verified_at'), row)) for row in rows]
+        result = [dict(zip(('id','intent_key','version','status','env_fingerprint','verified_at'), row)) for row in rows]
+        visible = []
+        for item in result:
+            scope = self._origin(item['id'], item['version'])
+            try:
+                task_memory.assert_dependencies(self.db, self._dependencies(item['id'], item['version']))
+                review = self.db.execute('SELECT requires_review FROM recipe_memory_scopes WHERE recipe_id=? AND version=?',
+                                         (item['id'], item['version'])).fetchone()
+                if review and review[0]: raise ValueError('Review required')
+                if scope is not None: task_memory.assert_current(self.db, scope)
+                elif self.db.execute('SELECT 1 FROM memory_task_scopes WHERE generation>0 OR forgetting=1 LIMIT 1').fetchone(): raise ValueError('Unknown origin')
+            except ValueError:
+                if scope is not None: continue
+                item.update(status='quarantined', requires_review=True, auto_select=False)
+            visible.append(item)
+        return visible
 
-    def execute_recipe(self, recipe: Recipe, inputs: dict, executor: ActionExecutor, operation_id: str | None = None) -> dict:
+    def execute_recipe(self, recipe: Recipe, inputs: dict, executor: ActionExecutor, operation_id: str | None = None,
+                       *, memory_scope=None, memory_context_id=None) -> dict:
         """Executes recipe steps deterministically, verifying postconditions and recording evidence."""
+        self._assert_recipe_current(recipe)
+        request_scope = copy.deepcopy(memory_scope if memory_scope is not None else recipe.memory_scope)
+        request_context = memory_context_id if memory_scope is not None else recipe.memory_context_id
+        self._assert_request_current(request_scope, request_context)
         if recipe.status != 'verified' or recipe.env_fingerprint not in ('*', get_current_env_fingerprint()):
             raise ValueError('Recipe is not verified for the current environment')
         if not recipe.steps or not isinstance(inputs, dict):
@@ -299,7 +429,8 @@ class ProceduralMemory:
         op_id = operation_id or str(uuid.uuid4())
         if not isinstance(op_id, str) or not 1 <= len(op_id) <= 128:
             raise ValueError('Invalid operation_id')
-        prior = self.db.execute('SELECT recipe_id,recipe_version,outcome,result_json FROM recipe_attempts WHERE operation_id=?', (op_id,)).fetchone()
+        with self.lock:
+            prior = self.db.execute('SELECT recipe_id,recipe_version,outcome,result_json FROM recipe_attempts WHERE operation_id=?', (op_id,)).fetchone()
         if prior:
             if prior[0] != recipe.id or prior[1] != recipe.version:
                 raise ValueError('operation_id already belongs to a different recipe')
@@ -307,12 +438,16 @@ class ProceduralMemory:
                 previous_result = json.loads(prior[3])
                 if previous_result.get('inputs_sha256') != inputs_hash:
                     raise ValueError('operation_id already belongs to different inputs or cannot be safely reconciled')
+                self._assert_recipe_current(recipe)
+                self._assert_request_current(request_scope, request_context)
                 return dict(previous_result, replayed=True)
             return {'recipe_id': recipe.id, 'operation_id': op_id, 'outcome': 'unknown',
                     'model_calls_used': 0, 'error': 'Prior effect requires reconciliation; automatic retry blocked'}
         start_time = time.monotonic()
         start_iso = dt.datetime.now(dt.timezone.utc).isoformat()
-        with self.db:
+        with self._write():
+            self._assert_recipe_current(recipe)
+            task_memory.assert_context(self.db, request_scope, request_context)
             self.db.execute('INSERT INTO recipe_attempts(recipe_id,recipe_version,operation_id,started_at,outcome) VALUES(?,?,?,?,?)',
                             (recipe.id,recipe.version,op_id,start_iso,'running'))
         step_results = []
@@ -333,6 +468,8 @@ class ProceduralMemory:
                     step_args[k] = v
 
             try:
+                self._assert_recipe_current(recipe)
+                self._assert_request_current(request_scope, request_context)
                 res = executor.execute_action(tool_name, step_args, operation_id=f'{op_id[:90]}-step-{step_index}')
             except Exception as exc:
                 res = {'state': 'failed', 'error': str(exc)}
@@ -352,7 +489,7 @@ class ProceduralMemory:
         outcome = 'succeeded' if overall_success else 'cancelled' if step_results and step_results[-1].get('state') == 'cancelled' else 'failed'
 
         # Record attempt
-        with self.db:
+        with self._write():
             self.db.execute(
                 '''UPDATE recipe_attempts SET ended_at=?,outcome=?,duration_ms=?,evidence_json=? WHERE operation_id=?''',
                 (
@@ -377,8 +514,42 @@ class ProceduralMemory:
             'steps_executed': len(step_results),
             'evidence': evidence_collected
         }
-        with self.db:
+        with self._write():
             self.db.execute('UPDATE recipe_attempts SET result_json=? WHERE operation_id=?', (json.dumps(result),op_id))
-            if outcome == 'failed':
-                self.db.execute("UPDATE recipes SET status='quarantined' WHERE id=?", (recipe.id,))
+        # Effects and their receipts remain durable, but a revoked request cannot publish them as fresh memory.
+        self._assert_recipe_current(recipe)
+        self._assert_request_current(request_scope, request_context)
+        if outcome == 'failed':
+            with self._write():
+                self._assert_recipe_current(recipe)
+                task_memory.assert_context(self.db, request_scope, request_context)
+                self.db.execute("UPDATE recipes SET status='quarantined' WHERE id=? AND version=?", (recipe.id, recipe.version))
         return result
+
+    def forget_task(self, task_id):
+        with self._write():
+            if not task_memory.state(self.db, task_id)['forgetting']:
+                raise ValueError('La tarea necesita una barrera de olvido pendiente')
+            removed, versions, unattributed = 0, 0, 0
+            for recipe_id, version, raw, dependency_json in self.db.execute('''SELECT recipe_id,version,memory_scope_json,
+                    memory_dependencies_json FROM recipe_memory_scopes''').fetchall():
+                try:
+                    scope = json.loads(raw) if raw else None
+                    dependencies = json.loads(dependency_json)
+                    affected = (scope is not None and scope.get('task_id') == task_id) or any(
+                        isinstance(ref, dict) and ref.get('task_id') == task_id for ref in dependencies)
+                except (ValueError, TypeError, AttributeError):
+                    self.db.execute('UPDATE recipe_memory_scopes SET requires_review=1 WHERE recipe_id=? AND version=?', (recipe_id, version))
+                    continue
+                if affected:
+                    removed += self.db.execute('DELETE FROM recipes WHERE id=? AND version=?', (recipe_id, version)).rowcount
+                    versions += self.db.execute('DELETE FROM recipe_versions WHERE recipe_id=? AND version=?', (recipe_id, version)).rowcount
+                    # Keep the identity tombstone; attempts and old version IDs remain historical receipts.
+                    self.db.execute('UPDATE recipe_memory_scopes SET requires_review=1 WHERE recipe_id=? AND version=?', (recipe_id, version))
+            for recipe_id, version in self.db.execute('SELECT id,version FROM recipes').fetchall():
+                if self._origin(recipe_id, version) is None:
+                    unattributed += 1
+                    self.db.execute('''INSERT INTO recipe_memory_scopes(recipe_id,version,memory_scope_json,requires_review) VALUES (?,?,NULL,1)
+                        ON CONFLICT(recipe_id,version) DO UPDATE SET requires_review=1''', (recipe_id, version))
+            return {'forgotten_recipes': removed, 'forgotten_recipe_versions': versions, 'unattributed_recipes': unattributed,
+                    'recipe_attempts_preserved': True, 'external_deletion_confirmed': False}

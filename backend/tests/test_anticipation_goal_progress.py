@@ -92,10 +92,10 @@ class AnticipationGoalProgressTests(unittest.TestCase):
         source = self.pending()
         execute = self.learning.execute_with_grant
         calls = []
-        def record(key, grant_id, plan_hash):
+        def record(key, grant_id, plan_hash, **memory):
             self.assertFalse(self.service.lock._is_owned())
             calls.append((key, grant_id, plan_hash))
-            return execute(key, grant_id, plan_hash)
+            return execute(key, grant_id, plan_hash, **memory)
         with patch.object(self.learning, 'execute_with_grant', side_effect=record):
             self.service.tick()
         item = self.candidate()

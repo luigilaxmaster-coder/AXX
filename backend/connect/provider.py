@@ -23,6 +23,7 @@ import time
 import uuid
 from urllib.parse import urlsplit
 from backend.prompts import compose
+from backend.memory import task_memory
 
 
 CODEX_VERSION = '0.160.0'
@@ -194,6 +195,7 @@ class CodexProvider:
     The dispatcher signature is (name, arguments, request_id, call_id, *, admission).
     """
     supports_cancel_event = True
+    supports_task_memory = True
     def __init__(self, commands, db_path, cwd, dispatcher=None):
         self.commands = commands
         self.dispatcher = dispatcher
@@ -270,6 +272,8 @@ class CodexProvider:
         with self.lock:
             if self.closed:
                 return
+            if self._stop_forgotten(run):
+                return
             seq = run.get('last_event', 0) + 1
             run['last_event'] = seq
             event = {'seq': seq, 'type': kind, 'data': data or {}, 'at': time.time()}
@@ -288,6 +292,77 @@ class CodexProvider:
         if not row:
             raise ProviderError('NOT_FOUND', 'No existe esa ejecución de Axx Connect.')
         return json.loads(row['body_json'])
+
+    def _assert_memory(self, run):
+        if self.closed:
+            raise ProviderError('CLOSED', 'El proveedor está detenido.')
+        reference = run.get('memory_scope')
+        task_id = reference.get('task_id') if isinstance(reference, dict) else run.get('memory_task_id', run.get('conversation_id'))
+        try:
+            if reference is None and self.db.execute("SELECT 1 FROM sqlite_master WHERE name='chat_forget_results'").fetchone():
+                retired = self.db.execute("SELECT 1 FROM chat_forget_results, json_each(chat_forget_results.payload,'$.old_connect_ids') WHERE value=? LIMIT 1", (run.get('memory_context_id') or run.get('conversation_id'),)).fetchone()
+                if retired:
+                    raise ValueError('El contexto anterior de esta conversación fue olvidado')
+            current = task_memory.assert_context(self.db, reference, run.get('memory_context_id'), task_id=task_id)
+            task_memory.assert_dependencies(self.db,run.get('memory_dependencies',[]))
+            return current
+        except ValueError as exc:
+            raise ProviderError('MEMORY_SCOPE_CHANGED', str(exc)) from exc
+
+    def _memory_binding(self, body, conversation_id, previous=None):
+        reference = body.get('memory_scope')
+        context_id = body.get('memory_context_id')
+        dependencies = body.get('memory_dependencies',previous.get('memory_dependencies',[]) if previous else [])
+        if previous:
+            if 'memory_scope' not in body:
+                reference = previous.get('memory_scope')
+            if 'memory_context_id' not in body:
+                context_id = previous.get('memory_context_id')
+        owner = reference.get('task_id') if isinstance(reference,dict) else conversation_id
+        if not previous and reference is not None and 'memory_context_id' not in body:
+            context_id = body.get('conversation_id')
+        if not previous and reference is None and self.db.execute("SELECT 1 FROM sqlite_master WHERE name='chat_conversations'").fetchone():
+            rows = self.db.execute('SELECT id,connect_id FROM chat_conversations WHERE id=? OR connect_id=?', (conversation_id,conversation_id)).fetchall()
+            if len(rows) > 1:
+                raise ProviderError('INVALID_INPUT', 'La conversación no tiene un ámbito de memoria único.')
+            if rows:
+                owner = rows[0]['id']
+                if conversation_id == rows[0]['connect_id']:
+                    context_id = context_id or conversation_id
+        binding = {'memory_scope':reference, 'memory_context_id':context_id, 'memory_task_id':owner,
+                   'memory_dependencies':dependencies}
+        if not previous:
+            try:
+                binding['memory_scope'],binding['memory_context_id'] = task_memory.capture_context(self.db,reference,context_id,task_id=owner)
+            except ValueError as exc:
+                raise ProviderError('MEMORY_SCOPE_CHANGED',str(exc)) from exc
+        binding['memory_scope'] = self._assert_memory(binding)
+        binding['memory_dependencies'] = [dict(reference) for reference in dependencies]
+        return {key:binding[key] for key in ('memory_scope','memory_context_id','memory_dependencies')}
+
+    def _memory_projection(self, run):
+        try:
+            self._assert_memory(run)
+        except ProviderError as exc:
+            return dict(run, state='cancelled', response='', response_retained=False, inference_verified=False,
+                        memory_forgotten=True, tool_results=[], events=[], pending_approvals=[],
+                        error={'code':exc.code, 'message':str(exc)})
+        return run
+
+    def _stop_forgotten(self, run):
+        if self.closed:
+            return True
+        try:
+            self._assert_memory(run)
+            return False
+        except ProviderError as exc:
+            run.update(state='cancelled', cancel_requested=True, inference_verified=False, memory_forgotten=True,
+                       error={'code':exc.code, 'message':str(exc)})
+            run['_cancel'].set()
+            run['_done'].set()
+            self._store(run)
+            threading.Thread(target=self._interrupt_bounded, args=(run,), daemon=True).start()
+            return True
 
     def _spawn(self):
         with self._budget_lock(self.start_lock):
@@ -506,7 +581,14 @@ class CodexProvider:
 
     def _rpc(self, method, params=None, timeout=20):
         """Budget wrapper also exercised by injected protocol doubles in tests."""
+        run = getattr(self.rpc_context, 'run', None)
+        if run and method in {'thread/start','thread/resume','turn/start'}:
+            with self.lock:
+                self._assert_memory(run)
         result = self._request(method, params, timeout=self._remaining(timeout))
+        if run and method in {'thread/start','thread/resume','turn/start'}:
+            with self.lock:
+                self._assert_memory(run)
         return result
 
     def _read(self, process):
@@ -563,6 +645,8 @@ class CodexProvider:
             request_id = self.thread_runs.get(params.get('threadId'))
             run = self.live.get(request_id)
             if not run or run['state'] in TERMINAL:
+                return
+            if self._stop_forgotten(run):
                 return
             if time.monotonic() >= run['_deadline']:
                 self._deadline_failed(run)
@@ -625,6 +709,8 @@ class CodexProvider:
         method, params = message['method'], message.get('params') or {}
         with self.lock:
             run = self.live.get(self.thread_runs.get(params.get('threadId')))
+            if run and self._stop_forgotten(run):
+                run = None
         if run and run.get('turn_id') is None:
             run['_turn_ready'].wait(timeout=max(0, min(20, run['_deadline'] - time.monotonic())))
         if not run or run.get('turn_id') is None or run['state'] in TERMINAL or run['_cancel'].is_set() or (
@@ -703,12 +789,15 @@ class CodexProvider:
                             run['_done'].set()
                     threading.Thread(target=self._interrupt_bounded, args=(run,), daemon=True).start()
             with self.lock:
+                if self.closed:
+                    return
                 admitted_operation = None
                 if isinstance(result, dict) and result.get('origin') == 'axx-provider' and result.get('parent_execution_id') == run['request_id']:
                     admitted_operation = result.get('operation_id')
                     if isinstance(admitted_operation, str) and admitted_operation not in run['managed_operations']:
                         run['managed_operations'].append(admitted_operation)
                 run['tool_results'].append({'tool': tool, 'call_id': params.get('callId'), 'result': result})
+                self._stop_forgotten(run)
                 if run['state'] not in TERMINAL and time.monotonic() >= run['_deadline']:
                     self._deadline_failed(run)
                 terminal = run['state'] in TERMINAL
@@ -727,13 +816,19 @@ class CodexProvider:
                         'message': _safe_error(exc)})
             if terminal:
                 return  # Keep late executor evidence; never revive an ended turn.
-            content=[{'type': 'inputText', 'text': json.dumps(result, ensure_ascii=False)}]
+            model_result = {key:value for key,value in result.items() if key not in {'memory_scope','memory_context_id','memory_dependencies'}} if isinstance(result,dict) else result
+            content=[{'type': 'inputText', 'text': json.dumps(model_result, ensure_ascii=False)}]
             computer=getattr(getattr(self.commands,'executor',None),'computer_use',None)
             if computer is not None:
                 try:content.extend(computer.image_content(result,run))
                 except ValueError:pass
-            self._write({'id': message['id'], 'result': {'contentItems': content, 'success': success}},
-                timeout=max(0, min(20, run['_deadline']-time.monotonic())))
+            try:
+                self._write({'id': message['id'], 'result': {'contentItems': content, 'success': success}},
+                    timeout=max(0, min(20, run['_deadline']-time.monotonic())), admission=self.admission_guard(run))
+            except ProviderError:
+                with self.lock:
+                    self._stop_forgotten(run)
+                return
             if len(content)>1:
                 self._event(run,'computer/image_attached',{'observation_id':result['output']['observation_id'],
                     'image_sha256':result['output'].get('image_sha256')})
@@ -830,6 +925,7 @@ class CodexProvider:
 
     def _assert_binding(self, run):
         with self.lock:
+            self._assert_memory(run)
             if not self.local_enabled:
                 raise ProviderError('DISCONNECTED', 'Axx está desconectado localmente.')
             if run.get('account_fingerprint') != self.account_fingerprint or run.get('account_epoch') != self.account_epoch or self.auth_failed:
@@ -982,15 +1078,22 @@ class CodexProvider:
         depth = body.get('delegation_depth', 0)
         if body.get('origin', 'axx') not in {'axx', 'axx-ui', 'test'} or body.get('parent_execution_id') or type(depth) is not int or depth != 0:
             raise ProviderError('RECURSION_BLOCKED', 'Una herramienta no puede iniciar otro planificador de Axx.')
+        original_conversation_id = body.get('conversation_id', 'axx-main')
         fingerprint_data = [message, conversation_id, model, purpose, source_language, target_language, prompt['sha256']]
         if images:fingerprint_data.append(images)
-        fingerprint = hashlib.sha256(json.dumps(fingerprint_data, ensure_ascii=False).encode()).hexdigest()
         with self.lock:
             if self.closed:
                 raise ProviderError('CLOSED', 'El proveedor está detenido.')
             if not self.local_enabled:
                 raise ProviderError('DISCONNECTED', 'Axx está desconectado localmente. Usa Reconectar para habilitar inferencia.')
-            existing = self.db.execute('SELECT fingerprint FROM connect_runs WHERE request_id=?', (request_id,)).fetchone()
+            existing = self.db.execute('SELECT fingerprint,body_json FROM connect_runs WHERE request_id=?', (request_id,)).fetchone()
+            memory = self._memory_binding(body, original_conversation_id, json.loads(existing['body_json']) if existing else None)
+            if purpose in {'chat','voice'} and memory['memory_context_id'] is not None and memory['memory_context_id'] != original_conversation_id:
+                if body.get('memory_scope') is not None or body.get('memory_context_id') is not None:
+                    raise ProviderError('INVALID_INPUT', 'La solicitud debe conservar el contexto opaco original del chat.')
+                conversation_id = memory['memory_context_id']
+            fingerprint_data.append(memory)
+            fingerprint = hashlib.sha256(json.dumps(fingerprint_data, ensure_ascii=False).encode()).hexdigest()
             if existing:
                 if existing['fingerprint'] != fingerprint:
                     raise ProviderError('DUPLICATE_MISMATCH', 'El identificador ya pertenece a otra solicitud.')
@@ -1006,8 +1109,10 @@ class CodexProvider:
                    'inference_verified': False,
                    'tool_results': [], 'usage': None, 'error': None, 'last_event': 0,
                    'managed_operations': [],
-                   'created_at': now, 'updated_at': now, 'cancel_requested': False}
+                   'created_at': now, 'updated_at': now, 'cancel_requested': False, **memory}
             with self.db:
+                self.db.execute('BEGIN IMMEDIATE')
+                self._assert_memory(run)
                 self.db.execute('INSERT INTO connect_runs VALUES (?,?,?,?,?,?)',
                     (request_id, fingerprint, conversation_id, json.dumps(run), now, now))
             run['_done'], run['_cancel'], run['_turn_ready'] = threading.Event(), threading.Event(), threading.Event()
@@ -1027,6 +1132,8 @@ class CodexProvider:
         self.rpc_context.deadline = run['_deadline']
         self.rpc_context.run = run
         try:
+            with self.lock:
+                self._assert_memory(run)
             self._remaining()
             health = self.status()
             if not health.get('authenticated'):
@@ -1101,6 +1208,9 @@ class CodexProvider:
                     run['state'] = 'processing'
                     self._event(run, 'turn/dispatched', {'turn_id': run['turn_id']})
             while not run['_done'].wait(0.1):
+                with self.lock:
+                    if self._stop_forgotten(run):
+                        break
                 self._remaining()
                 if run['_cancel'].is_set() and run.get('turn_id') and not run.get('_interrupt_sent'):
                     run['_interrupt_sent'] = True
@@ -1182,7 +1292,8 @@ class CodexProvider:
         if images and request.get('sensitivity') != 'approved_sensitive':
             raise ProviderError('INVALID_INPUT', 'Las imágenes de contexto requieren autorización de contenido sensible.')
         run = self.start({'request_id': request.get('request_id'), 'model': request['model'],
-                          'message': message, 'purpose': purpose, 'origin': 'axx'}, cancel_event=cancel_event, images=images)
+                          'message': message, 'purpose': purpose, 'origin': 'axx',
+                          **{key:request[key] for key in ('memory_scope','memory_context_id','memory_dependencies','conversation_id') if key in request}}, cancel_event=cancel_event, images=images)
         request_id = run['request_id']
         while run['state'] not in TERMINAL:
             if cancel_event is not None and cancel_event.is_set():
@@ -1199,6 +1310,7 @@ class CodexProvider:
             run = self.get(request_id)
         with self.lock:
             live=self.live.get(request_id) or {}
+            self._assert_memory(run)
             text=live.get('response') if run.get('response_retained') is False else run.get('response')
             if live.get('_source_tainted'):live['response']=''
         if cancel_event is not None and cancel_event.is_set():
@@ -1225,20 +1337,22 @@ class CodexProvider:
             run['events'] = [json.loads(row[0]) for row in rows]
             run['pending_approvals'] = [key for key, (rid, _) in self.approvals.items() if rid == request_id]
             run['effects_reverted'] = False
-            return run
+            return self._memory_projection(run)
 
     def history(self, limit=30):
         if type(limit) is not int or not 1 <= limit <= 100:
             raise ProviderError('INVALID_INPUT', 'Límite de historial inválido.')
         with self.lock:
-            return [json.loads(row[0]) for row in self.db.execute(
+            return [self._memory_projection(json.loads(row[0])) for row in self.db.execute(
                 'SELECT body_json FROM connect_runs ORDER BY created_at DESC LIMIT ?', (limit,)).fetchall()]
 
     def cancel(self, request_id):
         effects = []
         with self.lock:
             run = self.live.get(request_id)
-            if run and run['state'] not in TERMINAL:
+            if run:
+                self._stop_forgotten(run)
+            if run and (run['state'] not in TERMINAL or run.get('memory_forgotten')):
                 run['_cancel'].set()
                 run['cancel_requested'] = True
                 self._event(run, 'run/cancel_requested', {'effects_reverted': False})

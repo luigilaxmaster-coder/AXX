@@ -47,18 +47,55 @@
             const rtStatus = node('desktop-runtime-status');
             if (rtStatus && Axx.desktop) rtStatus.textContent = text;
         }
-        notice(text, conversationId) {
+        notice(text, conversationId, operationId) {
             // Results remain in their persisted operation card if the user moved
             // to another chat. Never copy or speak one chat's output in another.
             if (conversationId && Axx.chatWorkspace?.active?.id !== conversationId) return;
-            Axx.companion.localNotice(text);
+            Axx.companion.localNotice(text, operationId);
         }
         report(error) { this.status((this.operation ? 'Resultado incierto: ' : '') + errorText(error) + (this.operation ? ' Consulta el resultado antes de reintentar.' : '')); }
-        async request(method, path, body) {
+        captureMemory() { return Axx.chatWorkspace?.captureMemoryToken?.() || null; }
+        checkMemory(token,active=false) { if(token&&!Axx.chatWorkspace?.isMemoryTokenCurrent(token,active))throw new DOMException('La memoria de esta conversación cambió.','AbortError'); }
+        memoryBody(body,token) { return token?{...body,memory_scope:{...token.memory_scope},memory_context_id:token.memory_context_id}:body; }
+        async request(method, path, body, memoryToken=null) {
+            this.checkMemory(memoryToken);
+            if(method==='POST'&&/^\/axx-api\/(?:learning|commands)\//.test(path))body=this.memoryBody(body,memoryToken);
             const result = await Axx.backendRequest(method, path, body);
+            this.checkMemory(memoryToken);
             if (!result || typeof result !== 'object') throw new Error('Respuesta de la biblioteca no válida.');
             if (result.error && !result.state) throw new Error(errorText(result.error));
             return result;
+        }
+        invalidateMemory(taskId) {
+            if(this.actionContextChat===taskId){this.actionContext={};this.actionContextChat='';this.actionContextAt=0;}
+            if(this.learningQuestion?.conversation_id===taskId)this.learningQuestion=null;
+            const operation=this.operation||this.lastOperation,owns=operation?.conversation_id===taskId||this.dispatchOrigin===taskId;
+            if(owns){++this.generation;++this.observationRevision;this.busy=false;this.operation=null;this.pendingOperationId=null;this.clearCompensation();this.reviewedPlanApproval=null;}
+            if(this.lastOperation?.conversation_id===taskId)this.lastOperation=null;
+            if(owns||!this.operation&&!this.lastOperation){this.renderOperation(this.operation||this.lastOperation);node('command-library-learned-list').replaceChildren();}
+        }
+        memoryCommand(raw) {
+            if(typeof raw!=='string'||raw.length>180)return null;
+            const text=raw.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim().replace(/[.!?]$/,'').trim();
+            if(/^olvida lo que aprendiste de (?:esta|esa) sesion$/.test(text))return 'forget';
+            if(['eso era solo para este proyecto','no uses mas ese procedimiento','hazlo asi de ahora en adelante en esta carpeta'].includes(text))return 'correct';
+            return null;
+        }
+        async changeMemory(raw,token) {
+            this.checkMemory(token,true);if(!token)throw Error('Selecciona primero una conversación cargada.');
+            const task_id=token.memory_scope.task_id,project_id=Axx.skillLibrary?.project()||'',operation_id=Axx.newId(),target=Axx.skillLibrary?.memoryTarget?.(),last=this.lastOperation;
+            const body={text:raw,task_id,project_id,operation_id,...(target?{target_skill_id:target.id,target_skill_version:target.version,...(target.folder?{folder:target.folder}:{})}:last?.conversation_id===task_id?{target_operation_id:last.operation_id}:{}),...(!target&&Axx.skillLibrary?.memoryFolder?.()?{folder:Axx.skillLibrary.memoryFolder()}:{})};
+            const preview=await this.request('POST','/axx-api/learning/memory-preview',body,token);this.checkMemory(token,true);if(project_id!==(Axx.skillLibrary?.project()||''))throw Error('El proyecto cambió; indica de nuevo el alcance del aprendizaje.');
+            if(preview.kind!=='memory_change'||preview.status!=='ready')return typeof preview.summary==='string'?preview.summary:'Indica el procedimiento o el alcance que quieres cambiar. No he cambiado el aprendizaje.';
+            const change=preview.change;
+            if(!change||change.operation_id!==operation_id||change.task_id!==task_id||change.project_id!==project_id||change.memory_scope?.task_id!==task_id||change.memory_scope?.generation!==token.memory_scope.generation||change.memory_context_id!==token.memory_context_id||! /^[a-f0-9]{64}$/.test(preview.review_hash))throw Error('La revisión del aprendizaje no corresponde a este chat.');
+            Axx.chatWorkspace.invalidateMemory(task_id);
+            try{
+                const result=await this.request('POST','/axx-api/learning/memory-apply',{change,review_hash:preview.review_hash,confirmed:true});
+                if(result.state!=='applied'||result.task_id!==task_id||result.action!==change.action)throw Error('No se confirmó el cambio del aprendizaje.');
+                await Axx.chatWorkspace.refreshMemory(task_id,result.memory_scope);
+                return typeof result.summary==='string'?result.summary:'Aprendizaje actualizado para el alcance indicado.';
+            }catch(error){await Axx.chatWorkspace.refreshMemory(task_id).catch(()=>{});throw error;}
         }
         installControls() {
             const section = document.createElement('section');
@@ -116,9 +153,9 @@
                 const operation = this.lastOperation;
                 if (!operation || this.busy || this.operation) return;
                 node('command-library-remember').disabled = true;
-                void this.request('POST','/axx-api/learning/remember',{operation_id:operation.operation_id})
-                    .then(() => this.status('Procedimiento parametrizado guardado. Está disponible en Habilidades; cada repetición vuelve a resolver ventana y controles.'))
-                    .catch(e => this.report(e)).finally(() => {node('command-library-remember').disabled = false;});
+                const memory=this.captureMemory();void this.request('POST','/axx-api/learning/remember',{operation_id:operation.operation_id},memory)
+                    .then(() => {this.checkMemory(memory,true);this.status('Procedimiento parametrizado guardado. Está disponible en Habilidades; cada repetición vuelve a resolver ventana y controles.');})
+                    .catch(e => {if(!memory||Axx.chatWorkspace?.isMemoryTokenCurrent(memory,true))this.report(e);}).finally(() => {node('command-library-remember').disabled = false;});
             };
             node('command-library-cancel').onclick = () => { void this.cancel(); };
             node('command-library-recover').onclick = () => { void this.recover().catch(e => this.status(errorText(e))); };
@@ -390,6 +427,7 @@
             return null;
         }
         hasLocalIntent(raw) {
+            if(this.memoryCommand(raw))return true;
             if (this.taskCorrection(raw)) return true;
             if (sequenceRequest(raw)) return false;
             if (this.internalAction(raw)) return true;
@@ -417,6 +455,8 @@
         }
         installDispatch() {
             const previous = Axx.companion.send.bind(Axx.companion);
+            const external=Axx.companion.externalCommand?.bind(Axx.companion);
+            Axx.companion.externalCommand=raw=>{const ticket=this.memoryDispatch;return ticket?.raw===raw?()=>this.changeMemory(raw,ticket.token):external?.(raw);};
             if (Axx.symbiosis?.voiceCommand) {
                 const voiceCommand = Axx.symbiosis.voiceCommand.bind(Axx.symbiosis);
                 Axx.symbiosis.voiceCommand = text => this.taskCorrection(text) || !sequenceRequest(text) && this.internalAction(text)
@@ -436,6 +476,12 @@
             Axx.companion.send = async (text, metadata = {}) => {
                 const raw = String(text || '').trim();
                 const origin = Axx.chatWorkspace?.active?.id;
+                const memoryToken=metadata.memoryToken||this.captureMemory(),plan=(text,options={})=>this.planAction(text,{...options,memoryToken});this.checkMemory(memoryToken,true);
+                if(this.memoryCommand(raw)&&[undefined,'text','voice'].includes(metadata.source)&&!Axx.companion.attachment){
+                    this.memoryDispatch={raw,token:memoryToken};const execute=Axx.companion.externalCommand(raw);this.memoryDispatch=null;
+                    Axx.companion.message('user',raw,'local');Axx.companion.renderChat();Axx.companion.save();
+                    try{this.notice(await execute(),origin);}catch(error){this.notice('No se pudo cambiar el aprendizaje: '+errorText(error),origin);}return;
+                }
                 if (Axx.computerUse?.activeFor(origin) && !raw.startsWith('/')) return previous(raw, metadata);
                 const activeTask = this.operation || this.lastOperation;
                 const correction = this.taskCorrection(raw);
@@ -460,7 +506,7 @@
                     if (/^(?:retoma|reanuda|continua desde donde quedaste|continúa desde donde quedaste)$/i.test(raw)) { await this.resumePlan(); return; }
                 }
                 const goal = raw.match(/^\/(?:tarea|objetivo)\s+([\s\S]+)/i);
-                if (goal) { Axx.companion.message('user', raw, 'local'); await this.planAction(goal[1]); return; }
+                if (goal) { Axx.companion.message('user', raw, 'local'); await plan(goal[1]); return; }
                 const modelCommand = Axx.modelSelection?.parse(raw);
                 if (modelCommand) {
                     Axx.companion._forceVoiceReplyOnce = false;
@@ -491,12 +537,12 @@
                     }
                     this.learningQuestion = null;
                     Axx.companion.message('user', raw, 'local');
-                    if (Axx.skillLibrary && question.operation_id) { try{await Axx.skillLibrary.continueTask(question.operation_id,raw);}catch(error){if(origin===Axx.chatWorkspace?.active?.id&&!this.learningQuestion)this.learningQuestion=question;this.notice('No se pudo preparar la corrección: '+errorText(error),origin);}return; }
-                    await this.planAction(question.request + '\nAclaración solicitada: ' + question.question + '\nRespuesta del usuario: ' + raw); return;
+                    if (Axx.skillLibrary && question.operation_id) { try{await Axx.skillLibrary.continueTask(question.operation_id,raw,memoryToken);}catch(error){if(origin===Axx.chatWorkspace?.active?.id&&!this.learningQuestion)this.learningQuestion=question;this.notice('No se pudo preparar la corrección: '+errorText(error),origin);}return; }
+                    await plan(question.request + '\nAclaración solicitada: ' + question.question + '\nRespuesta del usuario: ' + raw); return;
                 }
                 if (/^\/(?:acciones|aprendidas)$/i.test(raw)) { this.open(); await this.listLearned(); return; }
                 const learn = raw.match(/^\/(?:aprende|accion)\s+(.+)/is);
-                if (learn) { Axx.companion.message('user', raw, 'local'); await this.planAction(learn[1]); return; }
+                if (learn) { Axx.companion.message('user', raw, 'local'); await plan(learn[1]); return; }
                 const catalogQuery = raw.match(/^\/comandos(?:\s+(.*))?$/i);
                 if (catalogQuery) { this.open(); try { await this.search(catalogQuery[1] || ''); } catch (error) { this.status(errorText(error)); } return; }
                 if (/^(?:\/cancelar-comando|cancelar comando|cancela el comando)$/i.test(raw)) { await this.cancel(); return; }
@@ -509,10 +555,10 @@
                 if (this.busy || this.operation) { Axx.chatWorkspace?.operationCard(this.operation || this.lastOperation); if (!this.isActionRequest(raw)) return previous(raw, metadata); Axx.companion.openChat(); return; }
                 const source = metadata.source === 'voice' || this.voiceDraft?.value === raw ? 'voice' : 'text';
                 this.voiceDraft = null;
-                const serial = ++this.generation; let prepared = false; this.busy = true;
+                const serial = ++this.generation; let prepared = false; this.busy = true;this.dispatchOrigin=origin;
                 try {
                     if (this.actionContextChat !== (origin || '') || Date.now() - this.actionContextAt > 600000) this.actionContext = {};
-                    const resolved = await this.request('POST', '/axx-api/commands/resolve', { text: raw, source, context: this.actionContext, project_id:Axx.skillLibrary?.project() || '' });
+                    const resolved = await this.request('POST', '/axx-api/commands/resolve', { text: raw, source, context: this.actionContext, project_id:Axx.skillLibrary?.project() || '' },memoryToken);
                     if (serial !== this.generation) return;
                     this.busy = false;
                     if (origin && Axx.chatWorkspace?.active?.id !== origin) {
@@ -521,26 +567,26 @@
                     }
                     if (resolved.match === 'learned') {
                         Axx.companion.message('user', raw, 'local');
-                        await this.planAction(raw); return;
+                        await plan(raw); return;
                     }
                     if (resolved.match === 'sequence') {
                         Axx.companion.message('user',raw,'local');
-                        await this.planAction(raw,{steps:resolved.steps}); return;
+                        await plan(raw,{steps:resolved.steps}); return;
                     }
                     if (resolved.match === 'sequence_request') {
                         Axx.companion.message('user',raw,'local');
-                        await this.planAction(raw); return;
+                        await plan(raw); return;
                     }
                     if (resolved.match === 'unsupported') {
                         Axx.companion.message('user', raw, 'local');
                         Axx.companion.localNotice(resolved.message || 'No encontré una acción ejecutable para esa petición.');
-                        if (this.isActionRequest(raw)) await this.planAction(raw);
+                        if (this.isActionRequest(raw)) await plan(raw);
                         return;
                     }
                     if (resolved.match === 'none') {
                         if(!this.isActionRequest(raw))return previous(raw, metadata);
                         Axx.companion.message('user',raw,'local');
-                        await this.planAction(raw);
+                        await plan(raw);
                         return;
                     }
                     Axx.companion.message('user', raw, 'local');
@@ -549,21 +595,21 @@
                         return;
                     }
                     if (resolved.execution_enabled === false && resolved.has_recipe_details) {
-                        await this.planAction(raw); return;
+                        await plan(raw); return;
                     }
                     if (Object.entries(resolved.parameters || {}).some(([key, spec]) => spec.required && !Object.hasOwn(resolved.inputs || {}, key))) {
-                        await this.planAction(raw);
+                        await plan(raw);
                         return;
                     }
                     prepared = true;
-                    const result = await this.prepare(resolved.command_id, resolved.inputs || {}, source);
-                    if (result) this.notice(result, origin);
+                    const result = await this.prepare(resolved.command_id, resolved.inputs || {}, source,undefined,memoryToken);
+                    if (result) this.notice(result, origin, this.lastOperation?.conversation_id===origin?this.lastOperation.operation_id:undefined);
                 } catch (error) {
                     if (serial + (prepared ? 1 : 0) === this.generation) {
                         this.report(error);
                         this.notice((this.operation ? 'No se confirmó el resultado del comando. ' : 'No se pudo consultar o preparar el comando. ') + errorText(error) + (this.operation ? ' Consulta el resultado en Biblioteca antes de reintentar.' : ' Puedes reintentar la consulta; no se enviará al modelo automáticamente.'), origin);
                     }
-                } finally { if (serial === this.generation && !this.operation) this.busy = false; }
+                } finally { if (serial === this.generation && !this.operation) this.busy = false;if(this.dispatchOrigin===origin)this.dispatchOrigin=null; }
             };
         }
         isCompensation(operation) { return ['axx.artifact.quarantine','axx.artifact.restore'].includes(operation?.command_id); }
@@ -580,8 +626,8 @@
             return operation.command_id==='axx.artifact.write'&&operation.state==='succeeded'&&operation.postconditions_passed===true&&operation.evidence?.creation_receipt?.verified===true?operation.operation_id:null;
         }
         compensationFingerprint(preview) { return JSON.stringify([preview.source_operation_id,preview.task_id,preview.action,preview.source_receipt_hash,preview.artifact,preview.compensation]); }
-        async compensationPreview(source, operation) {
-            const preview=await this.request('POST','/axx-api/commands/compensation-preview',{source_operation_id:source});
+        async compensationPreview(source, operation,memory=this.captureMemory()) {
+            const preview=await this.request('POST','/axx-api/commands/compensation-preview',{source_operation_id:source},memory);
             if(preview.available!==true)return preview;
             if(preview.capability?.native_available!==true||preview.source_operation_id!==source||preview.task_id!==(operation.conversation_id||source)||!['quarantine','restore'].includes(preview.action)||!/^([a-f0-9]{64})$/.test(preview.source_receipt_hash)||typeof preview.artifact?.path!=='string'||!preview.artifact.path||!Number.isSafeInteger(preview.artifact.bytes)||preview.artifact.bytes<0||!/^([a-f0-9]{64})$/.test(preview.artifact.sha256)||!preview.artifact.identity||!Number.isSafeInteger(preview.compensation?.revision)||preview.compensation.revision<0)throw Error('El backend no confirmó el archivo y su revisión de compensación.');
             return preview;
@@ -641,16 +687,17 @@
             }finally{if(serial===this.generation){this.busy=false;node('command-library-compensation-review').disabled=false;}if(token===this.compensationRevision)this.compensationLoading=false;}
         }
         async prepareCompensation() {
+            const memory=this.captureMemory();
             if(this.compensationLoading){this.clearCompensation();this.busy=false;return;}
             if(this.busy||this.operation)return;
             const review=this.compensationReview,operation=this.lastOperation;if(!review||review.operation_id!==operation?.operation_id||review.generation!==this.generation||review.chat!==(Axx.chatWorkspace?.active?.id||null))return;
             const token=++this.compensationRevision,serial=this.generation;this.compensationReview=null;this.compensationLoading=true;this.busy=true;node('command-library-compensation-prepare').disabled=true;
-            try{const fresh=await this.compensationPreview(review.source_operation_id,operation);
+            try{const fresh=await this.compensationPreview(review.source_operation_id,operation,memory);
                 if(token!==this.compensationRevision||serial!==this.generation||review.chat!==(Axx.chatWorkspace?.active?.id||null)||this.lastOperation?.operation_id!==operation.operation_id)return;
                 if(fresh.available!==true){node('command-library-compensation-prepare').hidden=true;node('command-library-compensation-status').textContent='La prueba del archivo cambió; consulta de nuevo el recibo antes de preparar.';return;}
                 if(this.compensationFingerprint(fresh)!==this.compensationFingerprint(review.preview)){this.showCompensationReview(fresh,operation);this.status('La revisión cambió. Revisa la nueva ruta y el efecto antes de volver a preparar.');return;}
                 this.busy=false;this.compensationLoading=false;
-                return await this.prepareRequest('/axx-api/commands/compensation-prepare',{source_operation_id:review.source_operation_id,source_receipt_hash:fresh.source_receipt_hash,expected_revision:fresh.compensation.revision,action:fresh.action},{compensation:{preview:fresh,chat:review.chat}});
+                return await this.prepareRequest('/axx-api/commands/compensation-prepare',{source_operation_id:review.source_operation_id,source_receipt_hash:fresh.source_receipt_hash,expected_revision:fresh.compensation.revision,action:fresh.action},{memoryToken:memory,compensation:{preview:fresh,chat:review.chat}});
             }finally{if(serial===this.generation){this.busy=false;node('command-library-compensation-prepare').disabled=false;}if(token===this.compensationRevision)this.compensationLoading=false;}
         }
         markVoiceProvenance() {
@@ -731,21 +778,22 @@
             node('command-library-approve').textContent = this.busy ? 'Ejecutando…' : `Aprobar y ejecutar ${pending === 1 ? '1 paso' : pending + ' pasos'}`;
             node('command-library-raw').textContent = JSON.stringify({operation_id:operation.operation_id, steps,...(this.compensationApprovalMatches(operation)?{compensation_preview:this.compensationApproval.preview}:{})}, null, 2);
         }
-        async prepare(commandId, inputs, source, deliveryMode) {
-            return this.prepareRequest('/axx-api/commands/prepare', { command_id: commandId, inputs, source, ...(deliveryMode ? {delivery_mode:deliveryMode} : {}) });
+        async prepare(commandId, inputs, source, deliveryMode,memoryToken=this.captureMemory()) {
+            this.checkMemory(memoryToken);return this.prepareRequest('/axx-api/commands/prepare', { command_id: commandId, inputs, source, ...(deliveryMode ? {delivery_mode:deliveryMode} : {}) },{memoryToken});
         }
         async prepareRequest(path, body, options = {}) {
+            options={...options,memoryToken:options.memoryToken===undefined?this.captureMemory():options.memoryToken};this.checkMemory(options.memoryToken);
             if (this.busy || this.operation) throw new Error('Ya hay un comando pendiente.');
             this.clearCompensation();
             const serial = ++this.generation; this.busy = true;
             ++this.observationRevision;
             const operationId = Axx.newId(); this.pendingOperationId = operationId;
-            this.lastOperation = { operation_id: operationId, command_id: body.command_id, state: 'preparing' };
+            this.lastOperation = { operation_id: operationId, command_id: body.command_id, state: 'preparing',conversation_id:options.memoryToken?.memory_scope.task_id||Axx.chatWorkspace?.active?.id };
             this.status('Validando parámetros, adaptador y permisos.');
             node('command-library-cancel').disabled = false;
             node('command-library-recover').disabled = true;
             try {
-                const operation = await this.request('POST', path, { ...body, operation_id: operationId });
+                const operation = await this.request('POST', path, { ...body, operation_id: operationId },options.memoryToken);
                 if (serial !== this.generation) return;
                 if (operation.operation_id !== operationId) throw new Error('La preparación no corresponde al comando solicitado.');
                 if(path==='/axx-api/commands/compensation-prepare'){
@@ -755,13 +803,13 @@
                     this.compensationApproval=review;
                 }
                 this.pendingOperationId = null;
-                return await this.adopt(operation);
+                return await this.adopt(operation,options.memoryToken);
             } catch (error) {
                 if (serial !== this.generation) return;
                 throw error;
             } finally { if (serial === this.generation) { this.pendingOperationId = null; this.busy = false; node('command-library-cancel').disabled = !this.operation; node('command-library-recover').disabled = !this.lastOperation?.operation_id; } }
         }
-        async adopt(operation) {
+        async adopt(operation,memoryToken=this.captureMemory()) {
             if (!operation?.operation_id || !['prepared', 'awaiting_approval', 'blocked', 'cancelled'].includes(operation.state)) throw new Error('El backend no confirmó un comando preparado.');
             ++this.observationRevision; this.lastOperation = operation;
             this.operation = ['prepared', 'awaiting_approval'].includes(operation.state) ? operation : null;
@@ -769,24 +817,25 @@
             if (operation.state === 'blocked') { this.status('Comando bloqueado: ' + errorText(operation.error)); return 'Comando bloqueado: ' + errorText(operation.error); }
             if (operation.state === 'cancelled') { this.status('Comando cancelado antes de ejecutar.'); return 'Comando cancelado antes de ejecutar.'; }
             if (operation.state === 'awaiting_approval') { if(Axx.chatWorkspace) Axx.companion.openChat(); else this.open(); this.status('Esperando tu aprobación. Revisa los pasos antes de ejecutar.'); return 'Comando preparado. Revisa la tarjeta de acción y pulsa «Aprobar y ejecutar».'; }
-            return await this.execute(false);
+            return await this.execute(false,memoryToken);
         }
         async approve() {
             if (!this.operation || this.operation.state !== 'awaiting_approval' || this.busy) return;
             if(this.isCompensation(this.operation)&&!this.compensationApprovalMatches(this.operation))throw Error('La vista del archivo cambió o pertenece a otro chat. Vuelve a consultar su revisión.');
             if (this.operation.kind === 'learned_plan') return this.executePlan();
             const origin = this.operation.conversation_id || Axx.chatWorkspace?.active?.id;
+            const operationId = this.operation.operation_id;
             const message = await this.execute(true);
-            if (message) this.notice(message, origin);
+            if (message) this.notice(message, origin, operationId);
         }
-        async execute(approved) {
+        async execute(approved,memoryToken=this.captureMemory()) {
             const operation = this.operation;
             if (!operation || this.busy) throw new Error('No hay un comando preparado para ejecutar.');
             if(this.isCompensation(operation)&&(operation.state!=='awaiting_approval'||approved!==true||!this.compensationApprovalMatches(operation)))throw Error('La compensación requiere una vista vigente y aprobación explícita.');
             ++this.observationRevision;
             const serial = this.generation; this.busy = true; this.renderOperation(operation); this.status('Ejecutando y comprobando el resultado.');
             try {
-                const result = await this.request('POST', '/axx-api/commands/execute', { operation_id: operation.operation_id, ...(approved ? { approved: true } : {}) });
+                const result = await this.request('POST', '/axx-api/commands/execute', { operation_id: operation.operation_id, ...(approved ? { approved: true } : {}) },memoryToken);
                 if (serial !== this.generation) return;
                 if (result.operation_id !== operation.operation_id) throw new Error('El resultado no corresponde al comando solicitado.');
                 this.lastOperation = result; this.operation = null; this.busy = false; this.renderOperation(result);
@@ -873,7 +922,7 @@
         }
         async listLearned() {
             if (Axx.skillLibrary) return Axx.skillLibrary.refresh();
-            const result = await this.request('GET', '/axx-api/learning/actions');
+            const memory=this.captureMemory(),result = await this.request('GET', '/axx-api/learning/actions',undefined,memory);this.checkMemory(memory,true);
             const list = node('command-library-learned-list'); list.replaceChildren();
             for (const action of result.actions || []) {
                 const button = document.createElement('button'); button.type = 'button'; button.textContent = action.title;
@@ -885,6 +934,7 @@
             Axx.resident?.schedule();
         }
         async planAction(text, options = {}) {
+            const memory=options.memoryToken===undefined?this.captureMemory():options.memoryToken;this.checkMemory(memory);
             if (this.busy || this.operation) { Axx.companion.localNotice('Hay una acción pendiente. Revisa el resultado o cancélala antes de preparar otra.'); return; }
             const serial = ++this.generation, id = Axx.newId();
             const origin = Axx.chatWorkspace?.active?.id;
@@ -896,15 +946,15 @@
             try {
                 const plan = options.steps ? await this.request('POST','/axx-api/learning/prepare',{
                     text,steps:options.steps,operation_id:id,conversation_id:origin,project_id:Axx.skillLibrary?.project() || ''
-                }) : await this.request('POST', '/axx-api/learning/propose', { text, operation_id:id, conversation_id:origin, context:{...this.actionContext, ...options.context},
+                },memory) : await this.request('POST', '/axx-api/learning/propose', { text, operation_id:id, conversation_id:origin, context:{...this.actionContext, ...options.context},
                     inputs:options.inputs, project_id:Axx.skillLibrary?.project() || '', selection_mode:prefs.selection_mode || 'manual',
-                    model:prefs.model || '', provider_name:prefs.provider === 'chatgpt' ? '@codex' : prefs.provider === 'bridge' ? prefs.apiConnection || '' : '' });
+                    model:prefs.model || '', provider_name:prefs.provider === 'chatgpt' ? '@codex' : prefs.provider === 'bridge' ? prefs.apiConnection || '' : '' },memory);
                 if (serial !== this.generation) return;
                 this.lastOperation = plan; this.operation = plan.state === 'awaiting_approval' ? plan : null;
                 this.learningQuestion = plan.state === 'needs_input' ? {request:text,question:plan.message,operation_id:plan.operation_id,conversation_id:origin} : null;
                 this.busy = false; this.renderOperation(plan); this.status(plan.message || plan.state);
                 if (this.operation) { if(Axx.chatWorkspace) Axx.companion.openChat(); else this.open(); }
-                this.notice(plan.message || 'No se pudo preparar la acción.', origin);
+                this.notice(plan.message || 'No se pudo preparar la acción.', origin, plan.operation_id);
                 Axx.companion.action(this.operation ? 'approval' : 'idle');
                 if (plan.state === 'waiting_capability' && plan.capability_build?.id) await Axx.capabilityWorkshop?.openTask(plan);
                 else if (plan.capability_missing === true && this.isActionRequest(text)) await Axx.capabilityWorkshop?.propose(text);
@@ -916,7 +966,7 @@
                 if (serial === this.generation) { this.busy = false; node('command-library-cancel').disabled = !this.operation; }
             }
         }
-        async executePlan() {
+        async executePlan(memoryToken=this.captureMemory()) {
             const operation = this.operation, serial = this.generation;
             if (!operation || this.busy) return;
             const shown=this.reviewedPlanApproval,approvedHash=shown?.operation_id===operation.operation_id?shown.plan_hash:undefined;
@@ -925,14 +975,14 @@
             this.busy = true; operation.state = 'running'; ++this.observationRevision;
             this.renderOperation(operation); this.status('Ejecutando los pasos y comprobando sus resultados…');
             const progress = setInterval(() => {
-                void this.request('GET', '/axx-api/learning/plan?id=' + encodeURIComponent(operation.operation_id)).then(current => {
+                void this.request('GET', '/axx-api/learning/plan?id=' + encodeURIComponent(operation.operation_id),undefined,memoryToken).then(current => {
                     if (serial !== this.generation || !this.busy || this.operation?.operation_id !== operation.operation_id) return;
                     this.renderOperation(current);
                     this.status(`Ejecutando y comprobando: ${current.mission?.verified_steps?.length??(current.step_records || []).filter(step => step.state === 'succeeded').length}/${current.steps?.length || 0} pasos confirmados.`);
                 }).catch(() => {});
             }, 1000);
             try {
-                const plan = await this.request('POST', '/axx-api/learning/execute', { operation_id:operation.operation_id, approved:true,...(approvedHash?{plan_hash:approvedHash}:{}) });
+                const plan = await this.request('POST', '/axx-api/learning/execute', { operation_id:operation.operation_id, approved:true,...(approvedHash?{plan_hash:approvedHash}:{}) },memoryToken);
                 if (serial !== this.generation) return;
                 this.lastOperation = plan; this.operation = null; this.busy = false;
                 this.renderOperation(plan); this.status(plan.message || plan.state);
@@ -942,7 +992,7 @@
                     if (result.evidence?.verification === 'os_handoff') message += '\nWindows aceptó abrir: ' + (result.output?.label || result.evidence.target);
                     if (result.evidence?.sha256 && plan.mission?.completed!==false) message += '\nArchivo verificado: ' + result.evidence.path;
                 }
-                this.notice(message, origin); Axx.companion.action(verified ? 'success' : 'error');
+                this.notice(message, origin, plan.operation_id); Axx.companion.action(verified ? 'success' : 'error');
                 if (verified) void this.listLearned().catch(() => {});
             } catch (error) {
                 if (serial !== this.generation) return;
@@ -950,11 +1000,12 @@
             } finally { clearInterval(progress); if (serial === this.generation) { this.busy = false; this.renderOperation(this.lastOperation); } }
         }
         async pausePlan() {
+            const memory=this.captureMemory();
             const task = this.operation || this.lastOperation;
             const origin=Axx.chatWorkspace?.active?.id,serial=this.generation;
             if (!origin || task?.kind !== 'learned_plan' || task.conversation_id!==origin) return;
             try {
-                const result = await this.request('POST','/axx-api/learning/pause',{operation_id:task.operation_id});
+                const result = await this.request('POST','/axx-api/learning/pause',{operation_id:task.operation_id},memory);
                 if(result.operation_id!==task.operation_id||result.conversation_id!==origin)throw Error('La pausa no corresponde a la tarea seleccionada.');
                 if(serial!==this.generation||origin!==Axx.chatWorkspace?.active?.id||(this.operation||this.lastOperation)?.operation_id!==task.operation_id)return;
                 this.lastOperation = result;
@@ -964,12 +1015,13 @@
             } catch (error) { if(serial===this.generation&&origin===Axx.chatWorkspace?.active?.id)this.report(error); }
         }
         async resumePlan() {
+            const memory=this.captureMemory();
             const task = this.operation || this.lastOperation;
             const origin=Axx.chatWorkspace?.active?.id,serial=this.generation;
             if (this.busy || !origin || task?.kind !== 'learned_plan' || task.conversation_id!==origin) return;
             this.busy = true;
             try {
-                const result = await this.request('POST','/axx-api/learning/resume',{operation_id:task.operation_id,approved:false,...(task.plan_hash?{plan_hash:task.plan_hash}:{})});
+                const result = await this.request('POST','/axx-api/learning/resume',{operation_id:task.operation_id,approved:false,...(task.plan_hash?{plan_hash:task.plan_hash}:{})},memory);
                 if(result.operation_id!==task.operation_id||result.conversation_id!==origin)throw Error('La revisión no corresponde a la tarea seleccionada.');
                 if(serial!==this.generation||origin!==Axx.chatWorkspace?.active?.id)return;
                 this.lastOperation = result; this.operation = result.state === 'awaiting_approval' ? result : null;
@@ -978,6 +1030,7 @@
             finally { if(serial===this.generation)this.busy = false; }
         }
         async recover() {
+            const memory=this.captureMemory();
             if (this.busy || this.cancellingGeneration === this.generation) return;
             const operation = this.operation || this.lastOperation;
             if (!operation?.operation_id) return;
@@ -985,10 +1038,10 @@
             const revision = ++this.observationRevision;
             let result;
             try { result = operation.state === 'unknown' && (this.isCompensation(operation)||operation.evidence?.reconciliation_required)
-                ? { operation: await this.request('POST', '/axx-api/commands/reconcile', {operation_id:operation.operation_id}) }
+                ? { operation: await this.request('POST', '/axx-api/commands/reconcile', {operation_id:operation.operation_id},memory) }
                 : operation.kind === 'learned_plan'
-                ? { operation: await this.request('GET', '/axx-api/learning/plan?id=' + encodeURIComponent(operation.operation_id)) }
-                : await this.request('GET', '/axx-api/commands/operations?operation_id=' + encodeURIComponent(operation.operation_id)); }
+                ? { operation: await this.request('GET', '/axx-api/learning/plan?id=' + encodeURIComponent(operation.operation_id),undefined,memory) }
+                : await this.request('GET', '/axx-api/commands/operations?operation_id=' + encodeURIComponent(operation.operation_id),undefined,memory); }
             catch (error) { if (serial !== this.generation || revision !== this.observationRevision) return; throw error; }
             if (serial !== this.generation || revision !== this.observationRevision || this.busy || this.isCompensation(operation)&&origin!==(Axx.chatWorkspace?.active?.id||null)) return;
             if (!result.operation || result.operation.operation_id !== operation.operation_id) throw new Error('El backend no confirmó el estado de este comando.');
@@ -998,16 +1051,17 @@
             this.status(result.operation.state==='succeeded'&&(result.operation.mission?.completed===false||!goalCriteriaVerified(result.operation))?'Estado observado: objetivo pendiente. Revisa sus criterios y evidencias actuales.':'Estado observado: ' + result.operation.state + (result.operation.postconditions_passed === true ? ' · condiciones verificadas.' : '.'));
         }
         async reviewUnknown(operation) {
+            const memory=this.captureMemory(),serial=this.generation;
             if (this.busy || operation?.state !== 'unknown') return;
             if(this.isCompensation(operation)){if((this.operation||this.lastOperation)?.operation_id!==operation.operation_id)return;return this.recover();}
             this.busy = true;
             try {
-                const result = await this.request('POST','/axx-api/commands/review',{operation_id:operation.operation_id,reviewed:true});
+                const result = await this.request('POST','/axx-api/commands/review',{operation_id:operation.operation_id,reviewed:true},memory);if(serial!==this.generation)return;
                 this.operation = null; this.lastOperation = result;
                 this.renderOperation(result);
                 this.status('Revisión manual registrada. El efecto sigue sin verificar; cualquier nueva acción requiere su propia preparación.');
-            } catch (error) { this.report(error); }
-            finally { this.busy = false; this.renderOperation(this.lastOperation); }
+            } catch (error) { if(serial===this.generation)this.report(error); }
+            finally { if(serial===this.generation){this.busy = false; this.renderOperation(this.lastOperation);} }
         }
         async cancel(send = true) {
             this.learningQuestion = null;

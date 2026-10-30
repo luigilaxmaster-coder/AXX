@@ -30,7 +30,7 @@ const root = path.resolve(__dirname, '..');
       window.__calls = []; window.__events = {}; window.__runs = {}; window.__runMode = 'stream';
       window.__catalogModels = ['controlled-model', 'offered-alternative'];
       const chats={};let activeChat='controlled-chat';
-      const makeChat=id=>({id,title:'Controlled chat',messages:[],draft:'',context:[],links:[],mode:'ask',connect_id:'connect-'+id,shared_id:'phone-'+id});chats[activeChat]=makeChat(activeChat);
+      const makeChat=id=>({id,title:'Controlled chat',messages:[],draft:'',context:[],links:[],mode:'ask',connect_id:'connect-'+id,shared_id:'phone-'+id,memory_scope:{task_id:id,generation:0}});chats[activeChat]=makeChat(activeChat);
       const desktop = {workWidth:1920,workHeight:1040,spaceLeft:1660,spaceRight:260,spaceAbove:800,spaceBelow:240};
       window.__TAURI__ = {core:{invoke:async(name,args) => {
         window.__calls.push({name,args});

@@ -308,7 +308,7 @@ class MobileGateway:
             return self.backend_call('POST', '/axx-api/commands/cancel', {'operation_id': operation_id})
         return self.backend_call('POST', '/axx-api/commands/execute', {'operation_id': operation_id, 'approved': True})
 
-    def _execute_pc_command(self, device_id, user_text, conversation_id, task_id):
+    def _execute_pc_command(self, device_id, user_text, conversation_id, task_id, *, memory=None):
         """Only exact registered commands; the persisted chat mode stays authoritative."""
         if user_text.split(maxsplit=1)[0] == '/cli':
             return 'Selecciona una ventana observada en Comandos de Axx. /cli no ejecuta controles por nombre desde el teléfono.'
@@ -322,12 +322,13 @@ class MobileGateway:
         if not any(d['device_id'] == device_id and not d['revoked'] and 'tools.control' in d['scopes']
                    for d in self.store.devices()):
             return 'Activa el permiso Work de este teléfono en Axx para preparar comandos de la PC.'
-        thread = self.backend_call('GET', '/axx-api/chat/conversations?shared_id='+urllib.parse.quote(conversation_id), None)
+        thread = {'id':memory['memory_scope']['task_id']} if memory else self.backend_call('GET', '/axx-api/chat/conversations?shared_id='+urllib.parse.quote(conversation_id), None)
         if not thread.get('id'): raise ValueError('No se pudo resolver el chat de origen en la PC')
         operation_id = str(uuid.uuid5(uuid.NAMESPACE_URL, 'axx-mobile:'+task_id))
         prepared = self.backend_call('POST', '/axx-api/commands/prepare', {
             'command_id': resolved['command_id'], 'inputs': resolved.get('inputs', {}),
-            'source': 'text', 'conversation_id': thread['id'], 'operation_id': operation_id})
+            'source': 'text', 'conversation_id': thread['id'], 'operation_id': operation_id,
+            **{key:memory[key] for key in ('memory_scope','memory_context_id') if memory and key in memory}})
         if prepared.get('operation_id') != operation_id:
             raise ValueError('La preparación no corresponde a la solicitud móvil')
         self.store.record_work(operation_id, device_id, prepared['command_id'], prepared['inputs'])
@@ -346,6 +347,18 @@ class MobileGateway:
             return f'Ejecutado y verificado en la PC: {prepared["command_id"]}.\n{output}'
         return f'No se confirmó el efecto en la PC. Estado: {result.get("state", "desconocido")}. Consulta la operación {operation_id} antes de repetir.'
 
+    def command(self, device_id, command_id):
+        command = self.store.command(device_id,command_id)
+        if not command or not isinstance(command.get('result'),dict) or not command['result'].get('choices'):
+            return command
+        with self.shared.connect() as db:
+            db.execute('BEGIN')
+            message = db.execute('SELECT * FROM shared_messages WHERE id=?',(command['task_id']+':assistant',)).fetchone()
+            if (message and self.shared._visible(db,message)) or (not message and not self.shared._has_forget(db)):
+                return command
+        return dict(command,memory_forgotten=bool(message),requires_review=not bool(message),
+                    result={'error':{'code':'MEMORY_SCOPE_CHANGED','message':'La respuesta anterior quedó fuera del contexto reutilizable; su operación se conserva.'}})
+
     def admit_chat(self, device_id, body):
         if not self.share_history:
             raise ValueError('Activa Guardar historial en el chat de la PC para compartirlo. Puedes usar Work con su permiso.')
@@ -356,12 +369,18 @@ class MobileGateway:
         conversation_id = body.get('conversation_id')
         if not isinstance(conversation_id, str) or not 1 <= len(conversation_id) <= 160:
             raise ValueError('Select a PC conversation')
+        body = dict(body)
         command_id = body.get('command_id')
         payload = {k:v for k,v in body.items() if k != 'command_id'}
         admission = self.store.admit_command(device_id, command_id, payload)
         if admission['duplicate']:
-            return self.store.command(device_id, command_id)
+            return self.command(device_id, command_id)
         task_id = admission['task_id']
+        try:
+            memory = self.shared.capture_scope(conversation_id)
+        except ValueError:
+            self.store.finish_command(task_id,'failed',{'error':{'code':'MEMORY_SCOPE_CHANGED','message':'El contexto del chat cambió; vuelve a consultar su estado.'}})
+            return self.command(device_id,command_id)
 
         user_text = body['text'].strip()
         preferences = dict(self.preferences or {})
@@ -373,17 +392,17 @@ class MobileGateway:
                 'message':'Select a configured API connection in Axx. Mobile Axx Connect queries still require tool isolation verification.'}})
         if not self._chat_slots.acquire(blocking=False):
             self.store.finish_command(task_id, 'failed', {'error':{'code':'BUSY','message':'Axx is busy. Your text is still saved on the phone.'}})
-            return self.store.command(device_id, command_id)
+            return self.command(device_id, command_id)
 
         def run():
             try:
                 self.store.finish_command(task_id, 'running')
-                snapshot = self.shared.merge_messages([{'id':task_id+':user', 'role':'user', 'text':body['text'], 'at':time.time()*1000}], 'mobile', conversation_id)
+                snapshot = self.shared.merge_messages([{'id':task_id+':user', 'role':'user', 'text':body['text'], 'at':time.time()*1000}], 'mobile', conversation_id, **memory)
 
                 # 1. If this is an explicit or recognizable command for the PC, execute/prepare it directly on the PC
-                pc_ans = self._execute_pc_command(device_id, user_text, conversation_id, task_id)
+                pc_ans = self._execute_pc_command(device_id, user_text, conversation_id, task_id, memory=memory)
                 if pc_ans is not None:
-                    self.shared.merge_messages([{'id':task_id+':assistant', 'role':'assistant', 'text':pc_ans, 'at':time.time()*1000}], 'pc', conversation_id)
+                    self.shared.merge_messages([{'id':task_id+':assistant', 'role':'assistant', 'text':pc_ans, 'at':time.time()*1000}], 'pc', conversation_id, **memory)
                     self.store.finish_command(task_id, 'completed', {'choices': [{'message': {'role': 'assistant', 'content': pc_ans}}]})
                     return
 
@@ -402,7 +421,8 @@ class MobileGateway:
                 for m in snapshot['messages'][-100:]:
                     messages.append({'role': m['role'], 'content': m['text']})
 
-                request = {'request_id':task_id, 'conversation_id':conversation_id, 'messages': messages}
+                request = {'request_id':task_id, 'conversation_id':memory['memory_scope']['task_id'] if memory else conversation_id, 'messages': messages,
+                           **{key:memory[key] for key in ('memory_scope','memory_context_id') if memory and key in memory}}
                 for key in ('model', 'provider_name'):
                     request[key] = preferences.get(key, '')
                 request['selection_mode'] = preferences.get('selection_mode', 'manual')
@@ -413,7 +433,7 @@ class MobileGateway:
                 answer = result.get('choices', [{}])[0].get('message', {}).get('content')
                 if not isinstance(answer, str):
                     raise ValueError('The engine did not return a conversation response')
-                self.shared.merge_messages([{'id':task_id+':assistant', 'role':'assistant', 'text':answer, 'at':time.time()*1000}], 'pc', conversation_id)
+                self.shared.merge_messages([{'id':task_id+':assistant', 'role':'assistant', 'text':answer, 'at':time.time()*1000}], 'pc', conversation_id, **memory)
                 self.store.finish_command(task_id, 'completed', result)
             except Exception:
                 LOG.exception('Mobile conversation outcome unavailable')
@@ -421,7 +441,7 @@ class MobileGateway:
             finally:
                 self._chat_slots.release()
         threading.Thread(target=run, name='axx-mobile-chat', daemon=True).start()
-        return self.store.command(device_id, command_id)
+        return self.command(device_id, command_id)
 
     @classmethod
     def for_backend(cls, server, state_path, data_dir):
@@ -567,7 +587,7 @@ class MobileGateway:
                             query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
                             if set(query) != {'command_id'} or len(query['command_id']) != 1:
                                 raise ValueError('command_id required')
-                            command = gateway.store.command(self.device_id, query['command_id'][0])
+                            command = gateway.command(self.device_id, query['command_id'][0])
                             self._send(200 if command else 404, {'ok':bool(command), 'data':command})
                             return
                         if path == '/v1/avatar/operation':

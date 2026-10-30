@@ -14,7 +14,7 @@ const {chromium} = createRequire(path.join(process.env.USERPROFILE, '.cache/code
         const page = await browser.newPage({viewport:{width:1300,height:1000}}), errors = [];
         page.on('pageerror', error => errors.push(error.message));
         await page.addInitScript(() => {
-            window.testConversation = {id:'internal-test',title:'Internal test',messages:[],draft:'',mode:'ask',context:[],links:[]};
+            window.testConversation = {id:'internal-test',title:'Internal test',messages:[],draft:'',mode:'ask',context:[],links:[],connect_id:'internal-connect',memory_scope:{task_id:'internal-test',generation:0}};
             window.calls = []; window.rec = {state:'ready',id:''}; window.mediaPlaying = true;
             window.__TAURI__ = {core:{invoke:async (name,args) => {
                 calls.push({name,args});

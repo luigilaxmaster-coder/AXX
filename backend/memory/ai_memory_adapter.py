@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import re
 import secrets
+import sqlite3
 import socket
 import subprocess
 import sys
@@ -17,6 +18,9 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from contextlib import closing
+
+from . import task_memory
 
 LOG = logging.getLogger('axx.ai_memory')
 MAX_BYTES = 2 * 1024 * 1024
@@ -33,6 +37,7 @@ class AiMemoryAdapter:
         self.is_available = False
         self.error = 'Owned ai-memory service was not started'
         self.last_sync = None
+        self.memory_db_path = None
         self._counter = 0
         self._rpc_lock = threading.RLock()
         self._lifecycle_lock = threading.RLock()
@@ -154,15 +159,43 @@ class AiMemoryAdapter:
             raise ValueError('Invalid memory recipe identifier')
         return 'recipes/' + recipe_id + '.md'
 
-    def write_recipe_page(self, recipe_id: str, body: str) -> bool:
+    def bind_task_memory(self, db_path):
+        self.memory_db_path = Path(db_path)
+
+    def _admitted(self, recipe_id=None, memory_scope=None, memory_context_id=None, *, _expected=None):
+        if self.memory_db_path is None: return True
+        with closing(sqlite3.connect(str(self.memory_db_path), timeout=10)) as db:
+            if memory_scope is not None: task_memory.assert_context(db, memory_scope, memory_context_id)
+            if recipe_id is None:
+                return memory_scope is not None or not db.execute('SELECT 1 FROM memory_task_scopes WHERE generation>0 OR forgetting=1 LIMIT 1').fetchone()
+            row = db.execute('''SELECT s.memory_scope_json,s.memory_context_id,s.memory_dependencies_json,
+                r.version,r.status,COALESCE(s.requires_review,0) FROM recipes r LEFT JOIN recipe_memory_scopes s
+                ON s.recipe_id=r.id AND s.version=r.version WHERE r.id=?''', (recipe_id,)).fetchone()
+            if not row or row[5] or (_expected is not None and row != _expected): return False
+            # External page paths have no version proof. Never attach an old page
+            # to a fresh recipe registered under an identity already forgotten.
+            if db.execute('SELECT 1 FROM recipe_memory_scopes WHERE recipe_id=? AND requires_review=1 LIMIT 1',
+                          (recipe_id,)).fetchone(): return False
+            task_memory.assert_dependencies(db, json.loads(row[2]) if row[2] is not None else [])
+            if row[0]:
+                origin = json.loads(row[0])
+                task_memory.assert_current(db, origin)
+                if memory_scope is None: task_memory.assert_context(db, origin, row[1])
+                return row
+            return row if not db.execute('SELECT 1 FROM memory_task_scopes WHERE generation>0 OR forgetting=1 LIMIT 1').fetchone() else False
+
+    def write_recipe_page(self, recipe_id: str, body: str, *, memory_scope=None, memory_context_id=None) -> bool:
         try:
+            admitted = self._admitted(recipe_id, memory_scope, memory_context_id)
+            if not admitted: return False
             path = self._recipe_path(recipe_id)
             result = self._tool('memory_write_page', {'path': path, 'body': body})
             if result.get('path') != path or not isinstance(result.get('page_id'), str):
                 raise ValueError('Memory write returned no matching page confirmation')
-            readback = self.read_recipe_page(recipe_id)
+            readback = self.read_recipe_page(recipe_id, memory_scope=memory_scope, memory_context_id=memory_context_id)
             if not readback or readback['body'].rstrip() != body.rstrip():
                 raise ValueError('Memory write failed exact readback verification')
+            if not self._admitted(recipe_id, memory_scope, memory_context_id, _expected=admitted): return False
             self.last_sync = {'recipe_id': recipe_id, 'page_id': result['page_id'], 'verified_readback': True}
             self.error = None
             return True
@@ -171,25 +204,50 @@ class AiMemoryAdapter:
             LOG.warning('Procedure remains in SQLite; ai-memory page was not confirmed: %s', self.error)
             return False
 
-    def query_recipes(self, query: str) -> list[dict]:
+    def query_recipes(self, query: str, *, memory_scope=None, memory_context_id=None) -> list[dict]:
         try:
+            if not self._admitted(memory_scope=memory_scope, memory_context_id=memory_context_id): return []
             if not isinstance(query, str) or not 1 <= len(query) <= 4000:
                 raise ValueError('Invalid memory query')
             payload = self._tool('memory_query', {'query': query})
             hits = payload.get('hits')
             if not isinstance(hits, list):
                 raise ValueError('Memory query returned no hits list')
-            return [hit for hit in hits[:100] if isinstance(hit, dict)]
+            if not self._admitted(memory_scope=memory_scope, memory_context_id=memory_context_id): return []
+            result = []
+            admitted_hits = []
+            for hit in hits[:100]:
+                if not isinstance(hit, dict): continue
+                if self.memory_db_path is not None:
+                    path = hit.get('path', '')
+                    if not isinstance(path, str) or not re.fullmatch(r'recipes/[A-Za-z0-9_.-]{1,128}\.md', path): continue
+                    try:
+                        admitted = self._admitted(path[8:-3], memory_scope, memory_context_id)
+                        if not admitted: continue
+                    except ValueError: continue
+                    admitted_hits.append((hit, path[8:-3], admitted))
+                result.append(hit)
+            if self.memory_db_path is not None:
+                result = []
+                for hit, recipe_id, admitted in admitted_hits:
+                    try:
+                        if self._admitted(recipe_id, memory_scope, memory_context_id, _expected=admitted): result.append(hit)
+                    except ValueError: continue
+            if not self._admitted(memory_scope=memory_scope, memory_context_id=memory_context_id): return []
+            return result
         except Exception as error:
             self.error = str(error)[:300]
             return []
 
-    def read_recipe_page(self, recipe_id: str) -> dict | None:
+    def read_recipe_page(self, recipe_id: str, *, memory_scope=None, memory_context_id=None) -> dict | None:
         try:
+            admitted = self._admitted(recipe_id, memory_scope, memory_context_id)
+            if not admitted: return None
             path = self._recipe_path(recipe_id)
             payload = self._tool('memory_read_page', {'path': path})
             if payload.get('path') != path or not isinstance(payload.get('body'), str):
                 raise ValueError('Memory read returned an invalid page')
+            if not self._admitted(recipe_id, memory_scope, memory_context_id, _expected=admitted): return None
             return payload
         except Exception as error:
             self.error = str(error)[:300]

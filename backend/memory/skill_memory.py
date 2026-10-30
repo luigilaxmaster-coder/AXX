@@ -1,6 +1,6 @@
 """Versioned skill definitions and project context; execution stays in CommandService."""
 import copy
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
 import hashlib
 import json
 import math
@@ -10,6 +10,7 @@ import time
 import unicodedata
 
 from .procedural_memory import get_action_env_fingerprint
+from . import selection_policy, task_memory
 
 
 PARAMETER = re.compile(r'\{\{([A-Za-z][A-Za-z0-9_]{0,63})\}\}')
@@ -34,6 +35,37 @@ def read_context_state(db, project_id=''):
     view = SkillMemory.__new__(SkillMemory)
     view.db, view.lock = db, nullcontext()
     return view.context(project_id)
+
+
+def lesson_refs(items):
+    return [{'id': item['id'], 'digest': value_hash(_lesson_content(item))} for item in items]
+
+
+def _lesson_content(item):
+    return {'allow_provider': False} | {key: value for key, value in item.items()
+        if key not in ('environment_matches', 'context_matches', 'status')}
+
+
+def assert_lessons_current(db, refs, project_id, task_id):
+    """Validate selected incident references in the caller's SQL transaction, without writes or locks."""
+    project_key(project_id)
+    if task_id is not None: task_memory.state(db, task_id)
+    if not isinstance(refs, list) or len(refs) > 3: raise ValueError('Referencias de incidentes inválidas')
+    view = SkillMemory.__new__(SkillMemory)
+    view.db, view.lock = db, nullcontext()
+    for ref in refs:
+        if (not isinstance(ref, dict) or set(ref) != {'id', 'digest'}
+                or not isinstance(ref['id'], str) or not re.fullmatch(r'lesson\.[a-f0-9]{32}', ref['id'])
+                or not isinstance(ref['digest'], str) or not re.fullmatch(r'[a-f0-9]{64}', ref['digest'])):
+            raise ValueError('Referencia de incidente inválida')
+        row = db.execute('SELECT payload FROM skill_lessons WHERE id=?', (ref['id'],)).fetchone()
+        item = json.loads(row[0]) if row else None
+        if (not item or value_hash(_lesson_content(item)) != ref['digest']
+                or item.get('project_id', '') not in ('', project_id)
+                or item.get('task_id') not in (None, '', task_id)
+                or not view._lesson_current(item, project_id, task_id)):
+            raise ValueError('El incidente seleccionado cambió o dejó de ser vigente')
+    return refs
 
 
 def lesson_search_text(value):
@@ -129,6 +161,8 @@ class SkillMemory:
     def __init__(self, db, lock):
         self.db, self.lock = db, lock
         with lock, db:
+            task_memory.ensure(db)
+            selection_policy.ensure(db)
             db.execute('CREATE TABLE IF NOT EXISTS skill_versions (id TEXT, version INTEGER, payload TEXT NOT NULL, PRIMARY KEY(id,version))')
             db.execute('CREATE TABLE IF NOT EXISTS skill_evidence (id TEXT, version INTEGER, operation_id TEXT, payload TEXT NOT NULL, PRIMARY KEY(id,version,operation_id))')
             db.execute('CREATE TABLE IF NOT EXISTS skill_context (project_id TEXT PRIMARY KEY, payload TEXT NOT NULL)')
@@ -139,6 +173,49 @@ class SkillMemory:
             db.execute('DELETE FROM skill_search')
             for row in db.execute('SELECT payload FROM skill_versions v WHERE version=(SELECT MAX(version) FROM skill_versions WHERE id=v.id)').fetchall():
                 self._index(json.loads(row[0]))
+
+    @contextmanager
+    def _write(self):
+        with self.lock:
+            if self.db.in_transaction:
+                yield
+            else:
+                with self.db:
+                    self.db.execute('BEGIN IMMEDIATE')
+                    yield
+
+    def _origin(self, item, *, lesson=False):
+        scope = item.get('memory_scope')
+        task = item.get('origin_task_id') or (scope.get('task_id') if isinstance(scope, dict) else None)
+        if lesson: task = task or item.get('task_id')
+        provenance = item.get('provenance', {})
+        if not task and isinstance(provenance, dict):
+            task = provenance.get('origin_task_id')
+            scope = scope or provenance.get('memory_scope')
+            task = task or (scope.get('task_id') if isinstance(scope, dict) else None)
+            operation = provenance.get('operation_id') or provenance.get('source_plan_id')
+            if operation and self.db.execute("SELECT 1 FROM sqlite_master WHERE name='learning_plans'").fetchone():
+                row = self.db.execute('SELECT payload FROM learning_plans WHERE id=?', (operation,)).fetchone()
+                plan = json.loads(row[0]) if row else {}
+                task = task or plan.get('conversation_id')
+                scope = scope or plan.get('memory_scope')
+        if not task and isinstance(scope, dict): task = scope.get('task_id')
+        return task, scope
+
+    def _assert_origin(self, item, *, lesson=False):
+        task, scope = self._origin(item, lesson=lesson)
+        task_memory.assert_dependencies(self.db, item.get('memory_dependencies', []))
+        return task, task_memory.assert_current(self.db, scope, task_id=task)
+
+    def _origin_current(self, item, *, lesson=False):
+        try: task, _ = self._assert_origin(item, lesson=lesson)
+        except ValueError: return False
+        if not task and self._has_forget(): return False
+        return not item.get('requires_review') and item.get('auto_select', True) is not False
+
+    def _has_forget(self):
+        exists = self.db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='memory_task_scopes'").fetchone()
+        return bool(exists and self.db.execute('SELECT 1 FROM memory_task_scopes WHERE generation>0 OR forgetting=1 LIMIT 1').fetchone())
 
     def _migrate(self):
         for row in self.db.execute('SELECT id,trigger,title,steps,environment,verified_at FROM learned_actions').fetchall():
@@ -161,8 +238,13 @@ class SkillMemory:
                              'created_at': time.time()})
 
     def insert(self, skill):
+        skill = copy.deepcopy(skill)
         self._dependencies(skill.get('context_dependencies', []))
-        with self.lock, self.db:
+        with self._write():
+            task, scope = self._assert_origin(skill)
+            task_memory.assert_context(self.db, scope, skill.get('memory_context_id'), task_id=task)
+            if task:
+                skill.update(origin_task_id=task, memory_scope=scope or task_memory.snapshot(self.db, task))
             self.db.execute('INSERT INTO skill_versions VALUES (?,?,?)', (skill['id'], skill['version'], json.dumps(skill, ensure_ascii=False, allow_nan=False)))
             latest = self.db.execute('SELECT payload FROM skill_versions WHERE id=? ORDER BY version DESC LIMIT 1', (skill['id'],)).fetchone()
             self._index(json.loads(latest[0]))
@@ -183,7 +265,13 @@ class SkillMemory:
         with self.lock:
             rows = self.db.execute("SELECT id FROM skill_search WHERE skill_search MATCH ? AND project_id IN ('',?) ORDER BY bm25(skill_search) LIMIT ?",
                                    (query, project_id, limit)).fetchall()
-            return [self.get(row[0], project_id=project_id, task_id=task_id) for row in rows]
+            result = []
+            for row in rows:
+                try: skill = self.get(row[0], project_id=project_id, task_id=task_id)
+                except ValueError: continue
+                if self._origin_current(skill) and selection_policy.allowed(skill, skill['selection_policy'], project_id):
+                    result.append(skill)
+            return result
 
     def get(self, key, version=None, *, project_id=None, task_id=None):
         with self.lock:
@@ -191,7 +279,11 @@ class SkillMemory:
                                   (key, version) if version is not None else (key,)).fetchone()
             if not row: raise ValueError('Acción aprendida desconocida')
             skill = json.loads(row[0])
+            self._assert_origin(skill)
+            skill['selection_policy'] = selection_policy.read(self.db, key)
+            if 'project_id' in skill['selection_policy']: skill['project_id'] = skill['selection_policy']['project_id']
             evidence = [json.loads(row[0]) for row in self.db.execute('SELECT payload FROM skill_evidence WHERE id=? AND version=? ORDER BY rowid', (key, skill['version']))]
+            evidence = [item for item in evidence if self._origin_current(item, lesson=True)]
         skill['effect_verified'] = any(item.get('effect_verified') is True for item in evidence)
         skill['goal_confirmed'] = next((item['goal_confirmed'] for item in reversed(evidence) if 'goal_confirmed' in item), False)
         skill['status'] = 'verified' if skill['effect_verified'] else 'candidate'
@@ -224,21 +316,33 @@ class SkillMemory:
         if quarantined or invalid or not environment_matches:
             skill['effect_verified'] = False
             skill['status'] = 'quarantined' if quarantined else 'stale' if invalid or skill.get('executable') else 'candidate'
+        if not self._origin_current(skill):
+            skill.update(status='requires_review', requires_review=True, effect_verified=False, environment_matches=False, auto_select=False)
+        if skill['selection_policy']['retired']: skill['auto_select'] = False
         return skill
 
     def list(self):
         with self.lock:
             ids = [row[0] for row in self.db.execute('SELECT id FROM skill_versions GROUP BY id ORDER BY MAX(rowid) DESC')]
-            return [self.get(key) for key in ids]
+            result = []
+            for key in ids:
+                try: result.append(self.get(key))
+                except ValueError: continue
+            return result
 
     def record(self, key, version, operation_id, evidence):
         if not isinstance(evidence, dict): raise ValueError('Evidencia inválida')
         evidence = copy.deepcopy(evidence)
         json.dumps(evidence, allow_nan=False)
-        with self.lock, self.db:
+        with self._write():
             row = self.db.execute('SELECT payload FROM skill_versions WHERE id=? AND version=?', (key, version)).fetchone()
             if not row: raise ValueError('Acción aprendida desconocida')
             skill = json.loads(row[0])
+            self._assert_origin(skill)
+            source = evidence | {'provenance': {'operation_id': operation_id}}
+            task, scope = self._assert_origin(source, lesson=True)
+            task_memory.assert_context(self.db, scope, evidence.get('memory_context_id'), task_id=task)
+            if task: evidence.update(origin_task_id=task, memory_scope=scope or task_memory.snapshot(self.db, task))
             # Only journal-backed receipts may quarantine or revalidate a version.
             for field in ('observed_outcome', 'receipt_created_at', 'validation_environment', 'validation_context'):
                 evidence.pop(field, None)
@@ -340,10 +444,19 @@ class SkillMemory:
                 'observed_at': None, 'expires_at': None, 'status': 'active', 'depends_on': [], 'value_hash': value_hash(context[name])})
             if (meta.get('expires_at') is not None and now >= meta['expires_at']) or meta.get('value_hash') != value_hash(context[name]):
                 meta['status'] = 'stale'
+            try: self._assert_origin(meta, lesson=True)
+            except ValueError: meta['status'] = 'stale'
+            if not self._origin(meta, lesson=True)[0] and self._has_forget() and not self._empty_context(name, context.get(name), meta):
+                meta.update(status='stale', requires_review=True, auto_select=False)
         self._stale_derivatives(context)
         for meta in metadata.values():
             meta['freshness'] = 'stale' if meta['status'] != 'active' else 'fresh' if meta.get('observed_at') is not None else 'unknown'
         return context
+
+    @staticmethod
+    def _empty_context(name, value, meta):
+        return (name in ('aliases', 'defaults', 'last_inputs', 'last_skill_id') and value in ({}, '')
+            and meta.get('origin') == 'legacy_update' and meta.get('revision') == 0 and meta.get('observed_at') is None)
 
     @staticmethod
     def _stale_derivatives(context):
@@ -361,7 +474,7 @@ class SkillMemory:
                     if source.get('status') != 'active' or source.get('revision') != ref['revision']:
                         meta['status'] = 'stale'; changed = True; break
 
-    def update_context(self, project_id, body):
+    def update_context(self, project_id, body, *, memory_scope=None, memory_context_id=None, _memory_dependencies=()):
         project_key(project_id)
         body = bounded_object(body, 48000)
         supplied_meta = body.pop('context_meta', {})
@@ -383,7 +496,9 @@ class SkillMemory:
                 if self.get(key)['project_id'] not in ('', project_id): raise ValueError('Alias de otro proyecto')
         if body.get('last_skill_id') and self.get(body['last_skill_id'])['project_id'] not in ('', project_id):
             raise ValueError('Acción de otro proyecto')
-        with self.lock, self.db:
+        with self._write():
+            validated_scope = task_memory.assert_context(self.db, memory_scope, memory_context_id)
+            dependencies = task_memory.assert_dependencies(self.db, list(_memory_dependencies))
             current = self.context(project_id)
             updated = copy.deepcopy(current) | body
             updated['context_revision'] += 1
@@ -396,6 +511,12 @@ class SkillMemory:
                 if meta['kind'] not in ('observed', 'inferred', 'confirmed_user'): raise ValueError('Tipo de procedencia inválido')
                 for key in ('source_id', 'session_id', 'task_id', 'origin'):
                     if key in meta and (not isinstance(meta[key], str) or not 1 <= len(meta[key]) <= 200): raise ValueError('Origen de contexto inválido')
+                task = validated_scope['task_id'] if validated_scope else meta.get('task_id')
+                task_memory.assert_current(self.db, validated_scope, task_id=task)
+                if task:
+                    meta.update(origin_task_id=task, memory_scope=validated_scope or task_memory.snapshot(self.db, task))
+                    if memory_context_id is not None: meta['memory_context_id'] = memory_context_id
+                if dependencies: meta['memory_dependencies'] = dependencies
                 for key in ('observed_at', 'expires_at'):
                     if meta[key] is not None and (type(meta[key]) not in (int, float) or not math.isfinite(meta[key]) or meta[key] < 0):
                         raise ValueError('Vigencia de contexto inválida')
@@ -415,15 +536,17 @@ class SkillMemory:
 
     def invalidate_context(self, project_id, body):
         project_key(project_id)
-        if (not isinstance(body, dict) or set(body) - {'source_id', 'session_id', 'forget'}
-                or len(set(body) & {'source_id', 'session_id'}) != 1 or type(body.get('forget', False)) is not bool):
-            raise ValueError('Selecciona una fuente o sesión de contexto')
-        selector = 'source_id' if 'source_id' in body else 'session_id'
+        if (not isinstance(body, dict) or set(body) - {'source_id', 'session_id', 'task_id', 'forget'}
+                or len(set(body) & {'source_id', 'session_id', 'task_id'}) != 1 or type(body.get('forget', False)) is not bool):
+            raise ValueError('Selecciona una fuente, sesión o tarea de contexto')
+        selector = next(key for key in ('source_id', 'session_id', 'task_id') if key in body)
         if not isinstance(body[selector], str) or not 1 <= len(body[selector]) <= 200: raise ValueError('Fuente o sesión inválida')
-        with self.lock, self.db:
+        if selector == 'task_id': task_memory.state(self.db, body[selector])
+        with self._write():
             context = self.context(project_id)
             previous = copy.deepcopy(context['context_meta'])
-            affected = {name for name, meta in previous.items() if meta.get(selector) == body[selector]}
+            affected = {name for name, meta in previous.items() if
+                (self._origin(meta, lesson=True)[0] if selector == 'task_id' else meta.get(selector)) == body[selector]}
             while True:
                 derived = {name for name, meta in previous.items() if any(ref['field'] in affected for ref in meta.get('depends_on', []))}
                 if derived <= affected: break
@@ -442,6 +565,111 @@ class SkillMemory:
             self.db.execute('INSERT INTO skill_context VALUES (?,?) ON CONFLICT(project_id) DO UPDATE SET payload=excluded.payload',
                             (project_id, json.dumps(context, ensure_ascii=False)))
         return self.context(project_id) | {'invalidated': invalidated}
+
+    def forget_task(self, task_id):
+        """Clean attributable memory inside the caller's durable forgetting barrier."""
+        with self._write():
+            if not task_memory.state(self.db, task_id)['forgetting']:
+                raise ValueError('La tarea necesita una barrera de olvido pendiente')
+            invalidated, forgotten_lessons, withdrawn, unattributed = [], [], [], []
+            forgotten_evidence = 0
+            forgotten_references = set()
+            projects = [row[0] for row in self.db.execute('SELECT project_id FROM skill_context')]
+            for project in projects:
+                context = self.context(project)
+                if any(self._origin(meta, lesson=True)[0] == task_id for meta in context['context_meta'].values()):
+                    refs = self.invalidate_context(project, {'task_id': task_id, 'forget': True})['invalidated']
+                    invalidated.extend(refs)
+                    forgotten_references.update((ref['project_id'], ref['field'], ref['revision']) for ref in refs)
+                    context = self.context(project)
+                changed = False
+                for name, meta in context['context_meta'].items():
+                    if not self._origin(meta, lesson=True)[0] and not self._empty_context(name, context.get(name), meta):
+                        meta.update(status='stale', requires_review=True, auto_select=False)
+                        invalidated.append({'project_id': project, 'field': name, 'revision': meta['revision']})
+                        unattributed.append({'kind': 'context', 'project_id': project, 'field': name})
+                        changed = True
+                if changed:
+                    self.db.execute('UPDATE skill_context SET payload=? WHERE project_id=?',
+                                    (json.dumps(context, ensure_ascii=False), project))
+            for key, raw in self.db.execute('SELECT id,payload FROM skill_lessons').fetchall():
+                item = json.loads(raw)
+                task, _ = self._origin(item, lesson=True)
+                dependent = any((ref['project_id'], ref['field'], ref['revision']) in forgotten_references
+                                for ref in item.get('context_dependencies', []))
+                if task == task_id or dependent:
+                    self.db.execute('DELETE FROM skill_lessons WHERE id=?', (key,))
+                    forgotten_lessons.append(key)
+                elif not task:
+                    item.update(requires_review=True, auto_select=False)
+                    self.db.execute('UPDATE skill_lessons SET payload=? WHERE id=?', (json.dumps(item, ensure_ascii=False), key))
+                    unattributed.append({'kind': 'lesson', 'id': key})
+            affected_skills = set()
+            for key, version, raw in self.db.execute('SELECT id,version,payload FROM skill_versions').fetchall():
+                item = json.loads(raw)
+                task, _ = self._origin(item)
+                if task == task_id:
+                    self.db.execute('DELETE FROM skill_versions WHERE id=? AND version=?', (key, version))
+                    forgotten_evidence += self.db.execute('DELETE FROM skill_evidence WHERE id=? AND version=?', (key, version)).rowcount
+                    withdrawn.append({'id': key, 'version': version})
+                    affected_skills.add(key)
+                elif not task:
+                    item.update(requires_review=True, auto_select=False)
+                    self.db.execute('UPDATE skill_versions SET payload=? WHERE id=? AND version=?',
+                                    (json.dumps(item, ensure_ascii=False), key, version))
+                    unattributed.append({'kind': 'skill', 'id': key, 'version': version})
+                    affected_skills.add(key)
+            for key, version, operation, raw in self.db.execute('SELECT id,version,operation_id,payload FROM skill_evidence').fetchall():
+                item = json.loads(raw)
+                task, _ = self._origin(item | {'provenance': {'operation_id': operation}}, lesson=True)
+                if task == task_id:
+                    forgotten_evidence += self.db.execute('DELETE FROM skill_evidence WHERE id=? AND version=? AND operation_id=?',
+                                                         (key, version, operation)).rowcount
+                elif not task:
+                    item.update(requires_review=True, auto_select=False)
+                    self.db.execute('UPDATE skill_evidence SET payload=? WHERE id=? AND version=? AND operation_id=?',
+                                    (json.dumps(item, ensure_ascii=False), key, version, operation))
+                    unattributed.append({'kind': 'skill_evidence', 'id': key, 'version': version, 'operation_id': operation})
+            for key in affected_skills:
+                self.db.execute('DELETE FROM skill_search WHERE id=?', (key,))
+                row = self.db.execute('SELECT payload FROM skill_versions WHERE id=? ORDER BY version DESC LIMIT 1', (key,)).fetchone()
+                if row:
+                    item = json.loads(row[0])
+                    if not item.get('requires_review'): self._index(item)
+            removed_ids = {item['id'] for item in withdrawn
+                if not self.db.execute('SELECT 1 FROM skill_versions WHERE id=?', (item['id'],)).fetchone()}
+            for project in projects:
+                context = self.context(project)
+                aliases = context.get('aliases', {})
+                filtered = {}
+                for name, targets in aliases.items():
+                    if isinstance(targets, list):
+                        kept = [key for key in targets if key not in removed_ids]
+                        if kept: filtered[name] = kept
+                    elif targets not in removed_ids: filtered[name] = targets
+                if filtered == aliases: continue
+                previous = copy.deepcopy(context['context_meta'])
+                context['aliases'] = filtered
+                context['context_revision'] += 1
+                meta = context['context_meta'].get('aliases')
+                if meta:
+                    invalidated.append({'project_id': project, 'field': 'aliases', 'revision': meta['revision']})
+                    forgotten_references.add((project, 'aliases', meta['revision']))
+                    meta.update(revision=context['context_revision'], value_hash=value_hash(filtered))
+                self._stale_derivatives(context)
+                invalidated.extend({'project_id': project, 'field': name, 'revision': previous[name]['revision']}
+                    for name, meta in context['context_meta'].items()
+                    if previous[name]['status'] == 'active' and meta['status'] != 'active')
+                self.db.execute('UPDATE skill_context SET payload=? WHERE project_id=?',
+                                (json.dumps(context, ensure_ascii=False), project))
+            for key, raw in self.db.execute('SELECT id,payload FROM skill_lessons').fetchall():
+                if any((ref['project_id'], ref['field'], ref['revision']) in forgotten_references
+                       for ref in json.loads(raw).get('context_dependencies', [])):
+                    self.db.execute('DELETE FROM skill_lessons WHERE id=?', (key,))
+                    forgotten_lessons.append(key)
+            return {'task_id': task_id, 'invalidated': invalidated, 'forgotten_lessons': forgotten_lessons,
+                    'withdrawn_skills': withdrawn, 'forgotten_skill_evidence': forgotten_evidence,
+                    'unattributed': unattributed, 'command_journal_preserved': True}
 
     def _lesson_receipt(self, operation_id, state):
         if not isinstance(operation_id, str) or not re.fullmatch(r'[A-Za-z0-9_.-]{1,128}', operation_id):
@@ -471,7 +699,7 @@ class SkillMemory:
 
     def record_lesson(self, body):
         body = bounded_object(body, 8000)
-        if set(body) - {'operation_id', 'hypothesis', 'user_correction', 'verification_operation_id', 'project_id', 'task_id', 'context_dependencies', 'allow_provider'}:
+        if set(body) - {'operation_id', 'hypothesis', 'user_correction', 'verification_operation_id', 'project_id', 'task_id', 'context_dependencies', 'allow_provider', 'memory_scope', 'memory_context_id'}:
             raise ValueError('Campo de incidente desconocido')
         if type(body.get('allow_provider', False)) is not bool: raise ValueError('El permiso de envío debe ser booleano')
         hypothesis, correction = body.get('hypothesis'), body.get('user_correction', '')
@@ -479,7 +707,7 @@ class SkillMemory:
             raise ValueError('Describe una hipótesis explícita de hasta mil caracteres')
         if not isinstance(correction, str) or len(correction) > 1000:
             raise ValueError('Corrección humana inválida')
-        with self.lock, self.db:
+        with self._write():
             failure, failure_at, parent = self._lesson_receipt(body.get('operation_id'), 'failed')
             project = project_key(body.get('project_id', parent.get('project_id', '') if parent else ''))
             if parent and parent.get('project_id', '') != project:
@@ -489,6 +717,13 @@ class SkillMemory:
                 raise ValueError('Tarea inválida')
             if failure.get('conversation_id') not in (None, task):
                 raise ValueError('La operación pertenece a otra tarea')
+            source_scope = (parent or {}).get('memory_scope') or failure.get('memory_scope')
+            source_context = (parent or {}).get('memory_context_id') or failure.get('memory_context_id')
+            task_memory.assert_current(self.db, source_scope, task_id=task)
+            task_memory.assert_dependencies(self.db, (parent or {}).get('memory_dependencies', []) + failure.get('memory_dependencies', []))
+            selected_scope = body.get('memory_scope', source_scope)
+            selected_context = body.get('memory_context_id', source_context)
+            selected_scope = task_memory.assert_context(self.db, selected_scope, selected_context, task_id=task)
             dependencies = self._dependencies(body.get('context_dependencies', []))
             if self._invalid_dependencies(dependencies, project, task):
                 raise ValueError('El contexto del incidente cambió; conserva el recibo y revisa sus referencias')
@@ -515,6 +750,11 @@ class SkillMemory:
                 'provenance': {'source': 'manual_incident', 'source_plan_id': parent['operation_id'] if parent else None,
                     'scope_source': 'journal' if parent else 'user_selection'},
                 'allow_provider': body.get('allow_provider', False), 'permissions_granted': False, 'preference_inferred': False}
+            if task:
+                item.update(origin_task_id=task, memory_scope=selected_scope or task_memory.snapshot(self.db, task))
+                if selected_context is not None: item['memory_context_id'] = selected_context
+            sources = (parent or {}).get('memory_dependencies', []) + failure.get('memory_dependencies', [])
+            item['memory_dependencies'] = task_memory.assert_dependencies(self.db, list({value_hash(ref):ref for ref in sources}.values()))
             payload = json.dumps(item, ensure_ascii=False, allow_nan=False)
             if len(payload) > 3000: raise ValueError('Acorta la ficha: el incidente excede tres mil caracteres')
             existing = self.db.execute('SELECT payload FROM skill_lessons WHERE id=?', (item['id'],)).fetchone()
@@ -524,6 +764,13 @@ class SkillMemory:
             text = lesson_search_text(' '.join((command, project, task or '', item['symptom'], item['error_code'], hypothesis, correction)))
             self.db.execute('INSERT INTO skill_lessons VALUES (?,?,?,?,?,?)', (item['id'], command, project, item['created_at'], text, payload))
         return item
+
+    def _lesson_current(self, item, project_id, task_id):
+        if not self._origin_current(item, lesson=True): return False
+        try: current = get_action_env_fingerprint([item['command_id']])
+        except (ValueError, KeyError, TypeError): return False
+        return (current == item.get('command_environment')
+                and not self._invalid_dependencies(item.get('context_dependencies', []), project_id, task_id))
 
     def lessons(self, query='', command_id='', limit=3, *, project_id='', task_id=None, allow_provider_only=False):
         project_key(project_id)
@@ -544,18 +791,23 @@ class SkillMemory:
             result = []
             for row in rows:
                 item = json.loads(row[0])
+                try: self._assert_origin(item, lesson=True)
+                except ValueError: continue
                 item.setdefault('allow_provider', False)
                 try: current = get_action_env_fingerprint([item['command_id']])
                 except (ValueError, KeyError, TypeError): current = None
                 item['environment_matches'] = current is not None and current == item['command_environment']
                 item['context_matches'] = not self._invalid_dependencies(item['context_dependencies'], project_id, task_id)
                 item['status'] = 'reference' if item['environment_matches'] and item['context_matches'] else 'stale'
+                if not self._origin_current(item, lesson=True):
+                    item.update(status='stale', requires_review=True, auto_select=False)
                 if len(json.dumps(item, ensure_ascii=False)) <= 3500: result.append(item)
             return result
 
-    def forget_lesson(self, lesson_id):
+    def forget_lesson(self, lesson_id, *, memory_scope=None, memory_context_id=None):
         if not isinstance(lesson_id, str) or not re.fullmatch(r'lesson\.[a-f0-9]{32}', lesson_id):
             raise ValueError('Identificador de incidente inválido')
-        with self.lock, self.db:
+        with self._write():
+            task_memory.assert_context(self.db, memory_scope, memory_context_id)
             removed = self.db.execute('DELETE FROM skill_lessons WHERE id=?', (lesson_id,)).rowcount
         return {'lesson_id': lesson_id, 'forgotten': bool(removed), 'command_journal_preserved': True}

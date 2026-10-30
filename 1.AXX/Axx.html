@@ -6724,6 +6724,7 @@ var Axx;
             if (signal.aborted)
                 throw new DOMException('Solicitud cancelada', 'AbortError');
             messages = await Axx.promptContracts.prepare(p, messages, signal);
+            if (signal.aborted) throw new DOMException('Solicitud cancelada', 'AbortError');
             const ctrl = new AbortController(), cancel = () => ctrl.abort(), timeout = setTimeout(() => ctrl.abort(), 180000);
             signal.addEventListener('abort', cancel, { once: true });
             try {
@@ -6747,6 +6748,8 @@ var Axx;
                             messages,
                             stream: false,
                             request_id: requestId,
+                            ...(p.memory_scope ? { memory_scope: { ...p.memory_scope } } : {}),
+                            ...(p.memory_context_id || p.conversation_id ? { conversation_id: p.memory_context_id || p.conversation_id } : {}),
                             provider: p.provider,
                             selection_mode: p.selection_mode || 'manual',
                             ...(p.max_tokens ? { max_tokens: p.max_tokens } : {}),
@@ -8924,6 +8927,8 @@ var Axx;
             this.save(); await this.send(text); }
         async send(raw, options = {}) {
             raw = raw.trim();
+            const memoryToken = options.memoryToken || Axx.chatWorkspace?.captureMemoryToken?.();
+            if (memoryToken && !Axx.chatWorkspace?.isMemoryTokenCurrent(memoryToken)) return;
             if (!raw || this.pending || this.connecting)
                 return;
             if (this.externalBusy) {
@@ -9017,7 +9022,7 @@ var Axx;
             if (!this.brain.connected && this.data.prefs.provider !== 'none') {
                 const origin = Axx.chatWorkspace?.active?.id;
                 await this.connect();
-                if (origin !== Axx.chatWorkspace?.active?.id) return;
+                if (origin !== Axx.chatWorkspace?.active?.id || memoryToken && !Axx.chatWorkspace?.isMemoryTokenCurrent(memoryToken)) return;
             }
             if (!this.brain.connected) {
                 user.source = 'local';
@@ -9120,7 +9125,7 @@ var Axx;
                     }
                 }, 1200) : null;
             try {
-                const chatPrefs = { ...this.data.prefs, prompt_mode: isVoiceTurn ? 'voice' : 'conversation', model: effectiveModel, ...(effectiveApiConn ? { apiConnection: effectiveApiConn } : {}), ...(isVoiceTurn ? { max_tokens: 384, voice_turn: true } : {}) };
+                const chatPrefs = { ...this.data.prefs, prompt_mode: isVoiceTurn ? 'voice' : 'conversation', model: effectiveModel, ...(memoryToken ? { memoryToken, memory_scope:{...memoryToken.memory_scope}, memory_context_id:memoryToken.memory_context_id } : {}), ...(effectiveApiConn ? { apiConnection: effectiveApiConn } : {}), ...(isVoiceTurn ? { max_tokens: 384, voice_turn: true } : {}) };
                 const result = await this.brain.chat(chatPrefs, context, ctrl.signal, text => { if (this.pending !== ctrl)
                     return; if (text) clearTimeout(leadTimer); response.text = text; if (this.streamElement)
                     this.streamElement.textContent = response.text; receiveSpeech(text); this.sayStatus('Recibiendo respuesta de ' + effectiveModel + '…'); this.scrollChat(); });
@@ -9477,7 +9482,7 @@ var Axx;
             const clean = String(text).replace(/https?:\/\/\S+/g, '').replace(/[#*`_~]/g, '').trim();
             if (clean) this.read(clean);
         }
-        localNotice(text) { this.message('assistant', text, 'local'); this.renderChat(); this.save(); this.speakReply(text); }
+        localNotice(text, operationId) { const message=this.message('assistant', text, 'local');if(operationId)message.operation_id=operationId;this.renderChat();this.save();this.speakReply(text); }
         renderAttachment() { node('chat-attachment').hidden = !this.attachment; node('attachment-name').textContent = this.attachment ? this.attachment.name + ' · ' + this.attachment.text.length.toLocaleString('es') + ' caracteres · próxima pregunta' : ''; }
         startDictation() {
             if (Axx.nativeVoice?.chatDraft) {

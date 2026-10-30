@@ -29,6 +29,7 @@ from .actions.file_inspection import hash_file, fingerprint
 from .actions.tools import artifact_path_error, get_tool
 from .commands import ApprovalRequired
 from .speech.windows_tts import SpeechError
+from .memory import selection_policy, task_memory
 
 LOG = logging.getLogger('axx.anticipation')
 MODES = ('OFF', 'SHADOW', 'SUGGEST', 'PREPARE', 'EXECUTE')
@@ -156,6 +157,7 @@ class AnticipationService:
                     root TEXT NOT NULL, target TEXT NOT NULL, bytes INTEGER NOT NULL, state TEXT NOT NULL,
                     inputs_hash TEXT NOT NULL, at REAL NOT NULL, reconciliation_json TEXT NOT NULL);
             ''')
+            task_memory.ensure(self.db)
             if not self.db.execute('SELECT 1 FROM anticipation_config WHERE id=1').fetchone():
                 self.db.execute('INSERT INTO anticipation_config VALUES (1,?)', (canonical(DEFAULTS),))
                 # Installing anticipation never turns historical artifacts into new initiatives.
@@ -180,12 +182,47 @@ class AnticipationService:
         with self.lock:
             if self.closed:
                 raise ValueError('La política de iniciativa está cerrada')
-            if immediate and not self.db.in_transaction:
-                self.db.execute('BEGIN IMMEDIATE')
-            with self.db:
+            if self.db.in_transaction:
                 yield
+            else:
+                with self.db:
+                    if immediate: self.db.execute('BEGIN IMMEDIATE')
+                    yield
+
+    def _memory_ref(self, item, task=None):
+        owner = task or item.get('task_id') or item.get('conversation_id') or item.get('origin_task_id')
+        return task_memory.assert_context(self.db, item.get('memory_scope'), item.get('memory_context_id'), task_id=owner)
+
+    def _memory_current(self, item, task=None):
+        try:
+            self._memory_ref(item, task)
+            for ref in item.get('memory_dependencies', []): task_memory.assert_current(self.db, ref)
+            if item.get('candidate_kind') == 'prepare_routine' and not item.get('memory_dependencies'):
+                from .memory.skill_memory import read_skill_state
+                plan = item['plan']
+                skill = read_skill_state(self.db, plan['skill_id'], plan['skill_version'],
+                    project_id=plan.get('context', {}).get('project_id', ''), task_id=item['task_id'])
+                if skill.get('requires_review'): return False
+        except ValueError: return False
+        attributable = item.get('memory_scope') or item.get('task_id') or item.get('conversation_id') or item.get('origin_task_id')
+        if (item.get('origin_unattributed') or not attributable) and self.db.execute(
+                'SELECT 1 FROM memory_task_scopes WHERE generation>0 OR forgetting=1 LIMIT 1').fetchone():
+            return False
+        return not item.get('memory_forgotten')
+
+    def _capture_memory(self, item, task=None):
+        if item.get('origin_unattributed') or not (item.get('memory_scope') or item.get('task_id') or item.get('conversation_id') or item.get('origin_task_id')):
+            return {'memory_scope': None, 'origin_unattributed': True}
+        ref = self._memory_ref(item, task)
+        return {'memory_scope': ref, **({'memory_context_id': item['memory_context_id']} if item.get('memory_context_id') is not None else {})}
+
+    def _request_memory(self, item):
+        return {key: value for key, value in self._capture_memory(item).items()
+                if key in ('memory_scope', 'memory_context_id')}
 
     def _save(self, item):
+        if not self.db.in_transaction: self.db.execute('BEGIN IMMEDIATE')
+        if not self._memory_current(item): raise StaleContext('La memoria de origen de la iniciativa cambió')
         self.db.execute('UPDATE anticipation_suggestions SET state=?,payload=? WHERE suggestion_id=?',
                         (item['state'], canonical(item), item['suggestion_id']))
         return item
@@ -207,7 +244,9 @@ class AnticipationService:
         row = self.db.execute('SELECT payload FROM anticipation_suggestions WHERE suggestion_id=?', (key,)).fetchone()
         if not row:
             raise ValueError('Propuesta desconocida')
-        return json.loads(row[0])
+        item = json.loads(row[0])
+        if not self._memory_current(item): raise StaleContext('La memoria de origen de la iniciativa cambió')
+        return item
 
     def _items(self, task_id=None):
         sql = 'SELECT payload FROM anticipation_suggestions'
@@ -216,10 +255,12 @@ class AnticipationService:
             identifier(task_id, 'Tarea')
             sql += ' WHERE task_id=?'
             args = (task_id,)
-        return [json.loads(row[0]) for row in self.db.execute(sql + ' ORDER BY at DESC', args)]
+        return [item for row in self.db.execute(sql + ' ORDER BY at DESC', args)
+                if self._memory_current(item := json.loads(row[0]))]
 
     def _policy(self, task_id, path, config=None, context=None):
         config = config or self._config()
+        if task_memory.state(self.db, task_id)['forgetting']: return None, {'mode': 'OFF'}
         context = context or {}
         possible = [scope for scope in config['scopes'] if
             (not scope.get('task_id') or scope['task_id'] == task_id) and
@@ -918,6 +959,7 @@ class AnticipationService:
         for target in config['observation_targets']:
             source = SOURCE_FLAGS.get(target['source'])
             if (target['id'] == target_id and target['observe'] and config['sources'][source]
+                    and self._memory_current(target)
                     and (target['expires_at'] is None or self.clock() < target['expires_at'])
                     # Consent labels do not prove the observed application's identity.
                     and not (source in ('clipboard', 'screen') and target.get('application_id'))
@@ -1040,6 +1082,7 @@ class AnticipationService:
             if state is None:
                 self.source_generation += 1
                 state = {'snapshot': None, 'samples': 0, 'events': 0, 'cancelled': threading.Event(),
+                    **self._capture_memory(target),
                     'generation': self.source_generation, 'consent_digest': digest(target), 'uia_ids': set(), 'uia_lock': threading.Lock()}
                 self.source_state[target['id']] = state
             lifetime = min(RAW_SOURCE_TTL_SECONDS, target['expires_at'] - self.clock()) if target['expires_at'] is not None else RAW_SOURCE_TTL_SECONDS
@@ -1081,7 +1124,7 @@ class AnticipationService:
                     or not isinstance(text, str) or not isinstance(input_hash, str) or not re.fullmatch(r'[0-9a-f]{64}', input_hash)
                     or silence is not None and type(silence) is not bool):
                 raise ValueError('MICROPHONE_RESULT_INVALID: duración o resultado no permitido')
-            with self.lock, (self.db if not self.closed else nullcontext()):
+            with self.lock, (self._policy_transaction(immediate=True) if not self.closed else nullcontext()):
                 profile, options = self._microphone_authorized(lease)
                 target, state = lease['target'], lease['state']
                 metadata = {'audio_fingerprint': self._content_fingerprint('microphone_audio', bytes.fromhex(input_hash)),
@@ -1164,6 +1207,7 @@ class AnticipationService:
 
     def _provider_source(self, target, state, task_id, context):
         if (target['source'] not in ('window', 'clipboard') or target['task_id'] != task_id
+                or not self._memory_current(state, task_id)
                 or not self._provider_context_available(target['source'])
                 or not target.get('allowed_profile_ids')
                 or not target['retain'] or not target['send_to_provider'] or self._source_target(target['id']) != target
@@ -1381,6 +1425,7 @@ class AnticipationService:
             if task_id is not None and target['task_id'] != task_id:
                 continue
             state = self.source_state.get(target['id'], {})
+            if not self._memory_current(state, target['task_id']): state = {}
             _, options = self._policy(target['task_id'], target.get('root', str(self.commands.executor.workspace_root)), config, self._source_context(target))
             active = (self._source_target(target['id'], config) is not None and options['mode'] != 'OFF'
                 and (target['source'] != 'microphone' or microphone_available))
@@ -1542,6 +1587,10 @@ class AnticipationService:
             self._clear_source_observations(state)
 
     def _publish_context_snapshot(self, target, state, metadata, content, truncated, profile, options):
+        if not self.db.in_transaction: self.db.execute('BEGIN IMMEDIATE')
+        if not self._memory_current(target) or not self._memory_current(state, target['task_id']):
+            self._drop_source(target['id'])
+            return
         before = state.get('snapshot')
         changed = before != metadata
         if changed:
@@ -1568,6 +1617,7 @@ class AnticipationService:
             return
         event_id = 'observation-' + digest([target['id'], metadata, state['generation']])
         event = {'event_id': event_id, 'type': target['source'] + ('.observed' if before is None else '.changed'),
+            **self._capture_memory(state, target['task_id']),
             'task_id': target['task_id'], 'source': SOURCE_FLAGS[target['source']], 'target_id': target['id'],
             'observed_at': self.clock(), 'resource': metadata, 'context': self._source_context(target),
             'source_authorization_hash': digest(target), 'retained': target['retain'], 'sent_to_provider': False,
@@ -1611,6 +1661,7 @@ class AnticipationService:
                 if target['id'] not in self.source_state:
                     self.source_generation += 1
                     self.source_state[target['id']] = {'snapshot': None, 'samples': 0, 'events': 0,
+                        **self._capture_memory(target),
                         'cancelled': threading.Event(), 'generation': self.source_generation,
                         'consent_digest': digest(target), 'uia_ids': set(), 'uia_lock': threading.Lock()}
                 state = self.source_state[target['id']]
@@ -1627,11 +1678,12 @@ class AnticipationService:
                 error = None
             except Exception:
                 snapshot, truncated, error = {}, True, 'SOURCE_OBSERVATION_FAILED: no se obtuvo una observación autorizada.'
-            with self.lock, (self.db if not self.closed else nullcontext()):
+            with self.lock, (self._policy_transaction(immediate=True) if not self.closed else nullcontext()):
                 if self.closed:
                     return
                 if (self.source_state.get(target['id']) is not state or state['cancelled'].is_set()
-                        or self._source_target(target['id']) != target):
+                        or self._source_target(target['id']) != target or not self._memory_current(state, target['task_id'])):
+                    self._drop_source(target['id'])
                     continue
                 profile, options = self._policy(target['task_id'], path, context=context)
                 if options['mode'] == 'OFF':
@@ -1663,6 +1715,7 @@ class AnticipationService:
                     stamp = int(self.clock() // options['cadence_seconds'])
                     event_id = 'observation-' + digest([target['id'], kind, resource, stamp])
                     event = {'event_id': event_id, 'type': kind, 'task_id': target['task_id'], 'source': context['source'],
+                        **self._capture_memory(state, target['task_id']),
                         'target_id': target['id'], 'observed_at': self.clock(), 'resource': resource, 'context': context,
                         'source_authorization_hash': digest(target),
                         'retained': target['retain'], 'sent_to_provider': False, 'profile': profile, 'at': self.clock(),
@@ -1725,7 +1778,8 @@ class AnticipationService:
                 'source_runtime': self._source_runtime(config, task_id, microphone_available=microphone, dispatches=dispatches),
                 'source_observations': [copy.deepcopy(event) | self._source_send_status(event['task_id'], event.get('context', {}).get('project_id', ''),
                     event.get('provider_reference'), dispatches, event.get('dispatch_history_expired', False))
-                    for event in self.source_observations if task_id is None or event['task_id'] == task_id],
+                    for event in self.source_observations if (task_id is None or event['task_id'] == task_id)
+                    and self._memory_current(event)],
                 'capabilities': {'verify_artifact': self._can_verify(), 'physical_execution': False,
                     'mission_steps': self._mission_capability(),
                     'folders': True, 'applications': self._applications_available(), 'provider_send': False,
@@ -1835,7 +1889,7 @@ class AnticipationService:
                     raise ValueError('Selecciona hasta 32 fuentes explícitas')
                 checked, ids = [], set()
                 for raw in targets:
-                    allowed = {'id', 'source', 'task_id', *CONTEXT_KEYS, 'root', 'process_name', 'window_id', 'pid', 'process_started', 'observe', 'retain', 'send_to_provider', 'expires_at', 'allowed_profile_ids'}
+                    allowed = {'id', 'source', 'task_id', *CONTEXT_KEYS, 'root', 'process_name', 'window_id', 'pid', 'process_started', 'observe', 'retain', 'send_to_provider', 'expires_at', 'allowed_profile_ids', 'memory_scope', 'memory_context_id'}
                     if not isinstance(raw, dict) or set(raw) - allowed or raw.get('source') not in SOURCE_FLAGS:
                         raise ValueError('Fuente seleccionada inválida')
                     target = copy.deepcopy(raw)
@@ -1911,6 +1965,16 @@ class AnticipationService:
                                 or type(target.get('pid')) is not int or not 1 <= target['pid'] <= 4294967295
                                 or not isinstance(target.get('process_started'), str) or not re.fullmatch(r'[0-9]{1,32}', target['process_started'])):
                             raise ValueError('Selecciona una ventana con identidad HWND, PID e inicio de proceso verificados')
+                    try:
+                        target.update(self._capture_memory(target))
+                    except ValueError:
+                        refs = ('memory_scope', 'memory_context_id')
+                        if ({key: value for key, value in target.items() if key not in refs}
+                                != {key: value for key, value in previous.items() if key not in refs}
+                                or any(key in raw and raw[key] != previous.get(key) for key in refs)):
+                            raise
+                        # Preserve unchanged consent as inactive; only a fresh explicit reference can rearm it.
+                        target.update({key: previous[key] for key in refs if key in previous})
                     checked.append(target)
                 config['observation_targets'] = checked
             self.db.execute('UPDATE anticipation_config SET payload=? WHERE id=1', (canonical(config),))
@@ -1932,6 +1996,14 @@ class AnticipationService:
                 invalid = True
             if item.get('candidate_kind', 'verify_artifact') != 'verify_artifact' and not self._preparation_scope_allowed(item['task_id'], config):
                 invalid = True
+            if item.get('candidate_kind') == 'prepare_routine':
+                from .memory.skill_memory import read_skill_state
+                try:
+                    skill = read_skill_state(self.db, item['plan']['skill_id'], item['plan']['skill_version'],
+                        project_id=item['plan'].get('context', {}).get('project_id', ''), task_id=item['task_id'])
+                    if not selection_policy.allowed(skill, skill['selection_policy'], item['plan'].get('context', {}).get('project_id', '')):
+                        invalid = True
+                except ValueError: invalid = True
             if item.get('approval') == 'persistent' and not (self._grant(item) if item.get('candidate_kind', 'verify_artifact') == 'verify_artifact' else self._preparation_grant(item)):
                 invalid = True
             if invalid:
@@ -2127,7 +2199,7 @@ class AnticipationService:
                 AND NOT EXISTS (SELECT 1 FROM anticipation_seen s WHERE s.operation_id=o.operation_id)
                 ORDER BY o.created_at LIMIT 100""", ARTIFACT_GENERATORS).fetchall()
         for row in rows:
-            with self.lock, self.db:
+            with self._policy_transaction(immediate=True):
                 config = self._config()
                 if not self._within_budget(config['profiles'][config['profile']]):
                     break
@@ -2139,6 +2211,9 @@ class AnticipationService:
                 if files:
                     output = min(files, key=lambda candidate: (Path(candidate['path']).suffix.casefold() != '.pdf', candidate['path']))
                 task = command.get('conversation_id') or command['operation_id']
+                if not self._memory_current(command, task):
+                    self.db.execute('INSERT OR IGNORE INTO anticipation_seen VALUES (?,?)', (row['operation_id'], self.clock()))
+                    continue
                 path = output.get('path')
                 if (receipt.get('postconditions_passed') is not True or not isinstance(path, str)
                         or not re.fullmatch('[a-f0-9]{64}', output.get('sha256', ''))):
@@ -2154,6 +2229,7 @@ class AnticipationService:
                 if options['mode'] == 'OFF' or not Path(path).is_relative_to(self.commands.executor.workspace_root):
                     continue
                 event = {'event_id': 'artifact-' + row['operation_id'], 'type': 'artifact.generated', 'task_id': task,
+                    **self._capture_memory(command, task),
                     'source_operation_id': row['operation_id'], 'path': path, 'sha256': output['sha256'], 'at': self.clock(),
                     'profile': profile, 'retention_days': options['retention_days'],
                     'context': context,
@@ -2163,7 +2239,8 @@ class AnticipationService:
                     try:
                         verifier = self._verifier(path)
                         key = digest({'path': os.path.normcase(path), 'identity': list(fingerprint(Path(path).stat())),
-                            'task': task, 'command': verifier['command_id'], 'verifier_version': verifier['version']})
+                            'task': task, 'command': verifier['command_id'], 'verifier_version': verifier['version'],
+                            'memory_scope': event.get('memory_scope'), 'memory_context_id': event.get('memory_context_id')})
                         self.db.execute('INSERT OR IGNORE INTO anticipation_seen VALUES (?,?)', ('no-initiative-resource-' + key, self.clock()))
                     except OSError:
                         pass
@@ -2215,20 +2292,25 @@ class AnticipationService:
     def _propose(self, event, profile, options):
         from .actions.artifact_compensation import reserved_path
         if reserved_path(event['path']):return None
+        if not self.db.in_transaction: self.db.execute('BEGIN IMMEDIATE')
+        if not self._memory_current(event): return None
+        event = event | self._capture_memory(event)
         verifier = self._verifier(event['path'])
         identity = list(fingerprint(Path(event['path']).stat()))
         # Journal receipts and an opted-in folder can describe the same generation.
         # The UNIQUE dedupe column arbitrates their resource identity across processes.
         key = digest({'path': os.path.normcase(event['path']), 'identity': identity, 'task': event['task_id'],
-                      'command': verifier['command_id'], 'verifier_version': verifier['version']})
+                      'command': verifier['command_id'], 'verifier_version': verifier['version'],
+                      'memory_scope': event.get('memory_scope'), 'memory_context_id': event.get('memory_context_id')})
         if self.db.execute('SELECT 1 FROM anticipation_seen WHERE operation_id=?', ('no-initiative-resource-' + key,)).fetchone():
             return None
         existing = self.db.execute("""SELECT payload FROM anticipation_suggestions WHERE
             dedupe_key=? OR (task_id=? AND routine_id=? AND json_extract(payload,'$.plan.inputs.path')=?
-            AND json_extract(payload,'$.plan.command_id')=? AND json_extract(payload,'$.plan.expected_identity')=?) LIMIT 1""",
-            (key, event['task_id'], ROUTINE, event['path'], verifier['command_id'], canonical(identity))).fetchone()
-        if existing:
-            return json.loads(existing[0])
+            AND json_extract(payload,'$.plan.command_id')=? AND json_extract(payload,'$.plan.expected_identity')=?)""",
+            (key, event['task_id'], ROUTINE, event['path'], verifier['command_id'], canonical(identity))).fetchall()
+        for row in existing:
+            candidate = json.loads(row[0])
+            if self._memory_current(candidate): return candidate
         self._stats(event['task_id'], ROUTINE, 'eligible')
         previous = self.db.execute('SELECT MAX(at) FROM anticipation_suggestions WHERE task_id=? AND routine_id=?', (event['task_id'], ROUTINE)).fetchone()[0]
         if (not verifier['available'] or self._suppressed(event['task_id'], ROUTINE)
@@ -2247,6 +2329,7 @@ class AnticipationService:
         sid = 'anticipation-' + key[:32]
         mode = options['mode']
         item = {'suggestion_id': sid, 'candidate_kind': 'verify_artifact', 'task_id': event['task_id'], 'routine_id': ROUTINE, 'routine_version': 1,
+            **self._capture_memory(event),
             'title': 'Comprobar el archivo observado' if event.get('target_id') else 'Verificar el archivo generado',
             'verification_scope': verifier['verification_scope'], 'semantic_verified': False, 'verifier_reason': verifier['reason'],
             'state': 'DETECTED' if mode == 'SHADOW' else 'PREPARED' if mode == 'PREPARE' else 'AWAITING_APPROVAL',
@@ -2300,6 +2383,9 @@ class AnticipationService:
                                ('initiated-learning-' + digest(plan_id),)).fetchone() is not None
 
     def _preparation_candidate(self, task, routine, title, plan, profile, options, evidence):
+        if not self.db.in_transaction: self.db.execute('BEGIN IMMEDIATE')
+        if not self._memory_current(plan, task): return
+        plan = plan | self._capture_memory(plan, task)
         if self._suppressed(task, routine):
             return
         key = digest({'task_id': task, 'routine_id': routine, 'plan': plan})
@@ -2317,6 +2403,8 @@ class AnticipationService:
         kind = plan['kind']
         sid = 'anticipation-' + key[:32]
         item = {'suggestion_id': sid, 'candidate_kind': kind, 'task_id': task, 'routine_id': routine,
+            **self._capture_memory(plan, task),
+            'memory_dependencies': copy.deepcopy(plan.get('memory_dependencies', [])),
             'routine_version': plan.get('skill_version', 1), 'title': title, 'plan': plan, 'plan_hash': digest(plan),
             'state': 'DETECTED' if options['mode'] == 'SHADOW' else 'AWAITING_APPROVAL',
             'profile': profile, 'admitted_mode': options['mode'], 'shadow': options['mode'] == 'SHADOW',
@@ -2361,6 +2449,8 @@ class AnticipationService:
             if any(row.get('available_current') is not True for row in source.get('artifact_compensations', [])):
                 continue
             task = source.get('conversation_id') or source['operation_id']
+            if not self._memory_current(source, task): continue
+            source_memory = self._capture_memory(source, task)
             path = str(self.commands.executor.workspace_root)
             context = {'source': 'events', 'project_id': source.get('project_id', ''), 'device_id': 'host'}
             with self.lock:
@@ -2382,11 +2472,11 @@ class AnticipationService:
                         {'cancelled': learning.events.setdefault(source['operation_id'], threading.Event())}, options, {'expires_at': None})
                     class GoalAssessmentCancellation:
                         def is_set(cancelled):
-                            return self.closed or cancellation.is_set() or not self._within_budget(options)
+                            return self.closed or cancellation.is_set() or not self._within_budget(options) or not self._memory_current(source, task)
                     assessment_cancelled = GoalAssessmentCancellation()
                     # File assessment takes planner locks; never run it under the policy lock.
                     source = learning.refresh_goal_progress(source['operation_id'], cancelled=assessment_cancelled)
-                    if assessment_cancelled.is_set():
+                    if assessment_cancelled.is_set() or not self._memory_current(source, task):
                         continue
                     self.goal_progress_revisions[source['operation_id']] = (revision, True)
                 elif not cached[1]:
@@ -2398,6 +2488,7 @@ class AnticipationService:
                             and not source.get('cancel_requested') and progress.get('status') == 'ready'
                             and self._within_budget(options)):
                         plan = {'kind': 'goal_progress', 'inputs': {'path': path}, 'task_id': task, 'context': context,
+                            **source_memory,
                             'learning_operation_id': source['operation_id'],
                             **{key: progress[key] for key in ('source_plan_hash', 'criterion_id', 'step', 'fingerprint', 'input_versions', 'prefix_length')}}
                         self._preparation_candidate(task, 'advance_pending_goal', 'Preparar avance del objetivo pendiente', plan, profile, options,
@@ -2408,6 +2499,7 @@ class AnticipationService:
                     forgotten = self._forgotten_source(task, 'resume_incomplete_task', source)
                 if not forgotten and checkpoint['last_verified_step'] >= 0 and checkpoint['next_step'] < len(source.get('steps', [])):
                     plan = {'kind': 'resume_task', 'inputs': {'path': path}, 'task_id': task, 'context': context,
+                            **source_memory,
                             'learning_operation_id': source['operation_id'], 'source_plan_hash': source.get('plan_hash'), **checkpoint}
                     with self.lock, self.db:
                         self._preparation_candidate(task, 'resume_incomplete_task', 'Preparar reanudación de la tarea', plan, profile, options,
@@ -2441,7 +2533,8 @@ class AnticipationService:
                 continue
             try:
                 skill = learning.skills.get(skill_id, version, project_id=source.get('project_id', ''), task_id=task)
-                if not skill.get('environment_matches') or not skill.get('effect_verified'):
+                if (not skill.get('environment_matches') or not skill.get('effect_verified')
+                        or not selection_policy.allowed(skill, skill['selection_policy'], source.get('project_id', ''))):
                     continue
                 from .memory.skill_memory import bind
                 steps, _ = bind(skill, ref['inputs'], {})
@@ -2450,6 +2543,8 @@ class AnticipationService:
                 continue
             evidence_ids = sorted({entry[0]['operation_id'] for entry in occurrences})
             plan = {'kind': 'prepare_routine', 'inputs': {'path': str(self.commands.executor.workspace_root)},
+                **self._capture_memory(source, task),
+                'memory_dependencies': [skill['memory_scope']] if skill.get('memory_scope') else [],
                 'task_id': task, 'context': {'source': 'events', 'project_id': source.get('project_id', ''), 'device_id': 'host'},
                 'skill_id': skill_id, 'skill_version': version, 'inputs_hash': inputs_hash,
                 'learning_operation_id': source['operation_id'], 'source_plan_hash': source['plan_hash'],
@@ -2474,6 +2569,7 @@ class AnticipationService:
             raise ValueError('La tarea de origen ya no existe')
         from .action_learning import ActionLearning
         source = ActionLearning._project_compensations(json.loads(source_row[0]), self.db)
+        if not self._memory_current(source, item['task_id']): raise StaleContext('La memoria de la tarea de origen cambió')
         if any(row.get('available_current') is not True for row in source.get('artifact_compensations', [])):
             raise StaleContext('Un entregable de origen está apartado o pendiente de conciliación')
         task = source.get('conversation_id') or source['operation_id']
@@ -2504,7 +2600,7 @@ class AnticipationService:
             if not row:
                 continue
             candidate = ActionLearning._project_compensations(json.loads(row[0]), self.db)
-            if (not candidate.get('observation_dependencies')
+            if (self._memory_current(candidate, item['task_id']) and not candidate.get('observation_dependencies')
                     and (candidate.get('conversation_id') or candidate['operation_id']) == item['task_id']
                     and ActionLearning._mission(candidate)['completed']
                     and any(ref['id'] == plan['skill_id'] and ref['version'] == plan['skill_version']
@@ -2514,13 +2610,15 @@ class AnticipationService:
             raise StaleContext('La rutina ya no conserva tres resultados vigentes verificados')
         from .memory.skill_memory import read_skill_state
         skill = read_skill_state(self.db, plan['skill_id'], plan['skill_version'], project_id=source.get('project_id', ''), task_id=item['task_id'])
-        if not skill.get('environment_matches') or not skill.get('effect_verified'):
+        if (not skill.get('environment_matches') or not skill.get('effect_verified')
+                or not selection_policy.allowed(skill, skill['selection_policy'], source.get('project_id', ''))):
             raise ValueError('La rutina ya no es compatible con el entorno')
         from .memory.skill_memory import bind
         steps, _ = bind(skill, refs[0]['inputs'], {})
         return learning, source, steps
 
     def _check(self, item, *, automatic=False):
+        if not self._memory_current(item): raise StaleContext('La memoria de origen de la iniciativa cambió')
         if item.get('cancel_requested') or item['state'] not in (*PENDING, 'EXECUTING'):
             raise ValueError('La iniciativa fue cancelada o ya no está pendiente')
         if digest(item['plan']) != item['plan_hash'] or item['plan']['task_id'] != item['task_id']:
@@ -2598,7 +2696,9 @@ class AnticipationService:
         if not isinstance(plan_hash, str) or not re.fullmatch('[a-f0-9]{64}', plan_hash):
             raise ValueError('Hash de plan inválido')
         with self.lock:
-            item = self._get(suggestion_id)
+            try: item = self._get(suggestion_id)
+            except StaleContext:
+                return {'suggestion_id': suggestion_id, 'state': 'CANCELLED', 'forgotten': True, 'result': None}
             if item['plan_hash'] != plan_hash:
                 raise ValueError('La aceptación corresponde a otra versión del plan')
             if item['state'] not in PENDING:
@@ -2625,7 +2725,9 @@ class AnticipationService:
                 item['grant_id'] = self._grant(item)['grant_id']
             item['assessment']['authorization'] = {'allowed': True, 'source': item['approval'], 'grant_id': item.get('grant_id')}
             # The conditional claim also arbitrates two backend processes sharing state.db.
-            with self.db:
+            with self._policy_transaction(immediate=True):
+                if not self._memory_current(item):
+                    return {'suggestion_id': suggestion_id, 'state': 'CANCELLED', 'forgotten': True, 'result': None}
                 changed = self.db.execute('UPDATE anticipation_suggestions SET state=?,payload=? WHERE suggestion_id=? AND state IN (?,?,?)',
                     ('EXECUTING', canonical(item), suggestion_id, *PENDING)).rowcount
                 if not changed:
@@ -2637,7 +2739,8 @@ class AnticipationService:
             if item.get('candidate_kind', 'verify_artifact') != 'verify_artifact':
                 return self._prepare_existing(item)
             prepared = self.commands.prepare(item['plan']['command_id'], item['plan']['inputs'], 'text', item['operation_id'],
-                                             conversation_id=item['task_id'], delivery_mode='background')
+                                             conversation_id=item['task_id'], delivery_mode='background',
+                                             **self._request_memory(item))
             with self.lock:
                 self._check(self._get(suggestion_id))
                 with self.db:
@@ -2649,7 +2752,8 @@ class AnticipationService:
             if self.closed:
                 return {'suggestion_id': suggestion_id, 'state': 'CANCELLED', 'service_closed': True, 'result': None}
             with self.lock:
-                forgotten = self.db.execute('SELECT 1 FROM anticipation_suggestions WHERE suggestion_id=?', (suggestion_id,)).fetchone() is None
+                row = self.db.execute('SELECT payload FROM anticipation_suggestions WHERE suggestion_id=?', (suggestion_id,)).fetchone()
+                forgotten = row is None or not self._memory_current(json.loads(row[0]))
             if forgotten:
                 # Forget may race preparation, but cannot leave a command waiting
                 # for a later accidental approval or recreate personal context.
@@ -2703,10 +2807,11 @@ class AnticipationService:
             if current['state'] != 'EXECUTING' or current.get('cancel_requested'):
                 raise ValueError('La preparación fue cancelada antes de usar el planificador')
         result = (learning.prepare_goal_progress(source['operation_id'], item['plan']['source_plan_hash'],
-                    item['plan']['criterion_id'], item['plan']['fingerprint']) if item['candidate_kind'] == 'goal_progress' else
-            learning.resume(source['operation_id'], approved=False) if steps is None else
+                    item['plan']['criterion_id'], item['plan']['fingerprint'], **self._request_memory(item)) if item['candidate_kind'] == 'goal_progress' else
+            learning.resume(source['operation_id'], approved=False, **self._request_memory(item)) if steps is None else
             learning.prepare_steps(item['title'], steps, operation_id=plan_id,
-                project_id=source.get('project_id', ''), conversation_id=item['task_id'], _mission_dependencies=dependencies))
+                project_id=source.get('project_id', ''), conversation_id=item['task_id'], _mission_dependencies=dependencies,
+                **self._request_memory(item)))
         with self.lock:
             try:
                 cancelled = self._get(item['suggestion_id']).get('cancel_requested')
@@ -2724,7 +2829,7 @@ class AnticipationService:
                 except ValueError:
                     execute = False
             if execute:
-                result = learning.execute_with_grant(plan_id, item['grant_id'], result['plan_hash'])
+                result = learning.execute_with_grant(plan_id, item['grant_id'], result['plan_hash'], **self._request_memory(item))
                 return self._finish_preparation(item['suggestion_id'], result, executed=True)
             result = learning.pause(plan_id)
         return self._finish_preparation(item['suggestion_id'], result)
@@ -2963,20 +3068,29 @@ class AnticipationService:
     def suggestions(self, task_id=None):
         return self.status(task_id)['suggestions']
 
-    def forget(self, body):
+    def forget(self, body, *, _withdrawn_skills=()):
         if not isinstance(body, dict) or set(body) - {'task_id', 'routine_id'} or not body:
             raise ValueError('Indica la tarea o rutina que deseas olvidar')
         for value in body.values():
             identifier(value)
+        withdrawn = {(ref['id'], ref['version']) for ref in _withdrawn_skills}
         with self.lock:
-            selected = [item for item in self._items(body.get('task_id')) if not body.get('routine_id') or item['routine_id'] == body['routine_id']]
-        for item in selected:
-            self.cancel(item['suggestion_id'])
-        with self.lock, self.db:
+            selected = [item for row in self.db.execute('SELECT payload FROM anticipation_suggestions')
+                if (item := json.loads(row[0])) and (not body.get('task_id') or item['task_id'] == body['task_id']
+                    or any(ref.get('task_id') == body['task_id'] for ref in item.get('memory_dependencies', []))
+                    or (item.get('plan', {}).get('skill_id'), item.get('plan', {}).get('skill_version')) in withdrawn)
+                and (not body.get('routine_id') or item['routine_id'] == body['routine_id'])]
+        self._cancel_commands([item['operation_id'] for item in selected if item['state'] in (*PENDING, 'EXECUTING')])
+        with self._policy_transaction(immediate=True):
             if body.get('task_id'):
                 for target in self._config()['observation_targets']:
                     if target['task_id'] == body['task_id']:
                         self._drop_source(target['id'])
+                self.source_observations = [event for event in self.source_observations if event['task_id'] != body['task_id']]
+                for key in list(self.goal_progress_revisions):
+                    row = self.db.execute('SELECT payload FROM learning_plans WHERE id=?', (key,)).fetchone()
+                    if row and json.loads(row[0]).get('conversation_id') == body['task_id']:
+                        self.goal_progress_revisions.pop(key, None)
             elif body.get('routine_id') == ROUTINE:
                 self._clear_sources()
             marker = ('forget-task-routine-' + digest(body) if len(body) == 2 else
@@ -2994,11 +3108,20 @@ class AnticipationService:
             elif body.get('routine_id') == ROUTINE:
                 self.db.execute('DELETE FROM anticipation_events')
             if 'source_dispatch_json' in {row[1] for row in self.db.execute('PRAGMA table_info(mission_model_calls)')}:
+                # Only derived source metadata is removed; charge, state and confirmed delivery remain immutable.
                 if body.get('task_id'):
                     self.db.execute("UPDATE mission_model_calls SET source_dispatch_json=NULL WHERE source_dispatch_json IS NOT NULL AND CASE WHEN json_valid(source_dispatch_json) THEN json_extract(source_dispatch_json,'$.task_id')=? ELSE 1 END", (body['task_id'],))
                 elif body.get('routine_id') == ROUTINE:
                     self.db.execute('UPDATE mission_model_calls SET source_dispatch_json=NULL')
         return {'forgotten_suggestions': len(selected), 'scope': body, 'command_journal_preserved': True}
+
+    def forget_task(self, task_id):
+        with self.lock:
+            state = task_memory.state(self.db, task_id)
+            if not state['forgetting']:
+                raise ValueError('La tarea necesita una barrera de olvido pendiente')
+            withdrawn = (state.get('result') or {}).get('stages', {}).get('memory', {}).get('withdrawn_skills', [])
+        return self.forget({'task_id': task_id}, _withdrawn_skills=withdrawn)
 
     def _purge(self):
         with self.lock, self.db:

@@ -4,10 +4,11 @@
   const Axx = window.Axx, commands = Axx?.commandLibrary;
   if (!commands) return;
   const $ = id => document.getElementById(id);
-  const api = (method, action, body) => commands.request(method, '/axx-api/' + action, body);
+  const captureMemory=()=>commands.captureMemory?.()||Axx.chatWorkspace?.captureMemoryToken?.()||null;
+  const api = (method, action, body,memory=null) => commands.request(method, '/axx-api/' + action, body,memory);
   const element = (tag, text) => { const node = document.createElement(tag); if (text !== undefined) node.textContent = text; return node; };
   const button = (text, action) => { const node = element('button', text); node.type = 'button'; node.onclick = () => run(action); return node; };
-  const run = async action => { try { await action(); } catch (error) { $('skills-status').textContent = error.message || String(error); } Axx.resident?.schedule(); };
+  const run = async action => { let memory;try {memory=captureMemory();await action(memory); } catch (error) { if(!memory||Axx.chatWorkspace?.isMemoryTokenCurrent(memory,true))$('skills-status').textContent = error.message || String(error); } Axx.resident?.schedule(); };
   const states = {candidate:'Candidata', verified:'Comprobada', awaiting_approval:'Requiere aprobación', waiting_capacity:'Esperando un modelo apto', waiting_capability:'Construyendo una capacidad para esta tarea',
     succeeded:'Completada', goal_pending:'Objetivo pendiente de verificación', failed:'Falló', unknown:'Resultado incierto', interrupted:'Interrumpida', cancelled:'Cancelada', expired:'Requiere revisión', running:'Ejecutando', needs_input:'Faltan datos'};
   const section = element('section'); section.id = 'skill-library'; section.className = 'setup-card';
@@ -54,7 +55,7 @@
   const contextInputs={current_folder:'skills-folder',current_file:'skills-file',current_application:'skills-app'},contextDirty=new Set();
   const project = () => $('skills-project').value.trim();
   $('skills-project').value = Axx.companion.data.prefs.skillProject || '';
-  const task=()=>Axx.chatWorkspace?.active?.id||null,scope=()=>JSON.stringify([project(),task()]);
+  const task=()=>Axx.chatWorkspace?.active?.id||null,scope=()=>JSON.stringify([project(),task(),Axx.chatWorkspace?.active?.memory_scope?.generation??0,Axx.chatWorkspace?.active?.memory_context_id||Axx.chatWorkspace?.active?.connect_id||'']);
   function clearGoalReview(){goalReview=null;$('skills-goal-preview').textContent='';$('skills-goal-prepare').disabled=true;}
   function syncGoalScope(){const selected=scope();if(goalScope===selected)return;if(goalScope)goalDrafts.set(goalScope,[$('skills-objective').value,$('skills-goal-criteria').value]);goalScope=selected;const draft=goalDrafts.get(selected)||['','[]'];$('skills-objective').value=draft[0];$('skills-goal-criteria').value=draft[1];clearGoalReview();}
   function syncLessonScope(){syncGoalScope();const selected=scope();if(selected===lessonScope)return;lessonScope=selected;++lessonRevision;if(editorState&&editorState.scope!==selected){editorState=null;$('skills-editor').replaceChildren();}$('skills-lessons-list').replaceChildren();$('skills-lesson-form').reset();for(const key of ['scope','humanCorrection','providerConsent'])delete $('skills-lesson-form').dataset[key];$('skills-lessons-search').reset();$('skills-lessons-status').textContent='';renderLessonReceipts();}
@@ -95,13 +96,13 @@
     commands.busy = false; commands.renderOperation(plan); commands.status(plan.message || states[plan.state] || plan.state);
     if (commands.operation) commands.open();
   }
-  async function planRequest(action, body) {
+  async function planRequest(action, body,memory=captureMemory()) {
     const humanGoal=action==='repair'&&body.goal_spec,sameGoal=humanGoal&&commands.operation?.operation_id===body.operation_id&&commands.operation.state!=='running',previous=commands.lastOperation;
     if (commands.busy || commands.operation&&!sameGoal) throw new Error('Revisa o cancela la acción pendiente antes de preparar otra.');
     commands.busy = true; const serial = ++commands.generation,selectedScope=scope();
     commands.operation=commands.lastOperation={kind:'learned_plan',operation_id:body.operation_id,state:'planning',steps:[],...(body.conversation_id?{conversation_id:body.conversation_id}:{})};
     commands.renderOperation(commands.operation);
-    try { const plan = await api('POST', 'learning/' + action, body); if (serial === commands.generation&&selectedScope===scope()) {if(body.conversation_id&&plan.conversation_id!==body.conversation_id||body.goal_spec&&plan.operation_id!==body.operation_id)throw Error('La preparación no corresponde a la misión y chat revisados.');if(body.goal_spec&&stableGoal(body.goal_spec)!==stableGoal(Object.fromEntries(Object.keys(body.goal_spec).map(key=>[key,plan.goal_spec?.[key]]))))throw Error('La preparación cambió los criterios revisados; consulta el resultado sin aprobarlo.');adopt(plan);} }
+    try { const plan = await api('POST', 'learning/' + action, body,memory); if (serial === commands.generation&&selectedScope===scope()) {if(body.conversation_id&&plan.conversation_id!==body.conversation_id||body.goal_spec&&plan.operation_id!==body.operation_id)throw Error('La preparación no corresponde a la misión y chat revisados.');if(body.goal_spec&&stableGoal(body.goal_spec)!==stableGoal(Object.fromEntries(Object.keys(body.goal_spec).map(key=>[key,plan.goal_spec?.[key]]))))throw Error('La preparación cambió los criterios revisados; consulta el resultado sin aprobarlo.');adopt(plan);} }
     catch(error){if(selectedScope!==scope()||serial!==commands.generation)return;if(action==='revalidate'||body.goal_spec){commands.lastOperation={...(humanGoal?previous:{}),kind:'learned_plan',operation_id:body.operation_id,conversation_id:body.conversation_id||previous?.conversation_id,state:'unknown',...(humanGoal?{}:{steps:[],...(action==='revalidate'?{revalidation:{id:body.id,version:body.version}}:{goal_spec:body.goal_spec})}),message:'No se confirmó la preparación. Consulta este mismo ID antes de volver a prepararlo.'};commands.operation=null;commands.renderOperation(commands.lastOperation);}throw error;}
     finally { if (serial === commands.generation) {commands.busy = false;if(selectedScope!==scope()&&commands.operation?.operation_id===body.operation_id&&commands.operation.state==='planning')commands.operation=null;} }
   }
@@ -111,13 +112,14 @@
   const goalProgress=plan=>plan.goal_progress||plan.mission?.goal_progress;
   function sameMission(plan,selected){if(selected!==scope()||plan.conversation_id!==task()||(plan.project_id??project())!==project())throw Error('La misión no corresponde al chat y proyecto actuales.');}
   async function prepareGoalProgress(plan){
+    const memory=captureMemory();
     const selected=scope(),progress=goalProgress(plan);sameMission(plan,selected);
     if(commands.busy||commands.operation)throw Error('Revisa o cancela la acción pendiente antes de preparar el siguiente paso.');
     commands.busy=true;const serial=++commands.generation;
     try{
-      const fresh=await api('GET','learning/plan?id='+encodeURIComponent(plan.operation_id));if(serial!==commands.generation||selected!==scope())return;sameMission(fresh,selected);const candidate=goalProgress(fresh);
+      const fresh=await api('GET','learning/plan?id='+encodeURIComponent(plan.operation_id),undefined,memory);if(serial!==commands.generation||selected!==scope())return;sameMission(fresh,selected);const candidate=goalProgress(fresh);
       if(fresh.operation_id!==plan.operation_id||fresh.plan_hash!==plan.plan_hash||candidate?.status!=='ready'||candidate.fingerprint!==progress.fingerprint||candidate.criterion_id!==progress.criterion_id||candidate.source_plan_hash&&candidate.source_plan_hash!==fresh.plan_hash)throw Error('La revisión o el candidato cambió. Actualiza y revisa el progreso.');
-      const result=await api('POST','learning/goal-progress',{operation_id:plan.operation_id,plan_hash:plan.plan_hash,criterion_id:progress.criterion_id,candidate_hash:progress.fingerprint});
+      const result=await api('POST','learning/goal-progress',{operation_id:plan.operation_id,plan_hash:plan.plan_hash,criterion_id:progress.criterion_id,candidate_hash:progress.fingerprint},memory);
       if(serial!==commands.generation||selected!==scope())return;sameMission(result,selected);
       if(result.operation_id!==plan.operation_id||result.state!=='awaiting_approval'||typeof result.plan_hash!=='string'||result.plan_hash===plan.plan_hash)throw Error('No se confirmó un sufijo nuevo para esta misma misión. Consulta su resultado.');
       adopt(result);await tasks();
@@ -137,17 +139,17 @@
     if(progress?.status==='ready'&&own){details.append(element('p','Candidato para el criterio '+(progress.criterion_id||'No informado')),element('pre',JSON.stringify({step:progress.step,fingerprint:progress.fingerprint,source_plan_hash:progress.source_plan_hash},null,2)));const next=button('Preparar siguiente paso',()=>prepareGoalProgress(plan));next.disabled=commands.busy||!!commands.operation||! /^[a-f0-9]{64}$/i.test(plan.plan_hash||'')||! /^[a-f0-9]{64}$/i.test(progress.fingerprint||'')||!criteria.some(criterion=>criterion.id===progress.criterion_id)||!!progress.source_plan_hash&&progress.source_plan_hash!==plan.plan_hash;details.append(next,element('p','Sólo prepara un sufijo de esta misión. Revisa y aprueba su nueva versión para producir efectos.'));}
     if(own&&plan.goal_spec&&!['running','cancelled'].includes(plan.state)){
       const editor=element('details'),input=element('textarea'),correction=element('input'),preview=element('pre');editor.append(element('summary','Corregir criterios con una nueva revisión'));input.className=correction.className='field';input.value=JSON.stringify(criteria,null,2);input.maxLength=16000;input.rows=8;input.setAttribute('aria-label','Criterios corregidos de la misión');correction.setAttribute('aria-label','Motivo de la corrección de criterios');correction.placeholder='Qué debe corregirse';let review=null;
-      const apply=button('Preparar corrección de criterios',async()=>{if(!review||review.key!==JSON.stringify([input.value,correction.value])||selected!==scope())throw Error('Revisa otra vez la corrección actual.');sameMission(plan,selected);const fresh=await api('GET','learning/plan?id='+encodeURIComponent(plan.operation_id));if(selected!==scope())return;sameMission(fresh,selected);if(fresh.operation_id!==plan.operation_id||fresh.goal_revision!==plan.goal_revision||fresh.plan_hash!==plan.plan_hash)throw Error('La revisión del objetivo cambió; consulta el plan actual antes de corregirlo.');if(!review||review.key!==JSON.stringify([input.value,correction.value]))throw Error('La corrección cambió durante la consulta; revísala otra vez.');await planRequest('repair',{operation_id:plan.operation_id,text:correction.value,goal_spec:review.goal,goal_revision:plan.goal_revision,...prefs()});});apply.disabled=true;
+      const apply=button('Preparar corrección de criterios',async memory=>{if(!review||review.key!==JSON.stringify([input.value,correction.value])||selected!==scope())throw Error('Revisa otra vez la corrección actual.');sameMission(plan,selected);const fresh=await api('GET','learning/plan?id='+encodeURIComponent(plan.operation_id),undefined,memory);if(selected!==scope())return;sameMission(fresh,selected);if(fresh.operation_id!==plan.operation_id||fresh.goal_revision!==plan.goal_revision||fresh.plan_hash!==plan.plan_hash)throw Error('La revisión del objetivo cambió; consulta el plan actual antes de corregirlo.');if(!review||review.key!==JSON.stringify([input.value,correction.value]))throw Error('La corrección cambió durante la consulta; revísala otra vez.');await planRequest('repair',{operation_id:plan.operation_id,text:correction.value,goal_spec:review.goal,goal_revision:plan.goal_revision,...prefs()},memory);});apply.disabled=true;
       const reviewButton=element('button','Revisar corrección de criterios');reviewButton.type='button';reviewButton.onclick=event=>run(()=>{if(!event.isTrusted||!correction.value.trim())throw Error('Escribe y revisa explícitamente el motivo de la corrección.');sameMission(plan,selected);review={key:JSON.stringify([input.value,correction.value]),goal:reviewedGoal(plan.goal_spec.intent,input.value,plan.goal_spec)};preview.textContent=JSON.stringify(review.goal,null,2);apply.disabled=false;});
       input.oninput=correction.oninput=()=>{review=null;preview.textContent='';apply.disabled=true;};editor.append(element('p','La corrección humana cambia la revisión y exige una nueva preparación. El modelo no puede sustituir estos criterios.'),input,correction,reviewButton,preview,apply);details.append(editor);
     }
     row.append(details);
   }
   const prefs = () => {const p=Axx.companion.data.prefs;return {model:p.model || '',provider_name:p.provider==='chatgpt'?'@codex':p.provider==='bridge'?p.apiConnection || '':'',selection_mode:p.selection_mode || 'manual'};};
-  async function refresh() {
-    const selected=project(),token=++refreshRevision;
-    const [result,context] = await Promise.all([api('GET','learning/actions?project_id='+encodeURIComponent(selected)),api('GET','learning/context?project_id='+encodeURIComponent(selected))]);
-    if(token!==refreshRevision||selected!==project())return;
+  async function refresh(memory=captureMemory()) {
+    const selected=project(),selectedScope=scope(),token=++refreshRevision;
+    const [result,context] = await Promise.all([api('GET','learning/actions?project_id='+encodeURIComponent(selected),undefined,memory),api('GET','learning/context?project_id='+encodeURIComponent(selected),undefined,memory)]);
+    if(token!==refreshRevision||selectedScope!==scope())return;
     skills = result.actions || []; renderList();renderContext(context);syncLessonScope();
     await tasks();
     if($('skills-lessons').open)await loadLessons();
@@ -168,25 +170,25 @@
     $('skills-context-status').textContent='Contexto guardado · Revisión: '+(context.context_revision??'No registrada')+(contextDirty.size?' · Hay campos editados sin guardar.':'');
     editorState?.refresh();
   }
-  async function saveContext(){
+  async function saveContext(memory=captureMemory()){
     const selected=project(),changes={};for(const field of contextDirty)changes[field]=$(contextInputs[field]).value;
     if(!Object.keys(changes).length){$('skills-status').textContent='No hay campos editados para guardar.';return;}
     const source_id=Axx.newId(),session_id=Axx.chatWorkspace?.active?.id,context_meta={};
     for(const field of Object.keys(changes))context_meta[field]={kind:'confirmed_user',origin:'user_settings',source_id,...(session_id?{session_id,task_id:session_id}:{}),observed_at:Date.now()/1000};
-    const context=await api('POST','learning/context',{project_id:selected,changes:{...changes,context_meta}});
+    const context=await api('POST','learning/context',{project_id:selected,changes:{...changes,context_meta}},memory);
     if(selected!==project())return;
     for(const [field,value] of Object.entries(changes))if($(contextInputs[field]).value===value)contextDirty.delete(field);
     renderContext(context);$('skills-status').textContent='Contexto guardado. Solo los campos editados se registraron como confirmados por ti.';
   }
-  async function invalidateContext(forget){
+  async function invalidateContext(forget,memory=captureMemory()){
     const selected=project(),value=$('skills-context-origin').value;if(!value)throw Error('Selecciona una fuente o sesión registrada.');
-    const context=await api('POST','learning/forget-context',{project_id:selected,...JSON.parse(value),forget});if(selected!==project())return;
+    const context=await api('POST','learning/forget-context',{project_id:selected,...JSON.parse(value),forget},memory);if(selected!==project())return;
     renderContext(context);$('skills-status').textContent=(forget?'Contexto olvidado':'Contexto marcado como desactualizado')+' · '+(context.invalidated||[]).length+' referencias invalidadas. Los permisos y el historial de ejecución se conservan.';
   }
-  const contextAction=action=>run(async()=>{if(contextBusy)return;contextBusy=true;$('skills-save-context').disabled=$('skills-invalidate-context').disabled=$('skills-forget-context').disabled=true;try{await action();}finally{contextBusy=false;$('skills-save-context').disabled=false;$('skills-invalidate-context').disabled=$('skills-forget-context').disabled=!$('skills-context-origin').options.length;}});
-  async function loadLessons(){
+  const contextAction=action=>run(async memory=>{if(contextBusy)return;contextBusy=true;$('skills-save-context').disabled=$('skills-invalidate-context').disabled=$('skills-forget-context').disabled=true;try{await action(memory);}finally{contextBusy=false;$('skills-save-context').disabled=false;$('skills-invalidate-context').disabled=$('skills-forget-context').disabled=!$('skills-context-origin').options.length;}});
+  async function loadLessons(memory=captureMemory()){
     syncLessonScope();renderLessonReceipts();const selected=scope(),currentTask=task(),currentProject=project(),token=++lessonRevision;if(!currentTask){$('skills-lessons-status').textContent='Selecciona un chat para consultar sus referencias.';return;}
-    const query=$('skills-lessons-search').elements,params=new URLSearchParams({project_id:currentProject,task_id:currentTask,query:query.query.value.trim(),command_id:query.command_id.value.trim(),limit:'3'});let result;try{result=await api('GET','learning/lessons?'+params);}catch(error){if(token!==lessonRevision||selected!==scope())return;throw error;}
+    const query=$('skills-lessons-search').elements,params=new URLSearchParams({project_id:currentProject,task_id:currentTask,query:query.query.value.trim(),command_id:query.command_id.value.trim(),limit:'3'});let result;try{result=await api('GET','learning/lessons?'+params,undefined,memory);}catch(error){if(token!==lessonRevision||selected!==scope())return;throw error;}
     if(token!==lessonRevision||selected!==scope())return;if(!Array.isArray(result.lessons))throw Error('La biblioteca no devolvió referencias válidas.');
     const root=$('skills-lessons-list');root.replaceChildren();
     for(const lesson of result.lessons){
@@ -203,15 +205,15 @@
       if(lesson.environment_matches===false||lesson.context_matches===false)add('Desactualizado','El entorno o el contexto ya no coincide con el de esta referencia.');
       if(lesson.permissions_granted===false)add('Permisos','Esta referencia no concede permisos.');if(lesson.preference_inferred===false)add('Preferencias','El incidente no acredita una preferencia del usuario.');
       add('Uso con el modelo',lesson.allow_provider===true?'Autorizado por ti; esta ficha puede enviarse al proveedor configurado.':'Uso local; no hay permiso de envío al modelo.');
-      list.style.overflowWrap='anywhere';details.append(list);row.append(details,button('Olvidar esta referencia',()=>lessonAction(async()=>{const result=await api('POST','learning/forget-lesson',{id:lesson.id});if(selected!==scope())return;await loadLessons();$('skills-lessons-status').textContent=(result.forgotten?'Referencia olvidada.':'La referencia ya no estaba guardada.')+(result.command_journal_preserved===true?' El historial de ejecución se conserva.':'');})));root.append(row);
+      list.style.overflowWrap='anywhere';details.append(list);row.append(details,button('Olvidar esta referencia',()=>lessonAction(async memory=>{const result=await api('POST','learning/forget-lesson',{id:lesson.id},memory);if(selected!==scope())return;await loadLessons();$('skills-lessons-status').textContent=(result.forgotten?'Referencia olvidada.':'La referencia ya no estaba guardada.')+(result.command_journal_preserved===true?' El historial de ejecución se conserva.':'');})));root.append(row);
     }
     $('skills-lessons-status').textContent=root.children.length?root.children.length+' referencias de este chat.':'No hay referencias que coincidan en este chat.';
   }
-  const lessonAction=action=>run(async()=>{if(lessonBusy)return;lessonBusy=true;$('skills-lesson-form').querySelector('button').disabled=true;try{await action();}finally{lessonBusy=false;$('skills-lesson-form').querySelector('button').disabled=false;}});
-  async function recordLesson(){
+  const lessonAction=action=>run(async memory=>{if(lessonBusy)return;lessonBusy=true;$('skills-lesson-form').querySelector('button').disabled=true;try{await action(memory);}finally{lessonBusy=false;$('skills-lesson-form').querySelector('button').disabled=false;}});
+  async function recordLesson(memory=captureMemory()){
     const form=$('skills-lesson-form'),selected=scope(),currentTask=task();if(!currentTask)throw Error('Selecciona el chat de este incidente.');if(form.dataset.scope!==selected)throw Error('El chat o proyecto cambió. Revisa y vuelve a escribir la referencia antes de guardarla.');
     const fields=form.elements,body={operation_id:fields.operation_id.value.trim(),hypothesis:fields.hypothesis.value.trim(),project_id:project(),task_id:currentTask,allow_provider:fields.allow_provider.checked&&form.dataset.providerConsent==='true'};if(fields.user_correction.value.trim()){if(form.dataset.humanCorrection!==fields.user_correction.value)throw Error('La corrección debe escribirla el usuario; el texto automático no se registrará como confirmado.');body.user_correction=fields.user_correction.value.trim();}if(fields.verification_operation_id.value.trim())body.verification_operation_id=fields.verification_operation_id.value.trim();
-    try{await api('POST','learning/lesson',body);}catch(error){if(selected!==scope())return;throw error;}if(selected!==scope())return;await loadLessons();$('skills-lessons-status').textContent='Referencia guardada. La hipótesis sigue sin confirmar.';
+    try{await api('POST','learning/lesson',body,memory);}catch(error){if(selected!==scope())return;throw error;}if(selected!==scope())return;await loadLessons();$('skills-lessons-status').textContent='Referencia guardada. La hipótesis sigue sin confirmar.';
   }
   function renderList() {
     const query = $('skills-search').value.toLocaleLowerCase(), list = $('skills-list'); list.replaceChildren();
@@ -219,7 +221,7 @@
       const card = element('article'); card.className = 'setup-card';
       card.append(element('strong', skill.title), element('p', `v${skill.version} · ${states[skill.status] || skill.status} · ${skill.goal_confirmed ? 'Objetivo confirmado' : 'Objetivo sin confirmar'}`));
       card.append(element('p', (skill.examples || []).slice(0, 3).join(' · ')));
-      card.append(button(skill.favorite ? '★ Favorita' : '☆ Favorita', async () => { await api('POST','learning/configure',{id:skill.id,changes:{favorite:!skill.favorite}}); await refresh(); }));
+      card.append(button(skill.favorite ? '★ Favorita' : '☆ Favorita', async memory => { await api('POST','learning/configure',{id:skill.id,changes:{favorite:!skill.favorite}},memory); await refresh(); }));
       card.append(button('Entradas y ejecución', () => edit(skill)));
       list.append(card);
     }
@@ -272,12 +274,12 @@
     const direct=new Set(['axx.file.sha256','axx.file.compare','axx.file.find','axx.artifact.pdf','axx.artifact.media','axx.artifact.ocr','axx.artifact.write','axx.file.bundle','axx.office.excel.csv','axx.office.word.pdf','axx.office.powerpoint.pdf']);
     editorState={scope:selectedScope,id:skill.id,version:skill.version,refresh(){const consistent=selectedScope===scope()&&skills.find(row=>row.id===skill.id)?.version===skill.version,current=refreshedReferences();refsCheckbox.disabled=!consistent||!references.length||!!current.error;if(refsCheckbox.dataset.key!==current.key){refsCheckbox.checked=false;delete refsCheckbox.dataset.approved;refsCheckbox.dataset.key=current.key||'';}refsStatus.textContent=!consistent?'La selección cambió; vuelve a abrir esta versión.':current.error||(!references.length?'Esta versión no conserva referencias de contexto.':'Guardar crea una versión nueva y conserva los mismos campos y proyectos.');refsPreview.textContent=current.preview?JSON.stringify(current.preview,null,2):'';const contextValid=currentContextProject===project()&&references.every(ref=>{const meta=currentContext?.context_meta?.[ref.field];return ref.project_id===project()&&meta?.revision===ref.revision&&meta.status==='active'&&[null,undefined,'',task()].includes(meta.task_id)&&!(meta.expires_at!=null&&meta.expires_at*1000<=Date.now());});const supported=skill.executable&&skill.inference==null&&!skill.id.startsWith('workshop.cap.')&&!skill.provenance?.workshop_id&&skill.templates.every(step=>direct.has(step.command_id));trialButton.disabled=!consistent||!task()||!supported||!contextValid;const workspace=Axx.anticipation?.state?.capabilities?.mission_steps?.workspace_root;trialStatus.textContent=!consistent?'La versión o el chat cambió; vuelve a seleccionar la habilidad.':!supported?'Este ensayo no admite inferencia, controles del escritorio, shell, MCP ni promociones del taller.':!contextValid?'Revisa primero las referencias actuales y guarda una versión nueva.':workspace?'Ámbito de ensayo: '+workspace:'El plan mostrará la raíz real del espacio de ensayo antes de aprobar.';}};editorState.refresh();
     trialForm.onsubmit=event=>{event.preventDefault();void run(async()=>{editorState?.refresh();if(trialButton.disabled||selectedScope!==scope())throw Error('Selecciona una versión y un ámbito coherentes para este ensayo.');if(!trialForm.reportValidity())throw Error('Escribe todos los parámetros actuales del ensayo.');const inputs=Object.fromEntries([...trialFields].filter(([,entry])=>entry.field.value!=='').map(([name,{field,spec}])=>[name,spec.enum||spec.type==='boolean'?JSON.parse(field.value):['number','integer'].includes(spec.type)?Number(field.value):field.value]));await planRequest('revalidate',{id:skill.id,version:skill.version,inputs,project_id:project(),conversation_id:task(),operation_id:Axx.newId()});});};
-    details.append(button('Guardar cambios',async()=>{
-      if(selectedScope!==scope()||skills.find(row=>row.id===skill.id)?.version!==skill.version)throw Error('La selección o versión cambió. Vuelve a revisar esta habilidad.');const changes={version:skill.version,title:title.value,examples:examples.value.split('\n').map(s=>s.trim()).filter(Boolean),schema:JSON.parse(schema.value),templates:JSON.parse(templates.value),inference:JSON.parse(inference.value)};const updateRefs=refsCheckbox.checked;if(updateRefs){const approved=refsCheckbox.dataset.approved;if(!approved||approved!==refreshedReferences().key)throw Error('Confirma explícitamente las referencias actuales antes de guardarlas.');const latest=await api('GET','learning/context?project_id='+encodeURIComponent(project()));if(selectedScope!==scope())throw Error('El ámbito cambió antes de guardar.');renderContext(latest);const current=refreshedReferences();if(current.error||current.key!==approved||!refsCheckbox.checked||refsCheckbox.dataset.approved!==approved)throw Error('Las referencias cambiaron; revisa de nuevo sus valores y revisiones.');changes.context_dependencies=current.next;}await api('POST','learning/configure',{id:skill.id,changes});if(selectedScope!==scope())return;
-      if(alias.value.trim()){const context=await api('GET','learning/context?project_id='+encodeURIComponent(project()));if(selectedScope!==scope())return;await api('POST','learning/context',{project_id:project(),changes:{aliases:{...context.aliases,[alias.value.trim()]:skill.id}}});}
+    details.append(button('Guardar cambios',async memory=>{
+      if(selectedScope!==scope()||skills.find(row=>row.id===skill.id)?.version!==skill.version)throw Error('La selección o versión cambió. Vuelve a revisar esta habilidad.');const changes={version:skill.version,title:title.value,examples:examples.value.split('\n').map(s=>s.trim()).filter(Boolean),schema:JSON.parse(schema.value),templates:JSON.parse(templates.value),inference:JSON.parse(inference.value)};const updateRefs=refsCheckbox.checked;if(updateRefs){const approved=refsCheckbox.dataset.approved;if(!approved||approved!==refreshedReferences().key)throw Error('Confirma explícitamente las referencias actuales antes de guardarlas.');const latest=await api('GET','learning/context?project_id='+encodeURIComponent(project()),undefined,memory);if(selectedScope!==scope())throw Error('El ámbito cambió antes de guardar.');renderContext(latest);const current=refreshedReferences();if(current.error||current.key!==approved||!refsCheckbox.checked||refsCheckbox.dataset.approved!==approved)throw Error('Las referencias cambiaron; revisa de nuevo sus valores y revisiones.');changes.context_dependencies=current.next;}await api('POST','learning/configure',{id:skill.id,changes},memory);if(selectedScope!==scope())return;
+      if(alias.value.trim()){const context=await api('GET','learning/context?project_id='+encodeURIComponent(project()),undefined,memory);if(selectedScope!==scope())return;await api('POST','learning/context',{project_id:project(),changes:{aliases:{...context.aliases,[alias.value.trim()]:skill.id}}},memory);}
       editorState=null;root.replaceChildren(); await refresh();if(updateRefs&&selectedScope===scope()){const updated=skills.find(row=>row.id===skill.id);if(updated)edit(updated);$('skills-status').textContent='Referencias guardadas en una versión nueva. Escribe los parámetros actuales y prepara su ensayo.';}
     }));
-    if(skill.effect_verified) for(const [text,confirmed] of [['El resultado cumplió el objetivo',true],['El resultado necesita corrección',false]]) details.append(button(text,async()=>{await api('POST','learning/configure',{id:skill.id,changes:{version:skill.version,goal_confirmed:confirmed}});await refresh();}));
+    if(skill.effect_verified) for(const [text,confirmed] of [['El resultado cumplió el objetivo',true],['El resultado necesita corrección',false]]) details.append(button(text,async memory=>{await api('POST','learning/configure',{id:skill.id,changes:{version:skill.version,goal_confirmed:confirmed}},memory);await refresh();}));
     root.append(details); root.scrollIntoView({block:'nearest'});
   }
   function renderParts() {
@@ -287,8 +289,8 @@
       return row;
     }));
   }
-  async function tasks() {
-    const selected=project(),selectedTask=task(),token=++tasksRevision,result=await api('GET','learning/plans?project_id='+encodeURIComponent(selected));if(token!==tasksRevision||selected!==project()||selectedTask!==task())return;const root=$('skills-tasks'); root.replaceChildren();
+  async function tasks(memory=captureMemory()) {
+    const selected=project(),selectedTask=task(),token=++tasksRevision,result=await api('GET','learning/plans?project_id='+encodeURIComponent(selected),undefined,memory);if(token!==tasksRevision||selected!==project()||selectedTask!==task())return;const root=$('skills-tasks'); root.replaceChildren();
     taskPlans=result.plans||[];taskPlansProject=selected;renderLessonReceipts();
     for(const plan of result.plans || []) {
       const row=element('article'); row.className='setup-card';
@@ -318,7 +320,7 @@
   $('skills-refresh').onclick=()=>run(refresh); $('skills-search').oninput=$('skills-favorites').onchange=renderList;
   $('skills-project').onchange=()=>run(async()=>{if(commands.busy||commands.operation){$('skills-project').value=Axx.companion.data.prefs.skillProject||'';throw new Error('Termina o cancela la acción activa antes de cambiar de proyecto.');}Axx.companion.data.prefs.skillProject=project();Axx.companion.save();commands.learningQuestion=null;commands.actionContext={};parts=[];renderParts();editorState=null;$('skills-editor').replaceChildren();contextDirty.clear();for(const id of Object.values(contextInputs))$(id).value='';$('skills-context-evidence').replaceChildren();$('skills-context-origin').replaceChildren();$('skills-context-status').textContent='Consultando contexto del proyecto…';syncLessonScope();++refreshRevision;++tasksRevision;await refresh();});
   for(const [field,id] of Object.entries(contextInputs))$(id).oninput=event=>{if(event.isTrusted){contextDirty.add(field);$('skills-context-status').textContent='Hay campos editados sin guardar.';}};
-  $('skills-save-context').onclick=()=>contextAction(saveContext);$('skills-invalidate-context').onclick=()=>contextAction(()=>invalidateContext(false));$('skills-forget-context').onclick=()=>contextAction(()=>invalidateContext(true));
+  $('skills-save-context').onclick=()=>contextAction(saveContext);$('skills-invalidate-context').onclick=()=>contextAction(memory=>invalidateContext(false,memory));$('skills-forget-context').onclick=()=>contextAction(memory=>invalidateContext(true,memory));
   $('skills-lessons').addEventListener('toggle',()=>{if($('skills-lessons').open)void run(loadLessons);});$('skills-lessons-search').onsubmit=event=>{event.preventDefault();void run(loadLessons);};
   $('skills-lesson-form').oninput=event=>{if(event.isTrusted){const form=$('skills-lesson-form');form.dataset.scope=scope();if(event.target.name==='user_correction')form.dataset.humanCorrection=event.target.value;if(event.target.name==='allow_provider')form.dataset.providerConsent=String(event.target.checked);if(event.target.name==='operation_id'){form.elements.allow_provider.checked=false;delete form.dataset.providerConsent;renderLessonReceipts();}}};$('skills-lesson-form').onsubmit=event=>{event.preventDefault();void lessonAction(recordLesson);};
   $('skills-lesson-form').elements.failed_receipt.onchange=event=>{const form=$('skills-lesson-form');if(!event.isTrusted)return;form.dataset.scope=scope();form.elements.operation_id.value=event.target.value;form.elements.verification_operation_id.value='';form.elements.allow_provider.checked=false;delete form.dataset.providerConsent;renderLessonReceipts();};
@@ -336,7 +338,13 @@
   $('skills-demo-prepare').onclick=()=>run(()=>commands.planAction($('skills-demo-objective').value||demo.objective,{context:{demonstration:demo.reference}}));
   document.addEventListener('keydown',event=>{if(event.key==='Escape'&&['starting','recording'].includes(demo?.status))run(()=>stopDemo(true));},true);
   if(Axx.isNative()) { void Axx.app.bridge.listen('axx-cancel',()=>{if(['starting','recording'].includes(demo?.status))run(()=>stopDemo(true));}); }
-  Axx.skillLibrary={project,refresh,tasks,continueTask:(operation_id,text)=>planRequest('repair',{operation_id,text,...prefs()}),open:(id)=>{commands.open();section.scrollIntoView({block:'start'});return run(async()=>{await refresh();if(id){const selected=skills.find(s=>s.id===id);if(!selected)throw new Error('La capacidad no está disponible en este proyecto.');edit(selected);$('skills-editor').scrollIntoView({block:'nearest'});}});},learn:()=>{commands.open();$('skills-demonstration').open=true;$('skills-demonstration').scrollIntoView({block:'start'});run(async()=>{await inventory();showDemo(await api('GET','demonstration/status'));});}};
+  function invalidateMemory(id){
+    if(task()!==id)return;++refreshRevision;++tasksRevision;++lessonRevision;skills=[];parts=[];taskPlans=taskPlans.filter(plan=>plan.conversation_id!==id);currentContext=null;currentContextProject='';editorState=null;clearGoalReview();
+    $('skills-list').replaceChildren();$('skills-editor').replaceChildren();$('skills-tasks').replaceChildren();$('skills-lessons-list').replaceChildren();$('skills-context-evidence').replaceChildren();$('skills-context-origin').replaceChildren();
+    for(const [field,input] of Object.entries(contextInputs))if(!contextDirty.has(field))$(input).value='';renderParts();
+  }
+  function memoryFolder(){const meta=currentContext?.context_meta?.current_folder;return currentContextProject===project()&&meta?.status==='active'&&[null,undefined,'',task()].includes(meta.task_id)&&!(meta.expires_at!=null&&meta.expires_at*1000<=Date.now())?currentContext.current_folder:undefined;}
+  Axx.skillLibrary={project,refresh,tasks,invalidateMemory,memoryFolder,memoryTarget:()=>editorState?.scope===scope()?{id:editorState.id,version:editorState.version,...(memoryFolder()?{folder:memoryFolder()}:{})}:null,continueTask:(operation_id,text,memory)=>planRequest('repair',{operation_id,text,...prefs()},memory),open:(id)=>{commands.open();section.scrollIntoView({block:'start'});return run(async memory=>{await refresh(memory);if(id){const selected=skills.find(s=>s.id===id);if(!selected)throw new Error('La capacidad no está disponible en este proyecto.');edit(selected);$('skills-editor').scrollIntoView({block:'nearest'});}});},learn:()=>{commands.open();$('skills-demonstration').open=true;$('skills-demonstration').scrollIntoView({block:'start'});run(async()=>{await inventory();showDemo(await api('GET','demonstration/status'));});}};
   const openFeature=Axx.companion.openFeature.bind(Axx.companion);
   Axx.companion.openFeature=id=>id==='learn'?Axx.skillLibrary.learn():openFeature(id);
   $('command-library-learned').textContent='Abrir mis habilidades'; $('command-library-learned').onclick=()=>Axx.skillLibrary.open();

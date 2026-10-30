@@ -33,18 +33,23 @@
     const originalSave=c.save.bind(c);
     c.save=function(){originalSave(); if(enabled) void sync();};
     async function sync(){
-        if(syncing || c.pending) return;
+        if(syncing || c.pending || !Axx.chatWorkspace?.ready) return;
         syncing=true;
-        const conversation_id=c.data.sharedConversationId;
+        const conversation_id=c.data.sharedConversationId;let token;
         try {
+            token=Axx.chatWorkspace.captureMemoryToken();
             const messages=c.data.prefs.keepHistory?c.data.messages.filter(m=>['user','assistant','system'].includes(m.role) && m.status!=='pending' && typeof m.text==='string' && m.at>Date.now()-90*86400000).slice(-200):[];
             const inference={provider:c.data.prefs.provider||'', provider_name:c.data.prefs.apiConnection||'', model:c.data.prefs.model||'', selection_mode:c.data.prefs.selection_mode||'manual'};
-            const result=await api('POST','messages',{conversation_id,messages,inference,appearance:appearance(),share_history:!!c.data.prefs.keepHistory});
-            if(c.data.sharedConversationId!==conversation_id)return;
+            const body=structuredClone({conversation_id,messages,inference,appearance:appearance(),share_history:!!c.data.prefs.keepHistory,memory_scope:{...token.memory_scope},memory_context_id:token.memory_context_id});
+            await Axx.chatWorkspace.flush();
+            if(c.data.sharedConversationId!==conversation_id||!Axx.chatWorkspace.isMemoryTokenCurrent(token))return;
+            const result=await api('POST','messages',body);
+            if(c.data.sharedConversationId!==conversation_id||!Axx.chatWorkspace.isMemoryTokenCurrent(token))return;
+            if(result.memory_scope&&(result.memory_scope.task_id!==token.memory_scope.task_id||result.memory_scope.generation!==token.memory_scope.generation)||result.memory_context_id&&result.memory_context_id!==token.memory_context_id)return;
             const ids=new Set(c.data.messages.map(m=>m.id));
             const incoming=result.messages.filter(m=>!ids.has(m.id));
-            if(incoming.length){c.data.messages=[...c.data.messages,...incoming].sort((a,b)=>a.at-b.at).slice(-200);originalSave();c.renderChat();}
-        } catch(e){$('axx-mobile-status').textContent='Sync failed: '+(e.message||e);}
+            if(incoming.length){c.data.messages=[...c.data.messages,...incoming].sort((a,b)=>a.at-b.at).slice(-200);c.save();c.renderChat();}
+        } catch(e){if(!token||Axx.chatWorkspace.isMemoryTokenCurrent(token))$('axx-mobile-status').textContent='Sync failed: '+(e.message||e);}
         finally{syncing=false;}
     }
     function hidePair(){clearInterval(expiry);$('axx-mobile-pair').hidden=true;$('axx-mobile-uri').value='';$('axx-mobile-qr').removeAttribute('src');}

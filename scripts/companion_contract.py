@@ -9,6 +9,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 CHECKS = {'contract', 'renderer_build', 'backend_tests', 'browser_tests'}
+SHARED_MEMORY_INPUTS = ('backend/memory/task_memory.py', 'backend/chat_store.py', 'backend/session_memory.py',
+    'backend/server.py', '1.AXX/scripts/chat-workspace.js', '1.AXX/scripts/mobile-gateway.js')
 
 def read(path):
     return json.loads(path.read_text(encoding='utf-8-sig'))
@@ -85,6 +87,7 @@ def check_contract(root=ROOT, built=False):
 
 def input_hashes(root):
     paths = {root / p for p in ('package.json', '1.AXX/Axx.html', 'scripts/companion_contract.py', 'scripts/validate_companion.py', 'scripts/test_companion_contract.py', 'scripts/release.py', 'requirements-mobile.txt', 'requirements-companion-tests.txt')}
+    paths.update(root / name for name in SHARED_MEMORY_INPUTS)
     for base in ('mobile', 'backend/mobile'):
         for path in (root / base).rglob('*'):
             relative = path.relative_to(root)

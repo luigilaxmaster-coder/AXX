@@ -12,6 +12,8 @@ El primer recorrido es `artifact.generated → verificación adicional → resul
 
 La [progresión de misiones con criterios verificables](GOAL-PROGRESS.md) amplía una misión existente con un sufijo registrado cuando su resultado aún no cumple el contrato. Conserva recibos y presupuesto, y reevalúa los permisos para la revisión nueva. Su cobertura actual son tres tipos de entregable; no completa por sí sola el alcance general de los adjuntos.
 
+El [olvido por sesión y las correcciones naturales](SCOPED-MEMORY.md) invalidan memoria atribuible y sus derivados mediante referencias durables, conservando archivos, recibos, presupuesto y borradores. Las solicitudes de documentos y las salidas del modelo no modifican las reglas de selección por sí mismas.
+
 ## Perfiles, ámbitos y permisos
 
 | Perfil | Iniciativa predeterminada | Efecto sobre una orden explícita |

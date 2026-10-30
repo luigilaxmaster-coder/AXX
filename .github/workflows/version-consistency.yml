@@ -20,6 +20,10 @@ jobs:
         run: node 1.AXX/scripts/test-action-learning.cjs --goal-ui
       - name: Command review browser contracts
         run: node 1.AXX/scripts/test-command-library.cjs
+      - name: Scoped memory browser contracts
+        run: node 1.AXX/scripts/test-task-memory.cjs
+      - name: Mobile history generation browser contracts
+        run: node 1.AXX/scripts/test-mobile-pairing.cjs
       - name: Anticipation review browser contracts
         run: node 1.AXX/scripts/test-anticipation.cjs
       - name: Inference routing and worker regressions
@@ -28,6 +32,10 @@ jobs:
         run: python -m unittest backend.tests.test_prompts backend.tests.test_command_language backend.tests.test_command_sequences backend.tests.test_action_learning backend.tests.test_goal_cycle backend.tests.test_command_library backend.tests.test_provider_settings backend.tests.test_mission_model_budget backend.tests.test_planning_context backend.tests.test_source_destinations backend.tests.test_source_dispatch backend.tests.test_anticipation_context_sources -q
       - name: Mission outcomes and bounded continuation
         run: python -m unittest backend.tests.test_goal_criteria backend.tests.test_goal_progress backend.tests.test_goal_progress_holdout backend.tests.test_goal_progress_input_race backend.tests.test_anticipation_goal_progress backend.tests.test_missions backend.tests.test_mission_dispatch -q
+      - name: Scoped forgetting and memory corrections
+        run: python -m unittest backend.tests.test_task_memory backend.tests.test_command_task_memory backend.tests.test_skill_task_memory backend.tests.test_chat_forgetting backend.tests.test_selection_policy backend.tests.test_session_memory backend.tests.test_workshop_task_memory backend.tests.test_anticipation_task_memory backend.tests.test_legacy_task_memory backend.tests.test_memory_http backend.tests.test_telegram_task_memory -q
+      - name: Connect memory and compatibility regressions
+        run: python -m unittest discover -s backend/connect/tests -q
       - name: Telegram and desktop command regressions
         run: python -m unittest backend.tests.test_commands_remote_confirmation backend.tests.test_telegram_confirmation backend.tests.test_telegram_confirmation_integration backend.tests.test_telegram_bot backend.tests.test_telegram_bot_setup backend.tests.test_telegram_catalog backend.tests.test_telegram_service backend.tests.test_telegram_daemon backend.tests.test_telegram_miniapp backend.tests.test_telegram_http backend.tests.test_window_title_scope backend.tests.test_desktop_commands -q
       - name: Prompt browser contracts

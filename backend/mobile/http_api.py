@@ -148,7 +148,7 @@ class MobileHTTP:
             self.gateway.appearance = checked_appearance(body)
             result = {'updated':True}
         elif path == '/axx-api/mobile/messages':
-            if set(body) - {'messages', 'conversation_id', 'inference', 'appearance', 'share_history'} or not {'messages','conversation_id','inference'} <= set(body):
+            if set(body) - {'messages', 'conversation_id', 'inference', 'appearance', 'share_history', 'memory_scope', 'memory_context_id'} or not {'messages','conversation_id','inference'} <= set(body):
                 raise ValueError('messages required')
             inference = body['inference']
             if not isinstance(inference, dict) or not {'provider','provider_name','model'} <= set(inference) or set(inference) - {'provider','provider_name','model','selection_mode'} or any(not isinstance(v,str) or len(v)>200 for v in inference.values()):
@@ -162,7 +162,8 @@ class MobileHTTP:
             if appearance is not None:
                 self.gateway.appearance = checked_appearance(appearance)
             self.gateway.share_history = body.get('share_history', True)
-            result = self.gateway.shared.merge_messages(body['messages'] if self.gateway.share_history else [], 'desktop', body['conversation_id'], activate=True)
+            result = self.gateway.shared.merge_messages(body['messages'] if self.gateway.share_history else [], 'desktop', body['conversation_id'], activate=True,
+                memory_scope=body.get('memory_scope'),memory_context_id=body.get('memory_context_id'))
             if not self.gateway.share_history:
                 result = {'conversation_id':body['conversation_id'],'messages':[]}
         else:

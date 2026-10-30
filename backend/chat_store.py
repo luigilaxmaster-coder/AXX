@@ -8,6 +8,7 @@ import threading
 import time
 import uuid
 from contextlib import contextmanager
+from .memory import task_memory
 
 TTL = 90 * 86400 * 1000
 MODES = {'ask', 'auto_safe'}
@@ -37,7 +38,26 @@ class ChatStore:
                 CREATE TABLE IF NOT EXISTS chat_settings(key TEXT PRIMARY KEY, value TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS chat_links(conversation_id TEXT NOT NULL, source_id TEXT NOT NULL, title TEXT NOT NULL, updated REAL NOT NULL, PRIMARY KEY(conversation_id,source_id));
                 CREATE TABLE IF NOT EXISTS chat_link_messages(conversation_id TEXT NOT NULL, source_id TEXT NOT NULL, message_id TEXT NOT NULL, at REAL NOT NULL, payload TEXT NOT NULL, PRIMARY KEY(conversation_id,source_id,message_id));
+                CREATE TABLE IF NOT EXISTS chat_forget_results(task_id TEXT NOT NULL, generation INTEGER NOT NULL, payload TEXT NOT NULL, PRIMARY KEY(task_id,generation));
             ''')
+            task_memory.ensure(db)
+            additions = {'chat_conversations': {'memory_context_required': 'INTEGER NOT NULL DEFAULT 0'},
+                         'chat_messages': {'memory_generation': 'INTEGER NOT NULL DEFAULT 0',
+                                           'memory_dependencies': "TEXT NOT NULL DEFAULT '[]'", 'invalidated': 'INTEGER NOT NULL DEFAULT 0',
+                                           'requires_review': 'INTEGER NOT NULL DEFAULT 0'},
+                         'chat_attachments': {'memory_generation': 'INTEGER NOT NULL DEFAULT 0'},
+                         'chat_links': {'source_generation': 'INTEGER NOT NULL DEFAULT 0'},
+                         'chat_link_messages': {'memory_dependencies': "TEXT NOT NULL DEFAULT '[]'", 'invalidated': 'INTEGER NOT NULL DEFAULT 0'},
+                         'chat_context': {'origin_task_id': 'TEXT', 'origin_message_id': 'TEXT',
+                                          'memory_generation': 'INTEGER NOT NULL DEFAULT 0',
+                                          'memory_dependencies': "TEXT NOT NULL DEFAULT '[]'",
+                                          'requires_review': 'INTEGER NOT NULL DEFAULT 0',
+                                          'invalidated': 'INTEGER NOT NULL DEFAULT 0'}}
+            for table, columns in additions.items():
+                existing = {r[1] for r in db.execute('PRAGMA table_info(' + table + ')')}
+                for column, definition in columns.items():
+                    if column not in existing:
+                        db.execute('ALTER TABLE ' + table + ' ADD COLUMN ' + column + ' ' + definition)
             if 'draft_at' not in {r[1] for r in db.execute('PRAGMA table_info(chat_conversations)')}:
                 db.execute('ALTER TABLE chat_conversations ADD COLUMN draft_at REAL NOT NULL DEFAULT 0')
                 db.execute('UPDATE chat_conversations SET draft_at=updated')
@@ -114,7 +134,83 @@ class ChatStore:
                     text(body.get('draft', '')), ident(body.get('connect_id') or str(uuid.uuid4())), ident(body.get('shared_id') or str(uuid.uuid4())),now))
         return cid
 
-    def _messages(self, db, cid, messages):
+    @staticmethod
+    def _refs_current(db, references):
+        for ref in references:
+            current = task_memory.state(db, ref['task_id'])
+            if current['forgetting'] or current['generation'] != ref['generation']:
+                return False
+            if ref.get('context_id') is not None:
+                row = db.execute('SELECT connect_id FROM chat_conversations WHERE id=?', (ref['task_id'],)).fetchone()
+                if not row or row[0] != ref['context_id']: return False
+        return True
+
+    def _context_dependencies(self, db, cid, generation):
+        references = {(cid, generation, None)}
+        group = db.execute('SELECT group_id FROM chat_conversations WHERE id=?', (cid,)).fetchone()[0]
+        for message in db.execute('SELECT memory_dependencies FROM chat_messages WHERE conversation_id=? AND memory_generation=? AND invalidated=0 AND requires_review=0', (cid,generation)):
+            refs = json.loads(message[0])
+            if not self._refs_current(db, refs):
+                raise ValueError('El contexto de un mensaje anterior cambió')
+            references.update((r['task_id'],r['generation'],r.get('context_id')) for r in refs)
+        for link in db.execute('SELECT source_id,source_generation FROM chat_links WHERE conversation_id=?', (cid,)):
+            refs = [{'task_id': link['source_id'], 'generation': link['source_generation']}]
+            if not self._refs_current(db, refs):
+                raise ValueError('El contexto de un hilo vinculado cambió')
+            references.update((r['task_id'],r['generation'],r.get('context_id')) for r in refs)
+            for message in db.execute('SELECT memory_dependencies FROM chat_link_messages WHERE conversation_id=? AND source_id=? AND invalidated=0', (cid,link['source_id'])):
+                refs = json.loads(message[0])
+                if not self._refs_current(db, refs):
+                    raise ValueError('El contexto de un mensaje vinculado cambió')
+                references.update((r['task_id'],r['generation'],r.get('context_id')) for r in refs)
+        for note in db.execute('SELECT origin_task_id,memory_generation,memory_dependencies FROM chat_context WHERE group_id=? AND invalidated=0 AND requires_review=0', (group,)):
+            refs = json.loads(note['memory_dependencies'])
+            if note['origin_task_id']:
+                refs.append({'task_id':note['origin_task_id'], 'generation':note['memory_generation']})
+            else:
+                # Unattributed shared notes depend on the group's current eligibility, not an invented owner.
+                refs.extend(task_memory.snapshot(db,r[0]) for r in db.execute('SELECT id FROM chat_conversations WHERE group_id=?', (group,)))
+            if not self._refs_current(db, refs):
+                raise ValueError('El contexto de una nota compartida cambió')
+            references.update((r['task_id'],r['generation'],r.get('context_id')) for r in refs)
+        return [{'task_id':owner, 'generation':version} | ({'context_id':context} if context is not None else {})
+                for owner,version,context in sorted(references, key=lambda ref:(ref[0],ref[1],ref[2] or ''))]
+
+    @staticmethod
+    def _operation_dependencies(db, cid, operation_id):
+        operation_id = ident(operation_id)
+        tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        found = []
+        for table, key, payload in (('learning_plans','id','payload'), ('command_runs','operation_id','result_json')):
+            if table in tables:
+                row = db.execute(f'SELECT {payload} FROM {table} WHERE {key}=?', (operation_id,)).fetchone()
+                if row: found.append(json.loads(row[0]))
+        if len(found) != 1 or found[0].get('conversation_id') != cid or found[0].get('memory_forgotten'):
+            raise ValueError('El mensaje requiere una operación vigente de esta conversación')
+        item = found[0]
+        from .actions.artifact_compensation import COMMAND_ACTIONS
+        if item.get('command_id') in COMMAND_ACTIONS: return []
+        scope = task_memory.assert_context(db, item.get('memory_scope'), item.get('memory_context_id'), task_id=cid)
+        refs = task_memory.assert_dependencies(db, item.get('memory_dependencies', []))
+        origin = scope
+        if origin not in refs: refs.append(origin)
+        return refs
+
+    def _legacy_context_review(self, db, cid, seen=None):
+        seen = set() if seen is None else seen
+        if cid in seen:
+            return False
+        seen.add(cid)
+        current = task_memory.state(db, cid)
+        if current['forgetting']:
+            return True
+        try:
+            self._context_dependencies(db, cid, current['generation'])
+        except ValueError:
+            return True
+        return any(self._legacy_context_review(db,r[0],seen) for r in db.execute('SELECT source_id FROM chat_links WHERE conversation_id=?', (cid,)))
+
+    def _messages(self, db, cid, messages, generation=0):
         if not isinstance(messages, list) or len(messages) > 2000:
             raise ValueError('Lote de mensajes inválido')
         for m in messages:
@@ -128,30 +224,87 @@ class ChatStore:
                 continue
             if m.get('role') not in ('user','assistant','notice','system') or m.get('status') not in ('complete','pending','interrupted','error','sent','done','failed'):
                 raise ValueError('Rol o estado inválido')
-            old = db.execute('SELECT conversation_id FROM chat_messages WHERE id=?', (mid,)).fetchone()
+            old = db.execute('SELECT conversation_id,memory_generation,memory_dependencies,invalidated,requires_review,payload FROM chat_messages WHERE id=?', (mid,)).fetchone()
             if old and old[0] != cid:
                 raise ValueError('El mensaje pertenece a otro chat')
+            if old and (old['memory_generation'] != generation or old['invalidated'] or old['requires_review']
+                        or not self._refs_current(db, json.loads(old['memory_dependencies']))):
+                raise ValueError('El mensaje pertenece al historial olvidado')
+            if old and json.loads(old['payload'])['role'] != m['role']:
+                raise ValueError('El rol de un mensaje guardado no puede cambiar')
+            dependencies = (json.loads(old['memory_dependencies']) if old else
+                            self._context_dependencies(db, cid, generation) if m['role'] in ('assistant','notice') else
+                            [{'task_id':cid, 'generation':generation}])
+            previous_operation = json.loads(old['payload']).get('operation_id') if old else None
+            source_operation = m.get('operation_id', previous_operation)
+            if previous_operation is not None and source_operation != previous_operation:
+                raise ValueError('La procedencia de un mensaje guardado no puede cambiar')
+            if source_operation is not None:
+                if m['role'] not in ('assistant','notice'): raise ValueError('Sólo un resultado puede referenciar una operación')
+                if source_operation != previous_operation:
+                    for ref in self._operation_dependencies(db, cid, source_operation):
+                        if ref not in dependencies: dependencies.append(ref)
             payload = {k: m[k] for k in ('id','role','source','status','at','model') if k in m}
+            if source_operation is not None: payload['operation_id'] = source_operation
             payload['text'] = content
-            db.execute('INSERT INTO chat_messages VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload', (mid,cid,at,json.dumps(payload,ensure_ascii=False)))
+            db.execute('INSERT INTO chat_messages(id,conversation_id,at,payload,memory_generation,memory_dependencies) VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload', (mid,cid,at,json.dumps(payload,ensure_ascii=False),generation,json.dumps(dependencies)))
 
-    def get(self, cid):
+    def get(self, cid, include_history=False):
+        if type(include_history) is not bool:
+            raise ValueError('Lectura de historial inválida')
         self.purge()
         with self.db() as db:
+            db.execute('BEGIN')
             row = db.execute('SELECT * FROM chat_conversations WHERE id=?', (ident(cid),)).fetchone()
             if not row:
                 raise ValueError('Conversación desconocida o vencida')
             result = dict(row)
+            current = task_memory.state(db, cid)
+            generation, pending = current['generation'], current['forgetting']
+            result['memory_scope'] = {'task_id': cid, 'generation': generation}
+            result['context_id'] = row['connect_id']
+            result['memory_forgetting'] = pending
             result['agent_profile'] = self._profile(db)
-            result['messages'] = [json.loads(r[0]) for r in db.execute('SELECT payload FROM chat_messages WHERE conversation_id=? ORDER BY at,id', (cid,))]
-            result['context'] = [dict(r) for r in db.execute('SELECT * FROM chat_context WHERE group_id=? ORDER BY at,id', (row['group_id'],))]
-            attachment = db.execute('SELECT name,text,at FROM chat_attachments WHERE conversation_id=?', (cid,)).fetchone()
-            result['attachment'] = dict(attachment) if attachment else None
+            messages = db.execute('SELECT payload,memory_generation,memory_dependencies,invalidated,requires_review FROM chat_messages WHERE conversation_id=? ORDER BY at,id', (cid,)).fetchall()
+            legacy_review = self._legacy_context_review(db,cid)
+            unknown = [r['memory_dependencies'] == '[]' and json.loads(r['payload'])['role'] in ('assistant','notice') for r in messages]
+            visible = [not pending and not r['invalidated'] and not r['requires_review'] and not (legacy_review and unowned) and r['memory_generation'] == generation
+                       and self._refs_current(db, json.loads(r['memory_dependencies'])) for r,unowned in zip(messages,unknown)]
+            result['messages'] = [json.loads(r['payload']) for r,active in zip(messages,visible) if active]
+            result['history_count'] = sum(not active for active in visible)
+            result['review_message_count'] = sum(bool(r['requires_review'] or (legacy_review and unowned)) for r,unowned in zip(messages,unknown))
+            result['context'], review = [], []
+            for note in db.execute('SELECT * FROM chat_context WHERE group_id=? ORDER BY at,id', (row['group_id'],)):
+                origin = task_memory.state(db, note['origin_task_id']) if note['origin_task_id'] else None
+                active = (not pending and not note['invalidated'] and not note['requires_review']
+                          and self._refs_current(db, json.loads(note['memory_dependencies'])))
+                if origin:
+                    active = active and not origin['forgetting'] and origin['generation'] == note['memory_generation']
+                elif active:
+                    active = not any(task_memory.state(db, r[0])['forgetting'] for r in db.execute('SELECT id FROM chat_conversations WHERE group_id=?', (row['group_id'],)))
+                if active:
+                    result['context'].append(dict(note))
+                elif note['requires_review']:
+                    review.append(dict(note))
+            result['review_context_count'] = len(review)
+            attachment = db.execute('SELECT name,text,at,memory_generation FROM chat_attachments WHERE conversation_id=?', (cid,)).fetchone()
+            result['attachment'] = {k: attachment[k] for k in ('name','text','at')} if attachment and not pending and attachment['memory_generation'] == generation else None
+            result['history_attachment_count'] = int(bool(attachment and result['attachment'] is None))
             result['links'] = []
             for link in db.execute('SELECT * FROM chat_links WHERE conversation_id=? ORDER BY updated,source_id', (cid,)):
+                source = task_memory.state(db, link['source_id'])
+                if pending or source['forgetting'] or source['generation'] != link['source_generation']:
+                    continue
                 entry = dict(link)
-                entry['messages'] = [json.loads(r[0]) for r in db.execute('SELECT payload FROM chat_link_messages WHERE conversation_id=? AND source_id=? ORDER BY at,message_id', (cid,link['source_id']))]
+                source_legacy_review = self._legacy_context_review(db,link['source_id'])
+                entry['messages'] = [json.loads(r['payload']) for r in db.execute('SELECT payload,memory_dependencies,invalidated FROM chat_link_messages WHERE conversation_id=? AND source_id=? ORDER BY at,message_id', (cid,link['source_id']))
+                                     if not r['invalidated'] and self._refs_current(db,json.loads(r['memory_dependencies']))
+                                     and not (source_legacy_review and r['memory_dependencies'] == '[]' and json.loads(r['payload'])['role'] in ('assistant','notice'))]
                 result['links'].append(entry)
+            if include_history:
+                result['history_messages'] = [json.loads(r['payload']) for r,active in zip(messages,visible) if not active]
+                result['history_attachment'] = {k: attachment[k] for k in ('name','text','at')} if attachment and result['attachment'] is None else None
+                result['review_context'] = review
             return result
 
     @staticmethod
@@ -184,8 +337,12 @@ class ChatStore:
         with self.db() as db:
             tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
             results = []
+            created_times = {}
             if 'command_runs' in tables:
-                results += [json.loads(r[0]) for r in db.execute('SELECT result_json FROM command_runs ORDER BY created_at DESC LIMIT 100')]
+                for row in db.execute('SELECT result_json,created_at FROM command_runs ORDER BY created_at DESC LIMIT 100'):
+                    result = json.loads(row[0])
+                    created_times[result['operation_id']] = row[1]
+                    results.append(result)
                 if 'artifact_compensations' in tables:
                     from .actions.artifact_compensation import project_relationship
                     results = [project_relationship(db, result) for result in results]
@@ -196,7 +353,104 @@ class ChatStore:
                     if 'artifact_compensations' in tables:
                         ActionLearning._project_compensations(plan, db)
                     results.append(plan | {'mission': ActionLearning._mission(plan)})
+            for result in results:
+                task_id = result.get('conversation_id') or result.get('task_id')
+                if not task_id:
+                    continue
+                context = db.execute('SELECT connect_id,memory_context_required FROM chat_conversations WHERE id=?', (task_id,)).fetchone()
+                if context and context['memory_context_required'] and result.get('memory_context_id') != context['connect_id']:
+                    result['memory_forgotten'] = True
+                current = task_memory.state(db, task_id)
+                if not current['generation']:
+                    continue
+                ref = result.get('memory_scope')
+                created = result.get('created_at', created_times.get(result.get('operation_id')))
+                forgotten = current.get('forgotten_at')
+                if (current['forgetting']
+                        or (ref is not None and not isinstance(ref, dict))
+                        or (isinstance(ref, dict) and (ref.get('task_id') != task_id or ref.get('generation') != current['generation']))
+                        or (ref is None and type(created) not in (int, float))
+                        or (type(created) in (int, float) and forgotten is not None and created <= forgotten)):
+                    result['memory_forgotten'] = True
             return results
+
+    def forget_task(self, task_id, scope_ref):
+        """Invalidate reusable chat memory after the coordinator commits its barrier."""
+        task_id = ident(task_id)
+        if not isinstance(scope_ref, dict) or scope_ref.get('task_id') != task_id:
+            raise ValueError('Referencia de olvido inválida')
+        with self.db() as db:
+            db.execute('BEGIN IMMEDIATE')
+            current = task_memory.state(db, task_id)
+            if (type(scope_ref.get('generation')) is not int or current['generation'] <= 0
+                    or current['generation'] != scope_ref['generation']
+                    or current['operation_id'] != scope_ref.get('operation_id')):
+                raise ValueError('La operación de olvido cambió')
+            saved = db.execute('SELECT payload FROM chat_forget_results WHERE task_id=? AND generation=?',
+                               (task_id, current['generation'])).fetchone()
+            if saved:
+                return json.loads(saved[0])
+            if not current['forgetting']:
+                raise ValueError('Falta la barrera de olvido de la tarea')
+            row = db.execute('SELECT group_id FROM chat_conversations WHERE id=?', (task_id,)).fetchone()
+            if not row:
+                raise ValueError('Conversación desconocida')
+            groups = {r[0] for r in db.execute("SELECT DISTINCT group_id FROM chat_context WHERE origin_task_id=? OR EXISTS (SELECT 1 FROM json_each(chat_context.memory_dependencies) WHERE json_extract(value,'$.task_id')=?)", (task_id,task_id))}
+            if row['group_id']:
+                groups.add(row['group_id'])
+            affected = {task_id}
+            affected.update(r[0] for r in db.execute('SELECT conversation_id FROM chat_links WHERE source_id=?', (task_id,)))
+            affected.update(r[0] for r in db.execute("SELECT DISTINCT conversation_id FROM chat_messages WHERE invalidated=0 AND memory_generation=COALESCE((SELECT generation FROM memory_task_scopes WHERE task_id=chat_messages.conversation_id),0) AND EXISTS (SELECT 1 FROM json_each(chat_messages.memory_dependencies) WHERE json_extract(value,'$.task_id')=?)", (task_id,)))
+            affected.update(r[0] for r in db.execute("SELECT DISTINCT conversation_id FROM chat_link_messages WHERE invalidated=0 AND EXISTS (SELECT 1 FROM json_each(chat_link_messages.memory_dependencies) WHERE json_extract(value,'$.task_id')=?)", (task_id,)))
+            for group in groups:
+                changed = db.execute("SELECT 1 FROM chat_context WHERE group_id=? AND invalidated=0 AND ((origin_task_id IS NULL AND requires_review=0) OR origin_task_id=? OR EXISTS (SELECT 1 FROM json_each(chat_context.memory_dependencies) WHERE json_extract(value,'$.task_id')=?)) LIMIT 1", (group,task_id,task_id)).fetchone()
+                if changed:
+                    affected.update(r[0] for r in db.execute('SELECT id FROM chat_conversations WHERE group_id=?', (group,)))
+            legacy_links = db.execute("SELECT conversation_id,source_id,message_id FROM chat_link_messages WHERE invalidated=0 AND memory_dependencies='[]' AND json_extract(payload,'$.role') IN ('assistant','notice')").fetchall()
+            while True:
+                derived = {r['conversation_id'] for r in legacy_links if r['source_id'] in affected}
+                if derived <= affected:
+                    break
+                affected.update(derived)
+            counts = {
+                'messages_invalidated': db.execute('SELECT COUNT(*) FROM chat_messages WHERE conversation_id=? AND memory_generation<?', (task_id,current['generation'])).fetchone()[0],
+                'attachments_invalidated': db.execute('SELECT COUNT(*) FROM chat_attachments WHERE conversation_id=? AND memory_generation<?', (task_id,current['generation'])).fetchone()[0],
+                'link_snapshots_removed': db.execute('SELECT COUNT(*) FROM chat_link_messages WHERE conversation_id=? OR source_id=?', (task_id,task_id)).fetchone()[0],
+                'links_removed': db.execute('SELECT COUNT(*) FROM chat_links WHERE conversation_id=? OR source_id=?', (task_id,task_id)).fetchone()[0],
+                'notes_invalidated': db.execute("SELECT COUNT(*) FROM chat_context WHERE invalidated=0 AND (origin_task_id=? OR EXISTS (SELECT 1 FROM json_each(chat_context.memory_dependencies) WHERE json_extract(value,'$.task_id')=?))", (task_id,task_id)).fetchone()[0],
+                'legacy_notes_review': 0,
+                'legacy_messages_review': 0,
+                'legacy_snapshots_review': 0,
+            }
+            for cid in affected - {task_id}:
+                counts['legacy_messages_review'] += db.execute("UPDATE chat_messages SET requires_review=1 WHERE conversation_id=? AND memory_generation=? AND invalidated=0 AND requires_review=0 AND memory_dependencies='[]' AND json_extract(payload,'$.role') IN ('assistant','notice')", (cid,task_memory.state(db,cid)['generation'])).rowcount
+            for legacy in legacy_links:
+                if legacy['source_id'] in affected:
+                    counts['legacy_snapshots_review'] += db.execute('UPDATE chat_link_messages SET invalidated=1 WHERE conversation_id=? AND source_id=? AND message_id=?', tuple(legacy)).rowcount
+            counts['derived_messages_invalidated'] = db.execute("UPDATE chat_messages SET invalidated=1 WHERE conversation_id<>? AND invalidated=0 AND EXISTS (SELECT 1 FROM json_each(chat_messages.memory_dependencies) WHERE json_extract(value,'$.task_id')=?)", (task_id,task_id)).rowcount
+            counts['derived_snapshots_invalidated'] = db.execute("UPDATE chat_link_messages SET invalidated=1 WHERE conversation_id<>? AND source_id<>? AND invalidated=0 AND EXISTS (SELECT 1 FROM json_each(chat_link_messages.memory_dependencies) WHERE json_extract(value,'$.task_id')=?)", (task_id,task_id,task_id)).rowcount
+            db.execute("UPDATE chat_context SET invalidated=1 WHERE origin_task_id=? OR EXISTS (SELECT 1 FROM json_each(chat_context.memory_dependencies) WHERE json_extract(value,'$.task_id')=?)", (task_id,task_id))
+            for group in groups:
+                counts['legacy_notes_review'] += db.execute('SELECT COUNT(*) FROM chat_context WHERE group_id=? AND origin_task_id IS NULL', (group,)).fetchone()[0]
+                db.execute('UPDATE chat_context SET requires_review=1 WHERE group_id=? AND origin_task_id IS NULL', (group,))
+            db.execute('DELETE FROM chat_link_messages WHERE conversation_id=? OR source_id=?', (task_id,task_id))
+            db.execute('DELETE FROM chat_links WHERE conversation_id=? OR source_id=?', (task_id,task_id))
+            old_connect_ids = []
+            for cid in sorted(affected):
+                old = db.execute('SELECT connect_id FROM chat_conversations WHERE id=?', (cid,)).fetchone()
+                if old:
+                    old_connect_ids.append(old[0])
+                    db.execute('UPDATE chat_conversations SET connect_id=?,memory_context_required=1 WHERE id=?', (str(uuid.uuid4()),cid))
+            result = {'task_id': task_id, 'scope_ref': {'task_id': task_id, 'generation': current['generation']},
+                      'affected_task_ids': sorted(affected), 'affected_connect_ids': old_connect_ids,
+                      'old_connect_ids': old_connect_ids, 'counts': counts,
+                      'coverage': {'reusable_chat_memory': 'invalidated', 'local_history': 'retained_for_manual_read',
+                                   'legacy_shared_context': 'excluded_pending_review', 'legacy_message_attribution': 'unknown',
+                                   'external_copies': 'not_verified'},
+                      'requires_review': bool(counts['legacy_notes_review'] or counts['legacy_messages_review'] or counts['legacy_snapshots_review'])}
+            db.execute('INSERT INTO chat_forget_results VALUES(?,?,?)',
+                       (task_id,current['generation'],json.dumps(result,ensure_ascii=False)))
+            return result
 
     def mutate(self, action, body):
         self.purge()
@@ -208,7 +462,7 @@ class ChatStore:
             if action == 'migrate':
                 old = db.execute("SELECT value FROM chat_settings WHERE key='migration_v4'").fetchone()
                 if old and db.execute('SELECT id FROM chat_conversations WHERE id=?',(old[0],)).fetchone():
-                    return {'id':old[0]}
+                    return {'id':old[0], 'created':False}
                 cid = self._new(db, body)
                 self._messages(db, cid, body.get('messages', []))
                 db.execute("INSERT OR REPLACE INTO chat_settings VALUES('migration_v4',?)", (cid,))
@@ -218,8 +472,12 @@ class ChatStore:
                 row = db.execute('SELECT * FROM chat_conversations WHERE id=?', (ident(cid),)).fetchone()
                 if not row:
                     raise ValueError('Conversación desconocida')
+                if action == 'delete' and task_memory.state(db, cid)['forgetting']:
+                    raise ValueError('El olvido de la tarea sigue pendiente')
+                scope = (task_memory.assert_context(db, body.get('memory_scope'), body.get('memory_context_id'), task_id=cid) if action == 'save' else
+                         task_memory.assert_current(db, body.get('memory_scope'), task_id=cid) if action == 'update' else None)
                 if action == 'save':
-                    self._messages(db, cid, body.get('messages', []))
+                    self._messages(db, cid, body.get('messages', []), scope['generation'])
                     if 'attachment' in body:
                         item = body['attachment']
                         if item is None:
@@ -231,12 +489,12 @@ class ChatStore:
                             if type(at) not in (int,float) or not math.isfinite(at) or at>self.clock()+60000:
                                 raise ValueError('Fecha de adjunto inválida')
                             if at>self.clock()-TTL:
-                                db.execute('INSERT OR REPLACE INTO chat_attachments VALUES(?,?,?,?)',(cid,text(item.get('name'),255),text(item.get('text'),200000),at))
+                                db.execute('INSERT OR REPLACE INTO chat_attachments(conversation_id,name,text,at,memory_generation) VALUES(?,?,?,?,?)',(cid,text(item.get('name'),255),text(item.get('text'),200000),at,scope['generation']))
                     draft = text(body.get('draft',row['draft']))
                     draft_at = self.clock() if draft != row['draft'] else row['draft_at']
                     title = row['title']
                     if title == 'Nueva conversación':
-                        first = db.execute('SELECT payload FROM chat_messages WHERE conversation_id=? ORDER BY at,id', (cid,))
+                        first = db.execute('SELECT payload FROM chat_messages WHERE conversation_id=? AND memory_generation=? ORDER BY at,id', (cid,scope['generation']))
                         for saved in first:
                             message = json.loads(saved[0])
                             if message['role'] == 'user' and message['text'].strip():
@@ -276,16 +534,43 @@ class ChatStore:
                 group = ident(body.get('group_id'))
                 if not db.execute('SELECT id FROM chat_groups WHERE id=?',(group,)).fetchone():
                     raise ValueError('Grupo desconocido')
+                owner = body.get('source_task_id')
+                if body.get('memory_scope') is not None and not isinstance(body['memory_scope'], dict):
+                    raise ValueError('Referencia de memoria inválida')
+                if owner is None and isinstance(body.get('memory_scope'), dict):
+                    owner = body['memory_scope'].get('task_id')
+                scope = None
+                if owner is not None:
+                    owner = ident(owner)
+                    if not db.execute('SELECT id FROM chat_conversations WHERE id=? AND group_id=?', (owner,group)).fetchone():
+                        raise ValueError('La nota pertenece a otro ámbito de chat')
+                    scope = task_memory.assert_current(db, body.get('memory_scope'), task_id=owner)
+                elif any(task_memory.state(db, r[0])['generation'] or task_memory.state(db, r[0])['forgetting']
+                         for r in db.execute('SELECT id FROM chat_conversations WHERE group_id=?', (group,))):
+                    raise ValueError('La nota requiere una referencia de memoria vigente')
+                message_id = body.get('source_message_id')
+                dependencies = [scope] if scope else []
+                if message_id is not None:
+                    origin_message = db.execute('SELECT payload,memory_dependencies,invalidated FROM chat_messages WHERE id=? AND conversation_id=? AND memory_generation=?',
+                                                (ident(message_id),owner,scope['generation'])).fetchone() if scope else None
+                    if (not origin_message or origin_message['invalidated']
+                            or not self._refs_current(db,json.loads(origin_message['memory_dependencies']))
+                            or json.loads(origin_message['payload']).get('text') != body.get('text')):
+                        raise ValueError('El mensaje de origen no está vigente en este chat')
+                    dependencies = json.loads(origin_message['memory_dependencies']) or dependencies
+                    if not json.loads(origin_message['memory_dependencies']) and json.loads(origin_message['payload'])['role'] in ('assistant','notice'):
+                        dependencies = self._context_dependencies(db,owner,scope['generation'])
                 if body.get('remove_id'):
                     db.execute('DELETE FROM chat_context WHERE id=? AND group_id=?',(ident(body['remove_id']),group))
                 else:
-                    if db.execute('SELECT COUNT(*) FROM chat_context WHERE group_id=?',(group,)).fetchone()[0] >= 20:
+                    if db.execute('SELECT COUNT(*) FROM chat_context WHERE group_id=? AND invalidated=0 AND requires_review=0',(group,)).fetchone()[0] >= 20:
                         raise ValueError('Máximo 20 notas de contexto por grupo')
                     note = text(body.get('text'),4000)
-                    total = db.execute('SELECT COALESCE(SUM(length(text)),0) FROM chat_context WHERE group_id=?',(group,)).fetchone()[0]
+                    total = db.execute('SELECT COALESCE(SUM(length(text)),0) FROM chat_context WHERE group_id=? AND invalidated=0 AND requires_review=0',(group,)).fetchone()[0]
                     if total+len(note)>12000:
                         raise ValueError('El contexto del grupo admite hasta 12 000 caracteres. Reduce o quita una nota.')
-                    db.execute('INSERT INTO chat_context VALUES(?,?,?,?)',(str(uuid.uuid4()),group,note,self.clock()))
+                    db.execute('INSERT INTO chat_context(id,group_id,text,at,origin_task_id,origin_message_id,memory_generation,memory_dependencies) VALUES(?,?,?,?,?,?,?,?)',
+                               (str(uuid.uuid4()),group,note,self.clock(),owner,message_id,scope['generation'] if scope else 0,json.dumps(dependencies)))
                 for r in db.execute('SELECT id FROM chat_conversations WHERE group_id=?',(group,)).fetchall():
                     db.execute('UPDATE chat_conversations SET connect_id=? WHERE id=?',(str(uuid.uuid4()),r[0]))
             elif action == 'profile':
@@ -311,32 +596,41 @@ class ChatStore:
                     raise ValueError('Elige otro hilo para vincular contexto')
                 if not db.execute('SELECT id FROM chat_conversations WHERE id=?', (cid,)).fetchone():
                     raise ValueError('Conversación desconocida')
+                task_memory.assert_current(db, body.get('memory_scope'), task_id=cid)
                 if action == 'link':
                     origin = db.execute('SELECT title FROM chat_conversations WHERE id=?', (source,)).fetchone()
                     if not origin:
                         raise ValueError('Hilo desconocido o vencido')
+                    source_scope = task_memory.snapshot(db, source)
+                    if 'source_memory_scope' in body:
+                        task_memory.assert_current(db, body['source_memory_scope'], task_id=source)
                     exists = db.execute('SELECT 1 FROM chat_links WHERE conversation_id=? AND source_id=?', (cid,source)).fetchone()
                     if not exists and db.execute('SELECT COUNT(*) FROM chat_links WHERE conversation_id=?', (cid,)).fetchone()[0] >= 3:
                         raise ValueError('Máximo tres hilos vinculados por chat')
                     # Copy only this thread's completed transcript, never its links or group notes.
                     selected, remaining = [], 4000
-                    for row in db.execute('SELECT payload FROM chat_messages WHERE conversation_id=? ORDER BY at DESC,id DESC LIMIT 30', (source,)):
-                        message = json.loads(row[0])
+                    for row in db.execute('SELECT payload,memory_dependencies,invalidated FROM chat_messages WHERE conversation_id=? AND memory_generation=? ORDER BY at DESC,id DESC LIMIT 30', (source,source_scope['generation'])):
+                        dependencies = json.loads(row['memory_dependencies'])
+                        if row['invalidated'] or not self._refs_current(db,dependencies):
+                            continue
+                        message = json.loads(row['payload'])
+                        if not dependencies and message['role'] in ('assistant','notice'):
+                            dependencies = self._context_dependencies(db,source,source_scope['generation'])
                         if message['role'] not in ('user','assistant') or message['status'] not in ('complete','sent','done'):
                             continue
                         content = message['text'][:remaining]
                         if not content:
                             continue
-                        selected.append({k:message[k] for k in ('id','role','at')} | {'text':content})
+                        selected.append(({k:message[k] for k in ('id','role','at')} | {'text':content},dependencies))
                         remaining -= len(content)
                         if remaining <= 0:
                             break
                     if not selected:
                         raise ValueError('Este hilo no tiene mensajes guardados y vigentes')
-                    db.execute('INSERT OR REPLACE INTO chat_links VALUES(?,?,?,?)', (cid,source,origin['title'],self.clock()))
+                    db.execute('INSERT OR REPLACE INTO chat_links(conversation_id,source_id,title,updated,source_generation) VALUES(?,?,?,?,?)', (cid,source,origin['title'],self.clock(),source_scope['generation']))
                     db.execute('DELETE FROM chat_link_messages WHERE conversation_id=? AND source_id=?', (cid,source))
-                    for message in selected:
-                        db.execute('INSERT INTO chat_link_messages VALUES(?,?,?,?,?)', (cid,source,message['id'],message['at'],json.dumps(message,ensure_ascii=False)))
+                    for message,dependencies in selected:
+                        db.execute('INSERT INTO chat_link_messages(conversation_id,source_id,message_id,at,payload,memory_dependencies) VALUES(?,?,?,?,?,?)', (cid,source,message['id'],message['at'],json.dumps(message,ensure_ascii=False),json.dumps(dependencies)))
                 else:
                     db.execute('DELETE FROM chat_links WHERE conversation_id=? AND source_id=?', (cid,source))
                     db.execute('DELETE FROM chat_link_messages WHERE conversation_id=? AND source_id=?', (cid,source))
@@ -348,10 +642,15 @@ class ChatStore:
                 db.execute('DELETE FROM chat_link_messages')
                 db.execute("UPDATE chat_conversations SET draft='' ")
                 for row in db.execute('SELECT id FROM chat_conversations').fetchall():
-                    db.execute('UPDATE chat_conversations SET connect_id=? WHERE id=?',(str(uuid.uuid4()),row[0]))
+                    db.execute('UPDATE chat_conversations SET connect_id=?,memory_context_required=1 WHERE id=?',(str(uuid.uuid4()),row[0]))
                 if db.execute("SELECT name FROM sqlite_master WHERE name='shared_messages'").fetchone():
                     db.execute('DELETE FROM shared_messages')
                     db.execute('DELETE FROM shared_events')
             else:
                 raise ValueError('Operación de chat desconocida')
-        return {'id':cid,'ok':True}
+            result = {'id':cid,'ok':True}
+            if action == 'migrate':
+                result['created'] = True
+            if cid and db.execute('SELECT id FROM chat_conversations WHERE id=?', (cid,)).fetchone():
+                result['memory_scope'] = task_memory.snapshot(db, cid)
+        return result
