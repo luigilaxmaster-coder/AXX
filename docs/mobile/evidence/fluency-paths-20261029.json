@@ -32,14 +32,28 @@
     "bytes": 11698776,
     "same_signature_as_previous": true,
     "canonical_assets_matched": 20,
-    "installed": false
+    "installed": true,
+    "installation_result": "PASS_IN_PLACE_APP_CLOSED",
+    "persistent_app_files_preserved_before_launch": true,
+    "physical_acceptance": "PENDING_WINDOWS_STABILITY"
   },
   "sustained_test": {
     "state": "NOT_STARTED",
-    "reason": "Phone reconnected; awaiting coordinated Windows candidate stability before Android installation",
+    "reason": "Android updated in place; app closed until coordinated Windows stability",
     "planned_seconds": 1800,
     "planned_animated_seconds": 1200,
     "planned_control_seconds": 600,
     "battery_and_temperature_results": null
+  },
+  "ci": {
+    "companion": {
+      "run_id": 40992610066,
+      "conclusion": "success"
+    },
+    "general_commands_linux": {
+      "run_id": 40992609995,
+      "conclusion": "failure",
+      "resolution": "Windows delivery owner investigating; not a mobile gate success"
+    }
   }
 }
