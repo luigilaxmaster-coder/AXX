@@ -18,7 +18,7 @@ import time
 import uuid
 
 from .action_learning import ALLOWED, ModelBudgetExceeded, MemoryCancellation, inference_accounting
-from .commands import parse_command_json
+from .commands import READ_ONLY_COMMANDS, parse_command_json
 from .memory.procedural_memory import get_action_env_fingerprint
 from .memory.skill_memory import PARAMETER, bind, bounded_object, project_key, validate_schema
 from .memory import task_memory
@@ -413,10 +413,16 @@ class CapabilityWorkshop:
                 if plan.get('conversation_id') != conversation_id:
                     raise ValueError('La validación pertenece a otra conversación; revísala allí')
                 return plan
+            read_only = bool(validation['steps']) and all(step['command_id'] in READ_ONLY_COMMANDS
+                                                          for step in validation['steps'])
             with self.commands.lock:
-                pending = self.commands.db.execute("SELECT operation_id FROM command_runs WHERE (state IN ('prepared','awaiting_approval','running') AND expires_at>?) OR state='unknown' LIMIT 1", (time.time(),)).fetchone()
+                pending = self.commands.db.execute("SELECT operation_id FROM command_runs WHERE (state IN ('prepared','awaiting_approval','running') AND expires_at>?) OR (state='unknown' AND ?) LIMIT 1", (time.time(), not read_only)).fetchone()
             pending_plans = [json.loads(row[0]) for row in self.db.execute('SELECT payload FROM learning_plans').fetchall()]
-            if pending or any(plan.get('state') in ('planning', 'awaiting_approval', 'running', 'unknown', 'interrupted', 'waiting_capacity') for plan in pending_plans):
+            # Independent observations can help reconcile older unknown effects;
+            # they neither resolve them nor permit concurrent active work.
+            blocked_states = {'planning', 'awaiting_approval', 'running', 'interrupted', 'waiting_capacity'}
+            if not read_only: blocked_states.add('unknown')
+            if pending or any(plan.get('state') in blocked_states for plan in pending_plans):
                 raise ValueError('Hay otra acción pendiente; resuélvela antes de validar una capacidad')
             operation_id = 'workshop-validation-' + uuid.uuid4().hex
             plan, _ = self.learning._new_plan('Validar capacidad: ' + item['definition']['title'], operation_id,

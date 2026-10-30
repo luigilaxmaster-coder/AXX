@@ -1,6 +1,7 @@
 import json
 import os
 from pathlib import Path
+import subprocess
 import tempfile
 import threading
 import unittest
@@ -101,6 +102,54 @@ class ActionLearningTests(unittest.TestCase):
         self.assertIn('absoluta',digest['parameters']['path']['description'])
         self.assertFalse((self.executor.workspace_root/'training.txt').exists())
         self.assertEqual(self.executor.list_operations(),[])
+
+    def test_cold_application_inventory_timeout_allows_independent_file_planning(self):
+        requests = []
+        self.model.answer = {'title': 'Crear prueba', 'steps': [
+            {'command_id': 'axx.artifact.write', 'inputs': {'path': 'inventory-independent.txt', 'content': 'OK'}}]}
+        original = self.model.route
+        def capture(request):
+            requests.append(request)
+            return original(request)
+        self.model.route = capture
+        with patch('backend.actions.windows_apps.installed_apps', side_effect=subprocess.TimeoutExpired('Get-StartApps', 12)) as inventory:
+            plan = self.learning.propose('Crea inventory-independent.txt con el texto OK. No abras aplicaciones.')
+        self.assertEqual(plan['state'], 'awaiting_approval', plan)
+        self.assertEqual(plan['model_calls_used'], 1)
+        self.assertEqual(len(requests), 1)
+        inventory.assert_called_once_with()
+        context = json.loads(requests[0]['messages'][-1]['content'])
+        self.assertEqual(context['installed_applications'], [])
+        self.assertEqual(context['previous_action']['installed_applications_inventory'],
+                         {'state': 'unavailable', 'reason': 'timeout', 'requires_fresh_observation': True})
+        self.assertEqual(plan['steps'], self.model.answer['steps'])
+        self.assertFalse((self.executor.workspace_root / 'inventory-independent.txt').exists())
+        self.assertEqual(self.executor.list_operations(), [])
+
+    def test_optional_application_inventory_distinguishes_failure_empty_and_unrequested(self):
+        for failure in (OSError('PRIVATE OS DETAIL'), ValueError('PRIVATE INVENTORY DETAIL')):
+            with self.subTest(error=type(failure).__name__), patch('backend.actions.windows_apps.installed_apps', side_effect=failure):
+                context = json.loads(self.learning._prompt('abrir una aplicación', {})[-1]['content'])
+                self.assertEqual(context['installed_applications'], [])
+                self.assertEqual(context['previous_action']['installed_applications_inventory']['state'], 'unavailable')
+                self.assertNotIn('PRIVATE', json.dumps(context))
+        with patch('backend.actions.windows_apps.installed_apps', return_value=[]):
+            context = json.loads(self.learning._prompt('abrir una aplicación', {})[-1]['content'])
+            self.assertEqual(context['previous_action']['installed_applications_inventory'],
+                             {'state': 'available', 'returned_count': 0, 'limit': 120})
+        with patch('backend.actions.windows_apps.installed_apps') as inventory:
+            context = json.loads(self.learning._prompt('crear un archivo', {})[-1]['content'])
+            inventory.assert_not_called()
+            self.assertEqual(context['previous_action']['installed_applications_inventory'], {'state': 'not_requested'})
+        with patch('backend.actions.windows_apps.installed_apps', side_effect=RuntimeError('implementation bug')):
+            with self.assertRaisesRegex(RuntimeError, 'implementation bug'):
+                self.learning._prompt('abrir una aplicación', {})
+
+    def test_optional_inventory_fallback_never_authorizes_unobserved_application_ids(self):
+        with patch('backend.actions.windows_apps.installed_apps', return_value=[]):
+            with self.assertRaisesRegex(ValueError, 'Windows no ha detectado'):
+                self.learning._validate_steps([{'command_id': 'axx.desktop.installed_app', 'inputs': {'app_id': 'unobserved-app'}}])
+        self.assertEqual(self.executor.list_operations(), [])
 
     def test_non_json_model_reply_can_be_repaired_without_executing_a_promise(self):
         requests=[]

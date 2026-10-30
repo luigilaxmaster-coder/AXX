@@ -1162,9 +1162,20 @@ class ActionLearning:
             context = dict(context, incident_references={'source': 'untrusted_local_reference', 'cause_confirmed': False,
                 'lessons':[{key:value for key,value in item.items() if key not in ('memory_scope','memory_context_id','memory_dependencies','origin_task_id')} for item in lessons]})
         apps = []
+        app_inventory = {'state': 'not_requested'}
         if any(word in normalized(text) for word in ('abre', 'abrir', 'aplicacion', 'inicia')):
             from .actions.windows_apps import installed_apps
-            apps = installed_apps()[:120]
+            from subprocess import TimeoutExpired
+            try:
+                apps = installed_apps()[:120]
+            except (OSError, ValueError, TimeoutExpired) as exc:
+                app_inventory = {'state': 'unavailable',
+                    'reason': 'timeout' if isinstance(exc, TimeoutExpired) else 'query_failed',
+                    'requires_fresh_observation': True}
+                logging.getLogger('axx.learning').warning('Optional application inventory unavailable (%s)', type(exc).__name__)
+            else:
+                app_inventory = {'state': 'available', 'returned_count': len(apps), 'limit': 120}
+        context['installed_applications_inventory'] = app_inventory
         return [
             {'role': 'system', 'content': compose('planning', contract=
              'CMD/terminal solo bajo pedido, con código completo y aprobación; nunca PowerShell. '
