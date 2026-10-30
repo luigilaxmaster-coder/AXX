@@ -119,6 +119,58 @@ class TransferPanel(unittest.TestCase):
                     self.assertEqual(page.locator('#tf-roots').input_value(),draft)
                     self.assertEqual(page.evaluate('savedGrants.length'),0)
 
+    def test_first_link_cannot_inherit_a_draft_without_a_device(self):
+        with sync_playwright() as p:
+            page=self.open(p)
+            page.evaluate(r'''()=>{
+              window.phoneRows=[];window.savedGrants=[];
+              const prior=Axx.backendRequest;Axx.backendRequest=async(m,p,b)=>{
+                if(p.endsWith('/files/status'))return {devices:phoneRows,transfers:[]};
+                if(p.endsWith('/files/permissions')){savedGrants.push(b);return {};}
+                return prior(m,p,b);
+              };Axx.transfer.open();
+            }''')
+            page.locator('#tf-tab-activity').click()
+            page.locator('#tf-activity-panel details').evaluate('(el)=>el.open=true')
+            page.wait_for_function("()=>document.querySelector('#tf-device').value===''")
+            page.evaluate(r'''()=>{
+              window.disabledWithoutDevice=['tf-read','tf-write','tf-roots'].every(id=>document.getElementById(id).disabled);
+              const roots=document.getElementById('tf-roots');roots.value='C:\\Unbound';roots.dispatchEvent(new Event('input'));
+              phoneRows.push({device_id:'phone-FIRST',name:'SM-A217M',permissions:{read:false,write:true},roots:['C:\\Current']});
+            }''')
+            page.locator('#tf-refresh').click()
+            page.locator('#tf-device option[value="phone-FIRST"]').wait_for(state='attached')
+            self.assertEqual(page.locator('#tf-roots').input_value(),r'C:\Current')
+            self.assertFalse(page.locator('#tf-read').is_checked())
+            self.assertTrue(page.locator('#tf-write').is_checked())
+            self.assertTrue(page.evaluate('disabledWithoutDevice'))
+            self.assertEqual(page.evaluate('savedGrants.length'),0)
+            page.locator('#tf-permissions button').click()
+            page.wait_for_function('()=>savedGrants.length===1')
+            self.assertEqual(page.evaluate('savedGrants[0].device_id'),'phone-FIRST')
+            self.assertEqual(page.evaluate('savedGrants[0].roots'),[r'C:\Current'])
+
+    def test_late_search_and_revoked_link_cannot_publish_or_send_old_results(self):
+        with sync_playwright() as p:
+            page=self.open(p);self.same_name_phones(page)
+            page.evaluate('''()=>{window.sends=[];window.holdSearch=true;const prior=Axx.backendRequest;Axx.backendRequest=async(m,p,b)=>{
+              if(p.endsWith('/files/search')){const result={files:[{file_ref:'old-file',name:'Old.txt',relative_path:'Old.txt',size:4,modified_at:1700000000}]};if(holdSearch)await new Promise(resolve=>window.finishSearch=resolve);return result;}
+              if(p.endsWith('/transfers/create')){sends.push(b);return {state:'ready'};}return prior(m,p,b);};}''')
+            page.locator('#tf-tab-send').click();page.locator('#tf-query').fill('Old.txt');page.locator('#tf-search-form button').click()
+            page.wait_for_function('()=>typeof finishSearch==="function"')
+            page.locator('#tf-device').select_option('phone-OLD111')
+            page.evaluate('async()=>{finishSearch();await new Promise(requestAnimationFrame);}')
+            self.assertEqual(page.locator('#tf-results button').count(),0)
+            page.evaluate('holdSearch=false')
+            page.locator('#tf-search-form button').click();page.locator('#tf-results button').wait_for()
+            page.evaluate("()=>{window.revokedSend=document.querySelector('#tf-results button').onclick;phoneRows[0].revoked=true;}")
+            page.locator('#tf-refresh').click()
+            page.wait_for_function("()=>document.querySelector('#tf-device option:checked')?.disabled===true")
+            self.assertEqual(page.locator('#tf-results button').count(),0)
+            page.evaluate('revokedSend()')
+            page.wait_for_function("()=>document.querySelector('#tf-status').textContent.includes('Vuelve a elegir el archivo')")
+            self.assertEqual(page.evaluate('sends.length'),0)
+
     def test_visible_tools_entry_opens_received_files_from_all_phones(self):
         with sync_playwright() as p:
             page=self.open(p,"localStorage.setItem('axx.flow.favorites',JSON.stringify(['notes','calculator']));")
