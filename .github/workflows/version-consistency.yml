@@ -44,3 +44,9 @@ jobs:
         run: python -m unittest backend.tests.test_commands_remote_confirmation backend.tests.test_telegram_confirmation backend.tests.test_telegram_confirmation_integration backend.tests.test_telegram_bot backend.tests.test_telegram_bot_setup backend.tests.test_telegram_catalog backend.tests.test_telegram_service backend.tests.test_telegram_daemon backend.tests.test_telegram_miniapp backend.tests.test_telegram_http backend.tests.test_window_title_scope backend.tests.test_desktop_commands -q
       - name: Prompt browser contracts
         run: node scripts/test-prompt-contracts.cjs
+      - name: Prompt timing contracts
+        run: node scripts/test-prompt-timings.cjs
+      - name: Reasoning evaluation guards
+        run: python -m unittest discover -s scripts -p test_evaluate_reasoning.py -v
+      - name: Reasoning contract evaluation
+        run: python scripts/evaluate_reasoning.py --output build/reasoning-evaluation.json
