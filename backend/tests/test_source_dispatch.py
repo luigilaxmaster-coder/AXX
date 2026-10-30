@@ -155,6 +155,7 @@ class SourceDispatchTests(unittest.TestCase):
                             (outer.fixture.plan['operation_id'],)).fetchone()[0]
                         outer.assertEqual(json.loads(raw)['send_state'], 'unknown')
                         written.append(data)
+                    def flush(inner): pass
                     def close(inner): pass
                 class Process:
                     stdin = Input()
@@ -169,11 +170,14 @@ class SourceDispatchTests(unittest.TestCase):
                             outer.fixture.revoke()
                         return None if cancelled and not inner.stopped else 1
                 process = Process()
+                thread_errors = []
                 with patch('backend.inference.adapter.spawn_managed_process', return_value=(process, None)), \
                         patch('backend.inference.adapter.terminate_process_tree',
-                              side_effect=lambda proc, job: setattr(proc, 'stopped', True)):
+                              side_effect=lambda proc, job: setattr(proc, 'stopped', True)), \
+                        patch('threading.excepthook', side_effect=lambda error: thread_errors.append(error.exc_type.__name__)):
                     with self.assertRaises(ValueError):
                         self.fixture.response()
+                self.assertEqual(thread_errors, [], 'Worker channel threads must complete without exceptions')
                 row = self.learning.budget_db.execute(
                     'SELECT source_dispatch_json,state,charge,confirmed FROM mission_model_calls WHERE plan_id=?',
                     (self.fixture.plan['operation_id'],)).fetchone()
