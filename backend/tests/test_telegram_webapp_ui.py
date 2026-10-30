@@ -166,7 +166,7 @@ class TelegramWebAppUITests(unittest.TestCase):
         blocked = {'state': 'blocked', 'reason_code': 'REMOTE_PROVIDER_ISOLATION_REQUIRED',
                    'provider': 'desktop_selected', 'model': 'fixture', 'message': 'Proveedor remoto bloqueado'}
         page, _ = self.page(permissions=denied, conversation=blocked)
-        page.wait_for_function("() => document.querySelector('#connection').textContent.includes('Conectado')")
+        page.wait_for_function("() => document.querySelector('#connection').textContent.includes('Axx está disponible')")
         page.get_by_role('button', name='Chat', exact=True).click()
         self.assertTrue(page.locator('#draft').is_disabled())
         self.assertIn('bloqueado', page.locator('#provider-notice').inner_text())

@@ -18,6 +18,7 @@ from backend.auth.chatgpt_auth import _dpapi_decrypt, _dpapi_encrypt
 from backend.telegram.bot_config import load_bot
 from backend.telegram.config import _file_lease, account_path, load_account
 from backend.telegram.pairing import PairingStore
+from backend.telegram.service import status_text
 from backend.telegram.worker import NoRedirect, chunks
 
 MAX_RESPONSE = 1024 * 1024
@@ -207,12 +208,16 @@ class BotWorker:
                 choice = callback.get('data')
                 if choice == 'status':
                     result = local_request(self.endpoint_file, '/axx-api/telegram/status')
-                    self.send('Estado de Axx: ' + json.dumps(result, ensure_ascii=False)[:3500], menu(load_bot(self.data_dir)['public_url']))
+                    self.send(status_text(result), menu(load_bot(self.data_dir)['public_url']))
                 elif choice == 'permissions':
                     grants = load_account(self.data_dir)['grants']
-                    self.send('Permisos actuales: ' + json.dumps(grants, ensure_ascii=False), menu(load_bot(self.data_dir)['public_url']))
+                    names = {'conversation': 'Conversar por texto', 'voice_notes': 'Notas de voz',
+                             'files': 'Archivos', 'pc_commands': 'Acciones en la PC', 'private_calls': 'Llamadas'}
+                    lines = ['Lo que permites:'] + [names[key] + ': ' + ('Permitido' if value is True else 'No permitido') for key, value in grants.items()]
+                    lines.append('Se cambian en Axx de tu PC: Herramientas → Asistencia → Telegram. Un permiso no significa que la función ya esté lista.')
+                    self.send('\n'.join(lines), menu(load_bot(self.data_dir)['public_url']))
                 elif choice == 'help':
-                    self.send('Escribe a Axx aquí. Las acciones requieren los permisos existentes; las llamadas privadas se hacen a la cuenta de Axx.', menu(load_bot(self.data_dir)['public_url']))
+                    self.send('1. Deja Axx abierto en tu PC.\n2. Toca Estado para ver qué está disponible.\n3. Toca Abrir Axx para abrir la Mini App.\nLos permisos se cambian en tu PC. El chat con IA depende de tu proveedor y las llamadas todavía están en reparación.', menu(load_bot(self.data_dir)['public_url']))
                 return
             message = update['message']
             text = message.get('text')

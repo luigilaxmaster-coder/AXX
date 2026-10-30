@@ -79,6 +79,7 @@ class ThreadedHTTPServer(socketserver.ThreadingMixIn, HTTPServer):
     request_queue_size = 16
 
     def __init__(self, *args, **kwargs):
+        self.serving = threading.Event()
         super().__init__(*args, **kwargs)
         self.host_token = os.environ.get('AXX_HOST_TOKEN') or secrets.token_hex(32)
         self.instance_id = os.environ.get('AXX_HOST_INSTANCE') or str(uuid.uuid4())
@@ -88,6 +89,20 @@ class ThreadedHTTPServer(socketserver.ThreadingMixIn, HTTPServer):
         self.connect_engine_lock = threading.Lock()
         self.connect_engine_status = None
         self.connect_engine_checking = False
+
+    def serve_forever(self, poll_interval=0.5):
+        self.serving.set()
+        try:
+            super().serve_forever(poll_interval=poll_interval)
+        finally:
+            self.serving.clear()
+
+    def server_close(self):
+        self.serving.clear()
+        super().server_close()
+
+    def core_bound(self):
+        return self.host_owned and self.serving.is_set() and self.fileno() >= 0
 
 class AxxBridgeHandler(BaseHTTPRequestHandler):
     adapter = executor = memory = identity = speech = transcription = None
@@ -1312,6 +1327,7 @@ def run_server(host='127.0.0.1', port=4173, config_path='providers.json', state_
         from backend.telegram.service import TelegramService
         handler.telegram = TelegramService(state_dir, chats, commands, adapter, lambda: server.mobile.preferences,
                                            appearance=lambda: server.mobile.appearance)
+        handler.telegram.connection = server.core_bound
         services.append(handler.telegram)
         from backend.telegram.desktop import DesktopTelegram
         from backend.telegram.pairing import PairingStore

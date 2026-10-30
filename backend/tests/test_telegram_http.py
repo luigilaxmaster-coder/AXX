@@ -3,7 +3,7 @@ import http.client
 import json
 import threading
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from backend.server import AxxBridgeHandler, ThreadedHTTPServer
 
@@ -38,6 +38,25 @@ class TelegramHTTPTests(unittest.TestCase):
             return response.status, json.loads(response.read())
         finally:
             conn.close()
+
+    def test_port_in_use_preserves_socket_error(self):
+        with self.assertRaises(OSError):
+            ThreadedHTTPServer(('127.0.0.1', self.server.server_port), AxxBridgeHandler)
+
+    def test_native_core_bound_tracks_actual_server_lifecycle(self):
+        with patch.dict('os.environ', {'AXX_HOST_TOKEN': 'fixture-token-' * 4}):
+            server = ThreadedHTTPServer(('127.0.0.1', 0), AxxBridgeHandler)
+        self.assertFalse(server.core_bound())
+        worker = threading.Thread(target=server.serve_forever, daemon=True)
+        worker.start()
+        try:
+            self.assertTrue(server.serving.wait(2))
+            self.assertTrue(server.core_bound())
+            server.shutdown()
+            worker.join(2)
+            self.assertFalse(server.core_bound())
+        finally:
+            server.server_close()
 
     def test_status_requires_native_token(self):
         code, _ = self.request('GET', '/axx-api/telegram/status', auth=False)

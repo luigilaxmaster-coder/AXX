@@ -84,6 +84,25 @@ class BotWorkerTests(unittest.TestCase):
         self.assertNotIn('web_app', json.dumps(menu('')))
         self.assertIn('web_app', json.dumps(menu('https://axx.example.org/')))
 
+    def test_status_permissions_and_help_use_plain_language_without_raw_json(self):
+        requests = []
+        state = {'worker_running': True, 'messages': 'not_verified', 'voice_notes': 'not_implemented',
+                 'files': 'not_implemented', 'pc_commands': 'not_verified', 'private_calls': 'not_verified'}
+        with patch('backend.telegram.bot.bot_request', side_effect=lambda _t, method, data, **kw: requests.append(data)), \
+             patch('backend.telegram.bot.local_request', return_value=state):
+            for index, choice in enumerate(('status', 'permissions', 'help'), 1):
+                item = message(index)
+                self.worker.process(index, {'update_id': index, 'callback_query': {
+                    'id': str(index), 'from': item['message']['from'], 'message': item['message'], 'data': choice}})
+        self.assertEqual(len(requests), 3)
+        self.assertIn('Notas de voz: En preparación', requests[0]['text'])
+        self.assertIn('Conversar por texto: Permitido', requests[1]['text'])
+        self.assertIn('Toca Abrir Axx', requests[2]['text'])
+        for data in requests:
+            self.assertNotIn('{', data['text'])
+            self.assertNotIn('private_calls', data['text'])
+            self.assertNotIn('not_implemented', data['text'])
+
     def test_input_is_persisted_before_offset_and_no_replay_after_unknown(self):
         self.worker.persist([message()])
         self.assertEqual(self.worker.offset(), 2)

@@ -16,6 +16,17 @@ from backend.prompts import compose
 from backend.telegram.config import load_account
 
 
+def status_text(status):
+    names = {'messages': 'Mensajes', 'voice_notes': 'Notas de voz', 'files': 'Archivos',
+             'pc_commands': 'Acciones en la PC', 'private_calls': 'Llamadas'}
+    labels = {'not_configured': 'Sin configurar', 'not_verified': 'Falta comprobar',
+              'not_implemented': 'En preparación'}
+    lines = ['Estado de Axx', 'Proceso activo; falta probar cada función.' if status.get('worker_running') is True else 'El proceso de Telegram no está activo.']
+    lines.extend(name + ': ' + labels.get(status.get(key), 'Sin comprobar') for key, name in names.items())
+    lines.append('Las llamadas todavía están en reparación. Deja Axx abierto en tu PC.')
+    return '\n'.join(lines)
+
+
 class TelegramService:
     def __init__(self, data_dir, chats, commands, adapter, preferences, appearance=None):
         self.data_dir = Path(data_dir)
@@ -306,7 +317,7 @@ class TelegramService:
 
     def _control(self, account, text):
         if text == '/estado':
-            return {'state': 'succeeded', 'text': json.dumps(self.status(), ensure_ascii=False)}
+            return {'state': 'succeeded', 'text': status_text(self.status())}
         operation_id = text.removeprefix('/cancelar ').strip()
         try:
             uuid.UUID(operation_id)

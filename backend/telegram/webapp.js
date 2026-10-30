@@ -77,7 +77,7 @@
   function renderState(value) {
     state = value; lastSync = new Date();
     const c = value.connection || {}, conv = value.conversation || {};
-    $('connection').textContent = c.core_bound ? 'Conectado al núcleo de tu PC' : value.worker_running ? 'Canal activo; núcleo pendiente' : 'PC disponible · transporte pendiente';
+    $('connection').textContent = c.core_bound ? 'Axx está disponible en tu PC' : value.worker_running ? 'Telegram está activo; esperando tu PC' : 'La app responde; falta comprobar Telegram';
     $('home-summary').textContent = c.core_bound ? 'Tu PC está disponible.' : 'Estoy esperando tu PC.';
     $('simple-state').textContent = $('connection').textContent;
     $('provider-notice').textContent = conv.state && !['ready', 'available', 'configured'].includes(conv.state) ? (conv.message || 'El proveedor de conversación no está disponible. Puedes consultar los comandos autorizados.') : '';
@@ -119,7 +119,7 @@
       $('activity-list').replaceChildren();
       for (const item of items) {
         const box = document.createElement('article'); box.className = 'activity-item';
-        const title = document.createElement('strong'); title.textContent = item.command_id || 'Operación'; box.append(title);
+        const title = document.createElement('strong'); title.textContent = item.command_id ? 'Acción en tu PC' : 'Solicitud a Axx'; box.append(title);
         const states = { prepared: 'Todavía no se ejecutó', awaiting_approval: 'Espera tu permiso en la PC', running: 'En marcha', succeeded: 'Terminada', completed: 'Terminada', failed: 'No confirmada', unknown: 'Sin confirmar', dispatch_unknown: 'Sin confirmar', delivery_unknown: 'Sin confirmar', cancelled: 'Cancelada', expired: 'Vencida' };
         const waiting = ['prepared', 'awaiting_approval', 'pending'].includes(item.state);
         const terminal = ['succeeded', 'completed', 'failed'].includes(item.state);
@@ -127,6 +127,7 @@
         for (const text of [`Estado: ${states[item.state] || 'Sin confirmar'}`, check]) { const p = document.createElement('p'); p.textContent = text; box.append(p); }
         const details = document.createElement('details'), summary = document.createElement('summary'); summary.textContent = 'Detalles'; details.append(summary);
         for (const text of [`ID: ${item.id || 'no disponible'}`, `Fecha: ${formatTime(item.created_at)}`]) { const p = document.createElement('p'); p.textContent = text; details.append(p); }
+        if (item.command_id) { const p = document.createElement('p'); p.textContent = 'Comando: ' + item.command_id; details.append(p); }
         if (item.id) { const button = document.createElement('button'); button.type = 'button'; button.textContent = 'Copiar ID'; button.onclick = () => void copy(String(item.id)); details.append(button); }
         box.append(details);
         if (item.can_cancel === true && item.id) { const button = document.createElement('button'); button.type = 'button'; button.textContent = 'Solicitar cancelación'; button.onclick = async () => { button.disabled = true; try { await request('/api/cancel', { operation_id: item.id, csrf }); notice('Solicitud de cancelación enviada. Consulta el estado para confirmar.'); await activity(); } catch (error) { notice(error.message); button.disabled = false; } }; box.append(button); }

@@ -52,6 +52,14 @@ class TelegramServiceTests(unittest.TestCase):
         self.commands.resolve.assert_not_called()
         self.adapter.route.assert_not_called()
 
+    def test_status_command_uses_the_same_plain_language_as_the_menu(self):
+        result = self.service.admit(self.body('/estado'))
+        self.assertEqual(result['state'], 'succeeded')
+        self.assertIn('Notas de voz: En preparación', result['text'])
+        self.assertIn('llamadas todavía están en reparación', result['text'])
+        self.assertNotIn('{', result['text'])
+        self.adapter.route.assert_not_called()
+
     def test_duplicate_request_never_repeats_command_or_conversation(self):
         self.command()
         body = self.body('/accion')
