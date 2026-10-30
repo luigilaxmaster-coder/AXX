@@ -188,7 +188,7 @@ El escaneo óptico del QR, los gestos remotos restantes y el audio mantienen ace
 
 ## Pruebas y estado
 
-Los cambios posteriores de olvido por conversación y procedencia documental siguen en ramas de desarrollo y no están incluidos en el instalador Windows 0.22.30. Compartir el número de versión en los manifiestos no acredita la entrega de esos cambios.
+Los cambios posteriores de olvido por conversación, procedencia documental y atención agrupada por misión siguen en ramas de desarrollo y no están incluidos en el instalador Windows 0.22.30. Compartir el número de versión en los manifiestos no acredita la entrega de esos cambios.
 
 | Área | Evidencia disponible | Alcance que no debe inferirse |
 | --- | --- | --- |

@@ -13,7 +13,7 @@ SHARED_MEMORY_INPUTS = ('backend/memory/task_memory.py', 'backend/chat_store.py'
     'backend/server.py', '1.AXX/scripts/chat-workspace.js', '1.AXX/scripts/mobile-gateway.js',
     'backend/action_learning.py', 'backend/memory/skill_memory.py', 'backend/capability_workshop.py',
     'backend/commands.py', 'backend/procedure_library.py', 'backend/anticipation.py',
-    '1.AXX/scripts/capability-workshop.js', '1.AXX/scripts/command-library.js', 'resources/procedure-library.zip')
+    '1.AXX/scripts/capability-workshop.js', '1.AXX/scripts/command-library.js', '1.AXX/scripts/anticipation.js', 'resources/procedure-library.zip')
 
 def read(path):
     return json.loads(path.read_text(encoding='utf-8-sig'))

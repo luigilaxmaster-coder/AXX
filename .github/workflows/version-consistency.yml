@@ -28,6 +28,12 @@ jobs:
         run: node 1.AXX/scripts/test-mobile-pairing.cjs
       - name: Anticipation review browser contracts
         run: node 1.AXX/scripts/test-anticipation.cjs
+      - name: Mission activity and requested response contracts
+        run: node 1.AXX/scripts/test-mission-attention.cjs
+      - name: Mission attention real file and HTTP UI flow
+        run: node 1.AXX/scripts/test-mission-attention-integration.cjs
+      - name: Mission attention policy and durable admission
+        run: python -m unittest backend.tests.test_mission_attention backend.tests.test_anticipation backend.tests.test_anticipation_http -q
       - name: Inference routing and worker regressions
         run: python -m unittest discover -s backend/inference/tests -q
       - name: Planning, privacy and command regressions

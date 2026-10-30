@@ -50,11 +50,22 @@
         notice(text, conversationId, operationId) {
             // Results remain in their persisted operation card if the user moved
             // to another chat. Never copy or speak one chat's output in another.
-            if (conversationId && Axx.chatWorkspace?.active?.id !== conversationId) return;
+            if (conversationId && Axx.chatWorkspace?.active?.id !== conversationId) return false;
             Axx.companion.localNotice(text, operationId);
+            return true;
         }
         report(error) { this.status((this.operation ? 'Resultado incierto: ' : '') + errorText(error) + (this.operation ? ' Consulta el resultado antes de reintentar.' : '')); }
         captureMemory() { return Axx.chatWorkspace?.captureMemoryToken?.() || null; }
+        missionAttention(plan,memoryToken,projectId,{solicited=true}={}) {
+            const mission=plan?.mission,scope=plan?.memory_scope;
+            if(!mission||!scope||plan.memory_forgotten||plan.selection_invalidated||plan.conversation_id!==Axx.chatWorkspace?.active?.id||projectId!==(Axx.skillLibrary?.project()||''))return false;
+            this.checkMemory(memoryToken,true);
+            const state=mission.state||plan.state,done=mission.completed===true&&goalCriteriaVerified(plan);
+            const category=done?'done':['awaiting_approval','needs_input','expired'].includes(state)?'decision':['failed','blocked','unknown'].includes(state)||state==='interrupted'&&!plan.pause_requested&&!plan.cancel_requested?'problem':'progress';
+            Axx.anticipation?.noteMissionPlan?.(plan,{memoryToken,projectId,responded:solicited,category});
+            const group={mission_id:mission.mission_id||plan.operation_id,task_id:plan.conversation_id,project_id:plan.project_id??projectId,goal_revision:plan.goal_revision??mission.revision,plan_hash:plan.plan_hash??null,category,reason_code:state,summary:(!done&&plan.state==='succeeded'?'Objetivo pendiente de verificación. Revisa los criterios y las evidencias actuales de la misión.':plan.message||state||'Estado de misión').slice(0,2000),source_state:state,completed:done,memory_scope:structuredClone(scope),...(plan.memory_context_id?{memory_context_id:plan.memory_context_id}:{}),...(plan.memory_dependencies?{memory_dependencies:structuredClone(plan.memory_dependencies)}:{}),...(plan.context_dependencies?{context_dependencies:structuredClone(plan.context_dependencies)}:{})};
+            return Axx.companion.updateMissionAttention?.(group,{notify:false,solicited})===true;
+        }
         checkMemory(token,active=false) { if(token&&!Axx.chatWorkspace?.isMemoryTokenCurrent(token,active))throw new DOMException('La memoria de esta conversación cambió.','AbortError'); }
         memoryBody(body,token) { return token?{...body,memory_scope:{...token.memory_scope},memory_context_id:token.memory_context_id}:body; }
         async request(method, path, body, memoryToken=null) {
@@ -942,7 +953,7 @@
             const memory=options.memoryToken===undefined?this.captureMemory():options.memoryToken;this.checkMemory(memory,true);
             if (this.busy || this.operation) { Axx.companion.localNotice('Hay una acción pendiente. Revisa el resultado o cancélala antes de preparar otra.'); return; }
             const serial = ++this.generation, id = Axx.newId();
-            const origin = Axx.chatWorkspace?.active?.id;
+            const origin = Axx.chatWorkspace?.active?.id,projectId=Axx.skillLibrary?.project()||'';
             this.busy = true; ++this.observationRevision;
             this.operation = this.lastOperation = { kind:'learned_plan', operation_id:id, command_id:'axx.learned', state:'planning', conversation_id:origin };
             this.status('Buscando una habilidad y preparando la acción…'); this.renderOperation(this.operation);
@@ -950,25 +961,28 @@
             const prefs = Axx.companion.data?.prefs || {};
             try {
                 const plan = options.steps ? await this.request('POST','/axx-api/learning/prepare',{
-                    text,steps:options.steps,operation_id:id,conversation_id:origin,project_id:Axx.skillLibrary?.project() || '',
+                    text,steps:options.steps,operation_id:id,conversation_id:origin,project_id:projectId,
                     ...(options.document_references ? {document_references:structuredClone(options.document_references)} : {})
                 },memory) : await this.request('POST', '/axx-api/learning/propose', { text, operation_id:id, conversation_id:origin, context:{...this.actionContext, ...options.context},
-                    inputs:options.inputs, project_id:Axx.skillLibrary?.project() || '', selection_mode:prefs.selection_mode || 'manual',
+                    inputs:options.inputs, project_id:projectId, selection_mode:prefs.selection_mode || 'manual',
                     model:prefs.model || '', provider_name:prefs.provider === 'chatgpt' ? '@codex' : prefs.provider === 'bridge' ? prefs.apiConnection || '' : '',
                     ...(options.document_references ? {document_references:structuredClone(options.document_references)} : {}) },memory);
                 if (serial !== this.generation) return;
                 this.checkMemory(memory,true);
+                if(projectId!==(Axx.skillLibrary?.project()||'')){this.operation=this.lastOperation=null;this.renderOperation(null);return;}
                 this.lastOperation = plan; this.operation = plan.state === 'awaiting_approval' ? plan : null;
                 this.learningQuestion = plan.state === 'needs_input' ? {request:text,question:plan.message,operation_id:plan.operation_id,conversation_id:origin} : null;
                 this.busy = false; this.renderOperation(plan); this.status(plan.message || plan.state);
                 if (this.operation) { if(Axx.chatWorkspace) Axx.companion.openChat(); else this.open(); }
-                this.notice(plan.message || 'No se pudo preparar la acción.', origin, plan.operation_id);
-                Axx.companion.action(this.operation ? 'approval' : 'idle');
+                const attention=this.missionAttention(plan,memory,projectId);
+                const rendered=this.notice(plan.message || 'No se pudo preparar la acción.', origin, plan.operation_id);
+                if(rendered&&attention)void Axx.anticipation?.acknowledgeMissionResponse?.(plan,{memoryToken:memory,projectId});
+                if(!attention)Axx.companion.action(this.operation ? 'approval' : 'idle');
                 if (plan.state === 'waiting_capability' && plan.capability_build?.id) await Axx.capabilityWorkshop?.openTask(plan);
                 else if (plan.capability_missing === true && this.isActionRequest(text)) await Axx.capabilityWorkshop?.propose(text, 'source_proposal', plan.document_references || []);
             } catch (error) {
                 if (serial !== this.generation) return;
-                try { this.checkMemory(memory,true); }
+                try { this.checkMemory(memory,true);if(projectId!==(Axx.skillLibrary?.project()||'')){this.operation=this.lastOperation=null;this.renderOperation(null);return;} }
                 catch { this.operation = this.lastOperation = null; this.renderOperation(null); return; }
                 this.operation = null; this.report(error);
                 this.notice('No se pudo preparar la acción: ' + errorText(error), origin);
@@ -981,12 +995,14 @@
             if (!operation || this.busy) return;
             const shown=this.reviewedPlanApproval,approvedHash=shown?.operation_id===operation.operation_id?shown.plan_hash:undefined;
             if(operation.plan_hash&&approvedHash!==operation.plan_hash){this.status('La versión del plan cambió. Consulta y revisa sus criterios y pasos antes de aprobar.');return;}
-            const origin = operation.conversation_id || Axx.chatWorkspace?.active?.id;
+            this.checkMemory(memoryToken,true);
+            const origin = operation.conversation_id || Axx.chatWorkspace?.active?.id,projectId=Axx.skillLibrary?.project()||'';
             this.busy = true; operation.state = 'running'; ++this.observationRevision;
             this.renderOperation(operation); this.status('Ejecutando los pasos y comprobando sus resultados…');
             const progress = setInterval(() => {
                 void this.request('GET', '/axx-api/learning/plan?id=' + encodeURIComponent(operation.operation_id),undefined,memoryToken).then(current => {
-                    if (serial !== this.generation || !this.busy || this.operation?.operation_id !== operation.operation_id) return;
+                    if (serial !== this.generation || !this.busy || this.operation?.operation_id !== operation.operation_id || projectId!==(Axx.skillLibrary?.project()||'')) return;
+                    this.checkMemory(memoryToken,true);this.missionAttention(current,memoryToken,projectId,{solicited:false});
                     this.renderOperation(current);
                     this.status(`Ejecutando y comprobando: ${current.mission?.verified_steps?.length??(current.step_records || []).filter(step => step.state === 'succeeded').length}/${current.steps?.length || 0} pasos confirmados.`);
                 }).catch(() => {});
@@ -994,6 +1010,7 @@
             try {
                 const plan = await this.request('POST', '/axx-api/learning/execute', { operation_id:operation.operation_id, approved:true,...(approvedHash?{plan_hash:approvedHash}:{}) },memoryToken);
                 if (serial !== this.generation) return;
+                this.checkMemory(memoryToken,true);if(projectId!==(Axx.skillLibrary?.project()||''))return;
                 this.lastOperation = plan; this.operation = null; this.busy = false;
                 this.renderOperation(plan); this.status(plan.message || plan.state);
                 const verified = plan.state === 'succeeded' && plan.postconditions_passed === true && plan.mission?.completed !== false && goalCriteriaVerified(plan);
@@ -1002,12 +1019,14 @@
                     if (result.evidence?.verification === 'os_handoff') message += '\nWindows aceptó abrir: ' + (result.output?.label || result.evidence.target);
                     if (result.evidence?.sha256 && plan.mission?.completed!==false) message += '\nArchivo verificado: ' + result.evidence.path;
                 }
-                this.notice(message, origin, plan.operation_id); Axx.companion.action(verified ? 'success' : 'error');
+                const attention=this.missionAttention(plan,memoryToken,projectId);
+                const rendered=this.notice(message, origin, plan.operation_id);if(rendered&&attention)void Axx.anticipation?.acknowledgeMissionResponse?.(plan,{memoryToken,projectId});if(!attention)Axx.companion.action(verified?'success':['failed','blocked','unknown'].includes(plan.state)?'error':plan.state==='awaiting_approval'?'approval':'idle');
                 if (verified) void this.listLearned().catch(() => {});
             } catch (error) {
                 if (serial !== this.generation) return;
+                try{this.checkMemory(memoryToken,true);if(projectId!==(Axx.skillLibrary?.project()||''))return;}catch{return;}
                 this.status('Resultado incierto. Consulta el estado antes de repetir: ' + errorText(error));
-            } finally { clearInterval(progress); if (serial === this.generation) { this.busy = false; this.renderOperation(this.lastOperation); } }
+            } finally { clearInterval(progress); if (serial === this.generation) { this.busy = false;try{this.checkMemory(memoryToken,true);if(projectId!==(Axx.skillLibrary?.project()||''))throw Error('El proyecto cambió.');this.renderOperation(this.lastOperation);}catch{this.operation=this.lastOperation=null;this.renderOperation(null);} } }
         }
         async pausePlan() {
             const memory=this.captureMemory();

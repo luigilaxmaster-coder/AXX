@@ -75,11 +75,67 @@
  #anticipation-card summary{cursor:pointer;min-height:44px;align-content:center}#anticipation-card summary:focus-visible{outline:2px solid var(--accent,#95c9fc);outline-offset:2px}.anticipation-evidence dl{margin:0;overflow-wrap:anywhere}.anticipation-evidence dt{font-weight:600;margin-top:8px}.anticipation-evidence dd{margin:2px 0 8px;white-space:pre-wrap}#anticipation-card .anticipation-evidence-body{max-height:190px;overflow:auto;font-size:12px}
  </style><small id="anticipation-phase"></small><p id="anticipation-text" role="status" aria-live="polite"></p><div id="anticipation-actions" class="anticipation-actions"></div>`;
  document.body.append(card);
- let snapshot=null,origin=null,revision=0,loading=false,mutation=false,current=null,stopped=false,settingsKey='',missionRevision=0,missionsLoading=false,missionKey='',missionPlans=[],missionProject='',sourceContext='',sourceRevision=0,targetWindows=[];
+ let snapshot=null,origin=null,revision=0,loading=false,mutation=false,current=null,stopped=false,settingsKey='',missionRevision=0,missionsLoading=false,missionKey='',missionPlans=[],missionProject='',sourceContext='',sourceRevision=0,targetWindows=[],snapshotContext=null,memoryRevision=0;
  const lifetimes={one_action:'Una acción permitida',session:'Esta sesión de Axx',mission:'Esta misión exacta',until_revoked:'Hasta revocación'};
  const spoken=new Set(),acknowledged=new Set();
  const task=()=>Axx.chatWorkspace.active?.id||null;
  const project=()=>Axx.skillLibrary?.project()||Axx.companion.data?.prefs?.skillProject||'';
+ const attentionAdmissions=new Map(),attentionClaims=new Map(),missionVersions=new Map();
+ const attentionMissionKey=row=>JSON.stringify([row.task_id,row.project_id||'',row.mission_id]);
+ const sameMissionVersion=(group,version)=>!!version&&(!version.attention_key||group.attention_key===version.attention_key)&&group.plan_hash===version.plan_hash&&group.goal_revision===version.goal_revision&&group.category===version.category&&(!version.source_state||group.source_state===version.source_state)&&group.memory_scope?.generation===version.memory_scope?.generation&&(!version.memory_context_id||group.memory_context_id===version.memory_context_id)&&(!version.digest_ready||!!version.response_digest&&group.response_digest===version.response_digest);
+ async function responseDigest(message){try{if(!globalThis.crypto?.subtle||typeof TextEncoder!=='function')return null;const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(typeof message==='string'?message:''));return [...new Uint8Array(digest)].map(byte=>byte.toString(16).padStart(2,'0')).join('');}catch{return null;}}
+ const attentionOrigin=(row,id)=>row?.task_id===id||row?.memory_scope?.task_id===id||(row?.memory_dependencies||[]).some(ref=>ref.task_id===id);
+ function captureContext(){return {task_id:task(),project_id:project(),memoryToken:Axx.chatWorkspace.captureMemoryToken?.()||null,memoryRevision};}
+ function contextCurrent(context){return !!context&&context.task_id===task()&&context.project_id===project()&&context.memoryRevision===memoryRevision&&(!context.memoryToken||Axx.chatWorkspace.isMemoryTokenCurrent?.(context.memoryToken,true)===true);}
+ function groupCurrent(group,context=snapshotContext){
+  if(!contextCurrent(context)||group?.task_id!==context.task_id||(group.project_id||'')!==context.project_id||!group.mission_id||!group.attention_key)return false;
+  const ref=group.memory_scope,token=context.memoryToken;
+  if(!ref||ref.task_id!==group.task_id||!Number.isSafeInteger(ref.generation)||ref.generation<0||token&&(ref.generation!==token.memory_scope.generation||group.memory_context_id&&group.memory_context_id!==token.memory_context_id))return false;
+  try{const deps=group.memory_dependencies||[];if(!Array.isArray(deps)||deps.length>128)return false;for(const dep of deps){if(!dep?.task_id||!Number.isSafeInteger(dep.generation)||dep.generation<0)return false;if(Axx.chatWorkspace.allowsMemoryReference){if(!Axx.chatWorkspace.allowsMemoryReference(dep))return false;}else if(Axx.chatWorkspace.captureMemoryScope&&(Axx.chatWorkspace.captureMemoryScope(dep.task_id).generation!==dep.generation||dep.context_id&&Axx.chatWorkspace.captureMemoryToken(dep.task_id).memory_context_id!==dep.context_id))return false;}}catch{return false;}
+  return true;
+ }
+ function invalidateMemory(id){
+  if(id===task()){++memoryRevision;++revision;++missionRevision;loading=false;missionsLoading=false;}missionKey='';
+  for(const [key,entry] of attentionAdmissions)if(attentionOrigin(entry.group,id))attentionAdmissions.delete(key);
+  for(const [key,entry] of attentionClaims)if(attentionOrigin(entry.group,id))attentionClaims.delete(key);
+  for(const [key,entry] of missionVersions)if(attentionOrigin(entry,id))missionVersions.delete(key);
+  const removed=new Set(missionPlans.filter(plan=>plan.conversation_id===id||attentionOrigin(plan,id)).map(plan=>plan.operation_id));missionPlans=missionPlans.filter(plan=>!removed.has(plan.operation_id));for(const article of [...$('anticipation-missions').children])if(removed.has(article.dataset.missionId))article.remove();
+  if(snapshot){const linked=new Set((snapshot.mission_attention||[]).filter(group=>attentionOrigin(group,id)).flatMap(group=>group.suggestion_ids||[]));snapshot={...snapshot,mission_attention:snapshot.mission_attention?.filter(group=>!attentionOrigin(group,id)),suggestions:(snapshot.suggestions||[]).filter(row=>!attentionOrigin(row,id)&&!linked.has(row.suggestion_id))};if(origin===id){snapshot=null;snapshotContext=null;}else if(snapshotContext)snapshotContext={...snapshotContext,memoryRevision};}
+  if(origin===id)$('anticipation-history').replaceChildren();hide();
+ }
+ function noteMissionPlan(plan,{memoryToken=null,projectId=plan?.project_id||'',responded=false,category=null}={}){
+  if(!plan?.mission||plan.memory_forgotten||plan.selection_invalidated||memoryToken&&!Axx.chatWorkspace.isMemoryTokenCurrent?.(memoryToken,true)||plan.conversation_id!==task()||projectId!==project())return false;
+  ++revision;loading=false;
+  const missionId=plan.mission.mission_id||plan.operation_id;
+  const version=structuredClone({mission_id:missionId,task_id:plan.conversation_id,project_id:projectId,plan_hash:plan.plan_hash??null,goal_revision:plan.goal_revision??plan.mission.revision,category,source_state:plan.mission.state||plan.state,responded,memory_scope:plan.memory_scope,memory_context_id:plan.memory_context_id,memory_dependencies:plan.memory_dependencies});
+  // Identifies the source snapshot behind a rendered reply, not human comprehension.
+  if(responded)version.digest=responseDigest(plan.message).then(digest=>{version.response_digest=digest;version.digest_ready=true;return digest;});
+  missionVersions.set(attentionMissionKey(version),version);while(missionVersions.size>256)missionVersions.delete(missionVersions.keys().next().value);
+  if(snapshot){const linked=new Set((snapshot.mission_attention||[]).filter(group=>group.mission_id===missionId).flatMap(group=>group.suggestion_ids||[]));snapshot={...snapshot,mission_attention:snapshot.mission_attention?.filter(group=>group.mission_id!==missionId),suggestions:(snapshot.suggestions||[]).filter(row=>!linked.has(row.suggestion_id))};hide();}
+  for(const [key,entry] of attentionAdmissions)if(entry.group.mission_id===missionId)attentionAdmissions.delete(key);
+  for(const [key,entry] of attentionClaims)if(entry.group.mission_id===missionId)attentionClaims.delete(key);
+  return true;
+ }
+ async function acknowledgeMissionResponse(plan,{memoryToken=null,projectId=plan?.project_id||''}={}){
+  const key=attentionMissionKey({task_id:plan?.conversation_id,project_id:projectId,mission_id:plan?.mission?.mission_id||plan?.operation_id}),version=missionVersions.get(key);
+  if(!version?.responded||!version.memory_scope||!Axx.chatWorkspace.flush||!memoryToken)return false;
+  const context={task_id:plan.conversation_id,project_id:projectId,memoryToken,memoryRevision},current=()=>contextCurrent(context)&&missionVersions.get(key)===version;
+  try{
+   if(!current())return false;const digest=await version.digest;if(!digest||!current())return false;await Axx.chatWorkspace.flush();if(!current())return false;
+   const status=await api('status',{task_id:context.task_id});if(!current())return false;
+   const group=(status.mission_attention||[]).find(group=>attentionMissionKey(group)===key&&sameMissionVersion(group,version)&&groupCurrent(group,context));if(!group)return false;
+   const result=await api('feedback',{mission_id:group.mission_id,action:'shown',attention_key:group.attention_key,phase:'response',response_digest:digest});
+   if(!current()||result.admission?.accepted!==true||result.admission.presented!==true||result.attention?.attention_key!==group.attention_key)return false;
+   version.attention_key=group.attention_key;attentionAdmissions.set(group.attention_key,{group:result.attention,accepted:true,voice:false,notify:false,presented:true});return true;
+  }catch{return false;}
+ }
+ async function attentionFeedback(group,action){
+  const context=captureContext();if(!groupCurrent(group,context))throw Error('La misión cambió; revisa su estado actual.');
+  const result=await api('feedback',{mission_id:group.mission_id,action,attention_key:group.attention_key});if(!contextCurrent(context))return;
+  if(result.admission?.accepted===false)throw Error('La misión cambió; revisa su estado actual.');
+  attentionAdmissions.delete(group.attention_key);
+  if(result.attention&&groupCurrent(result.attention,context)){if(snapshot)snapshot={...snapshot,mission_attention:(snapshot.mission_attention||[]).map(row=>row.mission_id===group.mission_id?result.attention:row)};Axx.companion.updateMissionAttention?.(result.attention,{notify:false});}
+ }
  function syncSchedule(form){for(const input of form.querySelectorAll('[data-schedule] input'))input.disabled=!form.elements.schedule_enabled.checked;}
  const api=async(action,body,method='POST')=>{
   const value=await Axx.backendRequest(method,'/axx-api/anticipation/'+action,body);
@@ -150,16 +206,17 @@
   if(!selected){$('anticipation-missions').replaceChildren();$('anticipation-mission-status').textContent='Selecciona un chat.';return;}
   missionsLoading=true;
   try{
+   const context=captureContext();
    const result=await Axx.backendRequest('GET','/axx-api/learning/plans?project_id='+encodeURIComponent(currentProject));
-   if(token!==missionRevision||selected!==task()||currentProject!==project())return;
+   if(token!==missionRevision||!contextCurrent(context))return;
    if(result?.error||!Array.isArray(result?.plans))throw Error(result?.error?.message||'No se pudo consultar la misión.');
-   const plans=result.plans.filter(p=>p.conversation_id===selected&&p.mission?.scope?.task_id===selected&&(p.project_id??p.mission.scope.project_id??'')===currentProject),host=$('anticipation-missions'),key=JSON.stringify([selected,currentProject,result.plans]);missionPlans=plans;missionProject=currentProject;renderMissionGrantPlans();
+   const plans=result.plans.filter(p=>p.conversation_id===selected&&p.mission?.scope?.task_id===selected&&(p.project_id??p.mission.scope.project_id??'')===currentProject&&!(p.memory_dependencies||[]).some(ref=>Axx.chatWorkspace.allowsMemoryReference&&!Axx.chatWorkspace.allowsMemoryReference(ref))),host=$('anticipation-missions'),key=JSON.stringify([selected,currentProject,result.plans,snapshot?.mission_attention]);missionPlans=plans;missionProject=currentProject;renderMissionGrantPlans();
    if(missionKey===key)return;missionKey=key;
    const expanded=new Set([...host.querySelectorAll('details[open]')].map(n=>n.dataset.missionId));
    const drafts=new Map([...host.querySelectorAll('[data-dependency-id]')].map(form=>[form.dataset.dependencyId,{open:form.parentElement.open,dirty:form.dataset.dirty==='true',selected:[...form.querySelector('select').selectedOptions].map(o=>o.value)}]));host.replaceChildren();
    $('anticipation-mission-status').textContent=plans.length?plans.length+' planes de este chat · Proyecto: '+(currentProject||'Personal'):'Este chat todavía no tiene un plan de misión persistente.';
    for(const plan of plans){
-    const mission=plan.mission,article=document.createElement('article'),title=document.createElement('strong'),progress=document.createElement('p');
+    const mission=plan.mission,article=document.createElement('article'),title=document.createElement('strong'),progress=document.createElement('p');article.dataset.missionId=mission.mission_id;
     const labels={awaiting_approval:'Pendiente de aprobación',running:'En curso',paused:'En pausa',pausing:'Pausa solicitada',cancelled:'Cancelada',unknown:'Pendiente de reconciliación',expired:'Requiere revisión',blocked:'Bloqueada',needs_input:'Necesita datos',interrupted:'Interrumpida',waiting_capacity:'Espera un modelo apto',waiting_capability:'Espera una capacidad',waiting_dependency:'Espera otra misión verificada',goal_pending:'Objetivo pendiente de verificar'};
     const requiredCriteria=mission.criteria||plan.goal_spec?.criteria||[],observedCriteria=plan.goal_verification?.criteria||mission.goal_progress?.criteria||[],unverifiedCriteria=requiredCriteria.some(criterion=>{const rows=observedCriteria.filter(row=>row.id===criterion.id&&row.kind===criterion.kind);return rows.length!==1||rows[0].status!=='satisfied';})||observedCriteria.some(row=>row.status!=='satisfied');
     title.textContent=mission.objective||plan.request||'Misión';
@@ -191,7 +248,8 @@
     form.onsubmit=e=>{e.preventDefault();void run(async()=>{const selected=[...select.selectedOptions].map(o=>o.value);if(selected.length>16)throw Error('Selecciona hasta 16 misiones requeridas.');const result=await Axx.backendRequest('POST','/axx-api/learning/dependencies',{operation_id:plan.operation_id,dependencies:selected,plan_hash:plan.plan_hash||mission.plan_hash});if(!result||result.error)throw Error(result?.error?.message||'No se pudieron guardar las dependencias.');form.dataset.dirty='false';missionKey='';});};
     dependencies.append(dependencySummary,form);details.append(dependencies);
     details.className='anticipation-evidence';details.dataset.missionId=mission.mission_id;details.open=expanded.has(mission.mission_id);details.prepend(summary,list);
-    const review=button('Revisar plan',()=>reviewPlan({learning_plan_id:plan.operation_id,task_id:selected}));review.disabled=false;article.append(title,progress,details,review);host.append(article);
+    const review=button('Revisar plan',()=>reviewPlan({learning_plan_id:plan.operation_id,task_id:selected}));review.disabled=false;article.append(title,progress,details,review);
+    const attention=(snapshot?.mission_attention||[]).find(group=>group.mission_id===plan.operation_id&&groupCurrent(group,context));if(attention?.interruption?.reason==='mission_suppressed'||attention?.interruption?.mission_suppressed===true)article.append(button('Volver a avisar de esta misión',()=>attentionFeedback(attention,'restore')));host.append(article);
    }
   }catch(e){if(token===missionRevision)$('anticipation-mission-status').textContent=e.message||String(e);}
   finally{if(token===missionRevision)missionsLoading=false;}
@@ -436,9 +494,52 @@
   }
   $('anticipation-metrics').textContent=JSON.stringify(snapshot.metrics||{},null,2);
  }
+ function claimAttention(group){
+  const key=group.attention_key;if(attentionClaims.has(key))return;
+  const context=snapshotContext,serial=revision,entry={group};attentionClaims.set(key,entry);
+  void api('feedback',{suggestion_id:group.representative_suggestion_id,action:'shown',attention_key:key,phase:'claim'}).then(result=>{
+   if(attentionClaims.get(key)!==entry||serial!==revision||!groupCurrent(group,context))return;
+   if(result.attention?.attention_key!==key||result.admission?.accepted!==true){attentionAdmissions.set(key,{group,accepted:false});return;}
+   const latest=result.attention;if(!snapshot?.mission_attention?.some(row=>row.attention_key===key)||!groupCurrent(latest,context))return;
+   snapshot={...snapshot,mission_attention:snapshot.mission_attention.map(row=>row.attention_key===key?latest:row)};
+   attentionAdmissions.set(key,{group:latest,accepted:true,voice:result.admission.new_claim===true,notify:result.admission.new_claim===true,presented:result.admission.presented===true});
+  }).catch(error=>{if(serial===revision&&contextCurrent(context)){attentionAdmissions.set(key,{group,accepted:false});notice(error);}}).finally(()=>{if(attentionClaims.get(key)===entry)attentionClaims.delete(key);if(serial===revision&&contextCurrent(context))renderCard();});
+ }
+ function renderAttention(){
+  const groups=(snapshot.mission_attention||[]).filter(group=>groupCurrent(group));
+  const group=groups.find(group=>group.category!=='progress'&&!(missionVersions.get(attentionMissionKey(group))?.responded&&sameMissionVersion(group,missionVersions.get(attentionMissionKey(group))))&&group.representative_suggestion_id&&attentionAdmissions.get(group.attention_key)?.accepted!==false&&group.interruption?.eligible===true&&!['OFF','SHADOW'].includes(group.interruption?.mode||group.interruption?.policy?.mode)&&['cards','voice','cards_voice'].includes(group.interruption?.interruptions));
+  if(!group)return false;
+  const admission=attentionAdmissions.get(group.attention_key);
+  if(!admission){hide();claimAttention(group);return true;}
+  const row=group.representative||(snapshot.suggestions||[]).find(row=>row.suggestion_id===group.representative_suggestion_id);
+  if(!row||row.suggestion_id!==group.representative_suggestion_id){hide();return true;}
+  const phase=({done:'Misión completada',decision:'Requiere tu decisión',problem:'Misión requiere revisión',progress:'En curso'})[group.category],text=group.summary||phase;
+  const key=JSON.stringify([group,mutation]);current={...row,mission_attention:group};
+  if(card.dataset.renderKey!==key){
+   const expanded=card.dataset.suggestionId===row.suggestion_id&&$('anticipation-why')?.open,linkedExpanded=card.dataset.suggestionId===row.suggestion_id&&$('anticipation-linked-check')?.open;
+   card.dataset.renderKey=key;card.dataset.suggestionId=row.suggestion_id;$('anticipation-phase').textContent=phase;$('anticipation-text').textContent=text;
+   const actions=$('anticipation-actions');actions.replaceChildren();
+   if(group.category==='decision')actions.append(button('Revisar plan',()=>reviewPlan({...row,learning_plan_id:group.mission_id},group)));
+   actions.append(button('Descartar',()=>attentionFeedback(group,'dismiss')));
+   actions.append(button('No volver a avisar de esta misión',()=>attentionFeedback(group,'suppress')));
+   $('anticipation-why')?.remove();const why=document.createElement('details'),label=document.createElement('summary'),body=document.createElement('div');why.id='anticipation-why';why.className='anticipation-evidence';why.open=!!expanded;label.textContent='Estado de esta misión';body.className='anticipation-evidence-body';body.textContent=text+'\nRevisión del objetivo: '+group.goal_revision+'\nVersión del plan: '+group.plan_hash;
+   const linked=explanation(row),limit=document.createElement('p');linked.id='anticipation-linked-check';linked.open=!!linkedExpanded;linked.querySelector('summary').textContent='Comprobación adicional vinculada';limit.textContent='Esta comprobación conserva su propia evidencia y utilidad; no verifica por sí sola el resultado de la misión.';linked.querySelector('.anticipation-evidence-body').prepend(limit);why.append(label,body,linked);why.addEventListener('toggle',changed);card.append(why);
+  }
+  const interruptions=group.interruption.interruptions,voice=admission.voice&&['voice','cards_voice'].includes(interruptions);
+  const hidden=interruptions==='voice';if(card.hidden!==hidden){card.hidden=hidden;changed();}
+  Axx.companion.updateMissionAttention?.(group,{notify:admission.notify===true});admission.notify=false;
+  const delivered=voice&&Axx.companion.speakReply?.(phase+'. '+text)===true;if(delivered)admission.voice=false;
+  if(!admission.presented&&(!card.hidden||delivered)){
+   admission.presented=true;const context=snapshotContext,serial=revision;
+   void api('feedback',{suggestion_id:group.representative_suggestion_id,action:'shown',attention_key:group.attention_key,phase:'presented'}).catch(error=>{if(serial===revision&&contextCurrent(context))notice(error);});
+  }
+  return true;
+ }
  function renderCard(){
-  if(!snapshot||origin!==task()||snapshot.paused||stopped||Axx.app.machine?.visible===false||document.hidden||busy()){hide();return;}
-  const rows=(snapshot.suggestions||[]).filter(r=>r.task_id===task()&&r.visible===true&&!['DISMISSED','SUPPRESSED','CANCELLED','EXPIRED'].includes(r.state));
+  if(!snapshot||origin!==task()||!contextCurrent(snapshotContext)||snapshot.paused||stopped||Axx.app.machine?.visible===false||document.hidden||busy()){hide();return;}
+  if(Array.isArray(snapshot.mission_attention)&&renderAttention())return;
+  const linked=new Set((snapshot.mission_attention||[]).flatMap(group=>group.suggestion_ids||[]));
+  const rows=(snapshot.suggestions||[]).filter(r=>r.task_id===task()&&!linked.has(r.suggestion_id)&&r.visible===true&&!['DISMISSED','SUPPRESSED','CANCELLED','EXPIRED'].includes(r.state));
   const row=rows.find(r=>['AWAITING_APPROVAL','PREPARED','DETECTED','EXECUTING'].includes(r.state))||rows[0];
   if(!row){hide();return;}
   const prefs=row.policy||preferences();
@@ -470,22 +571,25 @@
   const hidden=prefs.interruptions==='voice';if(card.hidden!==hidden){card.hidden=hidden;changed();}
   if(!acknowledged.has(row.suggestion_id)){acknowledged.add(row.suggestion_id);void api('feedback',{suggestion_id:row.suggestion_id,action:'shown'}).catch(e=>{acknowledged.delete(row.suggestion_id);notice(e);});}
  }
- async function reviewPlan(row){
+ async function reviewPlan(row,group=null){
   const lib=Axx.commandLibrary;if(!lib||lib.busy||lib.operation&&lib.operation.operation_id!==row.learning_plan_id)throw Error('Revisa primero la acción pendiente.');
+  const context=captureContext(),serial=revision;if(group&&!groupCurrent(group,context))throw Error('La misión cambió; revisa su estado actual.');
   const plan=await Axx.backendRequest('GET','/axx-api/learning/plan?id='+encodeURIComponent(row.learning_plan_id));
-  if(plan?.operation_id!==row.learning_plan_id||plan.conversation_id!==task()||row.task_id!==task())throw Error('El plan no corresponde a este chat.');
+  if(!contextCurrent(context)||serial!==revision)return;
+  if(plan?.operation_id!==row.learning_plan_id||plan.conversation_id!==task()||row.task_id!==task()||plan.memory_forgotten||plan.selection_invalidated||group&&((plan.plan_hash??null)!==(group.plan_hash??null)||(plan.goal_revision??plan.mission?.revision)!==group.goal_revision))throw Error('El plan cambió; revisa su versión actual.');
   lib.lastOperation=plan;lib.operation=['awaiting_approval','running'].includes(plan.state)?plan:null;
   lib.renderOperation(plan);Axx.companion.openChat();
  }
  async function refresh(fill=false){
   const selected=task();syncSourceScope();if(selected!==origin){origin=selected;snapshot=null;hide();for(const id of ['anticipation-grants','anticipation-history','anticipation-missions','anticipation-targets','anticipation-source-observations'])$(id).replaceChildren();for(const id of ['anticipation-grant-form','anticipation-mission-grant-form'])$(id).reset();delete $('anticipation-mission-grant-form').dataset.rootDirty;$('anticipation-mission-commands').replaceChildren();$('anticipation-mission-commands').dataset.key='';$('anticipation-grant-source').replaceChildren(new Option('Carpeta del espacio de ensayo',''));$('anticipation-grant-source').dataset.key='';$('anticipation-grant-root').readOnly=false;$('anticipation-grant-events').disabled=false;$('anticipation-mission-grant-plan').replaceChildren(new Option('Selecciona una misión',''));delete $('anticipation-mission-grant-plan').dataset.planHash;$('anticipation-mission-plan-hash').textContent='';missionPlans=[];missionProject='';$('anticipation-targets').dataset.renderKey='';$('anticipation-source-runtime').textContent='';$('anticipation-mission-status').textContent='';++missionRevision;missionsLoading=false;missionKey='';$('anticipation-status').textContent='Cargando el ámbito de este chat…';++revision;loading=false;}
   if(loading&&!fill)return;
+  let context;try{context=captureContext();}catch{snapshot=null;hide();return;}
   const token=++revision;loading=true;
   try{
    const value=await api('status',{task_id:selected});
-   if(token!==revision||selected!==task())return;
+   if(token!==revision||!contextCurrent(context))return;
    if(snapshot&&JSON.stringify(snapshot.observation_targets)!==JSON.stringify(value.observation_targets))++sourceRevision;
-   snapshot=value;renderSettings(fill);renderCard();void loadMissions();void syncMicrophone();if(destinationContext!==sourceScope())void loadSourceDestinations().catch(notice);
+   snapshot=value;snapshotContext=context;for(const [key,entry] of attentionAdmissions)if(entry.accepted===false||entry.group.task_id===selected&&!(value.mission_attention||[]).some(group=>group.attention_key===key))attentionAdmissions.delete(key);while(attentionAdmissions.size>256)attentionAdmissions.delete(attentionAdmissions.keys().next().value);for(const group of value.mission_attention||[])if(groupCurrent(group,context))Axx.companion.updateMissionAttention?.(group,{notify:false});renderSettings(fill);renderCard();void loadMissions();void syncMicrophone();if(destinationContext!==sourceScope())void loadSourceDestinations().catch(notice);
   }catch(e){if(token===revision){snapshot=null;hide();stopMicrophone();notice(e);}}
   finally{if(token===revision)loading=false;}
  }
@@ -576,6 +680,6 @@
  const timer=setInterval(()=>void refresh(),3000);
  document.addEventListener('visibilitychange',()=>{if(document.hidden){hide();stopMicrophone();}else void refresh();});
  window.addEventListener('pagehide',()=>{clearInterval(timer);++revision;++destinationRevision;hide();stopMicrophone();});
- Axx.anticipation={refresh,render(){renderCard();if(Axx.app.machine?.visible===false)stopMicrophone();},layout,cancel:stop,allowSurprises,get state(){return snapshot;},get current(){return current;}};
+ Axx.anticipation={refresh,invalidateMemory,noteMissionPlan,acknowledgeMissionResponse,render(){renderCard();if(Axx.app.machine?.visible===false)stopMicrophone();},layout,cancel:stop,allowSurprises,get state(){return snapshot;},get current(){return current;}};
  void refresh(true);
 })(window.Axx);

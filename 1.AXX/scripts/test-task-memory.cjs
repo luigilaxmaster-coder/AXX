@@ -7,16 +7,16 @@ const {requirePlaywright,launchChromium}=require('./test-browser-runtime.cjs');
   const page=await browser.newPage(),errors=[];page.on('pageerror',error=>errors.push(error.message));
   await page.route('http://memory.test/',route=>route.fulfill({contentType:'text/html',body:'<main id="view-files"></main><section id="desktop-runtime"></section><section id="view-chat"><div id="chat-log"></div><textarea id="chat-input"></textarea><button id="chat-new"></button></section><input id="keep-history" type="checkbox" checked>'}));await page.goto('http://memory.test/');
   await page.evaluate(()=>{
-   const clone=value=>structuredClone(value);window.calls=[];window.brainRequests=[];window.deltas=[];window.fallback=[];window.serial=0;if(!crypto.randomUUID)crypto.randomUUID=()=> 'synthetic-request-'+(++serial);
+   const clone=value=>structuredClone(value);window.calls=[];window.brainRequests=[];window.deltas=[];window.fallback=[];window.attentionInvalidations=[];window.serial=0;if(!crypto.randomUUID)crypto.randomUUID=()=> 'synthetic-request-'+(++serial);
    const message=(id,text)=>({id,role:'user',source:'model',status:'complete',text,at:Date.now()});
    const chat=id=>({id,title:'Chat '+id,group_id:'group',messages:[message(id+'-message','Private '+id)],draft:'Draft '+id,draft_at:Date.now(),context:[{id:id+'-note',text:'Context '+id,at:Date.now()}],links:[],agent_profile:{},mode:'ask',connect_id:'connect-'+id,shared_id:'shared-'+id,memory_scope:{task_id:id,generation:0},history_count:900,review_context:[{text:'OLD REVIEW ONLY'}]});
    window.chats={A:chat('A'),B:chat('B')};window.forgetFixtureTask=id=>{const owner=chats[id];owner.memory_scope.generation++;owner.messages=[];owner.context=[];owner.links=[];owner.attachment=null;owner.connect_id+='-forgotten';for(const peer of Object.values(chats))if(peer.links.some(link=>link.source_id===id)){peer.connect_id+='-rotated';peer.links=peer.links.filter(link=>link.source_id!==id);peer.messages=peer.messages.filter(message=>message.source_task_id!==id);}};
    const bridge={listen:async()=>()=>{}};
-   window.Axx={isNative:()=>true,newId:()=> 'memory-'+(++serial),app:{bridge},resident:{schedule(){}},
+   window.Axx={isNative:()=>true,newId:()=> 'memory-'+(++serial),app:{bridge},resident:{schedule(){}},anticipation:{invalidateMemory:id=>attentionInvalidations.push({surface:'anticipation',id})},
     companion:{data:{messages:[],draft:'',prefs:{keepHistory:true,skillProject:'project'}},attachment:null,brain:{lastRoute:null,chat:async(p,messages,signal,onDelta)=>new Promise(resolve=>brainRequests.push({p:clone(p),messages:clone(messages),signal,onDelta,resolve}))},
      save(){},renderAttachment(){},renderChat(){const log=document.getElementById('chat-log');log.replaceChildren();for(const m of this.data.messages){const row=document.createElement('article');row.dataset.messageId=m.id;row.textContent=m.text;log.append(row);}},
      message(role,text,source='local'){const m={id:'message-'+(++serial),role,text,source,status:'complete',at:Date.now()};this.data.messages.push(m);return m;},
-     localNotice(text){this.message('assistant',text);this.renderChat();this.save();},send:async(raw,metadata)=>fallback.push({raw,metadata}),
+     localNotice(text){this.message('assistant',text);this.renderChat();this.save();},invalidateMissionAttention:id=>attentionInvalidations.push({surface:'activity',id}),send:async(raw,metadata)=>fallback.push({raw,metadata}),
      cancelRequest(){this.connecting?.abort();this.pending?.abort();},stopDictation(){},stopSpeech(){},sayStatus(){},openFeature(){},openChat(){},action(){},exportChat(){}},
     backendRequest:async(method,route,body)=>{
      calls.push({method,route,body:clone(body)});
@@ -72,6 +72,9 @@ const {requirePlaywright,launchChromium}=require('./test-browser-runtime.cjs');
   assert.equal(await page.locator('#chat-input').inputValue(),'Independent human draft');
   assert.equal(await page.evaluate(()=>Axx.chatWorkspace.active.memory_scope.generation),1);
   assert.deepEqual(await page.evaluate(()=>chats.B),beforeB);
+  assert.equal(await page.evaluate(()=>attentionInvalidations.some(row=>row.surface==='anticipation'&&row.id==='A')),true);
+  assert.equal(await page.evaluate(()=>attentionInvalidations.some(row=>row.surface==='activity'&&row.id==='A')),true);
+  assert.equal(await page.evaluate(()=>attentionInvalidations.some(row=>row.id==='B')),false,'Forgetting A invalidates its attention surfaces without clearing independent B');
   assert.deepEqual(await page.evaluate(()=>Axx.commandLibrary.actionContext),{});assert.equal(await page.evaluate(()=>Axx.commandLibrary.learningQuestion),null);
   await page.evaluate(()=>{brainRequests[0].onDelta('STALE MODEL OUTPUT');brainRequests[0].resolve({text:'STALE MODEL OUTPUT',reason:'stop'});releaseSave();});
   assert.equal(await page.evaluate(()=>inference),'AbortError');assert.equal(await page.evaluate(()=>saving),'STALE_MEMORY_SCOPE');assert.deepEqual(await page.evaluate(()=>deltas),[]);
@@ -156,9 +159,14 @@ const {requirePlaywright,launchChromium}=require('./test-browser-runtime.cjs');
     await migration.addScriptTag({path:path.join(__dirname,'chat-workspace.js')});await migration.waitForFunction(()=>Axx.chatWorkspace?.ready);await migration.evaluate(()=>Axx.chatWorkspace.flush());
     const legacySaves=await migration.evaluate(()=>calls.filter(call=>call.route.endsWith('/save')&&call.body.messages.some(message=>message.id==='legacy-old')));
     if(created){assert(legacySaves.length>0);assert.equal(Object.hasOwn(legacySaves[0].body,'memory_scope'),false);assert.equal(Object.hasOwn(legacySaves[0].body,'memory_context_id'),false);}else assert.deepEqual(legacySaves,[]);
+    if(!created){
+     const references=await migration.evaluate(()=>{const workspace=Axx.chatWorkspace,token=workspace.captureMemoryToken(),ref={task_id:'unopened-A',generation:4,context_id:'server-captured-A'},before=calls.length;let unknown=false;try{workspace.captureMemoryScope(ref.task_id);}catch{unknown=true;}const allowed=workspace.allowsMemoryReference(ref);let stillUnknown=false;try{workspace.captureMemoryScope(ref.task_id);}catch{stillUnknown=true;}workspace.invalidateMemory(ref.task_id);return {unknown,allowed,stillUnknown,revoked:workspace.allowsMemoryReference(ref),independent:workspace.allowsMemoryReference(token.memory_scope),strictOwn:workspace.isMemoryTokenCurrent(token),wrongGeneration:workspace.allowsMemoryReference({...token.memory_scope,generation:token.memory_scope.generation+1}),wrongContext:workspace.allowsMemoryReference({...token.memory_scope,context_id:'other-context'}),requests:calls.length-before};});
+     assert.deepEqual(references,{unknown:true,allowed:true,stillUnknown:true,revoked:false,independent:true,strictOwn:true,wrongGeneration:false,wrongContext:false,requests:0},'A fresh client can project server-validated B with unopened A lineage, then rejects known A revocation without rebasing scopes or clearing independent B');
+    }
    }finally{await migration.close();}
   }
   checks.push('Legacy imports run only for migrate.created=true and never acquire a fresh scope/context for old local messages or a reopened forgotten chat');
+  checks.push('Projection dependency checks allow an unopened server reference, reject known revocation/generation/context conflicts, and preserve strict own tokens without fetching a new scope');
   assert.deepEqual(errors,[]);console.log(JSON.stringify({kind:'TASK_MEMORY_CONTROLLED_IPC',passed:checks.length,checks,native_acceptance:false},null,2));
  }finally{await browser.close();}
 })().catch(error=>{console.error(error);process.exitCode=1;});

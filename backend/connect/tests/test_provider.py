@@ -853,21 +853,31 @@ class ProviderTests(unittest.TestCase):
         for phase in ('write', 'flush'):
             with self.subTest(phase=phase):
                 stream = ControlledPipe(phase); process = ControlledProcess(stream)
-                self.provider.process = process
-                self.provider.writer = _PipeWriter(process, self.provider._transport_failed)
-                started = time.monotonic()
-                try:
-                    with self.assertRaises(ProviderError) as cm:
-                        CodexProvider._write(self.provider, {'method': 'controlled'}, timeout=.06)
-                    self.assertEqual(cm.exception.code, 'WRITE_OUTCOME_UNKNOWN')
-                    self.assertLess(time.monotonic()-started, .4)
-                    self.assertEqual(len(stream.messages), 1)
-                    self.assertGreaterEqual(process.terminated, 1)
-                    self.assertTrue(all(wait <= .01 for wait in process.waits))
-                    self.provider.writer.thread.join(1)
-                    self.assertFalse(self.provider.writer.thread.is_alive())
-                finally:
-                    process.terminate(); self.provider.process = self.provider.writer = None
+                clock, blocked_wait = ControlledRunClock(), stream._wait
+                def expire_in_phase(current_phase):
+                    if current_phase == phase:
+                        clock.current += 1
+                    blocked_wait(current_phase)
+                stream._wait = expire_in_phase
+                # Exhaust the provider deadline in the intended I/O phase;
+                # OS waiter scheduling does not establish remaining cleanup time.
+                with patch('backend.connect.provider.time', clock):
+                    self.provider.process = process
+                    self.provider.writer = _PipeWriter(process, self.provider._transport_failed)
+                    started = time.monotonic()
+                    try:
+                        with self.assertRaises(ProviderError) as cm:
+                            CodexProvider._write(self.provider, {'method': 'controlled'}, timeout=.06)
+                        self.assertTrue(stream.entered.is_set())
+                        self.assertEqual(cm.exception.code, 'WRITE_OUTCOME_UNKNOWN')
+                        self.assertLess(time.monotonic()-started, .4)
+                        self.assertEqual(len(stream.messages), 1)
+                        self.assertGreaterEqual(process.terminated, 1)
+                        self.assertTrue(all(wait <= .01 for wait in process.waits), process.waits)
+                        self.provider.writer.thread.join(1)
+                        self.assertFalse(self.provider.writer.thread.is_alive())
+                    finally:
+                        process.terminate(); self.provider.process = self.provider.writer = None
 
     def test_expired_queued_message_is_never_written_after_pipe_unblocks(self):
         stream = ControlledPipe('write'); process = ControlledProcess(stream)
