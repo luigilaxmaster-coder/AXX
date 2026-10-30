@@ -41,7 +41,7 @@ jobs:
       - name: Inference routing and worker regressions
         run: python -m unittest discover -s backend/inference/tests -q
       - name: Planning, privacy and command regressions
-        run: python -m unittest backend.tests.test_prompts backend.tests.test_command_language backend.tests.test_command_sequences backend.tests.test_action_learning backend.tests.test_goal_cycle backend.tests.test_command_library backend.tests.test_provider_settings backend.tests.test_mission_model_budget backend.tests.test_planning_context backend.tests.test_source_destinations backend.tests.test_source_dispatch backend.tests.test_anticipation_context_sources -q
+        run: python -m unittest backend.tests.test_prompts backend.tests.test_command_language backend.tests.test_command_sequences backend.tests.test_action_learning backend.tests.test_goal_cycle backend.tests.test_command_library backend.tests.test_provider_settings backend.tests.test_mission_model_budget backend.tests.test_learning_read_concurrency backend.tests.test_planning_context backend.tests.test_source_destinations backend.tests.test_source_dispatch backend.tests.test_anticipation_context_sources -q
       - name: Mission outcomes and bounded continuation
         run: python -m unittest backend.tests.test_goal_criteria backend.tests.test_goal_progress backend.tests.test_goal_progress_holdout backend.tests.test_goal_progress_input_race backend.tests.test_anticipation_goal_progress backend.tests.test_missions backend.tests.test_mission_dispatch -q
       - name: Scoped forgetting and memory corrections
