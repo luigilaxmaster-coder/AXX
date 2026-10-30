@@ -28,6 +28,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from .actions.file_inspection import hash_file, fingerprint
 from .actions.tools import artifact_path_error, get_tool
 from .commands import ApprovalRequired
+from .speech.windows_tts import SpeechError
 
 LOG = logging.getLogger('axx.anticipation')
 MODES = ('OFF', 'SHADOW', 'SUGGEST', 'PREPARE', 'EXECUTE')
@@ -71,7 +72,7 @@ RESOURCE_LIMITS = {'max_events_tick': (1, 100), 'max_entries_scan': (1, 2000),
     'max_file_bytes': (1024, 512 * 1024 * 1024), 'max_tick_ms': (50, 5000), 'max_cpu_ms_tick': (10, 1000),
     'max_process_rss_bytes': (1, 9007199254740991), 'max_storage_bytes': (1, 9007199254740991), 'model_call_limit': (0, 2)}
 NULLABLE_RESOURCES = frozenset({'max_process_rss_bytes', 'max_storage_bytes'})
-SOURCE_FLAGS = {'folder': 'folders', 'application': 'applications', 'window': 'screen', 'clipboard': 'clipboard'}
+SOURCE_FLAGS = {'folder': 'folders', 'application': 'applications', 'window': 'screen', 'clipboard': 'clipboard', 'microphone': 'microphone'}
 RAW_SOURCE_TTL_SECONDS = 60
 MAX_PROVIDER_CONTEXT_BYTES = 1048576
 MAX_CONTEXT_SOURCE_EVENTS = 2048
@@ -128,6 +129,8 @@ class AnticipationService:
         self.source_hmac_key = os.urandom(32)
         self.source_expiry_timer = None
         self.provider_context_leases = {}
+        self.transcription = None
+        self.microphone_leases = {}
         self.verifier_cache = {}
         self.tick_started = None
         self.tick_events = {}
@@ -884,7 +887,8 @@ class AnticipationService:
                     for name, percentile in (('p50', .5), ('p95', .95))}}
         fields = ('eligible', 'evaluated_proposed', 'proposed', 'shown', 'verified', 'failed', 'abstained', 'explicit_acceptances', 'autonomous_executions', 'autonomous_preparations', 'explicit_useful_feedback', 'explicit_corrections')
         metrics = {key: sum(row.get(key, 0) for row in stats) for key in fields}
-        metrics.update(model_calls=0, coverage={'numerator': metrics['evaluated_proposed'], 'denominator': metrics['eligible'], 'universe': 'Candidates evaluated since P1 eligibility counters were introduced.'},
+        metrics.update(model_calls=0, model_calls_scope='Only LLM calls initiated by anticipation rules; excludes local ASR/TTS and planner mission ledgers.',
+            coverage={'numerator': metrics['evaluated_proposed'], 'denominator': metrics['eligible'], 'universe': 'Candidates evaluated since P1 eligibility counters were introduced.'},
             verification_latency_ms=distribution([row['wall_ms'] for row in measurements if row['kind'] == 'verification']),
             tick_latency_ms=distribution([row['wall_ms'] for row in measurements if row['kind'] == 'tick']),
             tick_cpu_ms=distribution([row['cpu_ms'] for row in measurements if row['kind'] == 'tick']),
@@ -899,7 +903,8 @@ class AnticipationService:
                     and (target['expires_at'] is None or self.clock() < target['expires_at'])
                     and (source != 'applications' or self._applications_available())
                     and (source != 'clipboard' or self._clipboard_available())
-                    and (source != 'screen' or self._window_available())):
+                    and (source != 'screen' or self._window_available())
+                    and (source != 'microphone' or self.transcription is not None)):
                 return target
         return None
 
@@ -943,6 +948,142 @@ class AnticipationService:
         # provider path closed until both input and result persistence are ephemeral.
         return False
 
+    def attach_transcription(self, transcription):
+        # ASR is created later during startup. No change to the public /v1 API.
+        with self.lock:
+            self._cancel_microphone_leases()
+            self.transcription = transcription
+
+    def _microphone_capability(self):
+        transcription = self.transcription
+        if transcription is None:
+            return False, False, 'El servicio ASR local no está adjunto.'
+        try:
+            required = {'context_owner', 'deadline_mono', 'cancel_event'}
+            if not required.issubset(inspect.signature(transcription.transcribe).parameters):
+                return False, False, 'El ASR local no admite cancelación atribuible por lease.'
+            status = transcription.status()  # Never called while holding policylock.
+            if status.get('available') is not True:
+                return False, False, 'El motor o modelo ASR local no está disponible.'
+            return True, status.get('busy') is True, None
+        except Exception:
+            return False, False, 'No se pudo comprobar el ASR local.'
+
+    def _cancel_microphone_leases(self, target_id=None, capture_id=None):
+        for key, lease in list(self.microphone_leases.items()):
+            if (target_id is None or lease['target']['id'] == target_id) and (capture_id is None or key == capture_id):
+                lease['cancelled'].set()
+                self.microphone_leases.pop(key, None)
+                state = self.source_state.get(lease['target']['id'], {})
+                if state.get('raw', {}).get('capture_id') == key:
+                    state.pop('raw', None)
+
+    def _microphone_authorized(self, lease):
+        target = lease['target']
+        if (self.closed or lease['cancelled'].is_set() or time.monotonic() >= lease['deadline']
+                or self.clock() >= lease['expires_at'] or self.microphone_leases.get(lease['capture_id']) is not lease
+                or self.source_state.get(target['id']) is not lease['state']
+                or lease['state']['cancelled'].is_set() or self._source_target(target['id']) != target):
+            raise ValueError('MICROPHONE_LEASE_STALE: captura cancelada o caducada')
+        profile, options = self._policy(target['task_id'], str(self.commands.executor.workspace_root), context=self._source_context(target))
+        if options['mode'] == 'OFF' or not self._within_budget(options):
+            raise ValueError('MICROPHONE_LEASE_STALE: captura fuera de política o recursos')
+        return profile, options
+
+    def microphone_begin(self, body):
+        if (not isinstance(body, dict) or set(body) - {'target_id', 'task_id', *CONTEXT_KEYS}
+                or not {'target_id', 'task_id'}.issubset(body)):
+            raise ValueError('Indica fuente de micrófono y tarea exactas')
+        identifier(body['target_id']); identifier(body['task_id'])
+        available, busy, reason = self._microphone_capability()
+        if not available:raise SpeechError('NOT_SUPPORTED', reason)
+        if busy:raise SpeechError('BUSY', 'El ASR local está ocupado; no se interrumpirá el dictado actual.')
+        with self.lock:
+            if self.closed:raise ValueError('Anticipación cerrada')
+            self._expire_source_content()
+            target = self._source_target(body['target_id'])
+            if not target or target['source'] != 'microphone' or target['task_id'] != body['task_id']:
+                raise ValueError('Fuente de micrófono no autorizada para esta tarea')
+            context = {key: body.get(key, 'host' if key == 'device_id' else '') for key in CONTEXT_KEYS}
+            if any(not isinstance(context[key], str) or context[key] != target[key] for key in CONTEXT_KEYS):
+                raise ValueError('El contexto no coincide con la fuente de micrófono')
+            profile, options = self._policy(target['task_id'], str(self.commands.executor.workspace_root), context=self._source_context(target))
+            if options['mode'] == 'OFF' or not self._within_budget(options):
+                raise ValueError('Micrófono fuera de política, horario o recursos')
+            state = self.source_state.get(target['id'])
+            if state and self.clock() - state.get('last_observed_at', float('-inf')) < options['cadence_seconds']:
+                raise SpeechError('BUSY', 'La cadencia de esta fuente todavía no permite otro clip.')
+            for key, lease in list(self.microphone_leases.items()):
+                if lease.get('completed'):self._cancel_microphone_leases(capture_id=key)
+            if self.microphone_leases:raise SpeechError('BUSY', 'Ya hay una captura de contexto autorizada en curso.')
+            if state is None:
+                self.source_generation += 1
+                state = {'snapshot': None, 'samples': 0, 'events': 0, 'cancelled': threading.Event(),
+                    'generation': self.source_generation, 'consent_digest': digest(target), 'uia_ids': set(), 'uia_lock': threading.Lock()}
+                self.source_state[target['id']] = state
+            lifetime = min(RAW_SOURCE_TTL_SECONDS, target['expires_at'] - self.clock()) if target['expires_at'] is not None else RAW_SOURCE_TTL_SECONDS
+            capture_id = uuid.uuid4().hex
+            lease = {'capture_id': capture_id, 'target': copy.deepcopy(target), 'state': state, 'cancelled': threading.Event(),
+                'expires_at': self.clock() + lifetime, 'deadline': time.monotonic() + lifetime, 'submitted': False}
+            self.microphone_leases[capture_id] = lease
+            self._expire_source_content()
+            return {'capture_id': capture_id, 'expires_at': lease['expires_at'], 'max_capture_seconds': 10,
+                'raw_ttl_seconds': RAW_SOURCE_TTL_SECONDS, 'decoder_max_duration_seconds': 60, 'provider_sent': False}
+
+    def microphone_stop(self, body):
+        if not isinstance(body, dict) or set(body) != {'capture_id'}:raise ValueError('Indica una captura exacta')
+        identifier(body['capture_id'])
+        with self.lock:
+            self._cancel_microphone_leases(capture_id=body['capture_id'])
+            if not self.closed:self._expire_source_content()
+        return {'capture_id': body['capture_id'], 'stopped': True}
+
+    def microphone_submit(self, body):
+        if (not isinstance(body, dict) or set(body) - {'capture_id', 'audio_base64', 'mime', 'language'}
+                or not {'capture_id', 'audio_base64', 'mime'}.issubset(body)):
+            raise ValueError('Entrega de captura de contexto inválida')
+        identifier(body['capture_id'])
+        with self.lock:
+            lease = self.microphone_leases.get(body['capture_id'])
+            if lease is None:raise ValueError('MICROPHONE_LEASE_STALE: captura desconocida')
+            self._microphone_authorized(lease)
+            if lease['submitted']:raise ValueError('La captura ya fue entregada')
+            lease['submitted'] = True
+            transcription = self.transcription
+        try:
+            # Local RAM worker only; neither this content nor its result is a command.
+            result = transcription.transcribe({key: body[key] for key in ('audio_base64', 'mime', 'language') if key in body},
+                context_owner='mic-' + lease['capture_id'], deadline_mono=lease['deadline'], cancel_event=lease['cancelled'])
+            duration, text, input_hash = result.get('audio_duration_seconds'), result.get('text'), result.get('input_sha256')
+            silence = result.get('silence_detected')
+            if (type(duration) not in (int, float) or not math.isfinite(duration) or not 0 <= duration <= 11
+                    or not isinstance(text, str) or not isinstance(input_hash, str) or not re.fullmatch(r'[0-9a-f]{64}', input_hash)
+                    or silence is not None and type(silence) is not bool):
+                raise ValueError('MICROPHONE_RESULT_INVALID: duración o resultado no permitido')
+            with self.lock, (self.db if not self.closed else nullcontext()):
+                profile, options = self._microphone_authorized(lease)
+                target, state = lease['target'], lease['state']
+                metadata = {'audio_fingerprint': self._content_fingerprint('microphone_audio', bytes.fromhex(input_hash)),
+                    'text_fingerprint': self._content_fingerprint('microphone_text', text.encode('utf-8')),
+                    'fingerprint_scope': 'hmac_sha256_session', 'characters': len(text), 'audio_duration_seconds': duration,
+                    'silence_detected': silence}
+                state.update(last_observed_at=self.clock(), samples=state['samples'] + 1, error=None, truncated=len(text) > 8192)
+                self._publish_context_snapshot(target, state, metadata, None, len(text) > 8192, profile, options)
+                # The provider gate is closed and there is no authorized local
+                # consumer. Keep neither transcript nor audio after counting it.
+                state.pop('raw', None)
+                lease['completed'] = True
+                self._expire_source_content()
+                return {'accepted': True, 'capture_id': lease['capture_id'], 'characters': len(text),
+                    'audio_duration_seconds': duration, 'silence_detected': silence,
+                    'retained': target['retain'], 'retention_scope': 'metadata_only',
+                    'raw_expires_at': None, 'raw_content_retained': False, 'provider_sent': False, 'automatic_actions': False}
+        except Exception as exc:
+            with self.lock:self._cancel_microphone_leases(capture_id=lease['capture_id'])
+            # Decoder errors can contain input details; context endpoints never echo them.
+            code = exc.code if isinstance(exc, SpeechError) and exc.code in ('BUSY', 'CANCELLED', 'DEADLINE_EXCEEDED', 'NOT_SUPPORTED', 'INVALID_REQUEST') else 'MICROPHONE_CAPTURE_FAILED'
+            raise SpeechError(code, 'No se conservó la captura de contexto local.') from None
+
     def _cancel_context_leases(self, target_id=None):
         for event, lease in list(self.provider_context_leases.items()):
             if target_id is None or any(ref['target_id'] == target_id for ref in lease['refs']):
@@ -959,6 +1100,7 @@ class AnticipationService:
             state.get('uia_ids', set()).clear()
 
     def _drop_source(self, target_id):
+        self._cancel_microphone_leases(target_id=target_id)
         state = self.source_state.pop(target_id, None)
         if state:
             if state.get('cancelled'):
@@ -974,6 +1116,7 @@ class AnticipationService:
             self._drop_source(target_id)
         self.source_observations.clear()
         self._cancel_context_leases()
+        self._cancel_microphone_leases()
         if self.source_expiry_timer:
             self.source_expiry_timer.cancel(); self.source_expiry_timer = None
 
@@ -982,6 +1125,9 @@ class AnticipationService:
             if self.closed:
                 return
             now = time.monotonic()
+            for key, lease in list(self.microphone_leases.items()):
+                if now >= lease['deadline'] or self.clock() >= lease['expires_at']:
+                    self._cancel_microphone_leases(capture_id=key)
             for target_id, state in self.source_state.items():
                 raw = state.get('raw')
                 if raw and (now >= raw['deadline'] or self.clock() >= raw['expires_at']):
@@ -990,6 +1136,7 @@ class AnticipationService:
             if self.source_expiry_timer:
                 self.source_expiry_timer.cancel(); self.source_expiry_timer = None
             deadlines = [state['raw']['deadline'] for state in self.source_state.values() if state.get('raw')]
+            deadlines += [lease['deadline'] for lease in self.microphone_leases.values()]
             if deadlines:
                 timer = threading.Timer(max(.01, min(deadlines) - now), self._expire_source_content)
                 timer.daemon = True; self.source_expiry_timer = timer; timer.start()
@@ -1086,14 +1233,15 @@ class AnticipationService:
             if lease:
                 lease['timer'].cancel()
 
-    def _source_runtime(self, config, task_id=None):
+    def _source_runtime(self, config, task_id=None, microphone_available=False):
         result = []
         for target in config['observation_targets']:
             if task_id is not None and target['task_id'] != task_id:
                 continue
             state = self.source_state.get(target['id'], {})
             _, options = self._policy(target['task_id'], target.get('root', str(self.commands.executor.workspace_root)), config, self._source_context(target))
-            active = self._source_target(target['id'], config) is not None and options['mode'] != 'OFF'
+            active = (self._source_target(target['id'], config) is not None and options['mode'] != 'OFF'
+                and (target['source'] != 'microphone' or microphone_available))
             last = state.get('last_observed_at')
             result.append({'id': target['id'], 'source': target['source'], 'active': active and not state.get('error'),
                 'last_observed_at': last, 'next_observation_at': last + options.get('cadence_seconds', 30) if active and last is not None else None,
@@ -1102,7 +1250,7 @@ class AnticipationService:
                 'retention_scope': 'metadata_only', 'provider_allowed': target['send_to_provider'] and self._provider_context_available(target['source']),
                 'context_ready': bool(state.get('raw')) and target['send_to_provider'] and self._provider_context_available(target['source']) and active,
                 'raw_expires_at': state.get('raw', {}).get('expires_at'),
-                'raw_content_ttl_seconds': RAW_SOURCE_TTL_SECONDS if target['source'] in ('window', 'clipboard') else 0,
+                'raw_content_ttl_seconds': RAW_SOURCE_TTL_SECONDS if target['source'] in ('window', 'clipboard', 'microphone') else 0,
                 'truncated': state.get('truncated', False), 'samples': state.get('samples', 0), 'events': state.get('events', 0)})
         return result
 
@@ -1281,7 +1429,7 @@ class AnticipationService:
             self.db.execute('''DELETE FROM anticipation_events WHERE event_id IN (
                 SELECT event_id FROM anticipation_events
                 WHERE json_extract(payload,'$.history_kind')='context_observation_metadata'
-                    AND json_extract(payload,'$.source') IN ('screen','clipboard')
+                    AND json_extract(payload,'$.source') IN ('screen','clipboard','microphone')
                 ORDER BY at DESC,event_id DESC LIMIT -1 OFFSET ?)''', (MAX_CONTEXT_SOURCE_EVENTS,))
 
     def _poll_sources(self):
@@ -1291,6 +1439,10 @@ class AnticipationService:
             self._expire_source_content()
             targets = copy.deepcopy(self._config()['observation_targets'])
         for target in targets:
+            # The browser owns authorized, short non-preemptive microphone clips.
+            # Never fall through to a background application/window reader.
+            if target['source'] == 'microphone':
+                continue
             context = self._source_context(target)
             path = target.get('root', str(self.commands.executor.workspace_root))
             with self.lock:
@@ -1378,6 +1530,7 @@ class AnticipationService:
                 state['snapshot'] = dict(list(before.items())[:options['resources']['max_entries_scan']])
 
     def status(self, task_id=None):
+        microphone, _, microphone_reason = self._microphone_capability()
         with self.lock:
             self._expire_source_content()
             config = self._config()
@@ -1411,23 +1564,25 @@ class AnticipationService:
             return config | {'effective_profile': effective, 'suggestions': rows, 'grants': grants, 'routines': stats,
                 'metrics': self._metrics(stats, task_id),
                 'resource_usage': self._resource_usage(),
-                'source_runtime': self._source_runtime(config, task_id),
+                'source_runtime': self._source_runtime(config, task_id, microphone_available=microphone),
                 'source_observations': [copy.deepcopy(event) for event in self.source_observations if task_id is None or event['task_id'] == task_id],
                 'capabilities': {'verify_artifact': self._can_verify(), 'physical_execution': False,
                     'mission_steps': self._mission_capability(),
                     'folders': True, 'applications': self._applications_available(), 'provider_send': False,
                     'verifiers': {name: self._verifier(path) for name, path in {'hash': 'file.txt', 'pdf': 'file.pdf', 'media': 'file.mp4', 'image': 'file.png', 'docx': 'file.docx', 'xlsx': 'file.xlsx'}.items()},
                     'resource_limits_scope': 'Admission snapshots: backend/descendant RSS; logical bytes observed under granted roots plus operation reservations; bounded writer/bundle outputs and search entries. No hard OS/cluster/mission-CPU or unknown Office-output limit. Uncertain effects retain reservations until reconciliation.',
-                    'screen': self._window_available(), 'microphone': False, 'clipboard': self._clipboard_available(),
+                    'screen': self._window_available(), 'microphone': microphone, 'microphone_unavailable_reason': microphone_reason,
+                    'clipboard': self._clipboard_available(),
                     'provider_context': {source: self._provider_context_available(source) for source in ('window', 'clipboard')},
                     'retention_scope': 'metadata_only', 'raw_content_ttl_seconds': RAW_SOURCE_TTL_SECONDS,
                     'observation_history_max_events': MAX_CONTEXT_SOURCE_EVENTS,
-                    'observation_history_scope': 'Only new retained window/clipboard metadata, globally, in addition to retention_days; not a state.db quota or command-journal limit.',
+                    'observation_history_scope': 'Only new retained window/clipboard/microphone metadata, globally, in addition to retention_days; not a state.db quota or command-journal limit.',
                     'reason': 'M15 abierto: input físico proactivo bloqueado. Las fuentes locales requieren selección y consentimientos explícitos; ventana y portapapeles solo conservan metadatos. El envío de su contenido sigue deshabilitado hasta completar la privacidad de los resultados.'}}
 
     def configure(self, body):
         if not isinstance(body, dict) or set(body) - set(DEFAULTS):
             raise ValueError('Configuración de anticipación desconocida')
+        microphone_ready = self._microphone_capability()[0] if isinstance(body.get('sources'), dict) and body['sources'].get('microphone') is True else False
         # Classify already generated artifacts under the policy in force when changing it.
         self._observe()
         with self.lock, self.db:
@@ -1445,8 +1600,10 @@ class AnticipationService:
                 if not isinstance(body['sources'], dict) or set(body['sources']) - set(config['sources']):
                     raise ValueError('Fuente desconocida')
                 for source, enabled in body['sources'].items():
-                    if type(enabled) is not bool or source not in ('events', 'folders', 'applications', 'screen', 'clipboard') and enabled:
+                    if type(enabled) is not bool or source not in ('events', 'folders', 'applications', 'screen', 'clipboard', 'microphone') and enabled:
                         raise ValueError('Esta fuente todavía no dispone de observación validada')
+                    if source == 'microphone' and enabled and not microphone_ready:
+                        raise ValueError('La observación de micrófono requiere ASR local con cancelación atribuible disponible')
                     if source == 'applications' and enabled and not self._applications_available():
                         raise ValueError('La observación de aplicaciones requiere el lector Windows existente')
                     if source == 'screen' and enabled and not self._window_available():
@@ -1563,9 +1720,9 @@ class AnticipationService:
                             raise ValueError('Selecciona un nombre de proceso .exe exacto')
                         target['process_name'] = target['process_name'].casefold()
                         target['application_id'] = target['application_id'] or target['process_name']
-                    elif target['source'] == 'clipboard':
+                    elif target['source'] in ('clipboard', 'microphone'):
                         if any(key in target for key in ('root', 'process_name', 'window_id', 'pid', 'process_started')):
-                            raise ValueError('El portapapeles no selecciona carpeta, proceso ni ventana')
+                            raise ValueError('Esta fuente no selecciona carpeta, proceso ni ventana')
                     else:
                         if (any(key in target for key in ('root', 'process_name'))
                                 or type(target.get('window_id')) is not int or not 1 <= target['window_id'] <= 9007199254740991
@@ -2551,6 +2708,8 @@ class AnticipationService:
                 for target in self._config()['observation_targets']:
                     if target['task_id'] == body['task_id']:
                         self._drop_source(target['id'])
+            elif body.get('routine_id') == ROUTINE:
+                self._clear_sources()
             marker = ('forget-task-routine-' + digest(body) if len(body) == 2 else
                       'forget-task-' + digest(body['task_id']) if 'task_id' in body else 'forget-routine-' + digest(body['routine_id']))
             self.db.execute('INSERT INTO anticipation_seen VALUES (?,?) ON CONFLICT(operation_id) DO UPDATE SET at=excluded.at', (marker, self.clock()))

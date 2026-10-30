@@ -225,6 +225,7 @@ class OfflineTranscriptionService:
         return {'engine':'faster-whisper','model':self.model_path.name.removeprefix('faster-whisper-') if self.model_path else 'tiny','available':bool(self.model_path and importlib.util.find_spec('faster_whisper')),
                 'device':'cpu','compute_type':'int8','local_only':True,'external_calls':0,'max_duration_seconds':MAX_SECONDS,
                 'input_storage':'process_memory','input_transport':'bounded_worker_pipe',
+                'busy':self._busy.locked() or self._io_lock.locked(),
                 'request_cancel_supported':True,'explicit_request_id_limit':MAX_REQUEST_IDS,
                 'context_deadline_max_seconds':60,'legacy_deadline_seconds':90}
 
@@ -278,7 +279,6 @@ class OfflineTranscriptionService:
         request_id=_request_id(body['request_id']) if explicit else AUTO_REQUEST_PREFIX+uuid.uuid4().hex
         if explicit and request_id.startswith(AUTO_REQUEST_PREFIX):raise SpeechError('INVALID_REQUEST','Transcription request_id uses a reserved namespace')
         deadline_mono=_context_deadline(context_owner,deadline_mono)
-        if context_owner is not None and not explicit:raise SpeechError('INVALID_REQUEST','Context transcription requires request_id')
         encoded,mime,language,task=body.get('audio_base64'),body.get('mime'),body.get('language'),body.get('task','transcribe')
         if not isinstance(encoded,str) or not 1<=len(encoded)<=((MAX_AUDIO+2)//3)*4:
             raise SpeechError('INVALID_REQUEST','Invalid bounded audio payload')

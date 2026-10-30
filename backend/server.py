@@ -464,7 +464,13 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                 if not self.anticipation:
                     raise ValueError('Anticipación no disponible en este runtime')
                 action = path.rsplit('/', 1)[-1]
-                if action == 'configure':
+                if path == '/axx-api/anticipation/microphone/begin':
+                    result = self.anticipation.microphone_begin(body)
+                elif path == '/axx-api/anticipation/microphone/submit':
+                    result = self.anticipation.microphone_submit(body)
+                elif path == '/axx-api/anticipation/microphone/stop':
+                    result = self.anticipation.microphone_stop(body)
+                elif action == 'configure':
                     result = self.anticipation.configure(body)
                 elif action == 'status' and not set(body) - {'task_id'}:
                     result = self.anticipation.status(body.get('task_id'))
@@ -1240,7 +1246,9 @@ def run_server(host='127.0.0.1', port=4173, config_path='providers.json', state_
         speech = WindowsSpeechService(state_dir)
         services.append(speech)
         transcription = OfflineTranscriptionService(state_dir)
-        services.append(transcription)
+        # Reverse shutdown cancels policy leases before closing their ASR worker.
+        services.insert(services.index(anticipation), transcription)
+        anticipation.attach_transcription(transcription)
         transcription.warm()
         memory_adapter = AiMemoryAdapter(start_owned=True, data_dir=state_dir / 'ai-memory')
         services.append(memory_adapter)
