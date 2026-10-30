@@ -40,6 +40,17 @@ class MossStreamTests(unittest.TestCase):
         with self.assertRaises(BrokenPipeError):
             self.service._send(process, {'cancel': True})
 
+    def test_worker_import_does_not_write_into_packaged_sources(self):
+        sources = Path(self.temp.name) / 'packaged-speech'
+        sources.mkdir()
+        (sources / 'speech_text.py').write_text('VALUE = 1\n')
+        worker = sources / 'worker.py'
+        worker.write_text('import speech_text, sys\nprint(\'{"ready":true}\', flush=True)\nsys.stdin.read()\n')
+        self.service.python, self.service.script = Path(sys.executable), worker
+        process, _, _ = self.service._ensure_worker()
+        self.assertIsNone(process.poll())
+        self.assertFalse((sources / '__pycache__').exists())
+
     @staticmethod
     def event():
         return {'chunk': True, 'pcm_base64': base64.b64encode(b'\x01\x00' * 240).decode(),
