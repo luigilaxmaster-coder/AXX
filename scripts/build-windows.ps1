@@ -26,11 +26,6 @@ try {
     if ((Get-FileHash -LiteralPath 'src-tauri\resources\ai-memory.exe' -Algorithm SHA256).Hash -ne $dependency.exe_sha256) {
         throw 'ai-memory executable differs from the verified official dependency manifest'
     }
-    $asr = Get-Content -LiteralPath 'resources\asr-model-manifest.json' -Raw | ConvertFrom-Json
-    foreach ($file in $asr.files) {
-        $modelPath = Join-Path 'resources\models\faster-whisper-tiny' $file.name
-        if ((Get-FileHash -LiteralPath $modelPath -Algorithm SHA256).Hash -ne $file.sha256) { throw "ASR model hash differs: $modelPath" }
-    }
     & node mobile/build.mjs
     if ($LASTEXITCODE -ne 0) { throw 'Desktop avatar extraction failed; see mobile/build.mjs' }
     $telegramAssets = @('backend\telegram\webapp.html', 'backend\telegram\webapp.css', 'backend\telegram\webapp.js', 'mobile\www\js\desktop-avatar.js', 'mobile\js\avatar-renderer.js')

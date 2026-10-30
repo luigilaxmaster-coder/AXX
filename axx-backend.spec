@@ -3,7 +3,7 @@ from PyInstaller.utils.hooks import collect_submodules, collect_dynamic_libs, co
 from importlib.metadata import distribution
 from pathlib import Path
 
-# offline_asr uses vad_filter=False; unused VAD weights are not distributed.
+# Models remain local; the public installer contains no model weights.
 telegram_licenses = []
 for package in ('telethon', 'py-tgcalls', 'ntgcalls'):
     dist = distribution(package)
@@ -41,8 +41,7 @@ a = Analysis(
            ('resources/procedure-library.zip', 'resources'),
            ('master_icon.png', '.'),
            ('vendor/cli_anything_blender/LICENSE', 'licenses/cli-anything'),
-           ('vendor/cli_anything_blender/UPSTREAM.json', 'licenses/cli-anything'),
-           ('resources/models/faster-whisper-tiny', 'models/faster-whisper-tiny')]
+           ('vendor/cli_anything_blender/UPSTREAM.json', 'licenses/cli-anything')]
            + collect_data_files('faster_whisper', excludes=['assets/*.onnx']) + collect_data_files('mcp') + collect_data_files('jsonschema_specifications')
            + collect_data_files('rapidocr_onnxruntime', excludes=['models/*'])
            + collect_data_files('telethon') + collect_data_files('pytgcalls')
@@ -64,6 +63,8 @@ a = Analysis(
     noarchive=False,
     optimize=0,
 )
+if any(Path(name).suffix.lower() in {'.onnx', '.bin', '.pt', '.pth', '.safetensors', '.npz'} for name, _, _ in a.datas + a.binaries):
+    raise RuntimeError('Model weight files must not be bundled in the public installer')
 pyz = PYZ(a.pure)
 
 exe = EXE(
