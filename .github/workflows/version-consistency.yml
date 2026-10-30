@@ -50,3 +50,8 @@ jobs:
         run: python -m unittest discover -s scripts -p test_evaluate_reasoning.py -v
       - name: Reasoning contract evaluation
         run: python scripts/evaluate_reasoning.py --output build/reasoning-evaluation.json
+      - name: Native acceptance harness guards (no hardware)
+        run: |
+          node scripts/test-installed-reasoning.cjs --self-test
+          node scripts/test-installed-stale-lesson.cjs --self-test
+          node scripts/test-installed-acoustic.cjs --self-test
