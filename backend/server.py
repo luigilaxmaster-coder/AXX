@@ -103,6 +103,7 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
     recording = None
     magic_pen = None
     converter = None
+    telegram = None
     chatgpt_auth = chatgpt_adapter = None
     connect = provider = None
     frontend_path = root_dir / '1.AXX' / 'Axx.html'
@@ -222,6 +223,9 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                 if not self.anticipation:
                     raise ValueError('Anticipación no disponible en este runtime')
                 self._send_json(200, self.anticipation.status(query.get('task_id', [None])[0]))
+                return
+            if path == '/axx-api/telegram/status':
+                self._send_json(200, self.telegram.status() if self.telegram else {'state': 'unavailable'})
                 return
             if MobileHTTP(self).get(path):
                 return
@@ -489,6 +493,16 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                 else:
                     raise ValueError('Operación de anticipación o parámetros desconocidos')
                 self._send_json(200, result)
+                return
+            if path == '/axx-api/telegram/input':
+                if not self.telegram:
+                    raise ValueError('Telegram no está disponible en este runtime.')
+                self._send_json(200, self.telegram.admit(body))
+                return
+            if path == '/axx-api/telegram/bot-input':
+                if not self.telegram:
+                    raise ValueError('Telegram no está disponible en este runtime.')
+                self._send_json(200, self.telegram.admit_bot(body))
                 return
             if path == '/axx-api/prompts/compose':
                 self._send_json(200, public_compose(body))
@@ -1289,6 +1303,19 @@ def run_server(host='127.0.0.1', port=4173, config_path='providers.json', state_
         services.append(server.mobile)
         server.mobile.resume()
         publish_endpoint(state_dir, server)
+        from backend.telegram.service import TelegramService
+        handler.telegram = TelegramService(state_dir, chats, commands, adapter, lambda: server.mobile.preferences,
+                                           appearance=lambda: server.mobile.appearance)
+        services.append(handler.telegram)
+        handler.telegram.start()
+        handler.telegram.start_bot()
+        from backend.telegram.miniapp import MiniAppFacade
+        facade = MiniAppFacade(state_dir, handler.telegram)
+        try:
+            facade.start(port=6451)
+            services.append(facade)
+        except (OSError, ValueError, RuntimeError):
+            LOG.info('Mini App Telegram pendiente de configuración HTTPS.')
         if ready_path:
             ready_path.parent.mkdir(parents=True, exist_ok=True)
             temporary = ready_path.with_suffix('.tmp')
@@ -1312,6 +1339,24 @@ def run_server(host='127.0.0.1', port=4173, config_path='providers.json', state_
             ready_path.unlink(missing_ok=True)
 
 def main():
+    if sys.argv[1:2] == ['--telegram-bot']:
+        from backend.telegram.bot import main as telegram_bot_main
+        sys.argv.pop(1)
+        return telegram_bot_main()
+    if sys.argv[1:2] == ['--configure-telegram-bot']:
+        from backend.telegram.bot_setup import main as telegram_bot_setup_main
+        sys.argv.pop(1)
+        return telegram_bot_setup_main()
+    if sys.argv[1:2] == ['--telegram-worker']:
+        from backend.telegram.worker import main as telegram_worker_main
+        sys.argv.pop(1)
+        return telegram_worker_main()
+    if sys.argv[1:2] == ['--configure-telegram']:
+        from backend.telegram.setup import main as telegram_setup_main
+        return telegram_setup_main()
+    if sys.argv[1:2] == ['--telegram-call-probe']:
+        from backend.telegram.call_probe import main as telegram_probe_main
+        return telegram_probe_main(sys.argv[2:])
     if sys.argv[1:2] == ['--configure-native-gateway']:
         import runpy
         script = Path(getattr(sys, '_MEIPASS', root_dir)) / 'scripts' / 'configure-native-gateway.py'
