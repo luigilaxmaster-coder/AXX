@@ -152,6 +152,19 @@ class MiniAppTests(unittest.TestCase):
         self.assertEqual((status, result), (200, {'state':'cancel_requested'}))
         self.service.cancel_operation.assert_called_once_with(7, operation)
 
+    def test_command_catalog_requires_session_and_uses_bound_owner(self):
+        self.service.command_catalog.return_value = {'items': [], 'text': 'Catálogo vacío'}
+        self.assertEqual(self.request('GET', '/api/commands')[0], 401)
+        self.service.command_catalog.assert_not_called()
+        cookie, _csrf = self.session()
+        status, _, result = self.request('GET', '/api/commands', headers={'Cookie': cookie})
+        self.assertEqual(status, 200)
+        self.assertEqual(result, {'items': [], 'text': 'Catálogo vacío'})
+        self.service.command_catalog.assert_called_once_with(7)
+        self.facade.pairing.revoke_all(self.account)
+        self.assertNotEqual(self.request('GET', '/api/commands', headers={'Cookie': cookie})[0], 200)
+        self.service.command_catalog.assert_called_once_with(7)
+
     def test_review_and_decision_are_session_bound_and_csrf_checked(self):
         operation = str(uuid.uuid4())
         token = 'x' * 43

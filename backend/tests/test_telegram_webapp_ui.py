@@ -43,7 +43,7 @@ class TelegramWebAppUITests(unittest.TestCase):
         })();""")
         self.addCleanup(context.close)
         page = context.new_page()
-        fixture = {'calls': [], 'effects': set(), 'fail_first': fail_first, 'mutations': [], 'errors': {}, 'sessions': [],
+        fixture = {'calls': [], 'effects': set(), 'fail_first': fail_first, 'mutations': [], 'errors': {}, 'sessions': [], 'commands': None,
                    'chat_result': None, 'review_expiry': 2000000000, 'history_more': False, 'activity': [
                        {'id': 'f27038d4-1e3a-41d1-8085-15f51c59ff70', 'state': 'awaiting_approval',
                         'created_at': 1, 'command_id': '<img src=x onerror=alert(1)>',
@@ -101,6 +101,10 @@ class TelegramWebAppUITests(unittest.TestCase):
                     'text': '<img src=x onerror=alert(1)> historial', 'status': 'complete', 'at': 1}], 'has_more': fixture['history_more']})
             elif path == '/api/activity':
                 request_route.fulfill(status=200, json={'items': fixture['activity']})
+            elif path == '/api/commands':
+                request_route.fulfill(status=200, json=fixture['commands'] if fixture['commands'] is not None else {'items': [
+                    {'id': 'calc', 'command_id': 'open', 'title': 'Calculadora', 'example': 'abre calculadora', 'description': 'Abre la calculadora', 'category': 'Aplicaciones', 'available': True, 'reason': ''},
+                    {'id': 'disabled', 'command_id': 'disabled', 'title': '<img src=x>', 'example': 'otro comando', 'description': 'No disponible', 'category': 'Sistema', 'available': False, 'reason': 'Sin permiso'}], 'text': 'Comandos'})
             elif path == '/api/review':
                 fixture['mutations'].append((path, json.loads(request.post_data)))
                 request_route.fulfill(status=200, json={'state': 'awaiting_approval', 'title': 'Abrir archivo',
@@ -134,6 +138,71 @@ class TelegramWebAppUITests(unittest.TestCase):
         self.assertTrue(page.locator('#send').is_disabled())
         self.assertIn('Abre esta app', page.locator('#connection').inner_text())
         self.assertEqual(fixture['calls'], [])
+
+    def test_command_catalog_filters_and_only_fills_draft(self):
+        page, fixture = self.page()
+        page.wait_for_selector('#send:not([disabled])', state='attached')
+        page.locator('[data-pane="commands"]').click()
+        page.wait_for_selector('[data-command-example]')
+        self.assertEqual(page.locator('#command-list img').count(), 0)
+        self.assertTrue(page.locator('[data-command-example]').nth(1).is_disabled())
+        page.locator('#command-category').select_option(label='Aplicaciones')
+        self.assertEqual(page.locator('[data-command-example]').count(), 1)
+        page.locator('#command-search').fill('calculadora')
+        page.locator('[data-command-example]').click()
+        self.assertTrue(page.locator('#chat').is_visible())
+        self.assertEqual(page.locator('#draft').input_value(), 'abre calculadora')
+        self.assertEqual(fixture['mutations'], [])
+
+    def test_command_examples_disabled_while_submission_is_pending(self):
+        page, fixture = self.page(fail_first=True)
+        page.wait_for_selector('#send:not([disabled])', state='attached')
+        page.locator('[data-pane="chat"]').click()
+        page.locator('#draft').fill('Solicitud original')
+        page.locator('#send').click()
+        page.wait_for_selector('#recover:not([hidden])')
+        page.locator('[data-pane="commands"]').click()
+        page.wait_for_selector('[data-command-example]')
+        self.assertTrue(page.locator('[data-command-example]').first.is_disabled())
+        self.assertEqual(page.locator('#draft').input_value(), 'Solicitud original')
+        self.assertEqual(len(fixture['mutations']), 1)
+
+    def test_command_search_ignores_accents_and_case_without_sending(self):
+        page, fixture = self.page()
+        page.wait_for_selector('#send:not([disabled])', state='attached')
+        fixture['commands'] = {'items': [{'title': 'Información del sistema', 'example': 'información del sistema',
+            'description': 'Consulta', 'category': 'Sistema', 'available': True}], 'text': ''}
+        page.locator('[data-pane="commands"]').click()
+        page.wait_for_selector('[data-command-example]')
+        page.locator('#command-search').fill('INFORMACION')
+        self.assertEqual(page.locator('[data-command-example]').count(), 1)
+        self.assertIn('Información del sistema', page.locator('#command-list').inner_text())
+        self.assertEqual(fixture['mutations'], [])
+
+    def test_empty_catalog_explains_backend_reason_and_refreshes(self):
+        page, fixture = self.page()
+        page.wait_for_selector('#send:not([disabled])', state='attached')
+        fixture['commands'] = {'items': [], 'text': 'No se pudo consultar el catálogo.'}
+        page.locator('[data-pane="commands"]').click()
+        page.wait_for_function("() => document.querySelector('#command-status').textContent.includes('No se pudo consultar')")
+        fixture['commands'] = {'items': [], 'text': 'Aún no hay comandos disponibles.'}
+        page.locator('#refresh').click()
+        page.wait_for_function("() => document.querySelector('#command-status').textContent.includes('Aún no hay comandos')")
+
+    def test_commands_denial_clears_private_state_and_disables_actions(self):
+        page, fixture = self.page()
+        page.wait_for_selector('#send:not([disabled])', state='attached')
+        page.locator('[data-pane="chat"]').click()
+        page.wait_for_function("() => document.querySelector('#messages').textContent.includes('historial')")
+        page.locator('[data-pane="activity"]').click()
+        page.get_by_role('button', name='Revisar orden').click()
+        page.wait_for_selector('#review-card:not([hidden])')
+        fixture['errors']['/api/commands'] = (403, 'PERMISSION_DENIED')
+        page.locator('[data-pane="commands"]').click()
+        page.wait_for_function("() => document.querySelector('#command-status').textContent.includes('No hay acceso')")
+        self.assertTrue(page.locator('#review-card').is_hidden())
+        self.assertNotIn('historial', page.locator('#messages').inner_text().replace('No hay acceso al historial.', ''))
+        self.assertTrue(page.locator('#draft').is_disabled())
 
     def test_recent_summary_filters_and_examples_are_read_only(self):
         page, fixture = self.page(theme='dark')

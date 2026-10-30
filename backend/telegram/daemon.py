@@ -83,6 +83,9 @@ class CommandProxy:
     def resolve(self, text, source='text'):
         return self.core.request('POST', '/axx-api/commands/resolve', {'text': text, 'source': source})
 
+    def executable_catalog(self):
+        return self.core.request('GET', '/axx-api/commands/executable')
+
     def prepare(self, command_id, inputs, *, source, operation_id, conversation_id, command_mode):
         return self.core.request('POST', '/axx-api/commands/prepare', {'command_id': command_id, 'inputs': inputs,
             'source': source, 'operation_id': operation_id, 'conversation_id': conversation_id, 'command_mode': command_mode})
@@ -161,6 +164,8 @@ class CallbackHandler(BaseHTTPRequestHandler):
             self.send_json(403, {'error': 'forbidden'})
         elif self.path == '/axx-api/telegram/status':
             self.send_json(200, self.server.service.status())
+        elif self.path == '/axx-api/telegram/commands':
+            self.send_json(200, self.server.service.command_catalog())
         else:
             self.send_json(404, {'error': 'not_found'})
 

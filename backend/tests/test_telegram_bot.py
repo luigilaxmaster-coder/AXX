@@ -83,6 +83,23 @@ class BotWorkerTests(unittest.TestCase):
     def test_menus_include_webapp_only_when_configured(self):
         self.assertNotIn('web_app', json.dumps(menu('')))
         self.assertIn('web_app', json.dumps(menu('https://axx.example.org/')))
+        self.assertIn('commands', json.dumps(menu('')))
+
+    def test_commands_callback_is_owner_only(self):
+        sent, routes = [], []
+        def local(_endpoint, path, body=None):
+            routes.append(path)
+            return {'text': 'Catálogo de comandos'}
+        def callback(owner):
+            item = message(owner=owner)
+            return {'callback_query': {'from': item['message']['from'], 'message': item['message'], 'data': 'commands'}}
+        with patch('backend.telegram.bot.local_request', side_effect=local), \
+             patch('backend.telegram.bot.bot_request', side_effect=lambda _token, _method, body, **kwargs: sent.append(body)):
+            self.worker.process(1, callback(23))
+            self.assertEqual(routes, [])
+            self.worker.process(2, callback(22))
+        self.assertEqual(routes, ['/axx-api/telegram/commands'])
+        self.assertIn('Catálogo de comandos', sent[-1]['text'])
 
     def test_review_card_and_callback_are_owner_only(self):
         operation = 'f27038d4-1e3a-41d1-8085-15f51c59ff70'

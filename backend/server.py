@@ -256,6 +256,9 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
             if path == '/axx-api/telegram/status':
                 self._send_json(200, self.telegram.status() if self.telegram else {'state': 'unavailable'})
                 return
+            if path == '/axx-api/telegram/commands':
+                self._send_json(200, self.telegram.command_catalog() if self.telegram else {'items': [], 'text': 'Telegram no está disponible.'})
+                return
             if MobileHTTP(self).get(path):
                 return
             if ConnectHTTP(self).get(path):

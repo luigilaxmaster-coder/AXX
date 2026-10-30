@@ -91,6 +91,12 @@ class DaemonTests(unittest.TestCase):
         self.assertFalse(core.request.call_args.args[2]['approved'])
         self.assertFalse(DisabledInference().route({})['ok'])
 
+    def test_executable_catalog_uses_existing_read_only_core_route(self):
+        core = Mock()
+        core.request.return_value = {'commands': []}
+        self.assertEqual(CommandProxy(core).executable_catalog(), {'commands': []})
+        core.request.assert_called_once_with('GET', '/axx-api/commands/executable')
+
     def test_descriptor_does_not_replace_another_instance_or_native_endpoint(self):
         with tempfile.TemporaryDirectory() as directory, patch('backend.telegram.daemon._dpapi_encrypt', side_effect=lambda x:x), patch('backend.telegram.daemon._dpapi_decrypt', side_effect=lambda x:x):
             path = Path(directory) / 'telegram/local-channel/connect/endpoint.dpapi'

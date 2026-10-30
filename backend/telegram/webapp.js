@@ -7,6 +7,7 @@
   const labels = { configured: 'Configurado', not_verified: 'Pendiente de prueba', not_implemented: 'Todavía no implementado', unavailable: 'No disponible', not_configured: 'Sin configurar' };
   let csrf = '', busy = false, avatar = null, pending = null, state = null, lastRtt = null, lastSync = null, pane = 'home', reviewToken = null, reviewBusy = false, reviewTimer = null, reviewDeadline = 0;
   let activityItems = null, activityFilter = 'all', activityRequest = 0, stateRequest = 0, historyRequest = 0, reviewRequest = 0, accessEpoch = 0;
+  let commandItems = null, commandRequest = 0, commandEmptyText = '';
   try {
     pending = JSON.parse(sessionStorage.getItem('axx.telegram.pending') || 'null');
     if (!pending || typeof pending.request_id !== 'string' || typeof pending.text !== 'string') pending = null;
@@ -22,6 +23,7 @@
   }
   function clearPrivateActivity() {
     accessEpoch++;
+    commandRequest++; commandItems = null; commandEmptyText = ''; $('command-list').replaceChildren(); $('command-status').textContent = 'No hay acceso a los comandos.'; $('command-category').replaceChildren(new Option('Todas', ''));
     activityItems = null; activityRequest++; clearReview(); $('review-card').hidden = true;
     for (const id of ['review-state', 'review-explanation', 'review-title', 'review-description', 'review-risk', 'review-inputs', 'review-expiry', 'review-reason']) $(id).textContent = '';
     $('activity-list').textContent = 'No hay acceso a la actividad.';
@@ -77,6 +79,7 @@
     $('send').disabled = !valid || !allowed || !!pending;
     $('recover').hidden = !pending; $('recover').disabled = !valid;
     $('retry').hidden = !pending; $('retry').disabled = !valid || !allowed;
+    for (const button of document.querySelectorAll('[data-command-example]')) button.disabled = $('draft').disabled || button.dataset.available !== 'true';
   }
   function pairs(element, values) {
     const nodes = [];
@@ -126,7 +129,7 @@
   async function refresh(silent = false) {
     if (!csrf) return;
     const requestId = ++stateRequest, current = requestContext(() => requestId === stateRequest);
-    try { const value = await request('/api/state', undefined, current); if (!current()) return; renderState(value); await activity(silent); }
+    try { const value = await request('/api/state', undefined, current); if (!current()) return; renderState(value); await activity(silent); if (current() && pane === 'commands') await commands(); }
     catch (error) { if (current() && csrf) { if (error.code === 'PERMISSION_DENIED') { state = null; clearPrivateActivity(); clearHistory('No hay acceso al historial.'); $('connection').textContent = 'Acceso denegado.'; paint(); } else $('connection').textContent = 'Sin conexión · estado anterior desactualizado'; if (!silent) notice(error.message); } }
   }
   async function history() {
@@ -152,6 +155,47 @@
     if (item.state === 'running') return 'running';
     if (['succeeded', 'completed', 'failed', 'cancelled', 'expired'].includes(item.state)) return 'completed';
     return 'unknown';
+  }
+  async function commands() {
+    if (!csrf) return;
+    const requestId = ++commandRequest, current = requestContext(() => requestId === commandRequest);
+    if (!commandItems) $('command-status').textContent = 'Consultando comandos…';
+    try {
+      const result = await request('/api/commands', undefined, current);
+      if (!current()) return;
+      commandItems = Array.isArray(result.items) ? result.items : [];
+      commandEmptyText = typeof result.text === 'string' ? result.text : '';
+      const chosen = $('command-category').value;
+      const categories = [...new Set(commandItems.map(item => item.category).filter(category => typeof category === 'string' && category))].sort();
+      $('command-category').replaceChildren(new Option('Todas', ''), ...categories.map(category => new Option(category, category)));
+      if (categories.includes(chosen)) $('command-category').value = chosen;
+      renderCommands();
+    } catch (error) {
+      if (!current()) return;
+      if (error.code === 'PERMISSION_DENIED') { state = null; clearPrivateActivity(); clearHistory('No hay acceso al historial.'); $('connection').textContent = 'Acceso denegado.'; paint(); }
+      else $('command-status').textContent = 'No se pudo actualizar la lista; los datos anteriores pueden estar desactualizados.';
+    }
+  }
+  function renderCommands() {
+    if (!commandItems) return;
+    const normalize = value => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase();
+    const search = normalize($('command-search').value.trim()), category = $('command-category').value;
+    const shown = commandItems.filter(item => (!category || item.category === category) && [item.title, item.example, item.description, item.category].some(value => typeof value === 'string' && normalize(value).includes(search)));
+    $('command-list').replaceChildren();
+    for (const item of shown) {
+      const card = document.createElement('article'); card.className = 'command-card';
+      const title = document.createElement('strong'); title.textContent = typeof item.title === 'string' ? item.title : 'Comando'; card.append(title);
+      for (const text of [item.description, typeof item.example === 'string' && item.example ? 'Ejemplo: ' + item.example : '', item.available === false ? (item.reason || 'No disponible en este momento.') : '']) {
+        if (typeof text === 'string' && text) { const p = document.createElement('p'); p.textContent = text; card.append(p); }
+      }
+      const button = document.createElement('button'); button.type = 'button'; button.textContent = 'Escribir';
+      button.dataset.commandExample = typeof item.example === 'string' ? item.example : '';
+      button.dataset.available = String(item.available === true && !!button.dataset.commandExample);
+      button.disabled = $('draft').disabled || button.dataset.available !== 'true';
+      button.onclick = () => { if ($('draft').disabled || button.dataset.available !== 'true') return; $('draft').value = button.dataset.commandExample; $('draft').dispatchEvent(new Event('input')); navigate('chat'); $('draft').focus(); };
+      card.append(button); $('command-list').append(card);
+    }
+    $('command-status').textContent = shown.length ? `${shown.length} comandos en esta lista.` : (!commandItems.length && !search && !category && commandEmptyText) ? commandEmptyText : 'No hay comandos que coincidan.';
   }
   async function activity(silent = false) {
     if (!csrf) return;
@@ -283,12 +327,12 @@
     finally { busy = false; paint(); }
   }
   function navigate(next) {
-    if (!['home', 'chat', 'activity', 'status'].includes(next)) return;
+    if (!['home', 'chat', 'commands', 'activity', 'status'].includes(next)) return;
     pane = next;
-    for (const id of ['home', 'chat', 'activity', 'status']) $(id).hidden = id !== pane;
+    for (const id of ['home', 'chat', 'commands', 'activity', 'status']) $(id).hidden = id !== pane;
     for (const button of document.querySelectorAll('[data-pane]')) { if (button.dataset.pane === pane) button.setAttribute('aria-current', 'page'); else button.removeAttribute('aria-current'); }
     if (pane === 'home') tg?.BackButton?.hide?.(); else tg?.BackButton?.show?.();
-    avatar?.resize(); if (pane === 'chat') void history(); if (pane === 'activity') void activity();
+    avatar?.resize(); if (pane === 'chat') void history(); if (pane === 'activity') void activity(); if (pane === 'commands') void commands();
   }
   $('compose').onsubmit = event => { event.preventDefault(); void send(); };
   $('recover').onclick = async () => { const items = await activity(); if (items) notice('Estado consultado. Revisa Actividad; si no aparece, el resultado sigue sin confirmarse.'); };
@@ -297,6 +341,7 @@
   function syncFilters() { for (const button of document.querySelectorAll('[data-activity-filter]')) button.setAttribute('aria-pressed', String(button.dataset.activityFilter === activityFilter)); renderActivity(); }
   for (const button of document.querySelectorAll('[data-activity-filter]')) button.onclick = () => { activityFilter = button.dataset.activityFilter; syncFilters(); };
   for (const button of document.querySelectorAll('[data-example]')) button.onclick = () => { if ($('draft').disabled) return; $('draft').value = button.dataset.example; $('draft').dispatchEvent(new Event('input')); $('draft').focus(); };
+  $('command-search').oninput = renderCommands; $('command-category').onchange = renderCommands;
   $('draft').oninput = () => { try { sessionStorage.setItem('axx.telegram.draft', $('draft').value); } catch { notice('No se pudo conservar el borrador.'); } };
   $('copy-diagnostics').onclick = () => void copy($('diagnostics').textContent);
   for (const button of document.querySelectorAll('[data-pane]')) button.onclick = () => navigate(button.dataset.pane);

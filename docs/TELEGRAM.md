@@ -30,6 +30,13 @@ En **Inicio**, el resumen corresponde a las últimas 30 solicitudes recibidas.
 En **Actividad**, puedes filtrar por pendientes, en curso o finalizadas; abre el
 resultado para comprobar si se verificó. Filtrar no ejecuta ninguna acción.
 Los ejemplos de **Chat** solo rellenan el borrador: tú decides cuándo enviarlo.
+En **Comandos**, busca por nombre o filtra por categoría. **Escribir** lleva la
+frase al borrador sin enviarla. También puedes escribir `/comandos` o `ver comandos`
+en el bot para consultar la lista y después pedir, por ejemplo, `abre calculadora`,
+`mis ventanas` o `cierra Spotify`. No necesitas copiar identificadores ni JSON.
+La lista se obtiene del catálogo ejecutable de tu PC; un ejemplo no demuestra que
+su acción ya se haya ejecutado. Las tarjetas indican si falta un permiso y el
+cierre necesita que la ventana esté abierta.
 Si se pierde la conexión, la app marca los datos anteriores como desactualizados
 y conserva el borrador y el identificador de cualquier envío pendiente.
 Si se retira el acceso, limpia los datos privados visibles y descarta las

@@ -86,7 +86,7 @@ def bot_request(token, method, body, timeout=15):
 
 
 def local_request(endpoint_file, route, body=None):
-    if route not in {'/axx-api/telegram/status', '/axx-api/telegram/bot-input', '/axx-api/telegram/review', '/axx-api/telegram/decision'}:
+    if route not in {'/axx-api/telegram/status', '/axx-api/telegram/commands', '/axx-api/telegram/bot-input', '/axx-api/telegram/review', '/axx-api/telegram/decision'}:
         raise ValueError('Invalid local route')
     raw = Path(endpoint_file).read_bytes()
     if len(raw) > 16384:
@@ -124,7 +124,8 @@ def allowed(update, owner):
 
 
 def menu(url):
-    rows = [[{'text': 'Estado', 'callback_data': 'status'}, {'text': 'Ayuda', 'callback_data': 'help'}],
+    rows = [[{'text': 'Estado', 'callback_data': 'status'}, {'text': 'Comandos', 'callback_data': 'commands'}],
+            [{'text': 'Ayuda', 'callback_data': 'help'}],
             [{'text': 'Permisos', 'callback_data': 'permissions'}]]
     if url:
         rows.append([{'text': 'Abrir Axx', 'web_app': {'url': url}}])
@@ -251,6 +252,11 @@ class BotWorker:
                 if choice == 'status':
                     result = local_request(self.endpoint_file, '/axx-api/telegram/status')
                     self.send(status_text(result), menu(load_bot(self.data_dir)['public_url']))
+                elif choice == 'commands':
+                    result = local_request(self.endpoint_file, '/axx-api/telegram/commands')
+                    if not isinstance(result.get('text'), str):
+                        raise ValueError('Invalid local response')
+                    self.send(result['text'], menu(load_bot(self.data_dir)['public_url']))
                 elif choice == 'permissions':
                     grants = load_account(self.data_dir)['grants']
                     names = {'conversation': 'Conversar por texto', 'voice_notes': 'Notas de voz',

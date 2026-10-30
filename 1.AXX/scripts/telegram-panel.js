@@ -28,7 +28,7 @@
       <div class="quick-row"><button type="button" id="tg-save-permissions">Guardar permisos</button><button type="button" id="tg-pause">Pausar</button><button type="button" id="tg-resume">Reanudar</button></div>
       <p class="micro-copy">Pausar corta el acceso. Cambiar permisos o pausar pide volver a escanear el QR 2; tus datos se conservan.</p>
       <label><input type="checkbox" id="tg-remote-confirmations"> Confirmar comandos desde Telegram</label>
-      <p class="micro-copy">Permite confirmar consultas y abrir aplicaciones después de revisar cada orden. Los comandos que requieren aprobación en la PC siguen reservados a la PC.</p>
+      <p class="micro-copy">Permite aprobar consultas, abrir aplicaciones y cerrar ventanas observadas después de revisar cada orden. Las acciones reservadas siguen requiriendo la PC.</p>
       <button type="button" id="tg-save-confirmations">Guardar confirmación remota</button>
       <h4>3. Abre Axx en tu teléfono</h4><p class="micro-copy">Ahora usa tu cuenta personal. Con la cámara del teléfono, escanea el segundo QR. En Telegram, toca Iniciar y luego Abrir Axx.</p>
       <button type="button" id="tg-prepare-bot" hidden>Preparar el bot y su dirección</button>
@@ -36,7 +36,7 @@
       <img id="tg-pair-qr" width="240" height="240" hidden alt="QR 2: abrir Axx en tu teléfono" style="background:white;padding:8px;max-width:100%;height:auto"><p id="tg-pair-expiry" class="micro-copy"></p>
       <div id="tg-pair-list"></div>
       <h4>4. Comprueba y empieza a usarlo</h4><p id="tg-check-status">Actualiza para ver el estado.</p><button type="button" id="tg-refresh">Comprobar conexión</button>
-      <ol><li>Abre el chat del bot y envía /start para ver su menú.</li><li>Toca Estado para saber qué está disponible.</li><li>Toca Abrir Axx para ver Inicio, Chat, Actividad y Ajustes.</li><li>Si una acción necesita permiso, apruébala en esta PC.</li></ol>
+      <ol><li>Abre el chat del bot y envía /start para ver su menú.</li><li>Toca Comandos o escribe /comandos para ver ejemplos.</li><li>Toca Abrir Axx para buscar comandos, escribir al chat y consultar la actividad.</li><li>Revisa la tarjeta de cada orden y elige Aprobar una vez o Denegar. Las acciones reservadas requieren la PC.</li></ol>
       <p class="micro-copy">Chat con IA todavía no está disponible; tu proveedor no cambió. Las llamadas están en reparación.</p>
       <details id="tg-advanced"><summary>Opciones avanzadas · solo la primera vez</summary>
         <button type="button" id="tg-reconnect">Volver a vincular cuenta</button>

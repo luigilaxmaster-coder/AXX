@@ -405,7 +405,9 @@ class CommandService:
     def executable_catalog(self):
         with self.lock:
             return {'commands': [{name: item[name] for name in ('id', 'title', 'description', 'risk', 'parameters')} |
-                    {'pc_approval_required': item.get('requires_approval', False) or item['risk'] not in ('read', 'desktop_open')}
+                    {'pc_approval_required': item.get('requires_approval', False) or item['risk'] not in ('read', 'desktop_open'),
+                     'requires_approval': item.get('requires_approval', True), 'source_kind': item.get('source', {}).get('kind'),
+                     'execution_enabled': True}
                     for item in self.commands.values() if item['execution_enabled'] and item['id'] in self.adapters]}
 
     def search(self, query='', limit=30, offset=0):

@@ -208,9 +208,10 @@ class MiniAppFacade:
                                 snapshot = checked_appearance(snapshot)
                             public['appearance'] = snapshot
                         self._send(200, public)
-                    elif self.path in ('/api/activity', '/api/history'):
+                    elif self.path in ('/api/activity', '/api/history', '/api/commands'):
                         self._session(bot, account)
-                        action = facade.service.activity if self.path == '/api/activity' else facade.service.history
+                        action = {'/api/activity': facade.service.activity, '/api/history': facade.service.history,
+                                  '/api/commands': facade.service.command_catalog}[self.path]
                         self._send(200, action(account['owner_id']))
                     elif self.path in ('/', '/app.js', '/app.css', '/desktop-avatar.js', '/avatar-renderer.js'):
                         assets = {'/': (facade.asset_path, 'text/html; charset=utf-8'),

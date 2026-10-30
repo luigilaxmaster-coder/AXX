@@ -61,7 +61,8 @@ def configure(token, url, enabled, data_dir=None):
             commands_ok = bot_request(token, 'setMyCommands', {'scope': {'type': 'chat', 'chat_id': account['owner_id']},
                 'commands': [{'command': 'start', 'description': 'Abrir menú de Axx'},
                              {'command': 'menu', 'description': 'Mostrar menú de Axx'},
-                             {'command': 'estado', 'description': 'Consultar el estado'}]})
+                             {'command': 'estado', 'description': 'Consultar el estado'},
+                             {'command': 'comandos', 'description': 'Ver comandos disponibles'}]})
             if commands_ok is not True:
                 raise BotApiError('BOT_REQUEST_REJECTED')
             result['menu_configured'] = True

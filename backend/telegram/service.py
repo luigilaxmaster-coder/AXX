@@ -17,6 +17,7 @@ import uuid
 
 from backend.prompts import compose
 from backend.telegram.config import load_account, confirmation_policy, confirmation_fingerprint
+from backend.telegram.catalog import is_catalog_request, phrase_catalog
 
 
 def status_text(status):
@@ -100,6 +101,17 @@ class TelegramService:
                 'connection': {'core_bound': connection, 'account_running': self.process is not None and self.process.poll() is None,
                                'bot_running': self.bot_process is not None and self.bot_process.poll() is None, 'checked_at': time.time()},
                 'observed_at': time.time()}
+
+    def command_catalog(self, owner_id=None):
+        account = load_account(self.data_dir)
+        self._authorize({'account_id': account['account_id'],
+                         'peer_id': account['owner_id'] if owner_id is None else owner_id})
+        try:
+            catalog = self.commands.executable_catalog()
+        except Exception:
+            catalog = None
+        return phrase_catalog(catalog, pc_commands=account['grants'].get('pc_commands'),
+                              remote_confirmations=confirmation_policy(self.data_dir)['enabled'])
 
     def activity(self, owner_id):
         account = load_account(self.data_dir)
@@ -420,7 +432,7 @@ class TelegramService:
             return {'state': 'expired', 'text': 'Solicitud antigua tras una desconexión: no se ejecutó. Envíala de nuevo si todavía corresponde.'}
         if not self.lock.acquire(blocking=False):
             # Status and cancellation must remain usable during a long model request.
-            if text == '/estado' or text.startswith('/cancelar '):
+            if text == '/estado' or text.startswith('/cancelar ') or is_catalog_request(text):
                 return self._control(account, text)
             return {'state': 'busy', 'text': 'Axx está ocupado; la solicitud no se ejecutó. Inténtalo después.'}
         try:
@@ -432,7 +444,7 @@ class TelegramService:
                         'text': 'La solicitud ya fue admitida. Consulta el recibo antes de repetir.', 'operation_id': old[2]}
                 db.execute('INSERT INTO inbox(id,state,response,operation_id,created,account,peer) VALUES(?,?,?,?,?,?,?)',
                            (key, 'running', None, key, time.time(), body['account_id'], body['peer_id']))
-            if text == '/estado' or text.startswith('/cancelar '):
+            if text == '/estado' or text.startswith('/cancelar ') or is_catalog_request(text):
                 result = self._control(account, text)
             elif not account['grants'].get('conversation') and not (account['grants'].get('pc_commands') and remote_review):
                 result = {'state': 'blocked', 'text': 'La conversación está desactivada. Activa la confirmación remota en la PC para enviar órdenes sin conversación.'}
@@ -457,6 +469,8 @@ class TelegramService:
     def _control(self, account, text):
         if text == '/estado':
             return {'state': 'succeeded', 'text': status_text(self.status())}
+        if is_catalog_request(text):
+            return {'state': 'succeeded', 'text': self.command_catalog(account['owner_id'])['text']}
         operation_id = text.removeprefix('/cancelar ').strip()
         try:
             uuid.UUID(operation_id)
@@ -499,7 +513,7 @@ class TelegramService:
                     'text': ('Ejecutado y verificado: ' + json.dumps(receipt.get('output'), ensure_ascii=False)[:10000]
                              if verified else 'El efecto no está confirmado. Consulta la operación: '+key)}
         if text.startswith('/'):
-            return {'state':'blocked','text':'Comando no registrado. Disponibles: /estado y /cancelar <id>. Las órdenes compatibles se confirman en su tarjeta; las reservadas requieren la PC.'}
+            return {'state':'blocked','text':'Comando no registrado. Escribe /comandos para ver ejemplos, /estado para consultar Axx o /cancelar seguido del ID de una operación.'}
         if not account['grants'].get('conversation'):
             return {'state': 'blocked', 'text': 'La conversación está desactivada. Puedes enviar órdenes del catálogo permitido.'}
         prefs = dict(self.preferences() or {})
