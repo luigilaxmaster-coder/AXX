@@ -46,13 +46,13 @@ def _lesson_content(item):
         if key not in ('environment_matches', 'context_matches', 'status')}
 
 
-def assert_lessons_current(db, refs, project_id, task_id):
+def assert_lessons_current(db, refs, project_id, task_id, *, procedure_library=None):
     """Validate selected incident references in the caller's SQL transaction, without writes or locks."""
     project_key(project_id)
     if task_id is not None: task_memory.state(db, task_id)
     if not isinstance(refs, list) or len(refs) > 3: raise ValueError('Referencias de incidentes inválidas')
     view = SkillMemory.__new__(SkillMemory)
-    view.db, view.lock = db, nullcontext()
+    view.db, view.lock, view.procedure_library = db, nullcontext(), procedure_library
     for ref in refs:
         if (not isinstance(ref, dict) or set(ref) != {'id', 'digest'}
                 or not isinstance(ref['id'], str) or not re.fullmatch(r'lesson\.[a-f0-9]{32}', ref['id'])
@@ -759,6 +759,8 @@ class SkillMemory:
             raise ValueError('Corrección humana inválida')
         with self._write():
             failure, failure_at, parent = self._lesson_receipt(body.get('operation_id'), 'failed')
+            sources = [failure, parent or {}]
+            documents = self.inherit_document_references({}, *sources)
             project = project_key(body.get('project_id', parent.get('project_id', '') if parent else ''))
             if parent and parent.get('project_id', '') != project:
                 raise ValueError('La operación pertenece a otro proyecto')
@@ -788,6 +790,9 @@ class SkillMemory:
                     raise ValueError('La prueba debe ser posterior, del mismo comando y ámbito')
                 verification = {'operation_id': trial['operation_id'], 'receipt_sha256': value_hash(trial),
                                 'status': 'verified_test', 'proves_cause': False}
+                sources.extend((trial, trial_parent or {}))
+                self.inherit_document_references(documents, trial, trial_parent or {})
+                task_memory.assert_current(self.db, trial.get('memory_scope'), task_id=task)
             error = failure['error']
             symptom = error.get('message', error.get('code', 'Fallo registrado')) if isinstance(error, dict) else str(error)
             item = {'id': 'lesson.' + value_hash(body)[:32], 'command_id': command, 'project_id': project, 'task_id': task,
@@ -803,8 +808,9 @@ class SkillMemory:
             if task:
                 item.update(origin_task_id=task, memory_scope=selected_scope or task_memory.snapshot(self.db, task))
                 if selected_context is not None: item['memory_context_id'] = selected_context
-            sources = (parent or {}).get('memory_dependencies', []) + failure.get('memory_dependencies', [])
-            item['memory_dependencies'] = task_memory.assert_dependencies(self.db, list({value_hash(ref):ref for ref in sources}.values()))
+            dependencies = [ref for source in sources for ref in source.get('memory_dependencies', [])]
+            item['memory_dependencies'] = task_memory.assert_dependencies(self.db, list({value_hash(ref):ref for ref in dependencies}.values()))
+            self.inherit_document_references(item, documents)
             payload = json.dumps(item, ensure_ascii=False, allow_nan=False)
             if len(payload) > 3000: raise ValueError('Acorta la ficha: el incidente excede tres mil caracteres')
             existing = self.db.execute('SELECT payload FROM skill_lessons WHERE id=?', (item['id'],)).fetchone()
@@ -813,6 +819,7 @@ class SkillMemory:
                 raise ValueError('La biblioteca de incidentes está llena; olvida fichas antes de añadir otras')
             text = lesson_search_text(' '.join((command, project, task or '', item['symptom'], item['error_code'], hypothesis, correction)))
             self.db.execute('INSERT INTO skill_lessons VALUES (?,?,?,?,?,?)', (item['id'], command, project, item['created_at'], text, payload))
+            self.resolve_document_references(item.get('document_references'))
         return item
 
     def _lesson_current(self, item, project_id, task_id):

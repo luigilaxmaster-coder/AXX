@@ -20,6 +20,8 @@ Los planes históricos conservan su hash anterior. Cuando contienen un candidato
 
 El linaje continúa por composición, configuración, reparación, revalidación, comandos recordados, revisiones del taller, rollback y publicación. El digest del taller incluye las referencias cuando existen; el digest antiguo sin ese campo permanece igual. Una revisión restaurada vuelve a ser propuesta y conserva las fuentes heredadas.
 
+Las lecciones de incidentes capturan al guardarse las referencias del fallo y de su verificación. Si una lección entra en el prompt de otro plan, ese plan hereda su linaje; invalidar la fuente también bloquea esa reutilización indirecta. Se conserva el texto de la corrección humana y no se le atribuye autoría documental. Las referencias históricas no se reconstruyen desde un plan que puede haber sido reparado después.
+
 La biblioteca se revalida antes de inferencia, aprobación, despacho, activación y reutilización. Esto incluye el uso directo de transformaciones ya presentes en el catálogo, sin depender de actualizar primero su lista. Los recibos de comandos conservan sus referencias para impedir que recordar una operación pierda su procedencia. La evidencia y las comprobaciones de efectos del único ejecutor siguen siendo obligatorias.
 
 Las referencias documentales son distintas de `memory_dependencies`: no sustituyen la tarea, generación y contexto de M9. Olvidar una sesión sigue bloqueando sus derivados. Cambiar de chat durante una espera impide mostrar la respuesta en el chat nuevo o enviar una continuación con otro token; se conserva el borrador humano.
@@ -35,3 +37,5 @@ python scripts/validate_companion.py --output build/companion-validation.json
 ```
 
 La coherencia de hashes no acredita autoría ni vigencia externa del documento. El ensayo acotado de archivos no acredita exportación semántica en aplicaciones, proveedor externo, voz ni control físico del escritorio. No amplía permisos Full, activa el envío de contexto observado, introduce otro ejecutor ni deshace efectos ya iniciados. Los archivos, recibos, credenciales y emparejamientos existentes se conservan.
+
+Los campos nuevos se guardan en los payloads existentes. Un runtime anterior que los ignore no aplica estas comprobaciones de linaje; una reversión necesita estado compatible verificado y conciliación de efectos, conservando credenciales y emparejamientos. No se reinterpretan como aprobados los candidatos históricos sin sellar.

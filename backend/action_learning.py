@@ -7,7 +7,7 @@ from backend.prompts import compose
 import hashlib
 from functools import wraps
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import contextmanager, ExitStack, nullcontext
+from contextlib import closing, contextmanager, ExitStack, nullcontext
 import json
 import logging
 import math
@@ -47,18 +47,20 @@ class SelectionChanged(NeedsInput):
 
 
 class MemoryCancellation(threading.Event):
-    def __init__(self, db_path, plan, parent):
+    def __init__(self, db_path, plan, parent, *, procedure_library=None):
         super().__init__()
         self.db_path, self.parent = db_path, parent
+        self.procedure_library = procedure_library
         self.plan = json.loads(json.dumps({key: plan.get(key) for key in ('memory_scope', 'memory_context_id', 'conversation_id', 'memory_dependencies', 'lesson_dependencies', 'project_id')}))
 
     def is_set(self):
         if super().is_set() or self.parent.is_set(): return True
         try:
-            with sqlite3.connect('file:' + Path(self.db_path).as_posix() + '?mode=ro', uri=True, timeout=0.1) as db:
+            with closing(sqlite3.connect('file:' + Path(self.db_path).as_posix() + '?mode=ro', uri=True, timeout=0.1)) as db:
                 task_memory.assert_context(db, self.plan['memory_scope'], self.plan['memory_context_id'], task_id=self.plan['conversation_id'])
                 task_memory.assert_dependencies(db, self.plan.get('memory_dependencies') or [])
-                assert_lessons_current(db, self.plan.get('lesson_dependencies') or [], self.plan.get('project_id') or '', self.plan['conversation_id'])
+                assert_lessons_current(db, self.plan.get('lesson_dependencies') or [], self.plan.get('project_id') or '', self.plan['conversation_id'],
+                    procedure_library=self.procedure_library)
             return False
         except (ValueError, sqlite3.Error):
             self.set()
@@ -306,7 +308,8 @@ class ActionLearning:
         try:
             task_memory.assert_context(db, plan.get('memory_scope'), plan.get('memory_context_id'), task_id=plan.get('conversation_id'))
             task_memory.assert_dependencies(db, plan.get('memory_dependencies', []))
-            assert_lessons_current(db, plan.get('lesson_dependencies', []), plan.get('project_id', ''), plan.get('conversation_id'))
+            assert_lessons_current(db, plan.get('lesson_dependencies', []), plan.get('project_id', ''), plan.get('conversation_id'),
+                procedure_library=self.skills.procedure_library)
             preparation = plan.get('preparation', {})
             references = plan.get('skill_versions', []) + preparation.get('candidates', [])
             if preparation.get('kind') == 'repair': references += preparation.get('previous', {}).get('skill_versions', [])
@@ -1152,6 +1155,7 @@ class ActionLearning:
         lessons = bounded_lessons
         if plan is not None:
             self._inherit_memory(plan, *lessons)
+            self.skills.inherit_document_references(plan, *lessons)
             plan['lesson_dependencies'] = lesson_refs(lessons)
             self._save(plan)
         if lessons:
@@ -1462,7 +1466,8 @@ class ActionLearning:
                 request.update(memory_scope=plan.get('memory_scope'), memory_context_id=plan.get('memory_context_id'),
                     memory_dependencies=plan.get('memory_dependencies', []))
             elif source_cancel is None and getattr(backend, 'supports_cancel_event', False):
-                kwargs['cancel_event'] = MemoryCancellation(self.commands.executor.db_path, plan, self.events[plan['operation_id']])
+                kwargs['cancel_event'] = MemoryCancellation(self.commands.executor.db_path, plan, self.events[plan['operation_id']],
+                    procedure_library=self.skills.procedure_library)
             if dispatch_observer is not None: kwargs['dispatch_observer'] = dispatch_observer
             if source_policy is not None: kwargs['source_policy'] = source_policy
             if source_cancel is not None:request['sensitivity']='approved_sensitive'
