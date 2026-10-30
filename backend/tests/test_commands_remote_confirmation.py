@@ -39,6 +39,15 @@ class RemoteConfirmationTests(unittest.TestCase):
                 self.commands.confirm_remote('test-op', review['plan_hash'], auth)
             dispatch.assert_called_once()
 
+    def test_remote_youtube_is_limited_to_the_fixed_chrome_query_adapter(self):
+        command = {'requires_approval':False,'risk':'local_content_read'}
+        allowed = self.commands._allows_remote_confirmation
+        self.assertTrue(allowed('axx.app.youtube', command, {'application':'chrome','query':'faint'}))
+        self.assertFalse(allowed('axx.app.hover', command, {'application':'chrome','query':'faint'}))
+        self.assertFalse(allowed('axx.app.youtube', command, {'application':'other','query':'faint'}))
+        self.assertFalse(allowed('axx.app.youtube', command, {'application':'chrome','query':'faint','window_id':1}))
+        self.assertFalse(allowed('axx.app.youtube', dict(command,requires_approval=True), {'application':'chrome','query':'faint'}))
+
     def test_reserved_and_nonstatic_never_eligible(self):
         self.commands.prepare('axx.shell.cmd', {'script':'echo hi'}, operation_id='shell', command_mode='ask')
         self.assertEqual(self.commands.remote_review('shell')['reason'], 'PC_APPROVAL_REQUIRED')

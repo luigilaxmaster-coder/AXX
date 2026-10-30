@@ -116,6 +116,26 @@ el núcleo vuelve a verificar el plan y el permiso justo antes del despacho.
 
 ## Referencia técnica
 
+### Órdenes compuestas y enlaces
+
+Puedes escribir `abre calculadora y abre bloc de notas` o `abre youtube y pon faint de linkin park`.
+El bot y la Mini App preparan el primer paso; cada paso requiere su propia tarjeta de
+aprobación. El siguiente solo se prepara tras un recibo comprobado del anterior.
+Denegar, un resultado incierto, un cambio de permisos o un reinicio detienen la
+continuación. Consulta Actividad antes de repetir una petición tras desconectarte.
+No se reanudan secuencias automáticamente.
+
+Un enlace seguido de `ponme este video` prepara la apertura de esa URL exacta.
+Abrir una URL no demuestra reproducción. La reproducción por búsqueda usa el adaptador
+existente de YouTube para Chrome, que debe observar el título y el avance del reproductor;
+si no puede comprobarlos, el resultado permanece sin confirmar. No se habilitan scripts
+ni controles arbitrarios del navegador con esta aprobación.
+
+Si la Mini App no abre, comprueba primero que Tailscale esté conectado y que Funnel
+publique exclusivamente la fachada local en `127.0.0.1:6451`. Una respuesta local correcta
+no demuestra que la dirección HTTPS sea accesible. El chat con IA conserva por separado
+el control de aislamiento del proveedor seleccionado.
+
 La cuenta de usuario de Telegram y el bot auxiliar son canales distintos. La
 sesión de usuario se protege con DPAPI en `%LOCALAPPDATA%\Axx\telegram` y el
 trabajador admite únicamente mensajes privados del propietario autorizado. La

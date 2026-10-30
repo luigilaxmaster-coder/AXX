@@ -281,6 +281,8 @@ class BotWorker:
                         self.send('El resultado no está confirmado. Consulta la operación antes de repetir.')
                     else:
                         self.send(str(result.get('text') or 'Consulta el estado de la operación.'))
+                    if isinstance(result.get('next_operation_id'), str):
+                        self.review(result['next_operation_id'])
                 return
             message = update['message']
             text = message.get('text')
@@ -308,6 +310,8 @@ class BotWorker:
                 if not isinstance(reply, str):
                     raise ValueError('Invalid local response')
                 if result.get('state') == 'awaiting_approval' and isinstance(result.get('operation_id'), str):
+                    if result.get('sequence_total'):
+                        self.send(reply)
                     self.review(result['operation_id'])
                 else:
                     self.send(reply)

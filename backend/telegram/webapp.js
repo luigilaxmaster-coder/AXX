@@ -4,7 +4,7 @@
   const $ = id => document.getElementById(id);
   const tg = window.Telegram?.WebApp;
   const names = { messages: 'Mensajes', voice_notes: 'Notas de voz', files: 'Archivos', pc_commands: 'Acciones en PC', private_calls: 'Llamadas privadas' };
-  const labels = { configured: 'Configurado', not_verified: 'Pendiente de prueba', not_implemented: 'Todavía no implementado', unavailable: 'No disponible', not_configured: 'Sin configurar' };
+  const labels = { configured: 'Configurado', admitted: 'Recibe solicitudes', verified_receipt: 'Hay acciones comprobadas', not_verified: 'Pendiente de prueba', not_implemented: 'Todavía no implementado', unavailable: 'No disponible', not_configured: 'Sin configurar' };
   let csrf = '', busy = false, avatar = null, pending = null, state = null, lastRtt = null, lastSync = null, pane = 'home', reviewToken = null, reviewBusy = false, reviewTimer = null, reviewDeadline = 0;
   let activityItems = null, activityFilter = 'all', activityRequest = 0, stateRequest = 0, historyRequest = 0, reviewRequest = 0, accessEpoch = 0;
   let commandItems = null, commandRequest = 0, commandEmptyText = '';
@@ -294,6 +294,7 @@
         ? 'El resultado no está confirmado. Consulta la actividad antes de repetir.'
         : result.text || 'Consulta el estado de la operación.';
       notice(text); $('review-card').hidden = true; await activity();
+      if (current() && result.next_operation_id) { reviewBusy = false; await review(result.next_operation_id); }
     } catch (error) { if (current()) notice(error.message + ' Consulta la actividad antes de reintentar.'); }
     finally { if (requestId === reviewRequest) reviewBusy = false; }
   }

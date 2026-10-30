@@ -26,9 +26,12 @@ def status_text(status):
     names = {'messages': 'Mensajes', 'voice_notes': 'Notas de voz', 'files': 'Archivos',
              'pc_commands': 'Acciones en la PC', 'private_calls': 'Llamadas'}
     labels = {'not_configured': 'Sin configurar', 'not_verified': 'Falta comprobar',
-              'not_implemented': 'En preparación'}
-    lines = ['Estado de Axx', 'Proceso activo; falta probar cada función.' if status.get('worker_running') is True else 'El proceso de Telegram no está activo.']
+              'not_implemented': 'En preparación', 'admitted':'Recibe solicitudes',
+              'verified_receipt':'Hay acciones con resultado comprobado'}
+    lines = ['Estado de Axx', 'Proceso activo; cada función informa su estado.' if status.get('worker_running') is True else 'El proceso de Telegram no está activo.']
     lines.extend(name + ': ' + labels.get(status.get(key), 'Sin comprobar') for key, name in names.items())
+    if status.get('conversation_message'):
+        lines.append('Chat con IA: ' + status['conversation_message'])
     lines.append('Las llamadas todavía están en reparación. Deja Axx abierto en tu PC.')
     return '\n'.join(lines)
 
@@ -53,6 +56,8 @@ class TelegramService:
                 CREATE TABLE IF NOT EXISTS confirmations(operation_id TEXT PRIMARY KEY, account INTEGER,
                     owner INTEGER, epoch TEXT, plan_hash TEXT, token_hash TEXT UNIQUE, expires REAL,
                     state TEXT, response TEXT);
+                CREATE TABLE IF NOT EXISTS sequences(root TEXT PRIMARY KEY, current TEXT UNIQUE,
+                    payload TEXT, state TEXT);
             ''')
             columns = {row[1] for row in db.execute('PRAGMA table_info(inbox)')}
             for name in ('account', 'peer'):
@@ -63,6 +68,7 @@ class TelegramService:
             db.execute("UPDATE inbox SET state='unknown' WHERE state='running'")
             db.execute("UPDATE confirmations SET state='unknown' WHERE state='claimed'")
             db.execute("UPDATE confirmations SET state='expired' WHERE state='pending'")
+            db.execute("UPDATE sequences SET state='stopped' WHERE state='pending'")
 
     @contextmanager
     def _db(self):
@@ -79,10 +85,15 @@ class TelegramService:
         except (OSError, ValueError, RuntimeError):
             return {'state': 'authentication_required', 'messages': 'not_configured',
                     'private_calls': 'not_verified'}
+        with self._db() as db:
+            recent = db.execute('SELECT response FROM inbox WHERE account=? AND peer=? ORDER BY created DESC LIMIT 30',
+                (account['account_id'],account['owner_id'])).fetchall()
+        checked = any(json.loads(row[0]).get('postconditions_passed') is True for row in recent if row[0])
         return {'state': 'configured' if account['enabled'] else 'disabled',
                 'worker_running': any(p is not None and p.poll() is None for p in (self.process, self.bot_process)),
-                'messages': 'not_verified', 'voice_notes': 'not_implemented',
-                'files': 'not_implemented', 'pc_commands': 'not_verified',
+                'messages': 'admitted' if recent else 'not_verified', 'voice_notes': 'not_implemented',
+                'files': 'not_implemented', 'pc_commands': 'verified_receipt' if checked else 'not_verified',
+                'conversation_message':self.diagnostics(account['owner_id'])['conversation']['message'] if account['enabled'] else 'Canal desactivado.',
                 'private_calls': 'not_verified'}
 
     def diagnostics(self, owner_id):
@@ -262,6 +273,7 @@ class TelegramService:
                               'text': ('Resultado comprobado: ' + json.dumps(receipt.get('output'), ensure_ascii=False)[:6000]
                                        if verified else 'El resultado no está comprobado. Consulta Actividad antes de repetir la orden.')}
                 if decision=='confirm':self._inbox_memory(operation_id,manual=True)
+                result = self._advance_sequence(account, operation_id, result)
                 with self._db() as db:
                     db.execute("UPDATE confirmations SET state='done',response=? WHERE operation_id=?", (json.dumps(result, ensure_ascii=False), operation_id))
                     db.execute('UPDATE inbox SET state=?,response=? WHERE operation_id=?', (result['state'], json.dumps(result, ensure_ascii=False), operation_id))
@@ -533,11 +545,57 @@ class TelegramService:
         self.adapter.cancel(operation_id)
         return {'state': 'cancel_requested', 'text': 'Cancelación solicitada. Los efectos ya completados se conservan.'}
 
-    def _turn(self, account, chat, key, text, *, require_remote_review=False,captured=None):
+    def _advance_sequence(self, account, operation_id, result):
+        with self._db() as db:
+            row = db.execute("SELECT root,payload FROM sequences WHERE current=? AND state='pending'", (operation_id,)).fetchone()
+        if not row:
+            return result
+        root, raw = row
+        payload = json.loads(raw)
+        with self._db() as db:
+            db.execute("UPDATE sequences SET state='stopped' WHERE root=?", (root,))
+        if result.get('state') != 'succeeded' or result.get('postconditions_passed') is not True:
+            return result | {'text': result['text'] + '\nSecuencia detenida. No se prepararán más pasos.'}
+        if not payload['steps']:
+            with self._db() as db:
+                db.execute("UPDATE sequences SET state='completed' WHERE root=?", (root,))
+            return result | {'text': result['text'] + '\nSecuencia terminada; todos sus pasos tienen resultado comprobado.'}
+        if payload['epoch'] != confirmation_fingerprint(self.data_dir):
+            return result | {'text': result['text'] + '\nSecuencia detenida: los permisos cambiaron.'}
+        captured = self._inbox_memory(operation_id, manual=True)
+        chat = self._assert_chat(captured)
+        step = payload['steps'].pop(0)
+        next_id = str(uuid.uuid5(uuid.UUID(operation_id), 'next'))
+        with self._db() as db:
+            db.execute('INSERT INTO inbox(id,state,operation_id,created,account,peer,task_id,memory_scope,memory_context_id) VALUES(?,?,?,?,?,?,?,?,?)',
+                (next_id,'running',next_id,time.time(),account['account_id'],account['owner_id'],captured['task_id'],json.dumps(captured['memory_scope']),captured['memory_context_id']))
+        following = self._turn(account, chat, next_id, '', require_remote_review=True, captured=captured, resolved=step | {'match':'exact'})
+        with self._db() as db:
+            db.execute('UPDATE inbox SET state=?,response=? WHERE id=?', (following['state'],json.dumps(following,ensure_ascii=False),next_id))
+            if following['state'] == 'awaiting_approval':
+                db.execute("UPDATE sequences SET current=?,payload=?,state='pending' WHERE root=?", (next_id,json.dumps(payload),root))
+        if following['state'] != 'awaiting_approval':
+            return result | {'text':result['text'] + '\nSecuencia detenida. ' + following['text']}
+        return result | {'next_operation_id':next_id, 'text':result['text'] + '\nRevisa el siguiente paso. Requiere una aprobación nueva.'}
+
+    def _turn(self, account, chat, key, text, *, require_remote_review=False,captured=None,resolved=None):
         captured=captured or self._capture_chat(chat)
         self._assert_chat(captured)
-        resolved = self.commands.resolve(text, source='text')
+        resolved = self.commands.resolve(text, source='text') if resolved is None else resolved
         self._assert_chat(captured)
+        if resolved.get('match') == 'sequence':
+            steps = resolved.get('steps', [])
+            if not account['grants']['pc_commands'] or not require_remote_review or not 2 <= len(steps) <= 8:
+                return {'state':'blocked','text':'Para secuencias, activa Acciones en la PC y Confirmar desde Telegram. No se ejecutó ningún paso.'}
+            first = self._turn(account, chat, key, '', require_remote_review=True, captured=captured, resolved=steps[0] | {'match':'exact'})
+            if first['state'] == 'awaiting_approval':
+                with self._db() as db:
+                    db.execute("INSERT INTO sequences VALUES(?,?,?,'pending')", (key,key,json.dumps({'steps':steps[1:],'epoch':confirmation_fingerprint(self.data_dir)})))
+                first['sequence_total'] = len(steps)
+                first['text'] = f'Secuencia de {len(steps)} pasos. Aprobarás cada paso por separado; denegar detiene el resto.\n' + '\n'.join(f"{i+1}. {step['command_id']}: {json.dumps(step['inputs'],ensure_ascii=False)}" for i,step in enumerate(steps)) + '\n' + first['text']
+            return first
+        if resolved.get('match') in ('needs_input', 'sequence_request', 'unsupported', 'ambiguous'):
+            return {'state':'blocked','text':resolved.get('message') or 'Necesito una orden más precisa. Consulta /comandos. No se ejecutó ningún paso.'}
         if resolved.get('match') == 'exact' and resolved.get('command_id'):
             if not account['grants']['pc_commands']:
                 return {'state':'blocked', 'text':'Activa el permiso de acciones en la PC para esta cuenta en los ajustes locales de Telegram.'}

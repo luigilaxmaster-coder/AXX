@@ -843,6 +843,8 @@ class CommandService:
     def _allows_remote_confirmation(command_id, command, inputs):
         return command.get('requires_approval', True) is False and (
             command.get('risk') in ('read', 'desktop_open')
+            or command_id == 'axx.app.youtube' and command.get('risk') == 'local_content_read'
+            and inputs.get('application') == 'chrome' and set(inputs) == {'application', 'query'}
             or command_id == 'axx.desktop.window.close' and command.get('risk') == 'local_state'
             and isinstance(inputs.get('expected_title'), str) and bool(inputs['expected_title'].strip())
             and isinstance(inputs.get('expected_process_started'), str) and bool(inputs['expected_process_started'].strip()))

@@ -7,6 +7,8 @@ EXAMPLES = (
     ('notepad', 'axx.desktop.open_app', 'Abrir Bloc de notas', 'abre bloc de notas', 'Aplicaciones'),
     ('explorer', 'axx.desktop.open_app', 'Abrir Explorador', 'abre explorador', 'Aplicaciones'),
     ('paint', 'axx.desktop.open_app', 'Abrir Paint', 'abre paint', 'Aplicaciones'),
+    ('youtube', 'axx.desktop.open_url', 'Abrir YouTube', 'abre youtube', 'Internet'),
+    ('video', 'axx.app.youtube', 'Reproducir en YouTube', 'pon faint de linkin park en youtube', 'Internet'),
     ('windows', 'axx.desktop.list_windows', 'Ver ventanas abiertas', 'mis ventanas', 'Consultas'),
     ('apps', 'axx.desktop.list_apps', 'Ver aplicaciones instaladas', 'aplicaciones instaladas', 'Consultas'),
     ('system', 'axx.system.telemetry', 'Consultar el sistema', 'información del sistema', 'Consultas'),
@@ -33,6 +35,7 @@ def phrase_catalog(catalog, *, pc_commands, remote_confirmations):
             continue
         safe = command.get('requires_approval') is False and (
             command.get('risk') in ('read', 'desktop_open')
+            or command_id == 'axx.app.youtube' and command.get('risk') == 'local_content_read'
             or command_id == 'axx.desktop.window.close' and command.get('risk') == 'local_state')
         available = pc_commands is True and remote_confirmations is True and safe
         reason = ('Activa Acciones en esta PC desde Axx.' if pc_commands is not True else

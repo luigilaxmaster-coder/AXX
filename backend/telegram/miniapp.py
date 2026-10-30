@@ -299,7 +299,7 @@ class MiniAppFacade:
                                 if not isinstance(body['token'], str) or not re.fullmatch(r'[A-Za-z0-9_-]{20,61}', body['token']) or body['decision'] not in ('confirm', 'cancel'):
                                     raise ValueError()
                                 result = facade.service.decide_operation(account['owner_id'], body['token'], body['decision'])
-                                fields = ('state', 'text', 'operation_id', 'postconditions_passed')
+                                fields = ('state', 'text', 'operation_id', 'postconditions_passed', 'next_operation_id')
                         except ValueError:
                             raise MiniAppError('PERMISSION_DENIED', 403) from None
                         self._send(200, {key: result[key] for key in fields if key in result})
