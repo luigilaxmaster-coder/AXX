@@ -1,0 +1,45 @@
+{
+  "source_validation": {
+    "result": "PASS",
+    "desktop_base": "ca9b8775b86b5dc5a9b6802e895d1e4b0c9877f8",
+    "desktop_source_version": "0.22.29",
+    "android": "0.2.9",
+    "android_code": 30,
+    "canonical_inputs": 114,
+    "contract_tests": 11,
+    "mobile_backend_tests": 92,
+    "backend_skipped": 1,
+    "mobile_browser_tests": 39,
+    "desktop_file_ui_tests": 6,
+    "screen_cases": 120,
+    "approved_portrait_references": 12,
+    "identical_pixel_cases": 81
+  },
+  "prior_physical_path_test": {
+    "android": "0.2.8",
+    "result": "PASS",
+    "pc_folder_selected": "Downloads",
+    "physical_navigation": "Archivos \u2192 Explorar \u2192 Downloads \u2192 buscar fixture \u2192 Traer al tel\u00e9fono",
+    "bytes": 9600,
+    "sha256": "40b0dd3c586d50e196a786b5f5bebe39832871bf0673987c28f496b8c70fb520",
+    "native_persistence": "received",
+    "other_links_unchanged": true
+  },
+  "new_apk": {
+    "android": "0.2.9",
+    "code": 30,
+    "sha256": "1051562d962f22aebcebee8a2e61c024f7b2e8dc39963d59bab218749dda9749",
+    "bytes": 11698776,
+    "same_signature_as_previous": true,
+    "canonical_assets_matched": 20,
+    "installed": false
+  },
+  "sustained_test": {
+    "state": "NOT_STARTED",
+    "reason": "Phone reconnected; awaiting coordinated Windows candidate stability before Android installation",
+    "planned_seconds": 1800,
+    "planned_animated_seconds": 1200,
+    "planned_control_seconds": 600,
+    "battery_and_temperature_results": null
+  }
+}
