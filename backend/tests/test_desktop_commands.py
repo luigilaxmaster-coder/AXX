@@ -9,9 +9,6 @@ from unittest.mock import ANY, patch
 from contextlib import nullcontext
 from types import SimpleNamespace
 import hashlib
-import json
-import sys
-import base64
 
 from backend.actions.executor import ActionExecutor
 from backend.commands import CommandService, ApprovalRequired
@@ -25,51 +22,6 @@ class DesktopCommandTests(unittest.TestCase):
         self.addCleanup(self.executor.close)
         self.service = CommandService(self.executor)
         self.addCleanup(self.service.close)
-
-    def _trace_shell(self):
-        from backend.actions import desktop
-        from backend.inference import process_manager
-        started, events = time.monotonic(), []
-        def mark(phase, **details):
-            events.append({'phase': phase, 'ms': round((time.monotonic()-started)*1000, 3), **details})
-        spawn, terminate = desktop.spawn_managed_process, desktop.terminate_process_tree
-        assign = process_manager.WindowsJobObject.assign_process
-        def observed_assign(job, handle):
-            assigned = assign(job, handle)
-            mark('job_assignment', assigned=assigned)
-            return assigned
-        def observed_spawn(command, **kwargs):
-            mark('spawn_started')
-            process, job = spawn(command, **kwargs)
-            mark('spawn_returned', pid=process.pid, job_created=bool(job and job.handle))
-            for channel in ('stdout', 'stderr'):
-                pipe = getattr(process, channel)
-                def observed_read(size, *, read=pipe.read, channel=channel):
-                    chunk = read(size)
-                    mark('chunk_captured' if chunk else 'pipe_eof', channel=channel, bytes=len(chunk),
-                         clixml=b'CLIXML' in chunk[:32], progress=b'S="progress"' in chunk)
-                    return chunk
-                pipe.read = observed_read
-            return process, job
-        def observed_terminate(process, job, **kwargs):
-            mark('terminate_started', alive=process.poll() is None)
-            try:
-                return terminate(process, job, **kwargs)
-            finally:
-                mark('terminate_returned', exit_code=process.poll())
-        # Chunk timing observes the existing buffered read; it is not first-byte latency.
-        self.addCleanup(lambda: print('SHELL_TRACE ' + json.dumps({'test': self._testMethodName,
-            'python': sys.version.split()[0], 'windows': list(sys.getwindowsversion()[:3]),
-            'clock': time.get_clock_info('monotonic').implementation, 'events': events})))
-        for target, attribute, replacement in (
-            (process_manager.WindowsJobObject, 'assign_process', observed_assign),
-            (desktop, 'spawn_managed_process', observed_spawn),
-            (desktop, 'terminate_process_tree', observed_terminate),
-        ):
-            instrument = patch.object(target, attribute, replacement)
-            instrument.start()
-            self.addCleanup(instrument.stop)
-        return mark
 
     def test_spanish_requests_resolve_with_exact_parameters(self):
         cases = [
@@ -388,7 +340,9 @@ class DesktopCommandTests(unittest.TestCase):
 
     @unittest.skipUnless(os.name == 'nt', 'Windows PowerShell integration')
     def test_real_powershell_output_and_error(self):
-        for script, state in [("Write-Output 'hola áxx'", 'succeeded'), ("throw 'fixture failure'", 'failed')]:
+        for script, state in [("Write-Output 'hola áxx'", 'succeeded'),
+                              ("Set-Content -LiteralPath 'shell-unicode.txt' -Value 'hola áxx' -Encoding UTF8; Get-Content -LiteralPath 'shell-unicode.txt' -Encoding UTF8", 'succeeded'),
+                              ("throw 'fixture failure'", 'failed')]:
             pending = self.service.prepare('axx.shell.powershell', {'script': script})
             result = self.service.execute(pending['operation_id'], True)
             self.assertEqual(result['state'], state, result)
@@ -396,106 +350,49 @@ class DesktopCommandTests(unittest.TestCase):
                 self.assertIn('hola áxx', result['output']['stdout'])
             else:
                 self.assertIn('fixture failure', result['output']['stderr'])
+        self.assertEqual((self.executor.workspace_root / 'shell-unicode.txt').read_text(encoding='utf-8-sig').strip(), 'hola áxx')
 
     @unittest.skipUnless(os.name == 'nt', 'Windows PowerShell integration')
     def test_shell_timeout_output_bound_and_filtered_environment(self):
-        trace = self._trace_shell()
-        cases = [('Start-Sleep -Seconds 20', .15, 'superó el límite'),
-                 ("Write-Output ('x' * 150000)", 10, '64 KiB'),
-                 ("Write-Output $env:AXX_TEST_SECRET", 10, None)]
+        # Test the guards independently of cmdlet latency on CI hosts.
+        cases = [('[System.Threading.Thread]::Sleep(20000)', .15, 'superó el límite'),
+                 ("[Console]::Out.Write('x' * 150000); [Console]::Out.Flush()", 10, '64 KiB'),
+                 ("[Console]::Out.Write('ENV_FILTER_OK:' + [Environment]::GetEnvironmentVariable('AXX_TEST_SECRET'))", 10, None)]
         for script, timeout, error in cases:
             with self.subTest(script=script), patch('backend.actions.desktop.SHELL_TIMEOUT', timeout), patch.dict(os.environ, {'AXX_TEST_SECRET': 'PRIVATE-FIXTURE'}):
-                trace('case_started', budget_seconds=timeout)
                 pending = self.service.prepare('axx.shell.powershell', {'script': script})
                 result = self.service.execute(pending['operation_id'], True)
-                output = result.get('output') or {}
-                trace('case_returned', state=result['state'], process_status=output.get('status'),
-                      stdout_bytes=len(output.get('stdout', '').encode('utf-8')))
                 if error:
                     self.assertEqual(result['state'], 'failed')
                     self.assertIn(error, result['error']['message'])
+                    if error == '64 KiB':
+                        self.assertEqual(len(result['output']['stdout'].encode('utf-8')), 65536)
+                        self.assertTrue(result['output']['output_truncated'])
+                        self.assertEqual(result['output']['status'], 'output_limit')
+                else:
+                    self.assertEqual(result['state'], 'succeeded', result)
+                    self.assertEqual(result['output']['stdout'], 'ENV_FILTER_OK:')
                 self.assertLessEqual(len(result['output']['stdout'].encode('utf-8')), 65536)
                 self.assertNotIn('PRIVATE-FIXTURE', result['output']['stdout'])
 
     @unittest.skipUnless(os.name == 'nt', 'Windows PowerShell integration')
     def test_cancel_running_powershell(self):
-        trace = self._trace_shell()
-        pending = self.service.prepare('axx.shell.powershell', {'script': "Set-Content -LiteralPath 'running.txt' -Value $PID; Start-Sleep -Seconds 30"})
+        pending = self.service.prepare('axx.shell.powershell', {'script': "[IO.File]::WriteAllText('running.txt',[string]$PID); [System.Threading.Thread]::Sleep(30000)"})
         results = []
-        def execute():
-            result = self.service.execute(pending['operation_id'], True)
-            results.append(result)
-            trace('execute_returned', state=result['state'], process_status=(result.get('output') or {}).get('status'))
-        thread = threading.Thread(target=execute)
+        thread = threading.Thread(target=lambda: results.append(self.service.execute(pending['operation_id'], True)))
         thread.start()
         try:
             deadline = time.monotonic() + 5
             marker = self.executor.workspace_root / 'running.txt'
             while not marker.exists() and time.monotonic() < deadline:
                 time.sleep(.02)
-            trace('marker_checked', exists=marker.exists())
             self.assertTrue(marker.exists(), 'Real PowerShell did not start')
-            trace('cancel_requested')
             self.service.cancel(pending['operation_id'])
             thread.join(6)
             self.assertFalse(thread.is_alive())
             self.assertEqual(results[0]['state'], 'cancelled', results)
+            self.assertEqual(results[0]['output']['status'], 'cancelled')
+            self.assertIsNotNone(results[0]['output']['exit_code'])
         finally:
-            trace('cleanup_cancel_requested')
             self.service.cancel(pending['operation_id'])
             thread.join(35)
-
-    @unittest.skipUnless(os.name == 'nt', 'Windows PowerShell phase diagnostics')
-    def test_z_shell_script_phase_probe(self):
-        from backend.actions import desktop
-        trace = self._trace_shell()
-        spawn = desktop.spawn_managed_process
-        def staged_spawn(command, **kwargs):
-            self.assertEqual(command[-2], '-EncodedCommand')
-            prefix, payload = base64.b64decode(command[-1]).decode('utf-16-le').split('\n', 1)
-            # Extra markers belong only to this diagnostic; original tests keep their scripts.
-            staged = "[IO.File]::WriteAllText('entered.probe',[string]($PWD.Path -eq [Environment]::CurrentDirectory));\n" + prefix
-            staged += "\n[IO.File]::WriteAllText('prefix.probe','done');\n" + payload
-            staged += "\n[IO.File]::WriteAllText('payload.probe','done');"
-            return spawn([*command[:-1], base64.b64encode(staged.encode('utf-16-le')).decode('ascii')], **kwargs)
-        cases = (
-            ('prefix_only', '$phaseProbeValue = 0', 5),
-            ('marker_cmdlet', "Set-Content -LiteralPath 'running.txt' -Value $PID", 5),
-            ('marker_dotnet', "[IO.File]::WriteAllText('running.txt',[string]$PID)", 5),
-            ('marker_cmdlet_repeat', "Set-Content -LiteralPath 'running.txt' -Value $PID", 5),
-            ('output_cmdlet', "Write-Output ('x' * 150000)", 10),
-            ('output_dotnet', "[Console]::Out.Write('x' * 150000); [Console]::Out.Flush()", 10),
-            ('output_cmdlet_repeat', "Write-Output ('x' * 150000)", 10),
-        )
-        for index, (name, script, budget) in enumerate(cases):
-            with self.subTest(case=name):
-                workspace = self.executor.workspace_root / f'phase-{index}'
-                workspace.mkdir()
-                stop = threading.Event()
-                def observe():
-                    seen = set()
-                    while not stop.wait(.02):
-                        for stage in ('entered.probe', 'prefix.probe', 'running.txt', 'payload.probe'):
-                            if stage not in seen and (workspace / stage).exists():
-                                seen.add(stage)
-                                trace('stage_observed', case=name, stage=stage)
-                observer = threading.Thread(target=observe, daemon=True)
-                trace('phase_case_started', case=name, budget_seconds=budget)
-                observer.start()
-                try:
-                    with patch.object(desktop, 'spawn_managed_process', staged_spawn), patch.object(desktop, 'SHELL_TIMEOUT', budget):
-                        result = desktop.run_shell('powershell', {'script': script}, workspace, threading.Event())
-                finally:
-                    stop.set()
-                    observer.join(1)
-                entered = workspace / 'entered.probe'
-                trace('phase_case_returned', case=name, process_status=result['output']['status'],
-                      stdout_bytes=len(result['output']['stdout'].encode('utf-8')),
-                      stderr_bytes=len(result['output']['stderr'].encode('utf-8')),
-                      exit_code=result['output']['exit_code'], success=result['success'],
-                      marker_exists=(workspace / 'running.txt').exists(),
-                      prefix_completed=(workspace / 'prefix.probe').exists(),
-                      payload_returned=(workspace / 'payload.probe').exists(),
-                      working_directory_matches=entered.read_text(encoding='utf-8-sig') if entered.exists() else None)
-                self.assertFalse(observer.is_alive())
-                self.assertLessEqual(len(result['output']['stdout'].encode('utf-8')), desktop.MAX_OUTPUT)
