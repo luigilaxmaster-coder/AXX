@@ -5,8 +5,11 @@ implementados de generalizaciones y aceptaciones pendientes. Windows 0.22.32
 está instalado y tiene aceptación manual de avatar, herramientas, ocultar,
 invocar, atajo, Telegram y conservación de voz/Claridad. Android 0.2.13-code34
 está compilado y firmado, sin instalación ni aceptación física por falta de
-dispositivo conectado. La descarga confirmada anterior es
-[Windows 0.22.31](../releases/0.22.31.md). Cambiar fuentes no actualiza por sí solo
+dispositivo conectado. La descarga confirmada es
+[Windows 0.22.32](https://github.com/luigilaxmaster-coder/AXX/releases/tag/v0.22.32),
+publicada como prerelease con el mismo instalador instalado: 199.431.659 bytes,
+SHA-256 `89974d55981a43df410aecf3c0a71ee6361704f46780057801a676fd87699721`.
+GitHub confirmó el digest del asset. Cambiar fuentes no actualiza por sí solo
 una instalación ni permite reutilizar sus recibos para otro binario.
 
 ## Arquitectura y autoridad
