@@ -10,7 +10,7 @@ import threading
 import urllib.parse
 import urllib.request
 
-from .router import NoRedirect, Router, parse_strict_json
+from .router import NoRedirect, Router, parse_strict_json, profile_id, source_context_reason
 from backend.auth.chatgpt_auth import _dpapi_encrypt, _dpapi_decrypt
 
 LOCK = threading.RLock()
@@ -72,6 +72,8 @@ def public_entries(config):
                                  'task_priority', 'quota_scope_id', 'scope_limit', 'gateway_free_model_ids',
                                  'gateway_attempt_limit', 'gateway_timeout_ms', 'gateway_profile_verified', 'gateway_keyless', 'candidate_only')}
             | {'cost_evidence': p.get('cost_evidence', 'unknown'), 'route_kind': p.get('route_kind', 'unknown')}
+            | {'profile_id': profile_id(p), 'source_context_eligible': source_context_reason(p) == 'eligible',
+               'source_context_reason': source_context_reason(p), 'allow_sensitive': p.get('allow_sensitive') is True}
             | {'has_key': bool(os.environ.get(p.get('api_key_env', '')))} for p in config.get('providers', [])]
 
 def describe(body):
@@ -158,10 +160,18 @@ def save(body, adapter, config_path):
                 entry.update(free_confirmed=free, cost_evidence='unknown')
         entry.update(name=name, kind=kind, base_url=url, protocol=protocol, model=model, api_key_env=env,
                      capabilities=capabilities)
+        if 'allow_sensitive' in body:
+            if type(body['allow_sensitive']) is not bool:
+                raise ValueError('allow_sensitive debe ser un consentimiento booleano explícito')
+            entry['allow_sensitive'] = body['allow_sensitive']
         for field in ('enabled', 'free_confirmed', 'billing_allowed', 'cost_evidence', 'route_kind', 'capabilities',
                       'tasks', 'context_window', 'image_context_tokens', 'task_priority', 'gateway_free_model_ids'):
             if field in body:
                 entry[field] = body[field]
+        # route_kind is also part of the recipient identity. A changed route
+        # cannot inherit consent unless the human explicitly supplied it.
+        if old and profile_id(old) != profile_id(entry) and 'allow_sensitive' not in body:
+            entry['allow_sensitive'] = False
         config['providers'] = [entry if p['name'] == name else p for p in config.get('providers', [])]
         if not old:
             config['providers'].append(entry)

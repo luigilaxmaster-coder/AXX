@@ -36,6 +36,11 @@ class SourceDispatchTests(unittest.TestCase):
         self.addCleanup(self.adapter.close)
         self.learning.adapter = self.adapter
 
+    def authorize_current_provider(self):
+        self.fixture.target['allowed_profile_ids'] = [profile_id(self.provider)]
+        self.fixture.service.configure({'observation_targets': [self.fixture.target]})
+        self.fixture.service.tick()
+
     def metadata(self):
         rows = self.learning.budget_db.execute(
             'SELECT source_dispatch_json FROM mission_model_calls WHERE plan_id=?', ('source-plan',)).fetchall()
@@ -150,6 +155,7 @@ class SourceDispatchTests(unittest.TestCase):
                             (outer.fixture.plan['operation_id'],)).fetchone()[0]
                         outer.assertEqual(json.loads(raw)['send_state'], 'unknown')
                         written.append(data)
+                    def flush(inner): pass
                     def close(inner): pass
                 class Process:
                     stdin = Input()
@@ -164,11 +170,14 @@ class SourceDispatchTests(unittest.TestCase):
                             outer.fixture.revoke()
                         return None if cancelled and not inner.stopped else 1
                 process = Process()
+                thread_errors = []
                 with patch('backend.inference.adapter.spawn_managed_process', return_value=(process, None)), \
                         patch('backend.inference.adapter.terminate_process_tree',
-                              side_effect=lambda proc, job: setattr(proc, 'stopped', True)):
+                              side_effect=lambda proc, job: setattr(proc, 'stopped', True)), \
+                        patch('threading.excepthook', side_effect=lambda error: thread_errors.append(error.exc_type.__name__)):
                     with self.assertRaises(ValueError):
                         self.fixture.response()
+                self.assertEqual(thread_errors, [], 'Worker channel threads must complete without exceptions')
                 row = self.learning.budget_db.execute(
                     'SELECT source_dispatch_json,state,charge,confirmed FROM mission_model_calls WHERE plan_id=?',
                     (self.fixture.plan['operation_id'],)).fetchone()
@@ -224,6 +233,7 @@ class SourceDispatchTests(unittest.TestCase):
         self.addCleanup(server.shutdown)
         self.provider['base_url'] = 'http://127.0.0.1:' + str(server.server_port) + '/v1'
         self.adapter.update_config({'providers': [self.provider], 'max_attempts': 1})
+        self.authorize_current_provider()
         original_observe = self.adapter._observe_dispatch
         for status, cancel_late in ((200, False), (400, False), (200, True)):
             with self.subTest(status=status, cancel_late=cancel_late):
@@ -271,6 +281,7 @@ class SourceDispatchTests(unittest.TestCase):
             reserved.bind(('127.0.0.1', 0))
             self.provider['base_url'] = 'http://127.0.0.1:' + str(reserved.getsockname()[1]) + '/v1'
             self.adapter.update_config({'providers': [self.provider], 'max_attempts': 1})
+            self.authorize_current_provider()
             with self.assertRaises(ValueError): self.fixture.response()
         metadata = self.metadata()
         self.assertEqual(metadata['send_state'], 'runtime_delivered')
@@ -353,12 +364,14 @@ class SourceDispatchTests(unittest.TestCase):
                         'upstream_attempted': True, 'upstream_attempts': 1, 'attempt_budget_used': 1}},
                     'dispatch_receipt': {'version': 1, 'endpoint_receipts': [receipt]}}
                 class Input:
-                    def write(inner, data): written.append(json.loads(data)); input_sent.set()
+                    def write(inner, data):
+                        written.append(json.loads(data.split(b'\n')[1])); input_sent.set()
+                    def flush(inner): pass
                     def close(inner): pass
                 outer = self
                 class Process:
                     stdin = Input()
-                    stdout = io.BytesIO(json.dumps(terminal).encode())
+                    stdout = io.BytesIO(json.dumps(terminal).encode() + b'\n')
                     stderr = io.BytesIO()
                     returncode = 0
                     changed = False
@@ -370,12 +383,9 @@ class SourceDispatchTests(unittest.TestCase):
                             if revoke_source: outer.fixture.revoke()
                         return 0
                 with patch('backend.inference.adapter.spawn_managed_process', return_value=(Process(), None)):
-                    if revoke_source:
-                        with self.assertRaises(ValueError): self.fixture.response()
-                        self.learning._save(self.fixture.plan)
-                        self.assertTrue(self.fixture.plan['context_invalidated'])
-                    else:
-                        self.assertTrue(self.fixture.response()['ok'])
+                    with self.assertRaises(ValueError): self.fixture.response()
+                    self.learning._save(self.fixture.plan)
+                    self.assertTrue(self.fixture.plan['context_invalidated'])
                 self.assertEqual(written[0]['config']['providers'][0]['model'], original['model'])
                 self.assertEqual(self.adapter.config['providers'][0]['model'], replacement['model'])
                 row = self.learning.budget_db.execute('''SELECT source_dispatch_json,state,charge,confirmed

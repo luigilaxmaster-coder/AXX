@@ -2,3 +2,5 @@
 resources/models/faster-whisper-tiny/config.json text eol=lf
 resources/models/faster-whisper-tiny/tokenizer.json text eol=lf
 resources/models/faster-whisper-tiny/vocabulary.txt text eol=lf
+# Keep the sealed synthetic holdout identical across CI checkouts.
+backend/tests/fixtures/goal-progress-holdout.json text eol=lf

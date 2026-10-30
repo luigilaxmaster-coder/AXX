@@ -1,9 +1,9 @@
 /* Controlled IPC/UI contracts; these do not certify native desktop input or installed binaries. */
 const assert=require('node:assert/strict'),path=require('node:path'),fs=require('node:fs');
-const {createRequire}=require('node:module');
-const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/package.json'))('playwright');
+const {requirePlaywright,launchChromium}=require('./test-browser-runtime.cjs');
+const {chromium}=requirePlaywright();
 (async()=>{
- const browser=await chromium.launch({headless:true,executablePath:process.env.AXX_TEST_CHROMIUM||path.join(process.env.LOCALAPPDATA,'ms-playwright/chromium_headless_shell-1248/chrome-headless-shell-win64/chrome-headless-shell.exe')});
+ const browser=await launchChromium(chromium);
  try{
   const page=await browser.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));
   await page.setContent('<section id="view-settings"></section><main id="panel" hidden></main>');
@@ -11,10 +11,12 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
    const prefs=(mode,interruptions)=>({mode,interruptions,cooldown_seconds:60,max_interruptions_hour:3,retention_days:30,cadence_seconds:30,schedule:null,resources:{max_events_tick:25,max_entries_scan:500,max_file_bytes:41943040,max_tick_ms:1000,max_cpu_ms_tick:250,max_process_rss_bytes:null,max_storage_bytes:null,model_call_limit:2}});
    window.calls=[];window.spoken=[];window.events={};window.missionPlans=[];window.missionProject='Proyecto A';window.data={profile:'discreto',paused:false,observation_paused:false,profiles:{discreto:prefs('OFF','silent'),copiloto:prefs('SUGGEST','cards'),full:prefs('EXECUTE','cards')},scopes:[],sources:{events:false,folders:false,applications:false,screen:false,microphone:false,clipboard:false},observation_targets:[],source_runtime:[],source_observations:[],suggestions:[],grants:[],metrics:{proposed:0,shown:0},capabilities:{verify_artifact:true,verifiers:{hash:{available:true,verification_scope:'integrity_only',semantic_verified:false},docx:{available:true,verification_scope:'integrity_only',semantic_verified:false,reason:'Sin inspector del formato'},pdf:{available:false,verification_scope:'pdf_structure_and_text_readability',reason:'Dependencia local ausente'}}}};
    data.capabilities.mission_steps={available:true,workspace_root:'C:\\ensayo',lifetimes:['one_action','session','mission','until_revoked'],parameter_constraints:'exact_subset',write_scope:'executor_workspace',provider_inference:false,commands:[{command_id:'axx.file.sha256',tool:'file_inspection',category:'file_read',available:true,parameters:{path:{type:'string',required:true}}},{command_id:'axx.artifact.write',tool:'file_artifact_writer',category:'new_artifact',available:true,parameters:{path:{type:'string',required:true},content:{type:'string',required:true}}},{command_id:'axx.artifact.media',tool:'artifact_media',category:'file_read',available:false,reason:'Adaptador no disponible',parameters:{path:{type:'string',required:true}}}]};
+   window.destinationProviders=[{profile_id:'a'.repeat(32),name:'Conexión A <img src=x>',model:'model-a',base_url:'https://a.example/v1',source_context_eligible:true,source_context_reason:'eligible'},{profile_id:'b'.repeat(32),name:'Conexión B',model:'model-b',base_url:'https://b.example/v1',source_context_eligible:true,source_context_reason:'eligible'},{profile_id:'c'.repeat(32),name:'Sin permiso',model:'model-c',base_url:'https://c.example/v1',source_context_eligible:false,source_context_reason:'sensitive_not_allowed'}];
    let serial=0;
    window.Axx={isNative:()=>true,newId:()=> 'fixture-'+(++serial),chatWorkspace:{active:{id:'task-a',title:'Proyecto A'},busy:false},skillLibrary:{project:()=>window.missionProject},resident:{schedule(){},drag:null},app:{updateHitMap(){},bridge:{listen:async(id,fn)=>{events[id]=fn;}}},companion:{renderChat(){},openChat(){window.openedChat=true;},speakReply:text=>spoken.push(text)},commandLibrary:{busy:false,operation:null,renderOperation(plan){window.reviewedPlan=plan;}},
     backendRequest:async(method,route,body)=>{
      calls.push({method,route,body:structuredClone(body)});const action=route.split('/').at(-1);
+     if(route==='/axx-api/providers'){const value=window.destinationCatalogError?{error:{code:'FORBIDDEN',message:'Catálogo revocado'}}:{providers:structuredClone(destinationProviders)};if(window.delayDestinations){window.delayDestinations=false;await new Promise(resolve=>{window.releaseDestinations=resolve;});}return value;}
      if(route==='/axx-api/anticipation/microphone/begin'){
       if(window.microphoneBusy)return {error:{code:'BUSY',message:'Reconocimiento ocupado'}};
       const lease={capture_id:'mic-'+(++serial),expires_at:Date.now()/1000+(window.microphoneLeaseSeconds||60),max_capture_seconds:10,raw_ttl_seconds:60};
@@ -43,6 +45,7 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
       return value;
      }
      if(action==='configure'){
+      if(window.destinationSaveError&&body.observation_targets)return {error:{code:'SOURCE_DESTINATION_UNAUTHORIZED',message:'El destino fue revocado'}};
       for(const [key,value] of Object.entries(body)){
        if(key==='profiles')for(const [id,p] of Object.entries(value))Object.assign(data.profiles[id],p);
        else if(key==='sources')Object.assign(data.sources,value);else data[key]=value;
@@ -114,7 +117,7 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
   await page.evaluate(()=>{document.getElementById('anticipation-target-root').value='C:\\ensayo';document.getElementById('anticipation-target-project').value='project-a';document.getElementById('anticipation-target-expiry').value='persistent';document.getElementById('anticipation-target-form').requestSubmit();});
   await page.waitForFunction(()=>Axx.anticipation.state.observation_targets.length===1);
   const folder=await page.evaluate(()=>Axx.anticipation.state.observation_targets[0]);
-  assert.deepEqual(folder,{id:folder.id,source:'folder',task_id:'task-a',project_id:'project-a',application_id:'',device_id:'host',observe:true,retain:false,send_to_provider:false,expires_at:null,root:'C:\\ensayo'});
+  assert.deepEqual(folder,{id:folder.id,source:'folder',task_id:'task-a',project_id:'project-a',application_id:'',device_id:'host',observe:true,retain:false,allowed_profile_ids:[],send_to_provider:false,expires_at:null,root:'C:\\ensayo'});
   assert.equal(await page.evaluate(()=>Axx.anticipation.state.sources.folders),false,'Selecting a target cannot silently enable its source');
   await page.evaluate(()=>{document.getElementById('anticipation-folders').checked=true;document.getElementById('anticipation-folders').dispatchEvent(new Event('change'));});
   await page.waitForFunction(()=>Axx.anticipation.state.sources.folders===true);
@@ -236,6 +239,26 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
   await page.evaluate(()=>{missionPlans[0].mission.completed=true;missionPlans[0].mission.verified_steps=[0,1];missionPlans[0].mission.pending_steps=[];return Axx.anticipation.refresh();});
   await page.waitForFunction(()=>document.getElementById('anticipation-missions').textContent.includes('Completada y verificada'));
   assert.equal(await page.locator('#anticipation-missions article>details').evaluate(node=>node.open),true,'Changed mission receipts preserve the user expansion');
+  const goalActionsBefore=await page.evaluate(()=>calls.filter(call=>call.method==='POST'&&call.route.startsWith('/axx-api/learning/')).length);
+  await page.evaluate(()=>{
+   window.originalMissionGoalFixture=structuredClone(missionPlans[0]);
+   const plan=missionPlans[0];plan.mission.state='goal_pending';
+   plan.mission.criteria=[{id:'text-result',kind:'text_exact',parameters:{path:'ensayo.txt',text:'SYNTHETIC_PRIVATE_CRITERION_TEXT'}},{id:'bundle-result',kind:'file_bundle',parameters:{paths:['ensayo.txt'],destination:'paquete'}},{id:'sheet-result',kind:'xlsx_from_csv',parameters:{source:'datos.csv',destination:'datos.xlsx',delimiter:',',numeric_column:'total'}}];
+   plan.goal_verification={passed:false,coverage:'typed_outcomes',criteria:[{id:'text-result',kind:'text_exact',status:'satisfied',reason_code:'SATISFIED'},{id:'bundle-result',kind:'file_bundle',status:'unsatisfied',reason_code:'OUTPUT_MISSING'},{id:'sheet-result',kind:'xlsx_from_csv',status:'indeterminate',reason_code:'INPUT_CHANGED <img src=x>'}]};
+   plan.mission.goal_progress={status:'ready',criterion_id:'bundle-result',prefix_length:2,criteria:plan.goal_verification.criteria,input_versions:[{path:'SYNTHETIC_PRIVATE_VERSION_PATH'}]};
+   return Axx.anticipation.refresh();
+  });
+  await page.waitForFunction(()=>document.getElementById('anticipation-missions').textContent.includes('OUTPUT_MISSING'));
+  const goalEvidence=await page.locator('#anticipation-missions').innerText();
+  assert.match(goalEvidence,/Objetivo pendiente de verificar · 2\/2 pasos verificados/,'A verified step prefix does not complete a pending goal');
+  assert.doesNotMatch(goalEvidence,/Completada y verificada|SYNTHETIC_PRIVATE_CRITERION_TEXT|SYNTHETIC_PRIVATE_VERSION_PATH/,'A pending goal stays pending and raw criterion parameters/input versions are not copied into the evidence summary');
+  for(const expected of ['Criterios de resultado','text-result · text_exact','Cumplido (satisfied) · SATISFIED','No cumplido (unsatisfied) · OUTPUT_MISSING','Sin determinar (indeterminate) · INPUT_CHANGED <img src=x>','Cobertura de evaluación','typed_outcomes','Avance del objetivo','ready','Evaluación del avance','Prefijo verificado del avance','2 pasos','Presupuesto ocupado: 1/2'])assert.ok(goalEvidence.includes(expected),expected);
+  assert.equal(await page.locator('#anticipation-missions img').count(),0,'Goal evaluation metadata is rendered as text');
+  assert.equal(await page.evaluate(()=>calls.filter(call=>call.method==='POST'&&call.route.startsWith('/axx-api/learning/')).length),goalActionsBefore,'Reading goal criteria and evaluation cannot advance or execute a mission');
+  await page.evaluate(()=>{missionPlans[0].mission.state='succeeded';return Axx.anticipation.refresh();});
+  await page.waitForFunction(()=>document.getElementById('anticipation-missions').textContent.includes('Objetivo pendiente de verificar'));
+  assert.doesNotMatch(await page.locator('#anticipation-missions').innerText(),/Completada y verificada/,'Indeterminate or unsatisfied criteria override inconsistent completion metadata');
+  await page.evaluate(()=>{missionPlans[0]=originalMissionGoalFixture;delete window.originalMissionGoalFixture;return Axx.anticipation.refresh();});
   await page.evaluate(()=>{
    data.profile='copiloto';data.sources.events=true;
    data.suggestions=[{suggestion_id:'suggestion-a',task_id:'task-a',routine_id:'verify_artifact',plan_hash:'exact-hash-a',verification_scope:'integrity_only',semantic_verified:false,verifier_reason:'Sin inspector del formato',title:'Verificar <img src=x>',state:'AWAITING_APPROVAL',visible:true,plan:{command_id:'axx.artifact.verify',inputs:{path:'ensayo.txt'},source_operation_id:'writer-a',expected_sha256:'a'.repeat(64)},initiative_chain:{root_event_id:'artifact-a',depth:1,budget:1,stop_condition:'verification_terminal'},assessment:{likelihood:{score:1,method:'registered_generated_artifact_rule'}},provenance:{actor:'axx',origin:'direct_instruction',causation_id:'writer-a',human_preference_evidence:false}}];return Axx.anticipation.refresh(true);
@@ -338,22 +361,71 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
   assert.equal(await page.locator('#anticipation-target-root').isDisabled(),true);
   assert.equal(await page.locator('#anticipation-target-process').isDisabled(),true);
   assert.equal(await page.locator('#anticipation-target-provider').isDisabled(),true);
+  assert.equal(await page.locator('#anticipation-target-destinations input:checked').count(),0,'No active model or fallback is selected implicitly');
+  assert.equal(await page.locator('#anticipation-target-destinations img').count(),0,'Destination metadata renders as text');
+  assert.equal(await page.locator('#anticipation-target-destinations input[value="cccccccccccccccccccccccccccccccc"]').isDisabled(),true);
+  await page.evaluate(()=>{const input=document.querySelector('#anticipation-target-destinations input[value="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]');input.checked=true;input.dispatchEvent(new Event('change'));});
+  assert.equal(await page.locator('#anticipation-target-destinations input:checked').count(),0,'Synthetic selection cannot create destination consent');
   await page.evaluate(()=>{document.getElementById('anticipation-target-provider').checked=true;document.getElementById('anticipation-target-form').requestSubmit();});
   await page.waitForFunction(()=>Axx.anticipation.state.observation_targets.length===1);
   assert.deepEqual(await page.evaluate(()=>{const target=data.observation_targets[0];return [target.source,target.task_id,target.project_id,target.observe,target.retain,target.send_to_provider,Object.hasOwn(target,'root'),Object.hasOwn(target,'process_name'),Object.hasOwn(target,'window_id')];}),['clipboard','task-a','Proyecto A',true,false,false,false,false,false]);
   assert.equal(await page.evaluate(()=>data.sources.clipboard),false,'Saving a target does not enable its source');
+  const destinationA='#anticipation-target-destinations input[value="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]';
+  const savedDestination=(index,id)=>page.locator('#anticipation-targets article').nth(index).locator('fieldset input[value="'+id.repeat(32)+'"]');
+  await savedDestination(0,'b').check();
+  await page.waitForFunction(()=>data.observation_targets[0].allowed_profile_ids?.[0]==='b'.repeat(32));
+  assert.deepEqual(await page.evaluate(()=>[data.observation_targets[0].send_to_provider,data.sources.clipboard]),[false,false],'Selecting a destination does not activate send or observation');
+  await savedDestination(0,'b').uncheck();
+  await page.waitForFunction(()=>data.observation_targets[0].allowed_profile_ids.length===0);
   await page.evaluate(()=>{data.capabilities.provider_context={window:true,clipboard:true};return Axx.anticipation.refresh();});
   assert.equal(await page.locator('#anticipation-target-provider').isDisabled(),true,'Without retention no source-derived model plan can be persisted or executed');
   assert.equal(await page.locator('#anticipation-target-provider').isChecked(),false,'An available provider transport never implies consent');
+  await page.locator(destinationA).check();
   await page.evaluate(()=>{const input=document.getElementById('anticipation-target-provider');input.checked=true;input.dispatchEvent(new Event('input',{bubbles:true}));document.getElementById('anticipation-target-form').requestSubmit();});
   await page.waitForFunction(()=>data.observation_targets.length===2);
   assert.equal(await page.evaluate(()=>data.observation_targets[1].send_to_provider),false,'An untrusted or restored draft cannot authorize provider use');
+  assert.deepEqual(await page.evaluate(()=>data.observation_targets[1].allowed_profile_ids),['a'.repeat(32)],'Only the explicitly selected canonical destination is saved');
+  assert.equal(await page.locator('#anticipation-target-destinations input:checked').count(),0,'Each new source starts with no destination');
   await page.locator('#anticipation-target-retain').check();
+  await page.locator(destinationA).check();
   await page.locator('#anticipation-target-provider').check();
   await page.evaluate(()=>document.getElementById('anticipation-target-form').requestSubmit());
   await page.waitForFunction(()=>data.observation_targets.length===3);
   assert.deepEqual(await page.evaluate(()=>[data.observation_targets[2].observe,data.observation_targets[2].retain,data.observation_targets[2].send_to_provider]),[true,true,true],'Observation, metadata retention and explicit provider consent remain independent');
   assert.equal(await page.locator('#anticipation-target-provider').isChecked(),false,'Each new source starts without provider permission');
+  await page.evaluate(()=>{destinationProviders[0].source_context_eligible=false;destinationProviders[0].source_context_reason='sensitive_not_allowed';});
+  await page.locator('#anticipation-destinations-refresh').click();
+  await page.waitForFunction(()=>document.querySelector('#anticipation-target-destinations input[value="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]')?.disabled===true);
+  assert.equal(await savedDestination(2,'a').isChecked(),true,'Revoked destination eligibility never silently rewrites a saved list');
+  assert.match(await page.locator('#anticipation-targets article').nth(2).textContent(),/Sin permiso de contenido sensible/);
+  await page.evaluate(()=>{destinationProviders[0].source_context_eligible=true;destinationProviders[0].source_context_reason='eligible';});
+  await page.locator('#anticipation-destinations-refresh').click();
+  await page.waitForFunction(()=>document.querySelector('#anticipation-target-destinations input[value="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]')?.disabled===false);
+  await page.evaluate(()=>{window.destinationSaveError=true;});
+  await savedDestination(1,'b').click();
+  await page.waitForFunction(()=>document.getElementById('anticipation-status').textContent.includes('destino fue revocado'));
+  assert.deepEqual(await page.evaluate(()=>data.observation_targets[1].allowed_profile_ids),['a'.repeat(32)],'Rejected saves preserve the prior authorization');
+  await page.evaluate(()=>{window.destinationSaveError=false;window.destinationCatalogError=true;});
+  await page.locator('#anticipation-destinations-refresh').click();
+  await page.waitForFunction(()=>document.getElementById('anticipation-destination-status').textContent.includes('Catálogo no disponible'));
+  assert.equal(await savedDestination(1,'a').isChecked(),true,'Unavailable saved IDs remain visible');
+  await savedDestination(1,'a').click();
+  await page.waitForFunction(()=>data.observation_targets[1].allowed_profile_ids.length===0);
+  await page.evaluate(()=>{window.destinationCatalogError=false;});
+  await page.locator('#anticipation-destinations-refresh').click();
+  await page.waitForFunction(()=>document.querySelector('#anticipation-target-destinations input[value="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]')?.disabled===false);
+  const beforeRevokedSave=await page.evaluate(()=>calls.filter(call=>call.route.endsWith('/configure')).length);
+  await page.evaluate(()=>{window.delayDestinations=true;});
+  await savedDestination(1,'b').click();
+  await page.waitForFunction(()=>typeof window.releaseDestinations==='function');
+  await page.evaluate(()=>{window.revokedDestinationTarget=data.observation_targets.splice(1,1)[0];return Axx.anticipation.refresh();});
+  await page.evaluate(()=>{data.observation_targets.splice(1,0,{...revokedDestinationTarget,observe:false});return Axx.anticipation.refresh();});
+  await page.evaluate(()=>{window.releaseDestinations();delete window.releaseDestinations;});
+  await page.waitForFunction(()=>document.getElementById('anticipation-status').textContent.includes('Cambió la selección o se canceló'));
+  assert.equal(await page.evaluate(()=>calls.filter(call=>call.route.endsWith('/configure')).length),beforeRevokedSave,'A late save cannot grant destinations to a revoked/replaced source with the same ID');
+  assert.deepEqual(await page.evaluate(()=>[data.observation_targets[1].observe,data.observation_targets[1].allowed_profile_ids]),[false,[]]);
+  await page.evaluate(()=>{data.observation_targets[1]=revokedDestinationTarget;delete window.revokedDestinationTarget;return Axx.anticipation.refresh();});
+  assert.equal(await page.evaluate(()=>calls.some(call=>Object.hasOwn(call.body||{},'allow_sensitive'))),false,'Source selection never changes connection permissions');
   await page.evaluate(()=>{data.capabilities.provider_context.clipboard=false;return Axx.anticipation.refresh();});
   const savedProvider=page.locator('#anticipation-targets article').nth(2).locator('input').nth(2);
   assert.equal(await savedProvider.isDisabled(),false,'Existing provider consent can still be revoked when transport becomes unavailable');
@@ -380,9 +452,11 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
   assert.equal(await page.locator('#anticipation-target-window img').count(),0,'Window titles render as text');
   await page.selectOption('#anticipation-target-window','321');
   await page.locator('#anticipation-target-retain').check();
+  await page.locator(destinationA).check();
   await page.locator('#anticipation-target-provider').check();
   await page.selectOption('#anticipation-target-window','654');
   assert.equal(await page.locator('#anticipation-target-provider').isChecked(),false,'Changing the chosen window clears its provider consent');
+  await page.locator(destinationA).check();
   await page.locator('#anticipation-target-provider').check();
   await page.evaluate(()=>{window.delayWindowObservation=true;document.getElementById('anticipation-target-form').requestSubmit();});
   await page.waitForFunction(()=>typeof window.releaseWindowObservation==='function');
@@ -408,13 +482,23 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
   await page.waitForFunction(()=>document.getElementById('anticipation-status').textContent.includes('Cambió la selección'));
   assert.equal(await page.evaluate(()=>data.observation_targets.length),4,'Escape invalidates a pending source authorization without saving it after cancellation');
   await page.locator('#anticipation-target-retain').check();
+  await page.locator(destinationA).check();
   await page.locator('#anticipation-target-provider').check();
   await page.locator('#anticipation-target-retain').uncheck();
   assert.equal(await page.locator('#anticipation-target-provider').isChecked(),false);
   assert.equal(await page.locator('#anticipation-target-provider').isDisabled(),true);
   await page.locator('#anticipation-target-retain').check();
+  await page.locator(destinationA).check();
   await page.locator('#anticipation-target-provider').check();
+  await page.evaluate(()=>{window.delayDestinations=true;document.getElementById('anticipation-destinations-refresh').click();});
+  await page.waitForFunction(()=>typeof window.releaseDestinations==='function');
+  await page.evaluate(()=>{destinationProviders=[{profile_id:'d'.repeat(32),name:'Destino actual',model:'model-d',base_url:'https://d.example/v1',source_context_eligible:true,source_context_reason:'eligible'}];});
   await page.evaluate(()=>{window.missionProject='Otro proyecto';return Axx.anticipation.refresh();});
+  await page.selectOption('#anticipation-target-source','clipboard');
+  await page.waitForFunction(()=>!!document.querySelector('#anticipation-target-destinations input[value="dddddddddddddddddddddddddddddddd"]'));
+  await page.evaluate(()=>{window.releaseDestinations();delete window.releaseDestinations;});
+  assert.equal(await page.locator(destinationA).count(),0,'A late catalog response cannot overwrite the new project');
+  assert.equal(await page.locator('#anticipation-target-destinations input:checked').count(),0,'Project changes discard destination drafts');
   assert.equal(await page.locator('#anticipation-target-provider').isChecked(),false);
   assert.equal(await page.locator('#anticipation-target-window option').count(),1,'Project changes discard the prior window list');
   assert.equal(await page.locator('#anticipation-target-project').inputValue(),'Otro proyecto');
@@ -528,6 +612,6 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
   await page.evaluate(()=>{Axx.app.machine.visible=true;Date.now=originalDateNow;Axx.nativeVoice.activeCapture=null;data.sources.microphone=false;return Axx.anticipation.refresh();});
   assert.deepEqual(errors,[]);
   const html=fs.readFileSync(path.join(__dirname,'../Axx.html'),'utf8');assert.match(html,/scripts\/anticipation\.js/);assert.match(html,/Axx\.anticipation\?\.layout\(g,size,add\)/);
-  console.log('PASS: scoped Full mission grants, exact hashes, LLM resource limits, explicit window/clipboard/local-microphone sources, metadata-only microphone hooks, denied/busy/stale/hidden/TTL capture guards, independent provider consent, strict receipts, dependencies, Why, task races, Esc and suppression (controlled IPC)');
+  console.log('PASS: scoped Full mission grants, exact hashes, LLM resource limits, explicit local sources, canonical destination consent, denied saves/catalogs, revoked/replaced sources and late catalog guards, metadata-only microphone hooks, independent provider consent, strict receipts, dependencies, Why, task races, Esc and suppression (controlled IPC)');
  }finally{await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});

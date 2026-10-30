@@ -86,9 +86,11 @@ class CommandProxy:
     def executable_catalog(self):
         return self.core.request('GET', '/axx-api/commands/executable')
 
-    def prepare(self, command_id, inputs, *, source, operation_id, conversation_id, command_mode):
+    def prepare(self, command_id, inputs, *, source, operation_id, conversation_id, command_mode,memory_scope=None,memory_context_id=None):
         return self.core.request('POST', '/axx-api/commands/prepare', {'command_id': command_id, 'inputs': inputs,
-            'source': source, 'operation_id': operation_id, 'conversation_id': conversation_id, 'command_mode': command_mode})
+            'source': source, 'operation_id': operation_id, 'conversation_id': conversation_id, 'command_mode': command_mode,
+            **({'memory_scope':memory_scope} if memory_scope is not None else {}),
+            **({'memory_context_id':memory_context_id} if memory_context_id is not None else {})})
 
     def get(self, operation_id):
         try:

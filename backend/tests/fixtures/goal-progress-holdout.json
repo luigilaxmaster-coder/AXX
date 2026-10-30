@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "family": "file_bundle",
+  "private": true,
+  "cases": [
+    {
+      "mission_id": "zip-holdout-vela-27",
+      "intent": "Entregar dos documentos seleccionados en un paquete ZIP comprobable",
+      "criterion_id": "entrega-vela",
+      "destination": "revision vela 27",
+      "archive_name": "remesa-vela.zip",
+      "sources": [
+        {"path": "entradas vela/plano sur.txt", "text": "Revisi\u00f3n V27\nCota=13.625 m\nAnotaci\u00f3n: l\u00edmite este.\n"},
+        {"path": "entradas vela/control.csv", "text": "pieza;unidades;estado\nM7;19;revisada\nQ2;4;pendiente\n"}
+      ]
+    },
+    {
+      "mission_id": "zip-holdout-jade-64",
+      "intent": "Conservar originales y entregar una remesa documental aislada",
+      "criterion_id": "entrega-jade",
+      "destination": "revision jade 64",
+      "archive_name": "remesa-jade.zip",
+      "sources": [
+        {"path": "entradas jade/plano sur.txt", "text": "Revisi\u00f3n J64\nCota=-2.375 m\nAnotaci\u00f3n: acceso norte.\n"},
+        {"path": "entradas jade/acta \u00f1.txt", "text": "Acta de contraste\nTurno: 06\nElementos aceptados: 23\nCierre parcial.\n"}
+      ]
+    }
+  ],
+  "coverage": [
+    "two_isolated_missions",
+    "real_two_file_prefix_and_zip_suffix",
+    "independent_original_copy_manifest_zip_acceptance",
+    "same_mission_prefix_receipts_budget_and_new_approval_hash",
+    "missing_input_and_dependency_wait",
+    "source_version_changes_before_prepare_and_dispatch",
+    "producer_revocation_pause_cancel",
+    "real_partial_copy_uncertain_receipt_no_replay",
+    "stop_after_verified_goal"
+  ]
+}

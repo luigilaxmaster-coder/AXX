@@ -117,14 +117,14 @@ def _final_path(kernel, handle):
     return value
 
 
-def _info(kernel, handle, *, directory=False, require_ntfs=True):
+def _info(kernel, handle, *, directory=False, require_ntfs=True, max_bytes=MAX_BYTES):
     info = FileInfo()
     if not kernel.GetFileInformationByHandle(handle, ctypes.byref(info)):
         raise NativeUnavailable('COMPENSATION_FILE_IDENTITY_UNAVAILABLE')
     index = (info.index_high << 32) | info.index_low
     size = (info.size_high << 32) | info.size_low
     if (require_ntfs and not index or info.attributes & (0x400 | 0x1000 | 0x40000 | 0x400000)
-            or bool(info.attributes & 0x10) != directory or not directory and (info.links != 1 or size > MAX_BYTES)):
+            or bool(info.attributes & 0x10) != directory or not directory and (info.links != 1 or size > max_bytes)):
         raise NativeUnavailable('COMPENSATION_FILE_IDENTITY_UNAVAILABLE')
     filesystem = ctypes.create_unicode_buffer(32)
     if require_ntfs and (not kernel.GetVolumeInformationByHandleW(handle, None, 0, None, None, None, filesystem, len(filesystem))
@@ -151,7 +151,9 @@ def _absent(path):
 
 
 @contextmanager
-def _open(kernel, path, *, directory=False, moving=False, require_ntfs=True):
+def _open(kernel, path, *, directory=False, moving=False, require_ntfs=True, max_bytes=MAX_BYTES):
+    if type(max_bytes) is not int or not 1 <= max_bytes <= 512 * 1024 * 1024:
+        raise ValueError('FILE_LEASE_SIZE_LIMIT_INVALID')
     # Deny delete on directories: none of the checked ancestors can be renamed
     # or replaced while the source and destination are resolved. Files deny
     # write/delete sharing across hashing and the rename of that SAME handle.
@@ -165,7 +167,7 @@ def _open(kernel, path, *, directory=False, moving=False, require_ntfs=True):
     if handle in (None, ctypes.c_void_p(-1).value):
         raise CompensationError('COMPENSATION_RESOURCE_UNAVAILABLE_' + ('DIRECTORY_' if directory else 'FILE_') + str(ctypes.get_last_error()))
     try:
-        identity = _info(kernel, handle, directory=directory, require_ntfs=require_ntfs)
+        identity = _info(kernel, handle, directory=directory, require_ntfs=require_ntfs, max_bytes=max_bytes)
         if _path_key(_final_path(kernel, handle)) != _path_key(path):
             raise CompensationError('COMPENSATION_RESOURCE_CHANGED')
         yield handle, identity

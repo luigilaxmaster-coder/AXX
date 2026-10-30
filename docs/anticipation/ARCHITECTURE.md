@@ -10,6 +10,12 @@ La política se añade sobre los servicios inventariados en [INVENTORY.md](INVEN
 
 El primer recorrido es `artifact.generated → verificación adicional → resultado observado`, usando archivos de ensayo y verificadores existentes. Un hash confirma identidad/lectura; no demuestra que el contenido sea correcto. Una comprobación ya exigida por la orden original pertenece a esa orden, incluso en Discreto.
 
+La [progresión de misiones con criterios verificables](GOAL-PROGRESS.md) amplía una misión existente con un sufijo registrado cuando su resultado aún no cumple el contrato. Conserva recibos y presupuesto, y reevalúa los permisos para la revisión nueva. Su cobertura actual son tres tipos de entregable; no completa por sí sola el alcance general de los adjuntos.
+
+El [olvido por sesión y las correcciones naturales](SCOPED-MEMORY.md) invalidan memoria atribuible y sus derivados mediante referencias durables, conservando archivos, recibos, presupuesto y borradores. Las solicitudes de documentos y las salidas del modelo no modifican las reglas de selección por sí mismas.
+
+El [recorrido documental hasta una habilidad comprobada](DOCUMENT-SKILLS.md) conserva identidades de fuente, sella el candidato y requiere ensayo y aprobación propios. La transferencia verificada con archivos no certifica la demostración semántica general de aplicaciones.
+
 ## Perfiles, ámbitos y permisos
 
 | Perfil | Iniciativa predeterminada | Efecto sobre una orden explícita |

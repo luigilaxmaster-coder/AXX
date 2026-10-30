@@ -30,16 +30,19 @@
   <form id="cap-form"><label class="setting">Qué quieres que aprenda<textarea id="cap-goal" rows="3" maxlength="4000" required placeholder="Por ejemplo: consultar el estado del equipo y guardar un resumen"></textarea></label>
   <div class="cap-row"><label class="setting">Tipo<select id="cap-kind"><option value="workflow">Procedimiento con comandos disponibles</option><option value="python_transform">Código para transformar y calcular datos</option><option value="source_proposal">Propuesta de integración para revisión técnica</option></select></label>
   <button id="cap-generate" type="submit" class="primary">Crear propuesta</button></div>
+  <p id="cap-document-reference" hidden></p><button id="cap-document-clear" type="button" hidden>Quitar referencia</button>
   <p id="cap-provider"></p></form>
   <p id="cap-status" role="status" aria-live="polite"></p>
   <div class="cap-row"><h3>Mis capacidades</h3><button id="cap-refresh" type="button">Actualizar</button></div>
   <div id="cap-list" class="cap-list"></div><article id="cap-editor" class="cap-editor" hidden></article>`;
   $('view-commands').prepend(section);
-  let current = null, busy = false, serial = 0, task = null;
+  let current = null, busy = false, serial = 0, task = null, requestMemory = null, selectedDocuments = [];
   const stateNames = {draft:'Borrador', reviewed:'Revisada', approved:'Revisada', validated:'Comprobada', active:'Activa', revoked:'Desactivada', validation_pending:'Prueba pendiente', review_required:'Revisión de código', testing:'En comprobación', verified:'Comprobada'};
   const stateText = value => stateNames[value] || value || 'Borrador';
   const api = async (method, action, body) => {
-    const r = await Axx.backendRequest(method, '/axx-api/capabilities/' + action, body);
+    const memory = requestMemory || commands.captureMemory(); commands.checkMemory(memory, true);
+    const r = await commands.request(method, '/axx-api/capabilities/' + action, body, memory);
+    commands.checkMemory(memory, true);
     if (r?.error) throw new Error(r.error.message || 'No se pudo completar la solicitud.');
     return r;
   };
@@ -48,12 +51,13 @@
   const reference = r => ({id:r.id, revision:r.revision, digest:r.digest});
   const button = (text, action, primary = false) => { const n = el('button', text, primary ? 'primary' : ''); n.type = 'button'; n.onclick = () => void run(action); return n; };
   function lock(value) { busy = value; section.setAttribute('aria-busy', String(value)); for (const n of section.querySelectorAll('button,input,select,textarea')) n.disabled = value; }
-  async function run(action) {
+  async function run(action, memory = commands.captureMemory()) {
     if (busy) return;
+    requestMemory = memory;
     lock(true);
-    try { await action(); }
+    try { commands.checkMemory(requestMemory, true); await action(); }
     catch (error) { status(error.message || String(error)); }
-    finally { lock(false); Axx.resident?.schedule(); }
+    finally { requestMemory = null; lock(false); Axx.resident?.schedule(); }
   }
   async function refresh(selectedId = current?.id) {
     const generation = ++serial, r = await api('GET', 'list');
@@ -65,16 +69,19 @@
     }
     if (!list.children.length) list.append(el('p', 'Tus propuestas y sus versiones aparecerán aquí.', 'cap-empty'));
     if (selectedId) { current = await api('GET', 'get?id=' + encodeURIComponent(selectedId)); render(); }
-    const p = prefs(); $('cap-provider').textContent = 'Modelo seleccionado: ' + (p.model || 'automático según tus ajustes') + '. Solo se envían el objetivo y los contratos disponibles.';
+    const p = prefs(); $('cap-provider').textContent = 'Modelo seleccionado: ' + (p.model || 'automático según tus ajustes') + '. Se envían el objetivo, los contratos disponibles y la referencia documental seleccionada cuando exista.';
     status(`${r.capabilities?.length || 0} propuestas guardadas. Revisa la versión antes de activarla.`);
   }
   async function mutate(action, extra = {}) {
+    const memory = requestMemory || commands.captureMemory(); commands.checkMemory(memory, true);
     current = await api('POST', action, {...reference(current), ...extra});
     await refresh(current.id);
     if (action === 'activate' && task?.capability_build?.id === current.id) {
       if(task.capability_build.revision!==current.revision || task.capability_build.digest!==current.digest)
-        task=await commands.request('POST','/axx-api/learning/bind-capability',{operation_id:task.operation_id,...reference(current),goal_revision:task.goal_revision});
-      const plan = await commands.request('POST','/axx-api/learning/resume',{operation_id:task.operation_id,approved:false});
+        task=await commands.request('POST','/axx-api/learning/bind-capability',{operation_id:task.operation_id,...reference(current),goal_revision:task.goal_revision},memory);
+      commands.checkMemory(memory, true);
+      const plan = await commands.request('POST','/axx-api/learning/resume',{operation_id:task.operation_id,approved:false},memory);
+      commands.checkMemory(memory, true);
       if (plan.conversation_id === Axx.chatWorkspace?.active?.id) {
         commands.lastOperation=plan; commands.operation=plan.state==='awaiting_approval'?plan:null;
         commands.renderOperation(plan);commands.status(plan.message);Axx.companion.openChat();
@@ -88,6 +95,11 @@
     root.append(el('p', def.objective));
     root.append(el('p', source ? 'Código propuesto para revisión e integración. Axx no lo ejecuta ni lo instala automáticamente.' : transform ? 'Código puro acotado: transforma datos sin acceso a archivos, red, procesos ni credenciales. La aprobación corresponde al código, contratos y pruebas de esta versión.' : r.validation?.runtime_verified ? 'Efecto comprobado por el ejecutor. La activación conserva los permisos de cada comando.' : 'Contrato revisado. La comprobación real se registra al ejecutar la prueba.'));
     root.append(el('p', 'Huella de la versión: ' + r.digest));
+    if (r.document_references?.length) {
+      const sources = el('details'); sources.append(el('summary', 'Fuentes documentales de esta versión'));
+      for (const ref of r.document_references) sources.append(el('p', ref.document_id + ' · revisión ' + ref.revision), el('pre', ref.record_sha256 + '\n' + ref.member_sha256));
+      root.append(sources);
+    }
     if (!source && !transform) {
       const steps = el('ol', undefined, 'cap-steps');
       for (const step of r.validation?.steps || def.templates || []) { const li = el('li', step.command_id); li.append(el('pre', JSON.stringify(step.inputs, null, 2))); steps.append(li); }
@@ -147,13 +159,30 @@
   }
   $('cap-form').onsubmit = event => { event.preventDefault(); void run(async () => {
     const goal = $('cap-goal').value.trim(); if (!goal) throw new Error('Describe la capacidad que necesitas.');
-    status('Axx está preparando la propuesta…'); current = await api('POST','generate',{goal,kind:$('cap-kind').value,...prefs(),conversation_id:Axx.chatWorkspace?.active?.id});
+    status('Axx está preparando la propuesta…'); current = await api('POST','generate',{goal,kind:$('cap-kind').value,...prefs(),conversation_id:Axx.chatWorkspace?.active?.id,
+      ...(selectedDocuments.length ? {document_references:structuredClone(selectedDocuments)} : {})});
     await refresh(current.id); status('Propuesta guardada. Revisa su definición y sus parámetros.'); $('cap-editor').scrollIntoView({block:'nearest'});
   }); };
   $('cap-refresh').onclick = () => void run(() => refresh());
   const openFeature = Axx.companion.openFeature.bind(Axx.companion);
   Axx.companion.openFeature = id => { const result = openFeature(id); if (id === 'commands' && !busy) void run(() => refresh()); return result; };
   async function open(goal = '') { await run(async () => { Axx.companion.openFeature('commands'); if (goal) $('cap-goal').value = goal; await refresh(); section.scrollIntoView({block:'start'}); $('cap-goal').focus(); }); }
+  function selectDocuments(references, title) {
+    selectedDocuments = structuredClone(references);
+    $('cap-document-reference').textContent = selectedDocuments.length ? 'Referencia documental: ' + (title || 'Fuentes de la tarea') + '. Describe qué quieres aprender; crear una propuesta no la ejecuta.' : '';
+    $('cap-document-reference').hidden = $('cap-document-clear').hidden = !selectedDocuments.length;
+  }
+  async function openDocument(procedure, title) {
+    if (!procedure?.document_reference || busy) return;
+    selectDocuments([procedure.document_reference], title || 'Documento seleccionado');
+    await open();
+  }
+  $('cap-document-clear').onclick = () => { if (!busy) selectDocuments([]); };
+  function invalidateMemory(id) {
+    const owns = item => item && ((!item.memory_scope && !item.conversation_id && !item.memory_dependencies?.length)
+      || item.memory_scope?.task_id === id || item.conversation_id === id || item.memory_dependencies?.some(ref => ref.task_id === id));
+    if (owns(current) || owns(task)) { ++serial; current = task = null; render(); $('cap-list').replaceChildren(); }
+  }
   async function openTask(plan) {
     if (plan.conversation_id && plan.conversation_id !== Axx.chatWorkspace?.active?.id) return;
     if (!plan.capability_build?.id) return;
@@ -161,13 +190,17 @@
     await run(async()=>{Axx.companion.openFeature('commands');await refresh(plan.capability_build.id);section.scrollIntoView({block:'start'});status('Objetivo conservado: '+plan.request+'. Revisa esta capacidad; al activarla Axx retomará la tarea.');});
   }
   const profileLink = button('Crear y mejorar capacidades', () => open()); $('view-agent').append(profileLink);
-  async function propose(goal, kind = 'source_proposal') {
-    await open(goal); $('cap-kind').value = kind;
+  async function propose(goal, kind = 'source_proposal', documentReferences = []) {
+    if (busy) return;
+    selectDocuments(documentReferences);
+    const memory = commands.captureMemory(); await open(goal);
     await run(async () => {
+      $('cap-kind').value = kind;
       status('Falta una capacidad ejecutable. Axx está preparando código para revisión…');
-      current = await api('POST', 'generate', {goal,kind,...prefs(),conversation_id:Axx.chatWorkspace?.active?.id});
+      current = await api('POST', 'generate', {goal,kind,...prefs(),conversation_id:Axx.chatWorkspace?.active?.id,
+        ...(selectedDocuments.length ? {document_references:structuredClone(selectedDocuments)} : {})});
       await refresh(current.id); status('Propuesta preparada. Revisa el código y sus límites antes de aprobar su implementación.');
-    });
+    }, memory);
   }
   const send = Axx.companion.send.bind(Axx.companion);
   Axx.companion.send = async (text, metadata) => {
@@ -177,6 +210,6 @@
     if (create) { Axx.companion.message('user', raw, 'local'); return propose(create[1], /^(?:transformar|calcular|convertir texto|formatear|normalizar)\b/i.test(create[1]) ? 'python_transform' : 'workflow'); }
     return send(text, metadata);
   };
-  Axx.capabilityWorkshop = {open,openTask,propose,refresh,get current(){return current;}};
+  Axx.capabilityWorkshop = {open,openDocument,openTask,propose,refresh,invalidateMemory,get current(){return current;}};
   void run(() => refresh());
 })(window.Axx);

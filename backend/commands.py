@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
-from contextlib import nullcontext
+from contextlib import ExitStack, contextmanager, nullcontext
 import json
 import math
 import os
@@ -29,6 +29,7 @@ from .actions.application_tools import ADAPTERS as APPLICATION_ADAPTERS, resolve
 from .computer_use import ADAPTERS as COMPUTER_USE_ADAPTERS
 from .actions import artifact_compensation as compensation
 from .procedure_library import ProcedureLibrary
+from .memory import task_memory
 
 TERMINAL = {'succeeded', 'failed', 'blocked', 'cancelled', 'expired', 'unknown'}
 
@@ -241,6 +242,7 @@ class CommandService:
         self.db = sqlite3.connect(str(executor.db_path), timeout=10, check_same_thread=False)
         self.db.row_factory = sqlite3.Row
         with self.db:
+            task_memory.ensure(self.db)
             compensation.initialize(self.db)
             self.db.execute('''CREATE TABLE IF NOT EXISTS command_runs (
                 operation_id TEXT PRIMARY KEY, command_id TEXT NOT NULL, inputs_json TEXT NOT NULL,
@@ -688,7 +690,46 @@ class CommandService:
                 or command.get('delivery_mode') != resolve_mode(self.adapters[step['command_id']]['tool'], step.get('delivery_mode'))):
             raise ValueError('El comando no coincide con el paso y el ámbito exactos aprobados.')
 
-    def prepare(self, command_id, inputs, source='text', operation_id=None, *, conversation_id=None, command_mode=None, delivery_mode=None):
+    @contextmanager
+    def _prepare_transaction(self):
+        with self.lock:
+            if self.closed: raise ValueError('Servicio cerrado')
+            if self.db.in_transaction:
+                yield
+            else:
+                with self.db:
+                    self.db.execute('BEGIN IMMEDIATE')
+                    yield
+
+    def _assert_memory_scope(self, result):
+        if result['command_id'] in compensation.COMMAND_ACTIONS: return None
+        task = result.get('conversation_id')
+        if task is None and (result.get('memory_scope') is not None or result.get('memory_context_id') is not None):
+            raise ValueError('La referencia de memoria requiere una conversación')
+        ref = task_memory.assert_context(self.db, result.get('memory_scope'), result.get('memory_context_id'), task_id=task)
+        dependencies = task_memory.assert_dependencies(self.db, result.get('memory_dependencies', []))
+        document_references = list(result.get('document_references', []))
+        match = re.fullmatch(r'axx\.generated\.([a-f0-9]{32})\.r([1-9][0-9]*)\.[a-f0-9]{16}', result['command_id'])
+        if match:
+            exists = self.db.execute("SELECT 1 FROM sqlite_master WHERE name='capability_revisions'").fetchone()
+            row = self.db.execute('SELECT payload FROM capability_revisions WHERE id=? AND revision=?',
+                ('cap.' + match[1], int(match[2]))).fetchone() if exists else None
+            item = json.loads(row[0]) if row else {}
+            document_references += item.get('document_references', [])
+            if item.get('memory_forgotten'): raise ValueError('La transformación procede de una sesión olvidada')
+            source_scope = item.get('memory_scope')
+            task_memory.assert_current(self.db, source_scope)
+            inherited = item.get('memory_dependencies', []) + ([source_scope] if source_scope else [])
+            dependencies = task_memory.assert_dependencies(self.db, list({json.dumps(value,sort_keys=True):value for value in dependencies + inherited}.values()))
+            if source_scope is None and self.db.execute('SELECT 1 FROM memory_task_scopes WHERE generation>0 LIMIT 1').fetchone():
+                raise ValueError('Revisa la procedencia de la transformación antes de reutilizarla')
+        if dependencies: result['memory_dependencies'] = dependencies
+        if document_references:
+            document_references = list({json.dumps(value, sort_keys=True): value for value in document_references}.values())
+            result['document_references'] = self.procedures.resolve_references(document_references)
+        return ref
+
+    def prepare(self, command_id, inputs, source='text', operation_id=None, *, conversation_id=None, command_mode=None, delivery_mode=None, memory_scope=None, memory_context_id=None, _memory_dependencies=(), _document_references=()):
         if command_mode not in (None, 'ask', 'auto_safe'):
             raise ValueError('Modo de comandos inválido')
         if conversation_id is not None:
@@ -706,9 +747,7 @@ class CommandService:
         op_id = str(uuid.uuid4()) if operation_id is None else operation_id
         if not isinstance(op_id, str) or not re.fullmatch(r'[A-Za-z0-9_.-]{1,128}', op_id):
             raise ValueError('operation_id inválido')
-        with self.lock:
-            if self.closed:
-                raise ValueError('Servicio cerrado')
+        with self._prepare_transaction():
             if command_id in compensation.COMMAND_ACTIONS:
                 compensation.validate_inputs(inputs)
                 source_receipt = compensation.load_source(self.db, self.executor.workspace_root, inputs['source_operation_id'])
@@ -724,7 +763,13 @@ class CommandService:
                 candidate = self._validate_inputs(command_id, inputs, require_new=False) if command_id in self.adapters else inputs
                 if existing['command_id'] != command_id or existing_inputs != candidate or existing['source'] != source or existing.get('conversation_id') != conversation_id or existing.get('command_mode') != command_mode or existing.get('delivery_mode', mode) != mode:
                     raise ValueError('operation_id ya está vinculado a otros parámetros')
+                if _document_references and list(_document_references) != existing.get('document_references', []):
+                    raise ValueError('operation_id ya está vinculado a otra fuente documental')
                 return existing | {'replayed': True}
+            admission = {'command_id': command_id, 'conversation_id': conversation_id, 'memory_scope': memory_scope,
+                'memory_context_id': memory_context_id, 'memory_dependencies':list(_memory_dependencies),
+                'document_references':list(_document_references)}
+            selected_scope = self._assert_memory_scope(admission)
             if command_mode is not None:
                 # Unknown effects are guarded by target below; they must not prevent
                 # the independent observations needed to reconcile them.
@@ -765,10 +810,14 @@ class CommandService:
                       'error': None if enabled else {'code': 'NOT_IMPLEMENTED', 'message': command['blocked_reason']}}
             if command_id in compensation.COMMAND_ACTIONS:
                 result['source_operation_id'] = inputs['source_operation_id']
+            if selected_scope is not None: result['memory_scope'] = selected_scope
+            if admission['memory_dependencies']: result['memory_dependencies'] = admission['memory_dependencies']
+            if admission.get('document_references'): result['document_references'] = admission['document_references']
+            if memory_context_id is not None and command_id not in compensation.COMMAND_ACTIONS:
+                result['memory_context_id'] = memory_context_id
             now = time.time()
             self.db.execute('INSERT INTO command_runs VALUES (?,?,?,?,?,?,?,?)',
                 (op_id, command_id, json.dumps(inputs), source, state, json.dumps(result, ensure_ascii=False), now + 300, now))
-            self.db.commit()
             return result
 
     def renew(self, operation_id):
@@ -891,6 +940,11 @@ class CommandService:
                     approved = True
                 if result['state'] in TERMINAL:
                     return result | {'replayed': True}
+                try:
+                    self._assert_memory_scope(result)
+                except ValueError as exc:
+                    return self._save(result | {'state': 'failed', 'postconditions_passed': False,
+                        'error': {'code': 'DISPATCH_REJECTED', 'message': str(exc)}})
                 expiry = self.db.execute('SELECT expires_at FROM command_runs WHERE operation_id=?', (operation_id,)).fetchone()[0]
                 if time.time() > expiry:
                     return self._save(result | {'state': 'expired', 'error': {'code': 'EXPIRED', 'message': 'La preparación caducó; revisa y prepara otra vez.'}})
@@ -907,7 +961,7 @@ class CommandService:
             try:
                 action_id = 'cmd-' + hashlib.sha256(operation_id.encode()).hexdigest()
                 # A legacy action may hold the executor. Check cancellation again at the dispatch boundary.
-                with nullcontext() if allow_parallel_read else self.executor.lock:
+                with (nullcontext() if allow_parallel_read else self.executor.lock), ExitStack() as leases:
                     if not allow_parallel_read:
                         self.executor.wait_for_reads()
                     with self.lock:
@@ -915,6 +969,7 @@ class CommandService:
                         if current['cancel_requested']:
                             return self._save(current | {'state': 'cancelled', 'error': {'code': 'CANCELLED', 'message': 'Cancelado antes de ejecutar.'}})
                         try:
+                            self._assert_memory_scope(current)
                             if _remote_claim is not None:
                                 _remote_claim(current, dispatch=True)
                             self._guard_learning_command(current)
@@ -927,9 +982,13 @@ class CommandService:
                                 raise ActionExecutionError(str(exc)) from exc
                         if self.mission_guard:
                             try:
-                                self.mission_guard(operation_id)
+                                leases.enter_context(self.mission_guard(operation_id) or nullcontext())
                             except ValueError as exc:
                                 raise ActionExecutionError(str(exc)) from exc
+                        try:
+                            self._assert_memory_scope(current)
+                        except ValueError as exc:
+                            raise ActionExecutionError(str(exc)) from exc
                     args = (self.adapters[result['command_id']]['tool'], result['inputs'], action_id)
                     mode_args = {'delivery_mode': result['delivery_mode']} if result.get('delivery_mode') else {}
                     if allow_parallel_read:

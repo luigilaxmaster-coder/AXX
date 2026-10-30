@@ -139,7 +139,8 @@
             while (performance.now() < deadline) {
                 if (signal?.aborted) throw new DOMException('Cancelado; los efectos completados se conservan.', 'AbortError');
                 last = await bounded(api('GET', 'run?request_id=' + encodeURIComponent(requestId) + '&after=' + after));
-                state.last = last;
+                if(signal?.aborted)throw new DOMException('Solicitud cancelada','AbortError');
+                state.last = last;state.lastTask=body.memory_scope?.task_id||null;
                 for (const event of last.events || []) after = Math.max(after, event.seq || 0);
                 const text = last.response ?? '';
                 if (typeof text === 'string' && text !== observed) { observed = text; onDelta(observed); }
@@ -194,7 +195,7 @@
             if (source.length > 32000) throw new Error('La traducción supera 32.000 caracteres; divide el texto. No se ha truncado ni enviado.');
             return run({message: source,
                 purpose:'translation', source_language:translation[1], target_language:translation[2],
-                model:p.model, conversation_id:'axx-translation-' + crypto.randomUUID()}, signal, onDelta);
+                model:p.model, conversation_id:p.memory_context_id||'axx-translation-' + crypto.randomUUID(),...(p.memory_scope?{memory_scope:{...p.memory_scope}}:{})}, signal, onDelta);
         }
         const context = c.data.connectConversationId && !Axx.chatWorkspace ? messages.filter(item => item.role === 'user').slice(-1) : messages.filter(item => item.role !== 'system');
         if (!c.data.connectConversationId) { c.data.connectConversationId = crypto.randomUUID(); c.save(); }
@@ -207,7 +208,7 @@
         if (message.length > 32000) throw new Error('La petición actual y sus referencias superan 32.000 caracteres. Reduce el contexto; no se ha truncado ni enviado.');
         const result = await run({message, purpose:p.voice_turn ? 'voice' : 'chat',
             preferences:{style:p.personalityStyle || 'natural', language:p.voiceLanguage || 'auto', notes:String(p.personalityNotes || '').slice(0,500)},
-            model: p.model, conversation_id: c.data.connectConversationId}, signal, onDelta);
+            model: p.model, conversation_id: p.memory_context_id||c.data.connectConversationId,...(p.memory_scope?{memory_scope:{...p.memory_scope}}:{})}, signal, onDelta);
         c.save(); this.inferenceVerified = true; this.connected = true; this.lastRoute = result.route;
         return result;
     };
@@ -388,6 +389,6 @@
     }
     const queueTimer = setInterval(() => void queue(), 300);
     window.addEventListener('pagehide', () => { state.disposed = true; clearInterval(queueTimer); stop(); });
-    Axx.connect = {refresh, run, state, executeUI};
+    Axx.connect = {refresh, run, state, executeUI,invalidateMemory(taskId){if(state.lastTask===taskId){state.last=null;state.lastTask=null;$('axx-connect-interventions').replaceChildren();}}};
     void refresh().catch(e => status(error(e)));
 })(window.Axx);

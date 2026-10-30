@@ -8,6 +8,7 @@ from pathlib import Path
 import tempfile
 import threading
 import time
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -17,6 +18,10 @@ from backend.actions.executor import ActionExecutor
 from backend.actions import windows_automation as windows
 from backend.anticipation import AnticipationService
 from backend.commands import CommandService
+from backend.inference.router import profile_id
+
+SOURCE_PROVIDER = dict(name='synthetic-local', model='synthetic-model', base_url='http://127.0.0.1:1/v1',
+    enabled=True, route_kind='direct', allow_sensitive=True)
 
 
 class ContextSourceTests(unittest.TestCase):
@@ -37,7 +42,8 @@ class ContextSourceTests(unittest.TestCase):
             patch('backend.actions.windows_automation.process_started', return_value='123456'),
             # Exercise dormant context/lease helpers without claiming that the
             # production provider result path already supports ephemeral output.
-            patch.object(self.service, '_provider_context_available', return_value=True)]
+            patch.object(self.service, '_provider_context_available', return_value=True),
+            patch.object(self.service, '_source_destination_catalog', return_value={profile_id(SOURCE_PROVIDER): SOURCE_PROVIDER})]
         self.mocks = [p.start() for p in self.patches]
         self.clip = {'sequence_number': 1, 'available': True, 'text': 'SYNTHETIC_CLIPBOARD_PRIVATE_TEXT'}
         self.window_id = 0
@@ -78,7 +84,8 @@ class ContextSourceTests(unittest.TestCase):
 
     def configure(self, source='clipboard', retain=False, provider=False, observe=True, **target_changes):
         target = {'id': 'fixture-source', 'task_id': 'source-task', 'source': source,
-            'observe': observe, 'retain': retain, 'send_to_provider': provider}
+            'observe': observe, 'retain': retain, 'send_to_provider': provider,
+            'allowed_profile_ids': [profile_id(SOURCE_PROVIDER)] if provider else []}
         if source == 'window':
             target.update(window_id=42, pid=7, process_started='123456')
         target.update(target_changes)
@@ -506,11 +513,17 @@ class ContextSourceTests(unittest.TestCase):
         self.assertTrue(lease.is_set())
         self.assertNotIn('raw', self.service.source_state['fixture-source'])
         self.service.configure({'observation_targets': []})
-        with patch('backend.anticipation.RAW_SOURCE_TTL_SECONDS', .05):
+        # Admission cost must not consume the expiry phase this fixture tests.
+        monotonic = [time.monotonic()]
+        clock = SimpleNamespace(monotonic=lambda: monotonic[0], time=time.time,
+            perf_counter=time.perf_counter, process_time=time.process_time)
+        with patch('backend.anticipation.RAW_SOURCE_TTL_SECONDS', .05), patch('backend.anticipation.time', clock):
             self.configure(retain=True, provider=True)
             self.service.tick()
             context = self.service.provider_context_for_task('source-task')
             lease = self.service.acquire_provider_context('source-task', context['refs'])
+            self.assertFalse(lease.is_set())
+            monotonic[0] += .06
             self.assertTrue(lease.wait(1))
             self.assertEqual(self.service.provider_context_for_task('source-task')['observations'], [])
         self.assert_private_not_durable([self.clip['text']])

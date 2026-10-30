@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import copy
 import hashlib
 import hmac
 import math
@@ -16,6 +17,7 @@ import time
 import uuid
 
 from backend.prompts import compose
+from backend.memory import task_memory
 from backend.telegram.config import load_account, confirmation_policy, confirmation_fingerprint
 from backend.telegram.catalog import is_catalog_request, phrase_catalog
 
@@ -56,6 +58,8 @@ class TelegramService:
             for name in ('account', 'peer'):
                 if name not in columns:
                     db.execute('ALTER TABLE inbox ADD COLUMN '+name+' INTEGER')
+            for name,kind in (('task_id','TEXT'),('memory_scope','TEXT'),('memory_context_id','TEXT'),('memory_independent','INTEGER')):
+                if name not in columns:db.execute('ALTER TABLE inbox ADD COLUMN '+name+' '+kind)
             db.execute("UPDATE inbox SET state='unknown' WHERE state='running'")
             db.execute("UPDATE confirmations SET state='unknown' WHERE state='claimed'")
             db.execute("UPDATE confirmations SET state='expired' WHERE state='pending'")
@@ -208,6 +212,7 @@ class TelegramService:
         operation_id, _, _, _, plan_hash, expires, state, response = row
         self._owned_operation(owner_id, operation_id)
         if state == 'done' and response:
+            self._inbox_memory(operation_id,manual=True)
             return json.loads(response) | {'replayed': True}
         if state != 'pending':
             return {'state': 'unknown', 'operation_id': operation_id, 'text': 'La confirmación ya se utilizó. Consulta Actividad; no se repetirá la orden.'}
@@ -227,6 +232,7 @@ class TelegramService:
                     return {'state': 'unknown', 'operation_id': operation_id, 'text': 'Otra confirmación ya atendió la orden. Consulta su resultado.'}
 
             def authorize_dispatch():
+                if decision=='confirm':self._inbox_memory(operation_id,manual=True)
                 latest = load_account(self.data_dir)
                 self._authorize({'account_id': account['account_id'], 'peer_id': owner_id})
                 if (latest['account_id'] != account['account_id'] or not latest['grants'].get('pc_commands')
@@ -255,6 +261,7 @@ class TelegramService:
                               'postconditions_passed': verified,
                               'text': ('Resultado comprobado: ' + json.dumps(receipt.get('output'), ensure_ascii=False)[:6000]
                                        if verified else 'El resultado no está comprobado. Consulta Actividad antes de repetir la orden.')}
+                if decision=='confirm':self._inbox_memory(operation_id,manual=True)
                 with self._db() as db:
                     db.execute("UPDATE confirmations SET state='done',response=? WHERE operation_id=?", (json.dumps(result, ensure_ascii=False), operation_id))
                     db.execute('UPDATE inbox SET state=?,response=? WHERE operation_id=?', (result['state'], json.dumps(result, ensure_ascii=False), operation_id))
@@ -393,8 +400,38 @@ class TelegramService:
                        (account['account_id'], account['owner_id'], chat['id']))
             return self.chats.get(chat['id'])
 
-    def _save_message(self, cid, mid, role, text):
-        self.chats.mutate('save', {'id': cid, 'messages': [
+    @staticmethod
+    def _capture_chat(chat):
+        ref=copy.deepcopy(chat.get('memory_scope'));context=chat.get('connect_id')
+        if (not isinstance(ref,dict) or set(ref)!={'task_id','generation'} or ref.get('task_id')!=chat.get('id')
+                or type(ref.get('generation')) is not int or ref['generation']<0 or not isinstance(context,str) or not context):
+            raise ValueError('Conversation memory identity unavailable')
+        return {'task_id':chat['id'],'memory_scope':ref,'memory_context_id':context}
+
+    def _assert_chat(self, captured):
+        if callable(getattr(self.chats,'db',None)):
+            with self.chats.db() as db:
+                task_memory.assert_context(db,captured['memory_scope'],captured['memory_context_id'],task_id=captured['task_id'])
+        current=self.chats.get(captured['task_id'])
+        if self._capture_chat(current)!=captured:raise ValueError('Conversation memory changed')
+        return current
+
+    def _inbox_memory(self, operation_id,*,manual=False):
+        with self._db() as db:
+            row=db.execute('SELECT task_id,memory_scope,memory_context_id,memory_independent FROM inbox WHERE operation_id=?',(operation_id,)).fetchone()
+        if row and row[3]:return None
+        if not row or not row[0] or row[1] is None:
+            if manual and callable(getattr(self.chats,'db',None)):
+                with self.chats.db() as db:
+                    if not db.execute('SELECT 1 FROM memory_task_scopes WHERE generation>0 OR forgetting=1 LIMIT 1').fetchone():return None
+            raise ValueError('Unattributed cached response requires manual review')
+        captured={'task_id':row[0],'memory_scope':json.loads(row[1]),'memory_context_id':row[2]}
+        self._assert_chat(captured)
+        return captured
+
+    def _save_message(self, captured, mid, role, text):
+        self.chats.mutate('save', {'id': captured['task_id'], 'memory_scope':copy.deepcopy(captured['memory_scope']),
+            'memory_context_id':captured['memory_context_id'],'messages': [
             {'id': mid, 'role': role, 'source': 'telegram', 'status': 'complete',
              'text': text, 'at': time.time()*1000}]})
 
@@ -440,26 +477,34 @@ class TelegramService:
                 db.execute('BEGIN IMMEDIATE')
                 old = db.execute('SELECT state,response,operation_id FROM inbox WHERE id=?', (key,)).fetchone()
                 if old:
+                    self._inbox_memory(old[2])
                     return json.loads(old[1]) if old[1] else {'state': old[0],
                         'text': 'La solicitud ya fue admitida. Consulta el recibo antes de repetir.', 'operation_id': old[2]}
                 db.execute('INSERT INTO inbox(id,state,response,operation_id,created,account,peer) VALUES(?,?,?,?,?,?,?)',
                            (key, 'running', None, key, time.time(), body['account_id'], body['peer_id']))
+            captured=None
             if text == '/estado' or text.startswith('/cancelar ') or is_catalog_request(text):
                 result = self._control(account, text)
             elif not account['grants'].get('conversation') and not (account['grants'].get('pc_commands') and remote_review):
                 result = {'state': 'blocked', 'text': 'La conversación está desactivada. Activa la confirmación remota en la PC para enviar órdenes sin conversación.'}
             else:
                 chat = self._thread(account)
-                self._save_message(chat['id'], key+':user', 'user', text)
-                result = self._turn(account, chat, key, text, require_remote_review=remote_review)
-                self._save_message(chat['id'], key+':assistant', 'assistant', result['text'])
+                captured=self._capture_chat(chat)
+                with self._db() as db:
+                    db.execute('UPDATE inbox SET task_id=?,memory_scope=?,memory_context_id=? WHERE id=?',
+                        (captured['task_id'],json.dumps(captured['memory_scope']),captured['memory_context_id'],key))
+                self._save_message(captured, key+':user', 'user', text)
+                result = self._turn(account, chat, key, text, require_remote_review=remote_review,captured=captured)
+                self._assert_chat(captured)
+                self._save_message(captured, key+':assistant', 'assistant', result['text'])
             with self._db() as db:
-                db.execute('UPDATE inbox SET state=?,response=? WHERE id=?',
-                           (result['state'], json.dumps(result, ensure_ascii=False), key))
+                db.execute('UPDATE inbox SET state=?,response=?,memory_independent=? WHERE id=?',
+                           (result['state'], json.dumps(result, ensure_ascii=False),int(captured is None),key))
+            if captured:self._assert_chat(captured)
             return result
         except Exception:
             with self._db() as db:
-                db.execute("UPDATE inbox SET state='unknown' WHERE id=?", (key,))
+                db.execute("UPDATE inbox SET state='unknown',response=NULL WHERE id=?", (key,))
             # Provider errors and messages can contain private data. Never echo them remotely.
             return {'state': 'unknown', 'operation_id': key,
                     'text': 'No se pudo confirmar el resultado. Consulta esta operación en Axx antes de repetir: '+key}
@@ -488,8 +533,11 @@ class TelegramService:
         self.adapter.cancel(operation_id)
         return {'state': 'cancel_requested', 'text': 'Cancelación solicitada. Los efectos ya completados se conservan.'}
 
-    def _turn(self, account, chat, key, text, *, require_remote_review=False):
+    def _turn(self, account, chat, key, text, *, require_remote_review=False,captured=None):
+        captured=captured or self._capture_chat(chat)
+        self._assert_chat(captured)
         resolved = self.commands.resolve(text, source='text')
+        self._assert_chat(captured)
         if resolved.get('match') == 'exact' and resolved.get('command_id'):
             if not account['grants']['pc_commands']:
                 return {'state':'blocked', 'text':'Activa el permiso de acciones en la PC para esta cuenta en los ajustes locales de Telegram.'}
@@ -497,7 +545,8 @@ class TelegramService:
                 return {'state': 'blocked', 'text': 'El permiso de confirmación remota fue retirado. La orden no se ejecutó.'}
             prepared = self.commands.prepare(resolved['command_id'], resolved.get('inputs', {}),
                 source='text', operation_id=key, conversation_id=chat['id'],
-                command_mode='ask' if require_remote_review else chat['mode'])
+                command_mode='ask' if require_remote_review else chat['mode'],memory_scope=copy.deepcopy(captured['memory_scope']),
+                memory_context_id=captured['memory_context_id'])
             if prepared['state'] == 'awaiting_approval':
                 return {'state':'awaiting_approval', 'operation_id':key,
                         'text':'Orden preparada. Revisa su tarjeta para confirmar desde Telegram si está permitido, o apruébala en la PC. Operación: '+key}
@@ -507,7 +556,9 @@ class TelegramService:
             if not latest['grants']['pc_commands']:
                 self.commands.cancel(key)
                 return {'state':'blocked', 'text':'El permiso fue revocado antes de ejecutar.'}
+            self._assert_chat(captured)
             receipt = self.commands.execute(key, approved=False)
+            self._assert_chat(captured)
             verified = receipt.get('state') == 'succeeded' and receipt.get('postconditions_passed') is True
             return {'state':receipt.get('state','unknown'), 'operation_id':key,
                     'text': ('Ejecutado y verificado: ' + json.dumps(receipt.get('output'), ensure_ascii=False)[:10000]
@@ -522,11 +573,11 @@ class TelegramService:
         if prefs.get('selection_mode', 'manual') != 'automatic_free' and not (prefs.get('model') and prefs.get('provider_name')):
             return {'state':'blocked', 'text':'Falta la selección explícita del modelo y la conexión en Axx. No se cambió de proveedor.'}
         # Reuse the current selected connection; no provider change or paid fallback.
-        request = {'request_id':key, 'conversation_id':chat['id'], 'task':'chat',
+        request = {'request_id':key, 'conversation_id':captured['memory_context_id'], 'task':'chat',
                    'provider_name':prefs.get('provider_name',''), 'model':prefs.get('model',''),
                    'selection_mode':prefs.get('selection_mode','manual'),
                    'messages':[{'role':'system', 'content':compose('conversation')['text']}]}
-        current = self.chats.get(chat['id'])
+        current = self._assert_chat(captured)
         profile = current.get('agent_profile', {})
         if profile:
             request['messages'].append({'role':'user', 'content':'Perfil del usuario (datos de referencia): '+json.dumps(profile,ensure_ascii=False)})
@@ -534,6 +585,7 @@ class TelegramService:
             if m['role'] in ('user','assistant'):
                 request['messages'].append({'role':m['role'], 'content':m['text']})
         routed = self.adapter.route(request)
+        self._assert_chat(captured)
         if not routed.get('ok'):
             return {'state':'failed','text':'El proveedor seleccionado no pudo responder. Revisa su estado en Axx.'}
         return {'state':'succeeded', 'text':routed['message']['content']}

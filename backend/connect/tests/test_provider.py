@@ -75,6 +75,21 @@ class ControlledProvider(CodexProvider):
         return {}
 
 
+class ControlledRunClock:
+    """Advance only the provider's deadline clock after the intended phase is admitted."""
+    def __init__(self):
+        self.current = time.monotonic()
+
+    def monotonic(self):
+        return self.current
+
+    def time(self):
+        return time.time()
+
+    def expire(self, run):
+        self.current = run['_deadline'] + .001
+
+
 class ControlledPipe:
     def __init__(self, blocked=None):
         self.blocked = blocked
@@ -675,18 +690,22 @@ class ProviderTests(unittest.TestCase):
         self.assertLess(timeouts['thread/start'],timeouts['account/rateLimits/read'])
 
     def test_timeout_preserves_partial_response_and_never_replays_effects(self):
-        with patch('backend.connect.provider.TURN_TIMEOUT',.16):
-            self.start();self.wait_started()
+        clock=ControlledRunClock()
+        with patch('backend.connect.provider.time',clock):
+            self.start();started=self.wait_started()
+            self.assertEqual(started.get('turn_id'),'turn-test',started)
             self.provider._notification({'method':'item/agentMessage/delta','params':{
                 'threadId':'thread-test','turnId':'turn-test','delta':'partial'}})
+            self.assertEqual(self.provider.get('r1')['response'],'partial')
+            with self.provider.lock:clock.expire(self.provider.live['r1'])
             deadline=time.monotonic()+1
             while self.provider.get('r1')['state'] not in {'unknown','failed'} and time.monotonic()<deadline:time.sleep(.01)
-        run=self.provider.get('r1')
-        self.assertEqual(run['state'],'unknown')
-        self.assertEqual(run['error']['code'],'DEADLINE_EXCEEDED')
-        self.assertEqual(run['response'],'partial')
-        self.assertEqual(self.start()['state'],'unknown')
-        self.assertEqual(sum(method=='turn/start' for method,_ in self.provider.rpc_calls),1)
+            run=self.provider.get('r1')
+            self.assertEqual(run['state'],'unknown')
+            self.assertEqual(run['error']['code'],'DEADLINE_EXCEEDED')
+            self.assertEqual(run['response'],'partial')
+            self.assertEqual(self.start()['state'],'unknown')
+            self.assertEqual(sum(method=='turn/start' for method,_ in self.provider.rpc_calls),1)
 
     def test_startup_lock_wait_is_bounded_by_admission_deadline(self):
         self.provider._spawn=lambda:CodexProvider._spawn(self.provider)
@@ -711,21 +730,30 @@ class ProviderTests(unittest.TestCase):
     def test_total_deadline_includes_dispatcher_wait_without_terminal_revival(self):
         started,release=threading.Event(),threading.Event()
         def dispatch(*args):
-            started.set();release.wait(timeout=1)
+            started.set();release.wait()
             return {'state':'succeeded','postconditions_passed':True}
         self.provider.dispatcher=dispatch
-        with patch('backend.connect.provider.TURN_TIMEOUT',.14):
-            self.start();self.wait_started()
+        clock=ControlledRunClock()
+        with patch('backend.connect.provider.time',clock):
+            self.start();run=self.wait_started()
+            self.assertEqual(run.get('turn_id'),'turn-test',run)
             worker=threading.Thread(target=self.provider._server_request,args=({'id':10,'method':'item/tool/call',
                 'params':{'threadId':'thread-test','turnId':'turn-test','tool':'axx_status','arguments':{}}},))
-            worker.start();self.assertTrue(started.wait(timeout=1))
-            deadline=time.monotonic()+1
-            while self.provider.get('r1')['state']!='unknown' and time.monotonic()<deadline:time.sleep(.01)
-            self.assertEqual(self.provider.get('r1')['state'],'unknown')
-            release.set();worker.join(timeout=1)
-        run=self.provider.get('r1')
-        self.assertEqual(run['state'],'unknown')
-        self.assertEqual(len(run['tool_results']),1)
+            worker.start()
+            try:
+                self.assertTrue(started.wait(timeout=1))
+                with self.provider.lock:clock.expire(self.provider.live['r1'])
+                deadline=time.monotonic()+1
+                while self.provider.get('r1')['state']!='unknown' and time.monotonic()<deadline:time.sleep(.01)
+                self.assertEqual(self.provider.get('r1')['state'],'unknown')
+                self.assertEqual(self.provider.get('r1')['tool_results'],[])
+            finally:
+                release.set();worker.join(timeout=1)
+            self.assertFalse(worker.is_alive())
+            run=self.provider.get('r1')
+            self.assertEqual(run['state'],'unknown')
+            self.assertEqual(run['error']['code'],'DEADLINE_EXCEEDED')
+            self.assertEqual(len(run['tool_results']),1)
 
     def test_account_event_between_last_precheck_and_dispatch_admission_blocks_action(self):
         self.start(); self.wait_started(); actions = []

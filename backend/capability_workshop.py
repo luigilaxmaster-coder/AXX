@@ -17,10 +17,11 @@ import threading
 import time
 import uuid
 
-from .action_learning import ALLOWED, ModelBudgetExceeded, inference_accounting
+from .action_learning import ALLOWED, ModelBudgetExceeded, MemoryCancellation, inference_accounting
 from .commands import parse_command_json
 from .memory.procedural_memory import get_action_env_fingerprint
 from .memory.skill_memory import PARAMETER, bind, bounded_object, project_key, validate_schema
+from .memory import task_memory
 from .generated_commands import (LIMITS as TRANSFORM_LIMITS, run_tests, source_digest,
                                  validate_definition as validate_transform)
 
@@ -193,10 +194,17 @@ class CapabilityWorkshop:
         return item, head
 
     @staticmethod
-    def _integrity(item):
-        expected = _hash({'id': item['id'], 'revision': item['revision'], 'definition': item['definition'],
-                          'project_id': item['project_id'], 'environment': item['validation']['environment']})
-        if expected != item['digest']: raise ValueError('La definición almacenada cambió; no coincide con su digest')
+    def _digest(item):
+        payload = {'id': item['id'], 'revision': item['revision'], 'definition': item['definition'],
+                   'project_id': item['project_id'], 'environment': item['validation']['environment']}
+        for key in ('memory_scope', 'memory_context_id', 'memory_dependencies'):
+            if item.get(key) is not None and (key != 'memory_dependencies' or item[key]): payload[key] = item[key]
+        if item.get('document_references'): payload['document_references'] = item['document_references']
+        return _hash(payload)
+
+    @classmethod
+    def _integrity(cls, item):
+        if cls._digest(item) != item['digest']: raise ValueError('La definición almacenada cambió; no coincide con su digest')
 
     @staticmethod
     def _generated_record(item):
@@ -214,6 +222,8 @@ class CapabilityWorkshop:
             for key, revision in self.db.execute('SELECT id,active_revision FROM capability_heads WHERE active_revision IS NOT NULL').fetchall():
                 item, _ = self._load(key, revision)
                 if item['definition']['kind'] != 'python_transform': continue
+                try: self._assert_memory(item)
+                except ValueError: continue
                 self._integrity(item)
                 if (item['state'] != 'active' or (item.get('approval') or {}).get('digest') != item['digest']
                         or item['approval'].get('revision') != item['revision']
@@ -231,7 +241,27 @@ class CapabilityWorkshop:
             return
         refresh(records)
 
-    def _save(self, item):
+    def _assert_memory(self, item):
+        self.learning.skills.resolve_document_references(item.get('document_references'))
+        if item.get('memory_forgotten'): raise ValueError('Esta capacidad procede de una sesión olvidada')
+        scope = item.get('memory_scope')
+        task_memory.assert_current(self.db, scope, task_id=(scope or {}).get('task_id'))
+        task_memory.assert_dependencies(self.db, item.get('memory_dependencies', []))
+        if scope is None and self.db.execute('SELECT 1 FROM memory_task_scopes WHERE generation>0 LIMIT 1').fetchone():
+            raise ValueError('La capacidad heredada requiere revisar su procedencia antes de reutilizarla')
+
+    def _request_memory(self, item, memory_scope, memory_context_id):
+        owner = (memory_scope or item.get('memory_scope') or {}).get('task_id')
+        captured = task_memory.assert_context(self.db, memory_scope, memory_context_id, task_id=owner)
+        return {'memory_scope': captured, 'memory_context_id': memory_context_id,
+                **{key: item[key] for key in ('id', 'revision', 'digest')}}
+
+    def _save(self, item, request=None):
+        if not self.db.in_transaction: self.db.execute('BEGIN IMMEDIATE')
+        if request is not None:
+            task_memory.assert_context(self.db, request['memory_scope'], request['memory_context_id'])
+            self._current(request['id'], request['revision'], request['digest'])
+        if item['state'] not in ('revoked', 'superseded'): self._assert_memory(item)
         self.db.execute('UPDATE capability_revisions SET payload=? WHERE id=? AND revision=?',
                         (json.dumps(item, ensure_ascii=False, allow_nan=False), item['id'], item['revision']))
         self.db.execute('UPDATE capability_heads SET updated_at=? WHERE id=?', (time.time(), item['id']))
@@ -249,7 +279,10 @@ class CapabilityWorkshop:
                 active, _ = self._load(key, head[1])
                 if active['definition']['kind'] == 'python_transform':
                     generated_command_id = self._generated_record(active)['command_id']
-            return item | {'active_revision': head[1], 'generated_command_id': generated_command_id,
+            try: self._assert_memory(item); memory_current = True
+            except ValueError: memory_current = False
+            return item | {'active_revision': head[1] if memory_current else None, 'generated_command_id': generated_command_id if memory_current else None,
+                           'requires_review': not memory_current, 'auto_select': memory_current,
                            'created_at': head[2], 'updated_at': head[3],
                            'versions': versions, 'kind': item['definition']['kind'],
                            'title': item['definition']['title'], 'goal': item['definition']['objective']}
@@ -261,36 +294,52 @@ class CapabilityWorkshop:
             return [self.get(row[0]) for row in self.db.execute(
                 'SELECT id FROM capability_heads ORDER BY updated_at DESC LIMIT ?', (limit,)).fetchall()]
 
-    def _insert(self, key, revision, definition, validation, project_id, provenance):
-        digest = _hash({'id': key, 'revision': revision, 'definition': definition, 'project_id': project_id,
-                        'environment': validation['environment']})
-        item = {'id': key, 'revision': revision, 'digest': digest, 'definition': definition,
+    def _insert(self, key, revision, definition, validation, project_id, provenance, memory_scope=None, memory_context_id=None,
+                *, _memory_dependencies=(), _sources=(), _request=None, document_references=None):
+        if not self.db.in_transaction: self.db.execute('BEGIN IMMEDIATE')
+        if _request is not None:
+            task_memory.assert_context(self.db, _request['memory_scope'], _request['memory_context_id'])
+            self._current(_request['id'], _request['revision'], _request['digest'])
+        memory_scope = task_memory.assert_context(self.db, memory_scope, memory_context_id)
+        item = {'id': key, 'revision': revision, 'definition': definition,
                 'project_id': project_id, 'state': 'draft', 'validation': validation,
                 'approval': None, 'validation_operation_id': None, 'skill_id': 'workshop.' + key,
                 'created_at': time.time(), 'provenance': provenance}
+        if memory_scope is not None: item.update(memory_scope=memory_scope, memory_context_id=memory_context_id)
+        item['memory_dependencies'] = task_memory.assert_dependencies(self.db, list(_memory_dependencies))
+        self.learning._inherit_memory(item, *_sources)
+        self.learning.skills.inherit_document_references(item, *_sources, {'document_references': document_references})
+        digest = item['digest'] = self._digest(item)
+        self._assert_memory(item)
         self.db.execute('INSERT INTO capability_revisions VALUES (?,?,?,?)',
                         (key, revision, digest, json.dumps(item, ensure_ascii=False, allow_nan=False)))
         self.db.execute('UPDATE capability_heads SET revision=?,updated_at=? WHERE id=?', (revision, time.time(), key))
         self._event(key, revision, 'draft_created')
         return item
 
-    def create(self, definition, project_id=''):
+    def create(self, definition, project_id='', *, memory_scope=None, memory_context_id=None, _memory_dependencies=(), document_references=None):
         project_key(project_id)
         definition, validation = self._definition(definition)
         key = 'cap.' + uuid.uuid4().hex
         with self.lock, self.db:
             self._open()
             self.db.execute('INSERT INTO capability_heads VALUES (?,1,NULL,?,?)', (key, time.time(), time.time()))
-            self._insert(key, 1, definition, validation, project_id, {'source': 'user_draft'})
+            self._insert(key, 1, definition, validation, project_id, {'source': 'user_draft'}, memory_scope, memory_context_id,
+                         _memory_dependencies=_memory_dependencies, document_references=document_references)
         return self.get(key)
 
-    def revise(self, key, revision, digest, definition):
+    def revise(self, key, revision, digest, definition, *, memory_scope=None, memory_context_id=None, _memory_dependencies=(), document_references=None):
         definition, validation = self._definition(definition)
         with self.lock, self.db:
             original, _ = self._current(key, revision, digest)
+            self._assert_memory(original)
+            request = self._request_memory(original, memory_scope, memory_context_id)
             self._assert_trial_idle(original)
             self._insert(key, revision + 1, definition, validation, original['project_id'],
-                         {'source': 'revision', 'parent_revision': revision})
+                         {'source': 'revision', 'parent_revision': revision}, memory_scope or original.get('memory_scope'),
+                         memory_context_id if memory_scope is not None else original.get('memory_context_id'),
+                         _memory_dependencies=_memory_dependencies, _sources=(original,), _request=request,
+                         document_references=document_references)
         return self.get(key)
 
     def _assert_trial_idle(self, item):
@@ -300,9 +349,11 @@ class CapabilityWorkshop:
                 raise ValueError('Cancela o reconcilia primero la validación pendiente; no se repiten efectos inciertos')
             if plan['state'] == 'awaiting_approval': self.learning.cancel(plan['operation_id'])
 
-    def validate(self, key, revision, digest):
+    def validate(self, key, revision, digest, *, memory_scope=None, memory_context_id=None):
         with self.lock, self.db:
             item, _ = self._current(key, revision, digest)
+            self._assert_memory(item)
+            request = self._request_memory(item, memory_scope, memory_context_id)
             definition, validation = self._definition(item['definition'])
             if definition != item['definition'] or validation['environment'] != item['validation']['environment']:
                 raise ValueError('Cambió el contrato o el entorno; crea una revisión nueva')
@@ -315,34 +366,39 @@ class CapabilityWorkshop:
                 validation['message'] = ('Pruebas puras aprobadas; falta revisión humana para registrar el comando.'
                                          if tests['self_tests_passed'] else 'Las pruebas fallaron; corrige la propuesta y crea otra revisión.')
                 item['validation'] = validation
-                self._save(item); self._event(key, revision, validation['status'])
+                self._save(item, request); self._event(key, revision, validation['status'])
                 return copy.deepcopy(validation)
+            task_memory.assert_context(self.db, request['memory_scope'], request['memory_context_id'])
+            self._assert_memory(item)
             return validation | {'runtime_verified': item['validation'].get('runtime_verified', False)}
 
-    def approve(self, key, revision, digest, confirmed=False):
+    def approve(self, key, revision, digest, confirmed=False, *, memory_scope=None, memory_context_id=None):
         if confirmed is not True: raise ValueError('Confirma explícitamente la revisión y su digest')
         with self.lock, self.db:
             item, _ = self._current(key, revision, digest)
+            self._assert_memory(item)
+            request = self._request_memory(item, memory_scope, memory_context_id)
             if item['state'] == 'revoked': raise ValueError('Crea una revisión nueva para reactivar una capacidad revocada')
             if item['definition']['kind'] == 'python_transform':
                 if (item['validation'].get('self_tests_passed') is not True
                         or item['validation'].get('tested_digest') != digest):
                     raise ValueError('Ejecuta primero todas las pruebas de esta revisión antes de aprobar')
-            else: self.validate(key, revision, digest)
+            else: self.validate(key, revision, digest, memory_scope=memory_scope, memory_context_id=memory_context_id)
             if not item['approval']:
                 item['approval'] = {'revision': revision, 'digest': digest, 'approved_at': time.time()}
                 item['state'] = 'reviewed'
-                self._save(item); self._event(key, revision, 'human_reviewed')
+                self._save(item, request); self._event(key, revision, 'human_reviewed')
         return self.get(key)
 
     def _reviewed(self, item):
+        self._assert_memory(item)
         if (item['state'] == 'revoked' or (item.get('approval') or {}).get('digest') != item['digest']
                 or item['approval'].get('revision') != item['revision']):
             raise ValueError('Revisa y aprueba esta revisión exacta antes de continuar')
         if item['definition']['kind'] not in ('workflow', 'python_transform'):
             raise ValueError('La propuesta de código solo admite exportación y revisión manual')
 
-    def prepare_validation(self, key, revision, digest, conversation_id=None):
+    def prepare_validation(self, key, revision, digest, conversation_id=None, *, memory_scope=None, memory_context_id=None):
         if conversation_id is not None:
             from .chat_store import ident
             ident(conversation_id)
@@ -351,7 +407,7 @@ class CapabilityWorkshop:
             self._reviewed(item)
             if item['definition']['kind'] == 'python_transform':
                 raise ValueError('La transformación se valida con pruebas puras; utiliza Validar antes de aprobar')
-            validation = self.validate(key, revision, digest)
+            validation = self.validate(key, revision, digest, memory_scope=memory_scope, memory_context_id=memory_context_id)
             if item['validation_operation_id']:
                 plan = self.learning.get(item['validation_operation_id'])
                 if plan.get('conversation_id') != conversation_id:
@@ -364,15 +420,20 @@ class CapabilityWorkshop:
                 raise ValueError('Hay otra acción pendiente; resuélvela antes de validar una capacidad')
             operation_id = 'workshop-validation-' + uuid.uuid4().hex
             plan, _ = self.learning._new_plan('Validar capacidad: ' + item['definition']['title'], operation_id,
-                                             item['definition']['sample_inputs'], item['project_id'])
+                                             item['definition']['sample_inputs'], item['project_id'], conversation_id=conversation_id,
+                                             memory_scope=memory_scope, memory_context_id=memory_context_id,
+                                             document_references=item.get('document_references'))
             plan.update(conversation_id=conversation_id, steps=validation['steps'],
                         workshop_validation={'id': key, 'revision': revision, 'digest': digest},
                         planning_settings={'model': '', 'provider_name': '', 'selection_mode': 'manual'})
+            self.learning._inherit_memory(plan, item)
+            self.learning.skills.inherit_document_references(plan, item)
             self.learning._ready(plan, ('Validar: ' + item['definition']['title'])[:120])
             self.learning._save(plan)
             item['validation_operation_id'] = operation_id
             with self.db:
-                self._save(item); self._event(key, revision, 'validation_prepared')
+                request = self._request_memory(item, plan.get('memory_scope'), plan.get('memory_context_id'))
+                self._save(item, request); self._event(key, revision, 'validation_prepared')
             return plan
 
     def assert_skill_available(self, skill):
@@ -383,6 +444,9 @@ class CapabilityWorkshop:
         with self.lock:
             self._open()
             item, head = self._load(key, provenance.get('workshop_revision'))
+            self._integrity(item)
+            self._assert_memory(item)
+            self._assert_document_lineage(skill, item)
             if (head[1] != item['revision'] or item['state'] != 'active'
                     or skill['id'] != item['skill_id'] or skill.get('executable') is not True
                     or provenance.get('workshop_digest') != item['digest']):
@@ -395,7 +459,9 @@ class CapabilityWorkshop:
             with self.lock:
                 item, _ = self._current(ref['id'], ref['revision'], ref['digest'])
                 self._reviewed(item)
-                validation = self.validate(item['id'], item['revision'], item['digest'])
+                self._assert_document_lineage(plan, item)
+                validation = self.validate(item['id'], item['revision'], item['digest'],
+                    memory_scope=plan.get('memory_scope'), memory_context_id=plan.get('memory_context_id'))
                 if plan['operation_id'] != item['validation_operation_id'] or plan['steps'] != validation['steps']:
                     raise ValueError('La validación no corresponde a la revisión aprobada')
         for ref in plan.get('skill_versions', []):
@@ -428,7 +494,8 @@ class CapabilityWorkshop:
         if not receipts: raise ValueError('No hay efectos comprobados')
         return plan, receipts
 
-    def _publish(self, item, *, executable, receipts=()):
+    def _publish(self, item, *, executable, receipts=(), _sources=()):
+        self._assert_memory(item)
         key = item['skill_id']
         version = self.db.execute('SELECT COALESCE(MAX(version),0)+1 FROM skill_versions WHERE id=?', (key,)).fetchone()[0]
         definition = item['definition']
@@ -437,20 +504,29 @@ class CapabilityWorkshop:
                  'templates': definition['templates'], 'schema': definition['schema'], 'examples': [],
                  'project_id': item['project_id'], 'favorite': False, 'checks': ['executor_postconditions'],
                  'executable': executable, 'created_at': time.time(), 'environment': item['validation']['environment'],
+                 'origin_task_id':(item.get('memory_scope') or {}).get('task_id'), 'memory_scope':item.get('memory_scope'),
+                 'memory_context_id':item.get('memory_context_id'),
                  'provenance': {'source': 'capability_workshop', 'workshop_id': item['id'],
                                 'workshop_revision': item['revision'], 'workshop_digest': item['digest']}}
-        # Same transaction as the workshop state; SkillMemory.insert commits early.
+        self.learning._inherit_memory(skill, item, *_sources)
+        self.learning.skills.inherit_document_references(skill, item, *_sources)
+        # Same transaction as the workshop state; preserve its publication guard.
         self.db.execute('INSERT INTO skill_versions VALUES (?,?,?)', (key, version, json.dumps(skill, ensure_ascii=False)))
         if executable:
-            evidence = {'effect_verified': True, 'verified_at': time.time(), 'results': list(receipts)}
+            evidence = {'effect_verified': True, 'verified_at': time.time(), 'results': list(receipts),
+                'origin_task_id':(item.get('memory_scope') or {}).get('task_id'), 'memory_scope':item.get('memory_scope'),
+                'memory_context_id':item.get('memory_context_id')}
+            self.learning._inherit_memory(evidence, item, *_sources)
+            self.learning.skills.inherit_document_references(evidence, item, *_sources)
             self.db.execute('INSERT INTO skill_evidence VALUES (?,?,?,?)',
                             (key, version, item['validation_operation_id'], json.dumps(evidence, ensure_ascii=False)))
         return version
 
-    def activate(self, key, revision, digest):
+    def activate(self, key, revision, digest, *, memory_scope=None, memory_context_id=None):
         with self.lock, self.db:
             item, head = self._current(key, revision, digest)
             self._reviewed(item)
+            request = self._request_memory(item, memory_scope, memory_context_id)
             if item['definition']['kind'] == 'python_transform':
                 if (item['validation'].get('self_tests_passed') is not True
                         or item['validation'].get('tested_digest') != digest):
@@ -464,19 +540,19 @@ class CapabilityWorkshop:
                 item['validation'].update(runtime_verified=True,
                     message='Código puro probado y revisado; comando registrado con entrada y salida tipadas.')
                 self.db.execute('UPDATE capability_heads SET active_revision=? WHERE id=?', (revision, key))
-                self._save(item); self._event(key, revision, 'activated')
+                self._save(item, request); self._event(key, revision, 'activated')
                 self._refresh_generated()
                 return self.get(key)
-            self.validate(key, revision, digest)
+            self.validate(key, revision, digest, memory_scope=memory_scope, memory_context_id=memory_context_id)
             if item['state'] == 'active' and head[1] == revision: return self.get(key)
-            _, receipts = self._receipts(item)
+            trial, receipts = self._receipts(item)
             if head[1] is not None and head[1] != revision:
                 old, _ = self._load(key, head[1]); old['state'] = 'superseded'; self._save(old)
-            item.update(state='active', published_skill_version=self._publish(item, executable=True, receipts=receipts))
+            item.update(state='active', published_skill_version=self._publish(item, executable=True, receipts=receipts, _sources=(trial,)))
             item['validation']['runtime_verified'] = True
             item['validation']['message'] = 'Muestra ejecutada y comprobada. Cada uso nuevo vuelve a validar parámetros y política.'
             self.db.execute('UPDATE capability_heads SET active_revision=? WHERE id=?', (revision, key))
-            self._save(item); self._event(key, revision, 'activated')
+            self._save(item, request); self._event(key, revision, 'activated')
             self._refresh_generated()
         return self.get(key)
 
@@ -486,7 +562,10 @@ class CapabilityWorkshop:
             with self.db:
                 if head[1] is not None:
                     active, _ = self._load(key, head[1]); active['state'] = 'revoked'
-                    if active['definition']['kind'] == 'workflow': self._publish(active, executable=False)
+                    if active['definition']['kind'] == 'workflow':
+                        try: self._assert_memory(active)
+                        except ValueError: pass
+                        else: self._publish(active, executable=False)
                     self._save(active)
                 item['state'] = 'revoked'; item['approval'] = None
                 self.db.execute('UPDATE capability_heads SET active_revision=NULL WHERE id=?', (key,))
@@ -499,17 +578,23 @@ class CapabilityWorkshop:
                     self.learning.cancel(plan['operation_id'])
         return self.get(key)
 
-    def rollback(self, key, revision, digest, target_revision):
+    def rollback(self, key, revision, digest, target_revision, *, memory_scope=None, memory_context_id=None):
         with self.lock:
             current, _ = self._current(key, revision, digest)
+            self._assert_memory(current)
+            request = self._request_memory(current, memory_scope, memory_context_id)
             if type(target_revision) is not int or not 1 <= target_revision < revision:
                 raise ValueError('Selecciona una revisión anterior')
             old, _ = self._load(key, target_revision)
+            self._assert_memory(old)
             definition, validation = self._definition(old['definition'])
             self._assert_trial_idle(current)
             with self.db:
                 self._insert(key, revision + 1, definition, validation, current['project_id'],
-                             {'source': 'rollback', 'restored_revision': target_revision, 'parent_revision': revision})
+                             {'source': 'rollback', 'restored_revision': target_revision, 'parent_revision': revision},
+                             memory_scope or current.get('memory_scope'),
+                             memory_context_id if memory_scope is not None else current.get('memory_context_id'),
+                             _sources=(current, old), _request=request)
             self._refresh_generated()
         return self.get(key)
 
@@ -525,9 +610,37 @@ class CapabilityWorkshop:
             with self.idle:
                 self.requests.discard(request_id); self.request_backends.pop(request_id, None); self.idle.notify_all()
 
+    def _assert_document_lineage(self, target, *sources):
+        references = self.learning.skills.resolve_document_references(target.get('document_references'))
+        for source in sources:
+            if any(ref not in references for ref in self.learning.skills.resolve_document_references(source.get('document_references'))):
+                raise ValueError('La capacidad perdió una referencia documental de origen')
+
+    def _document_data(self, references):
+        documents = []
+        for reference in references[:3]:
+            source = self.commands.procedures.get(reference['document_id'], expected_reference=reference)
+            content = source['reference_text']
+            entry = {'document_reference': reference, 'reference_text': ''}
+            low, high = 0, len(content)
+            while low < high:
+                middle = (low + high + 1) // 2
+                entry['reference_text'] = content[:middle]
+                if len(json.dumps(documents + [entry], ensure_ascii=False).encode('utf-8')) <= 3500: low = middle
+                else: high = middle - 1
+            entry['reference_text'] = content[:low]
+            if len(json.dumps(documents + [entry], ensure_ascii=False).encode('utf-8')) <= 3500:
+                documents.append(entry)
+        return documents
+
     def generate(self, goal, model='', provider_name='', selection_mode='manual', kind='workflow', project_id='',
                  capability_id=None, revision=None, digest=None, conversation_id=None, request_id=None,
-                 max_attempts=2, _budget=None):
+                 max_attempts=2, _budget=None, memory_scope=None, memory_context_id=None, _memory_dependencies=(), document_references=None):
+        with self.lock:
+            captured = task_memory.assert_context(self.db, memory_scope, memory_context_id, task_id=conversation_id or (memory_scope or {}).get('task_id'))
+        origin = {'memory_scope':captured, 'memory_context_id':memory_context_id}
+        origin['memory_dependencies'] = task_memory.assert_dependencies(self.db, list(_memory_dependencies))
+        self.learning.skills.inherit_document_references(origin, {'document_references': document_references})
         _text(goal, 'Objetivo', 4000)
         _text(model, 'Modelo', 200, empty=True); _text(provider_name, 'Proveedor', 200, empty=True)
         project_key(project_id)
@@ -543,6 +656,9 @@ class CapabilityWorkshop:
         if capability_id:
             with self.lock:
                 previous, _ = self._current(capability_id, revision, digest)
+                self._assert_memory(previous)
+                self.learning._inherit_memory(origin, previous)
+                self.learning.skills.inherit_document_references(origin, previous)
                 if previous['project_id'] != project_id: raise ValueError('La capacidad pertenece a otro proyecto')
         elif revision is not None or digest is not None:
             raise ValueError('La revisión requiere un ID de capacidad')
@@ -580,8 +696,11 @@ class CapabilityWorkshop:
                   'Estructura exacta del objeto de respuesta (sustituye los valores de ejemplo):\n'
                   + json.dumps(shape, ensure_ascii=False))
         system = compose('capability', contract=system)['text']
-        reference = json.dumps({'goal': goal, 'contracts': self.catalog()['commands'] if kind == 'workflow' else [],
-                                'previous_definition': previous['definition'] if previous else None}, ensure_ascii=False)
+        reference_data = {'goal': goal, 'contracts': self.catalog()['commands'] if kind == 'workflow' else [],
+                          'previous_definition': previous['definition'] if previous else None}
+        if origin.get('document_references'):
+            reference_data['reference_documents'] = self._document_data(origin['document_references'])
+        reference = json.dumps(reference_data, ensure_ascii=False)
         request_id = request_id or 'capability-' + uuid.uuid4().hex
         if not isinstance(request_id,str) or not re.fullmatch(r'[A-Za-z0-9_.-]{1,128}',request_id):
             raise ValueError('Identidad de construcción inválida')
@@ -605,17 +724,28 @@ class CapabilityWorkshop:
                 request['upstream_attempt_budget']=getattr(settle,'attempt_budget',1 if provider_name=='@codex' else direct_remaining)
                 reserved=request['upstream_attempt_budget']
                 try:
+                    with self.lock:
+                        self._assert_memory(origin)
+                        task_memory.assert_context(self.db, origin['memory_scope'], origin['memory_context_id'])
                     if provider_name == '@codex':
                         from .connect.provider import ProviderError
+                        if getattr(backend, 'supports_task_memory', False):
+                            request.update({key: origin[key] for key in ('memory_scope', 'memory_context_id')})
                         try: response = backend.generate_capability(request)
                         except ProviderError as exc: raise ValueError(str(exc)) from exc
-                    else: response = backend.route(request)
+                    else:
+                        kwargs = {'cancel_event':MemoryCancellation(self.commands.executor.db_path,
+                            origin | {'conversation_id':conversation_id, 'project_id':project_id}, self.transform_cancelled)} if getattr(backend, 'supports_cancel_event', False) else {}
+                        response = backend.route(request, **kwargs)
                 except BaseException:
                     if settle is not None: settle(None)
                     else:direct_remaining-=reserved
                     raise
                 if settle is not None: settle(response)
                 else:direct_remaining-=inference_accounting(response,reserved,single_request=provider_name=='@codex')[1]
+                with self.lock:
+                    self._assert_memory(origin)
+                    task_memory.assert_context(self.db, origin['memory_scope'], origin['memory_context_id'])
                 with self.lock: self._open()
                 if time.monotonic() >= deadline: raise ValueError('La generación agotó su plazo; no se guardó la propuesta')
                 if not isinstance(response, dict) or response.get('ok') is not True:
@@ -642,10 +772,13 @@ class CapabilityWorkshop:
                         'validation_error': str(exc)[:2000],
                         'instruction': 'Corrige el objeto según el contrato original. Conserva el objetivo. No ejecutes ni apruebes nada.'}, ensure_ascii=False)
                     continue
-                result = (self.revise(capability_id, revision, digest, data) if capability_id
-                          else self.create(data, project_id))
+                captured = {key: origin[key] for key in ('memory_scope', 'memory_context_id')}
+                result = (self.revise(capability_id, revision, digest, data, **captured, _memory_dependencies=origin['memory_dependencies'],
+                                      document_references=origin.get('document_references')) if capability_id
+                          else self.create(data, project_id, **captured, _memory_dependencies=origin['memory_dependencies'],
+                                           document_references=origin.get('document_references')))
                 with self.lock, self.db:
-                    item, _ = self._load(result['id'])
+                    item, _ = self._current(result['id'], result['revision'], result['digest'])
                     # Persist allowlisted metadata, never opaque provider config or tokens.
                     route = response.get('route', {})
                     route = route if isinstance(route, dict) else {}
@@ -655,6 +788,22 @@ class CapabilityWorkshop:
                         route={key: str(route[key])[:200] for key in ('model', 'provider_name') if key in route})
                     self._save(item); self._event(item['id'], item['revision'], 'model_proposed')
                 return self.get(result['id'])
+
+    def forget_task(self, task_id):
+        with self.lock, self.db:
+            if not task_memory.state(self.db, task_id)['forgetting']: raise ValueError('El olvido requiere una barrera pendiente')
+            count = 0
+            for key, revision, raw in self.db.execute('SELECT id,revision,payload FROM capability_revisions').fetchall():
+                item = json.loads(raw)
+                if ((item.get('memory_scope') or {}).get('task_id') != task_id
+                        and not any(ref.get('task_id') == task_id for ref in item.get('memory_dependencies', []))): continue
+                item.update(memory_forgotten=True, state='revoked', approval=None)
+                self.db.execute('UPDATE capability_revisions SET payload=? WHERE id=? AND revision=?',
+                    (json.dumps(item, ensure_ascii=False), key, revision))
+                self.db.execute('UPDATE capability_heads SET active_revision=NULL WHERE id=? AND active_revision=?', (key, revision))
+                count += 1
+        self._refresh_generated()
+        return {'withdrawn_capability_revisions':count, 'effect_journal_preserved':True}
 
     def export(self, key, revision=None):
         with self.lock:

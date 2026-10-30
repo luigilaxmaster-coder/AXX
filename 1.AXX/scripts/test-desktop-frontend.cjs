@@ -56,7 +56,7 @@ assert.deepEqual(reviewResolution.steps,[{command_id:'axx.desktop.list_windows',
       window.__contractRecipes = [];
       window.__contractCommands = {};
       window.__contractEvents = {};
-      window.__contractConversation = { id: 'contract-chat', title: 'Contract conversation', messages: [], draft: '', draft_at: Date.now(), updated: Date.now(), mode: 'ask', context: [], links: [], connect_id: 'contract-connect', shared_id: 'contract-shared' };
+      window.__contractConversation = { id: 'contract-chat', title: 'Contract conversation', messages: [], draft: '', draft_at: Date.now(), updated: Date.now(), mode: 'ask', context: [], links: [], connect_id: 'contract-connect', shared_id: 'contract-shared',memory_scope:{task_id:'contract-chat',generation:0} };
       const pcm = new Uint8Array(44 + 3200), view = new DataView(pcm.buffer);
       const str = (at, text) => [...text].forEach((c, i) => pcm[at + i] = c.charCodeAt(0));
       str(0, 'RIFF'); view.setUint32(4, pcm.length - 8, true); str(8, 'WAVE'); str(12, 'fmt '); view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true); view.setUint32(24, 16000, true); view.setUint32(28, 32000, true); view.setUint16(32, 2, true); view.setUint16(34, 16, true); str(36, 'data'); view.setUint32(40, 3200, true);

@@ -340,8 +340,9 @@ class DesktopCommandTests(unittest.TestCase):
 
     @unittest.skipUnless(os.name == 'nt', 'Windows PowerShell integration')
     def test_real_powershell_output_and_error(self):
-        for script, state in [("Write-Output 'hola áxx'", 'succeeded'),
-                              ("Set-Content -LiteralPath 'shell-unicode.txt' -Value 'hola áxx' -Encoding UTF8; Get-Content -LiteralPath 'shell-unicode.txt' -Encoding UTF8", 'succeeded'),
+        # Exercise the intended built-ins without depending on unrelated module discovery.
+        for script, state in [("Microsoft.PowerShell.Utility\\Write-Output 'hola áxx'", 'succeeded'),
+                              ("Microsoft.PowerShell.Management\\Set-Content -LiteralPath 'shell-unicode.txt' -Value 'hola áxx' -Encoding UTF8; Microsoft.PowerShell.Management\\Get-Content -LiteralPath 'shell-unicode.txt' -Encoding UTF8", 'succeeded'),
                               ("throw 'fixture failure'", 'failed')]:
             pending = self.service.prepare('axx.shell.powershell', {'script': script})
             result = self.service.execute(pending['operation_id'], True)

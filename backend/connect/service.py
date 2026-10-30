@@ -15,6 +15,7 @@ import time
 import uuid
 
 from backend.commands import ADAPTERS, TERMINAL, ApprovalRequired
+from backend.memory import task_memory
 from backend.connect.registry import VERSION, UI_CAPABILITIES, augment_registry, describe, validate, validate_ui, tool_descriptors, concrete_action_arguments
 
 ID_PATTERN = r'[A-Za-z0-9_.-]{1,128}'
@@ -109,6 +110,10 @@ class ConnectService:
         # their existing DB. No raw model prompt or token is added to logs.
         if result.get('state') != 'succeeded' or result.get('postconditions_passed') is not True:
             return
+        try:
+            self._assert_memory(result)
+        except ValueError:
+            return
         key = result['command_id']
         if key not in ADAPTERS or not self.memory:
             return
@@ -123,10 +128,28 @@ class ConnectService:
                 steps=[{'tool': adapter['tool'], 'args': args}], schema=schema, status='verified',
                 preconditions=['Same registry adapter/version, executor scope, validated parameters and current permissions',
                                'axx-adapter-version:' + str(result.get('adapter_version'))],
-                postconditions=['ActionExecutor.verify_postconditions passed; source operation ' + result['operation_id']])
+                postconditions=['ActionExecutor.verify_postconditions passed; source operation ' + result['operation_id']],
+                memory_scope=result.get('memory_scope'), memory_context_id=result.get('memory_context_id'),
+                _memory_dependencies=result.get('memory_dependencies',[]))
             result['procedure_id'] = recipe_id
         except Exception as exc:
             result['memory_warning'] = type(exc).__name__
+
+    def _assert_memory(self, policy):
+        current = task_memory.assert_context(self.db, policy.get('memory_scope'), policy.get('memory_context_id'),
+                                             task_id=policy.get('conversation_id'))
+        task_memory.assert_dependencies(self.db,policy.get('memory_dependencies',policy.get('_memory_dependencies',[])))
+        return current
+
+    def _task_projection(self, result):
+        if result is None:
+            return result
+        try:
+            self._assert_memory(result)
+        except ValueError as exc:
+            return {'operation_id':result['operation_id'], 'state':result['state'], 'memory_forgotten':True,
+                    'postconditions_passed':False, 'error':{'code':'MEMORY_SCOPE_CHANGED','message':str(exc)}}
+        return result
 
     def execute(self, body, *, admission=None, chat_policy=None):
         """Validate, then durably admit under an optional caller-owned guard.
@@ -135,6 +158,7 @@ class ConnectService:
         while already held; workers and executor waits run after it is released.
         """
         schema = next(item['inputSchema'] for item in tool_descriptors() if item['name'] == 'axx_execute_action')
+        chat_policy = dict(chat_policy or {})
         validate(schema, body)
         key = body['command_id']
         operation_id = checked_id(body['operation_id'])
@@ -155,6 +179,7 @@ class ConnectService:
         with self.lock:
             if self.closed:
                 raise ValueError('Servicio cerrado')
+            self._assert_memory(chat_policy or {})
             # A rejected caller must not even consume a CommandService prepare.
             # Re-enter at the durable admission point after potentially slow
             # preparation; no provider lock is held while that work waits.
@@ -195,6 +220,12 @@ class ConnectService:
                             # validation/approval path; recipes grant no permission.
                             inputs = {name: inputs[value[8:]] for name, value in expected.items()}
                             reused = {'id': recipe.id, 'version': recipe.version, 'environment': recipe.env_fingerprint}
+                            dependencies = list(chat_policy.get('_memory_dependencies',[]))
+                            if recipe.memory_scope:
+                                dependencies.append(dict(recipe.memory_scope))
+                            dependencies.extend(recipe.memory_dependencies)
+                            unique = [reference for i,reference in enumerate(dependencies) if reference not in dependencies[:i]]
+                            chat_policy['_memory_dependencies'] = task_memory.assert_dependencies(self.db,unique)
                 prepared = self.commands.prepare(key, inputs, 'text', operation_id, **(chat_policy or {}))
                 result = prepared | {'inputs': inputs, 'procedure_reused': reused is not None}
                 if reused:
@@ -203,6 +234,9 @@ class ConnectService:
             result.update(origin=origin, parent_execution_id=parent, delegation_depth=depth,
                           adapter_version=describe(self.commands, self.commands.commands[key]).get('adapter_version'),
                           created_at=time.time(), attempts=1, goal=key, model_usage=None)
+            result.update({field:chat_policy[field] for field in ('conversation_id','memory_scope','memory_context_id') if chat_policy and field in chat_policy})
+            if chat_policy and '_memory_dependencies' in chat_policy:
+                result['memory_dependencies'] = chat_policy['_memory_dependencies']
             now, inserted = time.time(), False
             try:
                 if admission is not None:
@@ -212,6 +246,7 @@ class ConnectService:
                 with (admission() if admission is not None else nullcontext()) as recheck:
                     if callable(recheck):
                         recheck()
+                    self._assert_memory(chat_policy or {})
                     self.db.execute('INSERT INTO connect_tasks VALUES(?,?,?,?,?,?,?,?,?)',
                         (operation_id, key, json.dumps(inputs, sort_keys=True), origin, parent, depth, json.dumps(result, ensure_ascii=False), now, now))
                     self.db.commit()
@@ -360,6 +395,12 @@ class ConnectService:
                 result = self.get_task(row['operation_id'])
                 if result['state'] != 'queued' or result['command_id'] not in self.ui_handlers:
                     continue
+                try:
+                    self._assert_memory(result)
+                except ValueError as exc:
+                    self._save(result | {'state':'cancelled', 'cancel_requested':True, 'memory_forgotten':True,
+                                         'error':{'code':'MEMORY_SCOPE_CHANGED','message':str(exc)}})
+                    continue
                 result.update(state='claimed', claim_id=uuid.uuid4().hex)
                 self._save(result)
                 tasks.append(result)
@@ -404,7 +445,7 @@ class ConnectService:
                 if name == 'axx_list_capabilities':
                     return self.capabilities(arguments.get('query', ''), arguments.get('limit', 100), arguments.get('offset', 0))
                 if name == 'axx_get_task':
-                    return self.get_task(arguments['operation_id'])
+                    return self._task_projection(self.get_task(arguments['operation_id']))
                 checked_id(request_id, 'request_id')
                 target = self.get_task(arguments['operation_id'])
                 # Model callbacks can cancel only effects admitted to THIS run.
@@ -422,9 +463,17 @@ class ConnectService:
             tables = {r[0] for r in self.db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
             if {'chat_conversations','connect_runs'} <= tables:
                 chat_policy = {'command_mode': 'ask'}
-                row = self.db.execute('SELECT c.id,c.mode FROM chat_conversations c JOIN connect_runs r ON r.conversation_id=c.connect_id WHERE r.request_id=?', (request_id,)).fetchone()
-                if row:
-                    chat_policy = {'conversation_id': row[0], 'command_mode': row[1]}
+                saved = self.db.execute('SELECT body_json FROM connect_runs WHERE request_id=?', (request_id,)).fetchone()
+                if saved:
+                    run = json.loads(saved[0])
+                    reference = run.get('memory_scope')
+                    owner = reference.get('task_id') if isinstance(reference,dict) else None
+                    row = self.db.execute('SELECT id,mode FROM chat_conversations WHERE id=? OR connect_id=?', (owner,run['conversation_id'])).fetchone()
+                    if owner or row:
+                        chat_policy = {'conversation_id':owner or row['id'], 'command_mode':row['mode'] if row else 'ask',
+                                       'memory_scope':reference, 'memory_context_id':run.get('memory_context_id',run['conversation_id']),
+                                       '_memory_dependencies':run.get('memory_dependencies',[])}
+                        self._assert_memory(chat_policy)
         # The opaque computer ticket already requires this chat's explicit window grant.
         if arguments['command_id'] in ('axx.computer.observe','axx.computer.act'):
             chat_policy=dict(chat_policy or {},command_mode='auto_safe')

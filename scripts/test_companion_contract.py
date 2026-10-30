@@ -14,6 +14,7 @@ class CompanionContractTests(unittest.TestCase):
         self.root=Path(self.enterContext(tempfile.TemporaryDirectory()))
         names=set(contract.read(contract.ROOT/'mobile/design-baseline.json')['protected'])
         names={name.split('#')[0] for name in names}|{'package.json','backend/mobile/gateway.py','mobile/companion-contract.json','mobile/design-baseline.json','mobile/package.json','mobile/package-lock.json','mobile/android/app/build.gradle','scripts/companion_contract.py','scripts/validate_companion.py','scripts/test_companion_contract.py','scripts/release.py','requirements-mobile.txt','requirements-companion-tests.txt'}
+        names.update(contract.SHARED_MEMORY_INPUTS)
         for name in names:
             target=self.root/name;target.parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(contract.ROOT/name,target)
 
@@ -54,6 +55,14 @@ class CompanionContractTests(unittest.TestCase):
     def test_new_mobile_source_invalidates_old_evidence(self):
         path,_=self.receipt();(self.root/'mobile/js/future.js').write_text('/* added after validation */',encoding='utf-8')
         with self.assertRaisesRegex(ValueError,'evidence is stale'):contract.validate_receipt(self.root,path)
+
+    def test_shared_memory_authority_and_mirror_drift_invalidates_evidence(self):
+        for name in contract.SHARED_MEMORY_INPUTS:
+            with self.subTest(source=name):
+                path,_=self.receipt();source=self.root/name;original=source.read_bytes()
+                source.write_bytes(original+b'\n')
+                with self.assertRaisesRegex(ValueError,'evidence is stale'):contract.validate_receipt(self.root,path)
+                source.write_bytes(original)
 
     def test_generated_capacitor_assets_do_not_break_clean_checkout_receipts(self):
         before=contract.input_hashes(self.root)

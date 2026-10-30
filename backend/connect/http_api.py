@@ -86,15 +86,16 @@ class ConnectHTTP:
         elif path == '/axx-api/connect/capabilities':
             result = self.service.capabilities(one('q', ''), int(one('limit', 100)), int(one('offset', 0)))
         elif path == '/axx-api/connect/task':
-            result = self.service.get_task(one('operation_id'))
+            result = self.service._task_projection(self.service.get_task(one('operation_id')))
         elif path == '/axx-api/connect/run':
             result = self.provider.get(one('request_id'), after=int(one('after', 0)))
         elif path == '/axx-api/connect/ui/claim':
             result = self.service.ui_claim()
         elif path == '/axx-api/connect/history':
             with self.service.lock:
-                tasks = [json.loads(row[0]) for row in self.service.db.execute('SELECT result_json FROM connect_tasks ORDER BY created_at DESC LIMIT 50')]
-            result = {'operations': self.h.commands.operations(), 'tasks': tasks, 'runs': self.provider.history()}
+                tasks = [self.service._task_projection(json.loads(row[0])) for row in self.service.db.execute('SELECT result_json FROM connect_tasks ORDER BY created_at DESC LIMIT 50')]
+                operations = [self.service._task_projection(operation) for operation in self.h.commands.operations()]
+            result = {'operations': operations, 'tasks': tasks, 'runs': self.provider.history()}
         else:
             self.h._send_json(404, {'error': {'code': 'NOT_FOUND', 'message': 'Unknown Axx Connect route'}})
             return True
@@ -107,6 +108,12 @@ class ConnectHTTP:
         if not self.service or not self.provider:
             raise ValueError('Axx Connect is unavailable')
         if path == '/axx-api/connect/start':
+            if isinstance(body,dict) and body.get('memory_scope') is not None:
+                body = dict(body)
+                if 'memory_context_id' not in body and 'conversation_id' in body:
+                    body['memory_context_id'] = body['conversation_id']
+                if body.get('purpose','chat') in ('chat','voice') and body.get('memory_context_id') != body.get('conversation_id'):
+                    raise ValueError('La solicitud debe conservar el contexto opaco original del chat')
             result = self.provider.start(body)
         elif path == '/axx-api/connect/cancel':
             if set(body) - {'operation_id', 'request_id'}:

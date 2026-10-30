@@ -1,6 +1,8 @@
 """Private loopback service owned and authenticated by the Axx native host."""
 from __future__ import annotations
 import argparse
+import copy
+from contextlib import contextmanager
 import base64
 import datetime as dt
 import hashlib
@@ -57,6 +59,8 @@ from backend.converter import ConverterService
 from backend.mobile.http_api import MobileHTTP
 from backend.anticipation import AnticipationService
 from backend.telegram.http_api import TelegramHTTP
+from backend.memory import task_memory
+from backend import session_memory
 
 LOG = logging.getLogger('axx.server')
 MAX_BODY = 2 * 1024 * 1024
@@ -124,6 +128,65 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
     chatgpt_auth = chatgpt_adapter = None
     connect = provider = None
     frontend_path = root_dir / '1.AXX' / 'Axx.html'
+
+    @contextmanager
+    def _memory_db(self):
+        if self.chats:
+            with self.chats.db() as db:
+                yield db
+        elif self.learning:
+            with self.learning.lock:
+                yield self.learning.db
+        elif self.commands:
+            with self.commands.lock:
+                yield self.commands.db
+        else:
+            yield None
+
+    def _capture_memory(self, body, *, task_id=None, chat=False):
+        ref = copy.deepcopy(body.get('memory_scope'))
+        if ref is not None and (not isinstance(ref, dict) or set(ref) != {'task_id', 'generation'}):
+            raise ValueError('Referencia de memoria inválida')
+        owner = task_id if task_id is not None else body.get('task_id')
+        if owner is None and ref is not None: owner=ref.get('task_id')
+        context_id = body.get('memory_context_id')
+        with self._memory_db() as db:
+            if chat:
+                opaque = body.get('conversation_id')
+                if ref is not None:
+                    if not isinstance(opaque, str) or not opaque or context_id is not None and context_id != opaque:
+                        raise ValueError('La petición requiere su contexto de conversación capturado')
+                    context_id = opaque
+                elif opaque and db is not None and db.execute("SELECT 1 FROM sqlite_master WHERE name='chat_conversations'").fetchone():
+                    rows = db.execute('SELECT id,connect_id FROM chat_conversations WHERE id=? OR connect_id=?', (opaque, opaque)).fetchall()
+                    if len(rows) > 1: raise ValueError('Identidad de conversación ambigua')
+                    if rows:
+                        owner = rows[0][0]
+                        context_id = opaque if opaque == rows[0][1] else None
+            else:
+                declared = body.get('conversation_id')
+                if declared is not None:
+                    if owner is not None and owner != declared: raise ValueError('La referencia pertenece a otra tarea')
+                    owner = declared
+            if db is None:
+                if ref is not None or context_id is not None: raise ValueError('Memoria de conversaciones no disponible')
+                return {'task_id': owner, 'memory_scope': None, 'memory_context_id': None, 'unattributed': chat}
+            if chat: captured,context_id = task_memory.capture_context(db,ref,context_id,task_id=owner)
+            else: captured = task_memory.assert_context(db, ref, context_id, task_id=owner)
+            snapshot = {'task_id': owner, 'memory_scope': copy.deepcopy(captured), 'memory_context_id': context_id,
+                        'unattributed': chat and owner is None}
+        self._check_memory(snapshot)
+        return snapshot
+
+    def _check_memory(self, captured):
+        with self._memory_db() as db:
+            if db is None: return
+            if captured['unattributed']:
+                exists = db.execute("SELECT 1 FROM sqlite_master WHERE name='memory_task_scopes'").fetchone()
+                if exists and db.execute('SELECT 1 FROM memory_task_scopes WHERE generation>0 OR forgetting=1 LIMIT 1').fetchone():
+                    raise ValueError('La petición requiere una referencia de memoria atribuible y vigente')
+            else:
+                task_memory.assert_context(db, captured['memory_scope'], captured['memory_context_id'], task_id=captured['task_id'])
 
     def setup(self):
         super().setup()
@@ -266,10 +329,14 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
             if McpHTTP(self).get(path):
                 return
             if path == '/axx-api/chat/conversations':
-                query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
-                if set(query) - {'id', 'shared_id'} or len(query) > 1 or any(len(v) != 1 for v in query.values()):
+                query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query, keep_blank_values=True)
+                if (set(query) - {'id', 'shared_id', 'include_history'} or {'id','shared_id'} <= set(query)
+                        or any(len(v) != 1 for v in query.values()) or 'include_history' in query and not ({'id','shared_id'} & set(query))):
                     raise ValueError('Invalid conversation query')
+                include_history = query.get('include_history', ['false'])[0]
+                if include_history not in ('true', 'false'): raise ValueError('Invalid history flag')
                 result = self.chats.by_shared_id(query['shared_id'][0]) if 'shared_id' in query else self.chats.get(query['id'][0]) if 'id' in query else self.chats.list()
+                if include_history == 'true': result = self.chats.get(result['id'], include_history=True)
                 self._send_json(200, result)
                 return
             if path == '/axx-api/chat/profile':
@@ -604,8 +671,10 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                     return
                 if set(body) - {'model', 'stream', 'axx_task', 'messages', 'temperature', 'max_tokens', 'tools',
                                 'request_id', 'conversation_id', 'deadline_ms', 'sensitivity',
-                                'provider', 'allow_fallback', 'mode', 'provider_name', 'selection_mode'}:
+                                'provider', 'allow_fallback', 'mode', 'provider_name', 'selection_mode', 'memory_scope', 'memory_context_id'}:
                     raise ValueError('Unsupported chat fields')
+
+                captured_memory = self._capture_memory(body, chat=True)
 
                 model = body.get('model', '')
                 is_chatgpt = body.get('provider') == 'chatgpt' or body.get('mode') == 'auth'
@@ -646,6 +715,7 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                     if key in body:
                         envelope[key] = body[key]
                 result = self.adapter.route(envelope)
+                self._check_memory(captured_memory)
                 if not result.get('ok'):
                     code = result.get('error', {}).get('code')
                     status = 409 if code == 'BUSY' else 400 if code == 'INVALID_REQUEST' else 499 if code == 'CANCELLED' else 502
@@ -656,6 +726,7 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                 if body.get('stream') is True:
                     payload = ('data: ' + json.dumps({'delta': message.get('content', ''), 'done': True,
                                'choices': [{'delta': message, 'finish_reason': 'stop'}]}) + '\n\ndata: [DONE]\n\n').encode('utf-8')
+                    self._check_memory(captured_memory)
                     self.send_response(200)
                     self.send_header('Content-Type', 'text/event-stream; charset=utf-8')
                     self.send_header('Content-Length', str(len(payload)))
@@ -664,6 +735,7 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                     self.wfile.write(payload)
                     self.close_connection = True
                 else:
+                    self._check_memory(captured_memory)
                     self._send_json(200, {'request_id': result['request_id'], 'choices': [{'message': message, 'finish_reason': 'stop'}],
                                          'axx_router': result.get('route')})
             elif path == '/axx-api/chat/cancel':
@@ -729,64 +801,90 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                 action = path.rsplit('/', 1)[-1]
                 identity = {'id', 'revision', 'digest'}
                 fields = {
-                    'create': {'definition', 'project_id'},
-                    'generate': {'goal', 'model', 'provider_name', 'selection_mode', 'kind', 'project_id', 'capability_id', 'revision', 'digest', 'conversation_id'},
-                    'revise': identity | {'definition'}, 'validate': identity,
+                    'create': {'definition', 'project_id', 'document_references'},
+                    'generate': {'goal', 'model', 'provider_name', 'selection_mode', 'kind', 'project_id', 'capability_id', 'revision', 'digest', 'conversation_id', 'document_references'},
+                    'revise': identity | {'definition', 'document_references'}, 'validate': identity,
                     'approve': identity | {'confirmed'}, 'prepare': identity | {'conversation_id'},
                     'activate': identity, 'revoke': identity, 'rollback': identity | {'target_revision'},
                 }
+                fields={key:value|{'memory_scope','memory_context_id'} for key,value in fields.items()}
                 if action not in fields or set(body) - fields[action]: raise ValueError('Campos de capacidad inválidos')
+                captured_memory=self._capture_memory(body) if action!='revoke' else None
+                memory_kwargs={key:copy.deepcopy(body[key]) for key in ('memory_scope','memory_context_id') if key in body}
+                document_kwargs={key:copy.deepcopy(body[key]) for key in ('document_references',) if key in body}
                 if body.get('conversation_id'):
                     if not self.chats: raise ValueError('Conversaciones no disponibles')
                     self.chats.get(body['conversation_id'])
-                if action == 'create': result = self.workshop.create(body.get('definition'), body.get('project_id', ''))
+                if action == 'create': result = self.workshop.create(body.get('definition'), body.get('project_id', ''),**memory_kwargs,**document_kwargs)
                 elif action == 'generate':
                     result = self.workshop.generate(body.get('goal'), model=body.get('model', ''), provider_name=body.get('provider_name', ''),
                         selection_mode=body.get('selection_mode', 'manual'), kind=body.get('kind', 'workflow'), project_id=body.get('project_id', ''),
-                        capability_id=body.get('capability_id'), revision=body.get('revision'), digest=body.get('digest'), conversation_id=body.get('conversation_id'))
+                        capability_id=body.get('capability_id'), revision=body.get('revision'), digest=body.get('digest'), conversation_id=body.get('conversation_id'),**memory_kwargs,**document_kwargs)
                 else:
                     args = (body.get('id'), body.get('revision'), body.get('digest'))
-                    if action == 'revise': result = self.workshop.revise(*args, body.get('definition'))
-                    elif action == 'validate': result = self.workshop.validate(*args)
-                    elif action == 'approve': result = self.workshop.approve(*args, confirmed=body.get('confirmed', False))
-                    elif action == 'prepare': result = self.workshop.prepare_validation(*args, conversation_id=body.get('conversation_id'))
-                    elif action == 'activate': result = self.workshop.activate(*args)
+                    if action == 'revise': result = self.workshop.revise(*args, body.get('definition'),**memory_kwargs,**document_kwargs)
+                    elif action == 'validate': result = self.workshop.validate(*args,**memory_kwargs)
+                    elif action == 'approve': result = self.workshop.approve(*args, confirmed=body.get('confirmed', False),**memory_kwargs)
+                    elif action == 'prepare': result = self.workshop.prepare_validation(*args, conversation_id=body.get('conversation_id'),**memory_kwargs)
+                    elif action == 'activate': result = self.workshop.activate(*args,**memory_kwargs)
                     elif action == 'revoke': result = self.workshop.revoke(*args)
-                    else: result = self.workshop.rollback(*args, body.get('target_revision'))
+                    else: result = self.workshop.rollback(*args, body.get('target_revision'),**memory_kwargs)
+                if captured_memory:self._check_memory(captured_memory)
                 self._send_json(200, result)
             elif path.startswith('/axx-api/learning/'):
                 if not self.learning:
                     self._unsupported('Aprendizaje de acciones no disponible')
                     return
                 action = path.rsplit('/', 1)[-1]
-                fields = {'propose': {'text', 'operation_id', 'context', 'model', 'provider_name', 'inputs', 'project_id', 'selection_mode', 'conversation_id'},
-                          'prepare': {'text', 'steps', 'operation_id', 'project_id', 'conversation_id'},
-                          'execute': {'operation_id', 'approved'}, 'cancel': {'operation_id'}, 'pause': {'operation_id'},
-                          'resume': {'operation_id', 'approved'}, 'configure': {'id', 'changes'},
+                fields = {'propose': {'text', 'operation_id', 'context', 'model', 'provider_name', 'inputs', 'project_id', 'selection_mode', 'conversation_id', 'goal_spec', 'document_references'},
+                          'prepare': {'text', 'steps', 'operation_id', 'project_id', 'conversation_id', 'goal_spec', 'document_references'},
+                          'execute': {'operation_id', 'approved', 'plan_hash'}, 'cancel': {'operation_id'}, 'pause': {'operation_id'},
+                          'resume': {'operation_id', 'approved', 'plan_hash'}, 'configure': {'id', 'changes'},
                           'repair': {'operation_id', 'text', 'inputs', 'model', 'provider_name', 'selection_mode','goal_spec','goal_revision'},
                           'context': {'project_id', 'changes'}, 'compose': {'text', 'parts', 'operation_id', 'project_id'},
                           'remember': {'operation_id'}}
                 fields['dependencies'] = {'operation_id', 'dependencies', 'plan_hash'}
                 fields['execute-authorized'] = {'operation_id', 'grant_id', 'plan_hash'}
+                fields['goal-progress'] = {'operation_id', 'plan_hash', 'criterion_id', 'candidate_hash'}
                 fields['forget-context'] = {'project_id', 'source_id', 'session_id', 'forget'}
                 fields['lesson'] = {'operation_id', 'hypothesis', 'user_correction', 'verification_operation_id', 'project_id', 'task_id', 'context_dependencies', 'allow_provider'}
                 fields['forget-lesson'] = {'id'}
                 fields['bind-capability']={'operation_id','id','revision','digest','goal_revision'}
+                fields['revalidate']={'id','version','inputs','project_id','conversation_id','operation_id'}
+                memory_fields={'memory_scope','memory_context_id','conversation_id'}
+                fields={key:value|memory_fields for key,value in fields.items()}
+                fields['memory-preview']={'text','task_id','project_id','operation_id','target_skill_id','target_skill_version','target_operation_id','folder','memory_scope','memory_context_id'}
+                fields['memory-apply']={'change','review_hash','confirmed'}
                 if action not in fields or set(body) - fields[action]: raise ValueError('Campos de aprendizaje inválidos')
-                if action == 'execute-authorized':
-                    result = self.learning.execute_with_grant(body.get('operation_id'), body.get('grant_id'), body.get('plan_hash'))
+                memory_kwargs={key:copy.deepcopy(body[key]) for key in ('memory_scope','memory_context_id') if key in body}
+                document_kwargs={key:copy.deepcopy(body[key]) for key in ('document_references',) if key in body}
+                conversation_id=body.get('conversation_id')
+                if conversation_id is None and isinstance(body.get('memory_scope'),dict):conversation_id=body['memory_scope'].get('task_id')
+                captured_memory=self._capture_memory(body) if action not in ('memory-preview','memory-apply','cancel') else None
+                if action == 'memory-preview':
+                    result=session_memory.preview_change(self.learning,body.get('text'),body.get('task_id'),
+                        project_id=body.get('project_id',''),operation_id=body.get('operation_id'),
+                        target_skill_id=body.get('target_skill_id'),target_skill_version=body.get('target_skill_version'),
+                        target_operation_id=body.get('target_operation_id'),folder=body.get('folder'),chats=self.chats,**memory_kwargs)
+                elif action == 'memory-apply':
+                    result=session_memory.apply_change(self.learning,body,chats=self.chats,provider=self.provider,memory=self.memory)
+                elif action == 'execute-authorized':
+                    result = self.learning.execute_with_grant(body.get('operation_id'), body.get('grant_id'), body.get('plan_hash'),**memory_kwargs)
+                elif action == 'goal-progress':
+                    result = self.learning.prepare_goal_progress(body.get('operation_id'), body.get('plan_hash'),
+                        body.get('criterion_id'), body.get('candidate_hash'),**memory_kwargs)
                 elif action == 'lesson':
-                    result = self.learning.skills.record_lesson(body)
+                    result = self.learning.skills.record_lesson({key:value for key,value in body.items() if key!='conversation_id'})
                 elif action == 'forget-lesson':
-                    result = self.learning.skills.forget_lesson(body.get('id'))
+                    result = self.learning.skills.forget_lesson(body.get('id'),**memory_kwargs)
                 elif action == 'forget-context':
-                    result = self.learning.invalidate_context(body.get('project_id', ''), {key: value for key, value in body.items() if key != 'project_id'})
+                    result = self.learning.invalidate_context(body.get('project_id', ''), {key: value for key, value in body.items() if key not in memory_fields|{'project_id'}},**memory_kwargs)
                 elif action == 'dependencies':
-                    result = self.learning.link_dependencies(body.get('operation_id'), body.get('dependencies'), body.get('plan_hash'))
+                    result = self.learning.link_dependencies(body.get('operation_id'), body.get('dependencies'), body.get('plan_hash'),**memory_kwargs)
                 elif action == 'remember':
-                    result = self.learning.remember(body.get('operation_id'))
+                    result = self.learning.remember(body.get('operation_id'),**memory_kwargs)
                 elif action == 'bind-capability':
-                    result=self.learning.bind_capability(body.get('operation_id'),body.get('id'),body.get('revision'),body.get('digest'),body.get('goal_revision'))
+                    result=self.learning.bind_capability(body.get('operation_id'),body.get('id'),body.get('revision'),body.get('digest'),body.get('goal_revision'),**memory_kwargs)
                 elif action == 'propose':
                     if body.get('conversation_id') and self.chats:
                         self.chats.get(body['conversation_id'])
@@ -797,31 +895,34 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                         record = self.demonstration.get(reference.get('demonstration_id'))
                         context = context | {'demonstration': planning_reference(record)}
                     result = self.learning.propose(body.get('text'), body.get('operation_id'), context, body.get('model', ''), body.get('provider_name', ''),
-                        inputs=body.get('inputs'), project_id=body.get('project_id', ''), selection_mode=body.get('selection_mode', 'manual'), conversation_id=body.get('conversation_id'))
+                        inputs=body.get('inputs'), project_id=body.get('project_id', ''), selection_mode=body.get('selection_mode', 'manual'), conversation_id=conversation_id, goal_spec=body.get('goal_spec'),**memory_kwargs,**document_kwargs)
                 elif action == 'prepare':
                     if body.get('conversation_id') and self.chats: self.chats.get(body['conversation_id'])
                     result = self.learning.prepare_steps(body.get('text'), body.get('steps'), body.get('operation_id'),
-                        body.get('project_id', ''), body.get('conversation_id'))
+                        body.get('project_id', ''), conversation_id, goal_spec=body.get('goal_spec'),**memory_kwargs,**document_kwargs)
+                elif action == 'revalidate':
+                    result=self.learning.prepare_revalidation(body.get('id'),body.get('version'),body.get('inputs'),body.get('project_id',''),conversation_id,body.get('operation_id'),**memory_kwargs)
                 elif action == 'execute':
-                    result = self.learning.execute(body.get('operation_id'), body.get('approved', False))
+                    result = self.learning.execute(body.get('operation_id'), body.get('approved', False), plan_hash=body.get('plan_hash'),**memory_kwargs)
                 elif action == 'pause':
-                    result = self.learning.pause(body.get('operation_id'))
+                    result = self.learning.pause(body.get('operation_id'),**memory_kwargs)
                 elif action == 'resume':
-                    result = self.learning.resume(body.get('operation_id'), body.get('approved', False))
+                    result = self.learning.resume(body.get('operation_id'), body.get('approved', False), plan_hash=body.get('plan_hash'),**memory_kwargs)
                 elif action == 'repair':
                     result = self.learning.repair(body.get('operation_id'), body.get('text', ''), inputs=body.get('inputs'),
                         model=body.get('model', ''), provider_name=body.get('provider_name', ''), selection_mode=body.get('selection_mode', 'manual'),
-                        goal_spec=body.get('goal_spec'),goal_revision=body.get('goal_revision'))
+                        goal_spec=body.get('goal_spec'),goal_revision=body.get('goal_revision'),**memory_kwargs)
                 elif action == 'configure':
                     if not isinstance(body.get('changes'), dict): raise ValueError('Cambios requeridos')
-                    result = self.learning.configure(body.get('id'), body['changes'])
+                    result = self.learning.configure(body.get('id'), body['changes'],**memory_kwargs)
                 elif action == 'context':
                     if not isinstance(body.get('changes'), dict): raise ValueError('Contexto requerido')
-                    result = self.learning.update_context(body.get('project_id', ''), body['changes'])
+                    result = self.learning.update_context(body.get('project_id', ''), body['changes'],**memory_kwargs)
                 elif action == 'compose':
-                    result = self.learning.compose(body.get('text'), body.get('parts'), body.get('operation_id'), body.get('project_id', ''))
+                    result = self.learning.compose(body.get('text'), body.get('parts'), body.get('operation_id'), body.get('project_id', ''),conversation_id=conversation_id,**memory_kwargs)
                 else:
                     result = self.learning.cancel(body.get('operation_id'))
+                if captured_memory:self._check_memory(captured_memory)
                 self._send_json(200, result)
             elif path in ('/axx-api/demonstration/start', '/axx-api/demonstration/stop'):
                 if not self.demonstration:
@@ -860,12 +961,19 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                     'compensation-prepare': {'source_operation_id', 'source_receipt_hash', 'expected_revision', 'action', 'operation_id'},
                 }
                 action = path.rsplit('/', 1)[-1]
+                memory_fields={'memory_scope','memory_context_id','conversation_id'}
+                fields={key:value|memory_fields for key,value in fields.items()}
                 if action not in fields or set(body) - fields[action]:
                     raise ValueError('Unsupported command request fields')
+                compensation=action in ('compensation-preview','compensation-prepare','reconcile','review')
+                if action=='execute':
+                    operation=self.commands.get(body.get('operation_id'))
+                    compensation=bool(operation and operation.get('command_id') in ('axx.artifact.quarantine','axx.artifact.restore'))
+                captured_memory=self._capture_memory(body) if action!='cancel' and not compensation else None
                 if action == 'resolve':
                     result = self.commands.resolve(body.get('text'), body.get('source', 'text'), body.get('context'), body.get('project_id', ''))
                 elif action == 'compensation-preview':
-                    if set(body) != {'source_operation_id'}:
+                    if set(body)-memory_fields != {'source_operation_id'}:
                         raise ValueError('La vista previa requiere una operación de origen exacta')
                     result = self.commands.compensation_preview(body['source_operation_id'])
                 elif action == 'compensation-prepare':
@@ -877,17 +985,19 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                     if body.get('conversation_id') and self.chats:
                         body['command_mode'] = self.chats.get(body['conversation_id'])['mode']
                     result = self.commands.prepare(body.get('command_id'), body.get('inputs', {}),
-                        body.get('source', 'text'), body.get('operation_id'), conversation_id=body.get('conversation_id'), command_mode=body.get('command_mode'), delivery_mode=body.get('delivery_mode'))
+                        body.get('source', 'text'), body.get('operation_id'), conversation_id=body.get('conversation_id'), command_mode=body.get('command_mode'), delivery_mode=body.get('delivery_mode'),
+                        **{key:copy.deepcopy(body[key]) for key in ('memory_scope','memory_context_id') if key in body})
                 elif action == 'execute':
                     result = self.commands.execute(body.get('operation_id'), body.get('approved', False))
                 elif action == 'reconcile':
                     result = self.commands.reconcile(body.get('operation_id'))
                 elif action == 'review':
-                    if set(body) != {'operation_id', 'reviewed'}:
+                    if set(body)-memory_fields != {'operation_id', 'reviewed'}:
                         raise ValueError('La revisión requiere operation_id y reviewed explícitos')
                     result = self.commands.review_unknown(body.get('operation_id'), body.get('reviewed'))
                 else:
                     result = self.commands.cancel(body.get('operation_id'))
+                if captured_memory:self._check_memory(captured_memory)
                 self._send_json(200, result)
             elif path == '/axx-api/actions/execute':
                 # The legacy transport cannot confer permission to write or run blocked adapters.
@@ -1067,30 +1177,57 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                 })
             elif path == '/axx-api/memory/query':
                 query = body.get('query')
-                if set(body) != {'query'} or not isinstance(query,str) or not 1 <= len(query) <= 4000:
+                if set(body)-{'memory_scope','memory_context_id'} != {'query'} or not isinstance(query,str) or not 1 <= len(query) <= 4000:
                     raise ValueError('query must contain 1 to 4000 characters')
+                captured=self._capture_memory(body)
+                memory_kwargs={key:copy.deepcopy(body[key]) for key in ('memory_scope','memory_context_id') if key in body}
                 adapter = self.memory.ai_memory
-                hits = adapter.query_recipes(query) if adapter and adapter.status()['available'] else []
+                hits = adapter.query_recipes(query,**memory_kwargs) if adapter and adapter.status()['available'] else []
+                self._check_memory(captured)
                 self._send_json(200, {'hits': hits, 'memory': self._memory_status(), 'execution_allowed': False})
             elif path == '/axx-api/memory/read':
                 recipe_id = body.get('recipe_id')
-                if set(body) != {'recipe_id'} or not isinstance(recipe_id,str) or not re.fullmatch(r'[A-Za-z0-9_.-]{1,128}',recipe_id) or recipe_id in ('.','..'):
+                if set(body)-{'memory_scope','memory_context_id'} != {'recipe_id'} or not isinstance(recipe_id,str) or not re.fullmatch(r'[A-Za-z0-9_.-]{1,128}',recipe_id) or recipe_id in ('.','..'):
                     raise ValueError('Invalid recipe_id')
+                captured=self._capture_memory(body)
+                memory_kwargs={key:copy.deepcopy(body[key]) for key in ('memory_scope','memory_context_id') if key in body}
                 adapter = self.memory.ai_memory
-                page = adapter.read_recipe_page(recipe_id) if adapter and adapter.status()['available'] else None
+                page = adapter.read_recipe_page(recipe_id,**memory_kwargs) if adapter and adapter.status()['available'] else None
+                self._check_memory(captured)
                 self._send_json(200, {'page': page, 'memory': self._memory_status(), 'execution_allowed': False})
             elif path == '/axx-api/recipes/register':
+                if set(body)-{'operation_id','id','intent_key','memory_scope','memory_context_id'}:raise ValueError('Campos de receta inválidos')
+                captured=self._capture_memory(body)
                 with self.server.action_lock:
                     operation = self.executor.get_operation(body.get('operation_id'))
                     if not operation or operation.get('state') != 'succeeded' or not operation.get('postconditions_passed'):
                         raise ValueError('A persisted successful action with verified postconditions is required')
+                    source=operation
+                    if self.commands:
+                        with self.commands.lock:
+                            rows=self.commands.db.execute("SELECT result_json FROM command_runs WHERE json_extract(result_json,'$.action_operation_id')=?",(body.get('operation_id'),)).fetchall()
+                        if len(rows)>1:raise ValueError('El recibo de origen es ambiguo')
+                        if rows:source=json.loads(rows[0][0])
+                    source_ref=source.get('memory_scope')
+                    with self._memory_db() as db:
+                        if source_ref is None and db is not None and db.execute('SELECT 1 FROM memory_task_scopes WHERE generation>0 OR forgetting=1 LIMIT 1').fetchone():
+                            raise ValueError('El recibo heredado no acredita una procedencia de memoria vigente')
+                    source_capture=self._capture_memory(source) if source_ref is not None else None
+                    if source_ref is not None and body.get('memory_scope') is not None and source_ref!=body['memory_scope']:
+                        raise ValueError('El recibo pertenece a otra procedencia de memoria')
+                    if source_ref is not None and source.get('memory_context_id') is not None and body.get('memory_context_id') is not None and source['memory_context_id']!=body['memory_context_id']:
+                        raise ValueError('El contexto del recibo no coincide con la revisión')
                     args, schema = operation['inputs'], {}
                     if operation['tool_name'] == 'file_artifact_writer':
                         args = {'path': '$inputs.path', 'content': '$inputs.content'}
                         schema = {'path': {'type': 'string', 'required': True},
                                   'content': {'type': 'string', 'required': True}}
                     recipe = self.memory.register_recipe(id=body.get('id'), intent_key=body.get('intent_key'),
-                        steps=[{'tool': operation['tool_name'], 'args': args}], schema=schema, status='verified')
+                        steps=[{'tool': operation['tool_name'], 'args': args}], schema=schema, status='verified',
+                        _memory_dependencies=copy.deepcopy(source.get('memory_dependencies', [])),
+                        **({key:copy.deepcopy(source[key]) for key in ('memory_scope','memory_context_id') if key in source} if source_ref is not None else {}))
+                    if source_capture:self._check_memory(source_capture)
+                    self._check_memory(captured)
                     self._send_json(200, {'recipe': recipe.to_dict()})
             elif path in ('/axx-api/recipes/execute', '/axx-api/recipes/prepare'):
                 with self.server.action_lock:
@@ -1098,8 +1235,9 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                     if not recipe:
                         self._send_json(404, {'error': {'code': 'NOT_FOUND', 'message': 'No verified compatible recipe'}})
                     elif path.endswith('/prepare'):
-                        if set(body) - {'intent_key', 'inputs', 'operation_id'} or not self.commands:
+                        if set(body) - {'intent_key', 'inputs', 'operation_id', 'memory_scope', 'memory_context_id'} or not self.commands:
                             raise ValueError('Preparación de receta no disponible o parámetros desconocidos')
+                        captured=self._capture_memory(body)
                         if len(recipe.steps) != 1 or recipe.steps[0].get('tool') not in {a['tool'] for a in ADAPTERS.values()}:
                             self._send_json(403, {'error': {'code': 'USE_COMMAND_POLICY', 'message': 'La receta requiere un adaptador de catálogo validado.'}})
                             return
@@ -1113,12 +1251,24 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                         args = {key: inputs.get(value[8:]) if isinstance(value, str) and value.startswith('$inputs.') else value
                                 for key, value in step.get('args', {}).items()}
                         command_id = next(key for key, adapter in ADAPTERS.items() if adapter['tool'] == step['tool'])
-                        self._send_json(200, self.commands.prepare(command_id, args, 'text', body.get('operation_id')))
+                        dependencies=copy.deepcopy(recipe.memory_dependencies)
+                        if recipe.memory_scope is not None:
+                            origin=copy.deepcopy(recipe.memory_scope)
+                            if origin not in dependencies:dependencies.append(origin)
+                        self.memory._assert_recipe_current(recipe)
+                        scope=copy.deepcopy(body.get('memory_scope',recipe.memory_scope))
+                        context=body.get('memory_context_id') if 'memory_scope' in body else recipe.memory_context_id
+                        prepared=self.commands.prepare(command_id, args, 'text', body.get('operation_id'),
+                            conversation_id=scope['task_id'] if scope is not None else None,
+                            memory_scope=scope, memory_context_id=context, _memory_dependencies=dependencies)
+                        self._check_memory(captured)
+                        self._send_json(200, prepared)
                     elif any(step.get('tool') not in ('system_telemetry', 'process_state_inspector') for step in recipe.steps):
                         self._send_json(403, {'error': {'code': 'USE_COMMAND_POLICY', 'message': 'Usa la preparación de receta y confirma sus parámetros en Biblioteca.'}})
                     else:
                         self._send_json(200, self.memory.execute_recipe(recipe, body.get('inputs', {}), self.executor,
-                                                                       operation_id=body.get('operation_id')))
+                            operation_id=body.get('operation_id'),
+                            **{key:copy.deepcopy(body[key]) for key in ('memory_scope','memory_context_id') if key in body}))
             elif path == '/axx-api/identity':
                 with self.server.action_lock:
                     self._send_json(200, {'saved': self.identity.save_studio_identity(body)})
@@ -1329,6 +1479,10 @@ def run_server(host='127.0.0.1', port=4173, config_path='providers.json', state_
         services.append(connect)
         provider = CodexProvider(commands, state_path, state_dir, dispatcher=connect.dispatch)
         services.append(provider)
+        try:
+            session_memory.retry_pending(learning,chats=chats,provider=provider,memory=memory)
+        except Exception:
+            LOG.warning('Pending memory cleanup remains incomplete')
         workshop.provider = provider
         handler = type('ConfiguredAxxHandler', (AxxBridgeHandler,), {
             'chats': chats, 'adapter': adapter, 'executor': executor, 'commands': commands, 'computer_use':computer_use, 'learning': learning, 'workshop': workshop, 'demonstration': demonstration, 'freellmapi': freellmapi, 'model_candidates': model_candidates, 'keyless': keyless,
