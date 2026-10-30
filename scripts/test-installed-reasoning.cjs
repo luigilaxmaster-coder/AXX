@@ -83,7 +83,7 @@ async function main() {
       assert.equal(await page.evaluate(() => Axx.chatWorkspace.active?.id), receipt.chat, 'The active chat changed before approval');
       assert.equal(operation.conversation_id, receipt.chat, 'The operation belongs to another chat');
       receipt.pending_operation = operation.operation_id; save();
-      await page.evaluate(item => Axx.commandLibrary.adopt(item), operation);
+      await page.evaluate(item => { Axx.resident.summon(false); Axx.commandLibrary.adopt(item); }, operation);
       const approval = page.getByRole('button', {name:/^Aprobar y ejecutar(?: \d+ pasos?)?$/});
       await approval.waitFor({state:'visible'});
       await approval.click();
@@ -155,13 +155,14 @@ async function main() {
       assert.equal(candidate.validation_operation_id, null);
       receipt.checks.push('The configured real model produced a typed documentary candidate without executing it');
       receipt.stage = 'approving_and_testing_candidate'; save();
+      await page.evaluate(() => { Axx.resident.summon(false); Axx.capabilityWorkshop.open(); });
       await page.getByRole('button',{name:'Aprobar esta versión',exact:true}).click();
       await page.getByRole('button',{name:'Preparar prueba',exact:true}).click();
       await page.waitForFunction(() => Axx.commandLibrary.operation?.state === 'awaiting_approval');
       const prepared = await page.evaluate(() => Axx.commandLibrary.operation); verifyLineage(prepared);
       const done = await approve(prepared); verifyLineage(done);
       assert.equal(done.results[0].output.equal, true);
-      await page.evaluate(() => Axx.capabilityWorkshop.open());
+      await page.evaluate(() => { Axx.resident.summon(false); Axx.capabilityWorkshop.open(); });
       await page.getByRole('button',{name:'Comprobar resultado y activar',exact:true}).click();
       await page.waitForFunction(() => Axx.capabilityWorkshop.current?.state === 'active');
       const active = await page.evaluate(() => Axx.capabilityWorkshop.current);
