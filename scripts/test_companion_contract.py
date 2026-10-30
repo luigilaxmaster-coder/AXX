@@ -8,12 +8,13 @@ from types import SimpleNamespace
 from unittest.mock import patch
 import companion_contract as contract
 import release
+import validate_companion as validator
 
 class CompanionContractTests(unittest.TestCase):
     def setUp(self):
         self.root=Path(self.enterContext(tempfile.TemporaryDirectory()))
         names=set(contract.read(contract.ROOT/'mobile/design-baseline.json')['protected'])
-        names={name.split('#')[0] for name in names}|{'package.json','backend/mobile/gateway.py','mobile/companion-contract.json','mobile/design-baseline.json','mobile/package.json','mobile/package-lock.json','mobile/android/app/build.gradle','scripts/companion_contract.py','scripts/validate_companion.py','scripts/test_companion_contract.py','scripts/release.py','requirements-mobile.txt','requirements-companion-tests.txt'}
+        names={name.split('#')[0] for name in names}|{'package.json','1.AXX/scripts/transfer.js','1.AXX/scripts/test-transfer-ui.py','backend/mobile/gateway.py','mobile/companion-contract.json','mobile/design-baseline.json','mobile/package.json','mobile/package-lock.json','mobile/android/app/build.gradle','scripts/companion_contract.py','scripts/validate_companion.py','scripts/test_companion_contract.py','scripts/release.py','requirements-mobile.txt','requirements-companion-tests.txt'}
         names.update(contract.SHARED_MEMORY_INPUTS)
         for name in names:
             target=self.root/name;target.parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(contract.ROOT/name,target)
@@ -63,6 +64,28 @@ class CompanionContractTests(unittest.TestCase):
                 source.write_bytes(original+b'\n')
                 with self.assertRaisesRegex(ValueError,'evidence is stale'):contract.validate_receipt(self.root,path)
                 source.write_bytes(original)
+
+    def test_desktop_file_selector_change_invalidates_old_evidence(self):
+        for name in ('1.AXX/scripts/transfer.js', '1.AXX/scripts/test-transfer-ui.py'):
+            with self.subTest(source=name):
+                path,_=self.receipt();source=self.root/name;original=source.read_bytes()
+                source.write_bytes(original+b'\n')
+                with self.assertRaisesRegex(ValueError,'evidence is stale'):contract.validate_receipt(self.root,path)
+                source.write_bytes(original)
+
+    def test_desktop_selector_shares_fourth_step_and_runs_only_after_browser_success(self):
+        for codes in ((0,0,0,0,0),(0,0,0,0,9),(0,0,0,8)):
+            with self.subTest(codes=codes):
+                output=self.root/'controlled-validation.json'
+                with patch.object(validator,'ROOT',self.root),patch.object(validator,'check_contract'),patch.object(validator.shutil,'which',return_value='controlled-node'),patch.object(validator.subprocess,'run',side_effect=[SimpleNamespace(returncode=code) for code in codes]) as commands,patch.object(validator.sys,'argv',['validate_companion.py','--output',str(output)]),patch('builtins.print'):
+                    result=validator.main()
+                receipt=contract.read(output)
+                self.assertEqual(result,codes[-1])
+                self.assertEqual([row['id'] for row in receipt['steps']],['contract','renderer_build','backend_tests','browser_tests'])
+                self.assertEqual(receipt['steps'][-1]['exit_code'],codes[-1])
+                self.assertEqual(receipt['result'],'PASS' if not codes[-1] else 'FAIL')
+                self.assertEqual(commands.call_count,len(codes))
+                if len(codes)==5:self.assertEqual(commands.call_args.args[0],[validator.sys.executable,'1.AXX/scripts/test-transfer-ui.py','-q'])
 
     def test_generated_capacitor_assets_do_not_break_clean_checkout_receipts(self):
         before=contract.input_hashes(self.root)

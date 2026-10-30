@@ -4,6 +4,18 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 public class TransportTest {
+    @Test public void controlTimeoutCoversTheNativeAcknowledgementBudget() {
+        assertTrue(AxxTransportPlugin.readTimeout("/v1/control/acquire","POST") >= 3000+2000);
+        for (String operation : new String[]{"events","renew","release","status"}) {
+            int timeout=AxxTransportPlugin.readTimeout("/v1/control/"+operation,"POST");
+            assertTrue(timeout > 2000);
+            assertTrue(timeout < 3000);
+        }
+        assertTrue(500+AxxTransportPlugin.readTimeout("/v1/control/renew","POST") < 3000);
+        assertEquals(8000,AxxTransportPlugin.readTimeout("/v1/snapshot","GET"));
+        assertEquals(75000,AxxTransportPlugin.readTimeout("/v1/transfers/chunk","POST"));
+        assertEquals(1500,AxxTransportPlugin.readTimeout("/v1/avatar/gesture","POST"));
+    }
     @Test public void pairingLinksRejectAmbiguousOrUnsafeIdentity() throws Exception {
         String link="axx://pair?endpoint=https%3A%2F%2F192.168.0.10%3A4443&fingerprint="+"a".repeat(64)+"&code="+"b".repeat(32);
         assertEquals("https://192.168.0.10:4443",AxxTransportPlugin.pairingFields(link).get("endpoint"));

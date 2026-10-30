@@ -1,0 +1,73 @@
+{
+  "evidence_context": {
+    "classification": "HISTORICAL_RECORD_NOT_FINAL_INTEGRATED_GATE",
+    "historical_source_commit": "3a680218678a26ab8ad50733240dfa56c0fb4a82",
+    "historical_record_path": "docs/mobile/evidence/trackpad-20261029.json",
+    "historical_record_sha256": "5e653753ceb28b56b8b57d8933612cf3e33b75d4041958b8ef60fb323281d97e",
+    "reconciliation_source_base": "a9a979f16ac6292fd1916cdcbf4b7072b953ecf9",
+    "original_values_preserved": true,
+    "final_integrated_gate_receipt": false,
+    "certifies_m9_m3": false,
+    "revalidated_during_reconciliation": false,
+    "new_automation_authorization": false,
+    "scope_note": "Original version-specific results are retained. They do not certify the final reconciled source, its installation, or untested physical functions."
+  },
+  "android": {
+    "version": "0.2.10-companion",
+    "version_code": 31,
+    "installed": true,
+    "apk_sha256": "bc5fd9bf13a893fc6e089adf27fd2f6b232daa6e9c560dfaa1e4041c35739581",
+    "signature_matches_previous": true,
+    "canonical_web_assets_matched": 20
+  },
+  "windows": {
+    "version": "0.22.29",
+    "changed_by_this_trackpad_fix": false,
+    "integrated_main_base": "18a4fd8"
+  },
+  "source_validation": {
+    "result": "PASS",
+    "canonical_inputs": 114,
+    "contract_tests": 11,
+    "backend_tests": 92,
+    "backend_skipped": 1,
+    "mobile_browser_tests": 47,
+    "control_ui_tests": 10,
+    "desktop_selector_tests": 6,
+    "screen_cases": 120,
+    "approved_portrait_references": 12,
+    "identical_pixel_cases": 81
+  },
+  "independent_review": {
+    "result": "Original P1 corrected; no further concrete fault found",
+    "reviewed_client_commit": "850c2d6",
+    "additional_late_ack_and_changed_identity_tests": "PASS"
+  },
+  "preservation": {
+    "persistent_app_files_before_launch": "PASS",
+    "pairing_profile": "PASS",
+    "theme_accent_draft_pending_ids": "PASS",
+    "trackpad_preferences": "PASS",
+    "same_pc_reconnected": true
+  },
+  "ci": {
+    "head": "3ecb9758bdf2473aff136e152fef3ef1df01ea0c",
+    "desktop": {
+      "run_id": 40998038778,
+      "conclusion": "success"
+    },
+    "companion": {
+      "run_id": 40998038695,
+      "conclusion": "success"
+    }
+  },
+  "physical_trackpad_acceptance": {
+    "state": "FAILED_UNCONFIRMED_INPUT_OBSERVED",
+    "reason": "Real Samsung UI still reported unconfirmed input. Native control requests sometimes timed out around 1750 ms with the 1500 ms read budget. Concurrent PC build load and foreground changes were observed; no sole cause asserted.",
+    "owned_receiver_started": true,
+    "confirmed_native_movement": null,
+    "confirmed_native_click": null,
+    "confirmed_native_release": null
+  },
+  "thermal_battery_trial": "NOT_STARTED; separate foreground and real-unplug measurement required"
+}

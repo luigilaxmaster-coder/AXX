@@ -28,6 +28,9 @@ def main():
     for name, command in commands:
         print(f'Checking companion: {name}', flush=True)
         result = subprocess.run(command, cwd=ROOT)
+        if name == 'browser_tests' and not result.returncode:
+            print('Checking companion: desktop file selector', flush=True)
+            result = subprocess.run([sys.executable, '1.AXX/scripts/test-transfer-ui.py', '-q'], cwd=ROOT)
         receipt['steps'].append({'id': name, 'exit_code': result.returncode})
         args.output.write_text(json.dumps(receipt, indent=2), encoding='utf-8')
         if result.returncode:

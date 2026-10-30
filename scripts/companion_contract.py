@@ -89,7 +89,7 @@ def check_contract(root=ROOT, built=False):
     return versions(root)
 
 def input_hashes(root):
-    paths = {root / p for p in ('package.json', '1.AXX/Axx.html', 'scripts/companion_contract.py', 'scripts/validate_companion.py', 'scripts/test_companion_contract.py', 'scripts/release.py', 'requirements-mobile.txt', 'requirements-companion-tests.txt')}
+    paths = {root / p for p in ('package.json', '1.AXX/Axx.html', '1.AXX/scripts/transfer.js', '1.AXX/scripts/test-transfer-ui.py', 'scripts/companion_contract.py', 'scripts/validate_companion.py', 'scripts/test_companion_contract.py', 'scripts/release.py', 'requirements-mobile.txt', 'requirements-companion-tests.txt')}
     paths.update(root / name for name in SHARED_MEMORY_INPUTS)
     for base in ('mobile', 'backend/mobile'):
         for path in (root / base).rglob('*'):
