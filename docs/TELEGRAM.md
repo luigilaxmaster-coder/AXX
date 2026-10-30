@@ -32,6 +32,10 @@ resultado para comprobar si se verificó. Filtrar no ejecuta ninguna acción.
 Los ejemplos de **Chat** solo rellenan el borrador: tú decides cuándo enviarlo.
 Si se pierde la conexión, la app marca los datos anteriores como desactualizados
 y conserva el borrador y el identificador de cualquier envío pendiente.
+Si se retira el acceso, limpia los datos privados visibles y descarta las
+respuestas anteriores que lleguen tarde. Una respuesta atrasada tampoco borra
+un borrador ni vuelve a abrir una revisión cerrada. Los envíos pendientes se
+consultan antes de reintentarlos; no se repiten automáticamente.
 
 Si es la primera configuración y faltan datos de aplicación o del bot, abre
 **Opciones avanzadas** en ese mismo panel. Los datos se introducen solo en la PC:

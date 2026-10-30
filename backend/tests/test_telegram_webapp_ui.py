@@ -44,7 +44,7 @@ class TelegramWebAppUITests(unittest.TestCase):
         self.addCleanup(context.close)
         page = context.new_page()
         fixture = {'calls': [], 'effects': set(), 'fail_first': fail_first, 'mutations': [], 'errors': {}, 'sessions': [],
-                   'chat_result': None, 'review_expiry': 2000000000, 'activity': [
+                   'chat_result': None, 'review_expiry': 2000000000, 'history_more': False, 'activity': [
                        {'id': 'f27038d4-1e3a-41d1-8085-15f51c59ff70', 'state': 'awaiting_approval',
                         'created_at': 1, 'command_id': '<img src=x onerror=alert(1)>',
                         'can_cancel': True, 'review_available': True, 'postconditions_passed': False},
@@ -98,7 +98,7 @@ class TelegramWebAppUITests(unittest.TestCase):
                 request_route.fulfill(status=200, json=state)
             elif path == '/api/history':
                 request_route.fulfill(status=200, json={'messages': [{'id': 'history-1', 'role': 'assistant',
-                    'text': '<img src=x onerror=alert(1)> historial', 'status': 'complete', 'at': 1}], 'has_more': False})
+                    'text': '<img src=x onerror=alert(1)> historial', 'status': 'complete', 'at': 1}], 'has_more': fixture['history_more']})
             elif path == '/api/activity':
                 request_route.fulfill(status=200, json={'items': fixture['activity']})
             elif path == '/api/review':
@@ -354,6 +354,195 @@ class TelegramWebAppUITests(unittest.TestCase):
         page.locator('[data-pane="chat"]').click()
         page.wait_for_function("() => !document.querySelector('#messages').textContent.includes('onerror')")
         self.assertEqual(page.locator('#draft').input_value(), 'Borrador que debe conservarse')
+
+    def test_successful_state_refresh_after_conversation_revocation_hides_existing_history(self):
+        page, fixture = self.page(fail_first=True)
+        fixture['history_more'] = True
+        page.wait_for_selector('#send:not([disabled])', state='attached')
+        page.locator('[data-pane="chat"]').click()
+        page.wait_for_function("() => document.querySelector('#messages').textContent.includes('onerror')")
+        self.assertTrue(page.locator('#history-more').is_visible())
+        page.locator('#draft').fill('Borrador pendiente')
+        page.locator('#send').click()
+        page.wait_for_selector('#recover:not([hidden])')
+        pending = page.evaluate("sessionStorage.getItem('axx.telegram.pending')")
+        fixture['state']['permissions']['conversation'] = False
+        fixture['state']['permissions']['pc_commands'] = True
+        page.locator('#refresh').click()
+        page.wait_for_function("() => [...document.querySelectorAll('#permissions dt')].find(x => x.textContent === 'Conversación')?.nextElementSibling.textContent === 'No concedido'")
+        self.assertNotIn('onerror', page.locator('#messages').text_content())
+        self.assertTrue(page.locator('#history-more').is_hidden())
+        self.assertEqual(page.locator('#draft').input_value(), 'Borrador pendiente')
+        self.assertEqual(page.evaluate("sessionStorage.getItem('axx.telegram.pending')"), pending)
+        self.assertEqual(len(fixture['calls']), 1)
+
+    def test_late_review_response_cannot_restore_data_after_activity_permission_denial(self):
+        page, fixture = self.page()
+        page.wait_for_selector('#send:not([disabled])', state='attached')
+        page.locator('[data-pane="activity"]').click()
+        page.get_by_role('button', name='Revisar orden').wait_for()
+        page.evaluate("""() => {
+            const original = window.fetch.bind(window);
+            window.fetch = (url, options) => {
+                if (url !== '/api/review') return original(url, options);
+                window.reviewDeferred = true;
+                return new Promise(resolve => { window.finishReview = () => resolve(new Response(JSON.stringify({
+                    state:'awaiting_approval', title:'Datos de revisión privada', inputs:{secret:'fixture-private'},
+                    expires_at:2000000000, token:'x'.repeat(43), can_confirm:true
+                }), {status:200, headers:{'Content-Type':'application/json'}})); });
+            };
+        }""")
+        page.get_by_role('button', name='Revisar orden').click()
+        page.wait_for_function('() => window.reviewDeferred === true')
+        fixture['errors']['/api/activity'] = (403, 'PERMISSION_DENIED')
+        page.locator('#activity-refresh').click()
+        page.wait_for_function("() => document.querySelector('#error').textContent.toLowerCase().includes('permiso')")
+        self.assertTrue(page.locator('#review-card').is_hidden())
+        page.evaluate("async () => { window.finishReview(); await new Promise(resolve => setTimeout(resolve, 0)); }")
+        self.assertTrue(page.locator('#review-card').is_hidden())
+        self.assertNotIn('fixture-private', page.locator('#review-inputs').text_content())
+        self.assertTrue(page.locator('#review-confirm').is_disabled())
+        self.assertFalse(any(path == '/api/decision' for path, _ in fixture['mutations']))
+
+    def test_activity_permission_denial_hides_history_and_preserves_pending_draft(self):
+        page, fixture = self.page(fail_first=True)
+        fixture['history_more'] = True
+        page.wait_for_selector('#send:not([disabled])', state='attached')
+        page.locator('[data-pane="chat"]').click()
+        page.wait_for_function("() => document.querySelector('#messages').textContent.includes('onerror')")
+        self.assertTrue(page.locator('#history-more').is_visible())
+        page.locator('#draft').fill('Borrador pendiente')
+        page.locator('#send').click()
+        page.wait_for_selector('#recover:not([hidden])')
+        pending = page.evaluate("sessionStorage.getItem('axx.telegram.pending')")
+        fixture['errors']['/api/activity'] = (403, 'PERMISSION_DENIED')
+        page.locator('[data-pane="activity"]').click()
+        page.wait_for_function("() => document.querySelector('#error').textContent.toLowerCase().includes('permiso')")
+        self.assertNotIn('onerror', page.locator('#messages').text_content())
+        self.assertTrue(page.locator('#history-more').is_hidden())
+        self.assertEqual(page.locator('#draft').input_value(), 'Borrador pendiente')
+        self.assertEqual(page.evaluate("sessionStorage.getItem('axx.telegram.pending')"), pending)
+
+    def test_late_chat_response_after_session_expiry_preserves_pending_and_draft(self):
+        page, fixture = self.page()
+        page.wait_for_selector('#send:not([disabled])', state='attached')
+        page.locator('[data-pane="chat"]').click()
+        page.evaluate("""() => {
+            const original = window.fetch.bind(window);
+            window.fetch = (url, options) => {
+                if (url !== '/api/chat') return original(url, options);
+                window.chatDeferred = true;
+                return new Promise(resolve => { window.finishChat = () => resolve(new Response(JSON.stringify({
+                    state:'succeeded', text:'fixture-private-late-answer'
+                }), {status:200, headers:{'Content-Type':'application/json'}})); });
+            };
+        }""")
+        page.locator('#draft').fill('Borrador pendiente')
+        page.locator('#send').click()
+        page.wait_for_function('() => window.chatDeferred === true')
+        pending = page.evaluate("sessionStorage.getItem('axx.telegram.pending')")
+        self.assertTrue(pending)
+        fixture['errors']['/api/state'] = (401, 'SESSION_EXPIRED')
+        page.locator('#refresh').click()
+        page.wait_for_function("() => document.querySelector('#connection').textContent.toLowerCase().includes('sesión')")
+        page.evaluate("async () => { window.finishChat(); await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))); }")
+        self.assertNotIn('fixture-private-late-answer', page.locator('#messages').text_content())
+        self.assertEqual(page.locator('#draft').input_value(), 'Borrador pendiente')
+        self.assertEqual(page.evaluate("sessionStorage.getItem('axx.telegram.pending')"), pending)
+        self.assertEqual(fixture['calls'], [])
+
+    def test_stale_state_response_cannot_undo_newer_conversation_revocation(self):
+        page, fixture = self.page()
+        page.wait_for_selector('#send:not([disabled])', state='attached')
+        page.locator('[data-pane="chat"]').click()
+        page.wait_for_function("() => document.querySelector('#messages').textContent.includes('onerror')")
+        stale = json.dumps(fixture['state'])
+        page.evaluate("""stale => {
+            const original = window.fetch.bind(window);
+            let first = true;
+            window.fetch = (url, options) => {
+                if (url !== '/api/state' || !first) return original(url, options);
+                first = false; window.stateDeferred = true;
+                return new Promise(resolve => { window.finishState = () => resolve(new Response(stale,
+                    {status:200, headers:{'Content-Type':'application/json'}})); });
+            };
+        }""", stale)
+        page.locator('#refresh').click()
+        page.wait_for_function('() => window.stateDeferred === true')
+        fixture['state']['permissions']['conversation'] = False
+        page.locator('#refresh').click()
+        page.wait_for_function("() => [...document.querySelectorAll('#permissions dt')].find(x => x.textContent === 'Conversación')?.nextElementSibling.textContent === 'No concedido'")
+        page.evaluate("async () => { window.finishState(); await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))); }")
+        self.assertEqual(page.locator('#permissions dt').filter(has_text='Conversación').locator('xpath=following-sibling::dd[1]').inner_text(), 'No concedido')
+        self.assertNotIn('onerror', page.locator('#messages').text_content())
+
+    def test_stale_state_unauthorized_response_does_not_expire_newer_success(self):
+        page, fixture = self.page()
+        page.wait_for_selector('#send:not([disabled])', state='attached')
+        page.evaluate("""() => {
+            const original = window.fetch.bind(window); let first = true;
+            window.fetch = (url, options) => {
+                if (url !== '/api/state' || !first) return original(url, options);
+                first = false; window.staleStateReady = true;
+                return new Promise(resolve => { window.finishStaleState = () => resolve(new Response(
+                    JSON.stringify({error:'SESSION_EXPIRED'}), {status:401, headers:{'Content-Type':'application/json'}})); });
+            };
+        }""")
+        page.locator('#refresh').click()
+        page.wait_for_function('() => window.staleStateReady === true')
+        fixture['state']['connection']['core_bound'] = False
+        page.locator('#refresh').click()
+        page.wait_for_function("() => !document.querySelector('#connection').textContent.includes('Axx está disponible en tu PC')")
+        page.evaluate("async () => { window.finishStaleState(); await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))); }")
+        self.assertNotIn('sesión vencida', page.locator('#connection').inner_text().lower())
+        self.assertTrue(page.locator('#send').is_enabled())
+
+    def test_stale_activity_denial_does_not_erase_newer_success_or_notice(self):
+        page, fixture = self.page()
+        page.wait_for_selector('#send:not([disabled])', state='attached')
+        page.locator('[data-pane="activity"]').click()
+        page.get_by_role('button', name='Revisar orden').wait_for()
+        page.evaluate("""() => {
+            const original = window.fetch.bind(window); let first = true;
+            window.fetch = (url, options) => {
+                if (url !== '/api/activity' || !first) return original(url, options);
+                first = false; window.staleActivityReady = true;
+                return new Promise(resolve => { window.finishStaleActivity = () => resolve(new Response(
+                    JSON.stringify({error:'PERMISSION_DENIED'}), {status:403, headers:{'Content-Type':'application/json'}})); });
+            };
+        }""")
+        page.locator('#activity-refresh').click()
+        page.wait_for_function('() => window.staleActivityReady === true')
+        fixture['activity'][0]['command_id'] = 'new-activity-fixture'
+        page.locator('#activity-refresh').click()
+        page.wait_for_function("() => document.querySelector('#activity-list').textContent.includes('new-activity-fixture')")
+        page.evaluate("document.querySelector('#error').textContent='Resultado fixture conservado'")
+        page.evaluate("async () => { window.finishStaleActivity(); await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))); }")
+        self.assertTrue(page.get_by_role('button', name='Revisar orden').is_visible())
+        self.assertIn('Resultado fixture conservado', page.locator('#error').inner_text())
+
+    def test_closing_pending_review_prevents_late_response_from_reopening(self):
+        page, _ = self.page()
+        page.wait_for_selector('#send:not([disabled])', state='attached')
+        page.locator('[data-pane="activity"]').click()
+        page.get_by_role('button', name='Revisar orden').wait_for()
+        page.evaluate("""() => {
+            const original = window.fetch.bind(window);
+            window.fetch = (url, options) => {
+                if (url !== '/api/review') return original(url, options);
+                window.reviewCloseDeferred = true;
+                return new Promise(resolve => { window.finishClosedReview = () => resolve(new Response(JSON.stringify({
+                    state:'awaiting_approval', title:'fixture-private-review', inputs:{},
+                    expires_at:2000000000, token:'x'.repeat(43), can_confirm:true
+                }), {status:200, headers:{'Content-Type':'application/json'}})); });
+            };
+        }""")
+        page.get_by_role('button', name='Revisar orden').click()
+        page.wait_for_function('() => window.reviewCloseDeferred === true')
+        page.evaluate("document.querySelector('#review-close').click()")
+        page.evaluate("async () => { window.finishClosedReview(); await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))); }")
+        self.assertTrue(page.locator('#review-card').is_hidden())
+        self.assertNotIn('fixture-private-review', page.locator('#review-title').text_content())
 
     def test_pairing_fragment_is_consumed_once_and_removed_even_on_failure(self):
         pairing = 'axx_' + 'x' * 43
