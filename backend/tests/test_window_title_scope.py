@@ -95,6 +95,33 @@ class WindowTitleScopeTests(unittest.TestCase):
                 uia.close_window(10, 20, expected_title=prefix)
         self.user.PostMessageW.assert_not_called()
 
+    def test_close_rejects_pid_replacement_during_title_read(self):
+        changed = {'value': False}
+        def identity(hwnd, pointer):
+            pointer._obj.value = 99 if changed['value'] else 20
+            return 30
+        def title(hwnd, buffer, maximum):
+            buffer.value = 'Selected title'
+            changed['value'] = True
+            return len(buffer.value)
+        self.user.GetWindowThreadProcessId.side_effect = identity
+        self.user.GetWindowTextW.side_effect = title
+        self.user.PostMessageW.return_value = True
+        with patch.object(uia, 'list_windows', side_effect=[[{'window_id': 10, 'pid': 20, 'title': 'Selected title'}], []]), \
+             patch.object(uia, 'process_name', return_value='fixture.exe'):
+            with self.assertRaises(ValueError):
+                uia.close_window(10, 20, expected_title='Selected title')
+        self.user.PostMessageW.assert_not_called()
+
+    def test_close_rejects_reused_pid_and_hwnd_with_different_birth(self):
+        self.user.PostMessageW.return_value = True
+        with patch.object(uia, 'list_windows', side_effect=[[{'window_id': 10, 'pid': 20, 'title': 'Selected title'}], []]), \
+             patch.object(uia, 'process_name', return_value='fixture.exe'), \
+             patch.object(uia, 'process_started', return_value='new-birth'):
+            with self.assertRaises(ValueError):
+                uia.close_window(10, 20, expected_title='Selected title', expected_process_started='birth')
+        self.user.PostMessageW.assert_not_called()
+
 
 class TargetedVisionTests(unittest.TestCase):
     def frame(self):

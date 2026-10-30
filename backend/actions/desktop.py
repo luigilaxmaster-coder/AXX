@@ -71,12 +71,15 @@ def validate_inputs(kind, inputs):
         if inputs:
             raise ValueError('Reproducir Spotify no admite parámetros.')
     elif kind == 'close_window':
-        if set(inputs) not in ({'window_id', 'pid'}, {'window_id', 'pid', 'expected_title'}):
+        if not {'window_id', 'pid'} <= set(inputs) <= {'window_id', 'pid', 'expected_title', 'expected_process_started'}:
             raise ValueError('Indica la ventana observada y su proceso.')
         _validate_window_ref(inputs['window_id'], inputs['pid'])
         if 'expected_title' in inputs and (not isinstance(inputs['expected_title'], str)
                 or not inputs['expected_title'].strip() or len(inputs['expected_title']) > 2048):
             raise ValueError('Indica el título observado de la ventana.')
+        if 'expected_process_started' in inputs and (not isinstance(inputs['expected_process_started'], str)
+                or not inputs['expected_process_started'].strip() or len(inputs['expected_process_started']) > 80):
+            raise ValueError('Indica la instancia observada del proceso.')
     elif kind == 'move_pointer':
         if set(inputs) != {'x','y'} or any(type(inputs[k]) is not int or not -32768 <= inputs[k] <= 32767 for k in ('x','y')):
             raise ValueError('Indica coordenadas enteras x e y dentro del escritorio.')
@@ -230,7 +233,7 @@ def resolve_desktop(text, source, context=None):
             'expected_title':window['title'],'value':text}}
     closing = re.fullmatch(r'(?:cierra|cerrar|cierrame|ciérrame|sal de|salir de)\s+(?:(?:la|el)\s+)?(.+?)[.!?]*', raw, re.I)
     if closing:
-        from .windows_automation import list_windows, process_name
+        from .windows_automation import list_windows, process_name, process_started, read_window_title
         name = re.sub(r'^(?:aplicacion|programa|mi)\s+', '', plain(closing[1]).strip(' .!?'))
         name = plain(target_name(name, source))
         if not re.fullmatch(r'[\w .-]{2,100}', name, re.UNICODE):
@@ -239,9 +242,14 @@ def resolve_desktop(text, source, context=None):
         matches = [row for row in rows if name in plain(row['title']) or name in plain(process_name(row['pid'])).removesuffix('.exe')]
         if len(matches) == 1:
             row = matches[0]
-            inputs = {'window_id': format(row['window_id'], 'x'), 'pid': row['pid']}
-            if row['title'].strip():
-                inputs['expected_title'] = row['title']
+            try:
+                birth = process_started(row['pid'])
+                title = read_window_title(row['window_id'], row['pid'], birth)
+            except (OSError, ValueError):
+                return {'match': 'unsupported', 'message': 'La ventana cambió; solicita el cierre de nuevo.'}
+            inputs = {'window_id': format(row['window_id'], 'x'), 'pid': row['pid'], 'expected_process_started': birth}
+            if title.strip():
+                inputs['expected_title'] = title
             return {'match': 'exact', 'command_id': 'axx.desktop.window.close', 'inputs': inputs}
         return {'match': 'ambiguous' if matches else 'unsupported',
                 'message': 'Hay varias ventanas con ese nombre; indica el título completo.' if matches else 'No veo una ventana abierta con ese nombre. Di «mis ventanas» para ver las disponibles.'}
@@ -391,7 +399,7 @@ def open_target(kind, inputs, cancelled=None, control=None):
     elif kind == 'close_window':
         from .windows_automation import close_window
         output = close_window(int(inputs['window_id'], 16), inputs['pid'], cancelled=cancelled,
-                              **({'expected_title': inputs['expected_title']} if 'expected_title' in inputs else {}))
+                              **{key: inputs[key] for key in ('expected_title', 'expected_process_started') if key in inputs})
         return {'success': output['closed'], 'output': output,
                 'evidence': {'verification': 'window_disappeared' if output['closed'] else 'close_requested',
                              'accepted': output['closed'], 'window_id': output['window_id'], 'pid': output['pid']}}

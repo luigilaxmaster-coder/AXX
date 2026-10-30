@@ -75,9 +75,11 @@ botón, siempre que todavía esté pendiente y permitida.
 
 El alcance incluye consultas, apertura de aplicaciones o páginas y el cierre de
 una ventana observada. Por ejemplo, `cierra Spotify` muestra el título, la ventana
-y su proceso antes de decidir. El cierre verifica de nuevo el título y el proceso;
+y su proceso antes de decidir. El cierre verifica de nuevo el título, el proceso
+y su momento de inicio para detectar si la aplicación se reinició;
 si cambiaron, envía una nueva orden. No fuerza el cierre ni responde a avisos de
-cambios sin guardar. Una orden antigua sin título sigue requiriendo revisión en la PC.
+cambios sin guardar. Una orden antigua sin título o instancia del proceso sigue
+requiriendo revisión en la PC.
 Shell, escrituras, controles
 sensibles, comandos generados y pasos reservados de planes mantienen la aprobación
 en la PC. No se cambia el proveedor de conversación para aprobar una orden.

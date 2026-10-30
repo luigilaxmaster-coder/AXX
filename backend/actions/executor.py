@@ -171,7 +171,7 @@ class ActionExecutor:
                      'desktop_search': {'query', 'engine'}, 'desktop_powershell': {'script'}, 'desktop_cmd': {'script'},
                      'desktop_installed_app': {'app_id'}, 'desktop_list_apps': set(),
                      'desktop_list_windows': set(),
-                     'desktop_close_window': {'window_id', 'pid', 'expected_title'},
+                     'desktop_close_window': {'window_id', 'pid', 'expected_title', 'expected_process_started'},
                      'desktop_inspect_window': {'window_id', 'pid'},
                      'desktop_cli_anything_scan': {'window_id', 'pid'},
                      'desktop_read_window': {'window_id', 'pid', 'expected_title'},

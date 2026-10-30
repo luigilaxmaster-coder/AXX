@@ -266,12 +266,16 @@ class DesktopCommandTests(unittest.TestCase):
     def test_close_request_resolves_one_observed_window_and_checks_disappearance(self):
         observed = [{'window_id': 18, 'pid': 45, 'title': 'Spotify', 'class_name': 'Chrome_WidgetWin_1', 'foreground': True}]
         with patch('backend.actions.windows_automation.list_windows', return_value=observed), \
-             patch('backend.actions.windows_automation.process_name', return_value='spotify.exe'):
+             patch('backend.actions.windows_automation.process_name', return_value='spotify.exe'), \
+             patch('backend.actions.windows_automation.process_started', return_value='birth'), \
+             patch('backend.actions.windows_automation.read_window_title', return_value='Spotify'):
             resolved = self.service.resolve('Axx, cierra Spotify', source='voice')
         self.assertEqual(resolved['command_id'], 'axx.desktop.window.close')
-        self.assertEqual(resolved['inputs'], {'window_id': '12', 'pid': 45, 'expected_title': 'Spotify'})
+        self.assertEqual(resolved['inputs'], {'window_id': '12', 'pid': 45, 'expected_title': 'Spotify', 'expected_process_started': 'birth'})
         with patch('backend.actions.windows_automation.list_windows', return_value=observed), \
-             patch('backend.actions.windows_automation.process_name', return_value='spotify.exe'):
+             patch('backend.actions.windows_automation.process_name', return_value='spotify.exe'), \
+             patch('backend.actions.windows_automation.process_started', return_value='birth'), \
+             patch('backend.actions.windows_automation.read_window_title', return_value='Spotify'):
             self.assertEqual(self.service.resolve('cierra la aplicación Spotify')['command_id'], 'axx.desktop.window.close')
         with patch('backend.actions.windows_automation.close_window', return_value={'closed': True, 'window_id': 18, 'pid': 45}):
             prepared = self.service.prepare(resolved['command_id'], resolved['inputs'], source='voice')

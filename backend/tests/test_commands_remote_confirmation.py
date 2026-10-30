@@ -100,7 +100,7 @@ class RemoteConfirmationTests(unittest.TestCase):
         self.assertEqual(auth.call_count, 2)
 
     def test_window_close_can_be_reviewed_and_confirmed_once(self):
-        inputs = {'window_id': '12', 'pid': 45, 'expected_title': 'Spotify'}
+        inputs = {'window_id': '12', 'pid': 45, 'expected_title': 'Spotify', 'expected_process_started': 'birth'}
         prepared = self.commands.prepare('axx.desktop.window.close', inputs, operation_id='close-fixture',
                                          conversation_id='telegram', command_mode='ask')
         self.assertEqual(prepared['state'], 'awaiting_approval')
@@ -116,7 +116,7 @@ class RemoteConfirmationTests(unittest.TestCase):
             dispatch.assert_called_once()
 
     def test_window_close_becoming_pc_only_before_dispatch_is_blocked(self):
-        self.commands.prepare('axx.desktop.window.close', {'window_id': '12', 'pid': 45, 'expected_title': 'Spotify'},
+        self.commands.prepare('axx.desktop.window.close', {'window_id': '12', 'pid': 45, 'expected_title': 'Spotify', 'expected_process_started': 'birth'},
                               operation_id='close-policy-fixture', conversation_id='telegram', command_mode='ask')
         review = self.commands.remote_review('close-policy-fixture')
         self.assertTrue(review['eligible'])
@@ -137,6 +137,11 @@ class RemoteConfirmationTests(unittest.TestCase):
         with patch.object(self.executor, 'execute_action', return_value=action) as dispatch:
             self.assertEqual(self.commands.execute('legacy-close', approved=True)['state'], 'succeeded')
             dispatch.assert_called_once()
+
+    def test_legacy_titled_close_without_process_birth_is_not_remote_confirmable(self):
+        inputs = {'window_id': '12', 'pid': 45, 'expected_title': 'Spotify'}
+        self.commands.prepare('axx.desktop.window.close', inputs, operation_id='legacy-titled-close', command_mode='ask')
+        self.assertFalse(self.commands.remote_review('legacy-titled-close')['eligible'])
 
     def test_other_local_state_actions_remain_ineligible_for_remote_confirmation(self):
         command = {'risk': 'local_state', 'requires_approval': False}

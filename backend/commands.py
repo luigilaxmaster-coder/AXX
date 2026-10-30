@@ -86,7 +86,8 @@ ADAPTERS = {
         'aliases': [], 'parameters': {
             'window_id': {'type': 'string', 'required': True, 'maxLength': 18},
             'pid': {'type': 'integer', 'required': True, 'minimum': 1, 'maximum': 4294967295},
-            'expected_title': {'type': 'string', 'required': False, 'maxLength': 2048}}},
+            'expected_title': {'type': 'string', 'required': False, 'maxLength': 2048},
+            'expected_process_started': {'type': 'string', 'required': False, 'maxLength': 80}}},
     'axx.desktop.window.inspect': {
         'title': 'Observar controles de ventana', 'tool': 'desktop_inspect_window', 'risk': 'read',
         'description': 'Observa el árbol limitado de controles UI Automation de una ventana identificada por HWND y PID observados.',
@@ -792,7 +793,8 @@ class CommandService:
         return command.get('requires_approval', True) is False and (
             command.get('risk') in ('read', 'desktop_open')
             or command_id == 'axx.desktop.window.close' and command.get('risk') == 'local_state'
-            and isinstance(inputs.get('expected_title'), str) and bool(inputs['expected_title'].strip()))
+            and isinstance(inputs.get('expected_title'), str) and bool(inputs['expected_title'].strip())
+            and isinstance(inputs.get('expected_process_started'), str) and bool(inputs['expected_process_started'].strip()))
 
     def remote_review(self, operation_id):
         """Review only fixed, PC-policy-safe commands; this grants no authority."""
