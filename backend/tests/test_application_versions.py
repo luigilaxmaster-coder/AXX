@@ -18,11 +18,13 @@ class ApplicationVersionTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.binary = Path(self.temp.name) / 'blender.exe'
         self.binary.write_bytes(b'SYNTHETIC_EXECUTABLE_VERSION_A')
+        self.enterContext(patch.dict(os.environ, {'ProgramFiles': self.temp.name}))
         from backend.actions.cli_blender import find_blender
         self.original_finder = find_blender
         self.discovery = patch('backend.actions.cli_blender.find_blender', return_value=self.binary)
         self.discovery.start()
         self.addCleanup(self.discovery.stop)
+        self.enterContext(patch('backend.actions.blender_scene.find_blender', return_value=self.binary))
 
     def test_binary_update_invalidates_only_its_application_commands(self):
         app = get_action_env_fingerprint(['axx.blender.scene.render'])
