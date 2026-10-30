@@ -6,18 +6,93 @@ from playwright.sync_api import sync_playwright
 from mobile.tests.test_ui import ROOT,NATIVE_FIXTURE
 
 CONTROL_FIXTURE='''
-window.inputPackets=[];window.inputActive=false;window.failInput=false;
+window.inputPackets=[];window.inputActive=false;window.failInput=false;window.inputLease=0;window.controlCalls=[];window.failRenew=0;
 const old=Capacitor.Plugins.AxxTransport.request;
 Capacitor.Plugins.AxxTransport.request=async({path,body})=>{
  if(!path.startsWith('/v1/control/'))return old({path,body});
- if(path.endsWith('/acquire'))inputActive=true;
+ controlCalls.push({path,body});
+ if(path.endsWith('/acquire')){inputActive=true;inputLease++;}
+ if(path.endsWith('/renew')&&failRenew>0){failRenew--;throw Error('temporary network timeout');}
  if(path.endsWith('/release'))inputActive=false;
  if(path.endsWith('/events')){inputPackets.push(body);if(failInput)throw Error('lost acknowledgement');}
- return {data:{boot_id:'boot',ttl_ms:3000,lease:{lease_id:'lease',state:inputActive?'granted':'released',last_seq:0},native:{active:inputActive,reason:'released',cursor:{x:10,y:20},keys:[],buttons:[],monitors:[]}}};
+ return {data:{boot_id:'boot',ttl_ms:3000,lease:{lease_id:'lease-'+inputLease,state:inputActive?'granted':'released',last_seq:0},native:{active:inputActive,reason:'released',cursor:{x:10,y:20},keys:[],buttons:[],monitors:[]}}};
 };
 '''
 
 class RemoteControlUI(unittest.TestCase):
+ def open(self,p):
+  browser=p.chromium.launch()
+  page=browser.new_page(viewport={'width':339,'height':673},reduced_motion='reduce')
+  page.route('https://axx.test/**',lambda route:route.fulfill(path=str(ROOT/(route.request.url.split('https://axx.test/',1)[1] or 'index.html'))))
+  page.add_init_script(NATIVE_FIXTURE+CONTROL_FIXTURE);page.goto('https://axx.test/')
+  page.locator('[data-pane=pc]').click();page.locator('#control-open-pad').click();page.locator('#control-acquire').click();page.locator('#control-stop').wait_for()
+  return page
+
+ def test_one_failed_renewal_recovers_same_lease_without_replaying_input(self):
+  with sync_playwright() as p:
+   page=self.open(p)
+   page.evaluate('''()=>{failRenew=1;const old=Capacitor.Plugins.AxxTransport.request;let gated=false;window.waitRecovery=false;Capacitor.Plugins.AxxTransport.request=async o=>{if(o.path.endsWith('/renew')&&failRenew===0&&!gated){gated=true;waitRecovery=true;await new Promise(resolve=>window.finishRecovery=resolve);}return old(o);};}''')
+   page.wait_for_function('()=>waitRecovery')
+   self.assertTrue(page.locator('#control-left').is_disabled())
+   page.locator('#control-pad').dispatch_event('pointerdown',{'pointerId':11,'clientX':100,'clientY':200})
+   self.assertEqual(page.evaluate('inputPackets.length'),0)
+   page.evaluate('finishRecovery()')
+   page.wait_for_function("()=>document.querySelector('#control-status').textContent.includes('restablecido')")
+   self.assertFalse(page.locator('#control-left').is_disabled())
+   self.assertEqual(page.evaluate("controlCalls.filter(c=>c.path.endsWith('/acquire')).length"),1)
+   self.assertEqual(page.evaluate('inputLease'),1)
+   page.locator('#control-left').click();page.wait_for_function('()=>inputPackets.length===1')
+   self.assertEqual(page.evaluate('inputPackets[0].seq'),1)
+
+ def test_repeated_renewal_failure_stops_and_requires_explicit_reconnection(self):
+  with sync_playwright() as p:
+   page=self.open(p);page.evaluate('failRenew=2')
+   page.wait_for_function('()=>!inputActive')
+   self.assertTrue(page.locator('#control-stop').is_hidden())
+   self.assertEqual(page.locator('#control-acquire').inner_text(),'Reconectar')
+   self.assertEqual(page.evaluate("controlCalls.filter(c=>c.path.endsWith('/acquire')).length"),1)
+   page.locator('#control-acquire').click();page.locator('#control-stop').wait_for()
+   self.assertEqual(page.evaluate('inputLease'),2)
+   self.assertEqual(page.evaluate('inputPackets.length'),0)
+
+ def test_renewal_failure_with_drag_releases_instead_of_recovering_held_input(self):
+  with sync_playwright() as p:
+   page=self.open(p);page.locator('#control-drag').click();page.wait_for_function('()=>inputPackets.length===1')
+   page.evaluate('failRenew=1;controlCalls=[]')
+   page.wait_for_function('()=>!inputActive')
+   self.assertEqual(page.locator('#control-drag').get_attribute('aria-pressed'),'false')
+   self.assertEqual(page.evaluate("controlCalls.filter(c=>c.path.endsWith('/renew')).length"),1)
+   self.assertEqual(page.evaluate('inputPackets.length'),1)
+
+ def test_old_inflight_event_does_not_block_a_new_explicit_session(self):
+  with sync_playwright() as p:
+   page=self.open(p)
+   page.evaluate('''()=>{const old=Capacitor.Plugins.AxxTransport.request;let delayed=false;Capacitor.Plugins.AxxTransport.request=async o=>{const response=await old(o);if(o.path.endsWith('/events')&&!delayed){delayed=true;await new Promise(resolve=>window.finishOldInput=resolve);}return response;};}''')
+   page.locator('#control-left').click();page.wait_for_function('()=>!!window.finishOldInput')
+   page.locator('#control-stop').click();page.locator('#control-acquire').click();page.locator('#control-stop').wait_for()
+   page.locator('#control-right').click();page.evaluate('finishOldInput()')
+   page.wait_for_function('()=>inputPackets.length===2')
+   self.assertEqual(page.evaluate('inputPackets.map(p=>[p.lease_id,p.seq])'),[['lease-1',1],['lease-2',1]])
+   self.assertEqual(page.evaluate('inputPackets[1].events[0].button'),'right')
+
+ def test_lost_capture_and_background_release_input_without_reacquiring(self):
+  with sync_playwright() as p:
+   page=self.open(p);box=page.locator('#control-pad').bounding_box()
+   page.mouse.move(box['x']+30,box['y']+70);page.mouse.down()
+   page.wait_for_function("()=>document.querySelector('#control-drag').getAttribute('aria-pressed')==='true'")
+   page.locator('#control-pad').dispatch_event('lostpointercapture',{'pointerId':1})
+   page.wait_for_function('()=>inputPackets.length===2');page.mouse.up()
+   self.assertEqual(page.evaluate('inputPackets.map(p=>p.events[0].down)'),[True,False])
+   page.locator('[data-control-mode=keyboard]').click();page.locator('[data-key=Control]').click()
+   page.wait_for_function('()=>inputPackets.length===3')
+   page.evaluate("Object.defineProperty(document,'hidden',{configurable:true,value:true});document.dispatchEvent(new Event('visibilitychange'))")
+   page.wait_for_function('()=>!inputActive')
+   self.assertEqual(page.locator('[data-key=Control]').get_attribute('aria-pressed'),'false')
+   page.evaluate("Object.defineProperty(document,'hidden',{configurable:true,value:false});document.dispatchEvent(new Event('visibilitychange'))")
+   page.wait_for_timeout(900)
+   self.assertEqual(page.evaluate("controlCalls.filter(c=>c.path.endsWith('/acquire')).length"),1)
+   self.assertTrue(page.locator('#control-stop').is_hidden())
+
  def test_large_text_keeps_pad_and_keys_large(self):
   with sync_playwright() as p:
    browser=p.chromium.launch();page=browser.new_page(viewport={'width':339,'height':673})

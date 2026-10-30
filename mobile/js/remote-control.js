@@ -1,4 +1,4 @@
-/* Ephemeral input only: no persistence, retry or automatic reacquisition. */
+/* Input is never replayed. Only renew the same live lease after a transient failure. */
 (()=>{
   'use strict';
   const transport=window.Capacitor?.Plugins?.AxxTransport,$=id=>document.getElementById(id);
@@ -29,19 +29,20 @@
   }
   for(const letter of 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789')$('control-letter').add(new Option(letter,letter));
   if(!transport){$('control-status').textContent='Disponible en la app Android.';return;}
-  let lease=null,boot='',seq=0,queue=[],sending=false,renewing=false,requesting=false,generation=0,keys=new Set(),drag=false;
+  let lease=null,boot='',seq=0,queue=[],sending=false,renewing=false,recovering=false,requesting=false,generation=0,keys=new Set(),drag=false,deadline=0,hadControl=false;
   const pointers=new Map();let gesture=null,holdTimer=0,remainderX=0,remainderY=0,wakeLock=null;
   const request=async(op,body)=>(await transport.request({path:'/v1/control/'+op,method:body?'POST':'GET',...(body?{body}:{})})).data;
   const message=text=>{$('control-status').textContent=text;};
-  function enabled(){return !!lease&&!document.hidden;}
+  function enabled(){return !!lease&&!recovering&&!document.hidden&&surface.open&&!$('pane-pc').hidden;}
   function paint(){
-    stop.hidden=!lease;$('control-acquire').hidden=!!lease;$('control-acquire').disabled=requesting;surface.dataset.connected=String(!!lease);
-    for(const b of surface.querySelectorAll('#control-left,#control-right,#control-drag,[data-scroll],[data-key],#control-send,#control-chord'))b.disabled=!lease;
-    $('control-pad').setAttribute('aria-disabled',String(!lease));
+    stop.hidden=!lease;$('control-acquire').hidden=!!lease;$('control-acquire').disabled=requesting;$('control-acquire').textContent=hadControl?'Reconectar':'Tomar control';surface.dataset.connected=String(!!lease);
+    for(const b of surface.querySelectorAll('#control-left,#control-right,#control-drag,[data-scroll],[data-key],#control-send,#control-chord'))b.disabled=!enabled();
+    $('control-pad').setAttribute('aria-disabled',String(!enabled()));
     for(const b of $('control-keys').querySelectorAll('[aria-pressed]'))b.setAttribute('aria-pressed',String(keys.has(b.dataset.key)));
     $('control-drag').setAttribute('aria-pressed',String(drag));document.body.classList.toggle('remote-control-active',!!lease);
   }
-  function clear(){lease=null;generation++;queue=[];keys.clear();drag=false;pointers.clear();gesture=null;remainderX=remainderY=0;clearTimeout(holdTimer);void wakeLock?.release();wakeLock=null;paint();}
+  function resetPointers(){pointers.clear();gesture=null;remainderX=remainderY=0;clearTimeout(holdTimer);}
+  function clear(){lease=null;generation++;queue=[];keys.clear();drag=false;recovering=false;deadline=0;resetPointers();void wakeLock?.release();wakeLock=null;paint();}
   async function cancel(reason='Control detenido'){
     const old=lease,b=boot;clear();message(reason);
     if(old)try{await request('release',{lease_id:old,boot_id:b});}catch{message(reason+' · sin confirmación de red; el control caduca en 3 s.');}
@@ -49,15 +50,15 @@
   function state(s){
     const n=s.native;
     $('control-geometry').textContent=(n.monitors||[]).map(m=>m.width+' × '+m.height+' @ '+m.x+','+m.y+(m.dpi?' · '+m.dpi+' DPI':'')).join(' / ')+(n.cursor?' · Cursor '+n.cursor.x+', '+n.cursor.y:'');
-    if(lease&&(!n.active||s.lease?.lease_id!==lease||s.boot_id!==boot)){clear();message('Control finalizado · '+(n.reason||'revoked')+'. Vuelve a solicitarlo.');}
+    if(lease&&(!n.active||s.lease?.lease_id!==lease||s.boot_id!==boot)){clear();const reason=({local_mouse:'Se usó el ratón del PC',local_keyboard:'Se usó el teclado del PC',expired_or_revoked:'La sesión caducó',display_changed:'Cambió la pantalla del PC',released:'Control detenido'})[n.reason]||'El PC finalizó el control';message(reason+'. Pulsa Reconectar.');}
   }
   $('control-acquire').onclick=async()=>{
-    if(requesting||lease||document.hidden)return;requesting=true;paint();message('Solicitando control…');const current=++generation;
+    if(requesting||lease||document.hidden||!surface.open||$('pane-pc').hidden)return;requesting=true;paint();message('Solicitando control…');const current=++generation;
     try{
-      const s=await request('acquire',{request_id:crypto.randomUUID(),visible:true});
+      const started=performance.now(),s=await request('acquire',{request_id:crypto.randomUUID(),visible:true});
       if(current!==generation||document.hidden){if(s.lease?.lease_id)await request('release',{lease_id:s.lease.lease_id,boot_id:s.boot_id});return;}
       if(!s.native.active||s.lease?.state!=='granted')throw new Error('El PC no concedió el control');
-      lease=s.lease.lease_id;boot=s.boot_id;seq=s.lease.last_seq;state(s);message('Control concedido');
+      lease=s.lease.lease_id;boot=s.boot_id;seq=s.lease.last_seq;deadline=started+Math.min(3000,s.ttl_ms||3000);hadControl=true;state(s);message('Control concedido');
       try{const lock=await navigator.wakeLock?.request('screen');if(current===generation)wakeLock=lock;else void lock?.release();}catch{}
     }catch(e){message(e.message);}finally{requesting=false;paint();}
   };
@@ -69,7 +70,7 @@
     surface.querySelectorAll('[data-control-mode]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.controlMode===name)));
     if(name==='keyboard')$('control-text').focus();else document.activeElement?.blur();
   }
-  function open(name){surface.showModal();document.body.classList.add('control-fullscreen');mode(name);fit();}
+  function open(name){surface.showModal();document.body.classList.add('control-fullscreen');mode(name);fit();paint();void poll();}
   $('control-open-pad').onclick=()=>open('pad');$('control-open-keyboard').onclick=()=>open('keyboard');
   surface.querySelectorAll('[data-control-mode]').forEach(b=>b.onclick=()=>mode(b.dataset.controlMode));
   $('control-close').onclick=()=>surface.close();
@@ -95,12 +96,19 @@
     const body={lease_id:lease,boot_id:boot,seq:++seq,events:queue.splice(0,16)};
     try{const s=await request('events',body);if(current===generation)state(s);}
     catch(e){if(current===generation)await cancel('Entrada sin confirmar: '+e.message+'. No se repetirá.');}
-    finally{sending=false;if(current===generation&&queue.length)void flush();}
+    finally{sending=false;if(queue.length)void flush();}
   }
   async function poll(){
-    if(renewing||document.hidden)return;renewing=true;const current=generation;
-    try{const s=lease?await request('renew',{lease_id:lease,boot_id:boot,visible:true}):await request('status');if(current===generation)state(s);}
-    catch(e){if(lease&&current===generation)await cancel('Conexión interrumpida: '+e.message);}
+    if(renewing||document.hidden||!surface.open)return;renewing=true;const current=generation;
+    try{const started=performance.now(),s=lease?await request('renew',{lease_id:lease,boot_id:boot,visible:true}):await request('status');if(current===generation){if(lease)deadline=started+Math.min(3000,s.ttl_ms||3000);state(s);}}
+    catch(e){
+      if(!lease||current!==generation)return;
+      if(!enabled()||keys.size||drag||performance.now()>=deadline){await cancel('Conexión interrumpida. Pulsa Reconectar.');return;}
+      // A renewal has no input effects; discard unsent gestures while confirming this exact lease.
+      recovering=true;queue=[];resetPointers();paint();message('Recuperando conexión…');
+      try{const started=performance.now(),s=await request('renew',{lease_id:lease,boot_id:boot,visible:true});if(current===generation){deadline=started+Math.min(3000,s.ttl_ms||3000);state(s);if(lease){recovering=false;paint();message('Control restablecido');}}}
+      catch{if(lease&&current===generation)await cancel('Conexión interrumpida. Pulsa Reconectar.');}
+    }
     finally{renewing=false;}
   }
   const button=(button,down)=>({type:'button',button,down});
@@ -146,7 +154,8 @@
     else if(gesture.distance<8&&performance.now()-gesture.started<450)click(gesture.max===2?'right':'left');
     gesture=null;
   };
-  pad.onpointercancel=()=>{pointers.clear();gesture=null;clearTimeout(holdTimer);if(drag)setDrag(false);};
+  pad.onpointercancel=()=>{resetPointers();if(drag)setDrag(false);};
+  pad.onlostpointercapture=e=>{if(pointers.has(e.pointerId)){resetPointers();if(drag)setDrag(false);}};
   pad.oncontextmenu=e=>e.preventDefault();
   document.addEventListener('visibilitychange',()=>{if(document.hidden)void cancel('Control detenido al salir de la app');else void poll();});
   window.addEventListener('pagehide',()=>void cancel('Control detenido al cerrar la app'));
