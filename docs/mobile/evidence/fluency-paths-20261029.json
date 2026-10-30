@@ -33,13 +33,13 @@
     "same_signature_as_previous": true,
     "canonical_assets_matched": 20,
     "installed": true,
-    "installation_result": "PASS_IN_PLACE_APP_CLOSED",
+    "installation_result": "PASS_IN_PLACE_AND_RECONNECTED",
     "persistent_app_files_preserved_before_launch": true,
-    "physical_acceptance": "PENDING_WINDOWS_STABILITY"
+    "physical_acceptance": "PENDING_NATIVE_FOREGROUND_INTERACTION"
   },
   "sustained_test": {
     "state": "NOT_STARTED",
-    "reason": "Android updated in place; app closed until coordinated Windows stability",
+    "reason": "Other apps occupy native phone screen; user asked to foreground Axx Mobile without floating windows. No unplug or sustained measurement yet.",
     "planned_seconds": 1800,
     "planned_animated_seconds": 1200,
     "planned_control_seconds": 600,
@@ -55,5 +55,16 @@
       "conclusion": "failure",
       "resolution": "Windows delivery owner investigating; not a mobile gate success"
     }
+  },
+  "runtime_preservation": {
+    "result": "PASS",
+    "same_pairing_profile": true,
+    "theme_accent_text_and_drafts": true,
+    "pending_operation_ids_preserved": true,
+    "same_pairing_reconnected": true,
+    "renderer_mode": "gpu",
+    "quality": "balanced",
+    "renderer_failures": 0,
+    "camera_correction_override_loaded": true
   }
 }
