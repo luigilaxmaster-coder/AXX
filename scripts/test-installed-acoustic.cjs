@@ -43,9 +43,10 @@ async function main() {
       const reader = Axx.symbiosis.reader;
       if (Axx.nativeVoice.activeCapture || ['starting','speaking','paused'].includes(reader.state)) throw Error('Existing audio activity must finish first');
       if (Axx.companion.data.prefs.mutedAll) throw Error('Current app output is muted');
-      return {voiceURI:reader.voiceURI, rate:reader.rate, device:Axx.nativeVoice.liveDeviceId || ''};
+      return {voiceURI:reader.voiceURI, rate:reader.rate, volume:reader.volume ?? 1, device:Axx.nativeVoice.liveDeviceId || ''};
     });
     assert(typeof selection.voiceURI === 'string' && selection.voiceURI, 'Select an installed voice before this test');
+    assert(Number.isFinite(selection.volume) && selection.volume > 0 && selection.volume <= 1, 'Current reader volume is muted or invalid');
     assert(!selection.voiceURI.startsWith('web:'), 'The selected browser voice has no installed synthesis endpoint');
     const voice = selection.voiceURI.replace(/^sapi:/, '');
     const status = await page.evaluate(() => Axx.nativeInvoke('native_status'));
@@ -59,11 +60,11 @@ async function main() {
     receipt.voice = voice;
     stage('synthesis');
     const started = Date.now();
-    const synthesis = await page.evaluate(async ({text,voice,rate}) => {
+    const synthesis = await page.evaluate(async ({text,voice,rate,volume}) => {
       const catalog = await Axx.backendRequest('GET','/axx-api/speech/voices');
       if (!catalog.voices?.some(item => item.name === voice && item.enabled !== false)) throw Error('Selected voice is unavailable');
-      return Axx.backendRequest('POST','/axx-api/speech/synthesize', {text,voice,rate,volume:100});
-    }, {text,voice,rate:voice.startsWith('piper:') ? 0 : Math.max(-5,Math.min(5,Math.round((Number(selection.rate || 1)-1)*5)))});
+      return Axx.backendRequest('POST','/axx-api/speech/synthesize', {text,voice,rate,volume});
+    }, {text,voice,volume:Math.round(selection.volume*100),rate:voice.startsWith('piper:') ? 0 : Math.max(-5,Math.min(5,Math.round((Number(selection.rate || 1)-1)*5)))});
     assert.equal(synthesis.mime, 'audio/wav');
     assert(typeof synthesis.audio_base64 === 'string' && synthesis.audio_base64.length <= 8*1024*1024, 'Invalid bounded synthesized audio');
     assert(synthesis.duration_seconds > 0 && synthesis.duration_seconds <= 35, 'The stimulus must be at most 35 seconds');
@@ -83,8 +84,13 @@ async function main() {
       };
       try {
         if (Axx.nativeVoice.activeCapture) throw Error('Microphone acquired by another task');
-        stream = await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false,
+        let expired=false, acquisitionTimer;
+        const acquisition=navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false,
           ...(device ? {deviceId:{exact:device}} : {})},video:false});
+        try {
+          stream=await Promise.race([acquisition.then(value=>{if(expired)value.getTracks().forEach(track=>track.stop());return value;}),
+            new Promise((_,reject)=>{acquisitionTimer=setTimeout(()=>{expired=true;reject(Error('Microphone permission or acquisition timed out'));},15000);})]);
+        } finally {clearTimeout(acquisitionTimer);}
         const tracks = stream.getAudioTracks();
         if (tracks.length !== 1 || tracks[0].readyState !== 'live') throw Error('A single live audio input is required');
         const label = tracks[0].label || '';
