@@ -4,6 +4,7 @@ Model output is a proposal, never an execution receipt. New workflows are retain
 only after every concrete step passes the executor's postconditions.
 """
 from backend.prompts import compose
+import copy
 import hashlib
 from functools import wraps
 from concurrent.futures import ThreadPoolExecutor
