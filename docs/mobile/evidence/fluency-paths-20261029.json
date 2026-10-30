@@ -1,0 +1,83 @@
+{
+  "evidence_context": {
+    "classification": "HISTORICAL_RECORD_NOT_FINAL_INTEGRATED_GATE",
+    "historical_source_commit": "3a680218678a26ab8ad50733240dfa56c0fb4a82",
+    "historical_record_path": "docs/mobile/evidence/fluency-paths-20261029.json",
+    "historical_record_sha256": "39eb5c8b2d6b6e1310098132482890880dcaec685d550b821a5a3fa91999801f",
+    "reconciliation_source_base": "a9a979f16ac6292fd1916cdcbf4b7072b953ecf9",
+    "original_values_preserved": true,
+    "final_integrated_gate_receipt": false,
+    "certifies_m9_m3": false,
+    "revalidated_during_reconciliation": false,
+    "new_automation_authorization": false,
+    "scope_note": "Original version-specific results are retained. They do not certify the final reconciled source, its installation, or untested physical functions."
+  },
+  "source_validation": {
+    "result": "PASS",
+    "desktop_base": "ca9b8775b86b5dc5a9b6802e895d1e4b0c9877f8",
+    "desktop_source_version": "0.22.29",
+    "android": "0.2.9",
+    "android_code": 30,
+    "canonical_inputs": 114,
+    "contract_tests": 11,
+    "mobile_backend_tests": 92,
+    "backend_skipped": 1,
+    "mobile_browser_tests": 39,
+    "desktop_file_ui_tests": 6,
+    "screen_cases": 120,
+    "approved_portrait_references": 12,
+    "identical_pixel_cases": 81
+  },
+  "prior_physical_path_test": {
+    "android": "0.2.8",
+    "result": "PASS",
+    "pc_folder_selected": "Downloads",
+    "physical_navigation": "Archivos → Explorar → Downloads → buscar fixture → Traer al teléfono",
+    "bytes": 9600,
+    "sha256": "40b0dd3c586d50e196a786b5f5bebe39832871bf0673987c28f496b8c70fb520",
+    "native_persistence": "received",
+    "other_links_unchanged": true
+  },
+  "new_apk": {
+    "android": "0.2.9",
+    "code": 30,
+    "sha256": "1051562d962f22aebcebee8a2e61c024f7b2e8dc39963d59bab218749dda9749",
+    "bytes": 11698776,
+    "same_signature_as_previous": true,
+    "canonical_assets_matched": 20,
+    "installed": true,
+    "installation_result": "PASS_IN_PLACE_AND_RECONNECTED",
+    "persistent_app_files_preserved_before_launch": true,
+    "physical_acceptance": "PENDING_NATIVE_FOREGROUND_INTERACTION"
+  },
+  "sustained_test": {
+    "state": "NOT_STARTED",
+    "reason": "Other apps occupy native phone screen; user asked to foreground Axx Mobile without floating windows. No unplug or sustained measurement yet.",
+    "planned_seconds": 1800,
+    "planned_animated_seconds": 1200,
+    "planned_control_seconds": 600,
+    "battery_and_temperature_results": null
+  },
+  "ci": {
+    "companion": {
+      "run_id": 40992610066,
+      "conclusion": "success"
+    },
+    "general_commands_linux": {
+      "run_id": 40992609995,
+      "conclusion": "failure",
+      "resolution": "Windows delivery owner investigating; not a mobile gate success"
+    }
+  },
+  "runtime_preservation": {
+    "result": "PASS",
+    "same_pairing_profile": true,
+    "theme_accent_text_and_drafts": true,
+    "pending_operation_ids_preserved": true,
+    "same_pairing_reconnected": true,
+    "renderer_mode": "gpu",
+    "quality": "balanced",
+    "renderer_failures": 0,
+    "camera_correction_override_loaded": true
+  }
+}

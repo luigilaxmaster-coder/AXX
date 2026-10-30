@@ -583,8 +583,15 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                     result = self.anticipation.revoke(body['grant_id'])
                 elif action == 'accept' and set(body) == {'suggestion_id', 'plan_hash'}:
                     result = self.anticipation.accept(body['suggestion_id'], body['plan_hash'])
-                elif action == 'feedback' and set(body) == {'suggestion_id', 'action'}:
-                    result = self.anticipation.feedback(body['suggestion_id'], body['action'])
+                elif action == 'feedback' and (set(body) == {'suggestion_id', 'action'} or
+                        set(body) == {'suggestion_id', 'action', 'attention_key', 'phase'} and body.get('action') == 'shown' and body.get('phase') in ('claim', 'presented') or
+                        set(body) == {'suggestion_id', 'action', 'attention_key', 'phase', 'response_digest'} and body.get('action') == 'shown' and body.get('phase') == 'response'):
+                    result = self.anticipation.feedback(body['suggestion_id'],
+                        {key: value for key, value in body.items() if key != 'suggestion_id'})
+                elif action == 'feedback' and (set(body) == {'mission_id', 'action', 'attention_key', 'phase', 'response_digest'} and body.get('action') == 'shown' and body.get('phase') == 'response' or
+                        set(body) == {'mission_id', 'action', 'attention_key'} and body.get('action') in ('dismiss', 'suppress', 'restore')):
+                    result = self.anticipation.feedback(body['mission_id'],
+                        {key: value for key, value in body.items() if key != 'mission_id'})
                 elif action == 'cancel' and not set(body) - {'suggestion_id'}:
                     result = self.anticipation.cancel(body.get('suggestion_id'))
                 elif action == 'forget':

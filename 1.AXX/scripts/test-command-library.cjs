@@ -434,6 +434,46 @@ const { chromium } = requirePlaywright();
     assert.equal(routing.question,'¿Qué contenido debe tener el archivo?');assert.equal(routing.weak,false);
     assert(!routing.calls.some(c=>c.route==='/axx-api/commands/execute'));
     results.push('Unknown actions and missing parameters reach the selected model planner, including ChatGPT; no partial execution');
+    const attention=await page.evaluate(async()=>{
+      const lib=Axx.commandLibrary,previous=Axx.backendRequest,oldProject=Axx.skillLibrary,oldAttention=Axx.anticipation,updates=[],notes=[],acknowledgements=[];
+      let selectedProject='project-a',memoryGeneration=2;
+      Axx.chatWorkspace.active.id='origin-chat';
+      Axx.chatWorkspace.captureMemoryToken=()=>({memory_scope:{task_id:'origin-chat',generation:memoryGeneration},memory_context_id:'original-context',epoch:0});
+      Axx.chatWorkspace.isMemoryTokenCurrent=token=>token.memory_scope.generation===memoryGeneration&&token.memory_context_id==='original-context';
+      Axx.skillLibrary={project:()=>selectedProject};Axx.anticipation={noteMissionPlan:(plan,context)=>notes.push({plan:structuredClone(plan),context:structuredClone(context)}),acknowledgeMissionResponse:(plan,context)=>acknowledgements.push({operation:plan.operation_id,context:structuredClone(context),notice:structuredClone(notices.at(-1))})};
+      Axx.companion.updateMissionAttention=(group,options)=>{updates.push({group:structuredClone(group),options});return true;};
+      const base={kind:'learned_plan',state:'awaiting_approval',conversation_id:'origin-chat',project_id:'project-a',goal_revision:1,plan_hash:'a'.repeat(64),memory_scope:{task_id:'origin-chat',generation:2},memory_context_id:'original-context',memory_dependencies:[{task_id:'parent',generation:4}],context_dependencies:[{project_id:'project-a',field:'current_folder',revision:7}],steps:[],mission:{mission_id:'explicit-mission',revision:1,state:'awaiting_approval',completed:false},message:'Revisa el plan solicitado.'};
+      Axx.backendRequest=async(method,route,body)=>{
+        if(route==='/axx-api/learning/prepare'){const response={...structuredClone(base),operation_id:body.operation_id};if(window.holdAttentionPrepare)await new Promise(resolve=>window.releaseAttentionPrepare=resolve);return response;}
+        if(route==='/axx-api/learning/execute')return {...structuredClone(base),operation_id:body.operation_id,state:window.attentionResultState,mission:{...base.mission,state:window.attentionResultState},postconditions_passed:true,message:'Respuesta explícita '+window.attentionResultState,results:[]};
+        return previous(method,route,body);
+      };
+      const noticeStart=notices.length,actionStart=actions.length;
+      try{
+        lib.operation=null;lib.busy=false;await lib.planAction('Plan solicitado',{steps:[]});
+        const preparation={notices:notices.length-noticeStart,actions:actions.slice(actionStart),update:updates.at(-1),note:notes.at(-1)};
+        for(const state of ['succeeded','paused','cancelled','rejected']){
+          lib.operation={...structuredClone(base),operation_id:'explicit-'+state,state:'awaiting_approval'};lib.busy=false;lib.renderOperation(lib.operation);window.attentionResultState=state;await lib.executePlan();
+        }
+        const states=updates.map(row=>({category:row.group.category,summary:row.group.summary,solicited:row.options.solicited,scope:row.group.memory_scope,dependencies:row.group.memory_dependencies,context:row.group.memory_context_id,ambient:row.group.context_dependencies}));
+        lib.operation=null;window.holdAttentionPrepare=true;const pending=lib.planAction('Old project plan',{steps:[]});while(!window.releaseAttentionPrepare)await Promise.resolve();selectedProject='project-b';const before=updates.length,beforeNotices=notices.length;releaseAttentionPrepare();await pending;
+        return {preparation,states,lateUpdates:updates.length-before,lateNotices:notices.length-beforeNotices,notices:notices.slice(noticeStart),actions:actions.slice(actionStart),acknowledgements};
+      }finally{lib.operation=null;lib.busy=false;Axx.backendRequest=previous;Axx.skillLibrary=oldProject;Axx.anticipation=oldAttention;delete Axx.companion.updateMissionAttention;delete Axx.chatWorkspace.captureMemoryToken;delete Axx.chatWorkspace.isMemoryTokenCurrent;}
+    });
+    assert.equal(attention.preparation.notices,1,'A requested preparation still renders its chat notice');
+    assert.deepEqual(attention.preparation.actions,['thinking'],'A projected explicit decision does not emit another generic approval');
+    assert.equal(attention.preparation.update.group.category,'decision');
+    assert.equal(attention.preparation.update.options.solicited,true);
+    assert.equal(attention.preparation.update.options.notify,false);
+    assert.equal(attention.preparation.note.context.memoryToken.memory_context_id,'original-context');
+    assert(attention.states.slice(1).every(row=>row.category==='progress'),'Pending goal, pause, cancellation and rejection are not mission errors');
+    assert(attention.states.every(row=>row.context==='original-context'&&row.scope.generation===2&&row.dependencies[0].generation===4&&row.ambient[0].field==='current_folder'));
+    assert.match(attention.states[1].summary,/Objetivo pendiente/);
+    assert.equal(attention.lateUpdates,0);assert.equal(attention.lateNotices,0);
+    assert.equal(attention.notices.length,5,'All requested plan responses retain their notices');
+    assert.equal(attention.acknowledgements.length,5);assert(attention.acknowledgements.every(row=>row.notice.role==='assistant'&&row.context.memoryToken.memory_context_id==='original-context'),'Response acknowledgement is requested only after the local notice is rendered, with its original token');
+    assert(!attention.actions.includes('error'));
+    results.push('Requested mission responses retain notices and captured M9 lineage, update one group without proactive admission, and suppress late project responses');
     assert.deepEqual(errors, []);
     console.log(JSON.stringify({ kind: 'COMMAND_LIBRARY_UI_IPC_CONTRACT_ONLY', passed: results.length, results, uncaught: errors }, null, 2));
   } finally { await browser.close(); }

@@ -1,0 +1,62 @@
+{
+  "evidence_context": {
+    "classification": "HISTORICAL_RECORD_NOT_FINAL_INTEGRATED_GATE",
+    "historical_source_commit": "3a680218678a26ab8ad50733240dfa56c0fb4a82",
+    "historical_record_path": "docs/mobile/evidence/trackpad-20261030.json",
+    "historical_record_sha256": "205aa1ed413ca80c7166e488e7dd49b7267e66a9c03ec0769f89baa170ba8541",
+    "reconciliation_source_base": "a9a979f16ac6292fd1916cdcbf4b7072b953ecf9",
+    "original_values_preserved": true,
+    "final_integrated_gate_receipt": false,
+    "certifies_m9_m3": false,
+    "revalidated_during_reconciliation": false,
+    "new_automation_authorization": false,
+    "scope_note": "Original version-specific results are retained. They do not certify the final reconciled source, its installation, or untested physical functions.",
+    "preserved_human_acceptance_scope": "Samsung Android 0.2.11 with Windows 0.22.30 R3: reported 65-second continuity, movement at start/end and Stop only; no click/drag/scroll, voice, battery, thermal or other-hardware acceptance added."
+  },
+  "android": {
+    "version": "0.2.11-companion",
+    "version_code": 32,
+    "built": true,
+    "installed": true,
+    "apk_sha256": "eeb7148a30b552b957645dc1e3ceb8e4f820e927528b12285a262ba378fbda3e",
+    "signature_matches_previous": true,
+    "canonical_web_assets_matched": 20,
+    "jvm_transport_tests": 6,
+    "installed_apk_hash_matches": true,
+    "persistent_app_files_preserved_before_launch": true
+  },
+  "source_validation": {
+    "result": "PASS",
+    "canonical_inputs": 114,
+    "contract_tests": 11,
+    "backend_tests": 96,
+    "backend_skipped": 1,
+    "mobile_browser_tests": 54,
+    "control_ui_tests": 17,
+    "desktop_selector_tests": 6
+  },
+  "windows": {
+    "source_base": "0.22.29 / 18a4fd8",
+    "backend_optional_window_commit": "f15d2b2",
+    "remote_only_material_commits": [
+      "5eb282e",
+      "d389ad1"
+    ],
+    "requires_both_material_commits": true,
+    "installed_patch_acceptance": "R3 0.22.30 installed; continuity and Stop accepted by human report",
+    "accepted_source_main": "38cad3827bc07b983c4a342ab99864a5e2776624"
+  },
+  "physical_trackpad_acceptance": {
+    "result": "CONTINUITY_AND_STOP_HUMAN_ACCEPTED",
+    "recorded_at": "2026-10-30T12:45:18.691071+00:00",
+    "method": "direct human reply recorded by the Windows delivery owner; private receipt inspected",
+    "reported_duration_seconds": 65,
+    "movement_at_start_and_end": "accepted by human",
+    "stop": "accepted by human",
+    "automatic_measurement": false,
+    "click_drag_scroll_revalidated_in_this_trial": false,
+    "automatic_input_reauthorized": false,
+    "scope": "Samsung Android 0.2.11 with Windows 0.22.30 R3; no universal or indefinite-duration measurement claimed"
+  },
+  "thermal_battery_trial": "NOT_STARTED"
+}

@@ -3641,6 +3641,32 @@ var Axx;
             return true;
         }
         markRead() { this.pending.length = 0; }
+        upsertMission(event) {
+            const mission = event.mission;
+            if (!event.id || !Number.isFinite(event.at) || event.origin !== 'real' || !mission?.key)
+                return false;
+            const previous = this.history.find(item => item.type === 'mission' && item.mission.key === mission.key);
+            if (previous && previous.mission.goal_revision > mission.goal_revision)
+                return false;
+            const pending = this.pending.find(item => item.type === 'mission' && item.mission.key === mission.key);
+            if (previous && JSON.stringify(previous.mission) === JSON.stringify(mission)
+                && (pending || !event.notify && !(event.solicited && ['decision', 'problem'].includes(mission.category))))
+                return true;
+            const sameDecision = pending && pending.mission.category === mission.category && pending.mission.plan_hash === mission.plan_hash
+                && (!pending.mission.attention_key || !mission.attention_key || pending.mission.attention_key === mission.attention_key);
+            this.history = this.history.filter(item => item.type !== 'mission' || item.mission.key !== mission.key);
+            this.pending = this.pending.filter(item => item.type !== 'mission' || item.mission.key !== mission.key);
+            const frozen = Object.freeze({ ...event, type: 'mission' });
+            this.history.unshift(frozen);
+            this.history = this.history.slice(0, 80);
+            if (mission.category !== 'progress' && (event.notify || sameDecision || event.solicited && ['decision', 'problem'].includes(mission.category))) {
+                this.pending.unshift(frozen);
+                this.pending = this.pending.slice(0, 40);
+            }
+            for (const listener of this.listeners)
+                listener(frozen);
+            return true;
+        }
         clear() { this.history.length = 0; this.pending.length = 0; this.seen.clear(); this.revisions.clear(); }
     }
     Axx.InteractionOrchestrator = InteractionOrchestrator;
@@ -9474,15 +9500,57 @@ var Axx;
         speakReply(text) {
             if (!text || window.__contractCalls) {
                 this._forceVoiceReplyOnce = false;
-                return;
+                return false;
             }
             const shouldSpeak = this.data.prefs.voiceRead || this._forceVoiceReplyOnce;
             this._forceVoiceReplyOnce = false;
-            if (!shouldSpeak) return;
+            if (!shouldSpeak || this.data.prefs.mutedAll) return false;
             const clean = String(text).replace(/https?:\/\/\S+/g, '').replace(/[#*`_~]/g, '').trim();
-            if (clean) this.read(clean);
+            return clean ? this.read(clean) !== false : false;
         }
         localNotice(text, operationId) { const message=this.message('assistant', text, 'local');if(operationId)message.operation_id=operationId;this.renderChat();this.save();this.speakReply(text); }
+        updateMissionAttention(group, { notify = false, solicited = false } = {}) {
+            const id = value => typeof value === 'string' && value.length > 0 && value.length <= 512;
+            const scope = ref => ref && id(ref.task_id) && Number.isSafeInteger(ref.generation) && ref.generation >= 0;
+            if (!group || !id(group.mission_id) || !id(group.task_id) || typeof group.project_id !== 'string' || group.project_id.length > 2000
+                || !Number.isSafeInteger(group.goal_revision) || group.goal_revision < 1 || !['done', 'decision', 'problem', 'progress'].includes(group.category)
+                || typeof group.summary !== 'string' || group.summary.length > 2000 || group.plan_hash != null && !id(group.plan_hash)
+                || !scope(group.memory_scope) || group.memory_scope.task_id !== group.task_id
+                || !Array.isArray(group.memory_dependencies || []) || (group.memory_dependencies || []).length > 128
+                || !(group.memory_dependencies || []).every(scope) || group.attention_key != null && !id(group.attention_key))
+                return false;
+            const workspace = Axx.chatWorkspace;
+            try {
+                if (workspace?.captureMemoryScope) {
+                    for (const ref of [group.memory_scope, ...(group.memory_dependencies || [])]) {
+                        if (ref !== group.memory_scope && workspace.allowsMemoryReference) {
+                            if (!workspace.allowsMemoryReference(ref)) return false;
+                            continue;
+                        }
+                        if (workspace.captureMemoryScope(ref.task_id).generation !== ref.generation) return false;
+                        if ('context_id' in ref && workspace.captureMemoryToken(ref.task_id).memory_context_id !== ref.context_id) return false;
+                    }
+                    if (group.memory_context_id && workspace.captureMemoryToken(group.task_id).memory_context_id !== group.memory_context_id)
+                        return false;
+                }
+            } catch { return false; }
+            const mission = { key: JSON.stringify([group.task_id, group.project_id, group.mission_id]), mission_id: group.mission_id,
+                task_id: group.task_id, project_id: group.project_id, goal_revision: group.goal_revision, plan_hash: group.plan_hash || null,
+                category: group.category, summary: group.summary, attention_key: group.attention_key || null,
+                memory_scope: { ...group.memory_scope }, memory_context_id: group.memory_context_id,
+                memory_dependencies: (group.memory_dependencies || []).map(ref => ({ ...ref })) };
+            return this.orchestrator.upsertMission({ id: Axx.newId(), type: 'mission', origin: 'real', at: Date.now(), mission,
+                notify: notify === true && Boolean(mission.attention_key), solicited: solicited === true });
+        }
+        invalidateMissionAttention(taskId) {
+            const keep = event => !event.mission || event.mission.task_id !== taskId
+                && !event.mission.memory_dependencies.some(ref => ref.task_id === taskId);
+            this.orchestrator.history = this.orchestrator.history.filter(keep);
+            this.orchestrator.pending = this.orchestrator.pending.filter(keep);
+            this.events = this.events.filter(keep);
+            this.unread = this.orchestrator.pending.length;
+            this.renderActivity();
+        }
         renderAttachment() { node('chat-attachment').hidden = !this.attachment; node('attachment-name').textContent = this.attachment ? this.attachment.name + ' · ' + this.attachment.text.length.toLocaleString('es') + ' caracteres · próxima pregunta' : ''; }
         startDictation() {
             if (Axx.nativeVoice?.chatDraft) {
@@ -9549,7 +9617,7 @@ var Axx;
         } node('chat-mic').setAttribute('aria-pressed', 'false'); node('speech-indicator').hidden = this.speaking === false; this.restoreConversation(); }
         read(text) {
             text = speechReplyText(text);
-            if (!text) return;
+            if (!text) return false;
             if (this.voiceDelegate) {
                 const reader = Axx.symbiosis?.reader;
                 if (reader?.voiceURI === 'moss:axx-morcito') {
@@ -9558,16 +9626,15 @@ var Axx;
                         && !/\b(?:yo|tú|tu|usted|el|la|los|las|de|que|con|para|hola|puedo|vamos|señor)\b/i.test(text);
                     reader.lang = preference === 'en' || preference !== 'es' && english ? 'en-US' : 'es-DO';
                 }
-                this.voiceDelegate.read(text);
-                return;
+                return this.voiceDelegate.read(text) !== false;
             }
             if (!('speechSynthesis' in window)) {
                 this.app.toast('No hay síntesis de voz disponible en este navegador.');
-                return;
+                return false;
             }
             if (node('sound-all-muted').checked) {
                 this.app.toast('Toda la salida está silenciada. Desactívala en Sonido para escuchar la voz.');
-                return;
+                return false;
             }
             this.stopSpeech();
             this.stopDictation();
@@ -9590,6 +9657,7 @@ var Axx;
             speechSynthesis.speak(utterance);
             if (text.length > 7000)
                 this.app.toast('La lectura se limita a los primeros 7.000 caracteres. El texto completo permanece en el chat.');
+            return true;
         }
         stopSpeech() { this.voiceDelegate?.stopOutput(); this.speech = null; this.speaking = false; if ('speechSynthesis' in window)
             speechSynthesis.cancel(); if (!this.dictating)
@@ -9728,6 +9796,23 @@ var Axx;
         action(type, detail) { this.emit(type, 'real', detail); }
         presentEvent(event) {
             const { type, origin } = event;
+            if (type === 'mission') {
+                const mission = event.mission;
+                if (event.solicited) {
+                    const signal = { done: 'success', decision: 'approval', problem: 'error' }[mission.category];
+                    if (signal) {
+                        this.audio.play(signal, 'state', event.id);
+                        if (signal === 'approval') { this.app.stopDemo(); this.stopTour(false); }
+                        this.app.machine.notify(signal, Date.now(), signal === 'approval' ? 60000 : signal === 'error' ? 1200 : 750);
+                    }
+                }
+                this.events = this.events.filter(item => item.mission?.key !== mission.key);
+                this.events.unshift({ id: event.id, type, text: mission.summary, at: event.at, origin, mission });
+                this.events = this.events.slice(0, 50);
+                this.unread = this.orchestrator.pending.length;
+                this.renderActivity();
+                return;
+            }
             if (type === 'audio-stop') {
                 this.audio.setContext(false, false);
                 this.audio.play('audio-stop', 'state', event.id);

@@ -47,10 +47,19 @@
     function contextId(row){const id=row.memory_context_id||row.context_id||row.connect_id;if(typeof id!=='string'||!id||id!==row.connect_id)throw Error('El chat no confirmó su identidad de contexto.');return id;}
     function captureMemoryToken(id=active?.id){const memory_scope=captureMemoryScope(id),memory_context_id=memoryContexts.get(id);if(!memory_context_id)throw abortMemory();return {memory_scope,memory_context_id,epoch:memoryEpochs.get(memory_scope.task_id)||0};}
     function isMemoryTokenCurrent(token,requireActive=true){const ref=token?.memory_scope,current=memoryScopes.get(ref?.task_id);return !!ref&&(!requireActive||active?.id===ref.task_id)&&!memoryBlocked.has(ref.task_id)&&current?.generation===ref.generation&&memoryContexts.get(ref.task_id)===token.memory_context_id&&(memoryEpochs.get(ref.task_id)||0)===token.epoch;}
+    // Server projections may reference a source never loaded by this client.
+    // This rejects known revocation/conflicts; durable validity remains server-owned.
+    function allowsMemoryReference(ref){
+        if(typeof ref?.task_id!=='string'||!ref.task_id||ref.task_id.length>512||!validScope(ref,ref.task_id)||memoryBlocked.has(ref.task_id)||ref.generation<(memoryMinimum.get(ref.task_id)||0))return false;
+        const known=memoryScopes.get(ref.task_id),context=memoryContexts.get(ref.task_id);
+        if(known&&known.generation!==ref.generation)return false;
+        if('context_id' in ref&&(typeof ref.context_id!=='string'||!ref.context_id||ref.context_id.length>512||context&&context!==ref.context_id))return false;
+        return true;
+    }
     function invalidateMemory(id){
         memoryBlocked.add(id);memoryEpochs.set(id,(memoryEpochs.get(id)||0)+1);
         for(const run of memoryRuns)if(run.task_id===id)run.controller.abort();
-        lib.invalidateMemory?.(id);Axx.skillLibrary?.invalidateMemory?.(id);Axx.capabilityWorkshop?.invalidateMemory?.(id);Axx.connect?.invalidateMemory?.(id);
+        lib.invalidateMemory?.(id);Axx.skillLibrary?.invalidateMemory?.(id);Axx.capabilityWorkshop?.invalidateMemory?.(id);Axx.connect?.invalidateMemory?.(id);Axx.anticipation?.invalidateMemory?.(id);c.invalidateMissionAttention?.(id);
         if(active?.id!==id)return;
         clearTimeout(timer);c.cancelRequest();c.streamElement=null;c.brain.lastRoute=null;
     }
@@ -299,7 +308,7 @@
         if(path==='/axx-api/learning/propose')body={...body,conversation_id:body?.conversation_id??active?.id};
         return request(method,path,body,memoryToken);
     };
-    Axx.chatWorkspace={get active(){return active;},get ready(){return ready;},get busy(){return busy;},flush,select,create,refresh,refreshActiveContext,refreshMemory,captureMemoryScope,captureMemoryToken,isMemoryTokenCurrent,invalidateMemory,operationCard};
+    Axx.chatWorkspace={get active(){return active;},get ready(){return ready;},get busy(){return busy;},flush,select,create,refresh,refreshActiveContext,refreshMemory,captureMemoryScope,captureMemoryToken,isMemoryTokenCurrent,allowsMemoryReference,invalidateMemory,operationCard};
     async function init() {
         const legacy={title:'Conversación anterior',messages:c.data.prefs.keepHistory?c.data.messages:[],draft:c.data.prefs.keepHistory?c.data.draft:'',connect_id:c.data.connectConversationId,shared_id:c.data.sharedConversationId};
         const migrated=await api('migrate',{...legacy,messages:[]});

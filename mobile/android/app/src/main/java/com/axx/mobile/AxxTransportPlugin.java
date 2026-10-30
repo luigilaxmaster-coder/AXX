@@ -141,23 +141,35 @@ public class AxxTransportPlugin extends Plugin {
         connection.setHostnameVerifier(hostnameVerifier);
     }
 
+    static int readTimeout(String path, String method) {
+        // Native startup can take 3 s, then the input owner has a 2 s acknowledgement budget.
+        if (path.equals("/v1/control/acquire")) return 6000;
+        if (path.equals("/v1/control/renew")) return 2200;
+        if (path.startsWith("/v1/control/")) return 2500;
+        if (path.startsWith("/v1/avatar/")) return 1500;
+        return method.equals("GET") ? 8000 : 75000;
+    }
+
     private JSONObject exchange(JSONObject profile, String path, String method, JSONObject body) throws Exception {
         URI endpoint = validateEndpoint(profile.getString("endpoint"));
         if (!path.matches("/v1/[a-z/-]+(\\?[a-z_]+=[a-zA-Z0-9_-]+)?") || !(method.equals("GET") || method.equals("POST")))
             throw new IllegalArgumentException("Invalid mobile operation");
         var connection = (HttpsURLConnection) new URI(endpoint.getScheme(), null, endpoint.getHost(), endpoint.getPort(), null, null, null).resolve(path).toURL().openConnection();
         boolean reusable=false;
+        long started=android.os.SystemClock.elapsedRealtime();
+        String stage="setup";
         try {
             // The QR certificate pin is the authority, independent of DHCP address changes.
             configureTls(profile.getString("fingerprint"),endpoint.getHost(),connection);
             connection.setInstanceFollowRedirects(false);
             boolean control=path.startsWith("/v1/control/") || path.startsWith("/v1/avatar/");
             connection.setConnectTimeout(control?1500:6000);
-            connection.setReadTimeout(control?1500:method.equals("GET")?8000:75000);
+            connection.setReadTimeout(readTimeout(path,method));
             connection.setRequestMethod(method);
             connection.setRequestProperty("Accept", "application/json");
             if (profile.has("credential")) connection.setRequestProperty("Authorization", "Bearer " + profile.getString("credential"));
             if (body != null) {
+                stage="send";
                 byte[] bytes = body.toString().getBytes(StandardCharsets.UTF_8);
                 if (bytes.length > 2*1024*1024) throw new IllegalArgumentException("Request is too large");
                 connection.setDoOutput(true);
@@ -165,6 +177,7 @@ public class AxxTransportPlugin extends Plugin {
                 connection.setFixedLengthStreamingMode(bytes.length);
                 try (var output = connection.getOutputStream()) { output.write(bytes); }
             }
+            stage="read";
             int status = connection.getResponseCode();
             if (status >= 300 && status < 400) throw new IllegalStateException("The PC tried to redirect the connection");
             var input = status < 400 ? connection.getInputStream() : connection.getErrorStream();
@@ -184,8 +197,16 @@ public class AxxTransportPlugin extends Plugin {
                     throw new IllegalStateException(error == null ? "PC error ("+status+")" : error.optString("message", error.optString("code", "PC error")));
                 }
                 reusable=path.equals("/v1/control/events")||path.equals("/v1/control/status");
+                stage="close";
                 return response;
             }
+        } catch (java.io.IOException e) {
+            if (path.startsWith("/v1/control/")) {
+                String operation=path.substring(path.lastIndexOf('/')+1);
+                if (operation.length()>16) operation="other";
+                android.util.Log.w("AxxInput", "op="+operation+" stage="+stage+" elapsed_ms="+(android.os.SystemClock.elapsedRealtime()-started)+" error="+e.getClass().getSimpleName());
+            }
+            throw e;
         } finally { if (!reusable) connection.disconnect(); }
     }
 
@@ -198,7 +219,11 @@ public class AxxTransportPlugin extends Plugin {
 
     private void submit(PluginCall call, CheckedAction action) {
         ThreadPoolExecutor executor=call.getString("path", "").startsWith("/v1/control/")?inputNetwork:network;
-        try { executor.execute(() -> { try { action.run(); } catch (Exception e) { call.reject(e instanceof javax.net.ssl.SSLException ? "PC identity could not be verified. Generate a new QR on the PC; never bypass certificate checks." : e instanceof java.io.IOException ? "Cannot reach your PC. Keep Axx open and connect both devices to the same Wi-Fi or authenticated Tailscale network. Check the QR address and Windows Firewall permissions." : e.getMessage() == null ? "Could not connect to the PC" : e.getMessage()); } }); }
+        try { executor.execute(() -> { try { action.run(); } catch (Exception e) {
+            String code=e instanceof java.net.SocketTimeoutException ? "PC_TIMEOUT" : e instanceof javax.net.ssl.SSLException ? "PC_TLS_UNVERIFIED" : e instanceof java.io.IOException ? "PC_UNREACHABLE" : "PC_REJECTED";
+            String message=e instanceof java.net.SocketTimeoutException ? "La PC tardó demasiado en confirmar la petición." : e instanceof javax.net.ssl.SSLException ? "PC identity could not be verified. Generate a new QR on the PC; never bypass certificate checks." : e instanceof java.io.IOException ? "No se pudo contactar con la PC. Comprueba la conexión Wi-Fi o Tailscale y que Axx siga abierto." : e.getMessage() == null ? "Could not connect to the PC" : e.getMessage();
+            call.reject(message,code);
+        } }); }
         catch (java.util.concurrent.RejectedExecutionException e) { call.reject("Axx is busy; try again"); }
     }
     private interface CheckedAction { void run() throws Exception; }

@@ -152,11 +152,17 @@ class AnticipationService:
                 CREATE TABLE IF NOT EXISTS anticipation_stats (task_id TEXT NOT NULL, routine_id TEXT NOT NULL, payload TEXT NOT NULL, PRIMARY KEY(task_id,routine_id));
                 CREATE TABLE IF NOT EXISTS anticipation_measurements (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT NOT NULL, kind TEXT NOT NULL, at REAL NOT NULL, wall_ms REAL NOT NULL, cpu_ms REAL);
                 CREATE TABLE IF NOT EXISTS anticipation_privacy (action_operation_id TEXT PRIMARY KEY, verification_scope TEXT NOT NULL, at REAL NOT NULL);
+                CREATE TABLE IF NOT EXISTS anticipation_attention_receipts (
+                    attention_key TEXT PRIMARY KEY, claimed_at REAL NOT NULL, presented_at REAL,
+                    payload TEXT, invalidated INTEGER NOT NULL DEFAULT 0, charged INTEGER NOT NULL DEFAULT 1);
+                CREATE INDEX IF NOT EXISTS anticipation_attention_charge ON anticipation_attention_receipts(claimed_at);
                 CREATE TABLE IF NOT EXISTS anticipation_storage_reservations (operation_id TEXT PRIMARY KEY,
                     action_operation_id TEXT NOT NULL, grant_id TEXT NOT NULL, task_id TEXT NOT NULL,
                     root TEXT NOT NULL, target TEXT NOT NULL, bytes INTEGER NOT NULL, state TEXT NOT NULL,
                     inputs_hash TEXT NOT NULL, at REAL NOT NULL, reconciliation_json TEXT NOT NULL);
             ''')
+            if 'charged' not in {row[1] for row in self.db.execute('PRAGMA table_info(anticipation_attention_receipts)')}:
+                self.db.execute('ALTER TABLE anticipation_attention_receipts ADD COLUMN charged INTEGER NOT NULL DEFAULT 1')
             task_memory.ensure(self.db)
             if not self.db.execute('SELECT 1 FROM anticipation_config WHERE id=1').fetchone():
                 self.db.execute('INSERT INTO anticipation_config VALUES (1,?)', (canonical(DEFAULTS),))
@@ -847,8 +853,259 @@ class AnticipationService:
             return False
         if item.get('shown_at'):
             return True
-        count = self.db.execute("SELECT COUNT(*) FROM anticipation_suggestions WHERE json_extract(payload,'$.shown_at')>?", (self.clock() - 3600,)).fetchone()[0]
-        return count < options.get('max_interruptions_hour', 0)
+        return self._attention_charge_count() < options.get('max_interruptions_hour', 0)
+
+    def _attention_charge_count(self):
+        """Legacy exposures and group admissions share one conservative budget."""
+        cutoff = self.clock() - 3600
+        legacy = self.db.execute("SELECT COUNT(*) FROM anticipation_suggestions WHERE json_extract(payload,'$.shown_at')>?", (cutoff,)).fetchone()[0]
+        grouped = self.db.execute('SELECT COUNT(*) FROM anticipation_attention_receipts WHERE charged=1 AND claimed_at>?', (cutoff,)).fetchone()[0]
+        return legacy + grouped
+
+    @staticmethod
+    def _attention_mission_id(item):
+        identities = {value for value in (item.get('learning_plan_id'),
+            item.get('plan', {}).get('learning_operation_id'), item.get('provenance', {}).get('learning_plan_id')) if value}
+        return next(iter(identities)) if len(identities) == 1 else None
+
+    @staticmethod
+    def _attention_suppression_routine(mission_id):
+        return 'mission-attention:' + digest({'mission_id': mission_id})
+
+    def _attention_candidate_reason(self, item, options):
+        if item.get('shadow') or options.get('mode') in ('OFF', 'SHADOW'):
+            return 'policy_off'
+        if options.get('interruptions') not in ('cards', 'voice', 'cards_voice'):
+            return 'silent'
+        if item.get('dismissed') or item['state'] in ('DISMISSED', 'SUPPRESSED', 'CANCELLED', 'EXPIRED'):
+            return 'dismissed'
+        if self._suppressed(item['task_id'], item['routine_id']):
+            return 'suppressed'
+        if item.get('context_state') == 'stale':
+            return 'stale_context'
+        if (item['state'] in PENDING and not item.get('preparation_complete')
+                and item.get('expires_at') is not None and item['expires_at'] <= self.clock()):
+            return 'expired'
+        plan = item.get('plan', {})
+        if plan.get('source_target_id'):
+            target = self._source_target(plan['source_target_id'])
+            if not target or digest(target) != plan.get('source_authorization_hash'):
+                return 'source_consent_changed'
+        return None
+
+    @staticmethod
+    def _attention_category(plan, mission, candidates):
+        state = plan.get('state')
+        if mission['completed']:
+            return 'done', 'verified_goal', 'Misión completada y verificada.'
+        if any(item.get('available_current') is not True for item in mission.get('artifact_compensations', [])):
+            return 'problem', 'deliverable_unavailable', 'Un entregable está apartado o pendiente de conciliación.'
+        if state == 'awaiting_approval':
+            return 'decision', 'plan_approval', 'La versión actual del plan necesita tu aprobación.'
+        if state == 'needs_input':
+            return 'decision', 'needs_input', str(plan.get('message') or 'La misión necesita datos para continuar.')
+        if state == 'expired':
+            return 'decision', 'review_expired', 'El plan caducó; revisa una versión vigente antes de continuar.'
+        if state in ('failed', 'unknown', 'blocked'):
+            return 'problem', state, str(plan.get('message') or 'La misión necesita revisión de su resultado.')
+        if state in ('goal_pending', 'interrupted') and any(
+                item.get('candidate_kind') in ('goal_progress', 'resume_task') and item['state'] in PENDING for item in candidates):
+            return 'decision', 'continuation_review', 'Hay una continuación de esta misión para revisar.'
+        if state == 'interrupted' and not plan.get('pause_requested') and not plan.get('cancel_requested'):
+            return 'problem', 'interrupted', 'La misión quedó interrumpida; consulta sus recibos antes de continuar.'
+        return 'progress', state or 'pending', 'La misión conserva su estado y sus evidencias actuales.'
+
+    def _mission_attention(self, task_id=None, *, items=None, config=None, mission_id=None):
+        """Read current plans before exposure filtering, without taking the planner lock."""
+        learning = self.commands.learning
+        if learning is None or learning.closed or learning.closing:
+            return []
+        from .action_learning import ActionLearning
+        from .memory.skill_memory import read_context_state
+        items = self._items(task_id) if items is None else items
+        config = config or self._config()
+        linked = {}
+        for item in items:
+            if key := self._attention_mission_id(item): linked.setdefault(key, []).append(item)
+        sql, args = 'SELECT payload FROM learning_plans', ()
+        if mission_id is not None:
+            sql += ' WHERE id=?'; args = (mission_id,)
+        elif task_id is not None:
+            sql += " WHERE json_extract(payload,'$.conversation_id')=?"; args = (task_id,)
+        groups = []
+        for row in self.db.execute(sql + ' ORDER BY rowid DESC LIMIT 100', args).fetchall():
+            plan = json.loads(row[0])
+            task = plan.get('conversation_id')
+            if not task or task_id is not None and task != task_id or not self._memory_current(plan, task):
+                continue
+            try:
+                # Match the existing readonly mission view. Source/skill execution
+                # revalidation belongs to its existing approval/dispatch guards;
+                # polling attention must not reopen documents or take planner locks.
+                if plan.get('plan_hash') and learning._plan_hash(plan) != plan['plan_hash']:
+                    continue
+            except (ValueError, KeyError, TypeError):
+                continue
+            plan = ActionLearning._project_compensations(plan, self.db)
+            mission = ActionLearning._mission(plan)
+            children = [item for item in linked.get(plan['operation_id'], []) if item['task_id'] == task
+                and item.get('plan', {}).get('context', {}).get('project_id', plan.get('project_id', '')) == plan.get('project_id', '')]
+            compatible = []
+            for item in children:
+                proposal = item.get('plan', {})
+                expected = ((item.get('result') or {}).get('plan_hash') if item.get('preparation_complete') else None) or proposal.get('source_plan_hash')
+                if expected and expected != plan.get('plan_hash'):
+                    continue
+                source_id = proposal.get('source_operation_id')
+                if source_id and not any(source_id in (record.get('operation_id'),
+                        (record.get('result') or {}).get('action_operation_id')) for record in plan.get('step_records', [])):
+                    continue
+                compatible.append(item)
+            evaluated = []
+            for item in compatible:
+                profile, options = self._policy(task, item['plan']['inputs']['path'], config, item['plan'].get('context'))
+                evaluated.append((item, profile, options, self._attention_candidate_reason(item, options)))
+            selected = next((entry for entry in evaluated if entry[3] is None), evaluated[0] if evaluated else None)
+            representative, profile, options, reason = selected if selected else (None, None, {}, 'no_current_suggestion')
+            if selected is None:
+                profile, options = self._policy(task, str(self.commands.executor.workspace_root), config,
+                    {'source': 'events', 'project_id': plan.get('project_id', ''), 'device_id': 'host'})
+            elif len({canonical([entry[1], entry[2]]) for entry in evaluated}) > 1:
+                # A mission can span roots with different interruption policies.
+                # Its shared summary must not borrow the loudest child's scope.
+                profile, options, reason = None, {'mode': 'OFF', 'interruptions': 'silent'}, 'ambiguous_policy'
+            category, code, summary = self._attention_category(plan, mission, [entry[0] for entry in evaluated if entry[3] is None])
+            message = plan.get('message') if isinstance(plan.get('message'), str) else ''
+            response_digest = hashlib.sha256(message.encode('utf-8')).hexdigest()
+            dependencies = {canonical(ref): ref for ref in plan.get('memory_dependencies', [])}
+            for item in compatible:
+                for ref in item.get('memory_dependencies', []): dependencies[canonical(ref)] = ref
+            dependencies = [copy.deepcopy(dependencies[key]) for key in sorted(dependencies)]
+            if len(dependencies) > 24:
+                continue
+            try:
+                task_memory.assert_dependencies(self.db, dependencies)
+            except ValueError:
+                continue
+            origin = {key: copy.deepcopy(plan[key]) for key in ('memory_scope', 'memory_context_id', 'context_dependencies') if key in plan}
+            origin['memory_dependencies'] = dependencies
+            attention_key = digest({'mission_id': plan['operation_id'], 'task_id': task, 'project_id': plan.get('project_id', ''),
+                'goal_revision': plan.get('goal_revision', 1), 'plan_hash': plan.get('plan_hash'),
+                'category': category, 'reason_code': code, 'origin': origin,
+                **({'question': digest(summary)} if code == 'needs_input' else {})})
+            receipt = self.db.execute('SELECT claimed_at,presented_at,invalidated,charged,payload FROM anticipation_attention_receipts WHERE attention_key=?', (attention_key,)).fetchone()
+            claimed = receipt is not None and not receipt['invalidated']
+            receipt_payload = json.loads(receipt['payload']) if receipt is not None and receipt['payload'] else {}
+            dismissed = receipt_payload.get('dismissed_at') is not None
+            mission_suppressed = self._suppressed(task, self._attention_suppression_routine(plan['operation_id']))
+            if category == 'progress': reason = 'progress'
+            if dismissed: reason = 'dismissed'
+            if mission_suppressed: reason = 'mission_suppressed'
+            if receipt is not None and receipt['invalidated']: reason = 'retired_attention'
+            if learning._context_error(plan, read_context_state(self.db, plan.get('project_id', ''))): reason = 'stale_context'
+            if not reason and not claimed:
+                if self._attention_charge_count() >= options.get('max_interruptions_hour', 0):
+                    reason = 'budget'
+                else:
+                    last = self.db.execute('SELECT MAX(claimed_at) FROM anticipation_attention_receipts WHERE charged=1').fetchone()[0]
+                    if last is not None and self.clock() - last < options.get('cooldown_seconds', 0): reason = 'cooldown'
+            group = {'attention_key': attention_key, 'mission_id': plan['operation_id'], 'task_id': task,
+                'project_id': plan.get('project_id', ''), 'goal_revision': plan.get('goal_revision', 1), 'plan_hash': plan.get('plan_hash'),
+                'category': category, 'reason_code': code, 'summary': summary[:1000], 'source_state': plan.get('state'),
+                'response_digest': response_digest,
+                'completed': mission['completed'], 'suggestion_ids': [item['suggestion_id'] for item in children],
+                'representative_suggestion_id': representative['suggestion_id'] if representative else None,
+                'interruption': {'eligible': reason is None, 'claimed': claimed, 'presented': bool(claimed and receipt['presented_at'] is not None),
+                    'response_acknowledged': bool(claimed and not receipt['charged'] and receipt['presented_at'] is not None),
+                    'dismissed': dismissed, 'mission_suppressed': mission_suppressed,
+                    'profile': profile, 'interruptions': options.get('interruptions', 'silent'), 'mode': options.get('mode', 'OFF'),
+                    'policy': copy.deepcopy(options), **({'reason': reason} if reason else {})}, **origin}
+            if representative:
+                group['representative'] = copy.deepcopy(representative) | {'policy': copy.deepcopy(options),
+                    'effective_profile': profile, 'visible': reason is None}
+            groups.append(group)
+        return groups
+
+    def _attention_receipt_payload(self, group):
+        payload = {field: group[field] for field in ('mission_id', 'task_id', 'project_id', 'goal_revision', 'plan_hash', 'memory_dependencies')}
+        payload.update({field: group[field] for field in ('memory_scope', 'memory_context_id') if field in group})
+        payload.update(profile=group['interruption']['profile'], retention_days=group['interruption']['policy'].get('retention_days', 1),
+            routines=sorted({child['routine_id'] for child in self._items(group['task_id']) if child['suggestion_id'] in group['suggestion_ids']}))
+        return payload
+
+    def _attention_group_feedback(self, mission_id, body):
+        identifier(mission_id)
+        attention_key = body['attention_key']
+        if not isinstance(attention_key, str) or not re.fullmatch('[a-f0-9]{64}', attention_key):
+            raise ValueError('Confirmación de atención inválida')
+        with self._policy_transaction(immediate=True):
+            groups = self._mission_attention(mission_id=mission_id)
+            group = next((row for row in groups if row['mission_id'] == mission_id), None)
+            admission = {'accepted': False, 'new_claim': False, 'presented': False}
+            if not group or group['attention_key'] != attention_key:
+                return {'attention': group, 'admission': admission | {'reason': 'stale_attention'}}
+            receipt = self.db.execute('SELECT * FROM anticipation_attention_receipts WHERE attention_key=?', (attention_key,)).fetchone()
+            if receipt is not None and receipt['invalidated']:
+                return {'attention': group, 'admission': admission | {'reason': 'retired_attention'}}
+            routine = self._attention_suppression_routine(mission_id)
+            if body['action'] == 'dismiss':
+                payload = json.loads(receipt['payload']) if receipt is not None and receipt['payload'] else self._attention_receipt_payload(group)
+                payload.setdefault('dismissed_at', self.clock())
+                if receipt is None:
+                    self.db.execute('INSERT INTO anticipation_attention_receipts(attention_key,claimed_at,payload,invalidated,charged) VALUES (?,?,?,0,0)',
+                        (attention_key, self.clock(), canonical(payload)))
+                else:
+                    self.db.execute('UPDATE anticipation_attention_receipts SET payload=? WHERE attention_key=?', (canonical(payload), attention_key))
+            elif body['action'] == 'suppress':
+                self.db.execute('INSERT OR IGNORE INTO anticipation_suppressions VALUES (?,?)', (group['task_id'], routine))
+            else:
+                self.db.execute('DELETE FROM anticipation_suppressions WHERE task_id=? AND routine_id=?', (group['task_id'], routine))
+            group = self._mission_attention(group['task_id'], mission_id=mission_id)[0]
+            admission.update(accepted=True, presented=group['interruption']['presented'])
+            return {'attention': group, 'admission': admission}
+
+    def _attention_feedback(self, key, body):
+        attention_key, phase = body['attention_key'], body['phase']
+        if not isinstance(attention_key, str) or not re.fullmatch('[a-f0-9]{64}', attention_key) or phase not in ('claim', 'presented', 'response'):
+            raise ValueError('Confirmación de atención inválida')
+        if phase == 'response' and (not isinstance(body.get('response_digest'), str) or not re.fullmatch('[a-f0-9]{64}', body['response_digest'])):
+            raise ValueError('Digest de respuesta inválido')
+        with self._policy_transaction(immediate=True):
+            identifier(key)
+            source = self.db.execute('SELECT payload FROM learning_plans WHERE id=?', (key,)).fetchone() if phase == 'response' else None
+            if source:
+                plan = json.loads(source[0])
+                task_id, mission_id = plan.get('conversation_id'), key
+            else:
+                item = self._get(key)
+                task_id, mission_id = item['task_id'], self._attention_mission_id(item)
+            groups = self._mission_attention(task_id, mission_id=mission_id) if task_id and mission_id else []
+            group = next((row for row in groups if row['mission_id'] == mission_id), None)
+            reason = ('stale_attention' if not group or group['attention_key'] != attention_key else
+                'wrong_representative' if phase != 'response' and group['representative_suggestion_id'] != key else group['interruption'].get('reason'))
+            if phase == 'response' and group and group['attention_key'] == attention_key:
+                # Acknowledges the renderer's declaration of an explicit reply.
+                # It is neither proactive permission nor evidence of human understanding.
+                reason = reason if reason in ('stale_attention', 'stale_context', 'retired_attention') else None
+                if not hmac.compare_digest(body['response_digest'], group['response_digest']): reason = 'stale_response'
+            admission = {'accepted': False, 'new_claim': False, 'presented': False}
+            if reason:
+                return {'attention': group, 'admission': admission | {'reason': reason}}
+            receipt = self.db.execute('SELECT * FROM anticipation_attention_receipts WHERE attention_key=?', (attention_key,)).fetchone()
+            if phase == 'presented' and receipt is None:
+                return {'attention': group, 'admission': admission | {'reason': 'not_claimed'}}
+            if receipt is None:
+                payload = self._attention_receipt_payload(group)
+                self.db.execute('INSERT INTO anticipation_attention_receipts(attention_key,claimed_at,payload,invalidated,charged) VALUES (?,?,?,0,?)',
+                    (attention_key, self.clock(), canonical(payload), int(phase != 'response')))
+                admission['new_claim'] = phase != 'response'
+            if phase in ('presented', 'response'):
+                self.db.execute('UPDATE anticipation_attention_receipts SET presented_at=COALESCE(presented_at,?) WHERE attention_key=?', (self.clock(), attention_key))
+            admission.update(accepted=True, presented=phase in ('presented', 'response') or bool(receipt and receipt['presented_at'] is not None))
+            group['interruption'].update(claimed=True, presented=admission['presented'])
+            if phase == 'response' and (receipt is None or not receipt['charged']):
+                group['interruption']['response_acknowledged'] = True
+            return {'attention': group, 'admission': admission}
 
     def _can_verify(self):
         command = self.commands.commands.get('axx.file.sha256') or {}
@@ -947,6 +1204,13 @@ class AnticipationService:
                     for name, percentile in (('p50', .5), ('p95', .95))}}
         fields = ('eligible', 'evaluated_proposed', 'proposed', 'shown', 'verified', 'failed', 'abstained', 'explicit_acceptances', 'autonomous_executions', 'autonomous_preparations', 'explicit_useful_feedback', 'explicit_corrections')
         metrics = {key: sum(row.get(key, 0) for row in stats) for key in fields}
+        receipt_where = ' WHERE invalidated=0 AND payload IS NOT NULL'
+        receipt_args = ()
+        if task_id:
+            receipt_where += " AND json_extract(payload,'$.task_id')=?"; receipt_args = (task_id,)
+        admissions = self.db.execute('SELECT COALESCE(SUM(charged),0),COALESCE(SUM(charged=1 AND presented_at IS NOT NULL),0),COALESCE(SUM(charged=0 AND presented_at IS NOT NULL),0) FROM anticipation_attention_receipts' + receipt_where, receipt_args).fetchone()
+        metrics.update(attention_interruptions=admissions[0], attention_presented=admissions[1], attention_response_acknowledgements=admissions[2],
+            attention_budget_used_last_hour=self._attention_charge_count())
         metrics.update(model_calls=0, model_calls_scope='Only LLM calls initiated by anticipation rules; excludes local ASR/TTS and planner mission ledgers.',
             coverage={'numerator': metrics['evaluated_proposed'], 'denominator': metrics['eligible'], 'universe': 'Candidates evaluated since P1 eligibility counters were introduced.'},
             verification_latency_ms=distribution([row['wall_ms'] for row in measurements if row['kind'] == 'verification']),
@@ -1746,7 +2010,9 @@ class AnticipationService:
             dispatches = self._source_dispatches({target['task_id'] for target in config['observation_targets']
                 if task_id is None or target['task_id'] == task_id} | {event['task_id'] for event in self.source_observations
                 if task_id is None or event['task_id'] == task_id})
-            rows = self._items(task_id)[:100]
+            current_items = self._items(task_id)
+            mission_attention = self._mission_attention(task_id, items=current_items, config=config)
+            rows = current_items[:100]
             for item in rows:
                 effective, options = self._policy(item['task_id'], item['plan']['inputs']['path'], config, item['plan'].get('context'))
                 item['visible'] = self._visible(item, options)
@@ -1773,7 +2039,8 @@ class AnticipationService:
                     effective = None
                 elif names:
                     effective = next(iter(names))
-            return config | {'effective_profile': effective, 'suggestions': rows, 'grants': grants, 'routines': stats,
+            return config | {'effective_profile': effective, 'suggestions': rows, 'mission_attention': mission_attention,
+                'grants': grants, 'routines': stats,
                 'metrics': self._metrics(stats, task_id),
                 'resource_usage': self._resource_usage(),
                 'source_runtime': self._source_runtime(config, task_id, microphone_available=microphone, dispatches=dispatches),
@@ -3009,10 +3276,16 @@ class AnticipationService:
     def feedback(self, key, body):
         if isinstance(body, str):
             body = {'action': body}
+        if isinstance(body, dict) and set(body) == {'action', 'attention_key'} and body['action'] in ('dismiss', 'suppress', 'restore'):
+            return self._attention_group_feedback(key, body)
+        if (isinstance(body, dict) and body.get('action') == 'shown' and
+                (set(body) == {'action', 'attention_key', 'phase'} and body.get('phase') in ('claim', 'presented') or
+                 set(body) == {'action', 'attention_key', 'phase', 'response_digest'} and body.get('phase') == 'response')):
+            return self._attention_feedback(key, body)
         if not isinstance(body, dict) or set(body) != {'action'} or body['action'] not in ('dismiss', 'suppress', 'restore', 'shown', 'useful', 'correction'):
             raise ValueError('Feedback inválido')
         action = body['action']
-        with self.lock, self.db:
+        with self._policy_transaction(immediate=True):
             item = self._get(key)
             if action in ('useful', 'correction'):
                 feedback = item.setdefault('feedback', {'acceptance': 'none', 'usefulness': 'unknown', 'corrections': 0})
@@ -3099,7 +3372,17 @@ class AnticipationService:
             marker = ('forget-task-routine-' + digest(body) if len(body) == 2 else
                       'forget-task-' + digest(body['task_id']) if 'task_id' in body else 'forget-routine-' + digest(body['routine_id']))
             self.db.execute('INSERT INTO anticipation_seen VALUES (?,?) ON CONFLICT(operation_id) DO UPDATE SET at=excluded.at', (marker, self.clock()))
+            # Forgetting removes attribution, never refunds an admission already made.
+            for row in self.db.execute('SELECT attention_key,payload FROM anticipation_attention_receipts WHERE payload IS NOT NULL').fetchall():
+                receipt = json.loads(row['payload'])
+                affected = (not body.get('task_id') or receipt['task_id'] == body['task_id']
+                    or any(ref['task_id'] == body['task_id'] for ref in receipt.get('memory_dependencies', [])))
+                if affected and (not body.get('routine_id') or body['routine_id'] in receipt.get('routines', [])):
+                    self.db.execute('UPDATE anticipation_attention_receipts SET payload=NULL,presented_at=NULL,invalidated=1 WHERE attention_key=?', (row['attention_key'],))
             for item in selected:
+                if item.get('shown_at') is not None:
+                    self.db.execute('INSERT OR IGNORE INTO anticipation_attention_receipts(attention_key,claimed_at,invalidated) VALUES (?,?,1)',
+                        (digest({'legacy_shown': item['suggestion_id']}), item['shown_at']))
                 self.db.execute('DELETE FROM anticipation_transitions WHERE suggestion_id=?', (item['suggestion_id'],))
                 self.db.execute('DELETE FROM anticipation_suggestions WHERE suggestion_id=?', (item['suggestion_id'],))
             where = ' AND '.join(key + '=?' for key in body)
@@ -3154,8 +3437,19 @@ class AnticipationService:
                 cutoff = self.clock() - options['retention_days'] * 86400
                 ids = [row[0] for row in self.db.execute("SELECT suggestion_id FROM anticipation_suggestions WHERE at<? AND json_extract(payload,'$.profile')=? AND state NOT IN ('EXECUTING')", (cutoff, name))]
                 for key in ids:
+                    old = json.loads(self.db.execute('SELECT payload FROM anticipation_suggestions WHERE suggestion_id=?', (key,)).fetchone()[0])
+                    if old.get('shown_at') is not None and old['shown_at'] > self.clock() - 3600:
+                        self.db.execute('INSERT OR IGNORE INTO anticipation_attention_receipts(attention_key,claimed_at,invalidated) VALUES (?,?,1)',
+                            (digest({'legacy_shown': key}), old['shown_at']))
                     self.db.execute('DELETE FROM anticipation_transitions WHERE suggestion_id=?', (key,))
                     self.db.execute('DELETE FROM anticipation_suggestions WHERE suggestion_id=?', (key,))
+            for row in self.db.execute('SELECT attention_key,claimed_at,payload,invalidated FROM anticipation_attention_receipts').fetchall():
+                receipt = json.loads(row['payload']) if row['payload'] else {}
+                profile = config['profiles'].get(receipt.get('profile'), {})
+                lifetime = max(3600, min(receipt.get('retention_days', profile.get('retention_days', 0)),
+                    profile.get('retention_days', receipt.get('retention_days', 0))) * 86400)
+                if row['claimed_at'] <= self.clock() - lifetime:
+                    self.db.execute('DELETE FROM anticipation_attention_receipts WHERE attention_key=?', (row['attention_key'],))
             for row in self.db.execute('SELECT event_id,at,payload FROM anticipation_events').fetchall():
                 event = json.loads(row['payload'])
                 days = config['profiles'].get(event.get('profile'), {}).get('retention_days', event.get('retention_days', 1))

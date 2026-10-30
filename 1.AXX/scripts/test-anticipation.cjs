@@ -1,19 +1,19 @@
 /* Controlled IPC/UI contracts; these do not certify native desktop input or installed binaries. */
-const assert=require('node:assert/strict'),path=require('node:path'),fs=require('node:fs');
+const assert=require('node:assert/strict'),path=require('node:path'),fs=require('node:fs'),crypto=require('node:crypto');
 const {requirePlaywright,launchChromium}=require('./test-browser-runtime.cjs');
 const {chromium}=requirePlaywright();
 (async()=>{
  const browser=await launchChromium(chromium);
  try{
   const page=await browser.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));
-  await page.setContent('<section id="view-settings"></section><main id="panel" hidden></main>');
+  await page.route('http://localhost/attention-fixture',route=>route.fulfill({contentType:'text/html',body:'<section id="view-settings"></section><main id="panel" hidden></main>'}));await page.goto('http://localhost/attention-fixture');
   await page.evaluate(()=>{
    const prefs=(mode,interruptions)=>({mode,interruptions,cooldown_seconds:60,max_interruptions_hour:3,retention_days:30,cadence_seconds:30,schedule:null,resources:{max_events_tick:25,max_entries_scan:500,max_file_bytes:41943040,max_tick_ms:1000,max_cpu_ms_tick:250,max_process_rss_bytes:null,max_storage_bytes:null,model_call_limit:2}});
    window.calls=[];window.spoken=[];window.events={};window.missionPlans=[];window.missionProject='Proyecto A';window.data={profile:'discreto',paused:false,observation_paused:false,profiles:{discreto:prefs('OFF','silent'),copiloto:prefs('SUGGEST','cards'),full:prefs('EXECUTE','cards')},scopes:[],sources:{events:false,folders:false,applications:false,screen:false,microphone:false,clipboard:false},observation_targets:[],source_runtime:[],source_observations:[],suggestions:[],grants:[],metrics:{proposed:0,shown:0},capabilities:{verify_artifact:true,verifiers:{hash:{available:true,verification_scope:'integrity_only',semantic_verified:false},docx:{available:true,verification_scope:'integrity_only',semantic_verified:false,reason:'Sin inspector del formato'},pdf:{available:false,verification_scope:'pdf_structure_and_text_readability',reason:'Dependencia local ausente'}}}};
    data.capabilities.mission_steps={available:true,workspace_root:'C:\\ensayo',lifetimes:['one_action','session','mission','until_revoked'],parameter_constraints:'exact_subset',write_scope:'executor_workspace',provider_inference:false,commands:[{command_id:'axx.file.sha256',tool:'file_inspection',category:'file_read',available:true,parameters:{path:{type:'string',required:true}}},{command_id:'axx.artifact.write',tool:'file_artifact_writer',category:'new_artifact',available:true,parameters:{path:{type:'string',required:true},content:{type:'string',required:true}}},{command_id:'axx.artifact.media',tool:'artifact_media',category:'file_read',available:false,reason:'Adaptador no disponible',parameters:{path:{type:'string',required:true}}}]};
    window.destinationProviders=[{profile_id:'a'.repeat(32),name:'Conexión A <img src=x>',model:'model-a',base_url:'https://a.example/v1',source_context_eligible:true,source_context_reason:'eligible'},{profile_id:'b'.repeat(32),name:'Conexión B',model:'model-b',base_url:'https://b.example/v1',source_context_eligible:true,source_context_reason:'eligible'},{profile_id:'c'.repeat(32),name:'Sin permiso',model:'model-c',base_url:'https://c.example/v1',source_context_eligible:false,source_context_reason:'sensitive_not_allowed'}];
    let serial=0;
-   window.Axx={isNative:()=>true,newId:()=> 'fixture-'+(++serial),chatWorkspace:{active:{id:'task-a',title:'Proyecto A'},busy:false},skillLibrary:{project:()=>window.missionProject},resident:{schedule(){},drag:null},app:{updateHitMap(){},bridge:{listen:async(id,fn)=>{events[id]=fn;}}},companion:{renderChat(){},openChat(){window.openedChat=true;},speakReply:text=>spoken.push(text)},commandLibrary:{busy:false,operation:null,renderOperation(plan){window.reviewedPlan=plan;}},
+   window.Axx={isNative:()=>true,newId:()=> 'fixture-'+(++serial),chatWorkspace:{active:{id:'task-a',title:'Proyecto A'},busy:false},skillLibrary:{project:()=>window.missionProject},resident:{schedule(){},drag:null},app:{updateHitMap(){},bridge:{listen:async(id,fn)=>{events[id]=fn;}}},companion:{renderChat(){},openChat(){window.openedChat=true;},speakReply:text=>{spoken.push(text);return true;}},commandLibrary:{busy:false,operation:null,renderOperation(plan){window.reviewedPlan=plan;}},
     backendRequest:async(method,route,body)=>{
      calls.push({method,route,body:structuredClone(body)});const action=route.split('/').at(-1);
      if(route==='/axx-api/providers'){const value=window.destinationCatalogError?{error:{code:'FORBIDDEN',message:'Catálogo revocado'}}:{providers:structuredClone(destinationProviders)};if(window.delayDestinations){window.delayDestinations=false;await new Promise(resolve=>{window.releaseDestinations=resolve;});}return value;}
@@ -610,6 +610,151 @@ const {chromium}=requirePlaywright();
    assert.match(await page.locator('#anticipation-microphone-status').textContent(),/se detuvo/,'An incomplete or uncertain receipt cannot confirm a local-only microphone capture');
   }
   await page.evaluate(()=>{Axx.app.machine.visible=true;Date.now=originalDateNow;Axx.nativeVoice.activeCapture=null;data.sources.microphone=false;return Axx.anticipation.refresh();});
+  await page.evaluate(()=>{
+   Axx.chatWorkspace.active={id:'task-a',title:'Proyecto A'};missionProject='Proyecto A';
+   window.attentionUpdates=[];window.attentionPhases=[];window.claimedAttention=new Set();window.respondedAttention=new Set();window.dismissedAttention=new Set();window.suppressedMissions=new Set();window.attentionGeneration=0;window.attentionContext='context-a';window.attentionEpoch=0;window.attentionSpoken=spoken.length;
+   Axx.chatWorkspace.captureMemoryToken=()=>({memory_scope:{task_id:Axx.chatWorkspace.active.id,generation:attentionGeneration},memory_context_id:attentionContext,epoch:attentionEpoch});
+   Axx.chatWorkspace.isMemoryTokenCurrent=token=>token.memory_scope.task_id===Axx.chatWorkspace.active.id&&token.memory_scope.generation===attentionGeneration&&token.memory_context_id===attentionContext&&token.epoch===attentionEpoch;
+   Axx.companion.updateMissionAttention=(group,options)=>{attentionUpdates.push({group:structuredClone(group),options});return true;};
+   window.attentionRow=(id='child-1')=>({suggestion_id:id,task_id:'task-a',state:'AWAITING_APPROVAL',title:'Old child decision',message:'Old child message',visible:true,preparation_complete:true,learning_plan_id:'mission-a'});
+   window.attentionGroup=(key='mission-done',category='done')=>({attention_key:key,mission_id:'mission-a',task_id:'task-a',project_id:missionProject,goal_revision:1,plan_hash:'a'.repeat(64),category,source_state:({done:'succeeded',decision:'awaiting_approval',problem:'failed',progress:'running'})[category],reason_code:category,response_digest:'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',summary:'Current mission '+category,suggestion_ids:['child-1','child-2','child-3'],representative_suggestion_id:'child-1',representative:attentionRow(),interruption:{eligible:true,claimed:false,presented:false,profile:'copiloto',interruptions:'cards_voice'},memory_scope:{task_id:'task-a',generation:attentionGeneration},memory_context_id:attentionContext,memory_dependencies:[]});
+   const previous=Axx.backendRequest;
+   const projectAttention=group=>{if(suppressedMissions.has(group.mission_id))group.interruption={...group.interruption,eligible:false,reason:'mission_suppressed',mission_suppressed:true};else if(dismissedAttention.has(group.attention_key))group.interruption={...group.interruption,eligible:false,reason:'dismissed'};return group;};
+   Axx.backendRequest=async(method,route,body)=>{
+    if(route==='/axx-api/anticipation/feedback'&&body.attention_key){
+     calls.push({method,route,body:structuredClone(body)});attentionPhases.push(structuredClone(body));
+      if(body.phase==='response'&&window.changeResponseBeforeAck){Object.assign(data.mission_attention.find(group=>group.attention_key===body.attention_key),window.changeResponseBeforeAck);window.changeResponseBeforeAck=null;}
+     const group=structuredClone(data.mission_attention.find(group=>group.attention_key===body.attention_key)),new_claim=!claimedAttention.has(body.attention_key)&&!respondedAttention.has(body.attention_key);
+      if(body.phase==='response'&&body.response_digest!==group.response_digest)return {attention:group,admission:{accepted:false,new_claim:false,presented:false,reason:'stale_response'}};
+      if(!body.phase){if(body.action==='dismiss')dismissedAttention.add(body.attention_key);if(body.action==='suppress')suppressedMissions.add(body.mission_id);if(body.action==='restore')suppressedMissions.delete(body.mission_id);return {attention:projectAttention(group),admission:{accepted:true,new_claim:false,presented:true}};}
+     if(body.phase==='claim'&&window.attentionClaimSummary)group.summary=window.attentionClaimSummary;
+     if(body.phase==='claim'){claimedAttention.add(body.attention_key);if(window.holdAttentionClaim){window.holdAttentionClaim=false;await new Promise(resolve=>window.releaseAttentionClaim=resolve);}}
+     if(body.phase==='response')respondedAttention.add(body.attention_key);
+     return {attention:window.denyAttention?null:group,admission:{accepted:!window.denyAttention,new_claim:body.phase==='claim'&&new_claim,presented:['presented','response'].includes(body.phase)}};
+    }
+     if(route==='/axx-api/anticipation/status'){const value=await previous(method,route,body);value.mission_attention=(value.mission_attention||[]).map(projectAttention);return value;}
+    return previous(method,route,body);
+   };
+   data.paused=false;data.observation_paused=false;data.sources.events=true;data.suggestions=[attentionRow(),attentionRow('child-2'),attentionRow('child-3')];data.mission_attention=[];
+  });
+  await page.locator('#anticipation-profile').selectOption('copiloto');
+  await page.waitForFunction(()=>Axx.anticipation.state?.profile==='copiloto');
+  await page.evaluate(()=>{data.profile='discreto';data.mission_attention=[attentionGroup()];return Axx.anticipation.refresh();});
+  await page.waitForFunction(()=>attentionPhases.some(row=>row.phase==='presented'));
+  assert.match(await page.locator('#anticipation-phase').textContent(),/Misión completada/);
+  assert.equal(await page.locator('#anticipation-text').textContent(),'Current mission done','Current group state overrides a stale awaiting-approval child');
+  assert.equal(await page.locator('#anticipation-actions').getByText('Revisar plan').count(),0);
+  await page.locator('#anticipation-why>summary').click();await page.locator('#anticipation-linked-check>summary').click();
+  assert.match(await page.locator('#anticipation-linked-check').innerText(),/Comprobación adicional vinculada[\s\S]*Sin confirmación de utilidad/);
+  assert.equal(await page.locator('#anticipation-linked-check').getByRole('button',{name:'Me resultó útil',exact:true}).count(),1,'Human feedback stays scoped to the linked additional check');
+  assert.match(await page.locator('#anticipation-phase').textContent(),/Misión completada/,'An awaiting-approval additional check does not change the completed mission phase');
+  assert.equal(await page.evaluate(()=>spoken.length-attentionSpoken),1,'A scoped voice claim works under global Discreto without narrating each child');
+  await page.evaluate(()=>Axx.anticipation.refresh());await page.evaluate(()=>Axx.anticipation.render());
+  assert.deepEqual(await page.evaluate(()=>attentionPhases.map(row=>row.phase)),['claim','presented']);
+  assert.equal(await page.evaluate(()=>attentionUpdates.filter(row=>row.options.notify).length),1);
+  assert.equal(await page.evaluate(()=>spoken.length-attentionSpoken),1);
+  await page.evaluate(()=>{window.denyAttention=true;data.mission_attention=[attentionGroup('denied')];return Axx.anticipation.refresh();});
+  await page.waitForFunction(()=>attentionPhases.some(row=>row.attention_key==='denied'));
+  assert.equal(await page.locator('#anticipation-card').isHidden(),true,'Denied admission never mounts the grouped card or its old children');
+  assert.equal(await page.evaluate(()=>spoken.length-attentionSpoken),1);
+  await page.evaluate(()=>{window.denyAttention=false;Axx.companion.dictating=true;data.mission_attention=[attentionGroup('busy')];return Axx.anticipation.refresh();});
+  assert.equal(await page.evaluate(()=>attentionPhases.some(row=>row.attention_key==='busy')),false,'Busy state is checked before reserving an interruption');
+  await page.evaluate(()=>{Axx.companion.dictating=false;window.holdAttentionClaim=true;Axx.anticipation.render();});
+  await page.waitForFunction(()=>typeof releaseAttentionClaim==='function');
+  await page.evaluate(()=>{Axx.companion.dictating=true;releaseAttentionClaim();});
+  await page.waitForFunction(()=>attentionPhases.some(row=>row.attention_key==='busy'&&row.phase==='claim'));
+  assert.equal(await page.locator('#anticipation-card').isHidden(),true,'Busy is rechecked after an admitted asynchronous claim');
+  assert.equal(await page.evaluate(()=>spoken.length-attentionSpoken),1);
+  await page.evaluate(()=>{Axx.companion.dictating=false;data.mission_attention=[attentionGroup('replay')];claimedAttention.add('replay');return Axx.anticipation.refresh();});
+  await page.waitForFunction(()=>attentionPhases.some(row=>row.attention_key==='replay'&&row.phase==='presented'));
+  assert.equal(await page.evaluate(()=>spoken.length-attentionSpoken),1,'An accepted claim replay rebuilds the card without repeating voice');
+  await page.evaluate(()=>{window.holdAttentionClaim=true;data.mission_attention=[attentionGroup('forgotten')];return Axx.anticipation.refresh();});
+  await page.waitForFunction(()=>attentionPhases.some(row=>row.attention_key==='forgotten'));
+  await page.evaluate(()=>{attentionGeneration++;attentionEpoch++;attentionContext='context-a-new';Axx.anticipation.invalidateMemory('task-a');releaseAttentionClaim();});
+  await page.evaluate(()=>Promise.resolve());
+  assert.equal(await page.locator('#anticipation-card').isHidden(),true);
+  assert.equal(await page.evaluate(()=>attentionPhases.some(row=>row.attention_key==='forgotten'&&row.phase==='presented')),false,'Forgotten claim responses cannot mount, narrate or confirm presentation');
+  await page.evaluate(()=>{data.mission_attention=[attentionGroup('late-status','decision')];window.delayStatus=true;window.lateAttentionStatus=Axx.anticipation.refresh();});
+  await page.waitForFunction(()=>typeof releaseStatus==='function');
+  await page.evaluate(()=>{const plan={operation_id:'mission-a',conversation_id:'task-a',project_id:missionProject,mission:{mission_id:'mission-a'},plan_hash:'b'.repeat(64)};Axx.anticipation.noteMissionPlan(plan,{memoryToken:Axx.chatWorkspace.captureMemoryToken(),projectId:missionProject});releaseStatus();return lateAttentionStatus;});
+  assert.equal(await page.evaluate(()=>attentionPhases.some(row=>row.attention_key==='late-status')),false,'An explicit plan response invalidates an older status snapshot even at the same goal revision');
+  await page.evaluate(()=>{data.mission_attention=[attentionGroup('wrong-project')];window.delayStatus=true;window.oldProjectStatus=Axx.anticipation.refresh();});
+  await page.waitForFunction(()=>typeof releaseStatus==='function');
+  await page.evaluate(()=>{missionProject='Other project';releaseStatus();return oldProjectStatus;});
+  assert.equal(await page.evaluate(()=>attentionPhases.some(row=>row.attention_key==='wrong-project')),false);
+  const response=await page.evaluate(async()=>{
+   missionProject='Proyecto A';const group=attentionGroup('manual-response','decision');group.representative_suggestion_id=null;group.representative=null;group.suggestion_ids=[];group.interruption.eligible=false;data.mission_attention=[group];data.suggestions=[];
+   const plan={operation_id:'mission-a',conversation_id:'task-a',project_id:missionProject,goal_revision:1,plan_hash:group.plan_hash,memory_scope:structuredClone(group.memory_scope),memory_context_id:attentionContext,memory_dependencies:[],mission:{mission_id:'mission-a',revision:1,state:'awaiting_approval'}};
+   const memoryToken=Axx.chatWorkspace.captureMemoryToken();Axx.anticipation.noteMissionPlan(plan,{memoryToken,projectId:missionProject,responded:true,category:'decision'});
+   Axx.companion.localNotice=text=>{const row=document.createElement('p');row.id='explicit-response';row.textContent=text;document.body.append(row);};
+   Axx.chatWorkspace.flush=async()=>{if(!document.getElementById('explicit-response'))throw Error('Response was not rendered');if(window.holdResponseFlush)await new Promise(resolve=>window.releaseResponseFlush=resolve);window.responsePersisted=true;};
+   Axx.companion.localNotice('Requested plan response');const charges=claimedAttention.size;
+   const accepted=await Axx.anticipation.acknowledgeMissionResponse(plan,{memoryToken,projectId:missionProject});return {accepted,persisted:responsePersisted,charges:claimedAttention.size-charges,body:attentionPhases.at(-1)};
+  });
+  assert.equal(response.accepted,true);assert.equal(response.persisted,true);assert.equal(response.charges,0);
+  assert.deepEqual(response.body,{mission_id:'mission-a',action:'shown',attention_key:'manual-response',phase:'response',response_digest:crypto.createHash('sha256').update('').digest('hex')},'A persisted explicit response acknowledges its exact server key and source digest without a representative or proactive charge');
+  for(const [key,question,currentQuestion,expected] of [['changed-question','¿Dónde guardo A?','¿Dónde guardo B?',false],['long-question','¿'+('Texto de la pregunta '.repeat(80))+'Ω?','¿'+('Texto de la pregunta '.repeat(80))+'Ω?',true]]){
+   const result=await page.evaluate(async({key,question,currentQuestion,digest})=>{const group=attentionGroup(key,'decision');group.plan_hash=null;group.source_state='needs_input';group.reason_code='needs_input';group.response_digest=digest;group.summary=currentQuestion.slice(0,1000);group.interruption.eligible=false;data.mission_attention=[group];const plan={operation_id:'mission-a',conversation_id:'task-a',project_id:missionProject,goal_revision:1,plan_hash:null,state:'needs_input',message:question,memory_scope:group.memory_scope,memory_context_id:attentionContext,memory_dependencies:[],mission:{mission_id:'mission-a',revision:1,state:'needs_input'}};const memoryToken=Axx.chatWorkspace.captureMemoryToken();Axx.anticipation.noteMissionPlan(plan,{memoryToken,projectId:missionProject,responded:true,category:'decision'});Axx.companion.localNotice(question);const before=attentionPhases.length;const accepted=await Axx.anticipation.acknowledgeMissionResponse(plan,{memoryToken,projectId:missionProject});return {accepted,feedback:attentionPhases.length-before,summaryLength:group.summary.length};},{key,question,currentQuestion,digest:crypto.createHash('sha256').update(currentQuestion,'utf8').digest('hex')});
+   assert.equal(result.accepted,expected,'Response source digest validates the complete original question: '+key);assert.equal(result.feedback,expected?1:0);if(expected)assert.equal(result.summaryLength,1000,'A truncated display summary does not truncate source identity');
+  }
+  const missingDigest=await page.evaluate(async()=>{const descriptor=Object.getOwnPropertyDescriptor(window,'crypto'),group=attentionGroup('crypto-unavailable','decision');data.mission_attention=[group];const plan={operation_id:'mission-a',conversation_id:'task-a',project_id:missionProject,goal_revision:1,plan_hash:group.plan_hash,memory_scope:group.memory_scope,memory_context_id:attentionContext,memory_dependencies:[],mission:{mission_id:'mission-a',revision:1,state:'awaiting_approval'}};const memoryToken=Axx.chatWorkspace.captureMemoryToken(),before=attentionPhases.length;try{Object.defineProperty(window,'crypto',{configurable:true,value:{}});Axx.anticipation.noteMissionPlan(plan,{memoryToken,projectId:missionProject,responded:true,category:'decision'});Axx.companion.localNotice('Explicit response remains visible');return {accepted:await Axx.anticipation.acknowledgeMissionResponse(plan,{memoryToken,projectId:missionProject}),feedback:attentionPhases.length-before,visible:document.body.textContent.includes('Explicit response remains visible')};}finally{if(descriptor)Object.defineProperty(window,'crypto',descriptor);else delete window.crypto;}});
+  assert.deepEqual(missingDigest,{accepted:false,feedback:0,visible:true},'An unavailable platform digest abstains from acknowledgement while retaining the actual explicit response');
+  const staleResponse=await page.evaluate(async({originalDigest,replacementDigest})=>{const group=attentionGroup('response-cas','problem');group.response_digest=originalDigest;data.mission_attention=[group];const plan={operation_id:'mission-a',conversation_id:'task-a',project_id:missionProject,goal_revision:1,plan_hash:group.plan_hash,state:'failed',message:'Original failure A',memory_scope:group.memory_scope,memory_context_id:attentionContext,memory_dependencies:[],mission:{mission_id:'mission-a',revision:1,state:'failed'}};const memoryToken=Axx.chatWorkspace.captureMemoryToken();Axx.anticipation.noteMissionPlan(plan,{memoryToken,projectId:missionProject,responded:true,category:'problem'});Axx.companion.localNotice(plan.message);window.changeResponseBeforeAck={response_digest:replacementDigest,summary:'Current failure B'};const charges=claimedAttention.size,accepted=await Axx.anticipation.acknowledgeMissionResponse(plan,{memoryToken,projectId:missionProject});return {accepted,acknowledged:respondedAttention.has(group.attention_key),charges:claimedAttention.size-charges,body:attentionPhases.at(-1)};},{originalDigest:crypto.createHash('sha256').update('Original failure A','utf8').digest('hex'),replacementDigest:crypto.createHash('sha256').update('Current failure B','utf8').digest('hex')});
+  assert.equal(staleResponse.accepted,false);assert.equal(staleResponse.acknowledged,false);assert.equal(staleResponse.charges,0);
+  assert.equal(staleResponse.body.response_digest,crypto.createHash('sha256').update('Original failure A','utf8').digest('hex'),'The response phase carries its original source digest for atomic server comparison after GET');
+  await page.evaluate(()=>{const group=attentionGroup('independent-response','decision');data.mission_attention=[group];const plan={operation_id:'mission-a',conversation_id:'task-a',project_id:missionProject,goal_revision:1,plan_hash:group.plan_hash,memory_scope:group.memory_scope,memory_context_id:attentionContext,memory_dependencies:[],mission:{mission_id:'mission-a',revision:1,state:'awaiting_approval'}};const memoryToken=Axx.chatWorkspace.captureMemoryToken();Axx.anticipation.noteMissionPlan(plan,{memoryToken,projectId:missionProject,responded:true,category:'decision'});window.releaseResponseFlush=null;window.holdResponseFlush=true;window.independentResponse=Axx.anticipation.acknowledgeMissionResponse(plan,{memoryToken,projectId:missionProject});});
+  await page.waitForFunction(()=>typeof releaseResponseFlush==='function');
+  assert.equal(await page.evaluate(async()=>{Axx.anticipation.invalidateMemory('unrelated-parent');releaseResponseFlush();const accepted=await independentResponse;window.holdResponseFlush=false;return accepted;}),true,'Forgetting an unrelated origin does not cancel an independent response acknowledgement in flight');
+  await page.evaluate(()=>{const group=attentionGroup('response-forgotten','decision');data.mission_attention=[group];const plan={operation_id:'mission-a',conversation_id:'task-a',project_id:missionProject,goal_revision:1,plan_hash:group.plan_hash,memory_scope:group.memory_scope,memory_context_id:attentionContext,memory_dependencies:[],mission:{mission_id:'mission-a',revision:1,state:'awaiting_approval'}};const memoryToken=Axx.chatWorkspace.captureMemoryToken();Axx.anticipation.noteMissionPlan(plan,{memoryToken,projectId:missionProject,responded:true,category:'decision'});window.releaseResponseFlush=null;window.holdResponseFlush=true;window.heldResponse=Axx.anticipation.acknowledgeMissionResponse(plan,{memoryToken,projectId:missionProject});});
+  await page.waitForFunction(()=>typeof releaseResponseFlush==='function');
+  const forgottenResponse=await page.evaluate(async()=>{attentionGeneration++;attentionEpoch++;attentionContext='context-after-response-forget';Axx.anticipation.invalidateMemory('task-a');releaseResponseFlush();return heldResponse;});
+  assert.equal(forgottenResponse,false);
+  assert.equal(await page.evaluate(()=>attentionPhases.some(row=>row.attention_key==='response-forgotten'&&row.phase==='response')),false,'A held save cannot acknowledge the response after its original M9 context is forgotten');
+  await page.evaluate(()=>{const derived=attentionGroup('derived','decision'),independent=attentionGroup('independent','progress');derived.memory_dependencies=[{task_id:'parent-source',generation:0}];independent.mission_id='mission-b';independent.suggestion_ids=[];independent.representative_suggestion_id=null;independent.representative=null;independent.context_dependencies=[{project_id:'parent-source',field:'folder',revision:1}];data.mission_attention=[derived,independent];data.suggestions=[attentionRow()];Axx.companion.dictating=true;return Axx.anticipation.refresh();});
+  await page.evaluate(()=>{Axx.anticipation.invalidateMemory('parent-source');Axx.companion.dictating=false;Axx.anticipation.render();});
+  assert.deepEqual(await page.evaluate(()=>Axx.anticipation.state.mission_attention.map(group=>group.mission_id)),['mission-b'],'Memory dependencies invalidate a derived mission while environmental project fields do not erase independent state');
+  assert.equal(await page.locator('#anticipation-card').isHidden(),true,'Invalidated grouped children cannot return through the legacy card path');
+  await page.evaluate(()=>{data.mission_attention=[attentionGroup('authoritative-claim','problem')];data.suggestions=[attentionRow()];window.attentionClaimSummary='Latest problem returned by admission';return Axx.anticipation.refresh();});
+  await page.waitForFunction(()=>attentionPhases.some(row=>row.attention_key==='authoritative-claim'&&row.phase==='presented'));
+  assert.equal(await page.locator('#anticipation-text').textContent(),'Latest problem returned by admission','The accepted current group replaces the older status summary before presentation');
+  const phasesBeforeRevocation=await page.evaluate(()=>attentionPhases.length),voiceBeforeRevocation=await page.evaluate(()=>spoken.length);
+  for(const reason of ['dismissed','expired','source_consent_changed','stale_context']){
+   await page.evaluate(reason=>{const group=data.mission_attention[0];group.interruption={...group.interruption,eligible:false,claimed:true,presented:true,reason};return Axx.anticipation.refresh();},reason);
+   assert.equal(await page.locator('#anticipation-card').isHidden(),true,'A cached claim cannot outlive current admission eligibility: '+reason);
+  }
+  assert.equal(await page.evaluate(()=>attentionPhases.length),phasesBeforeRevocation);assert.equal(await page.evaluate(()=>spoken.length),voiceBeforeRevocation);
+  const beforeVoiceOnly=await page.evaluate(()=>spoken.length);
+  await page.evaluate(()=>{window.attentionSpeak=Axx.companion.speakReply;window.readerEnabled=false;window.voiceAttempts=0;Axx.companion.speakReply=text=>{voiceAttempts++;if(!readerEnabled)return false;spoken.push(text);return true;};data.mission_attention=[attentionGroup('voice-unavailable','problem')];data.mission_attention[0].interruption.interruptions='voice';return Axx.anticipation.refresh();});
+  await page.waitForFunction(()=>voiceAttempts>0);
+  assert.equal(await page.locator('#anticipation-card').isHidden(),true);
+  assert.equal(await page.evaluate(()=>attentionPhases.some(row=>row.attention_key==='voice-unavailable'&&row.phase==='presented')),false,'Voice-only admission cannot claim presentation while the reader declines the reply');
+  assert.equal(await page.evaluate(()=>spoken.length),beforeVoiceOnly);
+  await page.evaluate(()=>{window.readerEnabled=true;Axx.anticipation.render();});
+  await page.waitForFunction(()=>attentionPhases.some(row=>row.attention_key==='voice-unavailable'&&row.phase==='presented'));
+  await page.evaluate(()=>Axx.anticipation.render());await page.evaluate(()=>Axx.anticipation.refresh());
+  assert.equal(await page.evaluate(()=>spoken.length),beforeVoiceOnly+1,'The preserved voice reservation produces one accepted reader delivery when enabled');
+  assert.equal(await page.evaluate(()=>attentionPhases.filter(row=>row.attention_key==='voice-unavailable'&&row.phase==='presented').length),1);
+  await page.evaluate(()=>{Axx.companion.speakReply=attentionSpeak;});
+  await page.evaluate(()=>{window.attentionClaimSummary=null;data.mission_attention=[attentionGroup('group-dismiss','problem')];return Axx.anticipation.refresh();});
+  await page.waitForFunction(()=>attentionPhases.some(row=>row.attention_key==='group-dismiss'&&row.phase==='presented'));
+  await page.locator('#anticipation-actions').getByRole('button',{name:'Descartar',exact:true}).click();
+  await page.waitForFunction(()=>Axx.anticipation.state?.mission_attention[0]?.interruption.reason==='dismissed');
+  assert.deepEqual(await page.evaluate(()=>attentionPhases.find(row=>row.action==='dismiss'&&row.attention_key==='group-dismiss')),{mission_id:'mission-a',action:'dismiss',attention_key:'group-dismiss'});
+  await page.evaluate(()=>{const group=data.mission_attention[0];group.representative_suggestion_id='child-2';group.representative=attentionRow('child-2');return Axx.anticipation.refresh();});
+  assert.equal(await page.locator('#anticipation-card').isHidden(),true,'Dismissing a group does not reappear when its representative rotates');
+  await page.evaluate(()=>{data.mission_attention=[attentionGroup('group-new-version','problem')];data.mission_attention[0].plan_hash='b'.repeat(64);return Axx.anticipation.refresh();});
+  await page.waitForFunction(()=>attentionPhases.some(row=>row.attention_key==='group-new-version'&&row.phase==='presented'));
+  assert.equal(await page.locator('#anticipation-card').isVisible(),true,'A dismissed key does not suppress a new plan version');
+  await page.locator('#anticipation-actions').getByRole('button',{name:'No volver a avisar de esta misión',exact:true}).click();
+  await page.waitForFunction(()=>Axx.anticipation.state?.mission_attention[0]?.interruption.reason==='mission_suppressed');
+  await page.evaluate(()=>{const group=attentionGroup('suppressed-new-version','problem');group.plan_hash='c'.repeat(64);data.mission_attention=[group];missionPlans=[{operation_id:'mission-a',conversation_id:'task-a',project_id:missionProject,goal_revision:1,plan_hash:group.plan_hash,memory_scope:group.memory_scope,memory_dependencies:[],steps:[],mission:{mission_id:'mission-a',objective:'Manual mission',scope:{task_id:'task-a',project_id:missionProject,resources:[]},state:'failed',revision:1,verified_steps:[],pending_steps:[],completed:false}}];document.getElementById('anticipation-mission').open=true;return Axx.anticipation.refresh();});
+  await page.waitForFunction(()=>document.getElementById('anticipation-missions').textContent.includes('Volver a avisar de esta misión'));
+  assert.equal(await page.locator('#anticipation-card').isHidden(),true,'Mission suppression survives a new attention key');
+  await page.locator('#anticipation-missions').getByRole('button',{name:'Volver a avisar de esta misión',exact:true}).click();
+  await page.waitForFunction(()=>attentionPhases.some(row=>row.action==='restore'&&row.attention_key==='suppressed-new-version'));
+  await page.waitForFunction(()=>attentionPhases.some(row=>row.attention_key==='suppressed-new-version'&&row.phase==='presented'));
+  assert.deepEqual(await page.evaluate(()=>attentionPhases.find(row=>row.action==='restore')),{mission_id:'mission-a',action:'restore',attention_key:'suppressed-new-version'});
+  assert.equal(await page.evaluate(()=>calls.some(row=>row.route==='/axx-api/learning/execute')),false,'Polling and admission never execute a mission');
   assert.deepEqual(errors,[]);
   const html=fs.readFileSync(path.join(__dirname,'../Axx.html'),'utf8');assert.match(html,/scripts\/anticipation\.js/);assert.match(html,/Axx\.anticipation\?\.layout\(g,size,add\)/);
   console.log('PASS: scoped Full mission grants, exact hashes, LLM resource limits, explicit local sources, canonical destination consent, denied saves/catalogs, revoked/replaced sources and late catalog guards, metadata-only microphone hooks, independent provider consent, strict receipts, dependencies, Why, task races, Esc and suppression (controlled IPC)');
