@@ -1,6 +1,6 @@
 # Inventario de anticipación contextual
 
-Actualizado el 29 de octubre de 2026. Describe interfaces y fuente P1 inspeccionadas, separadas del candidato estable instalado R4. No es un recibo de publicación ni de aceptación física de P1.
+Actualizado el 29 de octubre de 2026. Describe interfaces y fuente P1 compilada e instalada como Windows 0.22.29. No es un recibo de publicación ni de aceptación física.
 
 ## Baseline, integración y propiedad
 
@@ -33,7 +33,7 @@ Actualizado el 29 de octubre de 2026. Describe interfaces y fuente P1 inspeccion
 
 ## Qué sigue en desarrollo
 
-El pipeline automático de ventana y portapapeles está en integración: no se declara terminado por existir un lector o una captura explícita. Micrófono/pantalla general como fuentes continuas/adaptativas, política completa de envío por fuente, ejecución física proactiva y categorías externas amplias tampoco se acreditan con este inventario. El detalle de pendientes permanece en [ARCHITECTURE.md](ARCHITECTURE.md).
+La observación periódica de ventana seleccionada y portapapeles está integrada; su aceptación física y el envío a proveedores siguen pendientes. Micrófono/pantalla general como fuentes continuas/adaptativas, política completa de envío por fuente, ejecución física proactiva y categorías externas amplias tampoco se acreditan con este inventario. El detalle de pendientes permanece en [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Gates de entrenamiento y evidencia
 
@@ -41,13 +41,19 @@ El pipeline automático de ventana y portapapeles está en integración: no se d
 - **R02 desconocido/material de diseño:** no se encontró el checkpoint del laboratorio ni los artefactos externos `CURRENT-TRAINING.json`/`M15-STATIC-DECISION.md` en el checkout examinado. No se cuenta como holdout nuevo ni ejecución observada.
 - La evidencia histórica de UIA/input en `build/release-0.22.0-final/run-Xw9ggx/computer-use.json` y `build/computer-use/installed-acceptance.json` no acredita P1 ni cierra M15.
 
-## Estable instalado frente a fuente P1
+## Instalación actual y antecedente R4
 
-El worktree de entrega estable es `C:\Users\luigi\.codex\worktrees\anticipation-stable\axx2`, fuente `08a03d2`. Sus recibos privados `build/release-0.22.28-r4/installed-runtime.json`, `installed-files.json`, `native-api-profiles.json` y `native-plan-guard.json` acreditan instalación **0.22.28**, hashes concordantes, tres perfiles por API y guard de planes reservados. El EXE en esos recibos tiene SHA-256 `83c48efc512a4a04b2efa74d3e5d3fbc22163863ba31d8efaa8cc1a191daaf02`.
+Windows **0.22.29 R3**, fuentes de binario `6ef570f`, está compilado e instalado sin pesos de modelos. Los recibos privados concordantes residen en `build/release-0.22.29-r3/` del worktree `anticipation-profiles`: `build-result.archived.json`, `installed-runtime.json`, `installed-files.json`, `packaged-inventory.json` e `installed-preservation.json`. Acreditan arranque autenticado, hashes, 36 avisos externos y cuatro archivos de licencia de Telegram dentro del backend, cinco recursos de Telegram concordantes y cero archivos de pesos. Enlaces, permisos, TLS, clave de Transfer y modelo Base local permanecen iguales al respaldo; se conservaron los 669 identificadores previos examinados. El instalador tiene SHA-256 `13a4f0b3e17908873f070a7ce67f4da0ed10783ffc099f3a2db35a272f5b9f66`; el EXE instalado, `656cfbf2bb6db54d36bde65678f82d3ea5a611fcf92f9db7b297549c4a3dd6a0`.
 
-Los recibos API dicen expresamente que no probaron input físico ni aceptación visible. `restore-observation.json` es solo lectura. La prueba humana R4 de cuatro pasos **falló al ocultar o reaparecer mediante el botón**; la confirmación anterior de Invocar/avatar no la sustituye. Además, una reproducción NTFS confirmó una carrera de sustitución de directorio del escritor presente también en la fuente estable. R4 no debe publicarse sin corregirla y repetir build/instalación/aceptación. El companion estable pasa para su fuente, sin transferirse a P1 ni subsanar esos fallos. La excepción Tiny continúa pendiente; no se declara distribución de pesos, muestras de voz o estado privado.
+La lectura R3 `installed-api-status.json` confirma los tres modos, el motor autenticado con ocho modelos y ASR Base local. `installed-synthetic-asr.json` acredita síntesis SAPI y transcripción de audio sintético por el backend instalado, sin micrófono ni reproducción. En R1, el ciclo nativo de compensación verificó apartar/restaurar el mismo archivo y actualizar la misión sin repetir su escritura; el SDK real confirmó una sesión efímera con entrada sintética. El usuario aprobó físicamente Ocultar/Invocar/atajo en R1 y el panel Telegram y Ocultar/Invocar en R3, registrados en `human-native-acceptance.json`. GitHub confirmó el instalador publicado y su SHA-256; el README apunta a la descarga 0.22.29. No se transfieren pruebas de hardware, calidad o escritorio completo desde estas comprobaciones. El usuario eligió publicar sin el modelo y R3 excluye esos pesos.
 
-P1 incorpora cambios posteriores de fuentes, grants, recursos, memoria, contexto, incidentes, revalidación, presupuesto e imágenes sin input. Necesita integración final, validación, binarios e instalación propios; conservar el número de fuente 0.22.28 durante desarrollo no hace que esos cambios estén ya instalados. Android se valida y entrega por separado; este lote no acredita una nueva instalación física del teléfono.
+El worktree histórico `C:\Users\luigi\.codex\worktrees\anticipation-stable\axx2`, fuente `08a03d2`, conserva los recibos de R4. `build/release-0.22.28-r4/installed-runtime.json`, `installed-files.json`, `native-api-profiles.json` y `native-plan-guard.json` acreditan aquella instalación **0.22.28**, hashes concordantes, tres perfiles por API y guard de planes reservados. El EXE en esos recibos tiene SHA-256 `83c48efc512a4a04b2efa74d3e5d3fbc22163863ba31d8efaa8cc1a191daaf02`.
+
+Los recibos API dicen expresamente que no probaron input físico ni aceptación visible. `restore-observation.json` es solo lectura. La prueba humana R4 de cuatro pasos **falló al ocultar o reaparecer mediante el botón**; la confirmación anterior de Invocar/avatar no la sustituye. Además, una reproducción NTFS confirmó una carrera de sustitución de directorio del escritor presente también en aquella fuente. R4 no fue publicado y sus recibos no acreditan las correcciones posteriores. El companion estable pasa para su fuente, sin transferirse a P1 ni subsanar esos fallos. La elección posterior fue distribuir 0.22.29 sin pesos, muestras de voz ni estado privado.
+
+P1 incorpora cambios posteriores de fuentes, grants, recursos, memoria, contexto, incidentes, revalidación, presupuesto e imágenes sin input. Sus pruebas finales sobre `ca9b877` aprobaron 192 casos backend, 41 contratos de escritorio, anticipación/dictado sintético y el gate companion concordante con Android 0.2.8. Android se valida y entrega por separado; este lote no acredita una nueva instalación física del teléfono.
+
+Los cambios posteriores tienen evidencia propia: 87 regresiones de ámbitos sobre `2cb8bec`; 27 de ASR, más dictado simulado; 127 de Telegram; 19 de HTTP; 17 de herramientas de release; 41 contratos de escritorio y companion final sobre `6ef570f`. Las 98 regresiones de CI y presupuesto usan Windows para las entregas NTFS y distinguen respuestas locales sin upstream del caso con coste. Este último detiene una tercera inferencia tras planificación y construcción, conserva objetivo/capacidad y no ejecuta efectos. Las repeticiones no se suman como cobertura independiente.
 
 ## Verificación y entrega pendientes
 

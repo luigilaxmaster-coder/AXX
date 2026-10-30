@@ -14,7 +14,7 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
     const page=await browser.newPage({viewport:{width:1300,height:1000},reducedMotion:'reduce'}),errors=[];
     page.setDefaultTimeout(15000);page.on('pageerror',e=>errors.push(e.message));
     await page.addInitScript(()=>{
-      window.requests=[];window.micRequests=0;window.transcribed=false;window.fixtureInput='silence';window.failVadResume=false;window.failDevice=false;window.holdCancel=false;
+      window.requests=[];window.micRequests=0;window.transcribed=false;window.fixtureInput='silence';window.failVadResume=false;window.failDevice=false;window.holdCancel=false;window.fixtureAsrAvailable=true;window.holdAsrStatus=false;
       const AudioBase=window.AudioContext;window.AudioContext=class extends AudioBase{resume(){return failVadResume?Promise.reject(Error('fixture resume rejected')):super.resume();}};
       window.traceVad=false;window.vadTrace=[];const getFloats=AnalyserNode.prototype.getFloatTimeDomainData;AnalyserNode.prototype.getFloatTimeDomainData=function(buffer){getFloats.call(this,buffer);if(traceVad&&fixtureInput==='startup-noise')buffer.fill(vadTrace.length?.014:.0043);if(traceVad)vadTrace.push({at:performance.now(),rms:Math.sqrt(buffer.reduce((sum,n)=>sum+n*n,0)/buffer.length),noise:Axx.nativeVoice.inputLevel?.noise_floor,phase:Axx.nativeVoice.inputLevel?.phase,context:this.context.state,sourceContext:fixtureContext.state});};
       navigator.mediaDevices.getUserMedia=async constraints=>{
@@ -45,6 +45,7 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
           if(args.path==='/axx-api/anticipation/microphone/begin'){window.contextBegin=args.body;return {capture_id:'full-context-clip',expires_at:Date.now()/1000+60,max_capture_seconds:10,raw_ttl_seconds:60};}
           if(args.path==='/axx-api/anticipation/microphone/submit'){window.contextSubmit=args.body;return {accepted:true,capture_id:args.body.capture_id,characters:0,audio_duration_seconds:0,retained:false,raw_content_retained:false,provider_sent:false};}
           if(args.path==='/axx-api/anticipation/microphone/stop'){window.contextStopped=args.body.capture_id;return {stopped:true};}
+          if(args.path==='/axx-api/speech/status'){if(holdAsrStatus)await new Promise(resolve=>window.releaseAsrStatus=resolve);return {asr:{available:fixtureAsrAvailable}};}
           if(args.path==='/axx-api/speech/transcribe') {await new Promise(r=>window.releaseTranscript=r);return {text:'Hola desde el dictado'};}
           if(args.path==='/axx-api/speech/cancel'&&holdCancel){await new Promise(resolve=>window.releaseCancel=resolve);return {};}
           if(args.path==='/axx-api/speech/voices') {if(window.failVoiceList)throw Error('fixture voice list failed');return {available:true,voices:window.fixtureVoices||[]};}
@@ -255,6 +256,27 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
     await page.evaluate(()=>Axx.resident.tap());
     assert.equal(await page.evaluate(()=>Axx.flow.nav.step),2,'Avatar click opens all options without starting capture');
     assert.equal(await page.evaluate(()=>micRequests),0);
+    const asrPreflight=await page.evaluate(async()=>{
+      const failures=[],owner={state:'idle',onError:message=>failures.push(message)};
+      Axx.nativeVoice.attach(owner);const local=Axx.nativeVoice.sessions.at(-1);
+      const beforeMic=micRequests,beforeASR=requests.filter(path=>path==='/axx-api/speech/transcribe').length;
+      fixtureAsrAvailable=false;
+      const missing=await owner.start('es'),missingState=owner.state;
+      const missingClean=Axx.nativeVoice.activeCapture===null&&local.stream===null&&local.recorder===null;
+      fixtureAsrAvailable=true;holdAsrStatus=true;releaseAsrStatus=null;
+      const starting=owner.start('es');
+      for(let i=0;i<100&&typeof releaseAsrStatus!=='function';i++)await new Promise(resolve=>setTimeout(resolve,5));
+      if(typeof releaseAsrStatus!=='function')throw Error('ASR preflight was not reached');
+      owner.stop();holdAsrStatus=false;releaseAsrStatus();
+      const cancelled=await starting;
+      return {missing,missingState,missingClean,message:failures[0],failures:failures.length,cancelled,state:owner.state,
+        micRequests:micRequests-beforeMic,transcriptions:requests.filter(path=>path==='/axx-api/speech/transcribe').length-beforeASR,
+        clean:Axx.nativeVoice.activeCapture===null&&local.stream===null&&local.recorder===null};
+    });
+    assert.match(asrPreflight.message,/modelo local de transcripción.*reinicia Axx/);
+    assert.deepEqual({...asrPreflight,message:undefined},{missing:'unavailable',missingState:'error',missingClean:true,message:undefined,
+      failures:1,cancelled:'unavailable',state:'idle',micRequests:0,transcriptions:0,clean:true},
+    'Missing ASR and cancellation while checking status must never request microphone or transcription');
     await page.evaluate(()=>{Axx.flow.select('dictation');Axx.voice13.openFields();Axx.voice13.consent=true;Axx.voice13.permit=false;});
     const overlap=await page.evaluate(async()=>{
       await Axx.resident.layout();
@@ -262,6 +284,21 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
       return Math.max(0,Math.min(a.right,b.right)-Math.max(a.left,b.left))*Math.max(0,Math.min(a.bottom,b.bottom)-Math.max(a.top,b.top));
     });
     assert.equal(overlap,0,'Dictation controls must not sit behind the destination panel');
+    const advancedPreflight=await page.evaluate(async()=>{
+      const advanced=Axx.voice13,beforeMic=micRequests;
+      fixtureAsrAvailable=false;await advanced.begin();
+      const missing={state:advanced.status,error:advanced.error,meter:advanced.meter.active,micRequests:micRequests-beforeMic};
+      fixtureAsrAvailable=true;holdAsrStatus=true;releaseAsrStatus=null;
+      const starting=advanced.begin();
+      for(let i=0;i<100&&typeof releaseAsrStatus!=='function';i++)await new Promise(resolve=>setTimeout(resolve,5));
+      if(typeof releaseAsrStatus!=='function')throw Error('Advanced ASR preflight was not reached');
+      advanced.pause(false);holdAsrStatus=false;releaseAsrStatus();await starting;
+      return {missing,cancelledClean:!advanced.booting&&!advanced.meter.active&&Axx.nativeVoice.activeCapture===null,micRequests:micRequests-beforeMic};
+    });
+    assert.match(advancedPreflight.missing.error,/modelo local de transcripción.*reinicia Axx/);
+    assert.deepEqual({...advancedPreflight,missing:{...advancedPreflight.missing,error:undefined}},
+      {missing:{state:'error',error:undefined,meter:false,micRequests:0},cancelledClean:true,micRequests:0},
+      'Advanced dictation must check local ASR before its separate meter and ignore a late status after pause');
     await page.evaluate(()=>Axx.voice13.begin());
     try {await page.waitForFunction(()=>Axx.voice13.status==='listening');}
     catch(e){console.log(await page.evaluate(()=>({status:Axx.voice13.status,error:Axx.voice13.error,notice:Axx.voice13.notice,target:Axx.voice13.target?.name,capture:Axx.voice13.capture.state,mics:micRequests})));throw e;}

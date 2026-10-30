@@ -905,6 +905,8 @@ class AnticipationService:
             source = SOURCE_FLAGS.get(target['source'])
             if (target['id'] == target_id and target['observe'] and config['sources'][source]
                     and (target['expires_at'] is None or self.clock() < target['expires_at'])
+                    # Consent labels do not prove the observed application's identity.
+                    and not (source in ('clipboard', 'screen') and target.get('application_id'))
                     and (source != 'applications' or self._applications_available())
                     and (source != 'clipboard' or self._clipboard_available())
                     and (source != 'screen' or self._window_available())
@@ -1260,10 +1262,12 @@ class AnticipationService:
             _, options = self._policy(target['task_id'], target.get('root', str(self.commands.executor.workspace_root)), config, self._source_context(target))
             active = (self._source_target(target['id'], config) is not None and options['mode'] != 'OFF'
                 and (target['source'] != 'microphone' or microphone_available))
+            application_unverified = target['source'] in ('clipboard', 'window') and target.get('application_id')
             last = state.get('last_observed_at')
             result.append({'id': target['id'], 'source': target['source'], 'active': active and not state.get('error'),
                 'last_observed_at': last, 'next_observation_at': last + options.get('cadence_seconds', 30) if active and last is not None else None,
-                'error': state.get('error') or (None if active else 'Fuente desactivada, fuera de ámbito/horario o autorización caducada.'),
+                'error': ('SOURCE_APPLICATION_UNVERIFIED: no se puede comprobar el ámbito de aplicación; no se captura contenido.'
+                    if application_unverified else state.get('error') or (None if active else 'Fuente desactivada, fuera de ámbito/horario o autorización caducada.')),
                 'metadata_retained': target['retain'], 'provider_sent': False, 'baseline': state.get('snapshot') is not None,
                 'retention_scope': 'metadata_only', 'derived_plans_allowed': target['retain'],
                 'provider_allowed': target['retain'] and target['send_to_provider'] and self._provider_context_available(target['source']),

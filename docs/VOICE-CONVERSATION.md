@@ -6,6 +6,16 @@ El flujo actual es micrófono → Whisper local → modelo de texto seleccionado
 síntesis local. ChatGPT se conecta mediante el runtime oficial de Codex; las
 herramientas Axx conservan admisión, permisos, aprobación y recibos de ejecución.
 
+Desde 0.22.29 el instalador público no incluye pesos de modelos. El dictado
+reutiliza los modelos locales compatibles en
+`%LOCALAPPDATA%\Axx\models\faster-whisper-base` y, después,
+`%LOCALAPPDATA%\Axx\models\faster-whisper-tiny`. El modelo necesita
+`model.bin`, `tokenizer.json`, `config.json` y `vocabulary.txt` compatibles con
+faster-whisper/CTranslate2; no basta renombrar archivos de otro formato.
+Sin un modelo completo, Axx informa que la transcripción no está disponible;
+no lo descarga automáticamente. Añadir un modelo requiere reiniciar Axx.
+La actualización conserva los modelos locales existentes.
+
 - Espera silenciosa. Se retiraron los osciladores de carga y las frases de relleno.
   Las preferencias antiguas `loadingSound` y `voiceFillers` ya no se restauran.
 - Las instrucciones de voz priorizan una primera respuesta útil, frases completas,

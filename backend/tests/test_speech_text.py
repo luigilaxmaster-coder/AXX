@@ -390,6 +390,64 @@ class SpokenTextTests(unittest.TestCase):
                     (base/name).touch()
                 self.assertEqual(model_path(),base.resolve())
 
+    def test_frozen_reuses_private_tiny_but_complete_private_base_keeps_priority(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            tiny = root/'Axx'/'models'/'faster-whisper-tiny'
+            base = tiny.with_name('faster-whisper-base')
+            bundled = root/'unpacked'/'models'/'faster-whisper-tiny'
+            required = ('model.bin','tokenizer.json','config.json','vocabulary.txt')
+            for folder in (tiny, bundled):
+                folder.mkdir(parents=True)
+                for name in required:
+                    (folder/name).touch()  # Discovery fixture only; never load these files as weights.
+            with patch.dict('os.environ', {'LOCALAPPDATA': directory}), \
+                    patch.object(sys, 'frozen', True, create=True), \
+                    patch.object(sys, 'executable', str(root/'installed'/'axx-backend.exe')), \
+                    patch.object(sys, '_MEIPASS', str(root/'unpacked'), create=True):
+                self.assertEqual(model_path(), tiny.resolve())
+                base.mkdir(parents=True)
+                for name in required[:-1]:
+                    (base/name).touch()
+                self.assertEqual(model_path(), tiny.resolve(), 'Incomplete Base must not hide existing complete Tiny')
+                (base/required[-1]).touch()
+                self.assertEqual(model_path(), base.resolve())
+
+    def test_frozen_missing_or_partial_local_model_never_downloads_or_starts_worker(self):
+        for partial in (False, True):
+            with self.subTest(partial=partial), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                if partial:
+                    tiny = root/'Axx'/'models'/'faster-whisper-tiny'
+                    tiny.mkdir(parents=True)
+                    for name in ('model.bin', 'tokenizer.json', 'config.json'):
+                        (tiny/name).touch()
+                before = sorted(str(path.relative_to(root)) for path in root.rglob('*'))
+                with patch.dict('os.environ', {'LOCALAPPDATA': directory}), \
+                        patch.object(sys, 'frozen', True, create=True), \
+                        patch.object(sys, 'executable', str(root/'installed'/'axx-backend.exe')), \
+                        patch.object(sys, '_MEIPASS', str(root/'unpacked'), create=True), \
+                        patch('socket.socket', side_effect=AssertionError('No network for unavailable local ASR')) as network, \
+                        patch('backend.speech.offline_asr.spawn_managed_process', side_effect=AssertionError('No ASR worker')) as spawn, \
+                        patch('backend.speech.offline_asr._load_worker_model', side_effect=AssertionError('No model load')) as load:
+                    service = OfflineTranscriptionService(root/'state')
+                    try:
+                        self.assertIsNone(service.model_path)
+                        status = service.status()
+                        self.assertFalse(status['available'])
+                        self.assertTrue(status['local_only'])
+                        self.assertEqual(status['external_calls'], 0)
+                        service.warm()
+                        with self.assertRaises(SpeechError) as unavailable:
+                            service.transcribe(AttributedTranscriptionTests.body('missing-local-model'))
+                        self.assertEqual(unavailable.exception.code, 'NOT_SUPPORTED')
+                        self.assertIsNone(service._worker)
+                        self.assertEqual(service._requests, {})
+                        network.assert_not_called(); spawn.assert_not_called(); load.assert_not_called()
+                    finally:
+                        service.close()
+                self.assertEqual(sorted(str(path.relative_to(root)) for path in root.rglob('*')), before)
+
     def test_spanish_accents_questions_and_voice_name_survive(self):
         text = '¡Hola! Soy Axx Titán. ¿Cómo estás? Mañana te ayudaré.'
         self.assertEqual(prepare_spoken_text(text, 'es-DO'), (text, 'es'))

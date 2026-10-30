@@ -128,6 +128,59 @@ class ContextSourceTests(unittest.TestCase):
                 self.assertEqual(self.service.provider_context_for_task('source-task')['observations'], [])
                 self.assertNotIn('raw', self.service.source_state['fixture-source'])
 
+    def test_unverified_application_scope_abstains_before_private_source_reader(self):
+        # The application tag is consent data, not proof of the clipboard owner
+        # or of a window's currently verified application scope. Provider OFF
+        # must not be the only barrier protecting these local readers.
+        with patch.object(self.service, '_provider_context_available', wraps=AnticipationService._provider_context_available):
+            for source in ('clipboard', 'window'):
+                for retain in (False, True):
+                    with self.subTest(source=source, retain=retain):
+                        self.mocks[2].reset_mock(); self.mocks[3].reset_mock()
+                        target = self.configure(source, retain=retain, application_id='notepad.exe',
+                            id='scoped-' + source + '-' + str(retain).lower())
+                        self.assertFalse(self.service._provider_context_available(source))
+                        self.service.tick()
+                        self.mocks[2].assert_not_called(); self.mocks[3].assert_not_called()
+                        self.assertIsNone(self.service._source_target(target['id']))
+                        status = self.service.status()
+                        self.assertEqual(status['observation_targets'], [target], 'Saved consent must not be silently rewritten')
+                        runtime = next(row for row in status['source_runtime'] if row['id'] == target['id'])
+                        self.assertFalse(runtime['active'])
+                        self.assertTrue(runtime['error'].startswith('SOURCE_APPLICATION_UNVERIFIED'), runtime)
+                        self.assertEqual(runtime['samples'], 0)
+                        self.assertEqual(runtime['events'], 0)
+                        self.assertFalse(runtime['context_ready'])
+                        self.assertFalse(runtime['provider_allowed'])
+                        self.assertFalse(any(row.get('target_id') == target['id'] for row in status['source_observations']))
+                        self.assertEqual(self.service.db.execute("SELECT COUNT(*) FROM anticipation_events WHERE json_extract(payload,'$.target_id')=?",
+                            (target['id'],)).fetchone()[0], 0)
+                        self.assertNotIn(target['id'], self.service.source_state)
+                        context = self.service.provider_context_for_task('source-task', application_id='notepad.exe')
+                        self.assertEqual(context['observations'], [])
+                        self.assertEqual(context['refs'], [])
+                        self.assertEqual(self.executor.list_operations(), [])
+                        self.assertEqual(self.service.suggestions(), [])
+
+                        # Removing an unsupported restriction restores only the
+                        # already explicit local consent, without provider use.
+                        unscoped = target | {'application_id': ''}
+                        self.service.configure({'observation_targets': [unscoped]})
+                        self.service.tick()
+                        reader = self.mocks[3] if source == 'window' else self.mocks[2]
+                        other = self.mocks[2] if source == 'window' else self.mocks[3]
+                        reader.assert_called_once(); other.assert_not_called()
+                        self.assertEqual(self.service._source_target(target['id']), unscoped)
+                        current = self.service.status()
+                        runtime = next(row for row in current['source_runtime'] if row['id'] == target['id'])
+                        self.assertTrue(runtime['active'])
+                        self.assertIsNone(runtime['error'])
+                        self.assertEqual(runtime['samples'], 1)
+                        self.assertEqual(self.service.db.execute("SELECT COUNT(*) FROM anticipation_events WHERE json_extract(payload,'$.target_id')=?",
+                            (target['id'],)).fetchone()[0], int(retain))
+                        self.assertNotIn('raw', self.service.source_state[target['id']])
+            self.assert_private_not_durable([self.clip['text'], self.window_title, 'SYNTHETIC_PRIVATE_NAME', 'SYNTHETIC_PRIVATE_VALUE'])
+
     def test_strict_window_identity_and_source_specific_fields(self):
         target = self.configure('window')
         for fields in ({'window_id': True}, {'window_id': 0}, {'pid': -1}, {'pid': 2**32},
@@ -229,7 +282,7 @@ class ContextSourceTests(unittest.TestCase):
         self.assert_private_not_durable([self.clip['text']])
 
     def test_window_projection_is_targeted_untrusted_bounded_and_never_durable(self):
-        self.configure('window', retain=True, provider=True, project_id='project-a', application_id='notepad.exe')
+        self.configure('window', retain=True, provider=True, project_id='project-a')
         with windows._observation_lock:
             windows._observations['unrelated-observation'] = {'observation': {'completed_monotonic': time.monotonic()}}
         with patch('backend.actions.desktop_input.execute_action', side_effect=AssertionError('No input permitted')):
@@ -239,7 +292,7 @@ class ContextSourceTests(unittest.TestCase):
             self.assertIn('unrelated-observation', windows._observations)
             self.assertFalse(any(key.startswith('source-uia-') for key in windows._observations))
             windows._observations.pop('unrelated-observation')
-        context = self.service.provider_context_for_task('source-task', project_id='project-a', application_id='notepad.exe')
+        context = self.service.provider_context_for_task('source-task', project_id='project-a')
         self.assertTrue(context['untrusted'])
         self.assertEqual(context['sensitivity'], 'approved_sensitive')
         self.assertEqual(len(context['observations']), 1)
@@ -248,8 +301,8 @@ class ContextSourceTests(unittest.TestCase):
         self.assertEqual(base64.b64decode(observation['content']['image_url'].split(',', 1)[1]), self.jpeg)
         self.assertEqual(observation['expires_at'] - observation['observed_at'], 60)
         self.assertEqual(self.service.provider_context_for_task('other-task')['observations'], [])
-        self.assertEqual(self.service.provider_context_for_task('source-task', project_id='project-b', application_id='notepad.exe')['observations'], [])
-        self.assertTrue(self.service.validate_provider_context_refs('source-task', context['refs'], 'project-a', 'notepad.exe'))
+        self.assertEqual(self.service.provider_context_for_task('source-task', project_id='project-b')['observations'], [])
+        self.assertTrue(self.service.validate_provider_context_refs('source-task', context['refs'], 'project-a'))
         self.assert_private_not_durable([self.window_title, 'SYNTHETIC_PRIVATE_NAME', 'SYNTHETIC_PRIVATE_VALUE',
             'SYNTHETIC_PRIVATE_TEXT', base64.b64encode(self.jpeg).decode()])
         event = self.service.status()['source_observations'][0]

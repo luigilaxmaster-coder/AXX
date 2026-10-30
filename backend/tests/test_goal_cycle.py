@@ -34,7 +34,10 @@ class Model:
                 {'command_id':'axx.artifact.write','inputs':{'path':self.path},'bindings':{'content':{'step':0,'path':['output','result']}}},
                 {'command_id':'axx.file.sha256','inputs':{'path':str(self.commands.executor.workspace_root/self.path)}}]}
             if not any(call['task']=='code' for call in self.calls) or self.change_goal:data['goal_spec']=goal
-        return {'ok':True,'message':{'content':json.dumps(data)},'route':{'model':'contract-fixture','provider_name':'offline'}}
+        # Deterministic in-memory responses perform no HTTP, SDK or upstream
+        # request. Costed dispatches are covered separately below.
+        return {'ok':True,'message':{'content':json.dumps(data)},'route':{'model':'contract-fixture','provider_name':'offline',
+            'upstream_attempts':0,'attempt_budget_used':0}}
 
 
 class GoalCycleTests(unittest.TestCase):
@@ -51,13 +54,20 @@ class GoalCycleTests(unittest.TestCase):
     def propose(self,key='goal-one'):
         return self.learning.propose('Normaliza estos datos y entrega el archivo',operation_id=key,conversation_id='task-chat')
     def activate(self,plan):
-        ref=plan['capability_build'];args=(ref['id'],ref['revision'],ref['digest'])
+        ref=plan['capability_build']
+        self.assertEqual(ref['status'],'review_required',plan)
+        args=(ref['id'],ref['revision'],ref['digest'])
         self.workshop.approve(*args,confirmed=True)
         return self.workshop.activate(*args)
 
     def test_build_register_resume_execute_and_reuse_with_heldout_data(self):
         waiting=self.propose()
         self.assertEqual(waiting['state'],'waiting_capability',waiting)
+        self.assertEqual(waiting['capability_build']['status'],'review_required',waiting)
+        self.assertEqual([call['task'] for call in self.model.calls],['plan','code'])
+        self.assertEqual(waiting['model_calls_used'],0)
+        self.assertEqual(waiting['model_calls_confirmed'],0)
+        self.assertEqual(waiting['route_requests'],2)
         self.assertTrue(self.workshop.get(waiting['capability_build']['id'])['validation']['self_tests_passed'])
         self.assertEqual(self.propose()['capability_build'],waiting['capability_build'])
         self.assertFalse((self.root/'artifacts/entrega.txt').exists())
@@ -106,9 +116,61 @@ class GoalCycleTests(unittest.TestCase):
         waiting=self.propose();self.activate(waiting)
         self.model.change_goal=True;self.model.expected='different'
         resumed=self.learning.resume(waiting['operation_id'])
+        self.assertEqual([call['task'] for call in self.model.calls],['plan','code','plan'])
         self.assertEqual(resumed['state'],'failed',resumed)
+        self.assertIn('intentó cambiar el contrato durante la construcción',resumed['message'])
         self.assertEqual(resumed['goal_spec'],waiting['goal_spec'])
+        self.assertEqual(resumed['goal_revision'],waiting['goal_revision'])
+        self.assertEqual(resumed['operation_id'],waiting['operation_id'])
+        self.assertEqual(resumed['conversation_id'],waiting['conversation_id'])
         self.assertFalse((self.root/'artifacts/entrega.txt').exists())
+        self.assertEqual(self.commands.operations(),[])
+        self.assertEqual(self.executor.list_operations(),[])
+
+    def test_costed_plan_and_build_stop_before_third_dispatch_without_losing_goal_or_capability(self):
+        original=self.model.route
+        def costed(request):
+            response=original(request)
+            response['route'].update(upstream_attempts=1,attempt_budget_used=1)
+            return response
+        with patch.object(self.model,'route',side_effect=costed):
+            waiting=self.propose('costed-goal')
+            goal=copy.deepcopy(waiting['goal_spec'])
+            reference=copy.deepcopy(waiting['capability_build'])
+            self.assertEqual([call['task'] for call in self.model.calls],['plan','code'])
+            self.assertEqual(waiting['model_call_limit'],2)
+            self.assertEqual(waiting['model_calls_used'],2)
+            self.assertEqual(waiting['model_calls_confirmed'],2)
+            self.assertEqual(waiting['route_requests'],2)
+            active=self.activate(waiting)
+            resumed=self.learning.resume(waiting['operation_id'])
+        self.assertEqual(resumed['state'],'failed',resumed)
+        resumed=self.learning.get(waiting['operation_id'])
+        self.assertEqual(resumed['state'],'failed',resumed)
+        self.assertIn('presupuesto de 2 inferencias',resumed['message'])
+        self.assertEqual([call['task'] for call in self.model.calls],['plan','code'])
+        self.assertEqual(resumed['model_calls_used'],2)
+        self.assertEqual(resumed['model_calls_confirmed'],2)
+        self.assertEqual(resumed['model_calls_reserved'],0)
+        self.assertEqual(resumed['model_calls_uncertain'],0)
+        self.assertEqual(resumed['route_requests'],2)
+        self.assertEqual(resumed['operation_id'],waiting['operation_id'])
+        self.assertEqual(resumed['conversation_id'],waiting['conversation_id'])
+        self.assertEqual(resumed['goal_spec'],goal)
+        self.assertEqual(resumed['goal_revision'],waiting['goal_revision'])
+        self.assertEqual({key:resumed['capability_build'][key] for key in ('id','revision','digest','goal_revision')},
+                         {key:reference[key] for key in ('id','revision','digest','goal_revision')})
+        self.assertEqual(resumed['capability_build']['status'],'available')
+        capability=self.workshop.get(active['id'])
+        self.assertEqual(capability['state'],'active')
+        self.assertEqual(capability['active_revision'],reference['revision'])
+        self.assertTrue(self.commands.commands[active['generated_command_id']]['execution_enabled'])
+        self.assertIsNone(resumed.get('approved_hash'))
+        self.assertFalse(resumed['postconditions_passed'])
+        self.assertFalse(resumed['mission']['completed'])
+        self.assertFalse((self.root/'artifacts/entrega.txt').exists())
+        self.assertEqual(self.commands.operations(),[])
+        self.assertEqual(self.executor.list_operations(),[])
 
     def test_cancellation_and_replaced_build_never_resume_effects(self):
         waiting=self.propose();active=self.activate(waiting)
@@ -138,6 +200,10 @@ class GoalCycleTests(unittest.TestCase):
         plan=self.learning.propose('Normaliza y conserva una transformación',model='configured-model',provider_name='@codex')
         self.assertEqual(plan['state'],'waiting_capability',plan)
         self.assertEqual([row['task'] for row in codex.requests],['plan','code'])
+        self.assertEqual(plan['capability_build']['status'],'review_required',plan)
+        self.assertEqual(plan['model_calls_used'],0)
+        self.assertEqual(plan['model_calls_confirmed'],0)
+        self.assertEqual(plan['route_requests'],2)
         self.assertTrue(all(row['allow_paid'] is False and row['model']=='configured-model' for row in codex.requests))
         self.assertEqual(len(self.model.calls),2)
 

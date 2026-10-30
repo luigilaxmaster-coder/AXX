@@ -15342,6 +15342,11 @@ convertida en palabras." aria-label="Transcripción del dictado"></textarea>
             } }, 18000);
             this.refresh();
             try {
+                if (Axx.nativeVoice) {
+                    await Axx.nativeVoice.requireTranscription();
+                    if (id !== this.generation)
+                        return;
+                }
                 const live = await this.meter.start();
                 if (id !== this.generation || !live)
                     return;
@@ -19945,5 +19950,5 @@ body[data-media16-source="system"] .m16-cover,body[data-media16-source="system"]
 body[data-media16-source="system"] #view-music .m16-now{padding:12px;margin-top:8px}
 body[data-media16-source="system"] #view-music .m16-transport{margin:8px 0 0}
 body[data-media16-source="system"] #view-music .m16-compact{padding:10px 14px;margin-top:8px}
-</style><script src="scripts/voice-audio.js"></script><script src="scripts/native-speech-stream.js"></script><script src="scripts/native-voice.js"></script><script src="scripts/voice-phrases.js"></script><script src="scripts/voice-conversation.js"></script><script src="scripts/command-library.js"></script><script src="scripts/skill-library.js"></script><script src="scripts/window-content.js"></script><script src="scripts/prompt-contracts.js"></script><script src="scripts/axx-connect.js"></script><script src="scripts/mcp-connections.js"></script><script src="scripts/application-catalog.js"></script><script src="scripts/model-profile.js"></script><script src="scripts/providers.js"></script><script src="scripts/native-music.js"></script><script src="scripts/native-capture.js"></script><script src="scripts/magic-pen.js"></script><script src="scripts/converter.js"></script><script src="scripts/chat-workspace.js"></script><script src="scripts/chat-workspace-design.js"></script><script src="scripts/mobile-gateway.js"></script>
+</style><script src="scripts/voice-audio.js"></script><script src="scripts/native-speech-stream.js"></script><script src="scripts/native-voice.js"></script><script src="scripts/voice-phrases.js"></script><script src="scripts/voice-conversation.js"></script><script src="scripts/command-library.js"></script><script src="scripts/skill-library.js"></script><script src="scripts/window-content.js"></script><script src="scripts/prompt-contracts.js"></script><script src="scripts/axx-connect.js"></script><script src="scripts/mcp-connections.js"></script><script src="scripts/application-catalog.js"></script><script src="scripts/model-profile.js"></script><script src="scripts/providers.js"></script><script src="scripts/native-music.js"></script><script src="scripts/native-capture.js"></script><script src="scripts/magic-pen.js"></script><script src="scripts/converter.js"></script><script src="scripts/chat-workspace.js"></script><script src="scripts/chat-workspace-design.js"></script><script src="scripts/mobile-gateway.js"></script><script src="scripts/telegram-panel.js"></script>
 <script src="scripts/remote-voice.js"></script><script src="scripts/remote-control.js"></script><script src="scripts/mobile-work-approval.js"></script><script src="scripts/avatar-remote.js"></script><link rel="stylesheet" href="scripts/chat-workspace.css"><link rel="stylesheet" href="scripts/interface-theme.css"><script src="scripts/interface-theme.js"></script><script src="scripts/agent-profile.js"></script><script src="scripts/chat-live.js"></script><script src="scripts/capability-workshop.js"></script><script src="scripts/computer-use.js"></script><script src="scripts/quick-reply.js"></script><script src="scripts/anticipation.js"></script><link rel="stylesheet" href="scripts/transfer.css"><script src="scripts/transfer.js"></script></body></html>
