@@ -81,13 +81,28 @@ class RemoteControlUI(unittest.TestCase):
    page.evaluate('''()=>{const old=Capacitor.Plugins.AxxTransport.request;Capacitor.Plugins.AxxTransport.request=async o=>{const response=await old(o);if(o.path.endsWith('/events'))await new Promise(resolve=>window.finishDownAck=resolve);return response;};}''')
    page.locator('#control-drag').click();page.wait_for_function('()=>!!window.finishDownAck')
    page.locator('#control-drag').click();page.evaluate('failRenew=1;controlCalls=[]')
-   page.wait_for_timeout(1300)
+   page.wait_for_function('()=>!inputActive',timeout=5000)
    self.assertFalse(page.evaluate('inputActive'),'A lease must not renew with an unconfirmed down and an unsent up')
    self.assertEqual(page.evaluate('[...inputButtons]'),[])
    self.assertEqual(page.evaluate('inputPackets.length'),1)
    self.assertEqual(page.evaluate("controlCalls.filter(c=>c.path.endsWith('/renew')).length"),1)
    page.evaluate('finishDownAck()');page.wait_for_timeout(100)
    self.assertFalse(page.evaluate('inputActive'))
+   self.assertEqual(page.evaluate('inputPackets.length'),1)
+   self.assertEqual(page.evaluate("controlCalls.filter(c=>c.path.endsWith('/acquire')).length"),0)
+
+ def test_changed_identity_during_recovery_never_reacquires_or_replays(self):
+  with sync_playwright() as p:
+   for identity in ['boot','lease']:
+    with self.subTest(identity=identity):
+     page=self.open(p)
+     page.evaluate('''identity=>{failRenew=1;const old=Capacitor.Plugins.AxxTransport.request;Capacitor.Plugins.AxxTransport.request=async o=>{const response=await old(o);if(o.path.endsWith('/renew')){if(identity==='boot')response.data.boot_id='different-boot';else response.data.lease.lease_id='different-lease';}return response;};}''',identity)
+     page.wait_for_function("()=>document.querySelector('#control-status').textContent.includes('Reconectar')")
+     self.assertTrue(page.locator('#control-stop').is_hidden())
+     self.assertEqual(page.locator('#control-surface').get_attribute('data-connected'),'false')
+     self.assertEqual(page.evaluate("controlCalls.filter(c=>c.path.endsWith('/acquire')).length"),1)
+     self.assertEqual(page.evaluate("controlCalls.filter(c=>c.path.endsWith('/release')).length"),0)
+     self.assertEqual(page.evaluate('inputPackets.length'),0)
 
  def test_native_held_or_missing_state_prevents_recovery(self):
   with sync_playwright() as p:
@@ -98,7 +113,7 @@ class RemoteControlUI(unittest.TestCase):
       page.evaluate('''kind=>{const old=Capacitor.Plugins.AxxTransport.request;window.sawHeldState=false;Capacitor.Plugins.AxxTransport.request=async o=>{const response=await old(o);if(o.path.endsWith('/renew')){if(kind==='button')response.data.native.buttons=['left'];else if(kind==='key')response.data.native.keys=['Control'];else{delete response.data.native.keys;delete response.data.native.buttons;}sawHeldState=true;}return response;};}''',held)
       if stage=='before':page.wait_for_function('()=>sawHeldState')
       page.evaluate('failRenew=1;controlCalls=[]')
-      page.wait_for_timeout(1300)
+      page.wait_for_function('()=>!inputActive',timeout=5000)
       self.assertFalse(page.evaluate('inputActive'))
       self.assertEqual(page.evaluate("controlCalls.filter(c=>c.path.endsWith('/renew')).length"),1 if stage=='before' else 2)
 
