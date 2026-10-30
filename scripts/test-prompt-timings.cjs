@@ -42,7 +42,8 @@ function fixture() {
     const concurrent = fixture(), waiting = new Map();
     concurrent.response((p, signal, delta) => new Promise(resolve => waiting.set(p.prompt_mode, {delta, resolve})));
     const voice = concurrent.run({prompt_mode: 'voice'}), chat = concurrent.run({prompt_mode: 'conversation'});
-    while (waiting.size < 2) await Promise.resolve();
+    for (let turn = 0; waiting.size < 2 && turn < 20; turn++) await Promise.resolve();
+    assert.equal(waiting.size, 2, 'Both requests must reach the controlled response');
     concurrent.clock(5); waiting.get('voice').delta('Voice');
     concurrent.clock(8); waiting.get('conversation').delta('Chat');
     concurrent.clock(10); waiting.get('conversation').resolve({reason: 'stop'}); await chat;
