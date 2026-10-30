@@ -131,6 +131,18 @@ class BotWorkerTests(unittest.TestCase):
         self.assertEqual(routes[-1][1]['decision'], 'confirm')
         self.assertEqual(sent[-1]['text'], 'Verificado')
 
+    def test_sequence_callback_requests_the_next_review_without_another_decision(self):
+        item = message(2)
+        next_id = 'a27038d4-1e3a-41d1-8085-15f51c59ff70'
+        callback = {'update_id':2,'callback_query':{'id':'2','from':item['message']['from'],
+            'message':item['message'],'data':'tc:'+'x'*32}}
+        result = {'state':'succeeded','postconditions_passed':True,'text':'Paso comprobado','next_operation_id':next_id}
+        with patch('backend.telegram.bot.local_request', return_value=result) as local, \
+             patch('backend.telegram.bot.bot_request'), patch.object(self.worker, 'review') as review:
+            self.worker.process(2, callback)
+            local.assert_called_once()
+            review.assert_called_once_with(next_id)
+
     def test_expired_decision_reports_safe_uncertain_result(self):
         token = 'x' * 43
         item = message(2)

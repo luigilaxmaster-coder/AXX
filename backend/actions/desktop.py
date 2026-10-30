@@ -172,6 +172,9 @@ def resolve_desktop(text, source, context=None):
     if cmd:
         return {'match': 'exact', 'command_id': 'axx.shell.cmd', 'inputs': {'script': cmd[1]}}
     raw = command_text(text, source)
+    linked_video = re.fullmatch(r'(https?://\S+)\s+(?:ponme|pon|abre|reproduce)\s+(?:este|el|ese)\s+v[ií]deo[.!?]*', raw, re.I)
+    if linked_video:
+        return {'match':'exact','command_id':'axx.desktop.open_url','inputs':{'url':validate_url(linked_video[1])}}
     followup = plain(raw).strip(' .!?')
     if followup in ('reproducela', 'reproducelo', 'reproduce la cancion', 'reproduce esa cancion', 'reproduce el video', 'reproduce ese video'):
         return play_result(None)
@@ -314,6 +317,8 @@ def resolve_desktop(text, source, context=None):
         if media_slot:
             return play_result(media_slot[1] or media_slot[2])
         if not query:return missing
+        if context.get('engine') == 'youtube':
+            return play_result(query)
         if plain(music[1]) in ('reproduce','reproducir','escuchar','ponme') or re.match(r'(?:(?:la|una|el|un)\s+)?(?:canci[oó]n|m[uú]sica|tema|video)\b',query,re.I):
             return play_result(query)
         return None

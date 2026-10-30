@@ -46,6 +46,66 @@ class TelegramConfirmationIntegrationTests(unittest.TestCase):
         self.assertEqual(result['state'], 'awaiting_approval')
         return result['operation_id']
 
+    def test_sequence_requires_a_fresh_approval_for_each_step(self):
+        with patch.object(self.executor, 'execute_action', return_value=self.effect) as effect:
+            first = self.prepare('abre calculadora y abre bloc de notas')
+            effect.assert_not_called()
+            token = self.service.review_operation(20, first)['token']
+            result = self.service.decide_operation(20, token, 'confirm')
+            self.assertEqual(effect.call_count, 1)
+            second = result['next_operation_id']
+            self.assertEqual(self.commands.get(second)['state'], 'awaiting_approval')
+            replay = self.service.decide_operation(20, token, 'confirm')
+            self.assertEqual(replay['next_operation_id'], second)
+            self.assertEqual(effect.call_count, 1)
+            result = self.service.decide_operation(20, self.service.review_operation(20, second)['token'], 'confirm')
+            self.assertNotIn('next_operation_id', result)
+            self.assertIn('Secuencia terminada', result['text'])
+            self.assertEqual(effect.call_count, 2)
+            self.service.adapter.route.assert_not_called()
+
+    def test_denied_or_unverified_step_never_prepares_the_rest(self):
+        for decision, effect_result in [('cancel', self.effect), ('confirm', dict(self.effect, postconditions_passed=False))]:
+            with self.subTest(decision=decision), patch.object(self.executor, 'execute_action', return_value=effect_result):
+                first = self.prepare('abre calculadora y abre bloc de notas')
+                result = self.service.decide_operation(20, self.service.review_operation(20, first)['token'], decision)
+                self.assertNotIn('next_operation_id', result)
+                self.assertIn('Secuencia detenida', result['text'])
+
+    def test_sequence_does_not_resume_after_service_restart(self):
+        first = self.prepare('abre calculadora y abre bloc de notas')
+        self.service = TelegramService(self.root, self.chats, self.commands, Mock(), lambda: {})
+        with patch.object(self.executor, 'execute_action', return_value=self.effect) as effect:
+            result = self.service.decide_operation(20, self.service.review_operation(20, first)['token'], 'confirm')
+            self.assertNotIn('next_operation_id', result)
+            effect.assert_called_once()
+
+    def test_permission_change_after_first_effect_stops_sequence(self):
+        first = self.prepare('abre calculadora y abre bloc de notas')
+        def completed_effect(*args, **kwargs):
+            update_permissions(True, dict(self.grants, pc_commands=False), self.root)
+            return self.effect
+        with patch.object(self.executor, 'execute_action', side_effect=completed_effect) as effect:
+            result = self.service.decide_operation(20, self.service.review_operation(20, first)['token'], 'confirm')
+            self.assertNotIn('next_operation_id', result)
+            effect.assert_called_once()
+            with self.service._db() as db:
+                self.assertEqual(db.execute('SELECT count(*) FROM inbox').fetchone()[0], 1)
+
+    def test_status_distinguishes_admission_from_a_verified_effect(self):
+        first = self.prepare()
+        self.assertEqual(self.service.status()['messages'], 'admitted')
+        self.assertEqual(self.service.status()['pc_commands'], 'not_verified')
+        with patch.object(self.executor, 'execute_action', return_value=self.effect):
+            self.service.decide_operation(20, self.service.review_operation(20, first)['token'], 'confirm')
+        self.assertEqual(self.service.status()['pc_commands'], 'verified_receipt')
+
+    def test_incomplete_sequence_never_calls_provider_or_prepares_partial_effect(self):
+        result = self.service.admit_miniapp(20, 'abre calculadora y crea un dragon', str(uuid.uuid4()))
+        self.assertEqual(result['state'], 'blocked')
+        self.assertIn('paso 2', result['text'])
+        self.service.adapter.route.assert_not_called()
+
     def test_real_core_ledger_and_dpapi_confirm_exactly_once(self):
         with patch.object(self.executor, 'execute_action', return_value=self.effect) as effect:
             operation = self.prepare()

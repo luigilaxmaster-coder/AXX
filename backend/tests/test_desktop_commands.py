@@ -42,6 +42,16 @@ class DesktopCommandTests(unittest.TestCase):
         for text in ('cómo abrir YouTube', 'no abras YouTube', 'resume: abre YouTube', 'abre calculadora && whoami'):
             self.assertNotEqual(self.service.resolve(text).get('match'), 'exact')
 
+    def test_telegram_video_link_and_compound_request(self):
+        url = 'https://youtu.be/okRRbArQJZY?si=H9DhZsYy4Mb64AJL'
+        result = self.service.resolve(url + ' ponme este video')
+        self.assertEqual(result['command_id'], 'axx.desktop.open_url')
+        self.assertEqual(result['inputs'], {'url': url})
+        result = self.service.resolve('Abre youtube y pon faint de linkin park')
+        self.assertEqual(result['match'], 'sequence')
+        self.assertEqual(result['steps'][1], {'command_id':'axx.app.youtube','inputs':{'application':'chrome','query':'faint de linkin park'}})
+        self.assertNotEqual(self.service.resolve('no ' + url + ' ponme este video').get('match'), 'exact')
+
     def test_spotify_commands_never_become_youtube_searches(self):
         for text in ('pausa Spotify', 'siguiente en Spotify'):
             with self.subTest(text=text):

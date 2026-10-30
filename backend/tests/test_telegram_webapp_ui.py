@@ -139,6 +139,30 @@ class TelegramWebAppUITests(unittest.TestCase):
         self.assertIn('Abre esta app', page.locator('#connection').inner_text())
         self.assertEqual(fixture['calls'], [])
 
+    def test_sequence_opens_next_review_without_approving_it(self):
+        page, fixture = self.page()
+        next_id = 'a27038d4-1e3a-41d1-8085-15f51c59ff70'
+        reviews, decisions = [], []
+        def review_route(route):
+            reviews.append(json.loads(route.request.post_data)['operation_id'])
+            route.fulfill(status=200, json={'state':'awaiting_approval','can_confirm':True,
+                'title':'Siguiente paso' if reviews[-1] == next_id else 'Primer paso',
+                'inputs':{},'token':'x'*32,'expires_at':2000000000})
+        def decision_route(route):
+            decisions.append(json.loads(route.request.post_data))
+            route.fulfill(status=200, json={'state':'succeeded', 'postconditions_passed':True,
+                'text':'Paso comprobado', 'next_operation_id':next_id})
+        page.route('**/api/review', review_route)
+        page.route('**/api/decision', decision_route)
+        page.locator('[data-pane="activity"]').click()
+        page.get_by_role('button', name='Revisar orden', exact=True).first.click()
+        page.locator('#review-confirm').click()
+        page.wait_for_function("() => document.querySelector('#review-title').textContent === 'Siguiente paso' && !document.querySelector('#review-confirm').disabled")
+        self.assertTrue(page.locator('#review-card').is_visible())
+        self.assertEqual(reviews[-1], next_id)
+        self.assertEqual(len(decisions), 1)
+        self.assertTrue(page.locator('#review-confirm').is_enabled())
+
     def test_command_catalog_filters_and_only_fills_draft(self):
         page, fixture = self.page()
         page.wait_for_selector('#send:not([disabled])', state='attached')
