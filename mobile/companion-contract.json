@@ -26,7 +26,8 @@
     "files",
     "transfers",
     "voice",
-    "remote_control"
+    "remote_control",
+    "mission_continuity"
   ],
   "required_routes": [
     "/v1/pair/claim",

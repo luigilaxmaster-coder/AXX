@@ -427,6 +427,11 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                 elif path.endswith('/actions'):
                     if set(query) - {'project_id'} or any(len(v) != 1 for v in query.values()): raise ValueError('Proyecto inválido')
                     self._send_json(200, {'actions': self.learning.list_actions(query.get('project_id', [None])[0])})
+                elif path.endswith('/plans') and 'conversation_id' in query:
+                    if set(query) != {'conversation_id'} or len(query['conversation_id']) != 1: raise ValueError('Conversación inválida')
+                    if not self.chats: raise ValueError('Conversaciones no disponibles')
+                    self.chats.get(query['conversation_id'][0])
+                    self._send_json(200, {'plans': self.learning.list_plans(conversation_id=query['conversation_id'][0])})
                 elif path.endswith('/context') or path.endswith('/plans'):
                     if set(query) - {'project_id'} or any(len(v) != 1 for v in query.values()): raise ValueError('Proyecto inválido')
                     project = query.get('project_id', [''])[0]
@@ -847,7 +852,7 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                           'prepare': {'text', 'steps', 'operation_id', 'project_id', 'conversation_id', 'goal_spec', 'document_references'},
                           'execute': {'operation_id', 'approved', 'plan_hash'}, 'cancel': {'operation_id'}, 'pause': {'operation_id'},
                           'resume': {'operation_id', 'approved', 'plan_hash'}, 'configure': {'id', 'changes'},
-                          'repair': {'operation_id', 'text', 'inputs', 'model', 'provider_name', 'selection_mode','goal_spec','goal_revision'},
+                          'repair': {'operation_id', 'text', 'inputs', 'model', 'provider_name', 'selection_mode','goal_spec','goal_revision', 'correction_id', 'plan_hash', 'origin_device_id'},
                           'context': {'project_id', 'changes'}, 'compose': {'text', 'parts', 'operation_id', 'project_id'},
                           'remember': {'operation_id'}}
                 fields['dependencies'] = {'operation_id', 'dependencies', 'plan_hash'}
@@ -922,7 +927,8 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                 elif action == 'repair':
                     result = self.learning.repair(body.get('operation_id'), body.get('text', ''), inputs=body.get('inputs'),
                         model=body.get('model', ''), provider_name=body.get('provider_name', ''), selection_mode=body.get('selection_mode', 'manual'),
-                        goal_spec=body.get('goal_spec'),goal_revision=body.get('goal_revision'),**memory_kwargs)
+                        goal_spec=body.get('goal_spec'),goal_revision=body.get('goal_revision'),
+                        correction_id=body.get('correction_id'),plan_hash=body.get('plan_hash'),origin_device_id=body.get('origin_device_id'),**memory_kwargs)
                 elif action == 'configure':
                     if not isinstance(body.get('changes'), dict): raise ValueError('Cambios requeridos')
                     result = self.learning.configure(body.get('id'), body['changes'],**memory_kwargs)

@@ -27,6 +27,20 @@ def _digest(value):
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
+def assert_device_scope(db, device_id, required_scope):
+    """Read the live grant inside the caller's serialized transaction."""
+    try:
+        row = db.execute('SELECT scopes_json,revoked_at FROM mobile_devices WHERE device_id=?', (device_id,)).fetchone()
+    except sqlite3.Error as exc:
+        raise PairingError('El permiso Work de este teléfono no está disponible') from exc
+    try:
+        scopes = json.loads(row[0]) if row else []
+    except (TypeError, ValueError):
+        scopes = []
+    if not row or row[1] is not None or not isinstance(scopes, list) or required_scope not in scopes:
+        raise PairingError('El permiso Work de este teléfono fue revocado')
+
+
 class MobileTrustStore:
     """Device grants and command admission journal in Axx's existing SQLite DB."""
 
@@ -275,11 +289,12 @@ class MobileTrustStore:
                  'command_id': row['command_id'], 'inputs': json.loads(row['inputs_json']),
                  'created_at': row['created_at']} for row in rows]
 
-    def admit_command(self, device_id, command_id, payload, task_id=None, now=None):
+    def admit_command(self, device_id, command_id, payload, task_id=None, now=None, *, initial_result=None):
         if not isinstance(command_id, str) or not command_id.strip() or len(command_id) > 128:
             raise ValueError("command_id must be a non-empty string up to 128 characters")
         canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
         payload_hash = _digest(canonical)
+        initial = json.dumps(initial_result, ensure_ascii=False, allow_nan=False) if initial_result is not None else None
         accepted_at = time.time() if now is None else float(now)
         new_task_id = task_id or str(uuid.uuid4())
         with self._connect() as db:
@@ -293,7 +308,7 @@ class MobileTrustStore:
             row = db.execute("SELECT payload_hash,task_id FROM mobile_commands WHERE device_id=? AND command_id=?",
                              (device_id, command_id)).fetchone()
             if inserted.rowcount:
-                db.execute('INSERT INTO mobile_command_results VALUES(?,?,?,?)', (new_task_id, 'admitted', None, accepted_at))
+                db.execute('INSERT INTO mobile_command_results VALUES(?,?,?,?)', (new_task_id, 'admitted', initial, accepted_at))
             db.commit()
         if row["payload_hash"] != payload_hash:
             raise CommandConflict("command_id was already admitted with a different payload")

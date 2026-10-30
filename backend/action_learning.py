@@ -35,6 +35,8 @@ from .memory.skill_memory import lesson_refs, assert_lessons_current
 TERMINAL = {'succeeded', 'failed', 'cancelled', 'blocked', 'needs_input', 'expired', 'unknown'}
 SOURCE_PLANNING_READY = False
 SOURCE_CONTEXT_INVALID = 'El contexto observado cambió o perdió su permiso; se descartó la propuesta nueva. Los efectos ya verificados se conservan.'
+CORRECTION_RECEIPT_HEADERS = ('id', 'operation_id', 'request_hash', 'state', 'from_plan_hash', 'from_goal_revision',
+                              'plan_hash', 'goal_revision', 'origin_device_id', 'origin_kind')
 
 
 class SourceContextRevoked(NeedsInput):
@@ -46,6 +48,14 @@ class MemoryScopeRevoked(NeedsInput):
 
 
 class SelectionChanged(NeedsInput):
+    pass
+
+
+class CorrectionClaimLost(NeedsInput):
+    pass
+
+
+class CorrectionOriginRevoked(NeedsInput):
     pass
 
 
@@ -143,6 +153,7 @@ class ActionLearning:
         self.dependency_revision = None
         self.active_inference_ids = set()
         self.inference_backends = {}
+        self.correction_owners = {}
         self.db = sqlite3.connect(str(commands.executor.db_path), check_same_thread=False, timeout=10)
         self.events = {}
         self.pause_events = {}
@@ -154,6 +165,7 @@ class ActionLearning:
                 if plan['state'] not in TERMINAL and plan['state'] not in ('awaiting_approval', 'waiting_capacity', 'waiting_capability', 'paused', 'waiting_dependency', 'goal_pending'):
                     plan.update(state='interrupted', postconditions_passed=False,
                                 message='Sesión interrumpida. Revisa y reanuda el plan guardado.')
+                    self._finish_correction_receipt(plan)
                     self.db.execute('UPDATE learning_plans SET payload=? WHERE id=?', (json.dumps(plan), key))
         self.budget_lock = threading.RLock()
         self.budget_db = sqlite3.connect(str(commands.executor.db_path), check_same_thread=False, timeout=10)
@@ -257,6 +269,7 @@ class ActionLearning:
 
     def _save(self, plan):
         with self.lock:
+            self._assert_correction_owner(plan)
             try:
                 self._assert_memory(plan)
             except MemoryScopeRevoked:
@@ -285,17 +298,27 @@ class ActionLearning:
                 return self._save_forgotten(plan)
             except SelectionChanged:
                 return self._save_selection_changed(plan)
+            except CorrectionOriginRevoked as exc:
+                row = self.db.execute('SELECT payload FROM learning_plans WHERE id=?', (plan['operation_id'],)).fetchone()
+                snapshot = json.loads(row[0])
+                plan.clear(); plan.update(snapshot)
+                for field in ('model_data', 'skill_candidate', 'active_inference_request_id'): plan.pop(field, None)
+                plan.update(state='needs_input', preparation_complete=False, approved_hash=None, message=str(exc))
+                return self._save_current(plan)
 
     def _save_selection_changed(self, rejected):
-        row = self.db.execute('SELECT payload FROM learning_plans WHERE id=?', (rejected['operation_id'],)).fetchone()
-        if not row: raise SelectionChanged('La selección cambió antes de preparar la tarea')
-        snapshot = json.loads(row[0])
-        snapshot.update(selection_invalidated=True, approved_hash=None,
-            message='Cambió una fuente o la selección de un procedimiento. Prepara una petición nueva con referencias vigentes.')
-        if snapshot.get('state') not in TERMINAL: snapshot['state'] = 'needs_input'
-        for field in ('model_data', 'skill_candidate', 'inference_records'): snapshot.pop(field, None)
-        snapshot['preparation'] = {'kind':'selection_changed'}
         with self.db:
+            if not self.db.in_transaction: self.db.execute('BEGIN IMMEDIATE')
+            self._assert_correction_owner(rejected)
+            row = self.db.execute('SELECT payload FROM learning_plans WHERE id=?', (rejected['operation_id'],)).fetchone()
+            if not row: raise SelectionChanged('La selección cambió antes de preparar la tarea')
+            snapshot = json.loads(row[0])
+            snapshot.update(selection_invalidated=True, approved_hash=None,
+                message='Cambió una fuente o la selección de un procedimiento. Prepara una petición nueva con referencias vigentes.')
+            if snapshot.get('state') not in TERMINAL: snapshot['state'] = 'needs_input'
+            for field in ('model_data', 'skill_candidate', 'inference_records'): snapshot.pop(field, None)
+            snapshot['preparation'] = {'kind':'selection_changed'}
+            self._finish_correction_receipt(snapshot)
             self.db.execute('UPDATE learning_plans SET payload=? WHERE id=?', (json.dumps(snapshot, ensure_ascii=False), snapshot['operation_id']))
         rejected.clear(); rejected.update(snapshot)
         self.change_revision += 1
@@ -371,8 +394,11 @@ class ActionLearning:
                 'active_operation_id', 'active_operation_ids', 'memory_scope', 'memory_scope_explicit',
                 'memory_context_id', 'memory_dependencies', 'model_call_limit', 'model_calls_used',
                 'model_calls_confirmed', 'model_calls_reserved', 'model_calls_uncertain',
-                'model_calls_legacy', 'route_requests', 'inference_counts')
+                'model_calls_legacy', 'route_requests', 'inference_counts', 'current_correction_id')
             view = copy.deepcopy({key: plan[key] for key in headers if key in plan})
+            if 'correction_requests' in plan:
+                view['correction_requests'] = {key: {name: copy.deepcopy(receipt[name]) for name in CORRECTION_RECEIPT_HEADERS if name in receipt}
+                    for key, receipt in plan['correction_requests'].items()}
             view.update(memory_forgotten=True, title='Aprendizaje de sesión olvidado', request='', learned_action_id=None,
                         message='El aprendizaje de esta tarea ya no se reutiliza; sus recibos se conservan.',
                         approved_hash=None, goal_spec={'intent': 'Aprendizaje olvidado', 'checks': [], 'criteria': []})
@@ -398,7 +424,9 @@ class ActionLearning:
 
     def _save_forgotten(self, rejected):
         """Only the earlier durable snapshot and observed receipt headers may survive a late callback."""
-        with self.lock, self.commands.lock:
+        with self.lock, self.commands.lock, getattr(self.anticipation, 'lock', nullcontext()), self.db:
+            if not self.db.in_transaction: self.db.execute('BEGIN IMMEDIATE')
+            self._assert_correction_owner(rejected)
             row = self.db.execute('SELECT payload FROM learning_plans WHERE id=?', (rejected['operation_id'],)).fetchone()
             if not row: raise MemoryScopeRevoked('La memoria cambió antes de preparar la tarea')
             plan = json.loads(row[0])
@@ -423,6 +451,7 @@ class ActionLearning:
             plan['results'] = [record['result'] for record in plan.get('step_records', []) if record.get('result')]
             self._model_budget_view(plan)
             plan['mission'] = self._mission(plan)
+            self._finish_correction_receipt(plan)
             with self.db:
                 self.db.execute('UPDATE learning_plans SET payload=? WHERE id=?', (json.dumps(plan, ensure_ascii=False), plan['operation_id']))
             self.change_revision += 1
@@ -430,7 +459,9 @@ class ActionLearning:
             return rejected
 
     def _save_current(self, plan, source_recheck=lambda: None):
-        with self.lock, self.db:
+        with self.lock, getattr(self.anticipation, 'lock', nullcontext()), self.db:
+            if not self.db.in_transaction: self.db.execute('BEGIN IMMEDIATE')
+            self._assert_correction_owner(plan)
             source_recheck()
             self._store_model_budget(plan)
             self._model_budget_view(plan)
@@ -465,12 +496,17 @@ class ActionLearning:
             if not self.db.in_transaction: self.db.execute('BEGIN IMMEDIATE')
             self._assert_memory(plan)
             source_recheck()
+            if id(plan) in self.correction_owners and plan['state'] in ('planning', 'awaiting_approval', 'waiting_capacity'):
+                self._assert_correction_context(plan)
             if plan.get('resource_bindings') and plan.get('preparation_complete') and plan['state'] == 'awaiting_approval':
                 if not self.db.in_transaction: self.db.execute('BEGIN IMMEDIATE')
                 self._assert_resource_bindings(plan, db=self.db, check_files=False)
+            self._finish_correction_receipt(plan)
+            encoded = json.dumps(plan, ensure_ascii=False)
             self.db.execute('INSERT INTO learning_plans VALUES (?,?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload',
-                            (plan['operation_id'], json.dumps(plan, ensure_ascii=False)))
+                            (plan['operation_id'], encoded))
             source_recheck()
+            if id(plan) in self.correction_owners: self.correction_owners[id(plan)] = encoded
             self.change_revision += 1
         return plan
 
@@ -731,18 +767,32 @@ class ActionLearning:
         if project_id is not None: project_key(project_id)
         return [row for row in self.skills.list() if project_id is None or row['project_id'] in ('', project_id)]
 
-    def list_plans(self, project_id=''):
-        project_key(project_id)
+    def list_plans(self, project_id=None, *, conversation_id=None):
+        if conversation_id is not None:
+            from .chat_store import ident
+            ident(conversation_id)
+            if project_id is not None: raise ValueError('Selecciona proyecto o conversación, no ambos')
+            if (not self.db.execute("SELECT 1 FROM sqlite_master WHERE name='chat_conversations'").fetchone()
+                    or not self.db.execute('SELECT 1 FROM chat_conversations WHERE id=?', (conversation_id,)).fetchone()):
+                raise ValueError('Conversación desconocida')
+        else:
+            project_id = '' if project_id is None else project_id
+            project_key(project_id)
         # Each budget projection may consult policy. Acquire it before the
         # first SQL write, including subsequent rows in this transaction.
         with self.lock, getattr(self.anticipation, 'lock', nullcontext()), self.db:
-            plans = [json.loads(row[0]) for row in self.db.execute("SELECT payload FROM learning_plans WHERE COALESCE(json_extract(payload,'$.project_id'),'')=? ORDER BY rowid DESC LIMIT 100", (project_id,))]
+            if conversation_id is not None:
+                rows = self.db.execute("SELECT payload FROM learning_plans WHERE json_extract(payload,'$.conversation_id')=? ORDER BY rowid DESC LIMIT 100", (conversation_id,))
+            else:
+                rows = self.db.execute("SELECT payload FROM learning_plans WHERE COALESCE(json_extract(payload,'$.project_id'),'')=? ORDER BY rowid DESC LIMIT 100", (project_id,))
+            plans = [json.loads(row[0]) for row in rows]
             for plan in plans:
                 self._store_model_budget(plan)
                 self._model_budget_view(plan)
                 self._project_compensations(plan, self.db)
         plans = [self._memory_view(plan | {'mission': self._mission(plan)}, self.db) for plan in plans]
-        return [plan for plan in plans if plan.get('project_id', '') == project_id][:100]
+        return [plan for plan in plans if (conversation_id is not None and plan.get('conversation_id') == conversation_id)
+                or (conversation_id is None and plan.get('project_id', '') == project_id)][:100]
 
     def _matches(self, text, project_id='', task_id=None):
         phrase = normalized(text)
@@ -1132,11 +1182,12 @@ class ActionLearning:
 
     def _prompt(self, text, context, project_id='', task_id=None, *, plan=None):
         context = dict(context)
+        correction = plan is not None and id(plan) in self.correction_owners
         if 'available_skills' in context:
             context['available_skills'] = [{key:value for key,value in item.items() if key not in
                 ('memory_scope','memory_context_id','memory_dependencies','origin_task_id','policy_revision')} for item in context['available_skills']]
         for field in ('operational_context', 'context'):
-            if field in context: context[field] = self._planning_context(project_id, task_id)
+            if field in context and not correction: context[field] = self._planning_context(project_id, task_id)
         # Keep the model's parameter contract aligned with the executor's validation.
         def shape(parameters):
             return {name: {key: value for key, value in rule.items() if key in ('type','required','enum','items','description','minimum','maximum','minLength','maxLength','maxBytes','minItems','maxItems','pattern','format')}
@@ -1175,6 +1226,7 @@ class ActionLearning:
                     'reference_truncated': len(raw) > 1000, 'source': 'untrusted_document', 'current_execution_verified': False}
             if len(json.dumps(references + [item], ensure_ascii=False).encode('utf8')) <= 3500: references.append(item)
         for score, key in scored[:3]:
+            if correction: break
             if len(references) >= 3: break
             if score < 2: continue
             procedure = self.commands.procedures.get(key)
@@ -1187,12 +1239,12 @@ class ActionLearning:
                     references.append(reference)
                     if plan is not None and procedure.get('document_reference'):
                         self.skills.inherit_document_references(plan, {'document_references': [procedure['document_reference']]})
-        lessons = self.skills.lessons(text, limit=3, project_id=project_id, task_id=task_id, allow_provider_only=True)
+        lessons = [] if correction else self.skills.lessons(text, limit=3, project_id=project_id, task_id=task_id, allow_provider_only=True)
         bounded_lessons = []
         for lesson in lessons:
             if len(json.dumps(bounded_lessons + [lesson], ensure_ascii=False)) <= 3500: bounded_lessons.append(lesson)
         lessons = bounded_lessons
-        if plan is not None:
+        if plan is not None and not correction:
             self._inherit_memory(plan, *lessons)
             self.skills.inherit_document_references(plan, *lessons)
             plan['lesson_dependencies'] = lesson_refs(lessons)
@@ -1536,13 +1588,19 @@ class ActionLearning:
 
     def _infer(self, plan, task, messages, request_suffix=''):
         self._assert_memory(plan)
+        self._assert_correction_context(plan)
         # Repair/content messages can contain a previous source-derived result.
         # An empty current observer must never silently turn that history into
         # an ordinary request without its original authorization.
         with self.lock, self._source_publication(plan):
             if plan.get('context_invalidated'):
                 raise SourceContextRevoked(SOURCE_CONTEXT_INVALID)
-        messages,images,refs = self._source_prompt(plan,messages)
+        if id(plan) in self.correction_owners:
+            if plan.get('observation_dependencies') and not SOURCE_PLANNING_READY:
+                raise NeedsInput('El envío de observaciones permanece desactivado.')
+            images, refs = [], []
+        else:
+            messages,images,refs = self._source_prompt(plan,messages)
         event = None
         with self.lock:
             # Repair/content prompts can retain earlier observed material.
@@ -1620,6 +1678,7 @@ class ActionLearning:
                 'generation': {'temperature': 0.1, 'max_tokens': 3000}}
             kwargs = {'cancel_event':source_cancel} if source_cancel is not None else {}
             self._assert_memory(plan)
+            self._assert_correction_context(plan)
             if settings['provider_name'] == '@codex' and getattr(backend, 'supports_task_memory', False):
                 request.update(memory_scope=plan.get('memory_scope'), memory_context_id=plan.get('memory_context_id'),
                     memory_dependencies=plan.get('memory_dependencies', []))
@@ -1646,6 +1705,7 @@ class ActionLearning:
                 self.inference_backends.pop(request_id,None)
         self._settle_model_call(plan, request_id, response, single_request=single_request)
         self._assert_memory(plan)
+        self._assert_correction_context(plan)
         if source_cancel is not None:
             if source_cancel.is_set():raise NeedsInput('El contexto temporal cambió o caducó durante la planificación; se descartó la respuesta.')
             self.anticipation.validate_provider_context_refs(plan.get('conversation_id') or plan['operation_id'],
@@ -1742,11 +1802,17 @@ class ActionLearning:
             return self._save(plan)
 
     def _prepare_plan(self, plan):
+        receipt = plan.get('correction_requests', {}).get(plan.get('current_correction_id'))
+        if receipt and id(plan) not in self.correction_owners and not plan.get('preparation_complete', True):
+            plan.update(state='interrupted', approved_hash=None,
+                message='La corrección interrumpida se conserva; no se repetirá su inferencia automáticamente.')
+            return self._finish_planning(plan)
         if 'resource_binding_selectors' in plan:
             plan.update(state='needs_input', approved_hash=None,
                 message='Este binding conserva su selección y versiones originales. Prepara una propuesta explícita nueva; no se usará un proveedor para repararlo.')
             return self._finish_planning(plan)
-        plan.update(steps=[], skill_versions=[], preparation_complete=False, state='planning')
+        if id(plan) not in self.correction_owners: plan.update(steps=[], skill_versions=[])
+        plan.update(preparation_complete=False, state='planning')
         plan.pop('skill_candidate', None)
         preparation = plan['preparation']
         try:
@@ -1854,6 +1920,8 @@ class ActionLearning:
                             plan['skill_candidate'] = candidate
                         self._ready(plan, data['title'])
                     else: raise ValueError('El plan no tiene un nombre y pasos válidos')
+        except CorrectionClaimLost:
+            raise
         except Exception as exc:
             plan.update(state='waiting_capacity' if isinstance(exc, CapacityPending) else ('needs_input' if isinstance(exc, NeedsInput) else 'failed'), message=str(exc)[:2000])
             if not isinstance(exc, (CapacityPending, NeedsInput)): self._record_outcome(plan, 'failed')
@@ -2272,14 +2340,95 @@ class ActionLearning:
             plan.update(state='needs_input' if isinstance(exc, NeedsInput) else 'failed', message=str(exc)[:2000])
             return self._finish_planning(plan)
 
+    @staticmethod
+    def _finish_correction_receipt(plan):
+        receipt = plan.get('correction_requests', {}).get(plan.get('current_correction_id'))
+        if receipt and receipt['state'] == 'pending' and plan['state'] != 'planning':
+            receipt['state'] = plan['state']
+            if plan['state'] == 'awaiting_approval' and plan.get('preparation_complete'):
+                receipt.update(plan_hash=plan['plan_hash'], goal_revision=plan.get('goal_revision', 1))
+
+    def _assert_correction_owner(self, plan):
+        row = self.db.execute('SELECT payload FROM learning_plans WHERE id=?', (plan['operation_id'],)).fetchone()
+        expected = self.correction_owners.get(id(plan))
+        if expected is not None and (not row or row[0] != expected):
+            raise CorrectionClaimLost('La misión cambió durante la corrección; se conserva su estado actual.')
+        if row and json.loads(row[0]).get('current_correction_id') != plan.get('current_correction_id'):
+            raise CorrectionClaimLost('Otra corrección es propietaria de la revisión actual.')
+
+    def _assert_correction_origin(self, plan):
+        if id(plan) not in self.correction_owners: return
+        origin = plan.get('correction_requests', {}).get(plan.get('current_correction_id'), {}).get('origin_device_id')
+        if origin:
+            from .mobile.trust_store import assert_device_scope
+            try: assert_device_scope(self.db, origin, 'tools.control')
+            except (ValueError, sqlite3.Error):
+                raise CorrectionOriginRevoked('El dispositivo perdió el permiso de control; la corrección requiere una petición nueva.') from None
+
+    def _assert_correction_context(self, plan):
+        if id(plan) not in self.correction_owners: return
+        self._assert_correction_owner(plan)
+        self._assert_correction_origin(plan)
+        error = self._context_error(plan, self._planning_context(plan['project_id'], plan.get('conversation_id')))
+        def read(key):
+            row = self.db.execute('SELECT payload FROM learning_plans WHERE id=?', (key,)).fetchone()
+            if not row: raise NeedsInput('La misión de origen ya no está disponible.')
+            source = self._project_compensations(json.loads(row[0]), self.db)
+            self._assert_memory(source)
+            return source
+        error = error or self._dependency_error(plan, read)
+        if error: raise NeedsInput(error)
+
+    def _correction_response(self, plan, correction_id, *, replayed):
+        self._model_budget_view(plan)
+        self._project_compensations(plan, self.db)
+        view = self._memory_view(plan | {'mission': self._mission(plan)}, self.db)
+        receipt = plan['correction_requests'][correction_id]
+        return view | {'correction_receipt': {key: copy.deepcopy(receipt[key]) for key in CORRECTION_RECEIPT_HEADERS if key in receipt}, 'replayed': replayed}
+
     @active_operation
-    def repair(self, key, text='', inputs=None, model='', provider_name='', selection_mode='manual', goal_spec=None, goal_revision=None, *, memory_scope=None, memory_context_id=None):
+    def repair(self, key, text='', inputs=None, model='', provider_name='', selection_mode='manual', goal_spec=None, goal_revision=None, *, memory_scope=None, memory_context_id=None,
+               correction_id=None, plan_hash=None, origin_device_id=None):
         if not isinstance(text, str) or len(text) > 4000: raise ValueError('Corrección inválida')
         if any(not isinstance(value, str) or len(value) > 200 for value in (model, provider_name)) or selection_mode not in ('manual', 'automatic_free'):
             raise ValueError('Selección de modelo inválida')
-        if not self.gate.acquire(blocking=False): raise ValueError('Ya hay un plan ejecutándose')
+        correction_mode = correction_id is not None or plan_hash is not None or origin_device_id is not None
+        if correction_mode:
+            try:
+                if not isinstance(correction_id, str) or str(uuid.UUID(correction_id)) != correction_id: raise ValueError()
+            except (ValueError, AttributeError): raise ValueError('ID canónico de corrección requerido') from None
+            if (not isinstance(plan_hash, str) or not re.fullmatch('[0-9a-f]{64}', plan_hash)
+                    or goal_spec is None or type(goal_revision) is not int or not text.strip()
+                    or origin_device_id is not None and (not isinstance(origin_device_id, str) or not 1 <= len(origin_device_id) <= 160)):
+                raise ValueError('La corrección requiere hash, revisión, contrato y texto vigentes')
+        acquired = False
+        plan = None
         try:
-            plan = self.get(key)
+            if correction_mode:
+                with self.lock:
+                    row = self.db.execute('SELECT payload FROM learning_plans WHERE id=?', (key,)).fetchone()
+                    if not row: raise ValueError('Plan desconocido')
+                    original_payload, plan = row[0], json.loads(row[0])
+                    new_goal = goal_contract(plan['request'], goal_spec)
+                    request_hash = self._hash({'operation_id': key, 'text': text.strip(), 'goal_spec': new_goal,
+                        'goal_revision': goal_revision, 'plan_hash': plan_hash, 'inputs': None if inputs is None else bounded_object(inputs),
+                        'origin_device_id': origin_device_id, 'planning_settings': {'model': model, 'provider_name': provider_name, 'selection_mode': selection_mode},
+                        'memory_scope': plan.get('memory_scope'), 'memory_context_id': plan.get('memory_context_id'),
+                        'memory_dependencies': plan.get('memory_dependencies', []), 'lesson_dependencies': plan.get('lesson_dependencies', []),
+                        'request_memory_scope': memory_scope, 'request_memory_context_id': memory_context_id})
+                    receipt = plan.get('correction_requests', {}).get(correction_id)
+                    if receipt:
+                        if receipt['request_hash'] != request_hash: raise ValueError('El ID de corrección ya pertenece a otra petición')
+                        return self._correction_response(plan, correction_id, replayed=True)
+                    if (plan.get('plan_hash') != plan_hash or plan.get('goal_revision', 1) != goal_revision
+                            or self._plan_hash(plan) != plan_hash):
+                        raise ValueError('La revisión o el hash de la misión cambió')
+                    if len(plan.get('correction_requests', {})) >= 32: raise ValueError('La misión alcanzó el límite de correcciones retenidas')
+                    self._model_budget_view(plan)
+            else:
+                plan = self.get(key)
+            acquired = self.gate.acquire(blocking=False)
+            if not acquired: raise ValueError('Ya hay un plan ejecutándose')
             self._assert_request(plan, memory_scope, memory_context_id)
             if 'resource_binding_selectors' in plan:
                 raise NeedsInput('Los recursos explícitos conservan sus versiones revisadas. Prepara una propuesta nueva; no se repararán con un proveedor.')
@@ -2299,6 +2448,37 @@ class ActionLearning:
             self._reconcile(plan)
             if plan['state'] in ('unknown', 'cancelled'): return self._save(plan)
             if plan['model_calls_used'] >= self._model_limit(plan): raise ModelBudgetExceeded('Se agotó el presupuesto de inferencias de esta misión')
+            if correction_mode:
+                with self.lock, self._source_publication(plan) as recheck, self.db:
+                    self.db.execute('BEGIN IMMEDIATE')
+                    current = self.db.execute('SELECT payload FROM learning_plans WHERE id=?', (key,)).fetchone()
+                    if not current or current[0] != original_payload:
+                        current_plan = json.loads(current[0]) if current else {}
+                        receipt = current_plan.get('correction_requests', {}).get(correction_id)
+                        if receipt and receipt['request_hash'] == request_hash:
+                            return self._correction_response(current_plan, correction_id, replayed=True)
+                        raise ValueError('La misión cambió antes de reservar la corrección')
+                    self._assert_memory(plan)
+                    error = self._context_error(plan, self._planning_context(plan['project_id'], plan.get('conversation_id')))
+                    if plan.get('context_invalidated') or error: raise NeedsInput(error or SOURCE_CONTEXT_INVALID)
+                    recheck()
+                    receipt = {'id': correction_id, 'operation_id': key, 'request_hash': request_hash, 'state': 'pending',
+                        'from_plan_hash': plan_hash, 'from_goal_revision': goal_revision}
+                    if origin_device_id is not None:
+                        from .mobile.trust_store import assert_device_scope
+                        try: assert_device_scope(self.db, origin_device_id, 'tools.control')
+                        except (ValueError, sqlite3.Error):
+                            raise CorrectionOriginRevoked('El dispositivo no tiene un permiso de control vigente.') from None
+                        receipt.update(origin_device_id=origin_device_id, origin_kind='host_reported_device')
+                    claimed = json.loads(original_payload)
+                    claimed.setdefault('correction_requests', {})[correction_id] = receipt
+                    claimed.update(current_correction_id=correction_id, state='planning', approved_hash=None, preparation_complete=False)
+                    encoded = json.dumps(claimed, ensure_ascii=False)
+                    changed = self.db.execute('UPDATE learning_plans SET payload=? WHERE id=? AND payload=?', (encoded, key, original_payload))
+                    if changed.rowcount != 1: raise ValueError('La misión cambió antes de reservar la corrección')
+                    recheck()
+                    plan.update(correction_requests=claimed['correction_requests'], current_correction_id=correction_id)
+                    self.correction_owners[id(plan)] = encoded
             prefix = [{'step': step, 'record': record} for step, record in zip(plan['steps'], plan['step_records'])
                       if record['state'] == 'succeeded']
             history = {'steps': plan['steps'], 'step_records': plan['step_records'], 'skill_versions': plan['skill_versions'],
@@ -2319,16 +2499,25 @@ class ActionLearning:
                 plan.update(goal_spec=new_goal,goal_revision=plan.get('goal_revision',1)+1)
             plan.update(preparation={'kind': 'repair', 'prefix': prefix, 'previous': history, 'correction': text},
                         planning_settings={'model': model, 'provider_name': provider_name, 'selection_mode': selection_mode},
-                        inputs=bounded_object(plan['inputs'] if inputs is None else inputs), state='planning', approved_hash=None,
-                        operational_context=self.context(plan['project_id']), context_dependencies=[])
-            plan.pop('context_invalidated', None)
+                        inputs=bounded_object(plan['inputs'] if inputs is None else inputs), state='planning', approved_hash=None)
+            if not correction_mode:
+                plan.update(operational_context=self.context(plan['project_id']), context_dependencies=[])
+                plan.pop('context_invalidated', None)
             self.pause_events.setdefault(key, threading.Event()).clear()
             plan['pause_requested'] = False
             plan.pop('model_data', None)
             self._save(plan)
-            return self._prepare_plan(plan)
+            if correction_mode and plan['state'] != 'planning':
+                return self._correction_response(plan, correction_id, replayed=False)
+            result = self._prepare_plan(plan)
+            return self._correction_response(result, correction_id, replayed=False) if correction_mode else result
+        except CorrectionClaimLost:
+            if not correction_mode: raise
+            current = self.get(key)
+            return self._correction_response(current, correction_id, replayed=False)
         finally:
-            self.gate.release()
+            if plan is not None: self.correction_owners.pop(id(plan), None)
+            if acquired: self.gate.release()
 
     def _prepare_repair(self, plan):
         if 'resource_binding_selectors' in plan:
@@ -2336,7 +2525,7 @@ class ActionLearning:
         preparation = plan['preparation']
         prefix = preparation['prefix']
         if 'model_data' not in plan:
-            self._capture_planning_context(plan)
+            if id(plan) not in self.correction_owners: self._capture_planning_context(plan)
             reference = {'context': plan['operational_context'], 'completed': prefix, 'previous_attempt': preparation['previous'],
                          'goal_spec':plan.get('goal_spec'),
                          'correction': preparation['correction'], 'inputs': plan['inputs']}
@@ -2356,6 +2545,13 @@ class ActionLearning:
         for index, item in enumerate(prefix): plan['step_records'][index] = item['record']
         plan['results'] = [item['record']['result'] for item in prefix]
         if any(step['command_id'] in ('axx.shell.cmd', 'axx.process.run') for step in plan['steps']):
+            plan['skill_versions'] = []
+            self._dependencies(plan)
+            plan['plan_hash'] = self._plan_hash(plan)
+            return
+        if id(plan) in self.correction_owners:
+            # Concrete corrections are learned only after their executor receipts verify.
+            self._assert_correction_context(plan)
             plan['skill_versions'] = []
             self._dependencies(plan)
             plan['plan_hash'] = self._plan_hash(plan)
@@ -2469,12 +2665,16 @@ class ActionLearning:
     def resume(self, key, approved=False, plan_hash=None, memory_scope=None, memory_context_id=None):
         snapshot = self.get(key)
         self._assert_request(snapshot, memory_scope, memory_context_id)
+        if snapshot.get('current_correction_id') and plan_hash != snapshot.get('plan_hash'):
+            raise ValueError('La corrección requiere el hash exacto de la revisión mostrada.')
         if approved is True and (snapshot.get('goal_progress_admissions') or snapshot.get('proposal_source') == 'goal_progress') and plan_hash != snapshot.get('plan_hash'):
             raise ValueError('La continuación requiere aprobar el hash exacto de la revisión mostrada.')
         if not self.gate.acquire(blocking=False): raise ValueError('Ya hay un plan ejecutándose')
         try:
             with self.lock:
                 plan = self.get(key)
+                if plan.get('current_correction_id') and plan_hash != plan.get('plan_hash'):
+                    raise ValueError('La revisión corregida cambió durante la continuación.')
                 if plan['state'] in ('cancelled', 'succeeded', 'needs_input', 'blocked'): return plan
                 self.pause_events.setdefault(key, threading.Event()).clear()
                 plan['pause_requested'] = False
@@ -2524,6 +2724,7 @@ class ActionLearning:
         results = []
         for plan in plans:
             if self.closed: break
+            if plan.get('current_correction_id') and not plan.get('preparation_complete', True): continue
             pending_planning = plan['state'] == 'waiting_capacity' or (plan['state']=='waiting_capability' and self._capacity_ready(plan)) or (plan['state'] == 'interrupted' and plan.get('preparation') and not plan.get('preparation_complete', True))
             if not pending_planning or plan.get('next_retry_at', 0) > time.time(): continue
             try: results.append(self.resume(plan['operation_id']))
@@ -2666,7 +2867,7 @@ class ActionLearning:
         if approved is not True: raise ApprovalRequired('Revisa y aprueba los pasos concretos del plan.')
         snapshot = self.get(key)
         self._assert_request(snapshot, memory_scope, memory_context_id)
-        if (plan_hash is not None or snapshot.get('goal_progress_admissions') or snapshot.get('resource_bindings') or snapshot.get('proposal_source') == 'goal_progress') and plan_hash != snapshot.get('plan_hash'):
+        if (plan_hash is not None or snapshot.get('current_correction_id') or snapshot.get('goal_progress_admissions') or snapshot.get('resource_bindings') or snapshot.get('proposal_source') == 'goal_progress') and plan_hash != snapshot.get('plan_hash'):
             raise ValueError('La aprobación no coincide con el hash exacto de la revisión mostrada.')
         if not self.gate.acquire(blocking=False): raise ValueError('Ya hay un plan ejecutándose.')
         try:
@@ -2674,7 +2875,7 @@ class ActionLearning:
                 plan = self.get(key)
                 self._assert_memory(plan)
                 if plan['state'] in TERMINAL: return plan
-                if (plan_hash is not None or plan.get('goal_progress_admissions') or plan.get('resource_bindings') or plan.get('proposal_source') == 'goal_progress') and plan_hash != plan.get('plan_hash'):
+                if (plan_hash is not None or plan.get('current_correction_id') or plan.get('goal_progress_admissions') or plan.get('resource_bindings') or plan.get('proposal_source') == 'goal_progress') and plan_hash != plan.get('plan_hash'):
                     raise ValueError('La revisión cambió durante la aprobación.')
                 if initiative_grant_id is None:
                     plan.pop('initiative_authorization', None)

@@ -80,6 +80,8 @@ def _retire_plans(learning, task_id, memory, chat):
                 message='El aprendizaje y el contexto de esta tarea ya no se reutilizan; sus recibos se conservan.')
             if plan.get('state') not in ('succeeded', 'failed', 'unknown', 'cancelled', 'expired', 'blocked'):
                 plan.update(state='cancelled', cancel_requested=True)
+            if plan.get('current_correction_id'):
+                learning._finish_correction_receipt(plan)
             if 'resource_bindings' in plan or 'resource_binding_selectors' in plan:
                 plan['inputs'] = {}
                 for step in plan.get('steps', []): step['inputs'] = {}

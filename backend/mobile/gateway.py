@@ -23,7 +23,7 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
-from backend.mobile.trust_store import MobileTrustStore, PairingError, CommandConflict
+from backend.mobile.trust_store import MobileTrustStore, PairingError, CommandConflict, assert_device_scope
 from backend.mobile.shared_state import SharedState
 from backend.connect.registry import validate_ui
 
@@ -277,6 +277,171 @@ class MobileGateway:
             raise ValueError(result.get('error', {}).get('message', 'No se pudo interpretar la orden'))
         return result
 
+    def _mission_access(self, device_id):
+        with self.store._connect() as db:
+            assert_device_scope(db, device_id, 'tools.control')
+        if not self.share_history:
+            raise ValueError('Activa Guardar historial en la PC para consultar sus misiones')
+
+    def _mission_context(self, device_id, conversation_id=None, *, task_id=None):
+        self._mission_access(device_id)
+        with self.shared.connect() as db:
+            if task_id is not None:
+                if not db.execute("SELECT 1 FROM sqlite_master WHERE name='chat_conversations'").fetchone():
+                    raise ValueError('La misión no corresponde a un chat compartido conocido')
+                row = db.execute('SELECT shared_id FROM chat_conversations WHERE id=?', (task_id,)).fetchone()
+                if not row or not row[0] or conversation_id is not None and conversation_id != row[0]:
+                    raise ValueError('La misión no corresponde al chat compartido original')
+                conversation_id = row[0]
+            if conversation_id is None:
+                conversation_id = db.execute('SELECT conversation_id FROM shared_active_conversation WHERE id=1').fetchone()[0]
+            if not isinstance(conversation_id, str) or not 1 <= len(conversation_id) <= 160:
+                raise ValueError('Selecciona el chat compartido original')
+            chat = self.shared._chat(db, conversation_id)
+            if not chat or task_id is not None and chat['id'] != task_id:
+                raise ValueError('La misión no corresponde a un chat compartido conocido')
+            task_id = chat['id']
+        try:
+            memory = self.shared.capture_scope(conversation_id)
+        except ValueError:
+            memory = {}
+        return {'conversation_id': conversation_id, 'task_id': task_id, **memory}
+
+    @staticmethod
+    def _mission_dto(plan, context, *, brief=False):
+        current = (not plan.get('memory_forgotten') and isinstance(plan.get('memory_scope'), dict)
+                   and plan.get('memory_scope') == context.get('memory_scope')
+                   and plan.get('memory_context_id') == context.get('memory_context_id')
+                   and plan.get('conversation_id') == context['task_id'])
+        reason = ''
+        if not current:
+            reason = 'El contexto original ya no está disponible; revisa la misión en la PC'
+        elif 'resource_binding_selectors' in plan or plan.get('revalidation'):
+            reason = 'Prepara una propuesta explícita nueva en la PC para cambiar estos recursos'
+        elif plan.get('workshop_validation') or any(str(ref.get('id', '')).startswith('workshop.cap.') for ref in plan.get('skill_versions', [])):
+            reason = 'Crea la revisión de esta capacidad en el taller de la PC'
+        elif plan.get('state') not in ('failed', 'awaiting_approval', 'needs_input', 'paused', 'goal_pending'):
+            reason = 'Resuelve primero el estado pendiente de la misión en la PC'
+        elif plan.get('model_calls_used', 0) >= plan.get('model_call_limit', 2):
+            reason = 'Se agotó el presupuesto de inferencias de esta misión'
+        elif not isinstance(plan.get('goal_spec'), dict) or not plan.get('plan_hash'):
+            reason = 'Revisa el contrato completo de la misión en la PC'
+        result = {key: plan.get(key) for key in ('operation_id', 'project_id', 'state', 'plan_hash')}
+        result.update(conversation_id=context['conversation_id'], goal_revision=plan.get('goal_revision', 1),
+                      can_correct=not bool(reason), correction_reason=reason, executor='pc')
+        if not current:
+            return result | {'memory_forgotten': True, 'mission': {'mission_id': plan.get('operation_id'), 'state': plan.get('state'), 'memory_forgotten': True}}
+        result['mission'] = plan.get('mission', {})
+        if not brief:
+            result.update({key: plan.get(key) for key in ('goal_spec', 'memory_scope', 'memory_context_id')})
+        return result
+
+    def _mission_plan(self, operation_id):
+        if not isinstance(operation_id, str) or not 1 <= len(operation_id) <= 160:
+            raise ValueError('Identificador de misión inválido')
+        result = self.backend_call('GET', '/axx-api/learning/plan?id=' + urllib.parse.quote(operation_id, safe=''), None)
+        if (not isinstance(result, dict) or result.get('ok') is False or result.get('operation_id') != operation_id
+                or not isinstance(result.get('conversation_id'), str) or not result['conversation_id']):
+            raise ValueError('La misión de la PC no está disponible')
+        return result
+
+    def work_missions(self, device_id, conversation_id=None):
+        context = self._mission_context(device_id, conversation_id)
+        result = self.backend_call('GET', '/axx-api/learning/plans?conversation_id=' + urllib.parse.quote(context['task_id'], safe=''), None)
+        if not isinstance(result, dict) or result.get('ok') is False or not isinstance(result.get('plans'), list):
+            raise ValueError('Las misiones de la PC no están disponibles')
+        context = self._mission_context(device_id, context['conversation_id'], task_id=context['task_id'])
+        return {'conversation_id': context['conversation_id'], 'executor': 'pc',
+                'missions': [self._mission_dto(plan, context, brief=True) for plan in result['plans']
+                             if isinstance(plan, dict) and plan.get('conversation_id') == context['task_id']]}
+
+    def work_mission(self, device_id, operation_id):
+        self._mission_access(device_id)
+        plan = self._mission_plan(operation_id)
+        context = self._mission_context(device_id, task_id=plan.get('conversation_id'))
+        return self._mission_dto(plan, context)
+
+    def work_mission_correct(self, device_id, body):
+        fields = {'command_id', 'operation_id', 'conversation_id', 'plan_hash', 'goal_revision', 'text',
+                  'goal_spec', 'memory_scope', 'memory_context_id'}
+        if (not isinstance(body, dict) or set(body) != fields or not isinstance(body['text'], str)
+                or not 1 <= len(body['text'].strip()) <= 4000 or not isinstance(body['goal_spec'], dict)
+                or not isinstance(body['command_id'], str) or not 1 <= len(body['command_id'].strip()) <= 128
+                or type(body['goal_revision']) is not int or not isinstance(body['plan_hash'], str)
+                or not isinstance(body['memory_scope'], dict) or not isinstance(body['memory_context_id'], str)):
+            raise ValueError('La corrección requiere el contrato y la revisión exactos de la misión')
+        self._mission_access(device_id)
+        payload = {'operation': 'mission-correction', **{key: value for key, value in body.items() if key != 'command_id'}}
+        existing = self.store.command(device_id, body['command_id'])
+        if existing:
+            self.store.admit_command(device_id, body['command_id'], payload)
+            return self.work_mission_correction(device_id, body['command_id'])
+        plan = self._mission_plan(body['operation_id'])
+        context = self._mission_context(device_id, body['conversation_id'], task_id=plan.get('conversation_id'))
+        detail = self._mission_dto(plan, context)
+        if not detail['can_correct']:
+            raise ValueError(detail['correction_reason'])
+        if any(body[key] != plan.get(key) for key in ('plan_hash', 'goal_revision', 'memory_scope', 'memory_context_id')):
+            raise ValueError('La misión cambió; consulta y revisa su contrato vigente antes de corregir')
+        correction_id = str(uuid.uuid5(uuid.NAMESPACE_URL, 'axx-mobile-mission:' + device_id + ':' + body['command_id']))
+        binding = {'kind': 'mission_correction', 'operation_id': body['operation_id'], 'correction_id': correction_id,
+                   'conversation_id': context['conversation_id'], 'from_plan_hash': body['plan_hash'],
+                   'from_goal_revision': body['goal_revision'], 'memory_scope': plan['memory_scope'],
+                   'memory_context_id': plan['memory_context_id']}
+        admitted = self.store.admit_command(device_id, body['command_id'], payload, task_id=correction_id, initial_result=binding)
+        if admitted['duplicate']:
+            return self.work_mission_correction(device_id, body['command_id'])
+        settings = plan.get('planning_settings') or self.preferences or {}
+        request = {key: body[key] for key in ('operation_id', 'plan_hash', 'goal_revision', 'text', 'goal_spec')}
+        request.update(correction_id=correction_id, origin_device_id=device_id, conversation_id=context['task_id'],
+                       memory_scope=plan['memory_scope'], memory_context_id=plan['memory_context_id'],
+                       **{key: settings.get(key, 'manual' if key == 'selection_mode' else '')
+                          for key in ('model', 'provider_name', 'selection_mode')})
+        try:
+            self._mission_access(device_id)
+            self.backend_call('POST', '/axx-api/learning/repair', request)
+        except Exception:
+            # An absent acknowledgement cannot authorize replay of the correction.
+            self.store.finish_command(correction_id, 'outcome_unknown', binding)
+        return self.work_mission_correction(device_id, body['command_id'])
+
+    def work_mission_correction(self, device_id, command_id):
+        self._mission_access(device_id)
+        command = self.store.command(device_id, command_id)
+        if not command:
+            return None
+        binding = command.get('result') or {}
+        if binding.get('kind') != 'mission_correction' or command['task_id'] != binding.get('correction_id'):
+            raise ValueError('Este ID no pertenece a una corrección de misión de este teléfono')
+        response = {key: binding[key] for key in ('operation_id', 'conversation_id', 'from_plan_hash', 'from_goal_revision')}
+        response.update(command_id=command_id, executor='pc', state='outcome_unknown')
+        try:
+            plan = self._mission_plan(binding['operation_id'])
+        except Exception:
+            self._mission_access(device_id)
+            return response
+        context = self._mission_context(device_id, binding['conversation_id'], task_id=plan.get('conversation_id'))
+        detail = self._mission_dto(plan, context)
+        if (detail.get('memory_forgotten') or binding['memory_scope'] != context.get('memory_scope')
+                or binding['memory_context_id'] != context.get('memory_context_id')):
+            return response | {'memory_forgotten': True}
+        receipt = (plan.get('correction_requests') or {}).get(binding['correction_id'])
+        if not receipt:
+            return response
+        if (not isinstance(receipt, dict) or receipt.get('id') != binding['correction_id']
+                or receipt.get('origin_device_id') != device_id or not receipt.get('request_hash')
+                or any(receipt.get(key) != binding[key] for key in ('from_plan_hash', 'from_goal_revision'))):
+            raise ValueError('El recibo no corresponde a la corrección original de este teléfono')
+        receipt = {key: receipt[key] for key in ('id', 'request_hash', 'state', 'from_plan_hash', 'from_goal_revision',
+                   'plan_hash', 'goal_revision', 'origin_device_id', 'origin_kind') if key in receipt}
+        state = ('pending' if receipt.get('state') == 'pending' else
+                 'confirmed' if receipt.get('state') == 'awaiting_approval' and receipt.get('plan_hash')
+                 and type(receipt.get('goal_revision')) is int
+                 and receipt['goal_revision'] == binding['from_goal_revision'] + 1 else 'rejected')
+        self.store.finish_command(command['task_id'], 'running' if state == 'pending' else 'completed' if state == 'confirmed' else 'failed',
+                                  binding | {'receipt': receipt})
+        return response | {'state': state, 'receipt': receipt, 'mission': detail}
+
     def pending_work(self):
         rows = self.store.pending_work_requests()
         pending = []
@@ -349,6 +514,8 @@ class MobileGateway:
 
     def command(self, device_id, command_id):
         command = self.store.command(device_id,command_id)
+        if command and isinstance(command.get('result'), dict) and command['result'].get('kind') == 'mission_correction':
+            return self.work_mission_correction(device_id, command_id)
         if not command or not isinstance(command.get('result'),dict) or not command['result'].get('choices'):
             return command
         with self.shared.connect() as db:
@@ -608,6 +775,18 @@ class MobileGateway:
                             if self._authorize('tools.control'):
                                 self._send(200, {'ok': True, 'data': gateway.work_catalog()})
                             return
+                        if path in ('/v1/work/missions', '/v1/work/mission', '/v1/work/mission-correction'):
+                            if not self._authorize('tools.control'): return
+                            query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query, keep_blank_values=True)
+                            key = 'conversation_id' if path.endswith('/missions') else 'command_id' if path.endswith('/mission-correction') else 'operation_id'
+                            if (set(query) != {key} and not (path.endswith('/missions') and not query)
+                                    or any(len(values) != 1 or not values[0] for values in query.values())):
+                                raise ValueError(key + ' required')
+                            value = query.get(key, [None])[0]
+                            result = (gateway.work_missions(self.device_id, value) if path.endswith('/missions') else
+                                      gateway.work_mission_correction(self.device_id, value) if path.endswith('/mission-correction') else
+                                      gateway.work_mission(self.device_id, value))
+                            self._send(200 if result else 404, {'ok': bool(result), 'data': result}); return
                         if path == '/v1/appearance':
                             if self._authorize('query'):
                                 self._send(200, {'ok':True,'data':{'appearance':gateway.appearance}})
@@ -618,7 +797,8 @@ class MobileGateway:
                                 snapshot = gateway.shared.snapshot() if gateway.share_history else {'conversation_id':'main','cursor':0,'messages':[]}
                                 self._send(200, {'ok':True, 'data':{**snapshot, 'appearance':gateway.appearance,
                                     'pc_name':gateway.pc_name, 'scopes':device['scopes'], 'inference':gateway.preferences,
-                                    'capabilities':{'avatar_customization':True}}})
+                                    'capabilities':{'avatar_customization':True,
+                                                    **({'mission_continuity':True} if gateway.share_history else {})}}})
                             return
                         if path not in routes:
                             self._send(404, {"ok": False, "error": {"code": "NOT_FOUND", "message": "Unknown route"}})
@@ -630,6 +810,8 @@ class MobileGateway:
                         if path == "/v1/catalog":
                             data = {"tools": data.get("tools", [])} if isinstance(data, dict) else {"tools": []}
                         self._send(200, {"ok": True, "data": data})
+                    except PairingError:
+                        self._send(403, {'ok': False, 'error': {'code': 'SCOPE_DENIED', 'message': 'This device is no longer authorized.'}})
                     except (ValueError, TypeError) as exc:
                         self._send(400, {'ok': False, 'error': {'code': 'INVALID_REQUEST', 'message': str(exc)}})
                     except Exception:
@@ -676,6 +858,11 @@ class MobileGateway:
                         if path == '/v1/work/resolve':
                             if not self._authorize('tools.control'):return
                             self._send(200, {'ok':True,'data':gateway.work_resolve(body)});return
+                        if path == '/v1/work/mission-correct':
+                            if not self._authorize('tools.control'):return
+                            if urllib.parse.urlsplit(self.path).query:
+                                raise ValueError('La corrección no admite parámetros en la URL')
+                            self._send(200, {'ok':True,'data':gateway.work_mission_correct(self.device_id,body)});return
                         if path == "/v1/pair/claim":
                             if gateway.httpd is not self.server:
                                 raise PairingError('Mobile access is off')

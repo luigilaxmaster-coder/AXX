@@ -115,7 +115,7 @@
       try{const tasks=await request('/v1/tasks');renderRows('tasks',tasks.operations||[],'Todavía no hay operaciones registradas.','task');}
       catch(e){$('tasks').textContent='No se pudo cargar la actividad: '+errorText(e);}
       connection(true, 'Conectado');
-      window.dispatchEvent(new CustomEvent('axxSnapshot',{detail:{appearance:snapshot.appearance,scopes:snapshot.scopes,capabilities:snapshot.capabilities,device_id:currentDevice}}));
+      window.dispatchEvent(new CustomEvent('axxSnapshot',{detail:{appearance:snapshot.appearance,scopes:snapshot.scopes,capabilities:snapshot.capabilities,device_id:currentDevice,fingerprint:currentFingerprint,conversation_id:snapshot.conversation_id}}));
       if(pendingWork)await checkWork(false);
       if(!$('pane-work').hidden && Date.now()-lastCatalogAt>10000)await refreshWorkCatalog();
       if (linking) {
@@ -313,7 +313,7 @@
   };
   $('forget').onclick=async()=>{try{
     if(!window.confirm('¿Olvidar esta PC? Las operaciones ya enviadas pueden seguir en la PC. Revisa su actividad antes de repetirlas.'))return;
-    await transport.forget();paired=false;conversationId=null;currentDevice='';pending=null;setPendingWork(null);
+    await transport.forget();paired=false;conversationId=null;currentDevice='';currentFingerprint='';pending=null;setPendingWork(null);
     for(const key of ['pending','appearance','draft','device'])localStorage.removeItem('axx.mobile.'+key);
     $('draft').value='';$('messages').replaceChildren();messageKey='';workCatalog=[];catalogKey='';filterCommands();
     connection(false,'PC olvidada. Puedes revocar este teléfono en la PC.');$('identity').textContent='Sin PC enlazada';$('pc-name').textContent='Enlazar PC';renderScopes([]);
@@ -328,7 +328,7 @@
     transport.textSize().then(value=>{textSize.value=value.mode;textSize.dataset.confirmed=value.mode;}).catch(e=>notice('No se pudo consultar el tamaño de texto: '+errorText(e)));
     textSize.onchange=async()=>{textSize.disabled=true;try{const value=await transport.textSize({mode:textSize.value});textSize.value=value.mode;textSize.dataset.confirmed=value.mode;avatar?.resize();}catch(e){textSize.value=textSize.dataset.confirmed||'standard';notice('No se pudo cambiar el texto: '+errorText(e));}finally{textSize.disabled=false;}};
   }
-  let currentDevice=localStorage.getItem('axx.mobile.device')||'';
+  let currentDevice=localStorage.getItem('axx.mobile.device')||'',currentFingerprint='';
   function renderScopes(scopes){
     $('scopes').replaceChildren(...[['query','Conversación y estado'],['tools.control','Comandos y herramientas'],['input.control','Ratón, teclado y gestos'],['voice','Micrófono remoto']].map(([scope,label])=>{
       const row=document.createElement('div');row.className='permission-row';row.dataset.granted=String(scopes.includes(scope));
@@ -337,7 +337,7 @@
   }
   async function profile(){
     const info=await transport.profile(); paired=info.paired;
-    if(paired){currentDevice=info.device_id||currentDevice;if(currentDevice)localStorage.setItem('axx.mobile.device',currentDevice);$('pc-name').textContent=new URL(info.endpoint).hostname; $('identity').textContent=info.endpoint+' · Identidad SHA-256: '+info.fingerprint;renderScopes(info.scopes||[]);}
+    if(paired){currentDevice=info.device_id||currentDevice;currentFingerprint=info.fingerprint||'';if(currentDevice)localStorage.setItem('axx.mobile.device',currentDevice);$('pc-name').textContent=new URL(info.endpoint).hostname; $('identity').textContent=info.endpoint+' · Identidad SHA-256: '+info.fingerprint;renderScopes(info.scopes||[]);}
     return info;
   }
   let appearanceKey='';

@@ -12,6 +12,7 @@ await copyFile(new URL('js/remote-voice.js', import.meta.url), new URL('www/js/r
 await copyFile(new URL('js/remote-control.js', import.meta.url), new URL('www/js/remote-control.js', import.meta.url));
 await copyFile(new URL('js/transfer.js', import.meta.url), new URL('www/js/transfer.js', import.meta.url));
 await copyFile(new URL('js/file-dictation.js', import.meta.url), new URL('www/js/file-dictation.js', import.meta.url));
+await copyFile(new URL('js/mission-continuity.js', import.meta.url), new URL('www/js/mission-continuity.js', import.meta.url));
 // Use the exact desktop geometry/material code; no independently maintained mobile avatar.
 const desktop = await readFile(new URL('../1.AXX/Axx.html', import.meta.url), 'utf8');
 const start = desktop.indexOf('<script>"use strict";');
