@@ -12,6 +12,10 @@ Los checkpoints de limpieza son durables. El mismo ID reanuda un olvido interrum
 
 Una exclusión por tarea entre procesos impide dos limpiezas simultáneas. Se distingue la procedencia durable de un conocimiento del token capturado por una petición: rotar B para retirar contexto de A no elimina conocimiento independiente de B. El historial A0 ya archivado tampoco invalida trabajo nuevo e independiente de A1.
 
+`chat_context_ids` conserva la atribución original de cada ID opaco al crear o rotar una conversación, incluso tras borrar o purgar su historial. Connect consulta esa atribución antes de admitir o reanudar un hilo; un ID antiguo no se convierte en otra tarea legacy. La migración recupera tokens explícitos de ejecuciones con procedencia conocida. No puede reconstruir IDs históricos ya purgados y sin esa evidencia.
+
+Las reparaciones, las versiones configuradas y los comandos recordados conservan las dependencias de su fuente. Una habilidad heredada con operación conocida expone las referencias originales sin reescribir su fila ni actualizar su generación. Al cambiar sólo metadatos de una habilidad, la transferencia interna de evidencia lee los recibos almacenados bajo la petición nueva; no permite publicar una respuesta tardía con el token anterior.
+
 ## Qué alcanza y qué conserva
 
 | Repositorio | Tratamiento |

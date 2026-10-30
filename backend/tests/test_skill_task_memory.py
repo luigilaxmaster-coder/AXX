@@ -8,6 +8,7 @@ import threading
 import time
 import unittest
 
+from backend.action_learning import ActionLearning
 from backend.actions.executor import ActionExecutor
 from backend.commands import CommandService
 from backend.memory import selection_policy, task_memory
@@ -200,6 +201,61 @@ class SkillTaskMemoryTests(unittest.TestCase):
         with self.assertRaises(ValueError): assert_lessons_current(self.db, refs, 'p', 'task-a')
         self.memory.forget_lesson(lesson['id'])
         with self.assertRaises(ValueError): assert_lessons_current(self.db, refs, 'p', 'task-a')
+
+    def _configure_with_durable_evidence_after_context_rotation(self, source):
+        with self.db:
+            self.db.execute('CREATE TABLE chat_conversations(id TEXT PRIMARY KEY,connect_id TEXT,memory_context_required INTEGER)')
+            self.db.executemany('INSERT INTO chat_conversations VALUES (?,?,0)',
+                                [(task, 'before-' + task) for task in ('task-a', 'task-b')])
+        learning = ActionLearning(self.commands, None)
+        self.commands.learning = learning
+        try:
+            scope = task_memory.snapshot(self.db, source)
+            metadata = {'memory_scope': scope, 'memory_context_id': 'before-' + source}
+            plan = learning.prepare_steps('Guardar evidencia local', [{'command_id': 'axx.artifact.write',
+                'inputs': {'path': 'durable-evidence.txt', 'content': 'isolated fixture'}}],
+                conversation_id=source, **metadata)
+            done = learning.execute(plan['operation_id'], approved=True, plan_hash=plan['plan_hash'], **metadata)
+            self.assertEqual(done['state'], 'succeeded', done)
+            key = done['learned_action_id']
+            source_row = self.db.execute('SELECT payload FROM skill_versions WHERE id=?', (key,)).fetchone()[0]
+            operation, raw = self.db.execute('SELECT operation_id,payload FROM skill_evidence WHERE id=?', (key,)).fetchone()
+            evidence = json.loads(raw)
+            journal = {table: self.commands.db.execute('SELECT * FROM ' + table + ' ORDER BY rowid').fetchall()
+                       for table in ('command_runs', 'operations', 'artifact_compensations')}
+            with self.db:
+                self.db.execute("UPDATE chat_conversations SET connect_id='after-'||id,memory_context_required=1")
+            self.assertTrue(learning.skills.get(key)['effect_verified'])
+            with self.assertRaises(ValueError):
+                learning.configure(key, {'title': 'Old request'}, memory_scope=self.b, memory_context_id='before-task-b')
+            with self.assertRaises(ValueError):
+                learning.skills.record(key, 1, 'late-' + operation, evidence)
+            configured = learning.configure(key, {'version': 1, 'title': 'Reviewed in B'},
+                memory_scope=self.b, memory_context_id='after-task-b')
+            self.assertEqual(configured['memory_scope'], self.b)
+            self.assertTrue(configured['effect_verified'])
+            self.assertEqual(configured['memory_dependencies'], [self.a] if source == 'task-a' else [])
+            inherited = json.loads(self.db.execute('SELECT payload FROM skill_evidence WHERE id=? AND version=2', (key,)).fetchone()[0])
+            for field in ('origin_task_id', 'memory_scope', 'memory_context_id', 'memory_dependencies'):
+                self.assertEqual(inherited[field], evidence[field], field)
+            self.assertEqual(inherited['inherited_from_version'], 1)
+            self.assertEqual(self.db.execute('SELECT payload FROM skill_versions WHERE id=? AND version=1', (key,)).fetchone()[0], source_row)
+            self.assertEqual(self.db.execute('SELECT payload FROM skill_evidence WHERE id=? AND version=1', (key,)).fetchone()[0], raw)
+            self.pending()
+            if source == 'task-a':
+                with self.assertRaises(ValueError): learning.skills.get(key, 2)
+            else:
+                self.assertTrue(learning.skills.get(key, 2)['effect_verified'])
+            self.assertEqual({table: self.commands.db.execute('SELECT * FROM ' + table + ' ORDER BY rowid').fetchall()
+                              for table in journal}, journal)
+        finally:
+            learning.close()
+
+    def test_independent_b_fresh_configuration_preserves_durable_evidence_after_context_rotation(self):
+        self._configure_with_durable_evidence_after_context_rotation('task-b')
+
+    def test_a_evidence_configured_in_b_preserves_original_scope_and_forget_dependency(self):
+        self._configure_with_durable_evidence_after_context_rotation('task-a')
 
 
 if __name__ == '__main__':

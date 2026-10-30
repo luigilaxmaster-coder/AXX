@@ -304,7 +304,10 @@ class ActionLearning:
             task_memory.assert_context(db, plan.get('memory_scope'), plan.get('memory_context_id'), task_id=plan.get('conversation_id'))
             task_memory.assert_dependencies(db, plan.get('memory_dependencies', []))
             assert_lessons_current(db, plan.get('lesson_dependencies', []), plan.get('project_id', ''), plan.get('conversation_id'))
-            for ref in plan.get('skill_versions', []) + plan.get('preparation', {}).get('candidates', []):
+            preparation = plan.get('preparation', {})
+            references = plan.get('skill_versions', []) + preparation.get('candidates', [])
+            if preparation.get('kind') == 'repair': references += preparation.get('previous', {}).get('skill_versions', [])
+            for ref in references:
                 rule = selection_policy.read(db, ref['id'])
                 if rule['revision'] != ref.get('policy_revision', 0):
                     raise SelectionChanged('Cambió la selección del procedimiento; prepara una revisión nueva.')
@@ -941,9 +944,11 @@ class ActionLearning:
                 'environment':get_action_env_fingerprint([command_id]),'executable':True,'created_at':time.time(),
                 'origin_task_id':result.get('conversation_id'), 'memory_scope':result.get('memory_scope'),
                 'memory_context_id':result.get('memory_context_id'),
+                'memory_dependencies':result.get('memory_dependencies', []),
                 'provenance':{'source':'verified_command','operation_id':operation_id}})
             self.skills.record(key,1,operation_id,{'effect_verified':True,'verified_at':time.time(),'results':[result],
-                'memory_scope':result.get('memory_scope'), 'memory_context_id':result.get('memory_context_id')})
+                'memory_scope':result.get('memory_scope'), 'memory_context_id':result.get('memory_context_id'),
+                'memory_dependencies':result.get('memory_dependencies', [])})
             return self.skills.get(key)
 
     def configure(self, action_id, body, *, memory_scope=None, memory_context_id=None):
@@ -1046,9 +1051,8 @@ class ActionLearning:
                          provenance={'source': 'user_configuration', 'parent_version': original['version'], 'correction': correction})
             self.skills.insert(skill)
             if original['effect_verified'] and original['environment_matches'] and not set(body).intersection({'schema', 'templates', 'steps', 'checks', 'inference', 'project_id', 'correction', 'objective', 'intent', 'context_dependencies'}):
-                receipts = self.db.execute('SELECT operation_id,payload FROM skill_evidence WHERE id=? AND version=?', (action_id, original['version'])).fetchall()
-                for operation_id, raw in receipts:
-                    self.skills.record(action_id, skill['version'], operation_id, json.loads(raw) | {'inherited_from_version': original['version']})
+                self.skills._inherit_evidence(action_id, skill['version'], original['version'],
+                    memory_scope=memory_scope, memory_context_id=memory_context_id)
             return self.skills.get(action_id)
 
     def _validate_steps(self, steps, allow_shell=False):
@@ -2132,6 +2136,7 @@ class ActionLearning:
         action_id = refs[0]['id'] if len(refs) == 1 else 'learned.' + hashlib.sha256(plan['operation_id'].encode()).hexdigest()
         try: previous = self.skills.get(action_id)
         except ValueError: previous = None
+        if previous: self._inherit_memory(plan, previous)
         version = previous['version'] + 1 if previous else 1
         skill = {'id': action_id, 'version': version, 'trigger': previous['trigger'] if previous else plan['request'], 'title': data['title'],
                  'templates': plan['steps'], 'schema': validate_schema({}), 'examples': previous['examples'] if previous else [plan['request']],
@@ -2139,11 +2144,17 @@ class ActionLearning:
                  'checks': ['executor_postconditions'], 'executable': True, 'created_at': time.time(),
                  'environment': get_action_env_fingerprint(step['command_id'] for step in plan['steps']),
                  'context_dependencies': plan.get('context_dependencies', []),
+                 'origin_task_id':plan.get('conversation_id'), 'memory_scope':plan.get('memory_scope'),
+                 'memory_context_id':plan.get('memory_context_id'), 'memory_dependencies':plan.get('memory_dependencies', []),
                  'provenance': {'source': 'repair', 'operation_id': plan['operation_id'], 'parent_version': previous['version'] if previous else None,
                                 'previous_plan_hash': preparation['previous']['plan_hash'], 'correction': preparation['correction'], 'route': plan.get('route', {})}}
         if not plan.get('observation_dependencies'):
             self.skills.insert(skill)
             plan['skill_versions'] = [{'id': action_id, 'version': version, 'inputs': {}, 'step_start': 0, 'step_count': len(plan['steps'])}]
+            rule = selection_policy.read(self.db, action_id)
+            manual = any(ref.get('manual_override') for ref in refs if ref['id'] == action_id)
+            if rule['revision'] or manual:
+                plan['skill_versions'][0].update(policy_revision=rule['revision'], manual_override=manual)
         else:
             plan['skill_versions'] = []  # Review the concrete repaired suffix; do not retain an echo as a reusable skill.
         self._dependencies(plan)

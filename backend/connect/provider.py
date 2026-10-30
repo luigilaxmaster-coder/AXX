@@ -299,11 +299,19 @@ class CodexProvider:
         reference = run.get('memory_scope')
         task_id = reference.get('task_id') if isinstance(reference, dict) else run.get('memory_task_id', run.get('conversation_id'))
         try:
+            context_id = run.get('memory_context_id')
+            if self.db.execute("SELECT 1 FROM sqlite_master WHERE name='chat_context_ids'").fetchone():
+                historical = self.db.execute('SELECT task_id,generation FROM chat_context_ids WHERE context_id=?',
+                    (context_id or run.get('conversation_id'),)).fetchone()
+                if historical:
+                    if reference is not None and (task_id != historical['task_id'] or reference.get('generation') != historical['generation']):
+                        raise ValueError('El contexto opaco pertenece a otro origen de memoria')
+                    task_id, context_id = historical['task_id'], context_id or run.get('conversation_id')
             if reference is None and self.db.execute("SELECT 1 FROM sqlite_master WHERE name='chat_forget_results'").fetchone():
                 retired = self.db.execute("SELECT 1 FROM chat_forget_results, json_each(chat_forget_results.payload,'$.old_connect_ids') WHERE value=? LIMIT 1", (run.get('memory_context_id') or run.get('conversation_id'),)).fetchone()
                 if retired:
                     raise ValueError('El contexto anterior de esta conversación fue olvidado')
-            current = task_memory.assert_context(self.db, reference, run.get('memory_context_id'), task_id=task_id)
+            current = task_memory.assert_context(self.db, reference, context_id, task_id=task_id)
             task_memory.assert_dependencies(self.db,run.get('memory_dependencies',[]))
             return current
         except ValueError as exc:
@@ -329,9 +337,14 @@ class CodexProvider:
                 owner = rows[0]['id']
                 if conversation_id == rows[0]['connect_id']:
                     context_id = context_id or conversation_id
-        binding = {'memory_scope':reference, 'memory_context_id':context_id, 'memory_task_id':owner,
+            elif self.db.execute("SELECT 1 FROM sqlite_master WHERE name='chat_context_ids'").fetchone():
+                historical = self.db.execute('SELECT task_id FROM chat_context_ids WHERE context_id=?', (conversation_id,)).fetchone()
+                if historical:
+                    owner, context_id = historical['task_id'], conversation_id
+        binding = {'conversation_id':conversation_id, 'memory_scope':reference, 'memory_context_id':context_id, 'memory_task_id':owner,
                    'memory_dependencies':dependencies}
         if not previous:
+            self._assert_memory(binding)
             try:
                 binding['memory_scope'],binding['memory_context_id'] = task_memory.capture_context(self.db,reference,context_id,task_id=owner)
             except ValueError as exc:

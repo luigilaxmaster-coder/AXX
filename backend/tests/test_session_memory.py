@@ -364,6 +364,79 @@ class SessionMemoryTests(unittest.TestCase):
         self.assertEqual(self.chats.get(self.b)['messages'], [])
         self.assertNotIn('CANARY_RULE_A', json.dumps(self.learning._prompt('Preparar otra salida', {}, '', self.b)))
 
+    def test_repaired_skill_preserves_the_inherited_source_of_the_original(self):
+        source=self.skill('repair-source-A','Source procedure',task=self.a)
+        self.change('No uses más ese procedimiento.',source)
+        b=self.chats.get(self.b)
+        plan=self.learning.propose(source['id'],inputs={'path':'before-repair.txt'},conversation_id=self.b,
+            memory_scope=b['memory_scope'],memory_context_id=b['context_id'])
+        self.assertEqual(plan['state'],'awaiting_approval',plan)
+        self.model.route=lambda request:{'ok':True,'message':{'content':json.dumps({'title':'Corrected procedure','steps':[
+            {'command_id':'axx.artifact.write','inputs':{'path':'after-repair.txt','content':'REPAIR_FROM_A'}}]})},
+            'route':{'upstream_attempts':1,'attempt_budget_used':1}}
+        repaired=self.learning.repair(plan['operation_id'],'Usa otro archivo nuevo',memory_scope=b['memory_scope'],memory_context_id=b['context_id'])
+        self.assertEqual(repaired['state'],'awaiting_approval',repaired)
+        skill=self.learning.skills.get(repaired['skill_versions'][0]['id'],repaired['skill_versions'][0]['version'])
+        self.assertEqual(skill['memory_scope'],b['memory_scope'])
+        self.assertIn(self.a,[ref['task_id'] for ref in skill['memory_dependencies']])
+        self.assertTrue(repaired['skill_versions'][0]['manual_override'])
+        self.assertEqual(repaired['skill_versions'][0]['policy_revision'],1)
+        journal=self.journal();self.forget()
+        self.assertEqual(self.journal(),journal)
+        with self.assertRaises(ValueError):self.learning.skills.get(skill['id'],skill['version'])
+        self.assertFalse((self.executor.workspace_root/'after-repair.txt').exists())
+
+    def test_known_legacy_parent_is_resolved_without_rebasing_or_rewriting_the_row(self):
+        done=self.completed(self.a,'LegacySource','pa');key=done['learned_action_id']
+        with self.learning.db:
+            raw=json.loads(self.learning.db.execute('SELECT payload FROM skill_versions WHERE id=?',(key,)).fetchone()[0])
+            for field in ('origin_task_id','memory_scope','memory_context_id','memory_dependencies'):raw.pop(field,None)
+            serialized=json.dumps(raw,ensure_ascii=False)
+            self.learning.db.execute('UPDATE skill_versions SET payload=? WHERE id=?',(serialized,key))
+        resolved=self.learning.skills.get(key)
+        self.assertEqual(resolved['memory_scope'],self.scope(self.a))
+        self.assertEqual(self.learning.db.execute('SELECT payload FROM skill_versions WHERE id=?',(key,)).fetchone()[0],serialized)
+        b=self.chats.get(self.b)
+        configured=self.learning.configure(key,{'version':1,'title':'Corrección humana B'},
+            memory_scope=b['memory_scope'],memory_context_id=b['context_id'])
+        self.assertIn(self.a,[ref['task_id'] for ref in configured['memory_dependencies']])
+        journal=self.journal();self.forget()
+        self.assertEqual(self.journal(),journal)
+        for version in (1,2):
+            with self.assertRaises(ValueError):self.learning.skills.get(key,version)
+
+    def test_known_legacy_parent_keeps_transitive_dependencies_without_rewriting_source(self):
+        self.skill('legacy-source.A','CANARY_LEGACY_A',task=self.a)
+        independent=self.skill('independent-legacy.B','Independent B',task=self.b)
+        self.model.route=lambda request:{'ok':True,'message':{'content':json.dumps({'title':'Derived legacy B','steps':[
+            {'command_id':'axx.artifact.write','inputs':{'path':'legacy-derived-B.txt','content':'CANARY_LEGACY_A'}}]})},
+            'route':{'upstream_attempts':1,'attempt_budget_used':1}}
+        chat=self.chats.get(self.b)
+        plan=self.learning.propose('Transforma CANARY_LEGACY_A',conversation_id=self.b,
+            memory_scope=chat['memory_scope'],memory_context_id=chat['context_id'])
+        self.assertIn(self.a,[ref['task_id'] for ref in plan['memory_dependencies']])
+        done=self.learning.execute(plan['operation_id'],approved=True,plan_hash=plan['plan_hash'])
+        self.assertEqual(done['state'],'succeeded',done)
+        key=done['learned_action_id']
+        with self.learning.db:
+            raw=json.loads(self.learning.db.execute('SELECT payload FROM skill_versions WHERE id=?',(key,)).fetchone()[0])
+            for field in ('origin_task_id','memory_scope','memory_context_id','memory_dependencies'):raw.pop(field,None)
+            serialized=json.dumps(raw,ensure_ascii=False)
+            self.learning.db.execute('UPDATE skill_versions SET payload=? WHERE id=?',(serialized,key))
+        resolved=self.learning.skills.get(key)
+        self.assertEqual(resolved['memory_scope'],chat['memory_scope'])
+        self.assertIn(self.a,[ref['task_id'] for ref in resolved['memory_dependencies']])
+        self.assertEqual(self.learning.db.execute('SELECT payload FROM skill_versions WHERE id=?',(key,)).fetchone()[0],serialized)
+        revised=self.learning.configure(key,{'version':1,'title':'Reviewed legacy B'},
+            memory_scope=chat['memory_scope'],memory_context_id=chat['context_id'])
+        self.assertIn(self.a,[ref['task_id'] for ref in revised['memory_dependencies']])
+        journal=self.journal();self.forget()
+        self.assertEqual(self.journal(),journal)
+        for version in (1,2):
+            with self.assertRaises(ValueError):self.learning.skills.get(key,version)
+        self.assertEqual(self.learning.skills.get(independent['id'])['title'],'Independent B')
+        self.assertEqual((self.executor.workspace_root/'legacy-derived-B.txt').read_text(),'CANARY_LEGACY_A')
+
     def test_archived_derivatives_do_not_invalidate_an_independent_new_generation(self):
         def save(task, key, role, text):
             chat = self.chats.get(task)

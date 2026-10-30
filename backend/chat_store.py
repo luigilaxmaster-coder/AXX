@@ -41,6 +41,35 @@ class ChatStore:
                 CREATE TABLE IF NOT EXISTS chat_forget_results(task_id TEXT NOT NULL, generation INTEGER NOT NULL, payload TEXT NOT NULL, PRIMARY KEY(task_id,generation));
             ''')
             task_memory.ensure(db)
+            db.executescript('''
+                CREATE TABLE IF NOT EXISTS chat_context_ids(context_id TEXT PRIMARY KEY, task_id TEXT NOT NULL, generation INTEGER NOT NULL);
+                CREATE TRIGGER IF NOT EXISTS chat_context_ids_insert AFTER INSERT ON chat_conversations BEGIN
+                    INSERT OR IGNORE INTO chat_context_ids VALUES(NEW.connect_id,NEW.id,
+                        COALESCE((SELECT generation FROM memory_task_scopes WHERE task_id=NEW.id),0));
+                END;
+                CREATE TRIGGER IF NOT EXISTS chat_context_ids_update AFTER UPDATE OF connect_id ON chat_conversations
+                WHEN NEW.connect_id IS NOT OLD.connect_id BEGIN
+                    INSERT OR IGNORE INTO chat_context_ids VALUES(NEW.connect_id,NEW.id,
+                        COALESCE((SELECT generation FROM memory_task_scopes WHERE task_id=NEW.id),0));
+                END;
+            ''')
+            if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='connect_runs'").fetchone():
+                for row in db.execute('SELECT body_json FROM connect_runs ORDER BY created_at,request_id'):
+                    try:
+                        run = json.loads(row[0])
+                        scope = run.get('memory_scope') if isinstance(run,dict) else None
+                        if (not isinstance(scope,dict) or set(scope) != {'task_id','generation'}
+                                or type(scope.get('generation')) is not int or scope['generation'] < 0):
+                            continue
+                        owner = ident(scope.get('task_id'))
+                        context = ident(run.get('memory_context_id'))
+                    except (TypeError,ValueError):
+                        continue
+                    db.execute('INSERT OR IGNORE INTO chat_context_ids VALUES(?,?,?)', (context,owner,scope['generation']))
+            # Historical scopes win over the current generation during migration.
+            db.execute('''INSERT OR IGNORE INTO chat_context_ids
+                SELECT c.connect_id,c.id,COALESCE(s.generation,0) FROM chat_conversations c
+                LEFT JOIN memory_task_scopes s ON s.task_id=c.id''')
             additions = {'chat_conversations': {'memory_context_required': 'INTEGER NOT NULL DEFAULT 0'},
                          'chat_messages': {'memory_generation': 'INTEGER NOT NULL DEFAULT 0',
                                            'memory_dependencies': "TEXT NOT NULL DEFAULT '[]'", 'invalidated': 'INTEGER NOT NULL DEFAULT 0',

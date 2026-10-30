@@ -4,7 +4,7 @@ import time
 import unittest
 from pathlib import Path
 
-from backend.chat_store import ChatStore
+from backend.chat_store import ChatStore, TTL
 from backend.actions.executor import ActionExecutor
 from backend.commands import CommandService
 from backend.memory import task_memory
@@ -38,6 +38,89 @@ class ChatForgettingTests(unittest.TestCase):
         with self.store.db() as db:
             db.execute('BEGIN IMMEDIATE')
             task_memory.finish_forget(db, ref, result)
+
+    def test_context_ids_capture_rotations_and_survive_forget_delete_and_purge(self):
+        a = self.chat(connect_id='original-context')
+        contexts = [self.store.get(a)['context_id']]
+        group = self.store.mutate('group', {'title': 'Work'})['id']
+        for action, body in (
+            ('update', {'id': a, 'group_id': group}),
+            ('profile', {'name': 'Axx'}),
+            ('context', {'group_id': group, 'source_task_id': a, 'text': 'PRIVATE_NOTE'}),
+            ('group_delete', {'id': group}),
+        ):
+            self.store.mutate(action, body)
+            contexts.append(self.store.get(a)['context_id'])
+        with self.store.db() as db:
+            db.execute('UPDATE chat_conversations SET connect_id=? WHERE id=?', ('external-rotation', a))
+        contexts.append('external-rotation')
+        self.assertEqual(len(contexts), len(set(contexts)))
+        ref = self.begin(a)
+        result = self.store.forget_task(a, ref)
+        self.finish(ref, result)
+        fresh = self.store.get(a)['context_id']
+        with self.store.db() as db:
+            rows = {row[0]: (row[1], row[2]) for row in db.execute('SELECT * FROM chat_context_ids')}
+            self.assertEqual(rows, {context: (a, 0) for context in contexts} | {fresh: (a, 1)})
+            for context in contexts:
+                with self.subTest(context=context), self.assertRaises(ValueError):
+                    task_memory.assert_context(db, {'task_id': rows[context][0], 'generation': rows[context][1]}, context)
+            self.assertNotIn('PRIVATE_NOTE', json.dumps(rows))
+        self.store.mutate('delete', {'id': a})
+        b = self.chat(connect_id=contexts[0])
+        self.now += TTL + 1
+        self.store.purge()
+        self.store.close()
+        self.store = ChatStore(self.path, lambda: self.now)
+        with self.store.db() as db:
+            self.assertEqual({row[0]: (row[1], row[2]) for row in db.execute('SELECT * FROM chat_context_ids')}, rows)
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM chat_conversations WHERE id IN (?,?)', (a,b)).fetchone()[0], 0)
+
+    def test_context_id_migration_keeps_original_scoped_runs_and_existing_attribution(self):
+        a, b = self.chat(), self.chat()
+        original = self.store.get(a)['context_id']
+        ref = self.begin(a)
+        self.store.close()
+        scoped = {'memory_scope': {'task_id': a, 'generation': 0}, 'memory_context_id': original,
+                  'conversation_id': original, 'response': 'PRIVATE_RUN_TEXT'}
+        with self.store.db() as db:
+            db.execute('DROP TRIGGER chat_context_ids_insert')
+            db.execute('DROP TRIGGER chat_context_ids_update')
+            db.execute('DELETE FROM chat_context_ids')
+            db.execute('INSERT INTO chat_context_ids VALUES(?,?,?)', ('already-owned', b, 0))
+            db.execute('CREATE TABLE connect_runs(request_id TEXT PRIMARY KEY,fingerprint TEXT,conversation_id TEXT,body_json TEXT,created_at REAL,updated_at REAL)')
+            db.execute('CREATE TABLE connect_events(request_id TEXT,seq INTEGER,event_json TEXT)')
+            runs = [scoped, {'memory_scope': scoped['memory_scope'], 'conversation_id': 'fallback-context'},
+                    {'memory_scope': {'task_id': 'axx-main', 'generation': 0}, 'memory_context_id': None, 'conversation_id': 'axx-main'},
+                    scoped | {'memory_context_id': 'already-owned'}, {'conversation_id': 'unscoped-context'},
+                    scoped | {'memory_context_id': 'invalid-generation', 'memory_scope': {'task_id': a, 'generation': True}},
+                    scoped | {'memory_context_id': 'invalid-scope', 'memory_scope': scoped['memory_scope'] | {'extra': True}}]
+            for index, run in enumerate(runs):
+                db.execute('INSERT INTO connect_runs VALUES(?,?,?,?,?,?)',
+                           (str(index), 'fixture', run['conversation_id'], json.dumps(run), self.now/1000, self.now/1000))
+            db.execute('INSERT INTO connect_runs VALUES(?,?,?,?,?,?)', ('malformed', 'fixture', 'bad', '{', self.now/1000, self.now/1000))
+        self.store = ChatStore(self.path, lambda: self.now)
+        with self.store.db() as db:
+            rows = {row[0]: (row[1], row[2]) for row in db.execute('SELECT * FROM chat_context_ids')}
+            self.assertEqual(rows[original], (a, 0))
+            self.assertNotIn('fallback-context', rows)
+            self.assertNotIn('axx-main', rows)
+            self.assertEqual(task_memory.assert_context(db, {'task_id': 'axx-main', 'generation': 0}, None),
+                             {'task_id': 'axx-main', 'generation': 0})
+            self.assertEqual(rows['already-owned'], (b, 0))
+            self.assertNotIn('unscoped-context', rows)
+            self.assertNotIn('invalid-generation', rows)
+            self.assertNotIn('invalid-scope', rows)
+            self.assertNotIn('PRIVATE_RUN_TEXT', json.dumps(rows))
+            self.assertEqual(json.loads(db.execute("SELECT body_json FROM connect_runs WHERE request_id='0'").fetchone()[0]), scoped)
+        result = self.store.forget_task(a, ref)
+        self.finish(ref, result)
+        self.store.close()
+        self.store = ChatStore(self.path, lambda: self.now)
+        with self.store.db() as db:
+            self.assertEqual(tuple(db.execute('SELECT task_id,generation FROM chat_context_ids WHERE context_id=?', (original,)).fetchone()), (a, 0))
+            fresh = self.store.get(a)['context_id']
+            self.assertEqual(tuple(db.execute('SELECT task_id,generation FROM chat_context_ids WHERE context_id=?', (fresh,)).fetchone()), (a, 1))
 
     def test_scoped_forget_preserves_b_and_retains_manual_history(self):
         group = self.store.mutate('group', {'title': 'Shared'})['id']

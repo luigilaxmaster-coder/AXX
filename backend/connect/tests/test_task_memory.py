@@ -361,6 +361,51 @@ class ConnectMemoryTests(unittest.TestCase):
         self.assertTrue(self.provider.get('legacy-logical')['memory_forgotten'])
         with self.assertRaises(ProviderError):self.provider.start(body)
 
+    def test_new_legacy_request_cannot_reclassify_a_forgotten_opaque_context(self):
+        old=self.chats.get(self.a)['context_id']
+        reference=self.begin(self.a);self.finish(self.a,reference)
+        with self.assertRaises(ProviderError) as caught:
+            self.provider.start({'request_id':'new-id-old-context','conversation_id':old,'message':'Use old context'})
+        self.assertEqual(caught.exception.code,'MEMORY_SCOPE_CHANGED')
+        self.assertIsNone(self.provider.db.execute('SELECT request_id FROM connect_runs WHERE request_id=?',('new-id-old-context',)).fetchone())
+
+    def test_context_rotated_before_forgetting_cannot_resume_the_historical_thread(self):
+        body=self.body(self.a)
+        self.provider.start(body);self.wait_started()
+        self.notification('turn/completed',turn={'id':'turn-test','status':'completed'})
+        old=body['conversation_id']
+        group=self.chats.mutate('group',{'title':'Moved group'})['id']
+        self.chats.mutate('update',{'id':self.a,'group_id':group})
+        reference=self.begin(self.a);self.finish(self.a,reference)
+        with patch.object(self.provider,'_rpc',wraps=self.provider._rpc) as rpc,self.assertRaises(ProviderError) as caught:
+            self.provider.start({'request_id':'new-id-historical-context','conversation_id':old,'message':'Resume old'})
+        self.assertEqual(caught.exception.code,'MEMORY_SCOPE_CHANGED')
+        rpc.assert_not_called()
+        self.assertIsNone(self.provider.db.execute('SELECT request_id FROM connect_runs WHERE request_id=?',('new-id-historical-context',)).fetchone())
+
+    def test_unused_rotated_context_cannot_become_a_legacy_namespace(self):
+        old=self.chats.get(self.a)['context_id']
+        group=self.chats.mutate('group',{'title':'Other group'})['id']
+        self.chats.mutate('update',{'id':self.a,'group_id':group})
+        with self.assertRaises(ProviderError) as caught:
+            self.provider.start({'request_id':'unused-old-context','conversation_id':old,'message':'Use prior context'})
+        self.assertEqual(caught.exception.code,'MEMORY_SCOPE_CHANGED')
+        current=self.chats.get(self.a)
+        run=self.provider.start({'request_id':'current-legacy-context','conversation_id':current['context_id'],'message':'Fresh context'})
+        self.assertEqual(run['memory_scope'],current['memory_scope'])
+        self.assertEqual(run['memory_context_id'],current['context_id'])
+
+    def test_reassigned_opaque_context_cannot_resume_another_owners_thread(self):
+        old=self.chats.get(self.a)['context_id']
+        group=self.chats.mutate('group',{'title':'Moved A'})['id']
+        self.chats.mutate('update',{'id':self.a,'group_id':group})
+        other=self.chats.mutate('create',{'connect_id':old})['id']
+        for body in ({'request_id':'reassigned-legacy','conversation_id':old,'message':'Use other owner'},
+                     self.body(other,'reassigned-explicit')):
+            with self.subTest(request=body['request_id']),self.assertRaises(ProviderError) as caught:
+                self.provider.start(body)
+            self.assertEqual(caught.exception.code,'MEMORY_SCOPE_CHANGED')
+
 
 if __name__ == '__main__':
     unittest.main()

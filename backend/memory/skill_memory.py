@@ -184,6 +184,14 @@ class SkillMemory:
                     self.db.execute('BEGIN IMMEDIATE')
                     yield
 
+    def _source_plan(self, item):
+        provenance = item.get('provenance', {})
+        operation = (provenance.get('operation_id') or provenance.get('source_plan_id')) if isinstance(provenance, dict) else None
+        if operation and self.db.execute("SELECT 1 FROM sqlite_master WHERE name='learning_plans'").fetchone():
+            row = self.db.execute('SELECT payload FROM learning_plans WHERE id=?', (operation,)).fetchone()
+            if row: return json.loads(row[0])
+        return {}
+
     def _origin(self, item, *, lesson=False):
         scope = item.get('memory_scope')
         task = item.get('origin_task_id') or (scope.get('task_id') if isinstance(scope, dict) else None)
@@ -193,22 +201,20 @@ class SkillMemory:
             task = provenance.get('origin_task_id')
             scope = scope or provenance.get('memory_scope')
             task = task or (scope.get('task_id') if isinstance(scope, dict) else None)
-            operation = provenance.get('operation_id') or provenance.get('source_plan_id')
-            if operation and self.db.execute("SELECT 1 FROM sqlite_master WHERE name='learning_plans'").fetchone():
-                row = self.db.execute('SELECT payload FROM learning_plans WHERE id=?', (operation,)).fetchone()
-                plan = json.loads(row[0]) if row else {}
-                task = task or plan.get('conversation_id')
-                scope = scope or plan.get('memory_scope')
+            plan = self._source_plan(item)
+            task = task or plan.get('conversation_id')
+            scope = scope or plan.get('memory_scope')
         if not task and isinstance(scope, dict): task = scope.get('task_id')
         return task, scope
 
     def _assert_origin(self, item, *, lesson=False):
         task, scope = self._origin(item, lesson=lesson)
-        task_memory.assert_dependencies(self.db, item.get('memory_dependencies', []))
-        return task, task_memory.assert_current(self.db, scope, task_id=task)
+        dependencies = item['memory_dependencies'] if 'memory_dependencies' in item else self._source_plan(item).get('memory_dependencies', [])
+        dependencies = task_memory.assert_dependencies(self.db, dependencies)
+        return task, task_memory.assert_current(self.db, scope, task_id=task), dependencies
 
     def _origin_current(self, item, *, lesson=False):
-        try: task, _ = self._assert_origin(item, lesson=lesson)
+        try: task, _, _ = self._assert_origin(item, lesson=lesson)
         except ValueError: return False
         if not task and self._has_forget(): return False
         return not item.get('requires_review') and item.get('auto_select', True) is not False
@@ -241,8 +247,9 @@ class SkillMemory:
         skill = copy.deepcopy(skill)
         self._dependencies(skill.get('context_dependencies', []))
         with self._write():
-            task, scope = self._assert_origin(skill)
+            task, scope, dependencies = self._assert_origin(skill)
             task_memory.assert_context(self.db, scope, skill.get('memory_context_id'), task_id=task)
+            skill['memory_dependencies'] = dependencies
             if task:
                 skill.update(origin_task_id=task, memory_scope=scope or task_memory.snapshot(self.db, task))
             self.db.execute('INSERT INTO skill_versions VALUES (?,?,?)', (skill['id'], skill['version'], json.dumps(skill, ensure_ascii=False, allow_nan=False)))
@@ -279,7 +286,9 @@ class SkillMemory:
                                   (key, version) if version is not None else (key,)).fetchone()
             if not row: raise ValueError('Acción aprendida desconocida')
             skill = json.loads(row[0])
-            self._assert_origin(skill)
+            task, scope, dependencies = self._assert_origin(skill)
+            if task: skill.update(origin_task_id=task, memory_scope=scope)
+            skill['memory_dependencies'] = dependencies
             skill['selection_policy'] = selection_policy.read(self.db, key)
             if 'project_id' in skill['selection_policy']: skill['project_id'] = skill['selection_policy']['project_id']
             evidence = [json.loads(row[0]) for row in self.db.execute('SELECT payload FROM skill_evidence WHERE id=? AND version=? ORDER BY rowid', (key, skill['version']))]
@@ -340,8 +349,9 @@ class SkillMemory:
             skill = json.loads(row[0])
             self._assert_origin(skill)
             source = evidence | {'provenance': {'operation_id': operation_id}}
-            task, scope = self._assert_origin(source, lesson=True)
+            task, scope, dependencies = self._assert_origin(source, lesson=True)
             task_memory.assert_context(self.db, scope, evidence.get('memory_context_id'), task_id=task)
+            evidence['memory_dependencies'] = dependencies
             if task: evidence.update(origin_task_id=task, memory_scope=scope or task_memory.snapshot(self.db, task))
             # Only journal-backed receipts may quarantine or revalidate a version.
             for field in ('observed_outcome', 'receipt_created_at', 'validation_environment', 'validation_context'):
@@ -358,6 +368,26 @@ class SkillMemory:
             if evidence.get('revalidation') is not None and type(evidence['revalidation']) is not bool: raise ValueError('Revalidación inválida')
             self.db.execute('INSERT INTO skill_evidence VALUES (?,?,?,?) ON CONFLICT(id,version,operation_id) DO UPDATE SET payload=excluded.payload',
                             (key, version, operation_id, json.dumps(evidence, ensure_ascii=False)))
+
+    def _inherit_evidence(self, key, version, source_version, *, memory_scope=None, memory_context_id=None):
+        # Transfer stored receipts under a fresh request without rebasing their original context.
+        with self._write():
+            task_memory.assert_context(self.db, memory_scope, memory_context_id)
+            source, target = self.get(key, source_version), self.get(key, version)
+            fields = ('templates', 'schema', 'checks', 'environment', 'project_id', 'context_dependencies', 'inference')
+            if source_version >= version or any(source.get(field, [] if field == 'context_dependencies' else None)
+                    != target.get(field, [] if field == 'context_dependencies' else None) for field in fields):
+                raise ValueError('La evidencia heredada requiere los mismos pasos y contexto operativo')
+            rows = self.db.execute('SELECT operation_id,payload FROM skill_evidence WHERE id=? AND version=?', (key, source_version)).fetchall()
+            for operation, raw in rows:
+                evidence = json.loads(raw)
+                origin = evidence | {'provenance': {'operation_id': operation}}
+                if not self._origin_current(origin, lesson=True): continue
+                task, scope, dependencies = self._assert_origin(origin, lesson=True)
+                if task: evidence.update(origin_task_id=task, memory_scope=scope)
+                evidence.update(memory_dependencies=dependencies, inherited_from_version=source_version)
+                self.db.execute('INSERT INTO skill_evidence VALUES (?,?,?,?)',
+                                (key, version, operation, json.dumps(evidence, ensure_ascii=False)))
 
     @staticmethod
     def _receipt_inputs(command_id, inputs):
