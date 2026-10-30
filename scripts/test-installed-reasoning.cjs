@@ -97,7 +97,8 @@ async function main() {
       receipt.selection = currentSelection;
       receipt.runtime_before = pick(runtime, ['version','backendInstance','pid']); save();
       const pending = await api('GET','/axx-api/commands/operations');
-      assert(!(pending.operations || []).some(item => ['prepared','awaiting_approval','running','unknown'].includes(item.state)), 'Resolve existing pending commands without this harness cancelling them');
+      receipt.preexisting_unknown_count = (pending.operations || []).filter(item => item.state === 'unknown').length;
+      assert(!(pending.operations || []).some(item => ['prepared','awaiting_approval','running'].includes(item.state)), 'Resolve existing pending commands without this harness cancelling them');
       assert(!await page.evaluate(() => Axx.commandLibrary.operation || Axx.commandLibrary.busy), 'A command is already open');
       const chat = await api('POST','/axx-api/chat/create',{title:'Aceptación razonamiento ' + receipt.run,command_mode:'ask'});
       assert(chat.id, 'Test chat was not created'); receipt.chat = chat.id; save();
