@@ -332,8 +332,12 @@ class InferenceAdapter:
                 worker = self._worker_result(active, request) if candidate_config is None else self._worker_result(active, request, candidate_config)
                 if not worker['ok']:
                     error = worker.get('error', {})
-                    return self._error(request_id, error.get('code', 'PROCESS_FAILURE'),
-                                       error.get('message', 'Inference failed'), bool(error.get('retryable')), **_attempt_details(error))
+                    with active.lock:
+                        if active.is_cancelled():
+                            return self._error(request_id, 'CANCELLED', 'Request cancelled; late response discarded',
+                                               **_attempt_details(error))
+                        return self._error(request_id, error.get('code', 'PROCESS_FAILURE'),
+                                           error.get('message', 'Inference failed'), bool(error.get('retryable')), **_attempt_details(error))
                 raw_result = worker['result']
             with active.lock:
                 if active.is_cancelled():

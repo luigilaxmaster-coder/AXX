@@ -1,5 +1,6 @@
 """Internal cancellation is checked before registration/dispatch and after responses."""
 import io
+import json
 from pathlib import Path
 import tempfile
 import threading
@@ -100,6 +101,72 @@ class AdapterCancellationTests(unittest.TestCase):
             result = self.adapter.route(self.request, cancel_event=self.event)
         self.assertEqual(result['error']['code'], 'CANCELLED')
         self.assertNotIn('message', result)
+
+    def assert_late_failed_worker_cancelled(self, accounting):
+        """Exercise real pipe collection, with cancellation after child exit."""
+        event, input_sent = threading.Event(), threading.Event()
+        canary = 'SYNTHETIC_CANCELLED_ERROR_CANARY'
+        error = {'code': 'UPSTREAM_TEMPORARY', 'message': canary,
+                 'retryable': True, **accounting}
+        written = []
+
+        class Input:
+            def write(self, data):
+                written.append(json.loads(data))
+                input_sent.set()
+            def close(self): pass
+
+        class Process:
+            def __init__(self, response, cancel_on_exit=False):
+                self.stdin = Input()
+                self.stdout = io.BytesIO(json.dumps(response).encode('utf-8'))
+                self.stderr = io.BytesIO()
+                self.returncode = 1 if not response['ok'] else 0
+                self.cancel_on_exit = cancel_on_exit
+            def poll(self):
+                if not input_sent.wait(1):
+                    raise AssertionError('The fixture worker never received input')
+                if self.cancel_on_exit:
+                    event.set()
+                return self.returncode
+
+        failed = Process({'ok': False, 'error': error}, cancel_on_exit=True)
+        succeeded = Process({'ok': True, 'result': {
+            'choices': [{'message': {'role': 'assistant', 'content': 'capacity reused'}}]}})
+        with patch('backend.inference.adapter.spawn_managed_process',
+                   side_effect=[(failed, None), (succeeded, None)]) as spawn:
+            result = self.adapter.route(dict(self.request, sensitivity='approved_sensitive'), cancel_event=event)
+            self.assertTrue(event.is_set())
+            self.assertEqual(result['error']['code'], 'CANCELLED')
+            self.assertEqual(result['error']['message'], 'Request cancelled; late response discarded')
+            self.assertFalse(result['error']['retryable'])
+            self.assertNotIn(canary, json.dumps(result))
+            for key in ('upstream_attempted', 'upstream_attempts', 'attempt_budget_used'):
+                if key in accounting:
+                    if isinstance(accounting[key], bool):
+                        self.assertIs(result['error'][key], accounting[key])
+                    else:
+                        self.assertEqual(result['error'][key], accounting[key])
+                else:
+                    self.assertNotIn(key, result['error'])
+            self.assertFalse(self.adapter.active_requests)
+            self.assertFalse(self.adapter.conversation_locks)
+            # The same identity and conversation can immediately use the released slot.
+            reused = self.adapter.route(self.request)
+            self.assertTrue(reused['ok'], reused)
+            self.assertEqual(reused['message']['content'], 'capacity reused')
+            self.assertEqual(spawn.call_count, 2)
+        self.assertEqual(len(written), 2)
+        self.assertIs(written[0]['request']['axx_sensitive'], True)
+        self.assertFalse(self.adapter.active_requests)
+        self.assertFalse(self.adapter.conversation_locks)
+
+    def test_late_failed_worker_cancel_preserves_consumed_attempts(self):
+        self.assert_late_failed_worker_cancelled({
+            'upstream_attempted': True, 'upstream_attempts': 1, 'attempt_budget_used': 1})
+
+    def test_late_failed_worker_cancel_does_not_invent_unknown_attempts(self):
+        self.assert_late_failed_worker_cancelled({})
 
     def test_invalid_internal_event_does_not_reach_router(self):
         result = self.adapter.route(self.request, cancel_event={'cancelled': True})
