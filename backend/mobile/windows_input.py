@@ -62,7 +62,7 @@ class WindowsInput:
         if os.name!='nt':raise ValueError('El control de entrada requiere Windows')
         self.user=C.WinDLL('user32',use_last_error=True);self.gdi=C.WinDLL('gdi32',use_last_error=True);self.kernel=C.WinDLL('kernel32',use_last_error=True)
         self._prototypes();self.commands=queue.Queue(32);self.stopping=threading.Event();self.abort=threading.Event();self.ready=threading.Event();self.error=None
-        self.active=False;self.lease='';self.deadline=0.;self.reason='idle';self.abort_reason='expired_or_revoked';self.held_keys=set();self.held_buttons=set();self.table=None;self.material_at=0.;self.material_key='';self.reduced=False;self.intensity=.9;self.size=48;self.glow=.12
+        self.active=False;self.lease='';self.deadline=0.;self.reason='idle';self.abort_reason='expired_or_revoked';self.held_keys=set();self.held_buttons=set();self.table=None;self.material_key='';self.reduced=False;self.intensity=.9;self.size=48;self.glow=.12
         self.snapshot={'active':False,'reason':'idle','keys':[],'buttons':[]};self.snapshot_lock=threading.Lock();self.hwnd=None;self.dc=None;self.bitmap=None;self.old_bitmap=None;self.bits=C.c_void_p();self.bitmap_size=0;self.last_frame=0.;self.last_point=None;self.velocity=(0.,0.);self.pulse_at=0.;self.granted_at=0.;self.release_at=0.
         self.hooks=[];self.thread_id=0
         self.thread=threading.Thread(target=self._run,name='axx-input-owner',daemon=True);self.thread.start()
@@ -176,11 +176,12 @@ class WindowsInput:
             if self.table is None or body['key']!=self.material_key:raise ValueError('Axx aún no compartió el material del muñeco')
             animation=W.BOOL(True)
             self.user.SystemParametersInfoW(0x1042,0,C.byref(animation),0)
-            self.material_at=now;self.reduced=body['reduced'] or not animation.value;self.size=body['size'];self.intensity=body['intensity'];self.glow=body['glow'];return
+            self.reduced=body['reduced'] or not animation.value;self.size=body['size'];self.intensity=body['intensity'];self.glow=body['glow'];return
         if operation=='cancel':self._cancel(args[0]);return
         if operation=='grant':
             if self.active:raise ValueError('Ya existe control nativo')
-            if self.table is None or now-self.material_at>5:raise ValueError('Abre Axx en la PC para sincronizar su indicador')
+            # Hidden desktop surfaces keep their approved material; input has its own lease watchdog.
+            if self.table is None:raise ValueError('Abre Axx en la PC para sincronizar su indicador')
             if any(self.user.GetAsyncKeyState(k)<0 for k in (1,2,4,0x10,0x11,0x12,0x5b,0x5c)):raise ValueError('Suelta los botones y modificadores físicos antes de conceder control')
             self._set_hooks(True)
             self.abort.clear();self.abort_reason='expired_or_revoked';self.lease=args[0];self.deadline=now+args[1];self.active=True;self.source=args[2];self.reason='granted';self.granted_at=now;self.release_at=0;return
@@ -341,7 +342,7 @@ class WindowsInput:
                     if not self.user.PeekMessageW(C.byref(msg),None,0,0,1):break
                     self.user.TranslateMessage(C.byref(msg));self.user.DispatchMessageW(C.byref(msg))
                 now=time.monotonic()
-                if self.active and (self.abort.is_set() or now>=self.deadline or now-self.material_at>5):self._cancel(self.abort_reason if self.abort.is_set() else 'expired_or_revoked')
+                if self.active and (self.abort.is_set() or now>=self.deadline):self._cancel(self.abort_reason if self.abort.is_set() else 'expired_or_revoked')
                 try:item=self.commands.get_nowait()
                 except queue.Empty:item=None
                 if item:
