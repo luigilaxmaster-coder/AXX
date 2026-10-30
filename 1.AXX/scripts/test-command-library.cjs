@@ -2,12 +2,11 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const assert = require('node:assert/strict');
-const { createRequire } = require('node:module');
-const bundledRequire = createRequire(path.join(process.env.USERPROFILE, '.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/package.json'));
-const { chromium } = bundledRequire('playwright');
+const { requirePlaywright, launchChromium } = require('./test-browser-runtime.cjs');
+const { chromium } = requirePlaywright();
 
 (async () => {
-  const browser = await chromium.launch({ headless: true, executablePath: process.env.AXX_TEST_CHROMIUM || path.join(process.env.LOCALAPPDATA, 'ms-playwright/chromium_headless_shell-1248/chrome-headless-shell-win64/chrome-headless-shell.exe') });
+  const browser = await launchChromium(chromium);
   const results = [], errors = [];
   try {
     const page = await browser.newPage(); page.on('pageerror', error => errors.push(error.message));

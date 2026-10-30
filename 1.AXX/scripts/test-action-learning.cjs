@@ -2,11 +2,11 @@
 const fs = require('node:fs'), path = require('node:path'), os = require('node:os');
 const http = require('node:http'), crypto = require('node:crypto'), assert = require('node:assert/strict');
 const {spawn, spawnSync} = require('node:child_process');
-const {createRequire} = require('node:module');
-const {chromium} = createRequire(path.join(process.env.USERPROFILE, '.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/package.json'))('playwright');
+const {requirePlaywright, launchChromium} = require('./test-browser-runtime.cjs');
+const {chromium} = requirePlaywright();
 
 async function goalUi() {
-  const browser=await chromium.launch({headless:true,executablePath:process.env.AXX_TEST_CHROMIUM||path.join(process.env.LOCALAPPDATA,'ms-playwright/chromium_headless_shell-1248/chrome-headless-shell-win64/chrome-headless-shell.exe')});
+  const browser=await launchChromium(chromium);
   try {
     const page=await browser.newPage(),errors=[];page.on('pageerror',error=>errors.push(error.message));
     await page.setContent('<section id="command-library"><button id="command-library-learned"></button></section>');
@@ -139,7 +139,7 @@ async function goalUi() {
       res.setHeader('Content-Type',file.endsWith('.js')?'application/javascript':'text/html');res.end(fs.readFileSync(file));
     });
     await new Promise(r=>server.listen(0,'127.0.0.1',r));
-    browser=await chromium.launch({headless:true,executablePath:process.env.AXX_TEST_CHROMIUM});
+    browser=await launchChromium(chromium);
     const page=await browser.newPage({viewport:{width:1200,height:1000}}),errors=[];
     page.setDefaultTimeout(20000);page.on('pageerror',e=>errors.push(e.message));
     await page.exposeFunction('nativeTestRequest',request);

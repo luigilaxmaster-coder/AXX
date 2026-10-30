@@ -1,9 +1,9 @@
 /* Controlled IPC/UI contracts; these do not certify native desktop input or installed binaries. */
 const assert=require('node:assert/strict'),path=require('node:path'),fs=require('node:fs');
-const {createRequire}=require('node:module');
-const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/package.json'))('playwright');
+const {requirePlaywright,launchChromium}=require('./test-browser-runtime.cjs');
+const {chromium}=requirePlaywright();
 (async()=>{
- const browser=await chromium.launch({headless:true,executablePath:process.env.AXX_TEST_CHROMIUM||path.join(process.env.LOCALAPPDATA,'ms-playwright/chromium_headless_shell-1248/chrome-headless-shell-win64/chrome-headless-shell.exe')});
+ const browser=await launchChromium(chromium);
  try{
   const page=await browser.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));
   await page.setContent('<section id="view-settings"></section><main id="panel" hidden></main>');
