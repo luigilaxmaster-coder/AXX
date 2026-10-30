@@ -85,7 +85,8 @@ ADAPTERS = {
         'description': 'Solicita cerrar una ventana visible observada por HWND y PID; respeta avisos de cambios sin guardar y verifica que desaparezca.',
         'aliases': [], 'parameters': {
             'window_id': {'type': 'string', 'required': True, 'maxLength': 18},
-            'pid': {'type': 'integer', 'required': True, 'minimum': 1, 'maximum': 4294967295}}},
+            'pid': {'type': 'integer', 'required': True, 'minimum': 1, 'maximum': 4294967295},
+            'expected_title': {'type': 'string', 'required': False, 'maxLength': 2048}}},
     'axx.desktop.window.inspect': {
         'title': 'Observar controles de ventana', 'tool': 'desktop_inspect_window', 'risk': 'read',
         'description': 'Observa el árbol limitado de controles UI Automation de una ventana identificada por HWND y PID observados.',
@@ -786,6 +787,13 @@ class CommandService:
             self.db.execute('UPDATE command_runs SET expires_at=? WHERE operation_id=?', (time.time() + 300, operation_id))
             return self._save(result | {'state': 'awaiting_approval' if result['requires_approval'] else 'prepared', 'error': None})
 
+    @staticmethod
+    def _allows_remote_confirmation(command_id, command, inputs):
+        return command.get('requires_approval', True) is False and (
+            command.get('risk') in ('read', 'desktop_open')
+            or command_id == 'axx.desktop.window.close' and command.get('risk') == 'local_state'
+            and isinstance(inputs.get('expected_title'), str) and bool(inputs['expected_title'].strip()))
+
     def remote_review(self, operation_id):
         """Review only fixed, PC-policy-safe commands; this grants no authority."""
         with self.lock:
@@ -803,7 +811,7 @@ class CommandService:
                 reserved = bool(self.db.execute("""SELECT 1 FROM learning_plans WHERE EXISTS
                     (SELECT 1 FROM json_each(json_extract(payload,'$.step_records')) r
                      WHERE json_extract(r.value,'$.operation_id')=?) LIMIT 1""", (operation_id,)).fetchone())
-            requires_pc = current.get('requires_approval', True) or current.get('risk') not in ('read', 'desktop_open')
+            requires_pc = not self._allows_remote_confirmation(command_id, current, result['inputs'])
             catalog = {'risk': current.get('risk'), 'requires_approval': current.get('requires_approval'),
                        'execution_enabled': current.get('execution_enabled'), 'tool': adapter.get('tool')}
             snapshot = {key: result.get(key) for key in ('operation_id','command_id','inputs','source','conversation_id','command_mode','delivery_mode')}
@@ -851,8 +859,8 @@ class CommandService:
         command_id = current['command_id']
         command = self.commands.get(command_id, {})
         if (command_id not in ADAPTERS or command.get('source', {}).get('kind') != 'local_adapter'
-                or not command.get('execution_enabled') or command.get('requires_approval', True)
-                or command.get('risk') not in ('read', 'desktop_open') or current.get('cancel_requested')
+                or not command.get('execution_enabled')
+                or not self._allows_remote_confirmation(command_id, command, current['inputs']) or current.get('cancel_requested')
                 or time.time() > review['expires_at'] or not hmac.compare_digest(review['plan_hash'], plan_hash)):
             raise ValueError('La revisión remota ya no coincide con la operación')
 

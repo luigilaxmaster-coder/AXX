@@ -71,6 +71,30 @@ class WindowTitleScopeTests(unittest.TestCase):
         self.user.GetWindowTextLengthW.side_effect = [len('Selected title'), len('Selected title') + 1]
         with self.assertRaises(ValueError): uia.read_window_title(10, 20, 'birth')
 
+    def test_close_rechecks_title_before_posting_close(self):
+        def changed_title(hwnd, buffer, maximum):
+            buffer.value = 'Different title'
+            return len(buffer.value)
+        self.user.GetWindowTextW.side_effect = changed_title
+        with patch.object(uia, 'list_windows', return_value=[{'window_id': 10, 'pid': 20, 'title': 'Selected title'}]), \
+             patch.object(uia, 'process_name', return_value='fixture.exe'):
+            with self.assertRaises(ValueError):
+                uia.close_window(10, 20, expected_title='Selected title')
+        self.user.PostMessageW.assert_not_called()
+
+    def test_close_rejects_oversized_title_even_when_prefix_matches(self):
+        prefix = 'A' * 2048
+        self.user.GetWindowTextLengthW.return_value = 2049
+        def truncated_title(hwnd, buffer, maximum):
+            buffer.value = prefix[:maximum - 1]
+            return len(buffer.value)
+        self.user.GetWindowTextW.side_effect = truncated_title
+        with patch.object(uia, 'list_windows', return_value=[{'window_id': 10, 'pid': 20, 'title': prefix}]), \
+             patch.object(uia, 'process_name', return_value='fixture.exe'):
+            with self.assertRaises(ValueError):
+                uia.close_window(10, 20, expected_title=prefix)
+        self.user.PostMessageW.assert_not_called()
+
 
 class TargetedVisionTests(unittest.TestCase):
     def frame(self):

@@ -104,7 +104,7 @@ class TelegramWebAppUITests(unittest.TestCase):
             elif path == '/api/review':
                 fixture['mutations'].append((path, json.loads(request.post_data)))
                 request_route.fulfill(status=200, json={'state': 'awaiting_approval', 'title': 'Abrir archivo',
-                    'description': 'Revisar', 'risk': 'local', 'inputs': {'path': '<img src=x onerror=alert(1)>'},
+                    'description': 'Revisar', 'risk': 'local_state', 'inputs': {'path': '<img src=x onerror=alert(1)>'},
                     'expires_at': fixture['review_expiry'], 'token': 'x' * 43, 'can_confirm': True})
             elif path == '/api/decision':
                 fixture['mutations'].append((path, json.loads(request.post_data)))
@@ -180,6 +180,11 @@ class TelegramWebAppUITests(unittest.TestCase):
         page.locator('[data-pane="activity"]').click()
         page.get_by_role('button', name='Revisar orden').click()
         page.wait_for_selector('#review-card:not([hidden])')
+        self.assertEqual(page.locator('#review-state').inner_text(), 'Orden pendiente · No ejecutada')
+        self.assertIn('una vez', page.locator('#review-explanation').inner_text())
+        self.assertIn('Cambiar estado de aplicación', page.locator('#review-risk').inner_text())
+        self.assertEqual(page.locator('#review-confirm').inner_text(), 'Aprobar una vez')
+        self.assertEqual(page.locator('#review-cancel').inner_text(), 'Denegar')
         page.locator('[data-activity-filter="running"]').click()
         page.evaluate('window.fixturePoll()')
         page.wait_for_timeout(150)
@@ -219,6 +224,19 @@ class TelegramWebAppUITests(unittest.TestCase):
         page.wait_for_function("() => document.querySelector('#error').textContent.includes('Verificado')")
         decisions = [body for path, body in fixture['mutations'] if path == '/api/decision']
         self.assertEqual(decisions, [{'token': 'x' * 43, 'decision': 'confirm', 'csrf': 'fixture-csrf'}])
+
+    def test_terminal_review_never_offers_approval_or_claims_pending(self):
+        page, _ = self.page()
+        page.route('**/api/review', lambda route: route.fulfill(status=200, json={
+            'state': 'succeeded', 'title': 'Orden', 'inputs': {}, 'risk': 'read',
+            'expires_at': 2000000000, 'token': 'x' * 32, 'can_confirm': True}))
+        page.wait_for_selector('#send:not([disabled])', state='attached')
+        page.locator('[data-pane="activity"]').click()
+        page.get_by_role('button', name='Revisar orden').click()
+        page.wait_for_selector('#review-card:not([hidden])')
+        self.assertEqual(page.locator('#review-state').inner_text(), '')
+        self.assertEqual(page.locator('#review-explanation').inner_text(), '')
+        self.assertTrue(page.locator('#review-confirm').is_disabled())
 
     def test_chat_opens_review_and_expiry_blocks_decision(self):
         page, fixture = self.page()

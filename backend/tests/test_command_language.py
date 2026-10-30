@@ -67,7 +67,7 @@ class CommandLanguageTests(unittest.TestCase):
         row={'window_id':18,'pid':45,'title':'Spotify Premium'}
         with patch('backend.actions.windows_automation.list_windows',return_value=[row]), \
              patch('backend.actions.windows_automation.process_name',return_value='spotify.exe'):
-            self.assertEqual(resolve_desktop('necesito que cierres Spotify','voice')['inputs'],{'window_id':'12','pid':45})
+            self.assertEqual(resolve_desktop('necesito que cierres Spotify','voice')['inputs'],{'window_id':'12','pid':45,'expected_title':'Spotify Premium'})
             self.assertEqual(resolve_desktop('me puedes enfocar Spotify','voice')['command_id'],'axx.desktop.window.focus')
         self.assertEqual(resolve_desktop('puedes moverme el mouse a 100 y 200','voice')['inputs'],{'x':100,'y':200})
 

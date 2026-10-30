@@ -23,7 +23,7 @@
   function clearPrivateActivity() {
     accessEpoch++;
     activityItems = null; activityRequest++; clearReview(); $('review-card').hidden = true;
-    for (const id of ['review-title', 'review-description', 'review-risk', 'review-inputs', 'review-expiry', 'review-reason']) $(id).textContent = '';
+    for (const id of ['review-state', 'review-explanation', 'review-title', 'review-description', 'review-risk', 'review-inputs', 'review-expiry', 'review-reason']) $(id).textContent = '';
     $('activity-list').textContent = 'No hay acceso a la actividad.';
     for (const id of ['count-pending', 'count-running', 'count-completed']) $(id).textContent = '—';
     $('activity-badge').hidden = true; $('review-pending').hidden = true;
@@ -210,12 +210,15 @@
       if (!current()) return;
       $('review-title').textContent = value.title || 'Acción en tu PC';
       $('review-description').textContent = value.description || '';
-      const risks = { read: 'Consulta', desktop_open: 'Abrir aplicación/página', system_command: 'Comando del sistema' };
+      const risks = { read: 'Consulta', desktop_open: 'Abrir aplicación/página', system_command: 'Comando del sistema', local_state: 'Cambiar estado de aplicación' };
       $('review-risk').textContent = 'Riesgo: ' + (Object.hasOwn(risks, value.risk) ? risks[value.risk] : 'Requiere revisión en la PC');
       $('review-inputs').textContent = JSON.stringify(value.inputs || {}, null, 2);
       $('review-expiry').textContent = 'Vence: ' + formatTime(value.expires_at);
       $('review-reason').textContent = value.reason || '';
-      reviewToken = value.can_confirm === true && typeof value.token === 'string' ? value.token : null;
+      const reviewable = value.can_confirm === true && ['awaiting_approval', 'prepared'].includes(value.state);
+      $('review-state').textContent = reviewable ? 'Orden pendiente · No ejecutada' : '';
+      $('review-explanation').textContent = reviewable ? 'Aprobar ejecuta esta orden una vez; denegar la cancela.' : '';
+      reviewToken = reviewable && typeof value.token === 'string' ? value.token : null;
       reviewDeadline = typeof value.expires_at === 'number' && Number.isFinite(value.expires_at) ? value.expires_at * 1000 : 0;
       updateReviewExpiry();
       if (reviewToken) reviewTimer = setInterval(updateReviewExpiry, 1000);

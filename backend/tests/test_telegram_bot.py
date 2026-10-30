@@ -93,13 +93,16 @@ class BotWorkerTests(unittest.TestCase):
             if path.endswith('bot-input'):
                 return {'state': 'awaiting_approval', 'operation_id': operation, 'text': 'revisar'}
             if path.endswith('review'):
-                return {'title': 'Acción', 'description': 'Descripción', 'risk': 'write', 'inputs': {'target': 'archivo'}, 'expires_at': 10, 'can_confirm': True, 'token': token}
+                return {'state': 'awaiting_approval', 'title': 'Acción', 'description': 'Descripción', 'risk': 'local_state', 'inputs': {'target': 'archivo'}, 'expires_at': 10, 'can_confirm': True, 'token': token}
             return {'state': 'succeeded', 'postconditions_passed': True, 'text': 'Verificado'}
         with patch('backend.telegram.bot.local_request', side_effect=local), \
              patch('backend.telegram.bot.bot_request', side_effect=lambda _token, _method, body, **kwargs: sent.append(body)):
             self.worker.process(1, message())
             buttons = sent[-1]['reply_markup']['inline_keyboard'][0]
             self.assertEqual(buttons[0]['callback_data'], 'tc:' + token)
+            self.assertEqual([button['text'] for button in buttons], ['Aprobar una vez', 'Denegar'])
+            self.assertIn('Orden pendiente · No ejecutada', sent[-1]['text'])
+            self.assertIn('Cambiar estado de aplicación', sent[-1]['text'])
             self.assertEqual(sent[-1]['reply_markup']['inline_keyboard'][1][0]['callback_data'], 'tr:' + operation)
             self.assertIn('archivo', sent[-1]['text'])
             item = message(2)
@@ -134,6 +137,17 @@ class BotWorkerTests(unittest.TestCase):
             self.worker.review(operation)
         buttons = sent[0]['reply_markup']['inline_keyboard']
         self.assertEqual(buttons, [[{'text': 'Revisar de nuevo', 'callback_data': 'tr:' + operation}]])
+        self.assertNotIn('Orden pendiente · No ejecutada', sent[0]['text'])
+
+    def test_terminal_review_does_not_offer_approval_or_claim_pending(self):
+        operation = 'f27038d4-1e3a-41d1-8085-15f51c59ff70'
+        result = {'state': 'succeeded', 'title': 'Orden', 'inputs': {}, 'can_confirm': True, 'token': 'x' * 32}
+        sent = []
+        with patch('backend.telegram.bot.local_request', return_value=result), \
+             patch('backend.telegram.bot.bot_request', side_effect=lambda _token, _method, body, **kwargs: sent.append(body)):
+            self.worker.review(operation)
+        self.assertNotIn('Orden pendiente · No ejecutada', sent[0]['text'])
+        self.assertEqual(sent[0]['reply_markup']['inline_keyboard'], [[{'text': 'Revisar de nuevo', 'callback_data': 'tr:' + operation}]])
 
     def test_status_permissions_and_help_use_plain_language_without_raw_json(self):
         requests = []

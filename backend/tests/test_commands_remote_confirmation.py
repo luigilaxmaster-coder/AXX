@@ -99,6 +99,54 @@ class RemoteConfirmationTests(unittest.TestCase):
         dispatch.assert_not_called()
         self.assertEqual(auth.call_count, 2)
 
+    def test_window_close_can_be_reviewed_and_confirmed_once(self):
+        inputs = {'window_id': '12', 'pid': 45, 'expected_title': 'Spotify'}
+        prepared = self.commands.prepare('axx.desktop.window.close', inputs, operation_id='close-fixture',
+                                         conversation_id='telegram', command_mode='ask')
+        self.assertEqual(prepared['state'], 'awaiting_approval')
+        review = self.commands.remote_review('close-fixture')
+        self.assertTrue(review['eligible'])
+        self.assertEqual(review['inputs'], inputs)
+        action = {'state': 'succeeded', 'postconditions_passed': True,
+                  'output': {'closed': True}, 'evidence': {}, 'duration_ms': 1}
+        with patch.object(self.executor, 'execute_action', return_value=action) as dispatch:
+            result = self.commands.confirm_remote('close-fixture', review['plan_hash'], lambda: True)
+            self.assertEqual(result['state'], 'succeeded')
+            self.assertTrue(result['postconditions_passed'])
+            dispatch.assert_called_once()
+
+    def test_window_close_becoming_pc_only_before_dispatch_is_blocked(self):
+        self.commands.prepare('axx.desktop.window.close', {'window_id': '12', 'pid': 45, 'expected_title': 'Spotify'},
+                              operation_id='close-policy-fixture', conversation_id='telegram', command_mode='ask')
+        review = self.commands.remote_review('close-policy-fixture')
+        self.assertTrue(review['eligible'])
+        def change_policy():
+            self.commands.commands['axx.desktop.window.close']['requires_approval'] = True
+            return True
+        with patch.object(self.executor, 'execute_action') as dispatch:
+            result = self.commands.confirm_remote('close-policy-fixture', review['plan_hash'], change_policy)
+            self.assertEqual(result['state'], 'failed')
+            dispatch.assert_not_called()
+
+    def test_legacy_untitled_close_remains_available_locally_but_not_remotely(self):
+        inputs = {'window_id': '12', 'pid': 45}
+        self.commands.prepare('axx.desktop.window.close', inputs, operation_id='legacy-close', command_mode='ask')
+        review = self.commands.remote_review('legacy-close')
+        self.assertFalse(review['eligible'])
+        action = {'state': 'succeeded', 'postconditions_passed': True, 'output': {}, 'evidence': {}, 'duration_ms': 1}
+        with patch.object(self.executor, 'execute_action', return_value=action) as dispatch:
+            self.assertEqual(self.commands.execute('legacy-close', approved=True)['state'], 'succeeded')
+            dispatch.assert_called_once()
+
+    def test_other_local_state_actions_remain_ineligible_for_remote_confirmation(self):
+        command = {'risk': 'local_state', 'requires_approval': False}
+        for command_id in ('axx.desktop.pointer.move', 'axx.desktop.input'):
+            with self.subTest(command_id=command_id):
+                self.assertFalse(self.commands._allows_remote_confirmation(command_id, command,
+                    {'window_id': '12', 'pid': 45, 'expected_title': 'Spotify'}))
+        self.commands.prepare('axx.desktop.pointer.move', {'x': 1, 'y': 2}, operation_id='pointer', command_mode='ask')
+        self.assertFalse(self.commands.remote_review('pointer')['eligible'])
+
 
 if __name__ == '__main__':
     unittest.main()

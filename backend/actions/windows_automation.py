@@ -300,7 +300,7 @@ def read_clipboard_text(*, max_characters=8192, cancelled=None):
     return {key:result[key] for key in ('sequence_number','available','text')}
 
 
-def close_window(window_id, expected_pid, cancelled=None):
+def close_window(window_id, expected_pid, cancelled=None, expected_title=None):
     """Ask one observed window to close; never terminate its process."""
     window_id = _positive_int(window_id, 'window_id')
     expected_pid = _positive_int(expected_pid, 'pid')
@@ -310,6 +310,9 @@ def close_window(window_id, expected_pid, cancelled=None):
     current = next((row for row in list_windows() if row['window_id'] == window_id and row['pid'] == expected_pid), None)
     if not current:
         raise ValueError('La ventana observada ya no existe o cambió de proceso.')
+    if expected_title is not None and (not isinstance(expected_title, str) or not expected_title.strip()
+            or len(expected_title) > 2048 or current['title'] != expected_title):
+        raise ValueError('El título de la ventana cambió; solicita el cierre de nuevo.')
     if expected_pid == os.getpid() or process_name(expected_pid) in {'explorer.exe', 'axx.exe', 'axx-backend.exe'}:
         raise ValueError('Esta ventana no se cierra mediante el comando general.')
     if cancelled is not None and cancelled.is_set():
@@ -318,6 +321,16 @@ def close_window(window_id, expected_pid, cancelled=None):
     user.GetWindowThreadProcessId(wintypes.HWND(window_id), ctypes.byref(pid))
     if not user.IsWindow(wintypes.HWND(window_id)) or pid.value != expected_pid:
         raise ValueError('La ventana cambió antes de solicitar el cierre.')
+    if expected_title is not None:
+        length = user.GetWindowTextLengthW(wintypes.HWND(window_id))
+        if not 0 < length <= 2048:
+            raise ValueError('No se pudo comprobar el título completo de la ventana.')
+        title = ctypes.create_unicode_buffer(length + 1)
+        copied = user.GetWindowTextW(wintypes.HWND(window_id), title, len(title))
+        if copied != length or user.GetWindowTextLengthW(wintypes.HWND(window_id)) != copied or title.value != expected_title:
+            raise ValueError('El título de la ventana cambió; solicita el cierre de nuevo.')
+    if cancelled is not None and cancelled.is_set():
+        raise ValueError('Cierre cancelado antes de solicitarlo.')
     if not user.PostMessageW(wintypes.HWND(window_id), 0x0010, 0, 0):
         raise ctypes.WinError(ctypes.get_last_error())
     deadline = time.monotonic() + 3.0

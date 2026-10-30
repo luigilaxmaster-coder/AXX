@@ -192,16 +192,19 @@ class BotWorker:
             expires = 'no disponible'
         plan_hash = result.get('plan_hash')
         fingerprint = plan_hash[:12] if isinstance(plan_hash, str) and re.fullmatch(r'[0-9a-fA-F]{64}', plan_hash) else 'no disponible'
-        risk = {'read': 'Consulta', 'desktop_open': 'Abrir aplicación/página', 'system_command': 'Comando del sistema'}.get(result.get('risk'), 'Requiere revisión en la PC')
+        risk = {'read': 'Consulta', 'desktop_open': 'Abrir aplicación/página', 'system_command': 'Comando del sistema', 'local_state': 'Cambiar estado de aplicación'}.get(result.get('risk'), 'Requiere revisión en la PC')
+        reviewable = result.get('can_confirm') is True and result.get('state') in ('awaiting_approval', 'prepared')
         text = ('Revisa esta orden antes de decidir.\n'
                 + str(result.get('title', 'Acción en tu PC')) + '\n'
                 + str(result.get('description', '')) + '\nRiesgo: ' + risk
                 + '\nParámetros completos:\n' + json.dumps(result['inputs'], ensure_ascii=False, indent=2)
                 + '\nVence: ' + expires + '\nOperación: ' + operation_id + '\nHuella: ' + fingerprint)
+        if reviewable:
+            text = 'Orden pendiente · No ejecutada\nAprobar ejecuta esta orden una vez; denegar la cancela.\n\n' + text
         token = result.get('token')
         rows = []
-        if result.get('can_confirm') is True and isinstance(token, str) and re.fullmatch(r'[A-Za-z0-9_-]{20,61}', token):
-            rows.append([{'text': 'Confirmar', 'callback_data': 'tc:' + token}, {'text': 'Cancelar', 'callback_data': 'tx:' + token}])
+        if reviewable and isinstance(token, str) and re.fullmatch(r'[A-Za-z0-9_-]{20,61}', token):
+            rows.append([{'text': 'Aprobar una vez', 'callback_data': 'tc:' + token}, {'text': 'Denegar', 'callback_data': 'tx:' + token}])
         else:
             text += '\n' + str(result.get('reason') or 'Esta orden debe revisarse en la PC.')
         if isinstance(operation_id, str) and re.fullmatch(r'[0-9a-f-]{36}', operation_id):
@@ -257,7 +260,7 @@ class BotWorker:
                     lines.append('Se cambian en Axx de tu PC: Herramientas → Asistencia → Telegram. Un permiso no significa que la función ya esté lista.')
                     self.send('\n'.join(lines), menu(load_bot(self.data_dir)['public_url']))
                 elif choice == 'help':
-                    self.send('1. Deja Axx abierto en tu PC y habilita Confirmar comandos desde Telegram.\n2. Prueba «abre calculadora» o «información del sistema».\n3. Revisa la tarjeta y pulsa Confirmar o Cancelar. El botón vence en dos minutos.\nToca Abrir Axx para ver la actividad en la Mini App. Las órdenes reservadas requieren la PC; las llamadas siguen en reparación.', menu(load_bot(self.data_dir)['public_url']))
+                    self.send('1. Deja Axx abierto en tu PC y habilita Confirmar comandos desde Telegram.\n2. Prueba «abre calculadora» o «información del sistema».\n3. Revisa la tarjeta y pulsa Aprobar una vez o Denegar. El botón vence en dos minutos.\nToca Abrir Axx para ver la actividad en la Mini App. Las órdenes reservadas requieren la PC; las llamadas siguen en reparación.', menu(load_bot(self.data_dir)['public_url']))
                 elif isinstance(choice, str) and re.fullmatch(r'tr:[0-9a-f-]{36}', choice):
                     self.review(choice[3:])
                 elif isinstance(choice, str) and re.fullmatch(r't[cx]:[A-Za-z0-9_-]{20,61}', choice):

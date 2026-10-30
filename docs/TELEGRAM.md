@@ -61,7 +61,7 @@ empieza desactivado; los permisos anteriores no se amplían automáticamente.
    `información del sistema`.
 2. Revisa la tarjeta: muestra la acción, los parámetros completos, el riesgo y
    la hora de vencimiento. Abrir la tarjeta todavía no ejecuta la orden.
-3. Pulsa **Confirmar** para esa orden o **Cancelar**. En la Mini App, también
+3. Pulsa **Aprobar una vez** para esa orden o **Denegar**. En la Mini App, también
    puedes encontrarla en **Actividad → Revisar orden**.
 4. Consulta el resultado. Solo se muestra como comprobado cuando el ejecutor
    devuelve un recibo con su verificación.
@@ -73,8 +73,12 @@ Si se pierde una respuesta, consulta Actividad: la orden no se vuelve a ejecutar
 automáticamente. **Revisar de nuevo** sirve para leer la orden y obtener otro
 botón, siempre que todavía esté pendiente y permitida.
 
-El alcance inicial incluye consultas y apertura de aplicaciones o páginas que
-el catálogo permite confirmar fuera de la PC. Shell, escrituras, controles
+El alcance incluye consultas, apertura de aplicaciones o páginas y el cierre de
+una ventana observada. Por ejemplo, `cierra Spotify` muestra el título, la ventana
+y su proceso antes de decidir. El cierre verifica de nuevo el título y el proceso;
+si cambiaron, envía una nueva orden. No fuerza el cierre ni responde a avisos de
+cambios sin guardar. Una orden antigua sin título sigue requiriendo revisión en la PC.
+Shell, escrituras, controles
 sensibles, comandos generados y pasos reservados de planes mantienen la aprobación
 en la PC. No se cambia el proveedor de conversación para aprobar una orden.
 Con el permiso nuevo activo, las órdenes compatibles también funcionan con la

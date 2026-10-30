@@ -71,9 +71,12 @@ def validate_inputs(kind, inputs):
         if inputs:
             raise ValueError('Reproducir Spotify no admite parámetros.')
     elif kind == 'close_window':
-        if set(inputs) != {'window_id', 'pid'}:
+        if set(inputs) not in ({'window_id', 'pid'}, {'window_id', 'pid', 'expected_title'}):
             raise ValueError('Indica la ventana observada y su proceso.')
         _validate_window_ref(inputs['window_id'], inputs['pid'])
+        if 'expected_title' in inputs and (not isinstance(inputs['expected_title'], str)
+                or not inputs['expected_title'].strip() or len(inputs['expected_title']) > 2048):
+            raise ValueError('Indica el título observado de la ventana.')
     elif kind == 'move_pointer':
         if set(inputs) != {'x','y'} or any(type(inputs[k]) is not int or not -32768 <= inputs[k] <= 32767 for k in ('x','y')):
             raise ValueError('Indica coordenadas enteras x e y dentro del escritorio.')
@@ -236,7 +239,10 @@ def resolve_desktop(text, source, context=None):
         matches = [row for row in rows if name in plain(row['title']) or name in plain(process_name(row['pid'])).removesuffix('.exe')]
         if len(matches) == 1:
             row = matches[0]
-            return {'match': 'exact', 'command_id': 'axx.desktop.window.close', 'inputs': {'window_id': format(row['window_id'], 'x'), 'pid': row['pid']}}
+            inputs = {'window_id': format(row['window_id'], 'x'), 'pid': row['pid']}
+            if row['title'].strip():
+                inputs['expected_title'] = row['title']
+            return {'match': 'exact', 'command_id': 'axx.desktop.window.close', 'inputs': inputs}
         return {'match': 'ambiguous' if matches else 'unsupported',
                 'message': 'Hay varias ventanas con ese nombre; indica el título completo.' if matches else 'No veo una ventana abierta con ese nombre. Di «mis ventanas» para ver las disponibles.'}
     engine_pattern = r'(youtube|google|bing|duckduckgo|internet)'
@@ -384,7 +390,8 @@ def open_target(kind, inputs, cancelled=None, control=None):
                 'evidence': {'verification': 'visible_windows_inventory', 'accepted': True, 'count': len(rows)}}
     elif kind == 'close_window':
         from .windows_automation import close_window
-        output = close_window(int(inputs['window_id'], 16), inputs['pid'], cancelled=cancelled)
+        output = close_window(int(inputs['window_id'], 16), inputs['pid'], cancelled=cancelled,
+                              **({'expected_title': inputs['expected_title']} if 'expected_title' in inputs else {}))
         return {'success': output['closed'], 'output': output,
                 'evidence': {'verification': 'window_disappeared' if output['closed'] else 'close_requested',
                              'accepted': output['closed'], 'window_id': output['window_id'], 'pid': output['pid']}}

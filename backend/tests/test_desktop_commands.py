@@ -269,7 +269,7 @@ class DesktopCommandTests(unittest.TestCase):
              patch('backend.actions.windows_automation.process_name', return_value='spotify.exe'):
             resolved = self.service.resolve('Axx, cierra Spotify', source='voice')
         self.assertEqual(resolved['command_id'], 'axx.desktop.window.close')
-        self.assertEqual(resolved['inputs'], {'window_id': '12', 'pid': 45})
+        self.assertEqual(resolved['inputs'], {'window_id': '12', 'pid': 45, 'expected_title': 'Spotify'})
         with patch('backend.actions.windows_automation.list_windows', return_value=observed), \
              patch('backend.actions.windows_automation.process_name', return_value='spotify.exe'):
             self.assertEqual(self.service.resolve('cierra la aplicación Spotify')['command_id'], 'axx.desktop.window.close')
