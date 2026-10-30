@@ -632,6 +632,9 @@ class Router:
         responder_model, responder_provider = reported('model'), reported('provider')
         if provider.get('route_kind') != 'direct' and responder_model == provider['model']:
             responder_model = None
+        if request.get('axx_sensitive') is True:
+            responder_model = responder_model if responder_model == provider['model'] else None
+            responder_provider = responder_provider if responder_provider == provider['name'] else None
         profile = profile_id(provider)
         identity = 'reported' if responder_model else 'unverified_profile'
         attribution = (hashlib.sha256(json.dumps([profile, responder_model, responder_provider]).encode()).hexdigest()[:32]

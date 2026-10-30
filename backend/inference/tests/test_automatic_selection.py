@@ -9,7 +9,7 @@ import unittest
 from unittest.mock import patch
 
 from backend.inference.adapter import InferenceAdapter
-from backend.inference.router import Router, UpstreamError, http_transport
+from backend.inference.router import Router, RequestError, UpstreamError, http_transport
 from backend.inference import provider_settings
 
 
@@ -44,6 +44,17 @@ class AutomaticSelectionTests(unittest.TestCase):
 
     def request(self, adapter, **fields):
         return adapter.route(dict(messages=[{'role': 'user', 'content': 'hello'}], selection_mode='automatic_free', **fields))
+
+    def assert_no_durable_route_canaries(self, adapter, canaries):
+        metadata = [json.loads(row[0]) for row in adapter.router.db.execute('SELECT metadata FROM inference_routes')]
+        serialized = json.dumps(metadata, ensure_ascii=False) + '\n'.join(adapter.router.db.iterdump())
+        for canary in canaries:
+            self.assertNotIn(canary, serialized)
+        for path in (adapter.state_path, Path(str(adapter.state_path) + '-wal')):
+            if path.exists():
+                data = path.read_bytes()
+                for canary in canaries:
+                    self.assertNotIn(canary.encode('utf-8'), data, str(path))
 
     def test_automatic_ignores_manual_pins_and_excludes_billing(self):
         self.config['providers'][0]['billing_allowed'] = True
@@ -176,6 +187,106 @@ class AutomaticSelectionTests(unittest.TestCase):
             adapter.record_outcome(route, 'chat', 'succeeded')
         with self.assertRaises(ValueError):
             adapter.record_outcome(dict(route, profile_id='forged'), 'plan', 'succeeded')
+
+    def test_sensitive_unknown_reported_names_are_not_retained_in_manual_or_automatic_routes(self):
+        canaries = ('PRIVATE_MODEL_ROUTE_CANARY', 'PRIVATE_PROVIDER_ROUTE_CANARY')
+        self.responses['a'] = {'model': canaries[0], 'provider': canaries[1],
+                               'choices': [{'message': {'role': 'assistant', 'content': 'ok'}}]}
+        for kind in ('direct', 'proxy'):
+            for mode in ('manual', 'automatic_free'):
+                with self.subTest(route_kind=kind, selection_mode=mode):
+                    self.config['providers'] = [dict(self.provider('a'), route_kind=kind, allow_sensitive=True)]
+                    adapter = self.adapter()
+                    try:
+                        result = adapter.route({'messages': [{'role': 'user', 'content': 'synthetic context'}],
+                            'task': 'plan', 'selection_mode': mode, 'provider_name': 'a', 'model': 'model-a',
+                            'sensitivity': 'approved_sensitive'})
+                        self.assertTrue(result['ok'], result)
+                        route = result['route']
+                        self.assert_no_durable_route_canaries(adapter, canaries)
+                        self.assertEqual(route['provider'], 'a')
+                        self.assertEqual(route['configured_model'], 'model-a')
+                        self.assertEqual(route['model'], 'model-a' if mode == 'manual' else None)
+                        self.assertIsNone(route['responder_model'])
+                        self.assertIsNone(route['responder_provider'])
+                        self.assertEqual(route['identity'], 'unverified_profile')
+                        self.assertEqual(route['attribution_id'], route['profile_id'])
+                        self.assertEqual((route['attempts'], route['upstream_attempts'], route['attempt_budget_used']), (1, 1, 1))
+                        stored = adapter.router.db.execute('SELECT metadata FROM inference_routes WHERE route_id=?',
+                                                           (route['route_id'],)).fetchone()
+                        self.assertEqual(json.loads(stored[0]), route)
+                        self.assertGreaterEqual(adapter.record_outcome(route, 'plan', 'succeeded')['succeeded'], 1)
+                    finally:
+                        adapter.close()
+
+    def test_sensitive_exact_configured_names_are_preserved_except_proxy_model_alias(self):
+        self.responses['a'] = {'model': 'model-a', 'provider': 'a',
+                               'choices': [{'message': {'role': 'assistant', 'content': 'ok'}}]}
+        for kind in ('direct', 'proxy'):
+            for mode in ('manual', 'automatic_free'):
+                with self.subTest(route_kind=kind, selection_mode=mode):
+                    self.config['providers'] = [dict(self.provider('a'), route_kind=kind, allow_sensitive=True)]
+                    adapter = self.adapter()
+                    try:
+                        result = adapter.route({'messages': [{'role': 'user', 'content': 'synthetic context'}],
+                            'task': 'plan', 'selection_mode': mode, 'provider_name': 'a', 'model': 'model-a',
+                            'sensitivity': 'approved_sensitive'})
+                        self.assertTrue(result['ok'], result)
+                        route = result['route']
+                        expected_model = 'model-a' if kind == 'direct' else None
+                        self.assertEqual(route['responder_model'], expected_model)
+                        self.assertEqual(route['responder_provider'], 'a')
+                        self.assertEqual(route['model'], 'model-a' if mode == 'manual' else expected_model)
+                        self.assertEqual(route['identity'], 'reported' if kind == 'direct' else 'unverified_profile')
+                        self.assertGreaterEqual(adapter.record_outcome(route, 'plan', 'succeeded')['succeeded'], 1)
+                    finally:
+                        adapter.close()
+
+    def test_sensitive_cancellation_after_real_route_insert_retains_no_reported_canaries(self):
+        canaries = ('PRIVATE_CANCEL_MODEL_CANARY', 'PRIVATE_CANCEL_PROVIDER_CANARY')
+        self.config['providers'] = [dict(self.provider('a'), allow_sensitive=True)]
+        self.responses['a'] = {'model': canaries[0], 'provider': canaries[1],
+                               'choices': [{'message': {'role': 'assistant', 'content': 'discarded synthetic answer'}}]}
+        adapter = self.adapter()
+        event, captured = threading.Event(), []
+        original = adapter.router._route_metadata
+        def cancel_after_insert(*args, **kwargs):
+            route = original(*args, **kwargs)
+            captured.append(route)
+            event.set()
+            return route
+        with patch.object(adapter.router, '_route_metadata', side_effect=cancel_after_insert):
+            result = adapter.route({'request_id': 'sensitive-late-cancel',
+                'messages': [{'role': 'user', 'content': 'synthetic context'}], 'task': 'plan',
+                'selection_mode': 'automatic_free', 'sensitivity': 'approved_sensitive'}, cancel_event=event)
+        self.assertTrue(event.is_set())
+        self.assertEqual(len(captured), 1)
+        self.assertEqual(result['error']['code'], 'CANCELLED')
+        self.assertNotIn('message', result)
+        self.assertEqual(adapter.router.db.execute('SELECT count(*) FROM inference_routes').fetchone()[0], 1)
+        self.assert_no_durable_route_canaries(adapter, canaries)
+        self.assertEqual(adapter.router.db.execute('SELECT count(*) FROM task_outcomes').fetchone()[0], 0)
+
+    def test_direct_router_sensitive_input_is_sanitized_and_invalid_types_never_dispatch(self):
+        canaries = ('PRIVATE_DIRECT_MODEL_CANARY', 'PRIVATE_DIRECT_PROVIDER_CANARY')
+        provider = dict(self.provider('a'), allow_sensitive=True)
+        self.config['providers'] = [provider]
+        response = {'model': canaries[0], 'provider': canaries[1],
+                    'choices': [{'message': {'role': 'assistant', 'content': 'ok'}}]}
+        self.responses['a'] = response
+        adapter = self.adapter()
+        request = {'messages': [{'role': 'user', 'content': 'synthetic context'}],
+                   'axx_task': 'plan', 'selection_mode': 'automatic_free'}
+        for value in (1, 'sensitive'):
+            with self.subTest(axx_sensitive=value), self.assertRaisesRegex(RequestError, 'axx_sensitive must be boolean'):
+                adapter.router.chat(dict(request, axx_sensitive=value))
+        self.assertEqual(self.calls, [])
+        self.assertEqual(adapter.router.db.execute('SELECT count(*) FROM inference_routes').fetchone()[0], 0)
+        result = adapter.router.chat(dict(request, axx_sensitive=True))
+        self.assert_no_durable_route_canaries(adapter, canaries)
+        self.assertIsNone(result['axx_router']['responder_model'])
+        self.assertIsNone(result['axx_router']['responder_provider'])
+        self.assertIsNone(result['axx_router']['model'])
 
     def test_observed_ranking_requires_five_real_task_outcomes(self):
         adapter = self.adapter()
