@@ -433,7 +433,9 @@ class ActionLearning:
 
     def list_plans(self, project_id=''):
         project_key(project_id)
-        with self.lock, self.db:
+        # Each budget projection may consult policy. Acquire it before the
+        # first SQL write, including subsequent rows in this transaction.
+        with self.lock, getattr(self.anticipation, 'lock', nullcontext()), self.db:
             plans = [json.loads(row[0]) for row in self.db.execute("SELECT payload FROM learning_plans WHERE COALESCE(json_extract(payload,'$.project_id'),'')=? ORDER BY rowid DESC LIMIT 100", (project_id,))]
             for plan in plans:
                 self._store_model_budget(plan)
@@ -1004,7 +1006,8 @@ class ActionLearning:
             if len(images)<2 and isinstance(content.get('image_url'),str):images.append(content['image_url'])
         refs = [ref for ref in source.get('refs',[]) if ref['observation_id'] in used]
         if not refs:return messages,[],[]
-        # shortcut: source-derived plans need ephemeral journals before remote observation can be enabled.
+        # Retention, cancellation and result publication are reviewed together
+        # before enabling this path in production.
         if not SOURCE_PLANNING_READY:
             raise NeedsInput('El envío de observaciones está desactivado hasta proteger también las respuestas y los recibos derivados.')
         messages = [dict(row) for row in messages]
@@ -1025,9 +1028,22 @@ class ActionLearning:
                 raise SourceContextRevoked(SOURCE_CONTEXT_INVALID)
         messages,images,refs = self._source_prompt(plan,messages)
         event = None
-        if refs:
-            event = self.anticipation.acquire_provider_context(plan.get('conversation_id') or plan['operation_id'],refs,project_id=plan.get('project_id',''))
-            plan['observation_dependencies']=refs
+        with self.lock:
+            # Repair/content prompts can retain earlier observed material.
+            # New observations never replace its authorization dependencies.
+            dependencies = list(plan.get('observation_dependencies') or [])
+            for ref in refs:
+                if ref not in dependencies:
+                    dependencies.append(ref)
+            if len(dependencies) > 4:
+                raise SourceContextRevoked(SOURCE_CONTEXT_INVALID)
+            if dependencies:
+                try:
+                    event = self.anticipation.acquire_provider_context(plan.get('conversation_id') or plan['operation_id'],
+                        dependencies, project_id=plan.get('project_id',''))
+                except ValueError:
+                    raise SourceContextRevoked(SOURCE_CONTEXT_INVALID) from None
+                plan['observation_dependencies'] = dependencies
         try:return self._route_plan(plan,task,messages,request_suffix,images=images,source_cancel=event)
         finally:
             if event is not None:self.anticipation.release_provider_context(event)
@@ -1756,7 +1772,9 @@ class ActionLearning:
         return results
 
     def _record_outcome(self, plan, outcome):
-        if outcome == 'failed':
+        # Source-derived inputs/results stay in their authorized plan/command
+        # journals; never copy them into reusable skill evidence, even on error.
+        if outcome == 'failed' and not plan.get('observation_dependencies'):
             for reference in plan.get('skill_versions', []):
                 records = plan.get('step_records', [])[reference['step_start']:reference['step_start'] + reference['step_count']]
                 receipts = []

@@ -2221,7 +2221,8 @@ class AnticipationService:
                     with self.lock, self.db:
                         self._preparation_candidate(task, 'resume_incomplete_task', 'Preparar reanudación de la tarea', plan, profile, options,
                             [{'operation_id': source['operation_id'], **checkpoint}])
-            if source.get('state') != 'succeeded' or not ActionLearning._mission(source)['completed']:
+            if (source.get('observation_dependencies') or source.get('state') != 'succeeded'
+                    or not ActionLearning._mission(source)['completed']):
                 continue
             with self.lock:
                 initiated = self.db.execute("SELECT 1 FROM anticipation_suggestions WHERE json_extract(payload,'$.learning_plan_id')=? LIMIT 1", (source['operation_id'],)).fetchone()
@@ -2293,6 +2294,8 @@ class AnticipationService:
             if source.get('preparation_complete') is False:
                 raise ValueError('El plan requiere completar la planificación antes de reanudar')
             return learning, source, None
+        if source.get('observation_dependencies'):
+            raise StaleContext('El contexto observado no se convierte automáticamente en una rutina reutilizable')
         refs = [ref for ref in source.get('skill_versions', []) if ref['id'] == plan['skill_id']
             and ref['version'] == plan['skill_version'] and digest(ref['inputs']) == plan['inputs_hash']]
         if source['state'] != 'succeeded' or not ActionLearning._mission(source)['completed'] or len(refs) != 1:
@@ -2303,7 +2306,8 @@ class AnticipationService:
             if not row:
                 continue
             candidate = ActionLearning._project_compensations(json.loads(row[0]), self.db)
-            if ((candidate.get('conversation_id') or candidate['operation_id']) == item['task_id']
+            if (not candidate.get('observation_dependencies')
+                    and (candidate.get('conversation_id') or candidate['operation_id']) == item['task_id']
                     and ActionLearning._mission(candidate)['completed']
                     and any(ref['id'] == plan['skill_id'] and ref['version'] == plan['skill_version']
                         and digest(ref['inputs']) == plan['inputs_hash'] for ref in candidate.get('skill_versions', []))):

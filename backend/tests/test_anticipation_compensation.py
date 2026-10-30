@@ -1,8 +1,10 @@
-"""Compensated output cannot feed automatic continuation or routine preparation."""
+"""Compensated or source-derived output cannot feed reusable routine preparation."""
+import json
 import unittest
 from unittest.mock import patch
 
 from backend.tests import test_anticipation_grants as fixtures
+from backend.anticipation import StaleContext
 from backend.memory.skill_memory import validate_schema
 from backend.memory.procedural_memory import get_action_env_fingerprint
 
@@ -109,6 +111,52 @@ class CompensationPreparationTests(unittest.TestCase):
         before = len(self.executor.list_operations(100))
         blocked = self.learning.execute(plan['operation_id'], approved=True)
         self.assertEqual(blocked['state'], 'waiting_dependency', blocked)
+        self.assertEqual(len(self.executor.list_operations(100)), before)
+
+    def mark_observed_fixture(self, operation_id):
+        # A source-derived completed plan can use an existing exact skill, but
+        # that is not authorization to turn its inputs into a recurring habit.
+        # Build this historical DTO directly; no real observation is captured.
+        with self.learning.lock, self.learning.db:
+            source = json.loads(self.learning.db.execute('SELECT payload FROM learning_plans WHERE id=?',
+                (operation_id,)).fetchone()[0])
+            source['observation_dependencies'] = [{'target_id': 'synthetic-source', 'consent_digest': 'fixture',
+                'observation_id': 'synthetic-observation', 'generation': 1}]
+            source['plan_hash'] = self.learning._plan_hash(source)
+            source['approved_hash'] = source['plan_hash']
+            self.learning.db.execute('UPDATE learning_plans SET payload=? WHERE id=?',
+                (json.dumps(source), operation_id))
+        return source
+
+    def test_source_derived_completed_plans_do_not_infer_reusable_routine(self):
+        plans = self.routine_evidence()
+        for plan in plans:
+            self.mark_observed_fixture(plan['operation_id'])
+        self.service.tick()
+        self.assertEqual([row for row in self.service.suggestions() if row.get('candidate_kind') == 'prepare_routine'], [])
+        self.assertEqual(self.model.calls, 0)
+
+    def test_routine_source_cannot_be_source_derived_even_with_matching_hash(self):
+        self.routine_evidence()
+        self.service.tick()
+        candidate = next(row for row in self.service.suggestions() if row.get('candidate_kind') == 'prepare_routine')
+        source = self.mark_observed_fixture(candidate['plan']['learning_operation_id'])
+        # A proposal from a prior implementation can bind this exact source
+        # hash. The dedicated source policy must reject it independently.
+        candidate['plan']['source_plan_hash'] = source['plan_hash']
+        with self.service.lock, self.assertRaisesRegex(StaleContext, 'no se convierte'):
+            self.service._preparation_source(candidate)
+
+    def test_routine_consumption_excludes_source_derived_member_of_three_evidences(self):
+        self.routine_evidence()
+        self.service.tick()
+        candidate = next(row for row in self.service.suggestions() if row.get('candidate_kind') == 'prepare_routine')
+        evidence_id = next(key for key in candidate['plan']['evidence_ids'] if key != candidate['plan']['learning_operation_id'])
+        self.mark_observed_fixture(evidence_id)
+        before = len(self.executor.list_operations(100))
+        result = self.service.accept(candidate['suggestion_id'], candidate['plan_hash'])
+        self.assertIn(result['state'], ('FAILED', 'CANCELLED'))
+        self.assertFalse(result.get('preparation_complete'))
         self.assertEqual(len(self.executor.list_operations(100)), before)
 
 

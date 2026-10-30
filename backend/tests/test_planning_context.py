@@ -226,6 +226,171 @@ class SourcePublicationTests(unittest.TestCase):
                 self.assertEqual(policy_acquired, [True], 'Preparation held policy while waiting for commands')
                 self.assertEqual(self.executor.list_operations(), [])
 
+    def test_list_two_plans_takes_policy_before_first_budget_write(self):
+        second, _ = self.learning._new_plan('Segundo objetivo sintético', 'source-plan-two', {}, 'project-a')
+        second['conversation_id'] = 'source-task'
+        self.learning._save(second)
+        for references in (False, True):
+            with self.subTest(observation_dependencies=references):
+                if references:
+                    refs = self.service.provider_context_for_task('source-task', project_id='project-a')['refs']
+                    for key in ('source-plan', 'source-plan-two'):
+                        plan = self.learning.get(key)
+                        plan['observation_dependencies'] = refs
+                        self.learning._save(plan)
+                first_write, configure_started = threading.Event(), threading.Event()
+                errors, results, stores = [], [], []
+                original_store = self.learning._store_model_budget
+
+                def store(plan):
+                    original_store(plan)
+                    stores.append(plan['operation_id'])
+                    if len(stores) == 1:
+                        # This is the concrete boundary before a second row can
+                        # consult policy while the SQL writer is already held.
+                        if not self.service.lock._is_owned():
+                            raise AssertionError('SQL writer acquired before policy')
+                        first_write.set()
+                        if not configure_started.wait(3):
+                            raise AssertionError('Configuration thread did not start')
+
+                def list_plans():
+                    try:
+                        results.extend(self.learning.list_plans('project-a'))
+                    except Exception as exc:
+                        errors.append(repr(exc)); first_write.set()
+
+                def configure():
+                    if not first_write.wait(3):
+                        errors.append('Budget transaction did not start'); return
+                    configure_started.set()
+                    try:
+                        self.service.configure({'paused': False})
+                    except Exception as exc:
+                        errors.append(repr(exc))
+
+                listing = threading.Thread(target=list_plans, daemon=True)
+                configuring = threading.Thread(target=configure, daemon=True)
+                with patch.object(self.learning, '_store_model_budget', side_effect=store):
+                    configuring.start(); listing.start()
+                    listing.join(5); configuring.join(5)
+                self.assertFalse(listing.is_alive() or configuring.is_alive())
+                self.assertEqual(errors, [])
+                self.assertEqual(len(results), 2)
+                self.assertEqual(len(stores), 2)
+
+    def test_repair_cannot_replace_old_permission_with_new_observation_after_revoke(self):
+        original_prompt = self.learning._source_prompt
+        with patch.object(self.model, 'route', wraps=self.model.route) as route:
+            self.response()
+            previous = copy.deepcopy(self.plan['observation_dependencies'])
+
+            def replace_source(plan, messages):
+                new_target = self.target | {'id': 'clipboard-source-two'}
+                self.service.configure({'observation_targets': [new_target]})
+                self.service.tick()
+                prepared = original_prompt(plan, messages)
+                self.assertEqual([ref['target_id'] for ref in prepared[2]], ['clipboard-source-two'])
+                return prepared
+
+            with patch.object(self.learning, '_source_prompt', side_effect=replace_source):
+                with self.assertRaises(NeedsInput):
+                    self.learning._infer(self.plan, 'repair', [
+                        {'role': 'system', 'content': 'Synthetic repair'},
+                        {'role': 'user', 'content': 'PRIVATE_OLD_SOURCE_ECHO from the prior response'}])
+            self.assertEqual(route.call_count, 1)
+        self.assertEqual(self.plan['observation_dependencies'], previous)
+        self.learning._save(self.plan)
+        self.assert_no_echo()
+        payload = ''.join(row[0] for row in self.learning.db.execute('SELECT payload FROM learning_plans'))
+        self.assertNotIn('PRIVATE_OLD_SOURCE_ECHO', payload)
+
+    def test_failed_source_receipt_never_becomes_skill_evidence_after_revoke(self):
+        self.response()
+        target = self.executor.workspace_root / 'PRIVATE_FAILED_SOURCE_ECHO.txt'
+        target.write_text('Synthetic temporary input', encoding='utf-8')
+        prepared = self.commands.prepare('axx.file.sha256', {'path': str(target)}, conversation_id='source-task')
+        target.unlink()
+        receipt = self.commands.execute(prepared['operation_id'], approved=True)
+        self.assertEqual(receipt['state'], 'failed', receipt)
+        skill = self.learning.skills.insert({'id': 'fixture.source-hash', 'version': 1,
+            'trigger': 'fixture.source-hash', 'title': 'Explicit synthetic hash fixture', 'examples': [],
+            'schema': validate_schema({'properties': {'path': {'type': 'string'}}, 'required': ['path']}),
+            'templates': [{'command_id': 'axx.file.sha256', 'inputs': {'path': '{{path}}'}}],
+            'project_id': 'project-a', 'favorite': False, 'checks': ['executor_postconditions'], 'executable': True,
+            'environment': get_action_env_fingerprint(['axx.file.sha256']), 'provenance': {}})
+        self.plan.update(skill_versions=[{'id': skill['id'], 'version': skill['version'],
+            'inputs': {'path': str(target)}, 'step_start': 0, 'step_count': 1}],
+            step_records=[{'operation_id': receipt['operation_id'], 'state': 'failed', 'result': receipt}])
+        journal_before = self.commands.db.execute('SELECT result_json FROM command_runs WHERE operation_id=?',
+            (receipt['operation_id'],)).fetchone()[0]
+        self.revoke()
+        with patch.object(self.learning.skills, 'record', wraps=self.learning.skills.record) as record, \
+                patch.object(self.model, 'record_outcome', create=True) as metrics:
+            self.learning._record_outcome(self.plan, 'failed')
+        record.assert_not_called()
+        metrics.assert_called_once()
+        self.assertEqual(self.learning.db.execute('SELECT COUNT(*) FROM skill_evidence').fetchone()[0], 0)
+        self.assertEqual(self.commands.db.execute('SELECT result_json FROM command_runs WHERE operation_id=?',
+            (receipt['operation_id'],)).fetchone()[0], journal_before)
+
+    def test_repair_leases_old_and_new_refs_even_when_only_new_context_is_selected(self):
+        self.response()
+        old_refs = copy.deepcopy(self.plan['observation_dependencies'])
+        new_target = self.target | {'id': 'clipboard-source-two'}
+        self.service.configure({'observation_targets': [self.target, new_target]})
+        self.service.tick()
+        original_read = self.service.provider_context_for_task
+
+        def select_new(*args, **kwargs):
+            source = original_read(*args, **kwargs)
+            return source | {key: [row for row in source[key] if row['target_id'] == new_target['id']]
+                for key in ('refs', 'observations')}
+
+        def cancel_old(request, cancel_event=None):
+            self.assertEqual({ref['target_id'] for ref in self.plan['observation_dependencies']},
+                {self.target['id'], new_target['id']})
+            self.assertTrue(all(ref in self.plan['observation_dependencies'] for ref in old_refs))
+            self.service.configure({'observation_targets': [new_target]})
+            self.assertTrue(cancel_event.is_set(), 'Revoking the old source did not cancel the combined lease')
+            return {'ok': True, 'message': {'content': 'PRIVATE_OLD_SOURCE_ECHO'}, 'route': {}}
+
+        with patch.object(self.service, 'provider_context_for_task', side_effect=select_new), \
+                patch.object(self.model, 'route', side_effect=cancel_old):
+            with self.assertRaises(NeedsInput):
+                self.learning._infer(self.plan, 'repair', [
+                    {'role': 'system', 'content': 'Synthetic repair'},
+                    {'role': 'user', 'content': 'PRIVATE_OLD_SOURCE_ECHO from the earlier context'}])
+        self.assert_no_echo()
+        self.assertEqual(self.service.provider_context_leases, {})
+
+    def test_more_than_four_combined_source_refs_abstains_before_backend(self):
+        self.response()
+        old_refs = copy.deepcopy(self.plan['observation_dependencies'])
+        new_targets = [self.target | {'id': 'clipboard-source-' + str(index)} for index in range(4)]
+        self.service.configure({'observation_targets': [self.target, *new_targets]})
+        self.service.tick()
+        original_read = self.service.provider_context_for_task
+
+        def select_new(*args, **kwargs):
+            # Each new target remains consented and bounded; the total causal
+            # dependency set still cannot discard the earlier fifth source.
+            with self.service.lock:
+                old_target = self.service.source_state.pop(self.target['id'])
+                try:
+                    return original_read(*args, **kwargs)
+                finally:
+                    self.service.source_state[self.target['id']] = old_target
+
+        with patch.object(self.service, 'provider_context_for_task', side_effect=select_new), \
+                patch.object(self.model, 'route', wraps=self.model.route) as route:
+            with self.assertRaises(NeedsInput):
+                self.learning._infer(self.plan, 'repair', [
+                    {'role': 'system', 'content': 'Synthetic repair'},
+                    {'role': 'user', 'content': 'Prior authorized synthetic context'}])
+        route.assert_not_called()
+        self.assertEqual(self.plan['observation_dependencies'], old_refs)
+
 
 class PlanningContextTests(unittest.TestCase):
     def setUp(self):
