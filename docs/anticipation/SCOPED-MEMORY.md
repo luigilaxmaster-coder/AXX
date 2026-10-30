@@ -31,6 +31,8 @@ Las reparaciones, las versiones configuradas y los comandos recordados conservan
 
 No se borran archivos creados, recibos de comandos, compensaciones, credenciales, emparejamientos ni preferencias de apariencia. Una compensación de un archivo conserva su recorrido de revisión independiente aunque su sesión de aprendizaje se haya olvidado. Las filas de presupuesto no se reinician para conseguir inferencias adicionales.
 
+Los planes olvidados exponen una lista cerrada de encabezados de recuperación: identidad, estado, revisión, recibos y contadores históricos. No copian mensajes, destinos, entregables, verificaciones con contenido, parámetros de habilidades ni campos futuros del snapshot. La misma proyección se aplica al consultar un plan, listar planes, recuperar operaciones del chat y devolver una mutación descartada por olvido. Se comprueban las referencias originales de tarea, contexto y dependencias, incluso antes de terminar la limpieza. La proyección no reescribe el journal; conserva disponibilidad de archivos apartados y no restaura una aprobación.
+
 El contenido heredado sin procedencia comprobable se conserva y queda fuera de selección automática y envío como referencia hasta revisarlo. No se atribuye mediante coincidencias de texto. Los valores iniciales vacíos del contexto no se consideran conocimiento heredado. Esta política puede reducir la reutilización de procedimientos antiguos después del primer olvido.
 
 ## Correcciones naturales
@@ -54,6 +56,7 @@ Ejecutar las pruebas de esta unidad:
 
 ```powershell
 python -m unittest backend.tests.test_task_memory backend.tests.test_command_task_memory backend.tests.test_skill_task_memory backend.tests.test_chat_forgetting backend.tests.test_selection_policy backend.tests.test_session_memory backend.tests.test_workshop_task_memory backend.tests.test_anticipation_task_memory backend.tests.test_legacy_task_memory backend.tests.test_memory_http backend.tests.test_telegram_task_memory -q
+python -m unittest backend.tests.test_forgotten_plan_projection -q
 python -m unittest discover -s backend/connect/tests -q
 node 1.AXX/scripts/test-task-memory.cjs
 ```

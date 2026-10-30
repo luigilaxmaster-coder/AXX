@@ -360,18 +360,37 @@ class ActionLearning:
             task_memory.assert_dependencies(db, plan.get('memory_dependencies', []))
             return plan
         except ValueError:
-            view = json.loads(json.dumps(plan))
-            for field in ('model_data', 'skill_candidate', 'inference_records', 'operational_context', 'revisions', 'preparation', 'goal_progress', 'route_history'):
-                view.pop(field, None)
+            # Forgotten recovery exposes audit headers, never new content-bearing fields.
+            headers = ('kind', 'operation_id', 'command_id', 'conversation_id', 'project_id', 'state',
+                'created_at', 'prepared_at', 'completed_at', 'updated_at', 'plan_hash', 'request_hash',
+                'goal_revision', 'approval_version', 'postconditions_passed', 'goal_confirmed',
+                'cancel_requested', 'pause_requested', 'context_invalidated', 'selection_invalidated',
+                'active_operation_id', 'active_operation_ids', 'memory_scope', 'memory_scope_explicit',
+                'memory_context_id', 'memory_dependencies', 'model_call_limit', 'model_calls_used',
+                'model_calls_confirmed', 'model_calls_reserved', 'model_calls_uncertain',
+                'model_calls_legacy', 'route_requests', 'inference_counts')
+            view = copy.deepcopy({key: plan[key] for key in headers if key in plan})
             view.update(memory_forgotten=True, title='Aprendizaje de sesión olvidado', request='', learned_action_id=None,
+                        message='El aprendizaje de esta tarea ya no se reutiliza; sus recibos se conservan.',
                         approved_hash=None, goal_spec={'intent': 'Aprendizaje olvidado', 'checks': [], 'criteria': []})
             view['steps'] = [{'command_id': step['command_id'], 'inputs': {}, 'memory_forgotten': True} for step in plan.get('steps', [])]
             view['inputs'] = {}
-            view['results'] = [{key:item.get(key) for key in ('operation_id', 'command_id', 'state', 'postconditions_passed')} for item in plan.get('results', [])]
-            view['step_records'] = [{key:item.get(key) for key in ('step_id', 'operation_id', 'state')} for item in plan.get('step_records', [])]
-            if 'mission' in view:
-                view['mission'].update(objective='Aprendizaje olvidado', success_conditions=[], criteria=[], goal_progress=None,
-                    scope={'project_id':plan.get('project_id', ''),'task_id':plan.get('conversation_id'),'resources':[]}, memory_forgotten=True)
+            skill_headers = ('id', 'version', 'policy_revision', 'manual_override', 'step_start', 'step_count')
+            view['skill_versions'] = [copy.deepcopy({key: ref[key] for key in skill_headers if key in ref}) | {'inputs': {}}
+                for ref in plan.get('skill_versions', [])]
+            receipt_headers = ('operation_id', 'command_id', 'state', 'postconditions_passed', 'action_operation_id')
+            view['results'] = [{key: item[key] for key in receipt_headers if key in item} for item in plan.get('results', [])]
+            view['step_records'] = []
+            for item in plan.get('step_records', []):
+                record = {key: item[key] for key in ('step_id', 'operation_id', 'state') if key in item}
+                if isinstance(item.get('result'), dict):
+                    record['result'] = {key: item['result'][key] for key in receipt_headers if key in item['result']}
+                view['step_records'].append(record)
+            compensation_headers = ('step', 'operation_id', 'state', 'revision', 'source_operation_id', 'available_current')
+            view['artifact_compensations'] = [{key: item[key] for key in compensation_headers if key in item}
+                for item in plan.get('artifact_compensations', [])]
+            if 'mission' in plan:
+                view['mission'] = ActionLearning._mission(view) | {'memory_forgotten': True}
             return view
 
     def _save_forgotten(self, rejected):
@@ -397,7 +416,7 @@ class ActionLearning:
             with self.db:
                 self.db.execute('UPDATE learning_plans SET payload=? WHERE id=?', (json.dumps(plan, ensure_ascii=False), plan['operation_id']))
             self.change_revision += 1
-            rejected.clear(); rejected.update(plan)
+            rejected.clear(); rejected.update(self._memory_view(plan, self.db))
             return rejected
 
     def _save_current(self, plan, source_recheck=lambda: None):
