@@ -50,7 +50,7 @@
     function invalidateMemory(id){
         memoryBlocked.add(id);memoryEpochs.set(id,(memoryEpochs.get(id)||0)+1);
         for(const run of memoryRuns)if(run.task_id===id)run.controller.abort();
-        lib.invalidateMemory?.(id);Axx.skillLibrary?.invalidateMemory?.(id);Axx.connect?.invalidateMemory?.(id);
+        lib.invalidateMemory?.(id);Axx.skillLibrary?.invalidateMemory?.(id);Axx.capabilityWorkshop?.invalidateMemory?.(id);Axx.connect?.invalidateMemory?.(id);
         if(active?.id!==id)return;
         clearTimeout(timer);c.cancelRequest();c.streamElement=null;c.brain.lastRoute=null;
     }

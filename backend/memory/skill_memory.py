@@ -23,10 +23,10 @@ def value_hash(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, ensure_ascii=False, allow_nan=False).encode()).hexdigest()
 
 
-def read_skill_state(db, key, version=None, *, project_id=None, task_id=None):
+def read_skill_state(db, key, version=None, *, project_id=None, task_id=None, procedure_library=None):
     """Read the same projection without migrations or locks; the caller owns its SQL connection."""
     view = SkillMemory.__new__(SkillMemory)
-    view.db, view.lock = db, nullcontext()
+    view.db, view.lock, view.procedure_library = db, nullcontext(), procedure_library
     return view.get(key, version, project_id=project_id, task_id=task_id)
 
 
@@ -158,8 +158,8 @@ def bind(skill, inputs, defaults):
 
 
 class SkillMemory:
-    def __init__(self, db, lock):
-        self.db, self.lock = db, lock
+    def __init__(self, db, lock, procedure_library=None):
+        self.db, self.lock, self.procedure_library = db, lock, procedure_library
         with lock, db:
             task_memory.ensure(db)
             selection_policy.ensure(db)
@@ -192,6 +192,23 @@ class SkillMemory:
             if row: return json.loads(row[0])
         return {}
 
+    def resolve_document_references(self, references):
+        if references is None: return []
+        if not isinstance(references, list) or len(references) > 24:
+            raise ValueError('Referencias documentales inválidas')
+        if not references: return []
+        resolve = getattr(getattr(self, 'procedure_library', None), 'resolve_references', None)
+        if not callable(resolve): raise ValueError('La biblioteca documental no está disponible para validar la procedencia')
+        return resolve(references)
+
+    def inherit_document_references(self, target, *sources):
+        references = self.resolve_document_references(target.get('document_references'))
+        for source in sources:
+            for reference in self.resolve_document_references(source.get('document_references')):
+                if reference not in references: references.append(reference)
+        if references: target['document_references'] = self.resolve_document_references(references)
+        return target
+
     def _origin(self, item, *, lesson=False):
         scope = item.get('memory_scope')
         task = item.get('origin_task_id') or (scope.get('task_id') if isinstance(scope, dict) else None)
@@ -208,6 +225,7 @@ class SkillMemory:
         return task, scope
 
     def _assert_origin(self, item, *, lesson=False):
+        self.inherit_document_references(item)
         task, scope = self._origin(item, lesson=lesson)
         dependencies = item['memory_dependencies'] if 'memory_dependencies' in item else self._source_plan(item).get('memory_dependencies', [])
         dependencies = task_memory.assert_dependencies(self.db, dependencies)
@@ -348,6 +366,7 @@ class SkillMemory:
             if not row: raise ValueError('Acción aprendida desconocida')
             skill = json.loads(row[0])
             self._assert_origin(skill)
+            self.inherit_document_references(evidence, skill, self._source_plan({'provenance': {'operation_id': operation_id}}))
             source = evidence | {'provenance': {'operation_id': operation_id}}
             task, scope, dependencies = self._assert_origin(source, lesson=True)
             task_memory.assert_context(self.db, scope, evidence.get('memory_context_id'), task_id=task)
@@ -374,9 +393,9 @@ class SkillMemory:
         with self._write():
             task_memory.assert_context(self.db, memory_scope, memory_context_id)
             source, target = self.get(key, source_version), self.get(key, version)
-            fields = ('templates', 'schema', 'checks', 'environment', 'project_id', 'context_dependencies', 'inference')
-            if source_version >= version or any(source.get(field, [] if field == 'context_dependencies' else None)
-                    != target.get(field, [] if field == 'context_dependencies' else None) for field in fields):
+            fields = ('templates', 'schema', 'checks', 'environment', 'project_id', 'context_dependencies', 'document_references', 'inference')
+            if source_version >= version or any(source.get(field, [] if field in ('context_dependencies', 'document_references') else None)
+                    != target.get(field, [] if field in ('context_dependencies', 'document_references') else None) for field in fields):
                 raise ValueError('La evidencia heredada requiere los mismos pasos y contexto operativo')
             rows = self.db.execute('SELECT operation_id,payload FROM skill_evidence WHERE id=? AND version=?', (key, source_version)).fetchall()
             for operation, raw in rows:
@@ -384,6 +403,7 @@ class SkillMemory:
                 origin = evidence | {'provenance': {'operation_id': operation}}
                 if not self._origin_current(origin, lesson=True): continue
                 task, scope, dependencies = self._assert_origin(origin, lesson=True)
+                self.inherit_document_references(evidence, target)
                 if task: evidence.update(origin_task_id=task, memory_scope=scope)
                 evidence.update(memory_dependencies=dependencies, inherited_from_version=source_version)
                 self.db.execute('INSERT INTO skill_evidence VALUES (?,?,?,?)',

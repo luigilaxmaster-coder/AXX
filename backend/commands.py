@@ -708,12 +708,14 @@ class CommandService:
             raise ValueError('La referencia de memoria requiere una conversación')
         ref = task_memory.assert_context(self.db, result.get('memory_scope'), result.get('memory_context_id'), task_id=task)
         dependencies = task_memory.assert_dependencies(self.db, result.get('memory_dependencies', []))
+        document_references = list(result.get('document_references', []))
         match = re.fullmatch(r'axx\.generated\.([a-f0-9]{32})\.r([1-9][0-9]*)\.[a-f0-9]{16}', result['command_id'])
         if match:
             exists = self.db.execute("SELECT 1 FROM sqlite_master WHERE name='capability_revisions'").fetchone()
             row = self.db.execute('SELECT payload FROM capability_revisions WHERE id=? AND revision=?',
                 ('cap.' + match[1], int(match[2]))).fetchone() if exists else None
             item = json.loads(row[0]) if row else {}
+            document_references += item.get('document_references', [])
             if item.get('memory_forgotten'): raise ValueError('La transformación procede de una sesión olvidada')
             source_scope = item.get('memory_scope')
             task_memory.assert_current(self.db, source_scope)
@@ -722,9 +724,12 @@ class CommandService:
             if source_scope is None and self.db.execute('SELECT 1 FROM memory_task_scopes WHERE generation>0 LIMIT 1').fetchone():
                 raise ValueError('Revisa la procedencia de la transformación antes de reutilizarla')
         if dependencies: result['memory_dependencies'] = dependencies
+        if document_references:
+            document_references = list({json.dumps(value, sort_keys=True): value for value in document_references}.values())
+            result['document_references'] = self.procedures.resolve_references(document_references)
         return ref
 
-    def prepare(self, command_id, inputs, source='text', operation_id=None, *, conversation_id=None, command_mode=None, delivery_mode=None, memory_scope=None, memory_context_id=None, _memory_dependencies=()):
+    def prepare(self, command_id, inputs, source='text', operation_id=None, *, conversation_id=None, command_mode=None, delivery_mode=None, memory_scope=None, memory_context_id=None, _memory_dependencies=(), _document_references=()):
         if command_mode not in (None, 'ask', 'auto_safe'):
             raise ValueError('Modo de comandos inválido')
         if conversation_id is not None:
@@ -758,9 +763,12 @@ class CommandService:
                 candidate = self._validate_inputs(command_id, inputs, require_new=False) if command_id in self.adapters else inputs
                 if existing['command_id'] != command_id or existing_inputs != candidate or existing['source'] != source or existing.get('conversation_id') != conversation_id or existing.get('command_mode') != command_mode or existing.get('delivery_mode', mode) != mode:
                     raise ValueError('operation_id ya está vinculado a otros parámetros')
+                if _document_references and list(_document_references) != existing.get('document_references', []):
+                    raise ValueError('operation_id ya está vinculado a otra fuente documental')
                 return existing | {'replayed': True}
             admission = {'command_id': command_id, 'conversation_id': conversation_id, 'memory_scope': memory_scope,
-                'memory_context_id': memory_context_id, 'memory_dependencies':list(_memory_dependencies)}
+                'memory_context_id': memory_context_id, 'memory_dependencies':list(_memory_dependencies),
+                'document_references':list(_document_references)}
             selected_scope = self._assert_memory_scope(admission)
             if command_mode is not None:
                 # Unknown effects are guarded by target below; they must not prevent
@@ -804,6 +812,7 @@ class CommandService:
                 result['source_operation_id'] = inputs['source_operation_id']
             if selected_scope is not None: result['memory_scope'] = selected_scope
             if admission['memory_dependencies']: result['memory_dependencies'] = admission['memory_dependencies']
+            if admission.get('document_references'): result['document_references'] = admission['document_references']
             if memory_context_id is not None and command_id not in compensation.COMMAND_ACTIONS:
                 result['memory_context_id'] = memory_context_id
             now = time.time()

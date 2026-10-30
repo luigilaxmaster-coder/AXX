@@ -59,7 +59,7 @@
         memoryBody(body,token) { return token?{...body,memory_scope:{...token.memory_scope},memory_context_id:token.memory_context_id}:body; }
         async request(method, path, body, memoryToken=null) {
             this.checkMemory(memoryToken);
-            if(method==='POST'&&/^\/axx-api\/(?:learning|commands)\//.test(path))body=this.memoryBody(body,memoryToken);
+            if(method==='POST'&&/^\/axx-api\/(?:learning|commands|capabilities)\//.test(path))body=this.memoryBody(body,memoryToken);
             const result = await Axx.backendRequest(method, path, body);
             this.checkMemory(memoryToken);
             if (!result || typeof result !== 'object') throw new Error('Respuesta de la biblioteca no válida.');
@@ -286,6 +286,11 @@
                 }
                 const source = document.createElement('p'); source.textContent = 'Origen: ' + result.procedure.source_member;
                 container.append(source);
+                if (result.procedure.document_reference && Axx.capabilityWorkshop?.openDocument) {
+                    const use = document.createElement('button'); use.type = 'button'; use.textContent = 'Usar como referencia';
+                    use.onclick = () => void Axx.capabilityWorkshop.openDocument(result.procedure, this.commands.find(item => item.id === id)?.title);
+                    container.append(use);
+                }
             } catch (error) { if (node('command-library-select').value === id) container.textContent = errorText(error); }
         }
         typedInputs() {
@@ -934,7 +939,7 @@
             Axx.resident?.schedule();
         }
         async planAction(text, options = {}) {
-            const memory=options.memoryToken===undefined?this.captureMemory():options.memoryToken;this.checkMemory(memory);
+            const memory=options.memoryToken===undefined?this.captureMemory():options.memoryToken;this.checkMemory(memory,true);
             if (this.busy || this.operation) { Axx.companion.localNotice('Hay una acción pendiente. Revisa el resultado o cancélala antes de preparar otra.'); return; }
             const serial = ++this.generation, id = Axx.newId();
             const origin = Axx.chatWorkspace?.active?.id;
@@ -945,11 +950,14 @@
             const prefs = Axx.companion.data?.prefs || {};
             try {
                 const plan = options.steps ? await this.request('POST','/axx-api/learning/prepare',{
-                    text,steps:options.steps,operation_id:id,conversation_id:origin,project_id:Axx.skillLibrary?.project() || ''
+                    text,steps:options.steps,operation_id:id,conversation_id:origin,project_id:Axx.skillLibrary?.project() || '',
+                    ...(options.document_references ? {document_references:structuredClone(options.document_references)} : {})
                 },memory) : await this.request('POST', '/axx-api/learning/propose', { text, operation_id:id, conversation_id:origin, context:{...this.actionContext, ...options.context},
                     inputs:options.inputs, project_id:Axx.skillLibrary?.project() || '', selection_mode:prefs.selection_mode || 'manual',
-                    model:prefs.model || '', provider_name:prefs.provider === 'chatgpt' ? '@codex' : prefs.provider === 'bridge' ? prefs.apiConnection || '' : '' },memory);
+                    model:prefs.model || '', provider_name:prefs.provider === 'chatgpt' ? '@codex' : prefs.provider === 'bridge' ? prefs.apiConnection || '' : '',
+                    ...(options.document_references ? {document_references:structuredClone(options.document_references)} : {}) },memory);
                 if (serial !== this.generation) return;
+                this.checkMemory(memory,true);
                 this.lastOperation = plan; this.operation = plan.state === 'awaiting_approval' ? plan : null;
                 this.learningQuestion = plan.state === 'needs_input' ? {request:text,question:plan.message,operation_id:plan.operation_id,conversation_id:origin} : null;
                 this.busy = false; this.renderOperation(plan); this.status(plan.message || plan.state);
@@ -957,9 +965,11 @@
                 this.notice(plan.message || 'No se pudo preparar la acción.', origin, plan.operation_id);
                 Axx.companion.action(this.operation ? 'approval' : 'idle');
                 if (plan.state === 'waiting_capability' && plan.capability_build?.id) await Axx.capabilityWorkshop?.openTask(plan);
-                else if (plan.capability_missing === true && this.isActionRequest(text)) await Axx.capabilityWorkshop?.propose(text);
+                else if (plan.capability_missing === true && this.isActionRequest(text)) await Axx.capabilityWorkshop?.propose(text, 'source_proposal', plan.document_references || []);
             } catch (error) {
                 if (serial !== this.generation) return;
+                try { this.checkMemory(memory,true); }
+                catch { this.operation = this.lastOperation = null; this.renderOperation(null); return; }
                 this.operation = null; this.report(error);
                 this.notice('No se pudo preparar la acción: ' + errorText(error), origin);
             } finally {

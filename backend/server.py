@@ -801,9 +801,9 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                 action = path.rsplit('/', 1)[-1]
                 identity = {'id', 'revision', 'digest'}
                 fields = {
-                    'create': {'definition', 'project_id'},
-                    'generate': {'goal', 'model', 'provider_name', 'selection_mode', 'kind', 'project_id', 'capability_id', 'revision', 'digest', 'conversation_id'},
-                    'revise': identity | {'definition'}, 'validate': identity,
+                    'create': {'definition', 'project_id', 'document_references'},
+                    'generate': {'goal', 'model', 'provider_name', 'selection_mode', 'kind', 'project_id', 'capability_id', 'revision', 'digest', 'conversation_id', 'document_references'},
+                    'revise': identity | {'definition', 'document_references'}, 'validate': identity,
                     'approve': identity | {'confirmed'}, 'prepare': identity | {'conversation_id'},
                     'activate': identity, 'revoke': identity, 'rollback': identity | {'target_revision'},
                 }
@@ -811,17 +811,18 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                 if action not in fields or set(body) - fields[action]: raise ValueError('Campos de capacidad inválidos')
                 captured_memory=self._capture_memory(body) if action!='revoke' else None
                 memory_kwargs={key:copy.deepcopy(body[key]) for key in ('memory_scope','memory_context_id') if key in body}
+                document_kwargs={key:copy.deepcopy(body[key]) for key in ('document_references',) if key in body}
                 if body.get('conversation_id'):
                     if not self.chats: raise ValueError('Conversaciones no disponibles')
                     self.chats.get(body['conversation_id'])
-                if action == 'create': result = self.workshop.create(body.get('definition'), body.get('project_id', ''),**memory_kwargs)
+                if action == 'create': result = self.workshop.create(body.get('definition'), body.get('project_id', ''),**memory_kwargs,**document_kwargs)
                 elif action == 'generate':
                     result = self.workshop.generate(body.get('goal'), model=body.get('model', ''), provider_name=body.get('provider_name', ''),
                         selection_mode=body.get('selection_mode', 'manual'), kind=body.get('kind', 'workflow'), project_id=body.get('project_id', ''),
-                        capability_id=body.get('capability_id'), revision=body.get('revision'), digest=body.get('digest'), conversation_id=body.get('conversation_id'),**memory_kwargs)
+                        capability_id=body.get('capability_id'), revision=body.get('revision'), digest=body.get('digest'), conversation_id=body.get('conversation_id'),**memory_kwargs,**document_kwargs)
                 else:
                     args = (body.get('id'), body.get('revision'), body.get('digest'))
-                    if action == 'revise': result = self.workshop.revise(*args, body.get('definition'),**memory_kwargs)
+                    if action == 'revise': result = self.workshop.revise(*args, body.get('definition'),**memory_kwargs,**document_kwargs)
                     elif action == 'validate': result = self.workshop.validate(*args,**memory_kwargs)
                     elif action == 'approve': result = self.workshop.approve(*args, confirmed=body.get('confirmed', False),**memory_kwargs)
                     elif action == 'prepare': result = self.workshop.prepare_validation(*args, conversation_id=body.get('conversation_id'),**memory_kwargs)
@@ -835,8 +836,8 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                     self._unsupported('Aprendizaje de acciones no disponible')
                     return
                 action = path.rsplit('/', 1)[-1]
-                fields = {'propose': {'text', 'operation_id', 'context', 'model', 'provider_name', 'inputs', 'project_id', 'selection_mode', 'conversation_id', 'goal_spec'},
-                          'prepare': {'text', 'steps', 'operation_id', 'project_id', 'conversation_id', 'goal_spec'},
+                fields = {'propose': {'text', 'operation_id', 'context', 'model', 'provider_name', 'inputs', 'project_id', 'selection_mode', 'conversation_id', 'goal_spec', 'document_references'},
+                          'prepare': {'text', 'steps', 'operation_id', 'project_id', 'conversation_id', 'goal_spec', 'document_references'},
                           'execute': {'operation_id', 'approved', 'plan_hash'}, 'cancel': {'operation_id'}, 'pause': {'operation_id'},
                           'resume': {'operation_id', 'approved', 'plan_hash'}, 'configure': {'id', 'changes'},
                           'repair': {'operation_id', 'text', 'inputs', 'model', 'provider_name', 'selection_mode','goal_spec','goal_revision'},
@@ -856,6 +857,7 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                 fields['memory-apply']={'change','review_hash','confirmed'}
                 if action not in fields or set(body) - fields[action]: raise ValueError('Campos de aprendizaje inválidos')
                 memory_kwargs={key:copy.deepcopy(body[key]) for key in ('memory_scope','memory_context_id') if key in body}
+                document_kwargs={key:copy.deepcopy(body[key]) for key in ('document_references',) if key in body}
                 conversation_id=body.get('conversation_id')
                 if conversation_id is None and isinstance(body.get('memory_scope'),dict):conversation_id=body['memory_scope'].get('task_id')
                 captured_memory=self._capture_memory(body) if action not in ('memory-preview','memory-apply','cancel') else None
@@ -893,11 +895,11 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                         record = self.demonstration.get(reference.get('demonstration_id'))
                         context = context | {'demonstration': planning_reference(record)}
                     result = self.learning.propose(body.get('text'), body.get('operation_id'), context, body.get('model', ''), body.get('provider_name', ''),
-                        inputs=body.get('inputs'), project_id=body.get('project_id', ''), selection_mode=body.get('selection_mode', 'manual'), conversation_id=conversation_id, goal_spec=body.get('goal_spec'),**memory_kwargs)
+                        inputs=body.get('inputs'), project_id=body.get('project_id', ''), selection_mode=body.get('selection_mode', 'manual'), conversation_id=conversation_id, goal_spec=body.get('goal_spec'),**memory_kwargs,**document_kwargs)
                 elif action == 'prepare':
                     if body.get('conversation_id') and self.chats: self.chats.get(body['conversation_id'])
                     result = self.learning.prepare_steps(body.get('text'), body.get('steps'), body.get('operation_id'),
-                        body.get('project_id', ''), conversation_id, goal_spec=body.get('goal_spec'),**memory_kwargs)
+                        body.get('project_id', ''), conversation_id, goal_spec=body.get('goal_spec'),**memory_kwargs,**document_kwargs)
                 elif action == 'revalidate':
                     result=self.learning.prepare_revalidation(body.get('id'),body.get('version'),body.get('inputs'),body.get('project_id',''),conversation_id,body.get('operation_id'),**memory_kwargs)
                 elif action == 'execute':

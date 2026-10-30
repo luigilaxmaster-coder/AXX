@@ -10,7 +10,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 CHECKS = {'contract', 'renderer_build', 'backend_tests', 'browser_tests'}
 SHARED_MEMORY_INPUTS = ('backend/memory/task_memory.py', 'backend/chat_store.py', 'backend/session_memory.py',
-    'backend/server.py', '1.AXX/scripts/chat-workspace.js', '1.AXX/scripts/mobile-gateway.js')
+    'backend/server.py', '1.AXX/scripts/chat-workspace.js', '1.AXX/scripts/mobile-gateway.js',
+    'backend/action_learning.py', 'backend/memory/skill_memory.py', 'backend/capability_workshop.py',
+    'backend/commands.py', 'backend/procedure_library.py', 'backend/anticipation.py',
+    '1.AXX/scripts/capability-workshop.js', '1.AXX/scripts/command-library.js', 'resources/procedure-library.zip')
 
 def read(path):
     return json.loads(path.read_text(encoding='utf-8-sig'))
@@ -97,7 +100,8 @@ def input_hashes(root):
                 continue
             if path.is_file() and path.suffix in {'.js', '.mjs', '.css', '.html', '.json', '.java', '.xml', '.gradle', '.properties', '.py'}:
                 paths.add(path)
-    return {p.relative_to(root).as_posix(): sha(p.read_text(encoding='utf-8-sig')) for p in sorted(paths)}
+    return {p.relative_to(root).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest() if p.suffix == '.zip'
+            else sha(p.read_text(encoding='utf-8-sig')) for p in sorted(paths)}
 
 def validate_receipt(root, path):
     check_contract(root)

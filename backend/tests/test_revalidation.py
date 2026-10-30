@@ -145,7 +145,11 @@ class RevalidationTests(unittest.TestCase):
         self.skill(); plan=self.prepare()
         plain=self.learning.prepare_steps('Consultar archivo de ensayo',[{'command_id':'axx.file.sha256','inputs':{'path':str(self.file)}}],project_id='project-a',conversation_id='task-a')
         legacy_hash=self.learning._hash({'steps':plain['steps'],'skill_versions':plain['skill_versions'],'project_id':'project-a','dependencies':plain['dependencies'],'identities':[{key:row[key] for key in ('step_id','operation_id','input_hash')} for row in plain['step_records']],'goal_spec':plain['goal_spec'],'goal_revision':plain['goal_revision']})
-        self.assertEqual(plain['plan_hash'],legacy_hash)
+        self.assertEqual(plain['approval_version'],2)
+        self.assertNotEqual(plain['plan_hash'],legacy_hash)
+        legacy=copy.deepcopy(plain);legacy.pop('approval_version');legacy['plan_hash']=legacy_hash
+        self.assertEqual(self.learning._plan_hash(legacy),legacy_hash)
+        self.assertEqual(self.learning._records(legacy),legacy['step_records'])
         changed=copy.deepcopy(plan); changed['revalidation']['version']=2
         self.assertNotEqual(self.learning._plan_hash(changed),plan['plan_hash'])
         tool=get_tool('file_inspection')

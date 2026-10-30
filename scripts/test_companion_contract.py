@@ -59,10 +59,10 @@ class CompanionContractTests(unittest.TestCase):
     def test_shared_memory_authority_and_mirror_drift_invalidates_evidence(self):
         for name in contract.SHARED_MEMORY_INPUTS:
             with self.subTest(source=name):
-                path,_=self.receipt();source=self.root/name;original=source.read_text(encoding='utf-8')
-                source.write_text(original+'\n',encoding='utf-8')
+                path,_=self.receipt();source=self.root/name;original=source.read_bytes()
+                source.write_bytes(original+b'\n')
                 with self.assertRaisesRegex(ValueError,'evidence is stale'):contract.validate_receipt(self.root,path)
-                source.write_text(original,encoding='utf-8')
+                source.write_bytes(original)
 
     def test_generated_capacitor_assets_do_not_break_clean_checkout_receipts(self):
         before=contract.input_hashes(self.root)

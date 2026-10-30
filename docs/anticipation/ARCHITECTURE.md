@@ -14,6 +14,8 @@ La [progresión de misiones con criterios verificables](GOAL-PROGRESS.md) amplí
 
 El [olvido por sesión y las correcciones naturales](SCOPED-MEMORY.md) invalidan memoria atribuible y sus derivados mediante referencias durables, conservando archivos, recibos, presupuesto y borradores. Las solicitudes de documentos y las salidas del modelo no modifican las reglas de selección por sí mismas.
 
+El [recorrido documental hasta una habilidad comprobada](DOCUMENT-SKILLS.md) conserva identidades de fuente, sella el candidato y requiere ensayo y aprobación propios. La transferencia verificada con archivos no certifica la demostración semántica general de aplicaciones.
+
 ## Perfiles, ámbitos y permisos
 
 | Perfil | Iniciativa predeterminada | Efecto sobre una orden explícita |

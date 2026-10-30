@@ -201,7 +201,8 @@ class AnticipationService:
                 from .memory.skill_memory import read_skill_state
                 plan = item['plan']
                 skill = read_skill_state(self.db, plan['skill_id'], plan['skill_version'],
-                    project_id=plan.get('context', {}).get('project_id', ''), task_id=item['task_id'])
+                    project_id=plan.get('context', {}).get('project_id', ''), task_id=item['task_id'],
+                    procedure_library=getattr(self.commands, 'procedures', None))
                 if skill.get('requires_review'): return False
         except ValueError: return False
         attributable = item.get('memory_scope') or item.get('task_id') or item.get('conversation_id') or item.get('origin_task_id')
@@ -2000,7 +2001,8 @@ class AnticipationService:
                 from .memory.skill_memory import read_skill_state
                 try:
                     skill = read_skill_state(self.db, item['plan']['skill_id'], item['plan']['skill_version'],
-                        project_id=item['plan'].get('context', {}).get('project_id', ''), task_id=item['task_id'])
+                        project_id=item['plan'].get('context', {}).get('project_id', ''), task_id=item['task_id'],
+                        procedure_library=getattr(self.commands, 'procedures', None))
                     if not selection_policy.allowed(skill, skill['selection_policy'], item['plan'].get('context', {}).get('project_id', '')):
                         invalid = True
                 except ValueError: invalid = True
@@ -2609,7 +2611,8 @@ class AnticipationService:
         if len(evidence) < 3:
             raise StaleContext('La rutina ya no conserva tres resultados vigentes verificados')
         from .memory.skill_memory import read_skill_state
-        skill = read_skill_state(self.db, plan['skill_id'], plan['skill_version'], project_id=source.get('project_id', ''), task_id=item['task_id'])
+        skill = read_skill_state(self.db, plan['skill_id'], plan['skill_version'], project_id=source.get('project_id', ''), task_id=item['task_id'],
+            procedure_library=getattr(self.commands, 'procedures', None))
         if (not skill.get('environment_matches') or not skill.get('effect_verified')
                 or not selection_policy.allowed(skill, skill['selection_policy'], source.get('project_id', ''))):
             raise ValueError('La rutina ya no es compatible con el entorno')
