@@ -22,7 +22,7 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
       if(window.delayMicrophoneBegin){window.delayMicrophoneBegin=false;await new Promise(resolve=>{window.releaseMicrophoneBegin=resolve;});}
       return lease;
      }
-     if(route==='/axx-api/anticipation/microphone/submit')return window.microphoneSubmitBusy?{error:{code:'BUSY',message:'Reconocimiento ocupado'}}:{accepted:true,capture_id:window.microphoneWrongReceipt?'foreign-capture':body.capture_id,characters:0,audio_duration_seconds:0,retained:false,provider_sent:false,raw_content_retained:false};
+     if(route==='/axx-api/anticipation/microphone/submit')return window.microphoneSubmitBusy?{error:{code:'BUSY',message:'Reconocimiento ocupado'}}:{accepted:true,capture_id:window.microphoneWrongReceipt?'foreign-capture':body.capture_id,characters:0,audio_duration_seconds:0,retained:false,provider_sent:false,raw_content_retained:false,...(window.microphoneReceiptOverride||{})};
      if(route==='/axx-api/anticipation/microphone/stop')return {stopped:true};
      if(route==='/axx-api/commands/prepare'){const operation={...body,state:'prepared',requires_approval:false};window.sourceCommands[body.operation_id]=operation;return operation;}
      if(route==='/axx-api/commands/execute'){
@@ -364,6 +364,14 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
   await page.evaluate(()=>{data.source_observations=[{task_id:'task-a',type:'clipboard.changed',observed_at:Date.now()/1000,resource:{sequence:7,text_length:9,text:'RAW_PRIVATE_CLIPBOARD',title:'PRIVATE_WINDOW_TITLE',image:'RAW_PRIVATE_JPEG'},retained:true}];return Axx.anticipation.refresh();});
   assert.match(await page.locator('#anticipation-source-observations').textContent(),/sequence.*7/);
   assert.doesNotMatch(await page.locator('#anticipation-source-observations').textContent(),/RAW_PRIVATE|PRIVATE_WINDOW/,'Public source status only projects metadata, even if an invalid backend response contains raw fields');
+  for(const [state,label,sent] of [['not_sent','Esta observación no se ha enviado',false],['unknown','Envío sin confirmar',null],['runtime_delivered','Axx recibió la solicitud',null],['upstream_confirmed','El destino configurado respondió',true],[null,'Sin observación vinculada al envío',null]]){
+   await page.evaluate(({state,sent})=>{data.source_runtime=[{id:data.observation_targets[0].id,active:true,samples:1,events:1,send_state:state,provider_sent:sent}];Object.assign(data.source_observations[0],{send_state:state,sent_to_provider:sent});return Axx.anticipation.refresh();},{state,sent});
+   assert.ok((await page.locator('#anticipation-source-runtime').textContent()).includes(label));
+   assert.ok((await page.locator('#anticipation-source-observations').textContent()).includes(label));
+   if(sent===null)assert.doesNotMatch(await page.locator('#anticipation-source-runtime').textContent(),/no se ha enviado/);
+  }
+  await page.evaluate(()=>{data.source_runtime[0].unconfirmed_requests=1;return Axx.anticipation.refresh();});
+  assert.match(await page.locator('#anticipation-source-runtime').textContent(),/Envíos sin confirmar: 1/);
   await page.selectOption('#anticipation-target-source','window');
   assert.equal(await page.locator('#anticipation-target-provider').isChecked(),false);
   assert.equal(await page.evaluate(()=>calls.filter(c=>c.body?.command_id==='axx.desktop.list_windows').length),0,'Selecting the source still does not read titles');
@@ -507,6 +515,16 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
   await page.evaluate(()=>{microphoneNow+=31000;return Axx.anticipation.refresh();});
   assert.equal(await page.evaluate(()=>document.hidden),false,'The resident restore button keeps the host window visible');
   assert.equal(await page.evaluate(()=>microphoneStarts.length),9,'Hiding the avatar stops its context microphone without hiding the host window');
+  for(const receipt of [{provider_sent:null},{provider_sent:undefined},{raw_content_retained:null},{raw_content_retained:undefined}]){
+   const previous=await page.evaluate(()=>microphoneStarts.length);
+   await page.evaluate(receipt=>{Axx.app.machine.visible=true;microphoneNow+=31000;window.microphoneReceiptOverride=receipt;},receipt);
+   await page.locator('#anticipation-microphone').uncheck();await page.locator('#anticipation-microphone').check();
+   await page.waitForFunction(previous=>microphoneStarts.length===previous+1,previous);
+   const capture=await page.evaluate(()=>microphoneLeases.at(-1).capture_id);
+   await page.evaluate(()=>Axx.nativeVoice.sessions[0].owner.finish());
+   await page.waitForFunction(id=>calls.some(c=>c.route.endsWith('/microphone/stop')&&c.body.capture_id===id),capture);
+   assert.match(await page.locator('#anticipation-microphone-status').textContent(),/se detuvo/,'An incomplete or uncertain receipt cannot confirm a local-only microphone capture');
+  }
   await page.evaluate(()=>{Axx.app.machine.visible=true;Date.now=originalDateNow;Axx.nativeVoice.activeCapture=null;data.sources.microphone=false;return Axx.anticipation.refresh();});
   assert.deepEqual(errors,[]);
   const html=fs.readFileSync(path.join(__dirname,'../Axx.html'),'utf8');assert.match(html,/scripts\/anticipation\.js/);assert.match(html,/Axx\.anticipation\?\.layout\(g,size,add\)/);

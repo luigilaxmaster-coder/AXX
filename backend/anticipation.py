@@ -1253,7 +1253,65 @@ class AnticipationService:
             if lease:
                 lease['timer'].cancel()
 
-    def _source_runtime(self, config, task_id=None, microphone_available=False):
+    @staticmethod
+    def _source_dispatch_refs(value):
+        if (not isinstance(value, dict) or type(value.get('version')) is not int or value['version'] != 1
+                or not isinstance(value.get('task_id'), str) or not isinstance(value.get('project_id', ''), str)
+                or type(value.get('expires_at')) not in (int, float) or not math.isfinite(value['expires_at'])):
+            raise ValueError('Invalid source dispatch metadata')
+        refs = value.get('refs')
+        if (not isinstance(refs, list) or not 1 <= len(refs) <= 4 or any(
+                not isinstance(ref, dict) or set(ref) != {'target_id', 'observation_id', 'generation', 'consent_digest'}
+                or type(ref['generation']) is not int or not all(isinstance(ref[key], str) for key in ('target_id', 'observation_id', 'consent_digest'))
+                for ref in refs)):
+            raise ValueError('Invalid source dispatch references')
+        return refs
+
+    def _source_dispatches(self, task_ids):
+        columns = {row[1] for row in self.db.execute('PRAGMA table_info(mission_model_calls)')}
+        if not columns or not task_ids:return {}
+        if 'source_dispatch_json' not in columns:return None
+        result = {}
+        try:
+            rows = self.db.execute("SELECT source_dispatch_json FROM mission_model_calls WHERE source_dispatch_json IS NOT NULL AND json_extract(source_dispatch_json,'$.task_id') IN (" + ','.join('?' for _ in task_ids) + ')', tuple(task_ids))
+            for row in rows:
+                if not isinstance(row[0], str) or len(row[0]) > 32768:return None
+                value = json.loads(row[0])
+                refs, stage = self._source_dispatch_refs(value), value.get('send_state', 'unknown')
+                if stage not in ('not_sent', 'unknown', 'runtime_delivered', 'upstream_confirmed'):stage = 'unknown'
+                if value['expires_at'] <= self.clock():stage = 'unknown'
+                receipts = value.get('endpoint_receipts')
+                if stage == 'upstream_confirmed' and not any(
+                    isinstance(receipt, dict) and receipt.get('evidence_kind') == 'http_response_headers'
+                    and receipt.get('endpoint_scope') in ('configured_endpoint', 'gateway_endpoint')
+                    and type(receipt.get('status')) is int and 100 <= receipt['status'] <= 599
+                    and receipt.get('downstream_confirmed') is False
+                    for receipt in (receipts if isinstance(receipts, list) else ())
+                ):stage = 'unknown'
+                if stage == 'runtime_delivered' and value.get('runtime_evidence') not in ('worker_terminal', 'inline_test'):stage = 'unknown'
+                for ref in refs:
+                    key = (value['task_id'], value.get('project_id', ''), canonical(ref))
+                    result.setdefault(key, []).append(stage)
+        except (sqlite3.Error, ValueError, TypeError, KeyError):
+            return None
+        return result
+
+    @staticmethod
+    def _source_send_status(task_id, project_id, ref, dispatches, history_expired=False):
+        if ref is None:
+            return {'send_state': None, 'provider_sent': None, 'sent_to_provider': None,
+                    'send_boundary': None, 'unconfirmed_requests': None}
+        stages = [] if dispatches is None else dispatches.get((task_id, project_id, canonical(ref)), [])
+        uncertain = history_expired or dispatches is None
+        if 'upstream_confirmed' in stages:stage, sent = 'upstream_confirmed', True
+        elif uncertain or 'unknown' in stages:stage, sent = 'unknown', None
+        elif 'runtime_delivered' in stages:stage, sent = 'runtime_delivered', None
+        else:stage, sent = 'not_sent', False
+        return {'send_state': stage, 'provider_sent': sent, 'sent_to_provider': sent,
+                'send_boundary': 'configured_endpoint' if sent is True else None,
+                'unconfirmed_requests': None if uncertain else sum(s in ('unknown', 'runtime_delivered') for s in stages)}
+
+    def _source_runtime(self, config, task_id=None, microphone_available=False, dispatches=None):
         result = []
         for target in config['observation_targets']:
             if task_id is not None and target['task_id'] != task_id:
@@ -1268,13 +1326,14 @@ class AnticipationService:
                 'last_observed_at': last, 'next_observation_at': last + options.get('cadence_seconds', 30) if active and last is not None else None,
                 'error': ('SOURCE_APPLICATION_UNVERIFIED: no se puede comprobar el ámbito de aplicación; no se captura contenido.'
                     if application_unverified else state.get('error') or (None if active else 'Fuente desactivada, fuera de ámbito/horario o autorización caducada.')),
-                'metadata_retained': target['retain'], 'provider_sent': False, 'baseline': state.get('snapshot') is not None,
+                'metadata_retained': target['retain'], 'baseline': state.get('snapshot') is not None,
                 'retention_scope': 'metadata_only', 'derived_plans_allowed': target['retain'],
                 'provider_allowed': target['retain'] and target['send_to_provider'] and self._provider_context_available(target['source']),
                 'context_ready': bool(state.get('raw')) and target['retain'] and target['send_to_provider'] and self._provider_context_available(target['source']) and active,
                 'raw_expires_at': state.get('raw', {}).get('expires_at'),
                 'raw_content_ttl_seconds': RAW_SOURCE_TTL_SECONDS if target['source'] in ('window', 'clipboard', 'microphone') else 0,
-                'truncated': state.get('truncated', False), 'samples': state.get('samples', 0), 'events': state.get('events', 0)})
+                'truncated': state.get('truncated', False), 'samples': state.get('samples', 0), 'events': state.get('events', 0)}
+                | self._source_send_status(target['task_id'], target['project_id'], state.get('provider_reference'), dispatches, state.get('dispatch_history_expired', False)))
         return result
 
     def _folder_snapshot(self, target, options):
@@ -1432,9 +1491,15 @@ class AnticipationService:
             state['raw'] = {'observation_id': old.get('observation_id') if not changed and old else uuid.uuid4().hex,
                 'observed_at': self.clock(), 'expires_at': self.clock() + lifetime, 'deadline': time.monotonic() + lifetime,
                 'metadata': metadata, 'content': content}
+            ref = {'target_id': target['id'], 'consent_digest': state['consent_digest'],
+                   'observation_id': state['raw']['observation_id'], 'generation': state['generation']}
+            if state.get('provider_reference') != ref:state.pop('dispatch_history_expired', None)
+            state['provider_reference'] = ref
             self._expire_source_content()
         else:
             state.pop('raw', None)
+            state.pop('provider_reference', None)
+            state.pop('dispatch_history_expired', None)
         if not changed or not self._take_event_budget(profile, options):
             return
         event_id = 'observation-' + digest([target['id'], metadata, state['generation']])
@@ -1442,6 +1507,7 @@ class AnticipationService:
             'task_id': target['task_id'], 'source': SOURCE_FLAGS[target['source']], 'target_id': target['id'],
             'observed_at': self.clock(), 'resource': metadata, 'context': self._source_context(target),
             'source_authorization_hash': digest(target), 'retained': target['retain'], 'sent_to_provider': False,
+            'provider_reference': copy.deepcopy(state.get('provider_reference')), 'send_state': 'not_sent',
             'retention_scope': 'metadata_only', 'history_kind': 'context_observation_metadata', 'profile': profile, 'at': self.clock(),
             'provenance': {'actor': 'system', 'origin': 'metadata_observation', 'causation_id': target['id'], 'human_preference_evidence': False}}
         self.source_observations = (self.source_observations + [event])[-20:]
@@ -1559,6 +1625,9 @@ class AnticipationService:
         with self.lock:
             self._expire_source_content()
             config = self._config()
+            dispatches = self._source_dispatches({target['task_id'] for target in config['observation_targets']
+                if task_id is None or target['task_id'] == task_id} | {event['task_id'] for event in self.source_observations
+                if task_id is None or event['task_id'] == task_id})
             rows = self._items(task_id)[:100]
             for item in rows:
                 effective, options = self._policy(item['task_id'], item['plan']['inputs']['path'], config, item['plan'].get('context'))
@@ -1589,8 +1658,10 @@ class AnticipationService:
             return config | {'effective_profile': effective, 'suggestions': rows, 'grants': grants, 'routines': stats,
                 'metrics': self._metrics(stats, task_id),
                 'resource_usage': self._resource_usage(),
-                'source_runtime': self._source_runtime(config, task_id, microphone_available=microphone),
-                'source_observations': [copy.deepcopy(event) for event in self.source_observations if task_id is None or event['task_id'] == task_id],
+                'source_runtime': self._source_runtime(config, task_id, microphone_available=microphone, dispatches=dispatches),
+                'source_observations': [copy.deepcopy(event) | self._source_send_status(event['task_id'], event.get('context', {}).get('project_id', ''),
+                    event.get('provider_reference'), dispatches, event.get('dispatch_history_expired', False))
+                    for event in self.source_observations if task_id is None or event['task_id'] == task_id],
                 'capabilities': {'verify_artifact': self._can_verify(), 'physical_execution': False,
                     'mission_steps': self._mission_capability(),
                     'folders': True, 'applications': self._applications_available(), 'provider_send': False,
@@ -2789,12 +2860,37 @@ class AnticipationService:
                 self.db.execute('DELETE FROM anticipation_measurements WHERE task_id=?', (body['task_id'],))
             elif body.get('routine_id') == ROUTINE:
                 self.db.execute('DELETE FROM anticipation_events')
+            if 'source_dispatch_json' in {row[1] for row in self.db.execute('PRAGMA table_info(mission_model_calls)')}:
+                if body.get('task_id'):
+                    self.db.execute("UPDATE mission_model_calls SET source_dispatch_json=NULL WHERE source_dispatch_json IS NOT NULL AND CASE WHEN json_valid(source_dispatch_json) THEN json_extract(source_dispatch_json,'$.task_id')=? ELSE 1 END", (body['task_id'],))
+                elif body.get('routine_id') == ROUTINE:
+                    self.db.execute('UPDATE mission_model_calls SET source_dispatch_json=NULL')
         return {'forgotten_suggestions': len(selected), 'scope': body, 'command_journal_preserved': True}
 
     def _purge(self):
         with self.lock, self.db:
             self.db.execute("DELETE FROM anticipation_privacy WHERE action_operation_id IN (SELECT operation_id FROM operations WHERE state IN ('succeeded','failed','cancelled'))")
             config = self._config()
+            expired_dispatches = set()
+            unknown_dispatches = False
+            if 'source_dispatch_json' in {row[1] for row in self.db.execute('PRAGMA table_info(mission_model_calls)')}:
+                expired = "source_dispatch_json IS NOT NULL AND CASE WHEN json_valid(source_dispatch_json) THEN CASE WHEN json_type(source_dispatch_json,'$.expires_at') IN ('integer','real') THEN json_extract(source_dispatch_json,'$.expires_at')<=? ELSE 1 END ELSE 1 END"
+                for row in self.db.execute('SELECT source_dispatch_json FROM mission_model_calls WHERE ' + expired, (self.clock(),)):
+                    try:
+                        if not isinstance(row[0], str) or len(row[0]) > 32768:raise ValueError()
+                        value = json.loads(row[0])
+                        expired_dispatches.update((value['task_id'], value.get('project_id', ''), canonical(ref)) for ref in self._source_dispatch_refs(value))
+                    except (ValueError, TypeError, KeyError):
+                        unknown_dispatches = True
+                self.db.execute('UPDATE mission_model_calls SET source_dispatch_json=NULL WHERE ' + expired, (self.clock(),))
+            # Forgetting a receipt cannot prove that its earlier input was never sent.
+            for target in config['observation_targets']:
+                state = self.source_state.get(target['id'], {})
+                if unknown_dispatches or (target['task_id'], target['project_id'], canonical(state.get('provider_reference'))) in expired_dispatches:
+                    state['dispatch_history_expired'] = True
+            for event in self.source_observations:
+                if unknown_dispatches or (event['task_id'], event.get('context', {}).get('project_id', ''), canonical(event.get('provider_reference'))) in expired_dispatches:
+                    event['dispatch_history_expired'] = True
             for name, options in config['profiles'].items():
                 cutoff = self.clock() - options['retention_days'] * 86400
                 ids = [row[0] for row in self.db.execute("SELECT suggestion_id FROM anticipation_suggestions WHERE at<? AND json_extract(payload,'$.profile')=? AND state NOT IN ('EXECUTING')", (cutoff, name))]
@@ -2806,6 +2902,9 @@ class AnticipationService:
                 days = config['profiles'].get(event.get('profile'), {}).get('retention_days', event.get('retention_days', 1))
                 if row['at'] < self.clock() - days * 86400:
                     self.db.execute('DELETE FROM anticipation_events WHERE event_id=?', (row['event_id'],))
+                elif unknown_dispatches or (event['task_id'], event.get('context', {}).get('project_id', ''), canonical(event.get('provider_reference'))) in expired_dispatches:
+                    event['dispatch_history_expired'] = True
+                    self.db.execute('UPDATE anticipation_events SET payload=? WHERE event_id=?', (canonical(event), row['event_id']))
 
     def close(self):
         # Same executor -> policy order as result_filter. Parallel reads release

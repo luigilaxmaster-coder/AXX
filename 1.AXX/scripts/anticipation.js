@@ -233,7 +233,7 @@
  if(Axx.nativeVoice?.attach)Axx.nativeVoice.attach(microphoneOwner,{preempt:false,maxCaptureMs:10000,submitAudio:async(payload,binding)=>{
   if(microphone.lease?.capture_id!==binding.capture_id)throw Error('La captura de contexto ya no está vigente.');
   payload.capture_id=binding.capture_id;const result=await api('microphone/submit',payload);
-  if(result.capture_id!==binding.capture_id||result.provider_sent===true||result.raw_content_retained===true)throw Error('El resultado no confirma la captura local autorizada.');
+  if(result.capture_id!==binding.capture_id||result.provider_sent!==false||result.raw_content_retained!==false)throw Error('El resultado no confirma la captura local autorizada.');
   return result;
  },cancelCapture:binding=>{if(microphone.lease?.capture_id===binding.capture_id){microphone.lease=null;microphone.starting=false;++microphone.revision;clearTimeout(microphone.timer);microphone.timer=null;microphone.status='Captura de contexto detenida.';renderMicrophoneStatus();}return stopMicrophoneLease(binding.capture_id);}});
  function renderMicrophoneStatus(){
@@ -301,6 +301,7 @@
   $('anticipation-target-window-status').textContent=targetWindows.length?'Selecciona una ventana. Al guardar se comprobará de nuevo su identidad, sin cambiar el foco.':'No se recibieron ventanas disponibles.';
  }
  function sourceMetadata(resource){const result={};for(const key of ['path','size','identity_hash','process_name','window_id','pid','foreground','sequence','sequence_number','format','bytes','width','height','text_length','content_length','characters','audio_duration_seconds']){const value=resource?.[key];if(['string','number','boolean'].includes(typeof value))result[key]=typeof value==='string'?value.slice(0,4096):value;}return result;}
+ function sourceSendLabel(item){const label=item.send_state===null?'Sin observación vinculada al envío':{not_sent:'Esta observación no se ha enviado',unknown:'Envío sin confirmar',runtime_delivered:'Axx recibió la solicitud; envío al destino sin confirmar',upstream_confirmed:'El destino configurado respondió'}[item.send_state]||'Estado de envío no disponible';return label+(Number.isSafeInteger(item.unconfirmed_requests)&&item.unconfirmed_requests>0?' · Envíos sin confirmar: '+item.unconfirmed_requests:'');}
  function renderSources(){
   syncSourceScope();
   for(const source of ['folders','applications','screen','clipboard','microphone']){const input=$('anticipation-'+source);input.checked=snapshot.sources?.[source]===true;if(['screen','clipboard','microphone'].includes(source))input.disabled=snapshot.capabilities?.[source]!==true;}
@@ -321,11 +322,11 @@
    }
   }
   const runtime=(snapshot.source_runtime||[]).filter(r=>targets.some(t=>t.id===r.id&&t.task_id===task()));
-  $('anticipation-source-runtime').style.whiteSpace='pre-line';$('anticipation-source-runtime').textContent=runtime.length?runtime.map(r=>r.id+' · '+(r.error?'Error: '+r.error:r.active?'Observación activa':'Sin observación activa')+' · Lecturas: '+r.samples+' · Cambios: '+r.events+(r.truncated?' · Exploración parcial':'')).join('\n'):'Sin lecturas de fuentes locales registradas en este chat.';
+  $('anticipation-source-runtime').style.whiteSpace='pre-line';$('anticipation-source-runtime').textContent=runtime.length?runtime.map(r=>r.id+' · '+(r.error?'Error: '+r.error:r.active?'Observación activa':'Sin observación activa')+' · Lecturas: '+r.samples+' · Cambios: '+r.events+(r.truncated?' · Exploración parcial':'')+' · '+sourceSendLabel(r)).join('\n'):'Sin lecturas de fuentes locales registradas en este chat.';
   const observations=$('anticipation-source-observations');observations.replaceChildren();
   for(const item of snapshot.source_observations||[]){
    if(item.task_id!==task())continue;
-   const p=document.createElement('p');p.textContent=new Date(item.observed_at*1000).toLocaleString()+' · '+item.type+' · '+JSON.stringify(sourceMetadata(item.resource))+' · '+(item.retained?'Metadatos conservados':'Metadatos transitorios');p.style.overflowWrap='anywhere';observations.append(p);
+   const p=document.createElement('p');p.textContent=new Date(item.observed_at*1000).toLocaleString()+' · '+item.type+' · '+JSON.stringify(sourceMetadata(item.resource))+' · '+(item.retained?'Metadatos conservados':'Metadatos transitorios')+' · '+sourceSendLabel(item);p.style.overflowWrap='anywhere';observations.append(p);
   }
   const verifiers=$('anticipation-verifiers');verifiers.replaceChildren();
   for(const [format,verifier] of Object.entries(snapshot.capabilities?.verifiers||{})){

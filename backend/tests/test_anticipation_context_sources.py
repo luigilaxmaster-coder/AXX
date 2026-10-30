@@ -101,6 +101,122 @@ class ContextSourceTests(unittest.TestCase):
             self.assertNotIn(value, sql)
             self.assertNotIn(value.encode(), disk)
 
+    def dispatch_row(self, ref, state, request_id='request-one', **changes):
+        self.service.db.execute('''CREATE TABLE IF NOT EXISTS mission_model_calls (
+            plan_id TEXT,request_id TEXT,kind TEXT,state TEXT,charge INTEGER,confirmed INTEGER,
+            reserved_at REAL,settled_at REAL,source_dispatch_json TEXT,
+            PRIMARY KEY(plan_id,request_id))''')
+        value = {'version': 1, 'task_id': 'source-task', 'project_id': '', 'refs': [ref],
+                 'selection': {'mode': 'manual', 'provider_name': 'configured', 'model': 'configured-model'},
+                 'send_state': state, 'created_at': self.now, 'expires_at': self.now + 86400,
+                 'endpoint_receipts': []}
+        if state == 'runtime_delivered':
+            value.update(runtime_received_at=self.now, runtime_evidence='worker_terminal')
+        if state == 'upstream_confirmed':
+            value['endpoint_receipts'] = [{'ordinal': 1, 'profile_id': 'configured',
+                'provider_name': 'configured', 'configured_model': 'configured-model',
+                'endpoint_scope': 'configured_endpoint', 'evidence_kind': 'http_response_headers',
+                'status': 200, 'at': self.now, 'downstream_confirmed': False}]
+        value.update(changes)
+        self.service.db.execute('INSERT OR REPLACE INTO mission_model_calls VALUES (?,?,?,?,?,?,?,?,?)',
+            ('plan-one', request_id, 'plan', 'consumed', 2, 1, self.now, self.now, json.dumps(value)))
+        self.service.db.commit()
+
+    def test_dispatch_projection_uses_receipts_instead_of_attempt_counts(self):
+        self.configure(retain=True, provider=True); self.service.tick()
+        ref = self.service.provider_context_for_task('source-task')['refs'][0]
+        for state, sent in [('not_sent', False), ('unknown', None), ('runtime_delivered', None), ('upstream_confirmed', True)]:
+            with self.subTest(state=state):
+                self.dispatch_row(ref, state)
+                status = self.service.status('source-task')
+                runtime, event = status['source_runtime'][0], status['source_observations'][0]
+                self.assertEqual(runtime['send_state'], state)
+                self.assertIs(runtime['provider_sent'], sent)
+                self.assertEqual(event['send_state'], state)
+                self.assertIs(event['sent_to_provider'], sent)
+        self.dispatch_row(ref, 'unknown', request_id='request-two')
+        status = self.service.status('source-task')
+        self.assertIs(status['source_runtime'][0]['provider_sent'], True)
+        self.assertEqual(status['source_runtime'][0]['unconfirmed_requests'], 1)
+        self.assert_private_not_durable([self.clip['text']])
+
+    def test_dispatch_projection_requires_task_project_and_all_reference_fields(self):
+        self.configure(retain=True, provider=True); self.service.tick()
+        ref = self.service.provider_context_for_task('source-task')['refs'][0]
+        changes = [{'refs': [ref | {'generation': ref['generation'] + 1}]},
+                   {'refs': [ref | {'consent_digest': 'another-consent'}]},
+                   {'refs': [ref | {'observation_id': 'another-observation'}]},
+                   {'refs': [ref | {'target_id': 'another-target'}]},
+                   {'task_id': 'another-task'}, {'project_id': 'another-project'}]
+        for change in changes:
+            with self.subTest(change=change):
+                self.dispatch_row(ref, 'upstream_confirmed', **change)
+                status = self.service.status('source-task')
+                self.assertIs(status['source_runtime'][0]['provider_sent'], False)
+                self.assertIs(status['source_observations'][0]['sent_to_provider'], False)
+        self.dispatch_row(ref, 'upstream_confirmed', endpoint_receipts=[])
+        self.assertIsNone(self.service.status('source-task')['source_runtime'][0]['provider_sent'])
+
+    def test_forget_clears_dispatch_metadata_and_preserves_budget(self):
+        self.configure(retain=True, provider=True); self.service.tick()
+        ref = self.service.provider_context_for_task('source-task')['refs'][0]
+        self.dispatch_row(ref, 'upstream_confirmed')
+        self.service.forget({'task_id': 'source-task'})
+        row = self.service.db.execute('SELECT state,charge,confirmed,source_dispatch_json FROM mission_model_calls').fetchone()
+        self.assertEqual(tuple(row), ('consumed', 2, 1, None))
+        self.assertEqual(self.service.status('source-task')['source_observations'], [])
+        self.assertIsNone(self.service.status('source-task')['source_runtime'][0]['provider_sent'])
+        self.assertIsNone(self.service.status('source-task')['source_runtime'][0]['send_state'])
+
+    def test_raw_expiry_does_not_erase_past_delivery_and_metadata_expiry_is_unknown(self):
+        self.configure(retain=True, provider=True); self.service.tick()
+        ref = self.service.provider_context_for_task('source-task')['refs'][0]
+        self.dispatch_row(ref, 'upstream_confirmed', expires_at=self.now + 120)
+        self.now += 61
+        status = self.service.status('source-task')
+        self.assertFalse(status['source_runtime'][0]['context_ready'])
+        self.assertIs(status['source_runtime'][0]['provider_sent'], True)
+        self.now += 60
+        self.service._purge()
+        self.assertIsNone(self.service.db.execute('SELECT source_dispatch_json FROM mission_model_calls').fetchone()[0])
+        status = self.service.status('source-task')
+        self.assertIsNone(status['source_runtime'][0]['provider_sent'])
+        self.assertIsNone(status['source_observations'][0]['sent_to_provider'])
+        self.dispatch_row(ref, 'not_sent')
+        self.assertIsNone(self.service.status('source-task')['source_runtime'][0]['provider_sent'])
+        self.clip.update(sequence_number=2, text='SYNTHETIC_NEW_PRIVATE_TEXT')
+        self.advance()
+        self.assertIs(self.service.status('source-task')['source_runtime'][0]['provider_sent'], False)
+
+    def test_unreadable_dispatch_ledger_never_claims_no_delivery(self):
+        self.configure(retain=True, provider=True); self.service.tick()
+        ref = self.service.provider_context_for_task('source-task')['refs'][0]
+        self.dispatch_row(ref, 'upstream_confirmed')
+        self.service.db.execute("UPDATE mission_model_calls SET source_dispatch_json='{' ")
+        self.service.db.commit()
+        status = self.service.status('source-task')
+        self.assertEqual(status['source_runtime'][0]['send_state'], 'unknown')
+        self.assertIsNone(status['source_runtime'][0]['provider_sent'])
+        self.assertIsNone(status['source_observations'][0]['sent_to_provider'])
+        self.service._purge()
+        self.assertEqual(tuple(self.service.db.execute('SELECT charge,confirmed,source_dispatch_json FROM mission_model_calls').fetchone()), (2, 1, None))
+        self.assertIsNone(self.service.status('source-task')['source_runtime'][0]['provider_sent'])
+        self.service.db.execute("UPDATE mission_model_calls SET source_dispatch_json='{' ")
+        self.service.db.commit()
+        self.service.forget({'task_id': 'source-task'})
+        self.assertEqual(tuple(self.service.db.execute('SELECT charge,confirmed,source_dispatch_json FROM mission_model_calls').fetchone()), (2, 1, None))
+
+    def test_expiry_of_malformed_reference_metadata_preserves_uncertainty(self):
+        self.configure(retain=True, provider=True); self.service.tick()
+        ref = self.service.provider_context_for_task('source-task')['refs'][0]
+        for refs in [[], [ref | {'unexpected': 'field'}], [ref | {'generation': True}], ['invalid']]:
+            with self.subTest(refs=refs):
+                self.dispatch_row(ref, 'upstream_confirmed', refs=refs, expires_at=self.now - 1)
+                self.assertIsNone(self.service.status('source-task')['source_runtime'][0]['provider_sent'])
+                self.service._purge()
+                self.assertIsNone(self.service.status('source-task')['source_runtime'][0]['provider_sent'])
+                self.assertEqual(tuple(self.service.db.execute('SELECT charge,confirmed,source_dispatch_json FROM mission_model_calls').fetchone()), (2, 1, None))
+
     def test_defaults_permissions_and_unavailable_sources_fail_closed(self):
         self.service.tick()
         self.mocks[2].assert_not_called(); self.mocks[3].assert_not_called()
