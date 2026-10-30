@@ -27,10 +27,15 @@ class TelegramWebAppUITests(unittest.TestCase):
         cls.browser.close()
         cls.playwright.stop()
 
-    def page(self, init=True, width=390, fail_first=False, permissions=None, conversation=None, reduced_motion='no-preference', fragment='', session_error=None):
+    def page(self, init=True, width=390, fail_first=False, permissions=None, conversation=None, reduced_motion='no-preference', fragment='', session_error=None, theme='light'):
         context = self.browser.new_context(viewport={'width': width, 'height': 780}, reduced_motion=reduced_motion)
         context.add_init_script("""(() => {
             let clipboardText = '';
+            const realSetInterval = window.setInterval;
+            window.setInterval = (fn, delay, ...args) => {
+                if (delay === 15000) window.fixturePoll = fn;
+                return realSetInterval(fn, delay, ...args);
+            };
             Object.defineProperty(navigator, 'clipboard', {configurable: true, value: {
                 writeText: async value => { clipboardText = String(value); },
                 readText: async () => clipboardText
@@ -39,7 +44,14 @@ class TelegramWebAppUITests(unittest.TestCase):
         self.addCleanup(context.close)
         page = context.new_page()
         fixture = {'calls': [], 'effects': set(), 'fail_first': fail_first, 'mutations': [], 'errors': {}, 'sessions': [],
-                   'chat_result': None, 'review_expiry': 2000000000}
+                   'chat_result': None, 'review_expiry': 2000000000, 'activity': [
+                       {'id': 'f27038d4-1e3a-41d1-8085-15f51c59ff70', 'state': 'awaiting_approval',
+                        'created_at': 1, 'command_id': '<img src=x onerror=alert(1)>',
+                        'can_cancel': True, 'review_available': True, 'postconditions_passed': False},
+                       {'id': 'b27038d4-1e3a-41d1-8085-15f51c59ff70', 'state': 'running', 'created_at': 2, 'command_id': 'Orden en curso'},
+                       {'id': 'c27038d4-1e3a-41d1-8085-15f51c59ff70', 'state': 'succeeded', 'created_at': 3,
+                        'command_id': 'Orden lista', 'postconditions_passed': True},
+                       {'id': 'd27038d4-1e3a-41d1-8085-15f51c59ff70', 'state': 'succeeded', 'created_at': 4}]}
         if session_error:
             fixture['errors']['/api/session'] = session_error
         state = {'worker_running': True, 'messages': 'not_verified', 'voice_notes': 'not_implemented',
@@ -48,12 +60,15 @@ class TelegramWebAppUITests(unittest.TestCase):
                  'conversation': conversation or {'state': 'configured', 'reason_code': 'READY_FOR_REQUEST',
                      'provider': 'desktop_selected', 'model': '<img src=x onerror=alert(1)>', 'message': 'Selección configurada'},
                  'connection': {'core_bound': True, 'account_running': False, 'bot_running': True, 'checked_at': 1},
-                 'observed_at': 1, 'session_expires_at': 2000000000}
+                 'observed_at': 1, 'session_expires_at': 2000000000, 'remote_confirmations': True}
+        fixture['state'] = state
+        colors = {'bg_color':'#101a29', 'text_color':'#ffffff', 'secondary_bg_color':'#24344b', 'button_color':'#6495ed'} if theme == 'dark' else {'bg_color':'#ffffff', 'text_color':'#111827', 'secondary_bg_color':'#eef1f5', 'button_color':'#2864df'}
         def route(request_route):
             request = request_route.request
             url = request.url
             if url == 'https://telegram.org/js/telegram-web-app.js':
-                sdk = "window.Telegram={WebApp:{initData:" + json.dumps('fixture-data' if init else '') + ",ready(){},expand(){}}};"
+                sdk = "window.Telegram={WebApp:{initData:" + json.dumps('fixture-data' if init else '') + ",colorScheme:" + json.dumps(theme) + ",themeParams:" + json.dumps(colors) + ",ready(){},expand(){}}};"
+                sdk += "for(const [k,v] of Object.entries(window.Telegram.WebApp.themeParams)) document.documentElement.style.setProperty('--tg-theme-'+k.replaceAll('_','-'),v);"
                 request_route.fulfill(status=200, content_type='application/javascript', body=sdk)
                 return
             prefix = 'https://miniapp.fixture.test'
@@ -85,9 +100,7 @@ class TelegramWebAppUITests(unittest.TestCase):
                 request_route.fulfill(status=200, json={'messages': [{'id': 'history-1', 'role': 'assistant',
                     'text': '<img src=x onerror=alert(1)> historial', 'status': 'complete', 'at': 1}], 'has_more': False})
             elif path == '/api/activity':
-                request_route.fulfill(status=200, json={'items': [{'id': 'f27038d4-1e3a-41d1-8085-15f51c59ff70',
-                    'state': 'awaiting_approval', 'created_at': 1, 'command_id': '<img src=x onerror=alert(1)>',
-                    'can_cancel': True, 'review_available': True, 'postconditions_passed': False}]})
+                request_route.fulfill(status=200, json={'items': fixture['activity']})
             elif path == '/api/review':
                 fixture['mutations'].append((path, json.loads(request.post_data)))
                 request_route.fulfill(status=200, json={'state': 'awaiting_approval', 'title': 'Abrir archivo',
@@ -122,10 +135,82 @@ class TelegramWebAppUITests(unittest.TestCase):
         self.assertIn('Abre esta app', page.locator('#connection').inner_text())
         self.assertEqual(fixture['calls'], [])
 
+    def test_recent_summary_filters_and_examples_are_read_only(self):
+        page, fixture = self.page(theme='dark')
+        page.wait_for_function("() => document.querySelector('#count-pending').textContent === '1'")
+        self.assertEqual(page.locator('.character').get_attribute('data-empty'), 'true')
+        self.assertLessEqual(page.locator('.character').bounding_box()['height'], 96)
+        self.assertEqual(page.locator('#count-running').inner_text(), '1')
+        self.assertEqual(page.locator('#count-completed').inner_text(), '2')
+        self.assertIn('30', page.locator('#home').inner_text())
+        self.assertEqual(page.locator('#activity-badge').inner_text(), '1')
+        self.assertTrue(page.locator('#review-pending').is_visible())
+        page.evaluate("""() => {const banner=document.createElement('p'); banner.textContent='DATOS SIMULADOS'; banner.id='fixture-banner'; document.querySelector('main').prepend(banner);} """)
+        target = ROOT / 'build' / 'telegram-miniapp-home-preview.png'
+        target.parent.mkdir(parents=True, exist_ok=True)
+        page.screenshot(path=str(target), full_page=True)
+        page.locator('#review-pending').click()
+        self.assertTrue(page.locator('#activity').is_visible())
+        self.assertEqual(page.locator('[data-activity-filter="pending"]').get_attribute('aria-pressed'), 'true')
+        for group in ('running', 'completed', 'all'):
+            page.locator(f'[data-activity-filter="{group}"]').click()
+            self.assertEqual(page.locator(f'[data-activity-filter="{group}"]').get_attribute('aria-pressed'), 'true')
+        self.assertEqual(fixture['mutations'], [])
+        page.screenshot(path=str(ROOT / 'build' / 'telegram-miniapp-activity-preview.png'), full_page=True)
+        page.locator('[data-pane="chat"]').click()
+        example = page.locator('[data-example]').first
+        value = example.get_attribute('data-example')
+        example.click()
+        self.assertEqual(page.locator('#draft').input_value(), value)
+        self.assertEqual(fixture['mutations'], [])
+
+    def test_remote_permission_comes_from_top_level(self):
+        page, fixture = self.page()
+        page.wait_for_selector('#send:not([disabled])', state='attached')
+        page.locator('[data-pane="status"]').click()
+        self.assertIn('Confirmaciones desde Telegram', page.locator('#permissions').inner_text())
+        self.assertEqual(page.locator('#permissions dt').filter(has_text='Confirmaciones desde Telegram').locator('xpath=following-sibling::dd[1]').inner_text(), 'Concedido')
+        fixture['state']['remote_confirmations'] = False
+        fixture['state']['permissions']['remote_confirmations'] = True
+        page.locator('#refresh').click()
+        page.wait_for_function("() => [...document.querySelectorAll('#permissions dt')].find(x => x.textContent.includes('Confirmaciones desde Telegram'))?.nextElementSibling.textContent === 'No concedido'")
+
+    def test_poll_and_filters_preserve_review_and_result_without_automatic_decision(self):
+        page, fixture = self.page()
+        page.locator('[data-pane="activity"]').click()
+        page.get_by_role('button', name='Revisar orden').click()
+        page.wait_for_selector('#review-card:not([hidden])')
+        page.locator('[data-activity-filter="running"]').click()
+        page.evaluate('window.fixturePoll()')
+        page.wait_for_timeout(150)
+        self.assertTrue(page.locator('#review-card').is_visible())
+        self.assertTrue(page.locator('#review-confirm').is_enabled())
+        self.assertEqual([path for path, _ in fixture['mutations'] if path == '/api/decision'], [])
+        page.locator('#review-confirm').click()
+        page.wait_for_function("() => document.querySelector('#error').textContent.includes('Verificado')")
+        page.evaluate('window.fixturePoll()')
+        page.wait_for_timeout(150)
+        self.assertIn('Verificado', page.locator('#error').inner_text())
+        page.reload()
+        page.wait_for_selector('#send:not([disabled])', state='attached')
+        self.assertEqual(len([path for path, _ in fixture['mutations'] if path == '/api/decision']), 1)
+
+    def test_large_unicode_draft_does_not_post_or_clear(self):
+        page, fixture = self.page()
+        page.wait_for_selector('#send:not([disabled])', state='attached')
+        page.locator('[data-pane="chat"]').click()
+        text = '😀' * 5000
+        page.locator('#draft').fill(text)
+        page.locator('#send').click()
+        page.wait_for_function("() => document.querySelector('#error').textContent.includes('demasiado largo')")
+        self.assertEqual(page.locator('#draft').input_value(), text)
+        self.assertEqual([path for path, _ in fixture['mutations'] if path == '/api/chat'], [])
+        self.assertEqual(fixture['effects'], set())
+
     def test_review_displays_exact_inputs_and_confirms_once(self):
         page, fixture = self.page()
         page.wait_for_selector('#send:not([disabled])', state='attached')
-        page.get_by_role('button', name='Actividad', exact=True).click()
+        page.locator('[data-pane="activity"]').click()
         page.get_by_role('button', name='Revisar orden').click()
         page.wait_for_selector('#review-card:not([hidden])')
         self.assertIn('<img src=x onerror=alert(1)>', page.locator('#review-inputs').inner_text())
@@ -173,7 +258,7 @@ class TelegramWebAppUITests(unittest.TestCase):
         page.locator('#send').click()
         page.wait_for_function("() => document.querySelector('#messages').textContent.includes('respuesta')")
         self.assertIn('<img src=x', page.locator('#messages').inner_text())
-        page.get_by_role('button', name='Actividad', exact=True).click()
+        page.locator('[data-pane="activity"]').click()
         page.wait_for_function("() => document.querySelector('#activity-list').textContent.includes('img')")
         self.assertEqual(page.locator('main img, main svg').count(), 0)
         page.evaluate("""() => {const banner=document.createElement('p'); banner.textContent='PREVISUALIZACIÓN SIMULADA'; banner.id='fixture-banner'; document.querySelector('main').prepend(banner);} """)
@@ -190,10 +275,13 @@ class TelegramWebAppUITests(unittest.TestCase):
         page.wait_for_selector('#recover:not([hidden])')
         self.assertEqual(page.locator('#draft').input_value(), 'Una solicitud de prueba')
         self.assertTrue(page.locator('#send').is_disabled())
+        self.assertTrue(page.locator('#draft').is_disabled())
+        self.assertTrue(page.locator('[data-example]').first.is_disabled())
         page.reload()
         page.wait_for_selector('#recover:not([hidden]):not([disabled])', state='attached')
         page.get_by_role('button', name='Chat', exact=True).click()
         self.assertEqual(page.locator('#draft').input_value(), 'Una solicitud de prueba')
+        self.assertTrue(page.locator('[data-example]').first.is_disabled())
         page.locator('#recover').click()
         page.wait_for_function("() => document.querySelector('#error').textContent.includes('Estado consultado')")
         self.assertEqual(len(fixture['calls']), 1)
@@ -203,6 +291,21 @@ class TelegramWebAppUITests(unittest.TestCase):
         self.assertEqual(fixture['calls'][0]['request_id'], fixture['calls'][1]['request_id'])
         self.assertEqual(len(fixture['effects']), 1)
         self.assertEqual(page.locator('#draft').input_value(), '')
+
+    def test_legacy_oversized_pending_stays_intact_and_cannot_retry(self):
+        page, fixture = self.page()
+        oversized = '😀' * 5000
+        page.evaluate("""text => {sessionStorage.setItem('axx.telegram.draft', text); sessionStorage.setItem('axx.telegram.pending', JSON.stringify({text, request_id:'f27038d4-1e3a-41d1-8085-15f51c59ff70'}));}""", oversized)
+        page.reload()
+        page.wait_for_selector('#retry:not([hidden]):not([disabled])', state='attached')
+        page.locator('[data-pane="chat"]').click()
+        self.assertTrue(page.locator('#draft').is_disabled())
+        self.assertEqual(page.locator('#draft').input_value(), oversized)
+        page.locator('#retry').click()
+        page.wait_for_function("() => document.querySelector('#error').textContent.includes('Consulta su estado')")
+        self.assertNotIn('Acórtalo', page.locator('#error').inner_text())
+        self.assertEqual(page.locator('#draft').input_value(), oversized)
+        self.assertEqual([path for path, _ in fixture['mutations'] if path == '/api/chat'], [])
 
     def test_permissions_blocked_provider_and_cancellation_contract(self):
         denied = {'conversation': False, 'voice_notes': False, 'files': False, 'pc_commands': False, 'private_calls': False}
@@ -216,7 +319,7 @@ class TelegramWebAppUITests(unittest.TestCase):
         page.get_by_role('button', name='Ajustes', exact=True).click()
         self.assertIn('No concedido', page.locator('#permissions').inner_text())
         page, fixture = self.page()
-        page.get_by_role('button', name='Actividad', exact=True).click()
+        page.locator('[data-pane="activity"]').click()
         page.get_by_role('button', name='Solicitar cancelación').click()
         page.wait_for_function("() => document.querySelector('#error').textContent.includes('cancelación enviada')")
         self.assertEqual(fixture['mutations'], [('/api/cancel', {'operation_id': 'f27038d4-1e3a-41d1-8085-15f51c59ff70', 'csrf': 'fixture-csrf'})])
@@ -231,13 +334,28 @@ class TelegramWebAppUITests(unittest.TestCase):
         fixture['errors']['/api/state'] = (403, 'PERMISSION_DENIED')
         page.locator('#refresh').click()
         page.wait_for_function("() => document.querySelector('#error').textContent.toLowerCase().includes('permiso')")
-        self.assertTrue(page.locator('#send').is_enabled())
+        self.assertTrue(page.locator('#send').is_disabled())
+        del fixture['errors']['/api/state']
+        page.locator('#refresh').click()
+        page.wait_for_selector('#send:not([disabled])', state='attached')
         fixture['errors']['/api/state'] = (401, 'SESSION_EXPIRED')
         page.locator('#refresh').click()
         page.wait_for_function("() => document.querySelector('#send').disabled")
         self.assertIn('sesión', page.locator('#connection').inner_text().lower())
 
-    def test_pairing_fragment_sent_once_and_cleared_only_after_success(self):
+    def test_history_permission_denial_clears_history_preserves_draft(self):
+        page, fixture = self.page()
+        page.wait_for_selector('#send:not([disabled])', state='attached')
+        page.locator('[data-pane="chat"]').click()
+        page.wait_for_function("() => document.querySelector('#messages').textContent.includes('historial')")
+        page.locator('#draft').fill('Borrador que debe conservarse')
+        fixture['errors']['/api/history'] = (403, 'PERMISSION_DENIED')
+        page.locator('[data-pane="home"]').click()
+        page.locator('[data-pane="chat"]').click()
+        page.wait_for_function("() => !document.querySelector('#messages').textContent.includes('onerror')")
+        self.assertEqual(page.locator('#draft').input_value(), 'Borrador que debe conservarse')
+
+    def test_pairing_fragment_is_consumed_once_and_removed_even_on_failure(self):
         pairing = 'axx_' + 'x' * 43
         page, fixture = self.page(fragment='#pairing=' + pairing)
         page.wait_for_selector('#send:not([disabled])', state='attached')
@@ -246,12 +364,15 @@ class TelegramWebAppUITests(unittest.TestCase):
         page, fixture = self.page(fragment='#pairing=' + pairing, session_error=(403, 'PAIRING_REQUIRED'))
         page.wait_for_function("() => document.querySelector('#connection').textContent.includes('QR')")
         self.assertEqual(fixture['sessions'][0]['pairing_token'], pairing)
-        self.assertEqual(page.evaluate('location.hash'), '#pairing=' + pairing)
+        self.assertEqual(page.evaluate('location.hash'), '')
+        page, fixture = self.page(init=False, fragment='#pairing=' + pairing + '&tab=chat')
+        self.assertEqual(page.evaluate('location.hash'), '#tab=chat')
+        self.assertEqual(fixture['sessions'], [])
 
     def test_viewports_text_scaling_keyboard_and_reduced_motion(self):
-        for width in (339, 390, 768):
-            with self.subTest(width=width):
-                page, _ = self.page(width=width, reduced_motion='reduce')
+        for width, theme in ((320, 'light'), (390, 'light'), (390, 'dark'), (768, 'dark')):
+            with self.subTest(width=width, theme=theme):
+                page, _ = self.page(width=width, reduced_motion='reduce', theme=theme)
                 page.wait_for_selector('#send:not([disabled])', state='attached')
                 page.evaluate("document.documentElement.style.fontSize='170%'")
                 self.assertLessEqual(page.evaluate('document.documentElement.scrollWidth'), width)
@@ -263,8 +384,9 @@ class TelegramWebAppUITests(unittest.TestCase):
                 page.keyboard.press('Enter')
                 self.assertTrue(page.locator('#chat').is_visible())
                 self.assertTrue(page.evaluate("matchMedia('(prefers-reduced-motion: reduce)').matches"))
-                for name in ('Actividad', 'Ajustes', 'Inicio'):
-                    page.get_by_role('button', name=name, exact=True).click()
+                self.assertEqual(page.evaluate("getComputedStyle(document.querySelector('nav')).position"), 'sticky')
+                for pane in ('activity', 'status', 'home'):
+                    page.locator(f'[data-pane="{pane}"]').click()
                     self.assertLessEqual(page.evaluate('document.documentElement.scrollWidth'), width)
 
 

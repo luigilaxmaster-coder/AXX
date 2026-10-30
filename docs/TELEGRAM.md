@@ -25,6 +25,14 @@ debe permanecer encendida y conectada a Internet.
    comandos y acciones mantienen los permisos y las aprobaciones de la PC.
    Si un envío queda pendiente, consulta su estado antes de reintentarlo.
 
+En **Inicio**, el resumen corresponde a las últimas 30 solicitudes recibidas.
+**Revisar pendientes** abre las órdenes que tienen una revisión disponible.
+En **Actividad**, puedes filtrar por pendientes, en curso o finalizadas; abre el
+resultado para comprobar si se verificó. Filtrar no ejecuta ninguna acción.
+Los ejemplos de **Chat** solo rellenan el borrador: tú decides cuándo enviarlo.
+Si se pierde la conexión, la app marca los datos anteriores como desactualizados
+y conserva el borrador y el identificador de cualquier envío pendiente.
+
 Si es la primera configuración y faltan datos de aplicación o del bot, abre
 **Opciones avanzadas** en ese mismo panel. Los datos se introducen solo en la PC:
 `api_id`, `api_hash`, ID numérico de tu cuenta personal, token del bot y dirección

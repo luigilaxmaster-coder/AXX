@@ -6,14 +6,22 @@
   const names = { messages: 'Mensajes', voice_notes: 'Notas de voz', files: 'Archivos', pc_commands: 'Acciones en PC', private_calls: 'Llamadas privadas' };
   const labels = { configured: 'Configurado', not_verified: 'Pendiente de prueba', not_implemented: 'Todavía no implementado', unavailable: 'No disponible', not_configured: 'Sin configurar' };
   let csrf = '', busy = false, avatar = null, pending = null, state = null, lastRtt = null, lastSync = null, pane = 'home', reviewToken = null, reviewBusy = false, reviewTimer = null, reviewDeadline = 0;
+  let activityItems = null, activityFilter = 'all', activityRequest = 0;
   try {
     pending = JSON.parse(sessionStorage.getItem('axx.telegram.pending') || 'null');
     if (!pending || typeof pending.request_id !== 'string' || typeof pending.text !== 'string') pending = null;
     $('draft').value = sessionStorage.getItem('axx.telegram.draft') || '';
   } catch { pending = null; }
   const notice = text => { $('error').textContent = text; };
+  function clearPrivateActivity() {
+    activityItems = null; activityRequest++; clearReview(); $('review-card').hidden = true;
+    $('activity-list').textContent = 'No hay acceso a la actividad.';
+    for (const id of ['count-pending', 'count-running', 'count-completed']) $(id).textContent = '—';
+    $('activity-badge').hidden = true; $('review-pending').hidden = true;
+    $('summary-freshness').textContent = $('activity-freshness').textContent = 'Sin acceso a los datos.';
+  }
   function expire() {
-    csrf = ''; state = null; clearReview(); $('review-card').hidden = true; $('connection').textContent = 'Sesión vencida o acceso denegado. Reabre Axx desde el menú de Telegram.';
+    csrf = ''; state = null; clearPrivateActivity(); $('messages').textContent = 'Abre Axx de nuevo para consultar el historial.'; $('connection').textContent = 'Sesión vencida o acceso denegado. Reabre Axx desde el menú de Telegram.';
     notice('No se pudo autorizar la solicitud. El borrador y el envío pendiente se conservan.'); paint();
   }
   async function request(path, body) {
@@ -26,7 +34,7 @@
         let code = '';
         try { code = (await response.json()).error; } catch { /* No diagnostic data from the response. */ }
         if (code === 'PAIRING_REQUIRED') {
-          csrf = ''; state = null; paint();
+          csrf = ''; state = null; clearPrivateActivity(); $('messages').textContent = 'Vincula la Mini App para consultar el historial.'; paint();
           $('connection').textContent = 'Vincula esta Mini App desde el QR en Herramientas → Telegram de tu PC.';
           throw new Error('Vincula esta Mini App desde el QR en Herramientas → Telegram de tu PC.');
         }
@@ -49,7 +57,8 @@
   }
   function paint() {
     const valid = !!csrf && !busy, allowed = state?.permissions?.conversation === true || state?.permissions?.pc_commands === true;
-    $('draft').disabled = !valid || !allowed;
+    $('draft').disabled = !valid || !allowed || !!pending;
+    for (const example of document.querySelectorAll('[data-example]')) example.disabled = $('draft').disabled;
     $('send').disabled = !valid || !allowed || !!pending;
     $('recover').hidden = !pending; $('recover').disabled = !valid;
     $('retry').hidden = !pending; $('retry').disabled = !valid || !allowed;
@@ -67,12 +76,13 @@
     item.textContent = String(text || '') + (status ? `\n${status}` : ''); $('messages').append(item);
   }
   function appearance(value) {
+    $('avatar').parentElement.dataset.empty = String(!value || !window.Axx);
     if (!value || !window.Axx) { $('avatar').hidden = true; $('avatar-status').hidden = false; return; }
     try {
       const settings = Axx.normalizeSettings({ ...value.settings, reducedMotion: matchMedia('(prefers-reduced-motion: reduce)').matches });
       if (!avatar) { $('avatar').hidden = false; avatar = new Axx.MobileRenderer($('avatar'), settings); avatar.startLoop(); }
       $('avatar').hidden = false; avatar.configure(settings); avatar.setForm(settings.form); avatar.setStudio(value.studio || {}); avatar.setCamera20(value.camera); avatar.setFinish(value.finish || 'obsidian'); $('avatar-status').hidden = true;
-    } catch { $('avatar-status').textContent = 'No se pudo mostrar el personaje. Los controles siguen disponibles.'; }
+    } catch { $('avatar').hidden = true; $('avatar-status').hidden = false; $('avatar').parentElement.dataset.empty = 'true'; $('avatar-status').textContent = 'No se pudo mostrar el personaje. Los controles siguen disponibles.'; }
   }
   function renderState(value) {
     state = value; lastSync = new Date();
@@ -83,8 +93,8 @@
     $('provider-notice').textContent = conv.state && !['ready', 'available', 'configured'].includes(conv.state) ? (conv.message || 'El proveedor de conversación no está disponible. Puedes consultar los comandos autorizados.') : '';
     pairs($('capabilities'), Object.entries(names).map(([key, label]) => [label, labels[value[key]] || value[key] || 'No disponible']));
     const permNames = { conversation: 'Conversación', voice_notes: 'Notas de voz', files: 'Archivos', pc_commands: 'Acciones en PC', remote_confirmations: 'Confirmaciones desde Telegram', private_calls: 'Llamadas privadas' };
-    pairs($('permissions'), Object.entries(permNames).map(([key, label]) => [label, value.permissions?.[key] === true ? 'Concedido' : value.permissions?.[key] === false ? 'No concedido' : 'No disponible']));
-    pairs($('system-state'), [['Núcleo', c.core_bound ? 'Conectado' : 'No disponible'], ['Cuenta Telegram', c.account_running ? 'Activa' : 'No disponible'], ['Bot', c.bot_running ? 'Activo' : 'No disponible'], ['Proveedor', conv.provider === 'desktop_selected' ? 'Seleccionado en escritorio' : 'No disponible'], ['Modelo', conv.model || 'No disponible'], ['Sesión hasta', value.session_expires_at ? formatTime(value.session_expires_at) : 'No disponible'], ['Tiempo de respuesta', lastRtt == null ? 'No disponible' : `${lastRtt} ms`], ['Última sincronización', lastSync.toLocaleTimeString()]]);
+    pairs($('permissions'), Object.entries(permNames).map(([key, label]) => { const enabled = key === 'remote_confirmations' ? value.remote_confirmations : value.permissions?.[key]; return [label, enabled === true ? 'Concedido' : enabled === false ? 'No concedido' : 'No disponible']; }));
+    pairs($('system-state'), [['Núcleo', c.core_bound ? 'Conectado' : 'No disponible'], ['Cuenta Telegram', c.account_running ? 'Activa' : 'No disponible'], ['Bot', c.bot_running ? 'Activo' : 'No disponible'], ['Proveedor', conv.provider === 'desktop_selected' ? 'Seleccionado en escritorio' : 'No disponible'], ['Modelo', conv.model || 'No disponible'], ['Sesión hasta', value.session_expires_at ? formatTime(value.session_expires_at) : 'No disponible'], ['Tiempo de respuesta', lastRtt == null ? 'No disponible' : `${lastRtt} ms`], ['Última consulta', lastSync.toLocaleTimeString()]]);
     const safeCode = text => typeof text === 'string' && /^[A-Z_]{1,64}$/.test(text) ? text : null;
     const safeState = text => typeof text === 'string' && /^[a-z_]{1,40}$/.test(text) ? text : 'unavailable';
     $('diagnostics').textContent = JSON.stringify({ connection: { core_bound: !!c.core_bound, account_running: !!c.account_running, bot_running: !!c.bot_running }, conversation_state: safeState(conv.state), reason_code: safeCode(conv.reason_code), capabilities: Object.fromEntries(Object.keys(names).map(key => [key, safeState(value[key])])), rtt_ms: lastRtt, last_sync: lastSync.toISOString() }, null, 2);
@@ -94,10 +104,10 @@
     const date = new Date(typeof value === 'number' && value < 1e12 ? value * 1000 : value);
     return Number.isNaN(date.getTime()) ? 'No disponible' : date.toLocaleString();
   }
-  async function refresh() {
+  async function refresh(silent = false) {
     if (!csrf) return;
-    try { renderState(await request('/api/state')); notice(''); }
-    catch (error) { if (csrf) { if (error.code !== 'PERMISSION_DENIED') $('connection').textContent = 'Sin conexión · estado anterior desactualizado'; notice(error.message); } }
+    try { const value = await request('/api/state'); if (!csrf) return; renderState(value); await activity(silent); }
+    catch (error) { if (csrf) { if (error.code === 'PERMISSION_DENIED') { state = null; clearPrivateActivity(); $('messages').textContent = 'No hay acceso al historial.'; $('connection').textContent = 'Acceso denegado.'; paint(); } else $('connection').textContent = 'Sin conexión · estado anterior desactualizado'; if (!silent) notice(error.message); } }
   }
   async function history() {
     if (!csrf) return;
@@ -106,25 +116,54 @@
       return;
     }
     try {
-      const value = await request('/api/history'); $('messages').replaceChildren();
+      const value = await request('/api/history'); if (!csrf || state?.permissions?.conversation !== true) return; $('messages').replaceChildren();
       for (const item of (Array.isArray(value.messages) ? value.messages.slice(-50) : [])) message(item.role, item.text, item.status || '');
       if (!$('messages').children.length) message('assistant', 'El historial está vacío.');
       $('history-more').hidden = !value.has_more;
-    } catch (error) { notice(error.message); }
+    } catch (error) { if (error.code === 'PERMISSION_DENIED') { $('messages').textContent = 'No hay acceso al historial.'; $('history-more').hidden = true; } notice(error.message); }
   }
   async function copy(text) {
     try { await navigator.clipboard.writeText(text); notice('Copiado.'); }
     catch { notice(`No se pudo copiar. Mantén pulsado para seleccionar: ${text}`); }
   }
-  async function activity() {
+  function activityGroup(item) {
+    if (['prepared', 'awaiting_approval', 'pending'].includes(item.state)) return 'pending';
+    if (item.state === 'running') return 'running';
+    if (['succeeded', 'completed', 'failed', 'cancelled', 'expired'].includes(item.state)) return 'completed';
+    return 'unknown';
+  }
+  async function activity(silent = false) {
     if (!csrf) return;
+    const requestId = ++activityRequest;
     try {
       const value = await request('/api/activity'), items = Array.isArray(value.items) ? value.items : [];
+      if (!csrf || requestId !== activityRequest) return items;
+      activityItems = items;
+      const timestamp = new Date().toLocaleTimeString();
+      $('summary-freshness').textContent = $('activity-freshness').textContent = 'Última consulta: ' + timestamp;
+      renderActivity();
+      return items;
+    } catch (error) {
+      if (error.code === 'PERMISSION_DENIED') clearPrivateActivity();
+      else if (requestId === activityRequest) $('summary-freshness').textContent = $('activity-freshness').textContent = 'No se pudo actualizar; los datos anteriores pueden estar desactualizados.';
+      if (!silent) notice(error.message);
+      return null;
+    }
+  }
+  function renderActivity() {
+      if (!activityItems) return;
+      const items = activityItems;
+      for (const [group, id] of [['pending', 'count-pending'], ['running', 'count-running'], ['completed', 'count-completed']]) $(id).textContent = String(items.filter(item => activityGroup(item) === group).length);
+      const reviewable = items.filter(item => activityGroup(item) === 'pending' && item.review_available === true);
+      $('activity-badge').textContent = String(reviewable.length); $('activity-badge').hidden = !reviewable.length;
+      $('review-pending').hidden = !reviewable.length;
+      const shown = items.filter(item => activityFilter === 'all' || activityGroup(item) === activityFilter)
+        .slice().sort((a, b) => Number(activityGroup(b) === 'pending') - Number(activityGroup(a) === 'pending'));
       $('activity-list').replaceChildren();
-      for (const item of items) {
+      for (const item of shown) {
         const box = document.createElement('article'); box.className = 'activity-item';
         const title = document.createElement('strong'); title.textContent = item.command_id ? 'Acción en tu PC' : 'Solicitud a Axx'; box.append(title);
-        const states = { prepared: 'Todavía no se ejecutó', awaiting_approval: 'Espera tu permiso en la PC', running: 'En marcha', succeeded: 'Terminada', completed: 'Terminada', failed: 'No confirmada', unknown: 'Sin confirmar', dispatch_unknown: 'Sin confirmar', delivery_unknown: 'Sin confirmar', cancelled: 'Cancelada', expired: 'Vencida' };
+        const states = { prepared: 'Todavía no se ejecutó', awaiting_approval: 'Espera tu revisión', running: 'En marcha', succeeded: 'Terminada', completed: 'Terminada', failed: 'No confirmada', unknown: 'Sin confirmar', dispatch_unknown: 'Sin confirmar', delivery_unknown: 'Sin confirmar', cancelled: 'Cancelada', expired: 'Vencida' };
         const waiting = ['prepared', 'awaiting_approval', 'pending'].includes(item.state);
         const terminal = ['succeeded', 'completed', 'failed'].includes(item.state);
         const check = waiting ? 'Todavía no se ejecutó' : item.postconditions_passed === true ? 'Resultado comprobado' : item.postconditions_passed === false && terminal ? 'Comprobación fallida' : 'Resultado sin comprobar';
@@ -138,15 +177,14 @@
         if (item.can_cancel === true && item.id) { const button = document.createElement('button'); button.type = 'button'; button.textContent = 'Solicitar cancelación'; button.onclick = async () => { button.disabled = true; try { await request('/api/cancel', { operation_id: item.id, csrf }); notice('Solicitud de cancelación enviada. Consulta el estado para confirmar.'); await activity(); } catch (error) { notice(error.message); button.disabled = false; } }; box.append(button); }
         $('activity-list').append(box);
       }
-      if (!items.length) $('activity-list').textContent = 'Sin actividad disponible.';
-      return items;
-    } catch (error) { notice(error.message); return null; }
+      if (!shown.length) $('activity-list').textContent = activityFilter === 'all' ? 'Aún no hay solicitudes recientes.' : activityFilter === 'pending' ? 'No hay solicitudes pendientes en esta lista.' : 'No hay solicitudes en este filtro.';
   }
   async function review(operationId) {
     if (!csrf || reviewBusy) return;
     reviewBusy = true; clearReview(); $('review-card').hidden = true;
     try {
       const value = await request('/api/review', { operation_id: operationId, csrf });
+      if (!csrf) return;
       $('review-title').textContent = value.title || 'Acción en tu PC';
       $('review-description').textContent = value.description || '';
       const risks = { read: 'Consulta', desktop_open: 'Abrir aplicación/página', system_command: 'Comando del sistema' };
@@ -194,11 +232,14 @@
     const text = $('draft').value.trim();
     if (!retry) {
       if (pending || !text) return;
-      pending = { text, request_id: crypto.randomUUID() };
+      const candidate = { text, request_id: crypto.randomUUID() };
+      if (new TextEncoder().encode(JSON.stringify({ ...candidate, csrf })).length > 16384) { notice('El mensaje es demasiado largo para enviarlo. Acórtalo e inténtalo de nuevo.'); return; }
+      pending = candidate;
       try { sessionStorage.setItem('axx.telegram.pending', JSON.stringify(pending)); } catch { notice('No se pudo guardar el ID pendiente; el envío no se inició.'); pending = null; return; }
       message('user', text);
     }
     if (!pending) return;
+    if (new TextEncoder().encode(JSON.stringify({ ...pending, csrf })).length > 16384) { notice('Este envío pendiente supera el límite y no puede reintentarse. Consulta su estado en Actividad o en la PC.'); return; }
     busy = true; paint(); notice('');
     try {
       const result = await request('/api/chat', { ...pending, csrf });
@@ -221,6 +262,10 @@
   $('compose').onsubmit = event => { event.preventDefault(); void send(); };
   $('recover').onclick = async () => { const items = await activity(); if (items) notice('Estado consultado. Revisa Actividad; si no aparece, el resultado sigue sin confirmarse.'); };
   $('retry').onclick = () => void send(true); $('refresh').onclick = () => void refresh(); $('activity-refresh').onclick = () => void activity();
+  $('review-pending').onclick = () => { activityFilter = 'pending'; syncFilters(); navigate('activity'); };
+  function syncFilters() { for (const button of document.querySelectorAll('[data-activity-filter]')) button.setAttribute('aria-pressed', String(button.dataset.activityFilter === activityFilter)); renderActivity(); }
+  for (const button of document.querySelectorAll('[data-activity-filter]')) button.onclick = () => { activityFilter = button.dataset.activityFilter; syncFilters(); };
+  for (const button of document.querySelectorAll('[data-example]')) button.onclick = () => { if ($('draft').disabled) return; $('draft').value = button.dataset.example; $('draft').dispatchEvent(new Event('input')); $('draft').focus(); };
   $('draft').oninput = () => { try { sessionStorage.setItem('axx.telegram.draft', $('draft').value); } catch { notice('No se pudo conservar el borrador.'); } };
   $('copy-diagnostics').onclick = () => void copy($('diagnostics').textContent);
   for (const button of document.querySelectorAll('[data-pane]')) button.onclick = () => navigate(button.dataset.pane);
@@ -229,22 +274,26 @@
   function visibility() { avatar?.setHidden(document.hidden); if (!document.hidden) void refresh(); }
   async function start() {
     paint();
-    if (!tg?.initData) { $('connection').textContent = 'Abre esta app desde el menú de tu bot Axx en Telegram.'; return; }
-    tg.ready(); tg.expand(); tg.BackButton?.onClick?.(back); tg.onEvent?.('themeChanged', resize); tg.onEvent?.('viewportChanged', resize);
     const fragment = new URLSearchParams(location.hash.slice(1));
     const values = fragment.getAll('pairing');
     const pairing = values.length === 1 && /^axx_[A-Za-z0-9_-]{43}$/.test(values[0]) ? values[0] : null;
+    if (values.length) {
+      fragment.delete('pairing');
+      const rest = fragment.toString();
+      window.history.replaceState(null, '', location.pathname + location.search + (rest ? '#' + rest : ''));
+    }
+    if (!tg?.initData) { $('connection').textContent = values.length ? 'No se pudo abrir la vinculación. Genera un QR nuevo en tu PC y abre Axx desde Telegram.' : 'Abre esta app desde el menú de tu bot Axx en Telegram.'; return; }
+    tg.ready(); tg.expand(); tg.BackButton?.onClick?.(back); tg.onEvent?.('themeChanged', resize); tg.onEvent?.('viewportChanged', resize);
     try {
       const session = await request('/api/session', { init_data: tg.initData, ...(pairing ? { pairing_token: pairing } : {}) });
       if (typeof session.csrf !== 'string' || !session.csrf) throw new Error('No se pudo iniciar la sesión.');
       csrf = session.csrf;
-      if (pairing) window.history.replaceState(null, '', location.pathname + location.search);
       paint(); await refresh();
     }
-    catch (error) { notice(error.message); }
+    catch (error) { notice(error.message + (values.length ? ' Genera un QR nuevo en tu PC para volver a vincular.' : '')); }
   }
   document.addEventListener('visibilitychange', visibility);
-  const poll = setInterval(() => { if (!document.hidden) void refresh(); }, 15000);
+  const poll = setInterval(() => { if (!document.hidden) void refresh(true); }, 15000);
   window.addEventListener('pagehide', () => { clearReview(); clearInterval(poll); document.removeEventListener('visibilitychange', visibility); tg?.BackButton?.offClick?.(back); tg?.offEvent?.('themeChanged', resize); tg?.offEvent?.('viewportChanged', resize); avatar?.stop(); }, { once: true });
   void start();
 })();
