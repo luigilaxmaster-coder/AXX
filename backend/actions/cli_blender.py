@@ -6,6 +6,8 @@ Blender performs the actual render under the existing managed-process boundary.
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
+from contextvars import ContextVar
 import hashlib
 import json
 import logging
@@ -29,6 +31,7 @@ MAX_OUTPUT = 8 * 1024 * 1024
 MAX_LOG = 512 * 1024
 _active = {}
 _active_lock = threading.Lock()
+_selected_binary = ContextVar('axx_blender_binary', default=None)
 
 
 def _adapter():
@@ -41,6 +44,8 @@ def _adapter():
 
 def find_blender() -> Path:
     """Discover an installed application; never execute a user-supplied path."""
+    if _selected_binary.get() is not None:
+        return Path(_selected_binary.get()['path'])
     if os.name != 'nt':
         raise RuntimeError('This capability requires the installed Windows Blender application')
     bases = [Path(os.environ.get('ProgramFiles', r'C:\Program Files')) / 'Blender Foundation']
@@ -50,6 +55,29 @@ def find_blender() -> Path:
     def version(path):
         return tuple(int(part) for part in re.findall(r'\d+', path.parent.name))
     return sorted(candidates, key=version, reverse=True)[0]
+
+
+@contextmanager
+def blender_version_lease():
+    """Pin the selected executable while its existing Windows file lease is held."""
+    if _selected_binary.get() is not None:
+        yield
+        return
+    from .process_runner import _locked_executable
+    from .file_inspection import hash_file
+    binary = find_blender()
+    with _locked_executable(str(binary)):
+        token = _selected_binary.set(hash_file(str(binary), threading.Event()))
+        try:
+            yield
+        finally:
+            _selected_binary.reset(token)
+
+
+def blender_binary_snapshot():
+    from .file_inspection import hash_file
+    bound = _selected_binary.get()
+    return dict(bound) if bound is not None else hash_file(str(find_blender()), threading.Event())
 
 
 def verify_png(path: Path) -> dict:

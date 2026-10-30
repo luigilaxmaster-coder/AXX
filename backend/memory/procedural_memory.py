@@ -25,6 +25,7 @@ from .ai_memory_adapter import AiMemoryAdapter
 from . import task_memory
 
 LOG = logging.getLogger('axx.procedural_memory')
+APPLICATION_BOUND_TOOLS = {'blender_scene_render': 'blender'}
 
 def _locked(method):
     """Serialize complete SQLite read phases on this repository's shared connection."""
@@ -40,7 +41,7 @@ def get_current_env_fingerprint() -> str:
     return hashlib.sha256(info.encode('utf-8')).hexdigest()[:16]
 
 
-def get_action_env_fingerprint(command_ids=()) -> str:
+def get_action_env_fingerprint(command_ids=(), *, application_receipts=None) -> str:
     """Bind learned action records to the exact registered adapter versions they use."""
     ids = sorted(set(command_ids))
     if not ids:
@@ -59,6 +60,23 @@ def get_action_env_fingerprint(command_ids=()) -> str:
             versions[command_id] = {'tool_version': tool.version, 'parameters': adapter['parameters']}
         except (KeyError, TypeError, ValueError) as exc:
             raise ValueError(f'Unknown adapter in environment fingerprint: {command_id}') from exc
+        application = APPLICATION_BOUND_TOOLS.get(tool.name)
+        if application:
+            try:
+                if application_receipts is None:
+                    from backend.actions.cli_blender import blender_binary_snapshot
+                    binary = blender_binary_snapshot()
+                else:
+                    binary = application_receipts[application]
+                if (not isinstance(binary, dict) or set(binary) != {'path', 'sha256', 'bytes'}
+                        or not isinstance(binary['path'], str) or not Path(binary['path']).is_absolute()
+                        or not isinstance(binary['sha256'], str) or len(binary['sha256']) != 64
+                        or any(c not in '0123456789abcdef' for c in binary['sha256'])
+                        or type(binary['bytes']) is not int or not 0 < binary['bytes'] <= 512 * 1024 * 1024):
+                    raise ValueError('Invalid application binary proof')
+                versions[command_id]['application'] = binary
+            except (KeyError, TypeError, OSError, RuntimeError) as exc:
+                raise ValueError(f'Application version unavailable: {command_id}') from exc
     payload = json.dumps({'host': get_current_env_fingerprint(), 'adapters': versions}, sort_keys=True, separators=(',', ':'))
     return hashlib.sha256(payload.encode('utf-8')).hexdigest()[:16]
 

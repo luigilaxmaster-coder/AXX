@@ -21,7 +21,7 @@ import uuid
 
 from .commands import ADAPTERS, ApprovalRequired, normalized, parse_command_json
 from .actions.plan_contract import validate_bindings, resolve_inputs
-from .memory.procedural_memory import get_action_env_fingerprint
+from .memory.procedural_memory import APPLICATION_BOUND_TOOLS, get_action_env_fingerprint
 from .memory.skill_memory import SkillMemory, NeedsInput, PARAMETER, bind, bounded_object, project_key, validate_schema, read_context_state, read_skill_state
 from .goal_contract import (contract as goal_contract, verify as verify_goal, validate_steps as validate_goal_steps,
                             evaluate_criteria, propose_goal_step, assert_input_versions, input_version_lease)
@@ -345,6 +345,12 @@ class ActionLearning:
                     raise SelectionChanged('Cambió la selección del procedimiento; prepara una revisión nueva.')
                 skill = read_skill_state(db, ref['id'], ref['version'], project_id=plan.get('project_id', ''), task_id=plan.get('conversation_id'),
                     procedure_library=self.skills.procedure_library)
+                records = plan.get('step_records', [])[ref.get('step_start', 0):ref.get('step_start', 0) + ref.get('step_count', len(plan.get('step_records', [])))]
+                pending = not records or any(record.get('state') != 'succeeded' for record in records)
+                if (plan.get('state') not in TERMINAL and plan.get('state') != 'planning' and pending and not plan.get('revalidation')
+                        and ref in plan.get('skill_versions', []) and (not skill['environment_matches']
+                            or ref.get('environment', skill['environment']) != skill['compatibility']['current_environment'])):
+                    raise SelectionChanged('Cambió el entorno del procedimiento; revisa y revalida esa versión antes de continuar.')
                 if not selection_policy.allowed(skill, rule, plan.get('project_id', ''), automatic=not ref.get('manual_override', False)):
                     raise SelectionChanged('El procedimiento ya no admite esta selección; prepara una revisión nueva.')
         except SelectionChanged:
@@ -1454,6 +1460,7 @@ class ActionLearning:
         try: steps = self._validate_steps(steps)
         except ValueError as exc: raise NeedsInput(str(exc)) from exc
         plan['skill_versions'].append({'id': skill['id'], 'version': skill['version'], 'inputs': bound,
+                                       'environment':skill['compatibility']['current_environment'],
                                        'policy_revision':rule.get('revision', 0), 'manual_override':manual,
                                        'step_start': len(plan['steps']), 'step_count': len(steps)})
         plan['steps'].extend(steps)
@@ -2106,6 +2113,11 @@ class ActionLearning:
     @contextmanager
     def _progress_input_lease(self, plan, cancelled, *, db=None, resource_inputs=None):
         with ExitStack() as leases:
+            if any(ADAPTERS.get(step['command_id'], {}).get('tool') in APPLICATION_BOUND_TOOLS for step in plan['steps']):
+                from .actions.cli_blender import blender_version_lease
+                leases.enter_context(blender_version_lease())
+                self._assert_memory(plan, db)
+                self._assert_revalidation_plan(plan, db=db)
             if plan.get('resource_bindings'):
                 leases.enter_context(input_version_lease([plan['resource_bindings'][role]['input_version'] for role in ('path', 'other_path')],
                     self.commands.executor.workspace_root, cancelled, max_file_bytes=self._goal_file_limit(plan)))
@@ -2219,9 +2231,12 @@ class ActionLearning:
         """A revalidation trial has no path authority outside the executor's disposable workspace."""
         from .anticipation import MISSION_COMMANDS
         from .actions.tools import artifact_path_error
-        if command_id not in MISSION_COMMANDS:
+        if command_id == 'axx.blender.scene.render':
+            read_fields, write_fields = ('source',), ('destination',)
+        elif command_id in MISSION_COMMANDS:
+            _, _, read_fields, write_fields = MISSION_COMMANDS[command_id]
+        else:
             raise ValueError('El ensayo solo admite adaptadores directos de archivos y copias privadas de Office; no admite entrada, foco, shell, MCP ni capacidades generadas.')
-        _, _, read_fields, write_fields = MISSION_COMMANDS[command_id]
         workspace = self.commands.executor.workspace_root.resolve()
         for field in read_fields:
             if field in deferred: continue

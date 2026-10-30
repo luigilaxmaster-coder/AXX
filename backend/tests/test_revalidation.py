@@ -100,6 +100,83 @@ class RevalidationTests(unittest.TestCase):
             self.assertEqual(self.learning.skills.get('other.writer')['environment_matches'],writer_before)
         self.assertEqual(self.learning.db.execute('SELECT payload FROM skill_versions WHERE id=?',('trial.hash',)).fetchone()[0],definition)
 
+    def test_normal_reuse_rejects_adapter_change_after_preparation(self):
+        self.skill(); self.record(self.receipt())
+        plan = self.learning.propose('trial.hash', inputs={'path': str(self.file)}, project_id='project-a', conversation_id='task-a')
+        self.assertEqual(plan['state'], 'awaiting_approval', plan)
+        before = len(self.executor.list_operations())
+        tool = get_tool('file_inspection')
+        with patch.object(tool, 'version', str(tool.version) + '.updated'):
+            with self.assertRaises(ValueError):
+                self.learning.execute(plan['operation_id'], approved=True)
+        self.assertEqual(len(self.executor.list_operations()), before)
+
+    def test_normal_reuse_rechecks_environment_at_primitive_dispatch(self):
+        self.skill(); self.record(self.receipt())
+        plan = self.learning.propose('trial.hash', inputs={'path': str(self.file)}, project_id='project-a', conversation_id='task-a')
+        before = len(self.executor.list_operations())
+        original = self.commands.prepare
+        tool = get_tool('file_inspection')
+        def changed_after_prepare(*args, **kwargs):
+            prepared = original(*args, **kwargs)
+            tool.version += '.updated-before-dispatch'
+            return prepared
+        with patch.object(tool, 'version', tool.version), patch.object(self.commands, 'prepare', side_effect=changed_after_prepare):
+            result = self.learning.execute(plan['operation_id'], approved=True)
+        self.assertEqual(result['state'], 'needs_input', result['state'])
+        self.assertIsNone(result['approved_hash'])
+        self.assertEqual(len(self.executor.list_operations()), before)
+
+    def test_revalidating_skill_does_not_reapprove_its_old_pending_plan(self):
+        self.skill(); self.record(self.receipt())
+        old = self.learning.propose('trial.hash', inputs={'path': str(self.file)}, project_id='project-a', conversation_id='task-a')
+        tool = get_tool('file_inspection')
+        with patch.object(tool, 'version', str(tool.version) + '.new-environment'):
+            trial = self.learning.execute(self.prepare()['operation_id'], approved=True)
+            self.assertTrue(trial['revalidation_completed'], trial)
+            with self.assertRaises(ValueError):
+                self.learning.execute(old['operation_id'], approved=True)
+
+    def test_environment_change_preserves_historical_receipt_without_redispatch(self):
+        self.skill(); self.record(self.receipt())
+        plan = self.learning.propose('trial.hash', inputs={'path': str(self.file)}, project_id='project-a', conversation_id='task-a')
+        completed = self.learning.execute(plan['operation_id'], approved=True)
+        self.assertEqual(completed['state'], 'succeeded')
+        before = len(self.executor.list_operations())
+        tool = get_tool('file_inspection')
+        with patch.object(tool, 'version', str(tool.version) + '.updated'):
+            historical = self.learning.execute(plan['operation_id'], approved=True)
+        self.assertEqual(historical['state'], 'succeeded')
+        self.assertEqual(len(self.executor.list_operations()), before)
+
+    def test_unknown_environment_keeps_failure_note_without_automatic_reuse(self):
+        failed = self.receipt(fail=True)
+        with patch('backend.memory.skill_memory.get_action_env_fingerprint', side_effect=ValueError('Synthetic unavailable environment')):
+            lesson = self.learning.skills.record_lesson({'operation_id': failed['operation_id'],
+                'hypothesis': 'Required environment is unavailable', 'project_id': 'project-a', 'task_id': 'task-a'})
+            self.assertEqual(lesson['command_environment'], 'unknown')
+            listed = self.learning.skills.lessons(project_id='project-a', task_id='task-a')
+            self.assertEqual(listed[0]['status'], 'stale')
+            self.assertFalse(listed[0]['environment_matches'])
+
+    def test_completed_route_update_preserves_unrelated_pending_work(self):
+        self.skill(); self.record(self.receipt())
+        self.skill('other.writer', command='axx.artifact.write')
+        plan = self.learning.compose('Independent remaining route', [
+            {'id': 'trial.hash', 'version': 1, 'part_id': 'read', 'inputs': {'path': str(self.file)}, 'depends_on': []},
+            {'id': 'other.writer', 'version': 1, 'part_id': 'write', 'inputs': {'path': 'remaining.txt', 'content': 'PRESERVED'}, 'depends_on': ['read']}], project_id='project-a')
+        tool = get_tool('file_inspection')
+        original = tool.execute_cancellable
+        def updated_after_effect(*args):
+            result = original(*args)
+            tool.version += '.updated-after-completed-read'
+            return result
+        with patch.object(tool, 'version', tool.version), patch.object(tool, 'execute_cancellable', side_effect=updated_after_effect) as read:
+            completed = self.learning.execute(plan['operation_id'], approved=True)
+        self.assertEqual(completed['state'], 'succeeded', completed['state'])
+        self.assertEqual((self.executor.workspace_root / 'remaining.txt').read_text(), 'PRESERVED')
+        read.assert_called_once()
+
     def test_missing_stale_defaults_outside_workspace_and_bad_versions_never_prepare_effects(self):
         self.skill(); self.learning.update_context('project-a',{'defaults':{'path':str(self.file)}})
         with self.assertRaises(NeedsInput): self.prepare(inputs={})

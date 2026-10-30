@@ -96,7 +96,7 @@ class BlenderSceneTool:
                             if cancelled.is_set(): raise ValueError('Cancelado publicando; se conservan archivos parciales')
                             writer.write(chunk)
                     files.append(hash_file(str(output),cancelled))
-            return ToolResult(True,output={'files':files,'scene':observed,'source_sha256':before['sha256'],'visual_quality_verified':False},evidence={'verification':'blender_scene_and_decoded_png'})
+            return ToolResult(True,output={'files':files,'scene':observed,'source_sha256':before['sha256'],'visual_quality_verified':False},evidence={'verification':'blender_scene_and_decoded_png','application_binary':process.get('evidence',{}).get('executable')})
         except Exception as exc:
             return ToolResult(False,error=str(exc)[:600],evidence={'created_paths':created,'effect_uncertain':bool(created),'cancelled':cancelled.is_set()})
 

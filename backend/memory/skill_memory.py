@@ -1,6 +1,6 @@
 """Versioned skill definitions and project context; execution stays in CommandService."""
 import copy
-from contextlib import contextmanager, nullcontext
+from contextlib import contextmanager, nullcontext, ExitStack
 import hashlib
 import json
 import math
@@ -9,7 +9,7 @@ import re
 import time
 import unicodedata
 
-from .procedural_memory import get_action_env_fingerprint
+from .procedural_memory import APPLICATION_BOUND_TOOLS, get_action_env_fingerprint
 from . import selection_policy, task_memory
 
 
@@ -336,7 +336,14 @@ class SkillMemory:
                      and item.get('validation_environment') == expected and item.get('validation_context') == context_signature]
         quarantined = bool(failures and not any(item['receipt_created_at'] > failure_at for item in successes))
         environment = next((item['validation_environment'] for item in reversed(successes) if item.get('revalidation') is True), skill['environment'])
+        skill['compatibility'].update(current_environment=expected, validated_environment=environment)
         environment_matches = bool(skill.get('executable') and expected is not None and expected == environment)
+        from backend.commands import ADAPTERS
+        if any(ADAPTERS.get(step['command_id'], {}).get('tool') in APPLICATION_BOUND_TOOLS for step in skill['templates']):
+            environment_matches = environment_matches and bool(successes)
+            skill['compatibility'].update(application_version_basis='executable_sha256',
+                application_version_known=expected is not None,
+                applications=copy.deepcopy(successes[-1].get('observed_applications', {})) if successes else {})
         skill.update(context_matches=not invalid, invalid_context_dependencies=invalid, quarantined=quarantined,
                      command_environment_matches=environment_matches,
                      environment_matches=environment_matches and not invalid and not quarantined)
@@ -349,8 +356,12 @@ class SkillMemory:
         return skill
 
     def list(self):
-        with self.lock:
+        with self.lock, ExitStack() as applications:
             ids = [row[0] for row in self.db.execute('SELECT id FROM skill_versions GROUP BY id ORDER BY MAX(rowid) DESC')]
+            if self.db.execute("SELECT 1 FROM skill_versions,json_each(json_extract(payload,'$.templates')) t WHERE json_extract(t.value,'$.command_id')=? LIMIT 1", ('axx.blender.scene.render',)).fetchone():
+                from backend.actions.cli_blender import blender_version_lease
+                try: applications.enter_context(blender_version_lease())
+                except (ValueError, OSError, RuntimeError): pass
             result = []
             for key in ids:
                 try: result.append(self.get(key))
@@ -373,17 +384,17 @@ class SkillMemory:
             evidence['memory_dependencies'] = dependencies
             if task: evidence.update(origin_task_id=task, memory_scope=scope or task_memory.snapshot(self.db, task))
             # Only journal-backed receipts may quarantine or revalidate a version.
-            for field in ('observed_outcome', 'receipt_created_at', 'validation_environment', 'validation_context'):
+            for field in ('observed_outcome', 'receipt_created_at', 'validation_environment', 'validation_context', 'observed_applications'):
                 evidence.pop(field, None)
             observed = self._observed_receipts(skill, evidence)
             if observed:
-                outcome, created_at = observed
+                outcome, created_at, applications = observed
                 dependencies = self._dependencies(skill.get('context_dependencies', []))
                 if not self._invalid_dependencies(dependencies, skill.get('project_id', ''), evidence.get('task_id')):
-                    try: environment = get_action_env_fingerprint(step['command_id'] for step in skill['templates'])
-                    except (KeyError, TypeError, ValueError): environment = None
+                    try: environment = get_action_env_fingerprint((step['command_id'] for step in skill['templates']), application_receipts=applications)
+                    except (KeyError, TypeError, ValueError): environment, applications = None, {}
                     evidence.update(observed_outcome=outcome, receipt_created_at=created_at,
-                                    validation_environment=environment, validation_context=value_hash(dependencies))
+                                    validation_environment=environment, validation_context=value_hash(dependencies), observed_applications=applications)
             if evidence.get('revalidation') is not None and type(evidence['revalidation']) is not bool: raise ValueError('Revalidación inválida')
             self.db.execute('INSERT INTO skill_evidence VALUES (?,?,?,?) ON CONFLICT(id,version,operation_id) DO UPDATE SET payload=excluded.payload',
                             (key, version, operation_id, json.dumps(evidence, ensure_ascii=False)))
@@ -448,11 +459,20 @@ class SkillMemory:
                 return None
             receipts.append((stored, row[2]))
         if any(result.get('state') == 'failed' and result.get('error') for result, _ in receipts):
-            return 'failed', max(at for result, at in receipts if result.get('state') == 'failed')
+            return 'failed', max(at for result, at in receipts if result.get('state') == 'failed'), {}
         if (len(receipts) == len(steps) and evidence.get('effect_verified') is True
                 and all(result.get('state') == 'succeeded' and result.get('postconditions_passed') is True
                         and bool(result.get('evidence')) for result, _ in receipts)):
-            return 'succeeded', max(at for _, at in receipts)
+            from backend.commands import ADAPTERS
+            applications = {}
+            for result, _ in receipts:
+                application = APPLICATION_BOUND_TOOLS.get(ADAPTERS.get(result['command_id'], {}).get('tool'))
+                if application:
+                    binary = result.get('evidence', {}).get('application_binary')
+                    if not isinstance(binary, dict) or application in applications and applications[application] != binary:
+                        applications = {}; break
+                    applications[application] = binary
+            return 'succeeded', max(at for _, at in receipts), applications
         return None
 
     @staticmethod
@@ -780,7 +800,8 @@ class SkillMemory:
             if self._invalid_dependencies(dependencies, project, task):
                 raise ValueError('El contexto del incidente cambió; conserva el recibo y revisa sus referencias')
             command = failure['command_id']
-            environment = get_action_env_fingerprint([command])
+            try: environment = get_action_env_fingerprint([command])
+            except ValueError: environment = 'unknown'
             verification = None
             if body.get('verification_operation_id') is not None:
                 trial, trial_at, trial_parent = self._lesson_receipt(body['verification_operation_id'], 'succeeded')

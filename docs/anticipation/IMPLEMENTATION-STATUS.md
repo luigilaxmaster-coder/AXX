@@ -48,6 +48,28 @@ Esta integración pasó 183 regresiones dirigidas y un gate nuevo: 13 contratos,
 del selector. Son comprobaciones de fuente; no acreditan un nuevo instalador ni
 reproducción física desde Telegram. M5 y los demás pendientes mantienen su alcance.
 
+La fuente M5 añade una huella del entorno a la referencia aprobada de cada
+habilidad y vuelve a comprobarla antes de ejecutar y en cada despacho pendiente.
+Revalidar una habilidad no aprueba sus planes antiguos. Las ramas completadas
+conservan sus recibos e identidad; se puede reparar o continuar lo pendiente sin
+repetirlas. Un incidente de entorno desconocido se conserva para lectura manual,
+pero no se selecciona automáticamente.
+
+La primera aplicación vinculada es `axx.blender.scene.render`: registra desde el
+ledger el path, tamaño y SHA-256 del ejecutable usado por `run_process`. Un hash
+actual distinto invalida esa ruta; no se atribuye al binario nuevo un recibo del
+anterior ni se acepta una prueba impuesta por el solicitante. El ensayo manual
+admite una copia de escena dentro de artifacts y un destino nuevo. No se añadió
+Blender a los grants de iniciativa ni se abrió M15.
+
+El despacho mantiene la custodia Windows del ejecutable y fija esa selección
+hasta terminar. La huella se reutiliza sólo dentro de esa custodia; el catálogo
+agrupa su lectura bajo la misma protección. En esta PC se leyó el ejecutable real
+de 96.029.328 bytes en aproximadamente 750 ms, sin lanzarlo. Las pruebas de efectos
+son fixtures declaradas y no acreditan un render instalado. La identidad por SHA
+del ejecutable no certifica todas las DLLs/plugins del paquete; Office, navegador,
+otras aplicaciones y equivalencia de rutas siguen pendientes.
+
 ## Contratos por requisito
 
 | Requisito | Implementado en el alcance actual | Límite pendiente |
@@ -56,7 +78,7 @@ reproducción física desde Telegram. M5 y los demás pendientes mantienen su al
 | M2 · Aprendizaje causal | Actor/origen/causa, aceptación distinta de utilidad y cadenas de iniciativa limitadas. Una acción autónoma no acredita preferencia humana. | Atribución comprobada de nuevas fuentes manuales/externas; un evento del SO no identifica por sí solo al usuario. |
 | M3 · Enseñar una vez | Documento/revisión/hash → candidato revisado → ensayo → habilidad con procedencia. La entrega .31 verificó reutilización de archivos tras reinicio sin llamadas al modelo. | Demostración semántica visual entre aplicaciones; esa prueba de archivos no acredita el escritorio completo. |
 | M4 · Contexto por proyecto | Dos recursos elegidos explícitamente, identidad/versiones, leases de archivos y aprobación exacta. Cambios y revocaciones invalidan el plan. | Resolver libremente «este/el otro» entre aplicaciones y observación adaptativa con identidad real. |
-| M5 · Capacidades comprobadas | Huellas de SO/Python/adaptadores, cuarentena, exclusión de lecciones obsoletas y ensayo explícito de revalidación. Recibos concretos registran versiones de aplicaciones. | Vincular la versión real vigente de cada aplicación al catálogo y a la reutilización; invalidación selectiva y alternativa equivalente comprobada. La huella actual no hace todo esto. |
+| M5 · Capacidades comprobadas | Huellas de SO/Python/adaptadores, cuarentena, referencias aprobadas del entorno y comprobación previa a cada paso pendiente. La fuente posterior a .32 vincula la escena Blender a su ejecutable y al recibo del ledger, con custodia y revalidación manual selectiva. | Entrega y aceptación nativa de esa fuente; DLLs/plugins, Office, navegador y otras aplicaciones; alternativa equivalente comprobada. La cobertura de una aplicación no acredita el catálogo completo. |
 | M6 · Preparación vigente | PREPARE sin ejecutar el efecto, entradas versionadas y revisión antes de cambios en las familias existentes. | Borradores/checklists especulativos generales y preview completo en otras aplicaciones. |
 | M7 · Colaboración física | Broker, foreground/background, cancelación, pausa y corrección de la parte pendiente; conserva los efectos anteriores. | Iniciativa física multiaplicación y aislamiento/M15. La automatización física detenida con Escape no se reactiva mediante APIs internas. |
 | M8 · Recuperación/deshacer | Journal y conciliación sin reenvío; compensación revisada para un archivo nuevo propio en NTFS. Detener y compensar son operaciones distintas. | Compensaciones verificables para otras operaciones; no restaurar versiones sobre cambios posteriores del usuario. |
