@@ -4,6 +4,19 @@ Android is a client of the existing Windows Axx instance. It shares the desktop 
 
 ## Latest revision
 
+Current source: **Android 0.2.14-companion / code 35**, coordinated with Windows
+0.22.33. The local debug APK preserves `com.axx.mobile` and its previous signing
+identity, matches 22 canonical web assets and includes the project's MIT license.
+SHA-256: `abb5695a54db51017ff00549e8c157964d7962a6131edcaefd101d76e879c77f`.
+Seven transport JVM tests pass; lint reports 0 errors and 33 warnings.
+
+This APK is **not installed or physically accepted**: the user reported that the
+phone cannot be connected now. The previous 0.2.13 build was also a local,
+uninstalled candidate. Historical physical acceptance of 0.2.11/code32 covers
+65 seconds of control and Stop with Windows 0.22.30 R3, and does not certify this
+APK, new mission correction, voice or other devices. Windows build, installation
+and publication remain separate in the [0.22.33 notes](../releases/0.22.33.md).
+
 [Encrypted file transfers, phone dictation and cross-network setup in 0.2.5](TRANSFER.md). [Physical phone-to-PC acceptance on 29 October 2026](TRANSFER-ACCEPTANCE-20261029.md) verified 1,049,652-byte copies from Samsung SM_A217M to Windows through LAN and Tailscale endpoints, including saving from Axx to Downloads and matching SHA-256. Both runs used the same underlying Wi-Fi; separate Internet connections, voice and background acceptance remain pending.
 
 [Themes, GPU and two-way character customization in 0.2.4](PERSONALIZATION-20261028-024.md).
