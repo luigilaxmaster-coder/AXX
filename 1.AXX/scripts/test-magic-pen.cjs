@@ -11,6 +11,7 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
  try{
   const page=await browser.newPage({viewport:{width:1440,height:1000},reducedMotion:'no-preference'}),errors=[];page.setDefaultTimeout(8000);page.on('pageerror',e=>errors.push(e.stack||e.message));
   await page.addInitScript(()=>{
+   const chat={id:'magic-pen-contract',title:'Magic Pen contract',messages:[],draft:'',draft_at:Date.now(),updated:Date.now(),mode:'ask',context:[],links:[],connect_id:'magic-pen-connect',shared_id:'magic-pen-shared',memory_scope:{task_id:'magic-pen-contract',generation:0}};
    window.calls=[];window.docs={};window.jobs={};window.cancelledIds=new Set();window.nativeEvents={};window.captureCount=0;window.captureFails=false;window.delayAnalysis=false;window.holdCapture=false;window.holdStart=false;window.holdStatus=false;window.releaseStatus=null;window.releaseCapture=null;window.releaseStart=null;window.visionEnabled=true;window.guideStates={};window.guideMonitors=[{id:'m',x:0,y:0,width:1440,height:1080}];window.viewportShift=0;
    window.presentationFixture=b=>{const steps=[{id:'s1',title:'Fondo',body:'lienzo blanco',narration:'Primero, el fondo blanco.',basis:'observed'},{id:'s2',title:'Figura',body:'rectángulo azul <img src=x onerror=window.injected=1>',narration:'Después, la figura azul.',basis:'observed'},{id:'s3',title:'Lectura',body:'contraste alto',narration:'Por último, el contraste.',basis:'inferred'}];const patch=b.base_query_id?{base_query_id:b.base_query_id,answer:'El contraste viene del azul sobre blanco.'}:{};if(b.base_query_id)steps[2]={...steps[2],body:'azul oscuro sobre blanco'};const scene=window.fixtureScene?{fidelity:'conceptual',objects:[{id:'o1',label:'Placa genérica',shape:'box',size:[4,.2,3],position:[0,0,0],color:'#2e8b57',explode:[0,-1,0]},{id:'o2',label:'Módulo de cámara',shape:'box',size:[1,.3,1],position:[0,.5,0],color:'#333333',explode:[0,1.5,0]},{id:'o3',label:'Lente',shape:'cylinder',size:[.4,.2,.4],position:[0,.75,0],color:'#111111',explode:[0,2.4,0]}],arrows:[{from:'o2',to:'o1',label:'cable plano'}]}:null;if(scene){steps[0].focus=['o1'];steps[1].focus=['o2','o3'];}return {format:'presentation',response:'{}',...patch,presentation:{schema_version:'1.0',kind:'presentation',title:'Rectángulo azul',summary:'Un rectángulo azul sobre fondo blanco.',fidelity:'conceptual',steps,...(scene?{scene}:{})}};};
    window.__TAURI__={core:{invoke:async(name,args)=>{
@@ -22,6 +23,11 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
      const d={id:(++captureCount).toString(16).padStart(32,'0'),revision:1,source:{x:0,y:0,width:1440,height:1080,captured_at:Date.now()/1000,sha256:'fixture'},viewport:{x:viewportShift,y:40,scale:1},selection:null,strokes:[],queries:[],preview:canvas.toDataURL()};docs[d.id]=d;return structuredClone(d);
     }
     if(name==='backend_request'){
+     if(args.path==='/axx-api/chat/migrate')return {id:chat.id};
+     if(args.path==='/axx-api/chat/conversations')return {conversations:[chat],groups:[],default_mode:'ask'};
+     if(args.path.startsWith('/axx-api/chat/conversations?id='))return structuredClone(chat);
+     if(args.path==='/axx-api/chat/save')return structuredClone(chat);
+     if(args.path==='/axx-api/chat/operations')return {operations:[]};
      const op=args.path.split('/').pop(),b=args.body,spatial=args.path.startsWith('/axx-api/spatial/session/');
      if(args.path==='/axx-api/feature-readiness?feature_id=spatial_intelligence')return {feature_id:'spatial_intelligence',status:'not_verified',providers:[]};
      if(args.path==='/axx-api/feature-readiness/verify')return {provider:b.provider,model:b.model,state:'ready'};
@@ -120,8 +126,7 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
   await page.click('#mp-summary-expand');
   await page.click('#mp-spatial-verify');await page.waitForFunction(()=>calls.some(c=>c.args?.path==='/axx-api/feature-readiness/verify'));
   const verifyBody=await page.evaluate(()=>calls.find(c=>c.args?.path==='/axx-api/feature-readiness/verify').args.body);assert.deepEqual([verifyBody.feature_id,verifyBody.provider,verifyBody.model,verifyBody.effort],['spatial_intelligence','fixture','fixture-vision','auto']);
-  await page.evaluate(()=>Axx.magicPen.showSummaryBubble('Resumen: La zona contiene un rectángulo azul claramente visible.'));
-  const visualCaptures=await page.evaluate(()=>captureCount),visualStarts=await spatialCount();await page.click('#mp-summary-visual');await page.waitForFunction(()=>document.querySelectorAll('#mp-answers .mp-visual-flow li').length===3);await idle();
+  const visualCaptures=await page.evaluate(()=>captureCount),visualStarts=await spatialCount();await page.click('#mp-spatial-create');await page.waitForFunction(()=>document.querySelectorAll('#mp-answers .mp-visual-flow li').length===3);await idle();
   assert.equal(await spatialCount(),visualStarts+1);assert.equal(await page.evaluate(()=>captureCount),visualCaptures,'Visualizar reuses the current capture');
   const visualBody=await page.evaluate(()=>calls.filter(c=>c.args?.path==='/axx-api/spatial/session/start').at(-1).args.body);assert.equal(visualBody.format,'presentation');assert.equal(visualBody.base_query_id,undefined);assert.doesNotMatch(visualBody.question,/Resumen:/,'The backend owns the presentation contract');assert.equal(visualBody.provider,'fixture');assert.equal(visualBody.effort,'auto');
   assert.deepEqual(await page.locator('#mp-answers .mp-visual-flow .mp-step-title').allInnerTexts(),['Fondo','Figura','Lectura']);assert.equal(await page.locator('#mp-answers .mp-visual img').count(),0,'Model text is never parsed as HTML');assert.equal(await page.evaluate(()=>window.injected),undefined);

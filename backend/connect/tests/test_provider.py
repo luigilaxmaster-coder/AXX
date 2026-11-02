@@ -183,7 +183,7 @@ class ProviderTests(unittest.TestCase):
 
     def test_spatial_turn_sends_image_effort_and_strict_schema_without_persisting_image(self):
         self.provider.model_catalog = [{'model': 'gpt-6.1-sol', 'input_modalities': ['text', 'image'],
-                                        'reasoning_efforts': ['low', 'medium', 'high']}]
+                                        'reasoning_efforts': [{'reasoningEffort': level} for level in ('low', 'medium', 'high')]}]
         image = base64.b64encode(b'fixture image').decode()
         request = {'provider_name': '@codex', 'model': 'gpt-6.1-sol', 'task': 'vision', 'allow_paid': False,
             'request_id': 'spatial-test', 'deadline_ms': 70000,

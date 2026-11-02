@@ -137,7 +137,7 @@ class MagicPenTests(unittest.TestCase):
                 {'name': 'unauthorized', 'model': 'vision', 'enabled': True,
                  'free_confirmed': False, 'billing_allowed': False, 'capabilities': ['vision']}]}
         self.service.adapter = Adapter()
-        self.assertEqual(self.service.capabilities()['vision'], [{'name': 'authorized', 'model': 'vision'}])
+        self.assertEqual(self.service.capabilities()['vision'], [{'name': 'authorized', 'model': 'vision', 'protocol': 'openai', 'efforts': []}])
 
     def test_late_response_keeps_original_selection_and_never_sends_ink(self):
         entered, release = threading.Event(), threading.Event()
