@@ -49,6 +49,10 @@ class MagicPenHTTPTests(unittest.TestCase):
                 status, body = request('export', output)
                 self.assertEqual(status, 409)
                 self.assertEqual(body['error']['code'], 'FILE_EXISTS')
+                status, body = request('guide_check', {'id': doc['id'], 'query_id': 'a' * 32, 'step_id': 'g1', 'phase': 'target'})
+                self.assertEqual(status, 400)
+                self.assertIn('La consulta no existe', json.dumps(body, ensure_ascii=False), 'guide_check reaches MagicPenService')
+                self.assertEqual(request('guide_check', {'id': doc['id']}, False)[0], 401)
             finally:
                 pen.close()
                 server.shutdown()

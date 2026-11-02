@@ -666,7 +666,7 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                     result = {'capabilities': self.magic_pen.capabilities(), 'monitors': pen_monitors(), 'history': self.magic_pen.list()}
                 elif operation == 'get':
                     result = self.magic_pen.get(body.get('id'), image=True)
-                elif operation in {'capture', 'save', 'export', 'analyze', 'start', 'query', 'cancel'}:
+                elif operation in {'capture', 'save', 'export', 'analyze', 'start', 'query', 'cancel', 'guide_check'}:
                     try:
                         result = getattr(self.magic_pen, operation)(body)
                     except OSError as exc:

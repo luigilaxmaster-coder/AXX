@@ -22,6 +22,8 @@
         const sentence=text.match(/^(.+?[.!?])(?:\s|$)/)?.[1]||text,words=sentence.split(/\s+/);
         return words.length>28?words.slice(0,28).join(' ')+'…':sentence;
     }
+    // Labels for the backend-validated PresentationPlan v1 (backend/presentation_plan.py); rendered with textContent only.
+    const BASIS={observed:'Observado',documented:'Documentado',inferred:'Inferido',assumed:'Supuesto'},FIDELITY={illustrative:'Ilustrativo',conceptual:'Conceptual',technical:'Técnico'};
     class MagicPen {
         active = false; state = 'closed'; doc = null; image = null; gesture = null; pendingLasso = null;
         undoStack = []; redoStack = []; saveChain = Promise.resolve(); saveError = null; generation = 0; working = false; queries = new Set(); sessionChain = Promise.resolve();
@@ -65,8 +67,8 @@
             this.mountDesktop();
             const style = document.createElement('link'); style.rel='stylesheet';style.href='scripts/magic-pen.css';document.head.append(style);
             $('mp-capture').onclick = () => {this.cancelAnalysis();void this.run(()=>this.capture());};
-            $('mp-ask').onclick = () => { void this.ask(); };
-            $('mp-question').onkeydown = e => { if(e.key==='Enter') {e.stopPropagation();this.ask();} };
+            $('mp-ask').onclick = () => { void this.askFromComposer(); };
+            $('mp-question').onkeydown = e => { if(e.key==='Enter') {e.stopPropagation();this.askFromComposer();} };
             $('mp-original').onclick = () => this.run(()=>this.export('original'));
             $('mp-annotated').onclick = () => this.run(()=>this.export('annotated'));
             $('mp-retry').onclick = () => this.run(async()=>{this.saveError=null;this.queueSave();await this.flush();this.status('Borrador guardado.');});
@@ -123,8 +125,8 @@
                 this.chooseTool('rect');this.setInput(false);
                 this.cancelAnalysis();void this.run(async()=>{if(!await this.capture())return;this.doc.selection={shape:'rect',bounds:[0,0,this.doc.source.width,this.doc.source.height]};this.selectionChanged();this.scheduleAnalysis(0,false);});
             };this.toolbar.querySelector('#mp-select-tools').append(all);
-            this.widget=document.createElement('aside');this.widget.id='mp-widget';this.widget.setAttribute('aria-label','Explicación de la selección');this.widget.tabIndex=-1;this.widget.hidden=true;
-            this.widget.innerHTML='<div class="mp-widget-head"><span class="mp-head-mark" aria-hidden="true">'+this.icon('pen')+'</span><span class="mp-head-copy"><strong>Magic Pen</strong></span><span id="mp-summary-spinner" class="mp-summary-spinner" hidden aria-hidden="true"></span><button id="mp-hide-answer" aria-label="Ocultar explicación">×</button></div><section id="mp-summary-bubble" class="mp-summary-bubble" hidden><div class="mp-summary-kicker"><span id="mp-summary-label">Lo esencial</span></div><p id="mp-summary-text" role="status" aria-live="polite"></p><p id="mp-summary-voice-status" role="status" aria-live="polite" hidden></p><div class="mp-summary-actions"><button id="mp-summary-expand" type="button">Ver explicación</button><button id="mp-summary-listen" type="button" aria-label="Escuchar resumen" title="Escuchar resumen">'+this.icon('voice')+'</button></div></section><figure id="mp-history-preview" hidden><canvas id="mp-preview-canvas" aria-label="Vista previa de la captura guardada"></canvas><figcaption>Captura guardada · no es el escritorio actual</figcaption><button id="mp-back-desktop" type="button">Volver al escritorio</button></figure><div id="mp-vision-missing" hidden><p>El modelo seleccionado no tiene análisis visual disponible.</p><button id="mp-configure" type="button">Ajustes de conexión</button></div>';
+            this.widget=document.createElement('aside');this.widget.addEventListener('pointerdown',e=>this.leaseFocus(e.target));this.widget.id='mp-widget';this.widget.setAttribute('aria-label','Explicación de la selección');this.widget.tabIndex=-1;this.widget.hidden=true;
+            this.widget.innerHTML='<div class="mp-widget-head"><span class="mp-head-mark" aria-hidden="true">'+this.icon('pen')+'</span><span class="mp-head-copy"><strong>Magic Pen</strong></span><span id="mp-summary-spinner" class="mp-summary-spinner" hidden aria-hidden="true"></span><button id="mp-hide-answer" aria-label="Ocultar explicación">×</button></div><section id="mp-summary-bubble" class="mp-summary-bubble" hidden><div class="mp-summary-kicker"><span id="mp-summary-label">Lo esencial</span></div><p id="mp-summary-text" role="status" aria-live="polite"></p><p id="mp-summary-voice-status" role="status" aria-live="polite" hidden></p><div class="mp-summary-actions"><button id="mp-summary-expand" type="button">Ver explicación</button><button id="mp-summary-visual" type="button" aria-label="Explicar visualmente" title="Explicar visualmente como diagrama de pasos">Visualizar</button><button id="mp-summary-listen" type="button" aria-label="Escuchar resumen" title="Escuchar resumen">'+this.icon('voice')+'</button></div></section><figure id="mp-history-preview" hidden><canvas id="mp-preview-canvas" aria-label="Vista previa de la captura guardada"></canvas><figcaption>Captura guardada · no es el escritorio actual</figcaption><button id="mp-back-desktop" type="button">Volver al escritorio</button></figure><div id="mp-vision-missing" hidden><p>El modelo seleccionado no tiene análisis visual disponible.</p><button id="mp-configure" type="button">Ajustes de conexión</button></div>';
             for(const selector of ['#mp-answers','.mp-composer','#mp-status','.mp-save-section'])this.widget.append(this.view.querySelector(selector));
             const saved=this.widget.querySelector('.mp-save-section');saved.querySelector('summary').after($('mp-meta'));saved.append($('mp-capability'));
             const source=this.view.querySelector('.mp-source-row');this.widget.querySelector('.mp-save-section').append(source);source.hidden=true;
@@ -135,7 +137,7 @@
             const option=new Option('Usar escritorio','interact');$('mp-tool').append(option);
             const reopen=document.createElement('button');reopen.id='mp-show-answer';reopen.type='button';reopen.className='mp-show-answer';reopen.hidden=true;reopen.innerHTML=this.icon('voice')+'<span>Ver explicación</span>';reopen.setAttribute('aria-label','Volver a la explicación');$('mp-more-panel').append(reopen);
             $('mp-done').onclick=()=>this.close();$('mp-hide-answer').onclick=()=>this.hideAnswer();reopen.onclick=()=>{this.closeTools();this.openAnswer();};
-            $('mp-summary-expand').onclick=()=>this.openAnswer();$('mp-summary-listen').onclick=()=>this.readSummary();
+            $('mp-summary-expand').onclick=()=>this.openAnswer();$('mp-summary-visual').onclick=()=>{void this.ask({fresh:false,format:'presentation'});};$('mp-summary-listen').onclick=()=>this.readSummary();
             $('mp-live').onclick=()=>{this.live=!this.live;this.livePaused=false;this.cancelAnalysis();this.preferences();this.updateControls();this.status(this.live?'En directo: analiza al terminar una selección o al hacer una pausa en la tinta.':'Modo manual: selecciona y pulsa Preguntar.');};
             $('mp-pause').onclick=()=>{this.livePaused=!this.livePaused;this.cancelAnalysis();this.updateControls();this.status(this.livePaused?'Análisis en directo pausado. Puedes seguir anotando.':'En directo preparado. Haz una nueva selección o marca.');};
             $('mp-stop-analysis').onclick=()=>{this.cancelAnalysis();if(this.live)this.livePaused=true;this.updateControls();this.status('Análisis detenido. Tus marcas se conservan.');};
@@ -174,11 +176,11 @@
             if(clearAnswer){this.answerAvailable=false;this.summaryText='';$('mp-summary-text').textContent='';}
         }
         showPendingBubble(){
-            this.clearSummaryBubble(true);this.summaryBubbleMode=true;this.widget.classList.add('mp-bubble-mode');$('mp-summary-bubble').hidden=false;$('mp-summary-label').textContent='Analizando';$('mp-summary-text').textContent='Estoy revisando esa zona…';$('mp-summary-spinner').hidden=false;$('mp-summary-listen').hidden=true;$('mp-summary-expand').hidden=true;this.showWidget();
+            this.clearSummaryBubble(true);this.summaryBubbleMode=true;this.widget.classList.add('mp-bubble-mode');$('mp-summary-bubble').hidden=false;$('mp-summary-label').textContent='Analizando';$('mp-summary-text').textContent='Estoy revisando esa zona…';$('mp-summary-spinner').hidden=false;$('mp-summary-listen').hidden=true;$('mp-summary-expand').hidden=true;$('mp-summary-visual').hidden=true;this.showWidget();
         }
         showSummaryBubble(response){
             this.summaryText=conciseSummary(response);if(!this.summaryText){this.clearSummaryBubble(true);this.status('La respuesta llegó vacía. Puedes volver a preguntar.');return;}
-            this.clearSummaryBubble(false);this.answerAvailable=true;this.summaryBubbleMode=true;this.widget.classList.add('mp-bubble-mode');$('mp-summary-bubble').hidden=false;$('mp-summary-label').textContent='Lo esencial';$('mp-summary-text').textContent=this.summaryText;$('mp-summary-spinner').hidden=true;$('mp-summary-voice-status').hidden=true;$('mp-summary-listen').hidden=false;$('mp-summary-expand').hidden=false;$('mp-show-answer').hidden=true;this.showWidget();
+            this.clearSummaryBubble(false);this.answerAvailable=true;this.summaryBubbleMode=true;this.widget.classList.add('mp-bubble-mode');$('mp-summary-bubble').hidden=false;$('mp-summary-label').textContent='Lo esencial';$('mp-summary-text').textContent=this.summaryText;$('mp-summary-spinner').hidden=true;$('mp-summary-voice-status').hidden=true;$('mp-summary-listen').hidden=false;$('mp-summary-expand').hidden=false;$('mp-summary-visual').hidden=false;$('mp-show-answer').hidden=true;this.showWidget();
             this.bubbleTimer=setTimeout(()=>this.dismissSummaryBubble(),12000);
             const prefs=A.companion.data.prefs;if(prefs.voiceRead===true&&!prefs.mutedAll&&!this.speechBusy())this.readSummary(true);
         }
@@ -240,8 +242,16 @@
             this.run(async()=>{await this.refresh();if(!current()||!await this.capture({isCurrent:current}))return;$('mp-status').textContent='Selecciona una región o dibuja para empezar.';this.widget.hidden=true;this.state='selecting';this.setInput(true);});
         }
         isOpen(){return this.active;}
-        session(active){if(A.isNative())this.sessionChain=this.sessionChain.catch(()=>{}).then(()=>A.nativeInvoke('magic_pen_session',{active})).catch(e=>this.status(String(e)));}
-        suspend(){this.closeTools();this.clearSummaryBubble(true);this.cancelAnalysis();this.session(false);this.active=false;this.root.hidden=true;this.state='closed';this.cancelGesture();this.setInput(false);this.voiceOwner.stop?.();++this.generation;this.working=false;this.updateControls();}
+        session(active){
+            const leased=!active&&this.focusLeased;if(!active)this.focusLeased=false;
+            if(A.isNative())this.sessionChain=this.sessionChain.catch(()=>{}).then(()=>A.nativeInvoke('magic_pen_session',{active})).then(()=>leased&&$('panel')?.hidden!==false&&A.app.bridge.action('close_panel')).catch(e=>this.status(String(e)));
+        }
+        // The resident window is non-focusable so opening Magic Pen never closes another app's menus; typing takes the panels' focus lease on first touch.
+        leaseFocus(target){
+            if(!A.isNative()||!this.active||this.focusLeased)return;this.focusLeased=true;
+            this.sessionChain=this.sessionChain.catch(()=>{}).then(()=>A.app.bridge.action('open_panel')).then(()=>{if(this.active&&target?.matches?.('input,textarea'))target.focus({preventScroll:true});}).catch(e=>{this.focusLeased=false;this.status(String(e.message||e));});
+        }
+        suspend(){this.closeTools();this.clearSummaryBubble(true);this.cancelAnalysis();this.disposeScene();if(this.player)this.player.queryId=null;this.guide=null;this.session(false);this.active=false;this.root.hidden=true;this.state='closed';this.cancelGesture();this.setInput(false);this.voiceOwner.stop?.();++this.generation;this.working=false;this.updateControls();}
         close(){this.state='closing';this.suspend();this.syncInput();}
         invalidateGeometry(){
             // Native move/scale events also invalidate physical coordinates even
@@ -335,8 +345,165 @@
         undo(redo){if(!this.doc)return;const from=redo?this.redoStack:this.undoStack,to=redo?this.undoStack:this.redoStack;if(!from.length)return;this.cancelAnalysis();to.push(this.inkSnapshot());const snapshot=from.pop();this.doc.strokes=snapshot.strokes;this.doc.selection=snapshot.selection;this.selectionOrigin=snapshot.origin;this.inkBaseSelection=snapshot.base;this.answerDirty=true;this.queueSave();this.render();this.renderAnswers();this.paintPreview();this.scheduleAnalysis(650,true);}
         path(points,close=false){const c=this.ctx;c.beginPath();points.forEach((p,i)=>i?c.lineTo(...p):c.moveTo(...p));if(close)c.closePath();}
         stroke(s){const c=this.ctx;c.save();c.globalAlpha=s.tool==='marker'?.33:1;c.strokeStyle=s.color;c.fillStyle=s.color;c.lineWidth=s.width;c.lineCap='round';c.lineJoin='round';this.path(s.points);c.stroke();if(s.points.length===1){c.beginPath();c.arc(...s.points[0],s.width/2,0,Math.PI*2);c.fill();}c.restore();}
-        render(){const c=this.ctx;c.clearRect(0,0,this.canvas.width,this.canvas.height);if(!this.doc)return;this.doc.strokes.forEach(s=>this.stroke(s));const g=this.gesture;if(g&&['pen','marker'].includes(g.tool))this.stroke(g);c.save();c.strokeStyle='#9274ff';c.fillStyle='#b8aaff22';c.lineWidth=Math.max(2,this.canvas.width/450);c.setLineDash([c.lineWidth*3,c.lineWidth*2]);const s=this.pendingLasso||this.doc.selection;if(s){if(s.shape==='lasso'){this.path(s.points,true);c.fill('evenodd');c.stroke();}else{const [x,y,r,b]=s.bounds;c.strokeRect(x,y,r-x,b-y);}if(s.anchor){c.beginPath();c.arc(...s.anchor,6,0,Math.PI*2);c.stroke();}}if(g){if(g.tool==='rect'){const a=g.points[0],b=g.points.at(-1);c.strokeRect(...a,b[0]-a[0],b[1]-a[1]);}else if(g.tool==='lasso'){this.path(g.points);c.stroke();}else if(g.tool==='pointer'){c.setLineDash([]);c.beginPath();c.arc(...g.points.at(-1),12,0,Math.PI*2);c.stroke();}}c.restore();$('mp-close-lasso').hidden=!this.pendingLasso;this.updateMetadata();$('mp-undo').disabled=!this.undoStack.length;$('mp-redo').disabled=!this.redoStack.length;}
-        renderAnswers(){const root=$('mp-answers');root.replaceChildren();if(this.answerDirty)return;for(const q of (this.doc?.queries||[]).filter(q=>q.revision===this.doc.revision&&this.doc.selection&&q.selection?.shape===this.doc.selection.shape&&['bounds','points','anchor'].every(k=>JSON.stringify(q.selection[k])===JSON.stringify(this.doc.selection[k]))).slice(-5)){const card=document.createElement('p');card.className='mp-answer';card.textContent=q.response||q.error||(q.state==='running'?'Analizando…':'Interrumpido; vuelve a preguntar.');card.title='Captura '+q.source_id.slice(0,6)+' · revisión '+q.revision;root.append(card);}}
+        render(){const c=this.ctx;c.clearRect(0,0,this.canvas.width,this.canvas.height);if(!this.doc)return;this.doc.strokes.forEach(s=>this.stroke(s));const g=this.gesture;if(g&&['pen','marker'].includes(g.tool))this.stroke(g);c.save();c.strokeStyle='#9274ff';c.fillStyle='#b8aaff22';c.lineWidth=Math.max(2,this.canvas.width/450);c.setLineDash([c.lineWidth*3,c.lineWidth*2]);const s=this.pendingLasso||this.doc.selection;if(s){if(s.shape==='lasso'){this.path(s.points,true);c.fill('evenodd');c.stroke();}else{const [x,y,r,b]=s.bounds;c.strokeRect(x,y,r-x,b-y);}if(s.anchor){c.beginPath();c.arc(...s.anchor,6,0,Math.PI*2);c.stroke();}}if(g){if(g.tool==='rect'){const a=g.points[0],b=g.points.at(-1);c.strokeRect(...a,b[0]-a[0],b[1]-a[1]);}else if(g.tool==='lasso'){this.path(g.points);c.stroke();}else if(g.tool==='pointer'){c.setLineDash([]);c.beginPath();c.arc(...g.points.at(-1),12,0,Math.PI*2);c.stroke();}}c.restore();this.paintGuide();$('mp-close-lasso').hidden=!this.pendingLasso;this.updateMetadata();$('mp-undo').disabled=!this.undoStack.length;$('mp-redo').disabled=!this.redoStack.length;}
+        renderAnswers(){const root=$('mp-answers');root.replaceChildren();if(this.answerDirty)return;const current=this.presentationQuery(),guided=this.guideQuery();for(const q of (this.doc?.queries||[]).filter(q=>q.revision===this.doc.revision&&this.doc.selection&&q.selection?.shape===this.doc.selection.shape&&['bounds','points','anchor'].every(k=>JSON.stringify(q.selection[k])===JSON.stringify(this.doc.selection[k]))).slice(-5)){const visual=q===current||q===guided,card=q===current?this.presentationCard(q):q===guided?this.guideCard(q):document.createElement('p');card.classList.add('mp-answer');if(!visual)card.textContent=(q.format==='presentation'?q.presentation?.summary||q.error:q.format==='guide'?q.guide?.goal||q.error:q.response||q.error)||(q.state==='running'?'Analizando…':'Interrumpido; vuelve a preguntar.');card.title='Captura '+q.source_id.slice(0,6)+' · revisión '+q.revision;root.append(card);}}
+        presentationQuery(){
+            const d=this.doc,last=this.answerDirty?null:d?.queries?.findLast(q=>q.revision===d.revision&&q.state==='completed');
+            return last?.presentation?last:null;
+        }
+        presentationCard(q){
+            if(this.player?.queryId!==q.id){this.stopPresentation();this.disposeScene();this.player={queryId:q.id,index:0,playing:false,timer:null,token:0,spoke:false,exploded:false,picked:null};}
+            const p=q.presentation,player=this.player,el=(tag,text,className)=>{const n=document.createElement(tag);if(text!=null)n.textContent=text;if(className)n.className=className;return n;};
+            const card=el('figure',null,'mp-visual'),head=el('figcaption'),list=el('ol',null,'mp-visual-flow'),controls=el('div',null,'mp-visual-controls');
+            head.append(el('strong',p.title),el('small',FIDELITY[p.fidelity]+' · explicación generada, no verificada','mp-visual-fidelity'));card.append(head);
+            if(q.answer)card.append(el('p',q.answer,'mp-visual-answer'));
+            const button=(label,text,onclick,disabled=false)=>{const b=el('button',text);b.type='button';b.setAttribute('aria-label',label);b.disabled=disabled;b.onclick=onclick;return b;};
+            if(p.scene)card.append(this.sceneBlock(p,player,el,button));
+            p.steps.forEach((step,i)=>{
+                const item=el('li'),ask=el('button','Preguntar');ask.type='button';ask.setAttribute('aria-label','Preguntar sobre el paso '+step.title);
+                ask.onclick=()=>{const input=$('mp-question');input.value='Sobre el paso «'+step.title+'»: ';input.focus();};
+                if(i===player.index)item.setAttribute('aria-current','step');else if(i>player.index)item.classList.add('mp-step-pending');
+                const title=el('button',step.title,'mp-step-title'),meta=el('div',null,'mp-step-meta');title.type='button';title.setAttribute('aria-label','Ir al paso '+(i+1)+': '+step.title);title.onclick=()=>this.seekPresentation(i);meta.append(el('small',BASIS[step.basis],'mp-visual-basis'),ask);item.append(title,el('span',step.body),meta);list.append(item);
+            });
+            controls.append(button('Paso anterior','‹',()=>this.seekPresentation(player.index-1),player.index===0),
+                button(player.playing?'Pausar narración':'Narrar desde este paso',player.playing?'Pausar':'Narrar',()=>{if(player.playing){this.stopPresentation();this.renderAnswers();}else this.playPresentation();}),
+                button('Paso siguiente','›',()=>this.seekPresentation(player.index+1),player.index>=p.steps.length-1),
+                button('Guíame para hacerlo en la aplicación','Guíame',()=>{void this.ask({fresh:false,format:'guide',base:q.id,question:$('mp-question').value.trim()||'Guíame paso a paso para hacer esto en la aplicación: '+p.title});}),el('span',(player.index+1)+' / '+p.steps.length,'mp-visual-progress'));
+            card.append(list,controls);player.scene?.focus(player.picked?[player.picked]:player.overview?[]:p.steps[player.index].focus||[]);return card;
+        }
+        sceneBlock(p,player,el,button){
+            // The host survives re-renders so seeking never rebuilds the WebGL context.
+            const block=el('div',null,'mp-scene'),objects=new Map(p.scene.objects.map(o=>[o.id,o]));
+            block.append(el('small',(p.scene.fidelity==='illustrative'?'Escena ilustrativa':'Escena conceptual')+' · no es una simulación ni geometría exacta','mp-visual-fidelity'));
+            if(player.sceneFailed){
+                const list=el('ul',null,'mp-scene-fallback');block.append(el('p',player.sceneFailed));
+                for(const o of p.scene.objects)list.append(el('li',o.label));block.append(list);return block;
+            }
+            if(!player.sceneHost){
+                player.sceneHost=el('div',null,'mp-scene-host');player.sceneHost.append(el('p','Cargando escena 3D…','mp-scene-loading'));
+                const fail=reason=>{if(this.player!==player)return;this.disposeScene();player.sceneFailed=reason+' Se muestran los componentes en lista.';this.renderAnswers();};
+                import('./spatial-scene.js').then(module=>{
+                    if(this.player!==player||!player.sceneHost)return;
+                    player.sceneHost.replaceChildren();
+                    try{player.scene=module.mountScene(player.sceneHost,p.scene,{reducedMotion:matchMedia('(prefers-reduced-motion: reduce)').matches,
+                        onPick:id=>{player.picked=id;this.renderAnswers();},onLost:()=>fail('Se perdió el contexto gráfico.')});}
+                    catch{fail('Este equipo no ofrece WebGL para la escena 3D.');return;}
+                    if(player.exploded)player.scene.setExploded(true);this.renderAnswers();
+                },()=>fail('No se pudo cargar el motor 3D.'));
+            }
+            const tools=el('div',null,'mp-scene-tools'),picked=objects.get(player.picked);
+            const explode=button(player.exploded?'Unir piezas':'Vista despiezada',player.exploded?'Unir':'Despiezar',()=>{player.exploded=!player.exploded;player.scene?.setExploded(player.exploded);this.renderAnswers();},!player.scene);
+            explode.setAttribute('aria-pressed',String(player.exploded));
+            tools.append(explode,button('Ver toda la escena','Ver todo',()=>{player.picked=null;player.overview=true;this.renderAnswers();},!player.scene),
+                button('Guardar la escena como PNG','PNG',()=>this.run(()=>this.exportScene()),!player.scene));
+            block.append(player.sceneHost,tools);
+            if(picked){
+                const info=el('p',null,'mp-scene-picked');
+                info.append(el('span','Seleccionado: '+picked.label),button('Preguntar sobre '+picked.label,'Preguntar',()=>{const input=$('mp-question');input.value='Sobre «'+picked.label+'»: ';input.focus();}));
+                block.append(info);
+            }
+            return block;
+        }
+        disposeScene(){const player=this.player;if(!player)return;player.scene?.dispose();player.scene=null;player.sceneHost=null;}
+        async exportScene(){const image=this.player?.scene?.snapshot();if(!image)throw Error('La escena 3D no está disponible.');await this.export('scene',image);}
+        seekPresentation(index){
+            const q=this.presentationQuery(),player=this.player;if(!q||player?.queryId!==q.id||index<0||index>=q.presentation.steps.length)return;
+            const playing=player.playing;this.stopPresentation();player.index=index;player.picked=null;player.overview=false;if(playing)this.playPresentation();else this.renderAnswers();
+        }
+        playPresentation(){
+            const q=this.presentationQuery(),player=this.player;if(!q||player?.queryId!==q.id)return;
+            const steps=q.presentation.steps,token=++player.token,step=steps[player.index];player.playing=true;player.picked=null;player.overview=false;this.renderAnswers();
+            player.spoke=this.readNarration(step.narration);
+            // One playback owner: a stale token (pause, seek, new answer) ends this chain without touching the voice.
+            const next=()=>{
+                if(player.token!==token||!player.playing)return;
+                if(player.spoke&&this.speechBusy()){player.timer=setTimeout(next,300);return;}
+                if(player.index>=steps.length-1){player.playing=false;this.renderAnswers();return;}
+                player.index++;this.playPresentation();
+            };
+            player.timer=setTimeout(next,player.spoke?600:Math.max(2500,step.narration.length*60));
+        }
+        stopPresentation(){
+            const player=this.player;if(!player)return;clearTimeout(player.timer);player.token++;
+            if(player.playing&&player.spoke)try{A.companion.voiceDelegate?.stopOutput?.();}catch{}
+            player.playing=false;player.spoke=false;
+        }
+        readNarration(text){
+            const prefs=A.companion.data.prefs;if(prefs.mutedAll||this.speechBusy()||typeof A.companion.read!=='function')return false;
+            try{return A.companion.read(text)!==false;}catch{return false;}
+        }
+        askFromComposer(){
+            const base=this.presentationQuery();
+            return base?this.ask({fresh:false,format:'presentation',base:base.id}):this.ask();
+        }
+        guideQuery(){
+            const d=this.doc,last=this.answerDirty?null:d?.queries?.findLast(q=>q.revision===d.revision&&q.state==='completed');
+            return last?.guide?last:null;
+        }
+        guideCard(q){
+            if(this.guide?.queryId!==q.id){this.stopGuide();this.guide={queryId:q.id,token:0,running:false,timer:null,mark:null,message:'',started:0};queueMicrotask(()=>this.startGuide(false));}
+            const g=this.guide,progress=q.guide_progress||{},el=(tag,text,className)=>{const n=document.createElement(tag);if(text!=null)n.textContent=text;if(className)n.className=className;return n;};
+            const labels={WAITING_USER:'Te toca',VERIFIED:'Comprobado',UNKNOWN:'Sin comprobar',AMBIGUOUS:'No lo identifico',TARGET_NOT_FOUND:'No lo encuentro',STALE:'Ventana cambiada'};
+            const card=el('figure',null,'mp-visual mp-guide'),head=el('figcaption'),list=el('ol',null,'mp-visual-flow'),controls=el('div',null,'mp-visual-controls');
+            head.append(el('strong','Guíame · '+q.guide.goal),el('small','En «'+q.guide_window.title+'». Señalo el control; tú actúas y yo compruebo leyendo la ventana.','mp-visual-fidelity'));
+            q.guide.steps.forEach(step=>{
+                const item=el('li'),state=progress[step.id]?.state;item.dataset.state=state||'PENDING';
+                if(step.id===g.stepId&&g.running)item.setAttribute('aria-current','step');else if(state!=='VERIFIED')item.classList.add('mp-step-pending');
+                item.append(el('strong',step.instruction),el('small',labels[state]||'Pendiente','mp-visual-basis'));list.append(item);
+            });
+            const button=(label,text,onclick)=>{const b=el('button',text);b.type='button';b.setAttribute('aria-label',label);b.onclick=onclick;return b;};
+            const done=q.guide.steps.every(s=>progress[s.id]?.state==='VERIFIED');
+            if(!done)controls.append(g.running?button('Detener la guía','Detener',()=>{this.stopGuide();this.renderAnswers();}):button('Continuar la guía','Continuar',()=>this.startGuide(false)),
+                button('Volver a señalar el paso actual','Volver a señalar',()=>this.startGuide(true)));
+            const message=el('p',g.message||(done?'Guía completada: todos los pasos están comprobados.':''),'mp-guide-status');message.setAttribute('role','status');
+            card.append(head,list,message,controls);return card;
+        }
+        startGuide(retarget){
+            const q=this.guideQuery(),g=this.guide;if(!q||g?.queryId!==q.id)return;
+            this.stopGuide();g.running=true;g.started=Date.now();this.setInput(false);
+            const step=q.guide.steps.find(s=>q.guide_progress?.[s.id]?.state!=='VERIFIED');
+            void this.guideStep(!retarget&&step&&['WAITING_USER','UNKNOWN'].includes(q.guide_progress?.[step.id]?.state)?'verify':'target');
+        }
+        stopGuide(){const g=this.guide;if(!g)return;g.token++;clearTimeout(g.timer);g.running=false;g.mark=null;if(this.ctx)this.render();}
+        async guideStep(phase){
+            const g=this.guide,q=this.guideQuery();if(!g?.running||!q||q.id!==g.queryId)return;
+            const token=++g.token,step=q.guide.steps.find(s=>q.guide_progress?.[s.id]?.state!=='VERIFIED');
+            if(!step){g.running=false;g.mark=null;g.message='Guía completada: todos los pasos están comprobados.';this.render();this.renderAnswers();return;}
+            g.stepId=step.id;
+            let r;try{r=await api('guide_check',{id:q.source_id,query_id:q.id,step_id:step.id,phase});}
+            catch(e){if(token===g.token){g.running=false;g.mark=null;g.message=String(e.message||e);this.render();this.renderAnswers();}return;}
+            if(token!==g.token||!this.active)return;
+            (q.guide_progress||={})[step.id]=r.record;
+            const stop=message=>{g.running=false;g.mark=null;g.message=message;};
+            const mark=this.guideMark(r,step);
+            if(mark==='stale')stop('La disposición de pantallas cambió desde la captura. Vuelve a capturar para seguir.');
+            else if(r.state==='VERIFIED'){g.mark=null;g.message='Paso comprobado.';g.timer=setTimeout(()=>void this.guideStep('target'),600);}
+            else if(r.state==='WAITING_USER'){
+                g.mark=mark;g.message=step.instruction+(mark?'':' (el control está fuera de la pantalla capturada)');
+                if(Date.now()-g.started>300000)stop('Sigo sin ver el cambio. Pulsa Continuar cuando lo hayas hecho.');
+                else g.timer=setTimeout(()=>void this.guideStep('verify'),1500);
+            }
+            else stop({UNKNOWN:'No puedo comprobar si el paso se hizo: el control cambió o desapareció. No avanzo; pulsa Volver a señalar.',
+                AMBIGUOUS:'Hay más de un control que coincide con «'+step.target.name+'». No señalo para no equivocarme.',
+                TARGET_NOT_FOUND:'No encuentro «'+step.target.name+'» en la ventana. Hazlo visible y pulsa Volver a señalar.',
+                STALE:'La ventana se cerró o se reinició. Pide «Guíame» de nuevo para observarla otra vez.'}[r.state]||'Estado de guía desconocido.');
+            this.render();this.renderAnswers();
+        }
+        guideMark(r,step){
+            // Only draw when the captured monitor still exists with the same geometry; otherwise the mapping is stale.
+            const s=this.doc?.source,b=r.bounds;if(!s||!b)return null;
+            if(r.monitors&&!r.monitors.some(m=>m.x===s.x&&m.y===s.y&&m.width===s.width&&m.height===s.height))return 'stale';
+            const x=b.x-s.x,y=b.y-s.y;
+            return x+b.width<=0||y+b.height<=0||x>=s.width||y>=s.height?null:{x,y,width:b.width,height:b.height,label:step.target.name};
+        }
+        paintGuide(){
+            const m=this.guide?.mark;if(!m||typeof m!=='object')return;
+            const c=this.ctx,pad=6,w=Math.max(3,this.canvas.width/480);
+            c.save();c.strokeStyle='#9274ff';c.lineWidth=w;c.shadowColor='#9274ff';c.shadowBlur=w*4;
+            c.beginPath();c.roundRect(m.x-pad,m.y-pad,m.width+pad*2,m.height+pad*2,10);c.stroke();
+            c.shadowBlur=0;c.font=`600 ${Math.round(w*5)}px "Segoe UI",sans-serif`;const text='Aquí: '+m.label,tw=c.measureText(text).width,ty=m.y-pad-w*3;
+            c.fillStyle='#9274ff';c.beginPath();c.roundRect(m.x-pad,ty-w*6,tw+w*5,w*7.5,w*3);c.fill();c.fillStyle='#fff';c.fillText(text,m.x-pad+w*2.5,ty);c.restore();
+        }
         route(){const p=A.companion.data.prefs;return p.visionConnection&&p.visionModel?
             {selection_mode:'manual',provider:p.visionConnection,model:p.visionModel}:
             {selection_mode:p.selection_mode||'manual',provider:p.apiConnection||(p.provider==='bridge'?'':p.provider)||'',model:p.model||''};}
@@ -374,7 +541,7 @@
             });return this.cancelChain;
         }
         cancelAnalysis(){
-            clearTimeout(this.liveTimer);this.liveTimer=null;++this.analysisEpoch;
+            clearTimeout(this.liveTimer);this.liveTimer=null;++this.analysisEpoch;this.stopPresentation();this.stopGuide();
             const job=this.analysisJob,wasPending=this.analysisPending;this.analysisJob=null;this.analysisPending=false;this.queries.clear();if(wasPending&&this.summaryBubbleMode)this.clearSummaryBubble(true);
             if(job)void this.cancelQuery(job);this.updateControls();return this.analysisEpoch;
         }
@@ -391,10 +558,11 @@
             const c=canvas.getContext('2d');c.drawImage(this.previewImage,0,0,canvas.width,canvas.height);c.scale(scale,scale);
             for(const stroke of this.doc.strokes){c.save();c.globalAlpha=stroke.tool==='marker'?.33:1;c.strokeStyle=stroke.color;c.fillStyle=stroke.color;c.lineWidth=stroke.width;c.lineCap=c.lineJoin='round';c.beginPath();stroke.points.forEach((p,i)=>i?c.lineTo(...p):c.moveTo(...p));c.stroke();if(stroke.points.length===1){c.beginPath();c.arc(...stroke.points[0],stroke.width/2,0,Math.PI*2);c.fill();}c.restore();}
         }
-        async ask({fresh=true}={}){
+        async ask({fresh=true,format='text',base=null,question:explicit=''}={}){
             if(!this.active||!this.doc?.selection)return this.status('Selecciona o marca una región antes de preguntar.');
+            if(base&&!explicit&&!$('mp-question').value.trim())return this.status('Escribe qué quieres saber o cambiar de la presentación.');
             if(!this.hasVision()){this.livePaused=this.live;this.updateControls();return this.status('El modelo seleccionado no tiene visión disponible. Revisa Ajustes de conexión.');}
-            const epoch=this.cancelAnalysis(),session=this.generation,userQuestion=$('mp-question').value.trim()||'Explica el contenido de toda la región seleccionada. Ignora el cursor del ratón y cualquier indicador de puntero. Responde de forma clara y breve.',question=userQuestion+'\n\nEmpieza con «Resumen:» y una síntesis en una frase de máximo 24 palabras; después da los detalles necesarios bajo «Detalle:».',route=this.route();
+            const epoch=this.cancelAnalysis(),session=this.generation,userQuestion=explicit||$('mp-question').value.trim()||'Explica el contenido de toda la región seleccionada. Ignora el cursor del ratón y cualquier indicador de puntero. Responde de forma clara y breve.',question=format!=='text'?userQuestion:userQuestion+'\n\nEmpieza con «Resumen:» y una síntesis en una frase de máximo 24 palabras; después da los detalles necesarios bajo «Detalle:».',route=this.route();
             this.analysisPending=true;this.updateControls();this.showPendingBubble();
             const current=()=>this.active&&this.generation===session&&this.analysisEpoch===epoch;
             const setup=this.analysisSetup.catch(()=>{}).then(async()=>{
@@ -409,7 +577,7 @@
                 this.status('Analizando tu selección…');
                 const request_id=crypto.randomUUID().replace(/-/g,'');
                 this.analysisJob={id:request_id,source_id:d.id};
-                const q=await api('start',{id:d.id,revision,question,...route,request_id});
+                const q=await api('start',{id:d.id,revision,question,...route,request_id,...(format!=='text'?{format}:{}),...(base?{base_query_id:base}:{})});
                 if(q?.id!==request_id||q.source_id!==d.id)throw Error('El servicio devolvió un análisis sin identidad válida.');
                 if(!current()){await this.cancelQuery(q);return null;}
                 this.analysisJob=q;this.queries.add(q.id);return {d,revision,q};
@@ -428,12 +596,12 @@
                 if(!['completed','failed','cancelled','interrupted'].includes(q.state))throw Error('Estado de análisis desconocido.');
                 if(!job.d.queries.some(item=>item.id===q.id))job.d.queries.push(q);
                 this.answerDirty=false;this.renderAnswers();
-                if(q.state==='completed'){this.status('Respuesta lista. Puedes preguntar más o marcar otra zona.');this.showSummaryBubble(q.response);}
+                if(q.state==='completed'){this.status('Respuesta lista. Puedes preguntar más o marcar otra zona.');this.showSummaryBubble(q.presentation?q.answer||q.presentation.summary:q.guide?q.guide.goal:q.response);if(q.presentation||q.guide)this.openAnswer();}
                 else {if(this.live)this.livePaused=true;this.clearSummaryBubble(true);this.status(q.error||'Análisis detenido. Puedes volver a intentarlo.');}
             }catch(e){if(current()){if(this.analysisJob)void this.cancelQuery(this.analysisJob);if(this.live)this.livePaused=true;this.clearSummaryBubble(true);this.status(String(e.message||e));}}
             finally{if(current()){this.analysisPending=false;this.analysisJob=null;this.queries.clear();this.updateControls();}}
         }
-        async export(kind){if(!this.doc)throw Error('Captura una pantalla primero.');await this.flush();this.status('Verificando exportación…');const r=await api('export',{id:this.doc.id,revision:this.doc.revision,kind,directory:$('mp-directory').value,name:$('mp-name').value+(kind==='original'?'-original':'-anotado')});$('mp-export').textContent=`Guardado y verificado: ${r.path}\nSHA256 ${r.sha256}`;this.status('PNG guardado y verificado.');}
+        async export(kind,image){if(!this.doc)throw Error('Captura una pantalla primero.');await this.flush();this.status('Verificando exportación…');const r=await api('export',{id:this.doc.id,revision:this.doc.revision,kind,directory:$('mp-directory').value,name:$('mp-name').value+{original:'-original',annotated:'-anotado',scene:'-escena'}[kind],...(image?{image}:{})});$('mp-export').textContent=`Guardado y verificado: ${r.path}\nSHA256 ${r.sha256}`;this.status('PNG guardado y verificado.');}
     }
     A.magicPenGeometry={sourcePoint,desktopPoint};
     A.magicPen=new MagicPen();

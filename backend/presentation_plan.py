@@ -1,0 +1,219 @@
+"""PresentationPlan v1: the declarative contract between a vision model and the Magic Pen canvas.
+
+The model is untrusted. Its text is parsed as JSON, checked against this closed
+contract and only then rendered by allowlisted frontend components using
+textContent. Nothing in a plan is executed or inserted as HTML. An optional
+scene is a list of allowlisted primitives; it is always a conceptual
+representation, never a simulation or exact geometry.
+"""
+import copy
+import json
+import math
+import re
+
+SCHEMA_VERSION = '1.0'
+MAX_STEPS = 8
+MAX_OPS = 8
+MAX_OBJECTS = 24
+MAX_ARROWS = 12
+FIDELITY = ('illustrative', 'conceptual', 'technical')
+SCENE_FIDELITY = ('illustrative', 'conceptual')
+BASIS = ('observed', 'documented', 'inferred', 'assumed')
+SHAPES = ('box', 'sphere', 'cylinder', 'cone', 'torus', 'plane')
+STEP_ID = re.compile(r's[0-9]{1,3}')
+OBJECT_ID = re.compile(r'o[0-9]{1,3}')
+COLOR = re.compile(r'#[0-9a-fA-F]{6}')
+LIMITS = {'title': 80, 'body': 400, 'narration': 400}
+OBJECT_FIELDS = ('label', 'shape', 'size', 'position', 'color', 'rotation', 'explode')
+
+PLAN_CONTRACT = (
+    'Responde SOLO con un objeto JSON, sin texto adicional ni bloques de código, con esta forma exacta: '
+    '{"schema_version":"1.0","kind":"presentation","title":"…","summary":"una frase de máximo 24 palabras",'
+    '"fidelity":"illustrative|conceptual|technical","steps":[{"id":"s1","title":"…","body":"…","narration":"…",'
+    '"basis":"observed|documented|inferred|assumed"}]}. '
+    'Usa entre 2 y 8 pasos que formen una secuencia o flujo explicativo. '
+    'basis="observed" solo para lo que se ve en la imagen; "inferred" para deducciones; "assumed" para conocimiento general. '
+    'No inventes medidas, pines, especificaciones ni datos no visibles; si faltan, dilo y usa fidelity="conceptual". '
+    'Si el contenido es un ejemplo didáctico y no un dato de la imagen, márcalo con basis="assumed". '
+    'Solo si una vista 3D ayuda de verdad (objeto físico, mecanismo, montaje o fuerzas) añade '
+    '"scene":{"fidelity":"illustrative|conceptual","objects":[{"id":"o1","label":"…","shape":"box|sphere|cylinder|cone|torus|plane",'
+    '"size":[ancho,alto,fondo],"position":[x,y,z],"color":"#rrggbb","explode":[dx,dy,dz]}],"arrows":[{"from":"o1","to":"o2","label":"…"}]} '
+    'con hasta 24 objetos, valores entre -10 y 10 y tamaños entre 0.05 y 10, y en cada paso "focus":["o1"] con los objetos que explica. '
+    'explode es el desplazamiento opcional en la vista despiezada. Para matemáticas, texto, software o pantallas omite scene: '
+    'no uses 3D solo por ser vistoso. La escena es conceptual: no inventes geometría interna, dimensiones exactas ni conexiones. '
+    'Nunca incluyas HTML, código ni enlaces.'
+)
+
+PATCH_CONTRACT = (
+    'Tienes la presentación actual en JSON. Responde a la pregunta del usuario modificándola SOLO con un objeto JSON '
+    'sin texto adicional: {"schema_version":"1.0","kind":"patch","answer":"respuesta breve a la pregunta",'
+    '"ops":[{"op":"step.update","step_id":"s2","title":"…","body":"…","narration":"…","basis":"…","focus":["o1"]},'
+    '{"op":"step.insert_after","step_id":"s2","step":{"id":"s9","title":"…","body":"…","narration":"…","basis":"…"}},'
+    '{"op":"step.remove","step_id":"s3"},'
+    '{"op":"object.update","object_id":"o1","label":"…","color":"#rrggbb","position":[x,y,z],"size":[x,y,z]}]}. '
+    'Incluye solo las operaciones necesarias (0 a 8); en las actualizaciones omite los campos que no cambian. '
+    'object.update solo existe si la presentación tiene scene. '
+    'Conserva lo que no cambia. Nunca incluyas HTML, código ni enlaces.'
+)
+
+
+class PlanError(ValueError):
+    """The model output does not satisfy the closed presentation contract."""
+
+
+def _text(value, name, limit, *, optional=False):
+    if optional and value is None:
+        return None
+    if not isinstance(value, str) or not value.strip() or len(value) > limit or '\x00' in value:
+        raise PlanError(f'{name} debe ser texto de 1 a {limit} caracteres.')
+    return value.strip()
+
+
+def _closed(obj, required, optional=(), name='objeto'):
+    if not isinstance(obj, dict):
+        raise PlanError(f'{name} debe ser un objeto JSON.')
+    keys = set(obj)
+    if not set(required) <= keys or keys - set(required) - set(optional):
+        raise PlanError(f'{name} tiene campos ausentes o no permitidos: {sorted(keys ^ set(required))}.')
+
+
+def _vector(value, name, low, high):
+    if (not isinstance(value, list) or len(value) != 3
+            or any(type(n) not in (int, float) or not math.isfinite(n) or not low <= n <= high for n in value)):
+        raise PlanError(f'{name} debe ser [x,y,z] con valores entre {low} y {high}.')
+    return [float(n) for n in value]
+
+
+def _ids(value, pattern, name, limit):
+    if not isinstance(value, list) or len(value) > limit or len(set(map(str, value))) != len(value) \
+            or any(not isinstance(i, str) or not pattern.fullmatch(i) for i in value):
+        raise PlanError(f'{name} debe ser una lista de hasta {limit} ids únicos.')
+    return list(value)
+
+
+def _step(step):
+    _closed(step, ('id', 'title', 'body', 'narration', 'basis'), ('focus',), name='Paso')
+    if not isinstance(step['id'], str) or not STEP_ID.fullmatch(step['id']):
+        raise PlanError('Cada paso necesita un id como "s1".')
+    if step['basis'] not in BASIS:
+        raise PlanError('basis debe ser observed, documented, inferred o assumed.')
+    result = {'id': step['id'], **{k: _text(step[k], k, n) for k, n in LIMITS.items()}, 'basis': step['basis']}
+    if 'focus' in step:
+        result['focus'] = _ids(step['focus'], OBJECT_ID, 'focus', 8)
+    return result
+
+
+def _object(obj):
+    _closed(obj, ('id', 'label', 'shape', 'size', 'position', 'color'), ('rotation', 'explode'), name='Objeto')
+    if not isinstance(obj['id'], str) or not OBJECT_ID.fullmatch(obj['id']):
+        raise PlanError('Cada objeto necesita un id como "o1".')
+    if obj['shape'] not in SHAPES:
+        raise PlanError('shape no permitido.')
+    if not isinstance(obj['color'], str) or not COLOR.fullmatch(obj['color']):
+        raise PlanError('color debe ser #rrggbb.')
+    result = {'id': obj['id'], 'label': _text(obj['label'], 'label', 80), 'shape': obj['shape'],
+              'size': _vector(obj['size'], 'size', .05, 10), 'position': _vector(obj['position'], 'position', -10, 10),
+              'color': obj['color'].lower()}
+    if 'rotation' in obj:
+        result['rotation'] = _vector(obj['rotation'], 'rotation', -360, 360)
+    if 'explode' in obj:
+        result['explode'] = _vector(obj['explode'], 'explode', -10, 10)
+    return result
+
+
+def _scene(scene):
+    _closed(scene, ('fidelity', 'objects'), ('arrows',), name='Escena')
+    if scene['fidelity'] not in SCENE_FIDELITY:
+        raise PlanError('Una escena solo puede ser illustrative o conceptual.')
+    objects = scene['objects']
+    if not isinstance(objects, list) or not 1 <= len(objects) <= MAX_OBJECTS:
+        raise PlanError(f'La escena necesita entre 1 y {MAX_OBJECTS} objetos.')
+    objects = [_object(o) for o in objects]
+    ids = {o['id'] for o in objects}
+    if len(ids) != len(objects):
+        raise PlanError('Los ids de los objetos deben ser únicos.')
+    result = {'fidelity': scene['fidelity'], 'objects': objects}
+    if 'arrows' in scene:
+        arrows = scene['arrows']
+        if not isinstance(arrows, list) or len(arrows) > MAX_ARROWS:
+            raise PlanError(f'La escena admite hasta {MAX_ARROWS} flechas.')
+        result['arrows'] = []
+        for arrow in arrows:
+            _closed(arrow, ('from', 'to', 'label'), name='Flecha')
+            if arrow['from'] not in ids or arrow['to'] not in ids or arrow['from'] == arrow['to']:
+                raise PlanError('Cada flecha une dos objetos distintos de la escena.')
+            result['arrows'].append({'from': arrow['from'], 'to': arrow['to'], 'label': _text(arrow['label'], 'label', 80)})
+    return result
+
+
+def validate_plan(plan):
+    _closed(plan, ('schema_version', 'kind', 'title', 'summary', 'fidelity', 'steps'), ('scene',), name='Plan')
+    if plan['schema_version'] != SCHEMA_VERSION or plan['kind'] != 'presentation':
+        raise PlanError('Versión o tipo de plan no compatible.')
+    if plan['fidelity'] not in FIDELITY:
+        raise PlanError('fidelity debe ser illustrative, conceptual o technical.')
+    steps = plan['steps']
+    if not isinstance(steps, list) or not 2 <= len(steps) <= MAX_STEPS:
+        raise PlanError(f'El plan necesita entre 2 y {MAX_STEPS} pasos.')
+    steps = [_step(s) for s in steps]
+    if len({s['id'] for s in steps}) != len(steps):
+        raise PlanError('Los ids de los pasos deben ser únicos.')
+    result = {'schema_version': SCHEMA_VERSION, 'kind': 'presentation', 'title': _text(plan['title'], 'title', 120),
+              'summary': _text(plan['summary'], 'summary', 240), 'fidelity': plan['fidelity'], 'steps': steps}
+    if 'scene' in plan:
+        result['scene'] = _scene(plan['scene'])
+    ids = {o['id'] for o in result.get('scene', {}).get('objects', [])}
+    if any(not set(s.get('focus', ())) <= ids for s in steps):
+        raise PlanError('focus solo puede nombrar objetos de la escena.')
+    return result
+
+
+def apply_patch(plan, patch):
+    """Apply a whitelisted patch to a valid plan; the result is revalidated as a whole."""
+    _closed(patch, ('schema_version', 'kind', 'answer', 'ops'), name='Patch')
+    if patch['schema_version'] != SCHEMA_VERSION or patch['kind'] != 'patch':
+        raise PlanError('Versión o tipo de patch no compatible.')
+    answer = _text(patch['answer'], 'answer', 600)
+    ops = patch['ops']
+    if not isinstance(ops, list) or len(ops) > MAX_OPS:
+        raise PlanError(f'El patch admite hasta {MAX_OPS} operaciones.')
+    result = copy.deepcopy(plan)
+    for op in ops:
+        kind = op.get('op') if isinstance(op, dict) else None
+        if kind == 'object.update':
+            _closed(op, ('op', 'object_id'), OBJECT_FIELDS, name='object.update')
+            objects = result.get('scene', {}).get('objects', [])
+            index = next((i for i, o in enumerate(objects) if o['id'] == op['object_id']), None)
+            changes = {k: v for k, v in op.items() if k not in ('op', 'object_id')}
+            if index is None or not changes:
+                raise PlanError('object.update necesita un objeto existente y al menos un cambio.')
+            objects[index] = {**objects[index], **changes}  # Checked by the final validate_plan.
+            continue
+        index = next((i for i, s in enumerate(result['steps']) if s['id'] == op.get('step_id')), None) if kind else None
+        if index is None:
+            raise PlanError('Cada operación debe referirse a un paso existente.')
+        if kind == 'step.update':
+            _closed(op, ('op', 'step_id'), ('title', 'body', 'narration', 'basis', 'focus'), name='step.update')
+            changes = {k: v for k, v in op.items() if k not in ('op', 'step_id')}
+            if not changes:
+                raise PlanError('step.update necesita al menos un cambio.')
+            result['steps'][index] = _step({**result['steps'][index], **changes})
+        elif kind == 'step.insert_after':
+            _closed(op, ('op', 'step_id', 'step'), name='step.insert_after')
+            result['steps'].insert(index + 1, _step(op['step']))
+        elif kind == 'step.remove':
+            _closed(op, ('op', 'step_id'), name='step.remove')
+            result['steps'].pop(index)
+        else:
+            raise PlanError('Operación de patch no permitida.')
+    return validate_plan(result), answer
+
+
+def parse_json(text):
+    """Accept one JSON object, optionally wrapped in a single ```json fence."""
+    text = text.strip()
+    fence = re.fullmatch(r'```(?:json)?\s*(.*?)\s*```', text, re.S)
+    try:
+        return json.loads(fence.group(1) if fence else text)
+    except (json.JSONDecodeError, RecursionError) as exc:
+        raise PlanError('La respuesta del modelo no es JSON válido.') from exc
