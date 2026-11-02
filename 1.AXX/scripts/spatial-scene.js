@@ -17,7 +17,7 @@ function geometry(shape, [x, y, z]) {
     }
 }
 
-export function mountScene(container, scene, {reducedMotion = false, onPick = () => {}, onLost = () => {}} = {}) {
+export function mountScene(container, scene, {reducedMotion = false, onPick = () => {}, onLost = () => {}, initialView = null} = {}) {
     const canvas = document.createElement('canvas');
     const renderer = new THREE.WebGLRenderer({canvas, antialias: true, alpha: true}); // Throws when WebGL is unavailable.
     canvas.className = 'mp-scene-canvas'; canvas.tabIndex = 0; canvas.setAttribute('role', 'img');
@@ -38,7 +38,7 @@ export function mountScene(container, scene, {reducedMotion = false, onPick = ()
     }
     for (const a of scene.arrows || []) {
         const from = meshes.get(a.from).position, direction = meshes.get(a.to).position.clone().sub(from), length = direction.length();
-        if (length < 1e-6) continue;
+        if (length < 1e-6) { arrows.push(null); continue; }
         const arrow = new THREE.ArrowHelper(direction.normalize(), from, length, 0x9274ff, Math.min(.4, length * .25), Math.min(.2, length * .12));
         world.add(arrow); arrows.push(arrow); disposables.push(arrow.line.geometry, arrow.line.material, arrow.cone.geometry, arrow.cone.material);
     }
@@ -46,7 +46,15 @@ export function mountScene(container, scene, {reducedMotion = false, onPick = ()
     const bounds = new THREE.Box3(); meshes.forEach(m => bounds.expandByObject(m));
     const center = bounds.getCenter(new THREE.Vector3()), radius = Math.max(.5, bounds.getSize(new THREE.Vector3()).length() / 2);
     const view = {target: center.clone(), theta: .7, phi: 1.1, distance: radius * 2.8};
+    if (initialView && Array.isArray(initialView.target) && initialView.target.length === 3
+        && [...initialView.target, initialView.theta, initialView.phi, initialView.distance].every(Number.isFinite)
+        && initialView.distance > 0) {
+        view.target.fromArray(initialView.target); view.theta = initialView.theta;
+        view.phi = Math.min(Math.PI - .15, Math.max(.15, initialView.phi));
+        view.distance = Math.min(radius * 8, Math.max(radius * .8, initialView.distance));
+    }
     let frame = 0, focused = [], exploded = false, disposed = false;
+    const hidden = new Set();
     const animations = {};
     const render = () => {
         if (disposed) return;
@@ -111,19 +119,31 @@ export function mountScene(container, scene, {reducedMotion = false, onPick = ()
             focused = ids.filter(id => meshes.has(id));
             for (const [id, mesh] of meshes) {
                 const on = !focused.length || focused.includes(id);
-                mesh.material.opacity = on ? 1 : .18; mesh.material.depthWrite = on;
+                mesh.material.opacity = on ? 1 : .18; mesh.material.depthWrite = on; mesh.visible = !hidden.has(id);
                 mesh.material.emissive.set(focused.includes(id) ? 0x3a2a80 : 0x000000);
             }
-            moveTarget(focusCenter());
+            const visibleFocus = focused.filter(id => !hidden.has(id));
+            if (focused.length && !visibleFocus.length) return;
+            moveTarget(visibleFocus.length && focused.length
+                ? visibleFocus.map(id => meshes.get(id).getWorldPosition(new THREE.Vector3())).reduce((sum, pos) => sum.add(pos), new THREE.Vector3()).divideScalar(visibleFocus.length)
+                : focusCenter());
+        },
+        setHidden(id, value) {
+            if (!meshes.has(id)) return;
+            if (value) hidden.add(id); else hidden.delete(id);
+            meshes.get(id).visible = !value;
+            arrows.forEach((arrow, index) => { const link = scene.arrows[index]; if (arrow) arrow.visible = !exploded && !hidden.has(link.from) && !hidden.has(link.to); });
+            schedule();
         },
         setExploded(value) {
             exploded = value;
             const starts = new Map([...meshes].map(([id, m]) => [id, m.position.clone()]));
-            arrows.forEach(a => { a.visible = !exploded; }); // Arrows join resting positions only.
+            arrows.forEach((a, index) => { const link = scene.arrows[index]; if (a) a.visible = !exploded && !hidden.has(link.from) && !hidden.has(link.to); }); // Arrows join resting positions only.
             tween('explode', k => { for (const [id, m] of meshes) m.position.lerpVectors(starts.get(id), goal(m), k); });
             moveTarget(focusCenter());
         },
         snapshot() { render(); return canvas.toDataURL('image/png'); },
+        getView() { return {target: view.target.toArray(), theta: view.theta, phi: view.phi, distance: view.distance}; },
         dispose() {
             if (disposed) return;
             disposed = true; live--; abort.abort(); observer.disconnect(); cancelAnimationFrame(frame);

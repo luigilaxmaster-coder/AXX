@@ -128,12 +128,13 @@ class MagicPenPresentationTests(unittest.TestCase):
         self.replies = []
 
         class Adapter:
-            config = {'allow_paid': False, 'providers': [{'name': 'fixture', 'model': 'visual-model', 'enabled': True,
+            config = {'allow_paid': False, 'providers': [{'name': 'fixture', 'model': 'visual-model', 'protocol': 'anthropic', 'enabled': True,
                       'free_confirmed': True, 'capabilities': ['vision']}]}
             calls = []
             def route(inner, request):
                 inner.calls.append(request)
-                return {'ok': True, 'message': {'content': self.replies.pop(0)}}
+                return {'ok': True, 'message': {'content': self.replies.pop(0)},
+                        'route': {'provider_name': 'fixture', 'model': request['model']}}
             def cancel(inner, request_id): return True
         self.adapter = self.service.adapter = Adapter()
         self.service.save({'id': self.doc['id'], 'expected_revision': 1,
@@ -167,6 +168,21 @@ class MagicPenPresentationTests(unittest.TestCase):
         reopened = MagicPenService(self.root, self.adapter)
         self.addCleanup(reopened.close)
         self.assertEqual(reopened.query({'id': self.doc['id'], 'query_id': second['id']})['presentation'], second['presentation'])
+
+    def test_auto_effort_uses_supported_levels_for_new_scene_and_followup(self):
+        self.adapter.config['providers'][0]['model'] = 'claude-opus-4-6'
+        self.replies.append(json.dumps(plan()))
+        first = self.ask(format='presentation', model='claude-opus-4-6')
+        self.assertEqual(first['state'], 'completed', first.get('error'))
+        self.assertEqual(self.adapter.calls[-1]['generation']['effort'], 'medium')
+        self.replies.append(json.dumps({'schema_version': '1.0', 'kind': 'patch', 'answer': 'Lo explico con más detalle.', 'ops': []}))
+        second = self.ask(format='presentation', model='claude-opus-4-6', base_query_id=first['id'], question='¿Puedes explicar en detalle por qué ocurre?')
+        self.assertEqual(second['state'], 'completed', second.get('error'))
+        self.assertEqual(self.adapter.calls[-1]['generation']['effort'], 'high')
+        self.assertEqual(MagicPenService._effective_effort({'effort': 'auto', 'base_query_id': first['id'], 'question': '¿Qué pieza es?'},
+                                                           {'efforts': ['medium', 'high']}), None)
+        self.assertEqual(MagicPenService._effective_effort({'effort': 'auto', 'base_query_id': first['id'], 'question': 'Cambia el color de la pieza.'},
+                                                           {'efforts': ['low', 'medium', 'high']}), 'low')
 
     def test_invalid_model_output_fails_closed_and_text_mode_is_unchanged(self):
         self.replies.append('<script>alert(1)</script>')

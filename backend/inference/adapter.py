@@ -559,9 +559,9 @@ class InferenceAdapter:
             generation = envelope.get('generation', {})
             if not isinstance(generation, dict):
                 raise RequestError('generation must be an object')
-            if set(generation) - {'temperature', 'max_tokens', 'tools'}:
+            if set(generation) - {'temperature', 'max_tokens', 'tools', 'effort', 'output_schema'}:
                 raise RequestError('Unsupported generation fields')
-            for key in ('temperature', 'max_tokens', 'tools'):
+            for key in ('temperature', 'max_tokens', 'tools', 'effort', 'output_schema'):
                 if key in generation:
                     request[key] = generation[key]
             self.router.validate_request(request)

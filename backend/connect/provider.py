@@ -1044,7 +1044,7 @@ class CodexProvider:
         return {'ordinary_usage_allowed': result.get('ordinaryUsageAllowed'),
                 'usage_status_available': result.get('ordinaryUsageAllowed') is not None}
 
-    def start(self, body, *, cancel_event=None, images=None):
+    def start(self, body, *, cancel_event=None, images=None, turn_input=None, turn_effort=None, turn_schema=None):
         if cancel_event is not None and not isinstance(cancel_event, threading.Event):
             raise ProviderError('INVALID_INPUT', 'Evento interno de cancelación inválido.')
         if cancel_event is not None and cancel_event.is_set():
@@ -1059,6 +1059,21 @@ class CodexProvider:
         message_limit = MAX_CAPABILITY_MESSAGE if purpose in {'capability','planning'} else 32000
         if not isinstance(message, str) or not 1 <= len(message.strip()) <= message_limit:
             raise ProviderError('INVALID_INPUT', 'La instrucción excede el límite de ' + str(message_limit) + ' caracteres.')
+        if turn_input is not None:
+            if (purpose != 'planning' or not isinstance(turn_input, list) or len(turn_input) != 2
+                    or not isinstance(turn_input[0], dict) or turn_input[0].get('type') != 'text'
+                    or not isinstance(turn_input[0].get('text'), str) or not isinstance(turn_input[1], dict)
+                    or turn_input[1].get('type') != 'image' or not isinstance(turn_input[1].get('url'), str)
+                    or not re.fullmatch(r'data:image/(?:jpeg|png);base64,[A-Za-z0-9+/]+={0,2}', turn_input[1]['url'])):
+                raise ProviderError('INVALID_INPUT', 'Planning multimodal input must be one text block and one bounded image data URL.')
+            if len(turn_input[1]['url']) > 7 * 1024 * 1024:
+                raise ProviderError('INVALID_INPUT', 'Planning image exceeds the 5 MiB input limit.')
+            if turn_effort not in (None, 'low', 'medium', 'high', 'xhigh', 'max'):
+                raise ProviderError('INVALID_INPUT', 'Unsupported reasoning effort.')
+            if turn_schema is not None and (not isinstance(turn_schema, dict) or turn_schema.get('type') != 'object'
+                    or turn_schema.get('additionalProperties') is not False
+                    or len(json.dumps(turn_schema, allow_nan=False).encode()) > 32768):
+                raise ProviderError('INVALID_INPUT', 'Structured output schema is invalid or too large.')
         request_id = body.get('request_id', str(uuid.uuid4()))
         conversation_id = body.get('conversation_id', 'axx-main')
         model = body.get('model', 'gpt-6.1-sol')
@@ -1134,6 +1149,8 @@ class CodexProvider:
             run['_source_cancel'] = cancel_event
             run['_source_images'] = images
             run['_source_tainted'] = cancel_event is not None or bool(images)
+            if turn_input is not None:
+                run['_turn_input'], run['_turn_effort'], run['_turn_schema'] = turn_input, turn_effort, turn_schema
             self.live[request_id] = run
             self.selected_model = model
             self._event(run, 'run/accepted')
@@ -1210,8 +1227,18 @@ class CodexProvider:
                 return
             self._assert_binding(run)
             self._remaining()
-            result = self._rpc('turn/start', {'threadId': thread_id, 'input': [
-                {'type': 'text', 'text': message}, *run.pop('_source_images', [])], 'environments': []})
+            turn = {'threadId': thread_id, 'input': run.get('_turn_input') or [
+                {'type': 'text', 'text': message}, *run.pop('_source_images', [])], 'environments': []}
+            if run.get('_turn_effort'):
+                turn['effort'] = run['_turn_effort']
+            if run.get('_turn_schema'):
+                turn['outputSchema'] = run['_turn_schema']
+            try:
+                result = self._rpc('turn/start', turn)
+            finally:
+                run.pop('_turn_input', None)
+                run.pop('_turn_effort', None)
+                run.pop('_turn_schema', None)
             with self.lock:
                 run['turn_id'] = result.get('turn', {}).get('id', run['turn_id'])
                 run['_turn_ready'].set()
@@ -1248,6 +1275,8 @@ class CodexProvider:
                 run.pop('_source_cancel', None)
                 run.pop('_notifications', None)
                 if run.get('_source_tainted') and run['state']!='completed':run['response']=''
+                for key in ('_turn_input', '_turn_effort', '_turn_schema'):
+                    run.pop(key, None)
                 run['_turn_ready'].set()
                 if not self.closed:
                     run['duration_ms'] = round((time.time()-run['created_at'])*1000)
@@ -1281,6 +1310,93 @@ class CodexProvider:
 
     def generate_plan(self, request, *, cancel_event=None):
         return self.generate_capability(request, purpose='planning', cancel_event=cancel_event)
+
+    def generate_spatial(self, request, *, cancel_event=None):
+        """Vision generation on this exact Codex account/model; no provider or credit fallback."""
+        if (not isinstance(request, dict) or request.get('provider_name') != '@codex'
+                or request.get('allow_paid') is not False or request.get('task') != 'vision'
+                or not isinstance(request.get('model'), str)):
+            raise ProviderError('INVALID_INPUT', 'Selecciona @codex y un modelo explícito con uso incluido.')
+        messages = request.get('messages')
+        if (not isinstance(messages, list) or len(messages) != 2
+                or any(not isinstance(message, dict) for message in messages)
+                or messages[0].get('role') != 'system' or not isinstance(messages[0].get('content'), str)
+                or messages[1].get('role') != 'user' or not isinstance(messages[1].get('content'), list)
+                or len(messages[1]['content']) != 2):
+            raise ProviderError('INVALID_INPUT', 'Spatial generation requires a contract, text prompt, and one image.')
+        prompt, image = messages[1]['content']
+        if prompt.get('type') != 'text' or not isinstance(prompt.get('text'), str):
+            raise ProviderError('INVALID_INPUT', 'Invalid spatial prompt.')
+        image_url = (image.get('image_url') or {}).get('url') if isinstance(image, dict) else None
+        match = re.fullmatch(r'data:image/(jpeg|png);base64,([A-Za-z0-9+/]+={0,2})', image_url or '')
+        if not match:
+            raise ProviderError('INVALID_INPUT', 'Spatial image must be JPEG or PNG base64.')
+        try:
+            import base64
+            image_bytes = base64.b64decode(match.group(2), validate=True)
+        except (ValueError, TypeError):
+            raise ProviderError('INVALID_INPUT', 'Invalid spatial image data.') from None
+        if not image_bytes or len(image_bytes) > 5 * 1024 * 1024:
+            raise ProviderError('INVALID_INPUT', 'Spatial image exceeds the 5 MiB limit.')
+        generation = request.get('generation')
+        if not isinstance(generation, dict) or set(generation) - {'max_tokens', 'effort', 'output_schema'}:
+            raise ProviderError('INVALID_INPUT', 'Unsupported spatial generation options.')
+        schema = generation.get('output_schema')
+        if not isinstance(schema, dict) or schema.get('type') != 'object' or schema.get('additionalProperties') is not False:
+            raise ProviderError('INVALID_INPUT', 'A strict output schema is required.')
+        model = request['model']
+        row = next((item for item in self.model_catalog if item.get('model') == model), None)
+        if row is None:
+            self.status()  # An explicit inference request may refresh local model metadata before cost admission.
+            row = next((item for item in self.model_catalog if item.get('model') == model), None)
+        modalities = row.get('input_modalities') if row else None
+        if not isinstance(modalities, list) or 'image' not in modalities:
+            raise ProviderError('MODEL_NOT_VERIFIED', 'El catálogo local de Codex no confirma visión para ese modelo; compruébalo desde Axx Connect.')
+        effort = generation.get('effort')
+        supported = [option.get('reasoningEffort') if isinstance(option, dict) else option
+                     for option in (row.get('reasoning_efforts') or [])] if row else []
+        if effort == 'auto':
+            effort = None
+        if effort is not None and (not isinstance(supported, list) or effort not in supported):
+            raise ProviderError('EFFORT_UNSUPPORTED', 'El catálogo de Codex no confirma ese nivel de esfuerzo para el modelo.')
+        request_id = request.get('request_id')
+        if not isinstance(request_id, str) or not re.fullmatch(r'[A-Za-z0-9_.:-]{1,128}', request_id):
+            raise ProviderError('INVALID_INPUT', 'request_id inválido.')
+        deadline_ms = request.get('deadline_ms', 70000)
+        if type(deadline_ms) is not int or not 1 <= deadline_ms <= TURN_TIMEOUT * 1000:
+            raise ProviderError('INVALID_INPUT', 'El plazo debe estar entre 1 y 70000 ms.')
+        digest = hashlib.sha256(image_bytes).hexdigest()
+        text_prompt = messages[0]['content'] + '\n\n' + prompt['text']
+        message = json.dumps({'system': messages[0]['content'], 'prompt': prompt['text'], 'image_sha256': digest,
+                              'effort': effort, 'schema_sha256': hashlib.sha256(json.dumps(schema, sort_keys=True).encode()).hexdigest()}, ensure_ascii=False)
+        run = self.start({'request_id': request_id, 'model': model, 'message': message, 'purpose': 'planning'},
+                         turn_input=[{'type': 'text', 'text': text_prompt},
+                                      {'type': 'image', 'url': image_url}],
+                         turn_effort=effort, turn_schema=schema, cancel_event=cancel_event)
+        deadline = time.monotonic() + deadline_ms / 1000
+        while run['state'] not in TERMINAL:
+            if cancel_event is not None and cancel_event.is_set():
+                self.cancel(run['request_id'])
+                raise ProviderError('CANCELLED', 'La inferencia espacial fue cancelada.')
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                self.cancel(run['request_id'])
+                raise ProviderError('DEADLINE_EXCEEDED', 'La inferencia espacial excedió su plazo; no se cambió de proveedor.')
+            with self.lock:
+                event = (self.live.get(run['request_id']) or {}).get('_done')
+            if event is not None:
+                event.wait(min(.1, remaining))
+            run = self.get(run['request_id'])
+        if run['state'] != 'completed' or run.get('inference_verified') is not True:
+            error = run.get('error') or {}
+            raise ProviderError(error.get('code', 'SPATIAL_GENERATION_FAILED'), error.get('message', 'La generación no se verificó.'))
+        if (run.get('runtime_model') != model or run.get('runtime_provider') != 'openai'
+                or run.get('tool_results') or run.get('pending_approvals')):
+            raise ProviderError('SPATIAL_GENERATION_UNVERIFIED', 'La respuesta no conserva el modelo/proveedor y aislamiento solicitados.')
+        text = run.get('response')
+        if not isinstance(text, str) or not text.strip() or len(text) > 64000:
+            raise ProviderError('RESPONSE_LIMIT', 'La respuesta está vacía o supera 64000 caracteres.')
+        return {'ok': True, 'message': {'content': text}, 'route': {'model': model, 'provider_name': '@codex'}}
 
     def generate_capability(self, request, *, purpose='capability', cancel_event=None):
         """Bounded adapter-shaped generation using the selected Codex account only."""

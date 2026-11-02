@@ -14,6 +14,25 @@ from .router import NoRedirect, Router, parse_strict_json, profile_id, source_co
 from backend.auth.chatgpt_auth import _dpapi_encrypt, _dpapi_decrypt
 
 LOCK = threading.RLock()
+ANTHROPIC_EFFORTS = {
+    'claude-opus-4-1': ('low', 'medium', 'high'),
+    'claude-opus-4-5': ('low', 'medium', 'high'),
+    'claude-opus-4-6': ('low', 'medium', 'high', 'xhigh', 'max'),
+    'claude-sonnet-4-6': ('low', 'medium', 'high', 'xhigh', 'max'),
+    'claude-haiku-5-5': ('low', 'medium', 'high', 'xhigh', 'max'),
+    'claude-fable-5-1': ('low', 'medium', 'high', 'xhigh', 'max'),
+    'claude-mythos-5-1': ('low', 'medium', 'high', 'xhigh', 'max'),
+}
+
+
+def anthropic_efforts(model):
+    """Return documented effort levels only for known model IDs (including dated suffixes)."""
+    if not isinstance(model, str):
+        return []
+    base = next((name for name in ANTHROPIC_EFFORTS if model == name or model.startswith(name + '-')), None)
+    return list(ANTHROPIC_EFFORTS.get(base, ()))
+
+
 PRESETS = {
     'ollama': ('http://127.0.0.1:11434/v1', 'openai'),
     'ollama_cloud': ('https://ollama.com/v1', 'openai'),

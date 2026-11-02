@@ -1,5 +1,6 @@
 """Offline contract/failure tests. These do not claim network or desktop proof."""
 import io
+import base64
 import inspect
 import json
 import os
@@ -18,6 +19,7 @@ import urllib.error
 import urllib.request
 
 from backend.connect.provider import CodexProvider, ProviderError, _PipeWriter, _WriteTask, _error_code, _safe_error, _runtime_environment
+from backend.presentation_plan import output_schema
 
 
 class ControlledProvider(CodexProvider):
@@ -154,7 +156,13 @@ class ProviderTests(unittest.TestCase):
     def wait_started(self, request='r1'):
         deadline = time.monotonic()+2
         while time.monotonic() < deadline:
-            run = self.provider.get(request)
+            try:
+                run = self.provider.get(request)
+            except ProviderError as exc:
+                if exc.code == 'NOT_FOUND':
+                    time.sleep(.01)
+                    continue
+                raise
             if run.get('turn_id') or run['state'] in {'failed', 'unknown', 'limit_reached', 'cancelled'}:
                 return run
             time.sleep(.01)
@@ -172,6 +180,38 @@ class ProviderTests(unittest.TestCase):
         self.assertTrue(status['authenticated'])
         self.assertFalse(status['inference_verified'])
         self.assertEqual(status['state'], 'authenticated')
+
+    def test_spatial_turn_sends_image_effort_and_strict_schema_without_persisting_image(self):
+        self.provider.model_catalog = [{'model': 'gpt-6.1-sol', 'input_modalities': ['text', 'image'],
+                                        'reasoning_efforts': ['low', 'medium', 'high']}]
+        image = base64.b64encode(b'fixture image').decode()
+        request = {'provider_name': '@codex', 'model': 'gpt-6.1-sol', 'task': 'vision', 'allow_paid': False,
+            'request_id': 'spatial-test', 'deadline_ms': 70000,
+            'messages': [{'role': 'system', 'content': 'Return the schema only.'},
+                         {'role': 'user', 'content': [{'type': 'text', 'text': 'Describe this image.'},
+                           {'type': 'image_url', 'image_url': {'url': 'data:image/jpeg;base64,' + image}}]}],
+            'generation': {'effort': 'high', 'output_schema': output_schema('presentation')}}
+        result, errors = [], []
+        def generate():
+            try: result.append(self.provider.generate_spatial(request))
+            except Exception as exc: errors.append(exc)
+        thread = threading.Thread(target=generate)
+        thread.start()
+        self.wait_started('spatial-test')
+        params = next(params for method, params in self.provider.rpc_calls if method == 'turn/start')
+        self.assertEqual(params['effort'], 'high')
+        self.assertEqual(params['outputSchema'], output_schema('presentation'))
+        self.assertEqual(params['input'][1], {'type': 'image', 'url': 'data:image/jpeg;base64,' + image})
+        self.assertIn('Return the schema only.', params['input'][0]['text'])
+        persisted = self.provider.db.execute('SELECT body_json FROM connect_runs WHERE request_id=?', ('spatial-test',)).fetchone()[0]
+        self.assertNotIn(image, persisted)
+        self.provider._notification({'method': 'item/agentMessage/delta',
+            'params': {'threadId': 'thread-test', 'turnId': 'turn-test', 'delta': '{}'}})
+        self.complete()
+        thread.join(2)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(errors, [])
+        self.assertEqual(result[0]['route'], {'model': 'gpt-6.1-sol', 'provider_name': '@codex'})
 
     def test_stream_completion_and_event_cursor(self):
         self.start(); self.wait_started()

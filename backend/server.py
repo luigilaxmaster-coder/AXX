@@ -55,6 +55,7 @@ from backend.connect.service import ConnectService
 from backend.connect.provider import CodexProvider, ProviderError
 from backend.screen_recording import ScreenRecordingService
 from backend.magic_pen import MagicPenService, monitors as pen_monitors
+from backend.feature_readiness import readiness as feature_readiness
 from backend.converter import ConverterService
 from backend.mobile.http_api import MobileHTTP
 from backend.anticipation import AnticipationService
@@ -378,6 +379,11 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                 self._send_json(200, {'models': models, 'chatgpt_active': bool(self.chatgpt_auth and self.chatgpt_auth.is_authenticated())})
             elif path == '/axx-api/providers':
                 self._send_json(200, {'providers': provider_settings.public_entries(self.adapter.config)})
+            elif path == '/axx-api/feature-readiness':
+                query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query, keep_blank_values=True)
+                if set(query) != {'feature_id'} or len(query['feature_id']) != 1 or not self.magic_pen:
+                    raise ValueError('Consulta de preparación de función inválida.')
+                self._send_json(200, feature_readiness(query['feature_id'][0], self.magic_pen, root_dir))
             elif path == '/axx-api/model-candidates':
                 if not self.model_candidates:
                     self._unsupported('Evaluación de modelos no disponible')
@@ -656,6 +662,28 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                     result = self.converter.open_result(body.get('id'))
                 else:
                     raise ValueError('Operación de convertidor no disponible.')
+                self._send_json(200, result)
+                return
+            if path == '/axx-api/feature-readiness/verify':
+                if not self.magic_pen:
+                    raise ValueError('Magic Pen no disponible.')
+                if body.get('feature_id') != 'spatial_intelligence':
+                    raise ValueError('Indica feature_id=spatial_intelligence para verificar esta función.')
+                self._send_json(200, self.magic_pen.verify_spatial({k: body[k] for k in ('provider', 'model', 'effort') if k in body}))
+                return
+            if path.startswith('/axx-api/spatial/session/'):
+                if not self.magic_pen:
+                    raise ValueError('Canvas espacial no disponible.')
+                operation = path.rsplit('/', 1)[-1]
+                if operation in {'start', 'query'}:
+                    request = dict(body, format='presentation')
+                    if operation == 'query' and not request.get('base_query_id'):
+                        raise ValueError('Una edición espacial necesita base_query_id.')
+                    result = self.magic_pen.start(request)
+                elif operation in {'get', 'cancel'}:
+                    result = getattr(self.magic_pen, 'query' if operation == 'get' else 'cancel')(body)
+                else:
+                    raise ValueError('Operación espacial no disponible.')
                 self._send_json(200, result)
                 return
             if path.startswith('/axx-api/pen/'):
@@ -1495,6 +1523,7 @@ def run_server(host='127.0.0.1', port=4173, config_path='providers.json', state_
         connect = ConnectService(commands, memory)
         services.append(connect)
         provider = CodexProvider(commands, state_path, state_dir, dispatcher=connect.dispatch)
+        magic_pen.codex_provider = provider
         services.append(provider)
         workshop.provider = provider
         handler = type('ConfiguredAxxHandler', (AxxBridgeHandler,), {

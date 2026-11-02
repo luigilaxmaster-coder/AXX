@@ -5,6 +5,7 @@ Python 3.11+, standard library only.
 from __future__ import annotations
 
 import argparse
+import base64
 import datetime as dt
 import email.utils
 import hashlib
@@ -14,6 +15,7 @@ import math
 import os
 import ipaddress
 from pathlib import Path
+import re
 import socket
 import sqlite3
 import sys
@@ -156,9 +158,49 @@ def http_transport(provider: dict, body: dict, timeout: float, *, response_obser
     if anthropic:
         body = dict(body)
         messages = body['messages']
-        body['system'] = '\n\n'.join(m['content'] for m in messages if m['role'] == 'system')
-        body['messages'] = [m for m in messages if m['role'] != 'system']
+        system = []
+        converted = []
+        for message in messages:
+            if message['role'] == 'system':
+                if not isinstance(message['content'], str):
+                    raise RequestError('Anthropic system content must be text')
+                system.append(message['content'])
+                continue
+            content = message['content']
+            if isinstance(content, str):
+                converted.append(message)
+                continue
+            blocks = []
+            for part in content:
+                if part.get('type') == 'text' and isinstance(part.get('text'), str):
+                    blocks.append({'type': 'text', 'text': part['text']})
+                elif part.get('type') == 'image_url' and isinstance(part.get('image_url'), dict):
+                    image_url = part['image_url'].get('url', '')
+                    match = re.fullmatch(r'data:(image/(?:jpeg|png|gif|webp));base64,([A-Za-z0-9+/]+={0,2})', image_url)
+                    if not match:
+                        raise RequestError('Anthropic vision requires a bounded base64 image data URL')
+                    try:
+                        raw = base64.b64decode(match.group(2), validate=True)
+                    except ValueError:
+                        raise RequestError('Invalid base64 image') from None
+                    if not raw or len(raw) > 5 * 1024 * 1024:
+                        raise RequestError('Anthropic image exceeds the 5 MiB limit')
+                    blocks.append({'type': 'image', 'source': {'type': 'base64', 'media_type': match.group(1), 'data': match.group(2)}})
+                else:
+                    raise RequestError('Unsupported Anthropic message content block')
+            converted.append({'role': message['role'], 'content': blocks})
+        body['system'] = '\n\n'.join(system)
+        body['messages'] = converted
         body.setdefault('max_tokens', provider.get('max_output_tokens', 2048))
+        schema = body.pop('output_schema', None)
+        effort = body.pop('effort', None)
+        if schema is not None or effort is not None:
+            config = dict(body.pop('output_config', {}) or {})
+            if schema is not None:
+                config['format'] = {'type': 'json_schema', 'schema': schema}
+            if effort is not None:
+                config['effort'] = effort
+            body['output_config'] = config
     body_bytes = json.dumps(body, allow_nan=False).encode('utf-8')
     key_env = provider.get('api_key_env')
     api_key = os.environ.get(key_env, '').strip() if key_env else ''
@@ -493,7 +535,7 @@ class Router:
         """Validates chat request with null checks per field (H02, D)."""
         if not isinstance(request, dict):
             raise RequestError("Request must be a JSON object")
-        allowed = {'messages', 'axx_task', 'axx_sensitive', 'temperature', 'max_tokens', 'tools', 'stream', 'model', 'provider_name', 'selection_mode', 'axx_attempt_budget'}
+        allowed = {'messages', 'axx_task', 'axx_sensitive', 'temperature', 'max_tokens', 'tools', 'stream', 'model', 'provider_name', 'selection_mode', 'axx_attempt_budget', 'effort', 'output_schema'}
         if 'axx_attempt_budget' in request and (type(request['axx_attempt_budget']) is not int or not 1 <= request['axx_attempt_budget'] <= 10):
             raise RequestError('axx_attempt_budget must be an integer between 1 and 10')
         if request.get('selection_mode', 'manual') not in ('manual', 'automatic_free'):
@@ -551,6 +593,15 @@ class Router:
             mt = request['max_tokens']
             if type(mt) is not int or mt < 1:
                 raise RequestError("max_tokens must be a positive integer")
+
+        if 'effort' in request and request['effort'] not in ('low', 'medium', 'high', 'xhigh', 'max'):
+            raise RequestError('Invalid reasoning effort')
+        if 'output_schema' in request:
+            schema = request['output_schema']
+            if (not isinstance(schema, dict) or schema.get('type') != 'object'
+                    or schema.get('additionalProperties') is not False
+                    or len(json.dumps(schema, allow_nan=False).encode('utf-8')) > 32768):
+                raise RequestError('Invalid bounded JSON output schema')
 
         if 'tools' in request:
             tools = request['tools']
@@ -754,6 +805,9 @@ class Router:
         """Executes sequential failover with strict global deadline (H01-H10)."""
         self.validate_request(request)
         attempt_limit = min(self.max_attempts, request.get('axx_attempt_budget', self.max_attempts))
+        structured = 'output_schema' in request or 'effort' in request
+        if structured and (request.get('selection_mode', 'manual') != 'manual' or not request.get('provider_name') or not request.get('model')):
+            raise RequestError('Structured visual generation requires an explicit provider and model')
 
         # Monotonic wall-clock deadline budget (H01)
         start_time = time.monotonic()
@@ -785,6 +839,12 @@ class Router:
 
             if not p.get('enabled', False) or p.get('candidate_only') is True:
                 continue
+            if structured and p.get('protocol') != 'anthropic':
+                continue
+            if 'effort' in request:
+                from .provider_settings import anthropic_efforts
+                if request['effort'] not in anthropic_efforts(p.get('model', '')):
+                    continue
             # A new bounded manual request must also constrain proxy fanout.
             # Historical manual requests without this envelope retain their policy.
             bounded_manual_gateway = not automatic and 'axx_attempt_budget' in request and p.get('kind') == 'freellmapi'
@@ -860,6 +920,10 @@ class Router:
                     payload['max_tokens'] = p.get('max_output_tokens', 1024)
                 if 'tools' in request and 'tools' in p.get('capabilities', []):
                     payload['tools'] = request['tools']
+                if 'output_schema' in request:
+                    payload['output_schema'] = request['output_schema']
+                if 'effort' in request:
+                    payload['effort'] = request['effort']
 
                 transport_options = {}
                 if http_receipts is not None and self.transport is http_transport:

@@ -57,6 +57,47 @@ PATCH_CONTRACT = (
 )
 
 
+def output_schema(kind='presentation'):
+    """Small strict JSON Schema for provider-constrained output; Python remains authoritative."""
+    text = {'type': 'string'}
+    vector = {'type': 'array', 'items': {'type': 'number'}, 'minItems': 3, 'maxItems': 3}
+    step = {'type': 'object', 'additionalProperties': False,
+            'properties': {'id': text, 'title': text, 'body': text, 'narration': text,
+                           'basis': {'type': 'string', 'enum': list(BASIS)},
+                           'focus': {'type': 'array', 'items': text}},
+            'required': ['id', 'title', 'body', 'narration', 'basis']}
+    obj = {'type': 'object', 'additionalProperties': False,
+           'properties': {'id': text, 'label': text, 'shape': {'type': 'string', 'enum': list(SHAPES)},
+                          'size': vector, 'position': vector, 'color': text, 'rotation': vector, 'explode': vector},
+           'required': ['id', 'label', 'shape', 'size', 'position', 'color']}
+    if kind == 'presentation':
+        scene = {'type': 'object', 'additionalProperties': False,
+                 'properties': {'fidelity': {'type': 'string', 'enum': list(SCENE_FIDELITY)},
+                                'objects': {'type': 'array', 'items': obj},
+                                'arrows': {'type': 'array', 'items': {'type': 'object', 'additionalProperties': False,
+                                    'properties': {'from': text, 'to': text, 'label': text},
+                                    'required': ['from', 'to', 'label']}}},
+                 'required': ['fidelity', 'objects']}
+        return {'type': 'object', 'additionalProperties': False,
+                'properties': {'schema_version': text, 'kind': {'type': 'string', 'enum': ['presentation']},
+                               'title': text, 'summary': text,
+                               'fidelity': {'type': 'string', 'enum': list(FIDELITY)},
+                               'steps': {'type': 'array', 'items': step}, 'scene': scene},
+                'required': ['schema_version', 'kind', 'title', 'summary', 'fidelity', 'steps']}
+    if kind == 'patch':
+        op = {'type': 'object', 'additionalProperties': False,
+              'properties': {'op': {'type': 'string', 'enum': ['step.update', 'step.insert_after', 'step.remove', 'object.update']},
+                             'step_id': text, 'step': step, 'object_id': text,
+                             'title': text, 'body': text, 'narration': text, 'basis': text, 'focus': {'type': 'array', 'items': text},
+                             'label': text, 'shape': text, 'size': vector, 'position': vector, 'color': text,
+                             'rotation': vector, 'explode': vector}, 'required': ['op']}
+        return {'type': 'object', 'additionalProperties': False,
+                'properties': {'schema_version': text, 'kind': {'type': 'string', 'enum': ['patch']},
+                               'answer': text, 'ops': {'type': 'array', 'items': op}},
+                'required': ['schema_version', 'kind', 'answer', 'ops']}
+    raise ValueError('Unsupported presentation schema kind')
+
+
 class PlanError(ValueError):
     """The model output does not satisfy the closed presentation contract."""
 

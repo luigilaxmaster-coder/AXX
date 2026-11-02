@@ -3,6 +3,7 @@
     'use strict';
     const A = window.Axx, $ = id => document.getElementById(id);
     const api = (op, body = {}) => A.backendRequest('POST', '/axx-api/pen/' + op, body);
+    const spatialApi = (op, body = {}) => A.backendRequest('POST', '/axx-api/spatial/session/' + op, body);
     const clone = value => structuredClone(value);
     function sourcePoint(x, y, rect, width, height) {
         if (![x,y,rect.left,rect.top,rect.width,rect.height,width,height].every(Number.isFinite) || rect.width <= 0 || rect.height <= 0) throw Error('Transformación inválida.');
@@ -60,7 +61,8 @@
                 <div class="mp-toolstrip"><div id="mp-select-tools" class="mp-toolgroup">${tool('rect','Rectángulo')}${tool('point','Punto y contexto')}${tool('lasso','Lazo')}</div><div id="mp-ink-tools" class="mp-toolgroup" hidden>${tool('pen','Pluma')}${tool('marker','Marcador')}${tool('erase','Borrar trazo')}<span class="mp-divider"></span><input id="mp-color" type="color" value="#b8aaff" aria-label="Color de tinta"><input id="mp-width" type="range" min="1" max="40" value="4" aria-label="Grosor de tinta"></div><span id="mp-tool-hint">Arrastra para seleccionar</span><div class="mp-history-tools"><button id="mp-undo" class="mp-icon-button" title="Deshacer tinta" aria-label="Deshacer tinta">${icon('undo')}</button><button id="mp-redo" class="mp-icon-button" title="Rehacer tinta" aria-label="Rehacer tinta">${icon('redo')}</button></div></div>
                 <div class="mp-stage"><div id="mp-viewport"><canvas id="mp-canvas" tabindex="0" aria-label="Captura congelada: selecciona o anota; Escape para salir"></canvas><div id="mp-empty">${icon('capture')}<strong>Todo empieza con una captura.</strong><span>Selecciona un detalle. Pregunta. Deja una nota.</span></div></div><div class="mp-stage-footer"><span id="mp-meta">Sin captura</span><label>Zoom <select id="mp-zoom"><option value="1">Ajustar</option><option value="2">200%</option><option value="4">400%</option></select></label></div></div>
                 <div class="mp-selection-row"><details><summary>Ajustar selección</summary><div class="mp-row">${['x0','y0','x1','y1'].map(k=>`<label>${k}<input id="mp-${k}" type="number" min="0" step="1"></label>`).join('')}<button id="mp-adjust">Aplicar</button></div><small>Coordenadas del original. Aplicar crea un rectángulo.</small></details><button id="mp-close-lasso" hidden>Cerrar lazo</button></div>
-                <div class="mp-composer"><input id="mp-question" type="text" maxlength="4000" placeholder="¿Qué quieres saber de esta selección?" aria-label="Pregunta sobre la selección"><button id="mp-voice" class="mp-icon-button" title="Dictar pregunta" aria-label="Dictar pregunta">${icon('mic')}</button><button id="mp-ask" class="mp-icon-button" title="Preguntar" aria-label="Preguntar">${icon('send')}</button></div>
+                <div class="mp-spatial-options"><label>Canvas 3D <select id="mp-spatial-provider" aria-label="Proveedor y modelo del Canvas 3D"><option value="">Elige proveedor y modelo</option></select></label><label>Esfuerzo <select id="mp-spatial-effort" aria-label="Esfuerzo del modelo"><option value="auto">Auto</option></select></label><button id="mp-spatial-verify" type="button" title="Envía una imagen sintética al proveedor elegido">Probar conexión</button></div>
+                <div class="mp-composer"><textarea id="mp-question" rows="1" maxlength="4000" placeholder="Escribe tu pregunta… (Intro para enviar)" aria-label="Pregunta o instrucción sobre la selección" aria-describedby="mp-question-help"></textarea><button id="mp-voice" class="mp-icon-button" title="Dictar pregunta" aria-label="Dictar pregunta">${icon('mic')}</button><button id="mp-ask" class="mp-icon-button" title="Enviar pregunta" aria-label="Enviar pregunta">${icon('send')}</button></div><small id="mp-question-help" class="mp-composer-help">Intro envía · Mayús+Intro añade una línea</small>
                 <p id="mp-status" role="status" aria-live="polite">Elige una pantalla y pulsa Capturar.</p><div id="mp-answers" aria-live="polite"></div>
                 <details class="mp-save-section"><summary>${icon('save')}Guardar e historial<span>PNG + tinta editable</span></summary><label>Carpeta de destino<input id="mp-directory" type="text"></label><label>Nombre<input id="mp-name" type="text" value="Captura-Axx" maxlength="100"></label><div class="mp-row"><button id="mp-original">Guardar original</button><button id="mp-annotated">Guardar anotado</button><button id="mp-retry">Guardar borrador</button></div><p id="mp-export" role="status"></p><label>Capturas anteriores<select id="mp-history"><option value="">Elige una captura</option></select></label></details><p id="mp-capability" class="mp-muted"></p>`;
             document.body.append(view); this.view = view; this.canvas = $('mp-canvas'); this.ctx = this.canvas.getContext('2d');
@@ -68,7 +70,11 @@
             const style = document.createElement('link'); style.rel='stylesheet';style.href='scripts/magic-pen.css';document.head.append(style);
             $('mp-capture').onclick = () => {this.cancelAnalysis();void this.run(()=>this.capture());};
             $('mp-ask').onclick = () => { void this.askFromComposer(); };
-            $('mp-question').onkeydown = e => { if(e.key==='Enter') {e.stopPropagation();this.askFromComposer();} };
+            $('mp-spatial-provider').onchange=()=>this.spatialProviderChanged();
+            $('mp-spatial-effort').onchange=()=>this.saveSpatialPreferences();
+            $('mp-spatial-verify').onclick=()=>{void this.verifySpatial();};
+            $('mp-question').oninput=()=>{const input=$('mp-question');input.style.height='42px';input.style.height=Math.min(96,input.scrollHeight)+'px';};
+            $('mp-question').onkeydown = e => { if(e.key==='Enter'&&!e.shiftKey) {e.preventDefault();e.stopPropagation();this.askFromComposer();} };
             $('mp-original').onclick = () => this.run(()=>this.export('original'));
             $('mp-annotated').onclick = () => this.run(()=>this.export('annotated'));
             $('mp-retry').onclick = () => this.run(async()=>{this.saveError=null;this.queueSave();await this.flush();this.status('Borrador guardado.');});
@@ -127,7 +133,7 @@
             };this.toolbar.querySelector('#mp-select-tools').append(all);
             this.widget=document.createElement('aside');this.widget.addEventListener('pointerdown',e=>this.leaseFocus(e.target));this.widget.id='mp-widget';this.widget.setAttribute('aria-label','Explicación de la selección');this.widget.tabIndex=-1;this.widget.hidden=true;
             this.widget.innerHTML='<div class="mp-widget-head"><span class="mp-head-mark" aria-hidden="true">'+this.icon('pen')+'</span><span class="mp-head-copy"><strong>Magic Pen</strong></span><span id="mp-summary-spinner" class="mp-summary-spinner" hidden aria-hidden="true"></span><button id="mp-hide-answer" aria-label="Ocultar explicación">×</button></div><section id="mp-summary-bubble" class="mp-summary-bubble" hidden><div class="mp-summary-kicker"><span id="mp-summary-label">Lo esencial</span></div><p id="mp-summary-text" role="status" aria-live="polite"></p><p id="mp-summary-voice-status" role="status" aria-live="polite" hidden></p><div class="mp-summary-actions"><button id="mp-summary-expand" type="button">Ver explicación</button><button id="mp-summary-visual" type="button" aria-label="Explicar visualmente" title="Explicar visualmente como diagrama de pasos">Visualizar</button><button id="mp-summary-listen" type="button" aria-label="Escuchar resumen" title="Escuchar resumen">'+this.icon('voice')+'</button></div></section><figure id="mp-history-preview" hidden><canvas id="mp-preview-canvas" aria-label="Vista previa de la captura guardada"></canvas><figcaption>Captura guardada · no es el escritorio actual</figcaption><button id="mp-back-desktop" type="button">Volver al escritorio</button></figure><div id="mp-vision-missing" hidden><p>El modelo seleccionado no tiene análisis visual disponible.</p><button id="mp-configure" type="button">Ajustes de conexión</button></div>';
-            for(const selector of ['#mp-answers','.mp-composer','#mp-status','.mp-save-section'])this.widget.append(this.view.querySelector(selector));
+            for(const selector of ['#mp-answers','.mp-spatial-options','.mp-composer','.mp-composer-help','#mp-status','.mp-save-section'])this.widget.append(this.view.querySelector(selector));
             const saved=this.widget.querySelector('.mp-save-section');saved.querySelector('summary').after($('mp-meta'));saved.append($('mp-capability'));
             const source=this.view.querySelector('.mp-source-row');this.widget.querySelector('.mp-save-section').append(source);source.hidden=true;
             this.view.append(this.canvas,this.toolbar,this.widget);
@@ -231,7 +237,51 @@
             try{return await fn();}catch(e){if(token===this.generation){this.state='error';this.status(String(e.message||e));}return false;}
             finally{if(token===this.generation){this.working=false;this.updateControls();}}
         }
-        async refresh(){const data=await api('status');this.capabilities=data.capabilities;$('mp-source').replaceChildren(...data.monitors.map((m,i)=>new Option(`Pantalla ${i+1} · ${m.width} × ${m.height}`,m.id)));$('mp-history').replaceChildren(new Option('Elige una captura',''),...data.history.map(d=>new Option(new Date(d.source.captured_at*1000).toLocaleString()+' · '+d.id.slice(0,6),d.id)));if(!$('mp-directory').value)$('mp-directory').value=data.capabilities.export_directory;$('mp-capability').textContent=(data.capabilities.vision.length?'Visión · '+data.capabilities.vision.map(p=>p.name).join(', '):'Análisis visual no configurado')+' · '+data.capabilities.ocr_message;this.updateControls();return data;}
+        async refresh(){
+            const data=await api('status');this.capabilities=data.capabilities;
+            $('mp-source').replaceChildren(...data.monitors.map((m,i)=>new Option(`Pantalla ${i+1} · ${m.width} × ${m.height}`,m.id)));
+            $('mp-history').replaceChildren(new Option('Elige una captura',''),...data.history.map(d=>new Option(new Date(d.source.captured_at*1000).toLocaleString()+' · '+d.id.slice(0,6),d.id)));
+            if(!$('mp-directory').value)$('mp-directory').value=data.capabilities.export_directory;
+            $('mp-capability').textContent=(data.capabilities.vision.length?'Visión · '+data.capabilities.vision.map(p=>p.name).join(', '):'Análisis visual no configurado')+' · '+data.capabilities.ocr_message;
+            this.setupSpatialOptions(data.capabilities);
+            try{this.readiness=await A.backendRequest('GET','/axx-api/feature-readiness?feature_id=spatial_intelligence');}catch{this.readiness=null;}
+            this.updateControls();return data;
+        }
+        setupSpatialOptions(capabilities){
+            const saved=(()=>{try{return JSON.parse(localStorage.getItem('axx.magicpen.spatial')||'{}');}catch{return {};}})(),prefs=A.companion.data.prefs||{};
+            const entries=[...(capabilities.vision||[]),...(capabilities.codex_vision||[])];
+            this.spatialProviders=new Map(entries.map(p=>[encodeURIComponent(p.name)+'::'+encodeURIComponent(p.model),p]));
+            const select=$('mp-spatial-provider'),options=[new Option('Elige proveedor y modelo',''),...entries.map(p=>new Option((p.name==='@codex'?'ChatGPT/Codex':p.name)+' · '+p.model,encodeURIComponent(p.name)+'::'+encodeURIComponent(p.model)))];
+            select.replaceChildren(...options);
+            const preferred=saved.provider&&saved.model?[saved.provider,saved.model]:[prefs.visionConnection||prefs.apiConnection||'',prefs.visionModel||prefs.model||''];
+            const selected=[...this.spatialProviders].find(([,p])=>p.name===preferred[0]&&p.model===preferred[1])?.[0]||
+                (entries.length===1?[...this.spatialProviders.keys()][0]:'');
+            select.value=selected||'';this.spatialProviderChanged(saved.effort||'auto');
+        }
+        spatialProviderChanged(preferredEffort){
+            const key=$('mp-spatial-provider').value,provider=this.spatialProviders?.get(key),effort=$('mp-spatial-effort');
+            const previous=preferredEffort||effort.value||'auto',levels=['auto',...(provider?.efforts||[])];
+            effort.replaceChildren(...levels.map(level=>new Option(level==='auto'?'Auto':level,level)));
+            effort.value=levels.includes(previous)?previous:'auto';this.saveSpatialPreferences();
+        }
+        saveSpatialPreferences(){
+            const provider=this.spatialProviders?.get($('mp-spatial-provider').value);
+            try{localStorage.setItem('axx.magicpen.spatial',JSON.stringify({provider:provider?.name||'',model:provider?.model||'',effort:$('mp-spatial-effort').value||'auto'}));}catch{}
+        }
+        spatialRoute(){
+            const provider=this.spatialProviders?.get($('mp-spatial-provider').value);
+            return provider?{provider:provider.name,model:provider.model,selection_mode:'manual',effort:$('mp-spatial-effort').value||'auto'}:null;
+        }
+        async verifySpatial(){
+            const route=this.spatialRoute();if(!route)return this.status('Elige primero un proveedor y modelo visual.');
+            const button=$('mp-spatial-verify');button.disabled=true;this.status('Verificando imagen y salida estructurada con '+route.provider+'…');
+            try{const result=await A.backendRequest('POST','/axx-api/feature-readiness/verify',{feature_id:'spatial_intelligence',provider:route.provider,model:route.model,effort:route.effort});
+                this.status('Conexión verificada para '+result.provider+' · '+result.model+'.');
+                this.capabilities=(await api('status')).capabilities;this.setupSpatialOptions(this.capabilities);
+                this.readiness=await A.backendRequest('GET','/axx-api/feature-readiness?feature_id=spatial_intelligence');
+            }catch(e){this.status('Verificación no completada: '+String(e.message||e));}
+            finally{button.disabled=false;}
+        }
         open(){
             if(this.active)return;
             $('mp-status').textContent='Preparando el escritorio…';
@@ -248,8 +298,11 @@
         }
         // The resident window is non-focusable so opening Magic Pen never closes another app's menus; typing takes the panels' focus lease on first touch.
         leaseFocus(target){
-            if(!A.isNative()||!this.active||this.focusLeased)return;this.focusLeased=true;
-            this.sessionChain=this.sessionChain.catch(()=>{}).then(()=>A.app.bridge.action('open_panel')).then(()=>{if(this.active&&target?.matches?.('input,textarea'))target.focus({preventScroll:true});}).catch(e=>{this.focusLeased=false;this.status(String(e.message||e));});
+            if(!A.isNative()||!this.active)return;
+            const focus=()=>{if(this.active&&this.focusLeased&&this.widget.contains(target)&&target.matches?.('input,textarea')&&!target.disabled)target.focus({preventScroll:true});};
+            if(this.focusLeased){this.sessionChain=this.sessionChain.catch(()=>{}).then(focus);return;}
+            this.focusLeased=true;
+            this.sessionChain=this.sessionChain.catch(()=>{}).then(()=>A.app.bridge.action('open_panel')).then(focus).catch(e=>{this.focusLeased=false;this.status(String(e.message||e));});
         }
         suspend(){this.closeTools();this.clearSummaryBubble(true);this.cancelAnalysis();this.disposeScene();if(this.player)this.player.queryId=null;this.guide=null;this.session(false);this.active=false;this.root.hidden=true;this.state='closed';this.cancelGesture();this.setInput(false);this.voiceOwner.stop?.();++this.generation;this.working=false;this.updateControls();}
         close(){this.state='closing';this.suspend();this.syncInput();}
@@ -317,7 +370,7 @@
             }
             if(selection){
                 this.pendingSelection=selection;this.doc.selection=null;this.renderAnswers();this.setInput(false);this.status('Capturando lo que acabas de seleccionar…');
-                void this.run(async()=>{if(!await this.capture())return;this.doc.selection=selection;this.selectionChanged();this.status(this.live?'Selección lista.':'Selección lista. Pulsa Preguntar para analizarla.');this.scheduleAnalysis(0,false);});return;
+                void this.run(async()=>{if(!await this.capture())return;this.doc.selection=selection;this.selectionChanged();this.status(this.live?'Selección lista.':'Selección lista. Escribe tu pregunta y pulsa enviar.');this.scheduleAnalysis(0,false);});return;
             }
             if(['pen','marker','erase'].includes(g.tool)){
                 if(g.tool!=='erase'&&(this.doc.strokes.length>=1000||this.doc.strokes.reduce((sum,s)=>sum+s.points.length,0)+g.points.length>50000)){this.status('Límite de tinta alcanzado. Guarda tus marcas y comienza otra captura.');this.render();return;}
@@ -331,7 +384,7 @@
                     this.doc.strokes.push({tool:g.tool,points:g.points,color:g.color,width:g.width});
                     this.selectInk();
                 }
-                this.answerDirty=true;this.queueSave();this.status(this.live&&!this.livePaused?'Analizaré esta zona cuando termines de marcar.':'Marcas listas. Pulsa Preguntar para explicar esta zona.');this.renderAnswers();this.scheduleAnalysis(650,true);
+                this.answerDirty=true;this.queueSave();this.status(this.live&&!this.livePaused?'Analizaré esta zona cuando termines de marcar.':'Marcas listas. Escribe tu pregunta y envíala.');this.renderAnswers();this.scheduleAnalysis(650,true);
             }
             this.render();
         }
@@ -352,7 +405,12 @@
             return last?.presentation?last:null;
         }
         presentationCard(q){
-            if(this.player?.queryId!==q.id){this.stopPresentation();this.disposeScene();this.player={queryId:q.id,index:0,playing:false,timer:null,token:0,spoke:false,exploded:false,picked:null};}
+            if(this.player?.queryId!==q.id){
+                const previous=this.player,view=previous?.scene?.getView(),ids=new Set(q.presentation.scene?.objects.map(o=>o.id)||[]);
+                this.stopPresentation();this.disposeScene();this.player={queryId:q.id,index:Math.min(previous?.index||0,q.presentation.steps.length-1),playing:false,timer:null,token:0,spoke:false,
+                    exploded:previous?.exploded||false,picked:ids.has(previous?.picked)?previous.picked:null,overview:previous?.overview||false,
+                    isolated:previous?.isolated||false,hidden:new Set([...(previous?.hidden||[])].filter(id=>ids.has(id))),initialView:view};
+            }
             const p=q.presentation,player=this.player,el=(tag,text,className)=>{const n=document.createElement(tag);if(text!=null)n.textContent=text;if(className)n.className=className;return n;};
             const card=el('figure',null,'mp-visual'),head=el('figcaption'),list=el('ol',null,'mp-visual-flow'),controls=el('div',null,'mp-visual-controls');
             head.append(el('strong',p.title),el('small',FIDELITY[p.fidelity]+' · explicación generada, no verificada','mp-visual-fidelity'));card.append(head);
@@ -369,7 +427,9 @@
                 button(player.playing?'Pausar narración':'Narrar desde este paso',player.playing?'Pausar':'Narrar',()=>{if(player.playing){this.stopPresentation();this.renderAnswers();}else this.playPresentation();}),
                 button('Paso siguiente','›',()=>this.seekPresentation(player.index+1),player.index>=p.steps.length-1),
                 button('Guíame para hacerlo en la aplicación','Guíame',()=>{void this.ask({fresh:false,format:'guide',base:q.id,question:$('mp-question').value.trim()||'Guíame paso a paso para hacer esto en la aplicación: '+p.title});}),el('span',(player.index+1)+' / '+p.steps.length,'mp-visual-progress'));
-            card.append(list,controls);player.scene?.focus(player.picked?[player.picked]:player.overview?[]:p.steps[player.index].focus||[]);return card;
+            card.append(list,controls);
+            if(player.scene){for(const id of player.hidden)player.scene.setHidden(id,true);player.scene.focus(player.isolated&&player.picked?[player.picked]:player.overview?[]:p.steps[player.index].focus||[]);}
+            return card;
         }
         sceneBlock(p,player,el,button){
             // The host survives re-renders so seeking never rebuilds the WebGL context.
@@ -385,17 +445,25 @@
                 import('./spatial-scene.js').then(module=>{
                     if(this.player!==player||!player.sceneHost)return;
                     player.sceneHost.replaceChildren();
-                    try{player.scene=module.mountScene(player.sceneHost,p.scene,{reducedMotion:matchMedia('(prefers-reduced-motion: reduce)').matches,
+                    try{player.scene=module.mountScene(player.sceneHost,p.scene,{reducedMotion:matchMedia('(prefers-reduced-motion: reduce)').matches,initialView:player.initialView,
                         onPick:id=>{player.picked=id;this.renderAnswers();},onLost:()=>fail('Se perdió el contexto gráfico.')});}
                     catch{fail('Este equipo no ofrece WebGL para la escena 3D.');return;}
-                    if(player.exploded)player.scene.setExploded(true);this.renderAnswers();
+                    if(player.exploded)player.scene.setExploded(true);for(const id of player.hidden)player.scene.setHidden(id,true);this.renderAnswers();
                 },()=>fail('No se pudo cargar el motor 3D.'));
             }
             const tools=el('div',null,'mp-scene-tools'),picked=objects.get(player.picked);
             const explode=button(player.exploded?'Unir piezas':'Vista despiezada',player.exploded?'Unir':'Despiezar',()=>{player.exploded=!player.exploded;player.scene?.setExploded(player.exploded);this.renderAnswers();},!player.scene);
             explode.setAttribute('aria-pressed',String(player.exploded));
-            tools.append(explode,button('Ver toda la escena','Ver todo',()=>{player.picked=null;player.overview=true;this.renderAnswers();},!player.scene),
-                button('Guardar la escena como PNG','PNG',()=>this.run(()=>this.exportScene()),!player.scene));
+            tools.append(explode,button('Ver toda la escena','Ver todo',()=>{player.picked=null;player.overview=true;player.isolated=false;this.renderAnswers();},!player.scene));
+            if(picked){
+                const hidden=player.hidden.has(picked.id);
+                tools.append(button(hidden?'Mostrar '+picked.label:'Ocultar '+picked.label,hidden?'Mostrar':'Ocultar',()=>{
+                    if(hidden)player.hidden.delete(picked.id);else player.hidden.add(picked.id);player.scene?.setHidden(picked.id,!hidden);this.renderAnswers();
+                },!player.scene),button(player.isolated?'Mostrar todas las piezas':'Aislar '+picked.label,player.isolated?'Mostrar todas':'Aislar',()=>{
+                    player.isolated=!player.isolated;player.overview=false;this.renderAnswers();
+                },!player.scene));
+            }
+            tools.append(button('Guardar la escena como PNG','PNG',()=>this.run(()=>this.exportScene()),!player.scene));
             block.append(player.sceneHost,tools);
             if(picked){
                 const info=el('p',null,'mp-scene-picked');
@@ -536,7 +604,8 @@
         }
         cancelQuery(job){
             if(!job?.id||!job.source_id)return Promise.resolve();
-            this.cancelChain=this.cancelChain.catch(()=>{}).then(()=>api('cancel',{id:job.source_id,query_id:job.id})).catch(e=>{
+            const cancel=job.format==='presentation'?spatialApi('cancel',{id:job.source_id,query_id:job.id}):api('cancel',{id:job.source_id,query_id:job.id});
+            this.cancelChain=this.cancelChain.catch(()=>{}).then(()=>cancel).catch(e=>{
                 if(this.active)this.status('La cancelación no se pudo confirmar. La respuesta anterior no se mostrará. '+String(e.message||e));
             });return this.cancelChain;
         }
@@ -561,8 +630,11 @@
         async ask({fresh=true,format='text',base=null,question:explicit=''}={}){
             if(!this.active||!this.doc?.selection)return this.status('Selecciona o marca una región antes de preguntar.');
             if(base&&!explicit&&!$('mp-question').value.trim())return this.status('Escribe qué quieres saber o cambiar de la presentación.');
-            if(!this.hasVision()){this.livePaused=this.live;this.updateControls();return this.status('El modelo seleccionado no tiene visión disponible. Revisa Ajustes de conexión.');}
-            const epoch=this.cancelAnalysis(),session=this.generation,userQuestion=explicit||$('mp-question').value.trim()||'Explica el contenido de toda la región seleccionada. Ignora el cursor del ratón y cualquier indicador de puntero. Responde de forma clara y breve.',question=format!=='text'?userQuestion:userQuestion+'\n\nEmpieza con «Resumen:» y una síntesis en una frase de máximo 24 palabras; después da los detalles necesarios bajo «Detalle:».',route=this.route();
+            const route=format==='presentation'?this.spatialRoute():this.route();
+            if(format==='presentation'&&!route)return this.status('Elige proveedor y modelo para el Canvas 3D.');
+            if(format==='text'&&!this.hasVision()){this.livePaused=this.live;this.updateControls();return this.status('El modelo seleccionado no tiene visión disponible. Revisa Ajustes de conexión.');}
+            const epoch=this.cancelAnalysis(),session=this.generation,userQuestion=explicit||$('mp-question').value.trim()||'Explica el contenido de toda la región seleccionada. Ignora el cursor del ratón y cualquier indicador de puntero. Responde de forma clara y breve.',question=format!=='text'?userQuestion:userQuestion+'\n\nEmpieza con «Resumen:» y una síntesis en una frase de máximo 24 palabras; después da los detalles necesarios bajo «Detalle:».',
+                providerRoute=format==='presentation'?{provider:route.provider,model:route.model,selection_mode:'manual'}:route;
             this.analysisPending=true;this.updateControls();this.showPendingBubble();
             const current=()=>this.active&&this.generation===session&&this.analysisEpoch===epoch;
             const setup=this.analysisSetup.catch(()=>{}).then(async()=>{
@@ -576,8 +648,9 @@
                 const d=this.doc,revision=d.revision;
                 this.status('Analizando tu selección…');
                 const request_id=crypto.randomUUID().replace(/-/g,'');
-                this.analysisJob={id:request_id,source_id:d.id};
-                const q=await api('start',{id:d.id,revision,question,...route,request_id,...(format!=='text'?{format}:{}),...(base?{base_query_id:base}:{})});
+                this.analysisJob={id:request_id,source_id:d.id,format};
+                const body={id:d.id,revision,question,...providerRoute,request_id,...(format!=='text'?{format,effort:route.effort}:{}),...(base?{base_query_id:base}:{})};
+                const q=format==='presentation'?await spatialApi(base?'query':'start',body):await api('start',body);
                 if(q?.id!==request_id||q.source_id!==d.id)throw Error('El servicio devolvió un análisis sin identidad válida.');
                 if(!current()){await this.cancelQuery(q);return null;}
                 this.analysisJob=q;this.queries.add(q.id);return {d,revision,q};
@@ -589,7 +662,7 @@
                 while(q.state==='running'&&current()){
                     if(Date.now()>deadline)throw Error('El análisis superó el tiempo de espera. Puedes volver a intentarlo.');
                     await new Promise(resolve=>setTimeout(resolve,350));if(!current())return;
-                    q=await api('query',{id:job.d.id,query_id:q.id});
+                    q=format==='presentation'?await spatialApi('get',{id:job.d.id,query_id:q.id}):await api('query',{id:job.d.id,query_id:q.id});
                     if(q.id!==job.q.id||q.source_id!==job.d.id||q.revision!==job.revision)throw Error('El resultado no corresponde a esta selección.');
                 }
                 if(!current()||this.doc!==job.d||job.d.revision!==job.revision)return;
