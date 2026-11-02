@@ -13,6 +13,7 @@ from urllib.parse import parse_qs, urlsplit
 from backend.actions.executor import ActionExecutor
 from backend.chat_store import ChatStore
 from backend.commands import CommandService
+from backend.action_learning import ActionLearning
 from backend.telegram.config import GRANTS, account_path, save_account, set_confirmation_policy, update_permissions
 from backend.telegram.bot_config import save_bot
 from backend.telegram.miniapp import MiniAppFacade
@@ -169,6 +170,31 @@ class TelegramConfirmationIntegrationTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 self.service.decide_operation(20, token, 'confirm')
             effect.assert_not_called()
+
+    def test_action_plan_uses_the_same_single_use_telegram_review(self):
+        learning = ActionLearning(self.commands, Mock())
+        self.addCleanup(learning.close)
+        self.commands.learning = learning
+        chat = self.service._thread(self.account)
+        captured = self.service._capture_chat(chat)
+        operation_id = str(uuid.uuid4())
+        with self.service._db() as db:
+            db.execute('INSERT INTO inbox(id,state,response,operation_id,created,account,peer,task_id,memory_scope,memory_context_id) VALUES(?,?,?,?,?,?,?,?,?,?)',
+                (operation_id, 'awaiting_approval', '{}', operation_id, 1, 10, 20, captured['task_id'],
+                 json.dumps(captured['memory_scope']), captured['memory_context_id']))
+        plan = learning.prepare_steps('consulta el estado del equipo',
+            [{'command_id': 'axx.system.telemetry', 'inputs': {}}], operation_id=operation_id,
+            conversation_id=chat['id'], memory_scope=captured['memory_scope'], memory_context_id=captured['memory_context_id'])
+        self.assertEqual(plan['state'], 'awaiting_approval')
+        review = self.service.review_operation(20, operation_id)
+        self.assertTrue(review['can_confirm'])
+        with patch.object(self.executor, 'execute_action', return_value=self.effect) as effect:
+            result = self.service.decide_operation(20, review['token'], 'confirm')
+            replay = self.service.decide_operation(20, review['token'], 'confirm')
+        self.assertEqual(result['state'], 'succeeded')
+        self.assertTrue(result['postconditions_passed'])
+        self.assertTrue(replay['replayed'])
+        effect.assert_called_once()
 
     def test_pc_command_confirmation_works_without_conversation_or_inference(self):
         update_permissions(True, dict(self.grants, conversation=False), self.root)

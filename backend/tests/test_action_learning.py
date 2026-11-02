@@ -52,6 +52,19 @@ class ActionLearningTests(unittest.TestCase):
         self.assertEqual(requests[0]['conversation_id'],'api-plan')
         self.assertEqual(self.executor.list_operations(),[])
 
+    def test_external_authorization_is_rechecked_before_each_dispatch(self):
+        plan = self.learning.prepare_steps('consulta el estado del equipo',
+            [{'command_id': 'axx.system.telemetry', 'inputs': {}}], operation_id='telegram-auth-check')
+        checked = []
+        def revoked():
+            checked.append(True)
+            raise ValueError('Telegram permission revoked')
+        with patch.object(self.executor, 'execute_action') as dispatch:
+            result = self.learning.execute(plan['operation_id'], approved=True, authorization_check=revoked)
+        self.assertEqual(checked, [True])
+        self.assertEqual(result['state'], 'failed')
+        dispatch.assert_not_called()
+
     def test_model_receives_ordered_clauses_and_cannot_drop_the_suffix(self):
         seen=[];original=self.model.route
         def capture(request):

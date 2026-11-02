@@ -6,6 +6,7 @@ import copy
 import hashlib
 import hmac
 import math
+import re
 import secrets
 from contextlib import contextmanager
 from pathlib import Path
@@ -20,6 +21,7 @@ from backend.prompts import compose
 from backend.memory import task_memory
 from backend.telegram.config import load_account, confirmation_policy, confirmation_fingerprint
 from backend.telegram.catalog import is_catalog_request, phrase_catalog
+from backend.actions.command_language import command_sequence
 
 
 def status_text(status):
@@ -175,7 +177,18 @@ class TelegramService:
 
     def review_operation(self, owner_id, operation_id):
         account = self._owned_operation(owner_id, operation_id)
-        review = self.commands.remote_review(operation_id)
+        try:
+            review = self.commands.remote_review(operation_id)
+        except (ValueError, KeyError):
+            learning = getattr(self.commands, 'learning', None)
+            if learning is None:
+                raise
+            plan = learning.get(operation_id)
+            review = {'operation_id': operation_id, 'title': plan.get('title', 'Plan de acciones'),
+                'description': plan.get('message', ''), 'risk': 'plan',
+                'inputs': {'steps': plan.get('steps', [])}, 'plan_hash': plan.get('plan_hash'),
+                'expires_at': plan.get('prepared_at', time.time()) + 600, 'state': plan.get('state'),
+                'eligible': plan.get('state') == 'awaiting_approval'}
         fields = ('operation_id', 'title', 'description', 'risk', 'inputs', 'plan_hash', 'expires_at', 'state')
         result = {key: review[key] for key in fields if key in review}
         reasons = {'PC_APPROVAL_REQUIRED': 'Esta orden solo puede aprobarse en la PC.',
@@ -232,7 +245,16 @@ class TelegramService:
         if not self.lock.acquire(blocking=False):
             return {'state': 'busy', 'operation_id': operation_id, 'text': 'Axx está ocupado. La confirmación no se utilizó; puedes intentarlo después.'}
         try:
-            fresh = self.commands.remote_review(operation_id)
+            learning = getattr(self.commands, 'learning', None)
+            is_learning_plan = False
+            try:
+                fresh = self.commands.remote_review(operation_id)
+            except (ValueError, KeyError):
+                if learning is None:
+                    raise
+                fresh = learning.get(operation_id)
+                is_learning_plan = True
+                fresh = fresh | {'eligible': fresh.get('state') == 'awaiting_approval'}
             if (not fresh.get('eligible') or fresh.get('state') != 'awaiting_approval'
                     or not hmac.compare_digest(fresh.get('plan_hash', ''), plan_hash)):
                 raise ValueError('The reviewed operation changed')
@@ -257,21 +279,35 @@ class TelegramService:
             try:
                 authorize_dispatch()
                 if decision == 'cancel':
-                    receipt = self.commands.cancel(operation_id)
-                    self.adapter.cancel(operation_id)
-                    state = receipt.get('state', 'unknown')
+                    receipt = learning.cancel(operation_id) if is_learning_plan else self.commands.cancel(operation_id)
+                    if not is_learning_plan:
+                        self.adapter.cancel(operation_id)
+                    state = receipt.get('state', 'unknown') if isinstance(receipt, dict) else 'cancelled'
                     result = {'state': 'cancel_requested' if state == 'running' else state,
-                              'operation_id': operation_id, 'postconditions_passed': receipt.get('postconditions_passed') is True,
+                              'operation_id': operation_id, 'postconditions_passed': isinstance(receipt, dict) and receipt.get('postconditions_passed') is True,
                               'text': 'Orden cancelada.' if state == 'cancelled' else
                                       'Cancelación solicitada; la orden ya estaba en curso.' if state == 'running' else
                                       'La orden ya terminó. Su estado y los efectos realizados se conservan.'}
                 else:
-                    receipt = self.commands.confirm_remote(operation_id, plan_hash, authorization_check=authorize_dispatch)
-                    verified = receipt.get('state') == 'succeeded' and receipt.get('postconditions_passed') is True
-                    result = {'state': receipt.get('state', 'unknown'), 'operation_id': operation_id,
-                              'postconditions_passed': verified,
-                              'text': ('Resultado comprobado: ' + json.dumps(receipt.get('output'), ensure_ascii=False)[:6000]
-                                       if verified else 'El resultado no está comprobado. Consulta Actividad antes de repetir la orden.')}
+                    if is_learning_plan:
+                        with self._db() as db:
+                            row = db.execute('SELECT memory_scope,memory_context_id FROM inbox WHERE operation_id=?', (operation_id,)).fetchone()
+                        if not row or not row[0] or not row[1]:
+                            raise ValueError('Telegram conversation context unavailable')
+                        receipt = learning.execute(operation_id, approved=True, plan_hash=plan_hash,
+                            memory_scope=json.loads(row[0]), memory_context_id=row[1], authorization_check=authorize_dispatch)
+                        verified = receipt.get('state') == 'succeeded' and receipt.get('postconditions_passed') is True
+                        result = {'state': receipt.get('state', 'unknown'), 'operation_id': operation_id,
+                            'postconditions_passed': verified,
+                            'text': ('Resultado comprobado: ' + json.dumps(receipt.get('message', receipt.get('steps')), ensure_ascii=False)[:6000]
+                                     if verified else 'El resultado no está comprobado. Consulta Actividad antes de repetir el plan.')}
+                    else:
+                        receipt = self.commands.confirm_remote(operation_id, plan_hash, authorization_check=authorize_dispatch)
+                        verified = receipt.get('state') == 'succeeded' and receipt.get('postconditions_passed') is True
+                        result = {'state': receipt.get('state', 'unknown'), 'operation_id': operation_id,
+                                  'postconditions_passed': verified,
+                                  'text': ('Resultado comprobado: ' + json.dumps(receipt.get('output'), ensure_ascii=False)[:6000]
+                                           if verified else 'El resultado no está comprobado. Consulta Actividad antes de repetir la orden.')}
                 if decision=='confirm':self._inbox_memory(operation_id,manual=True)
                 result = self._advance_sequence(account, operation_id, result, confirmed=decision == 'confirm')
                 if decision=='confirm':self._inbox_memory(operation_id,manual=True)
@@ -411,7 +447,7 @@ class TelegramService:
                              (account['account_id'], account['owner_id'])).fetchone()
             if row:
                 return self.chats.get(row[0])
-            chat = self.chats.mutate('create', {'title': 'Telegram', 'command_mode': 'ask'})
+            chat = self.chats.mutate('create', {'title': 'Telegram'})
             db.execute('INSERT INTO bindings VALUES(?,?,?)',
                        (account['account_id'], account['owner_id'], chat['id']))
             return self.chats.get(chat['id'])
@@ -615,8 +651,12 @@ class TelegramService:
                 first['sequence_total'] = len(steps)
                 first['text'] = f'Secuencia de {len(steps)} pasos. Aprobarás cada paso por separado; denegar detiene el resto.\n' + '\n'.join(f"{i+1}. {step['command_id']}: {json.dumps(step['inputs'],ensure_ascii=False)}" for i,step in enumerate(steps)) + '\n' + first['text']
             return first
-        if resolved.get('match') in ('needs_input', 'sequence_request', 'unsupported', 'ambiguous'):
+        if resolved.get('match') in ('needs_input', 'unsupported', 'ambiguous'):
             return {'state':'blocked','text':resolved.get('message') or 'Necesito una orden más precisa. Consulta /comandos. No se ejecutó ningún paso.'}
+        if resolved.get('match') in ('learned', 'sequence_request') or (resolved.get('match') == 'none' and self._is_action_request(text)):
+            if resolved.get('match') == 'sequence_request' and getattr(self.commands, 'learning', None) is None:
+                return {'state':'blocked','text':resolved.get('message') or 'Este plan necesita preparación. No se ejecutó ningún paso.'}
+            return self._propose_action(account, chat, key, text, captured)
         if resolved.get('match') == 'exact' and resolved.get('command_id'):
             if not account['grants']['pc_commands']:
                 return {'state':'blocked', 'text':'Activa el permiso de acciones en la PC para esta cuenta en los ajustes locales de Telegram.'}
@@ -668,3 +708,34 @@ class TelegramService:
         if not routed.get('ok'):
             return {'state':'failed','text':'El proveedor seleccionado no pudo responder. Revisa su estado en Axx.'}
         return {'state':'succeeded', 'text':routed['message']['content']}
+
+    @staticmethod
+    def _is_action_request(text):
+        if command_sequence(text, 'text') is not None:
+            return True
+        return bool(re.match(r'^(?:haz|repite|usa|saca|abre|abrir|abrirme|abras|abreme|abrela|abrelo|cierra|cerrar|cierrame|salir|inicia|ejecuta|busca|buscar|buscame|encuentra|localiza|observa|inspecciona|lee|leer|enfoca|enfocar|ponme|pon|reproduce|reproducela|reproducelo|reproducir|escuchar|prepara|organiza|crea|crear|convierte|mueve|pulsa|presiona|clic|teclea|pega|selecciona|desplaza|navega|copia|renombra|comprime|extrae|descarga|instala|borra|elimina|envia|publica)\b', text.strip(), re.I))
+
+    def _propose_action(self, account, chat, key, text, captured):
+        if not account['grants'].get('pc_commands'):
+            return {'state':'blocked','text':'Activa el permiso Acciones en la PC en Axx. No se ejecutó ningún paso.'}
+        remote = confirmation_policy(self.data_dir)['enabled']
+        learning = getattr(self.commands, 'learning', None)
+        if learning is None:
+            return {'state':'blocked','text':'Este comando necesita preparación. El planificador de acciones no está disponible; consulta /comandos. No se ejecutó.'}
+        prefs = dict(self.preferences() or {})
+        if prefs.get('provider') != 'bridge':
+            return {'state':'blocked','text':'Este comando necesita preparar un plan con el proveedor actual de Axx. Su conexión remota aún no está verificada; no se cambió de proveedor ni se ejecutó nada.'}
+        if prefs.get('selection_mode', 'manual') != 'automatic_free' and not (prefs.get('model') and prefs.get('provider_name')):
+            return {'state':'blocked','text':'Selecciona el modelo y la conexión actuales en Axx para preparar esta orden. No se ejecutó.'}
+        plan = learning.propose(text, operation_id=key, model=prefs.get('model',''), provider_name=prefs.get('provider_name',''),
+            selection_mode=prefs.get('selection_mode','manual'), conversation_id=chat['id'],
+            memory_scope=copy.deepcopy(captured['memory_scope']), memory_context_id=captured['memory_context_id'])
+        if plan.get('state') == 'awaiting_approval':
+            if remote:
+                return {'state':'awaiting_approval','operation_id':key,
+                    'text':'Plan preparado; no ejecutado. Revisa todos los pasos y aprueba o deniega con los botones de Telegram.'}
+            return {'state':'awaiting_approval','operation_id':key,
+                'text':'Plan preparado; no ejecutado. Confírmalo en Axx, en la tarjeta de aprobación. Para aprobar desde Telegram, activa Confirmar desde Telegram en la configuración local.'}
+        message = plan.get('message') or 'No se pudo preparar el plan.'
+        return {'state':plan.get('state','blocked'),'operation_id':key,
+            'text':str(message)[:2500] + (' No se ejecutó ninguna acción.' if plan.get('state') != 'succeeded' else '')}

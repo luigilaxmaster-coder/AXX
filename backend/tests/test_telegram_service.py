@@ -148,6 +148,26 @@ class TelegramServiceTests(unittest.TestCase):
         self.assertEqual(self.service.admit(self.body())['state'], 'blocked')
         self.adapter.route.assert_not_called()
 
+    def test_unmatched_action_uses_shared_plan_service_and_does_not_dispatch(self):
+        self.commands.resolve.return_value = {'match': 'none'}
+        self.commands.learning = Mock()
+        self.commands.learning.propose.return_value = {'state': 'awaiting_approval', 'message': 'review'}
+        result = self.service.admit(self.body('abre youtube y pon faint de linkin park'))
+        self.assertEqual(result['state'], 'awaiting_approval')
+        self.assertIn('no ejecutado', result['text'].lower())
+        self.commands.learning.propose.assert_called_once()
+        self.commands.prepare.assert_not_called()
+        self.commands.execute.assert_not_called()
+        self.adapter.route.assert_not_called()
+
+    def test_unmatched_question_stays_conversation_not_action_planner(self):
+        self.commands.resolve.return_value = {'match': 'none'}
+        self.commands.learning = Mock()
+        result = self.service.admit(self.body('¿Cómo estás?'))
+        self.assertEqual(result['state'], 'succeeded')
+        self.commands.learning.propose.assert_not_called()
+        self.adapter.route.assert_called_once()
+
     def test_incomplete_manual_selection_does_not_route(self):
         for index, field in enumerate(('model', 'provider_name'), 1):
             with self.subTest(field=field):

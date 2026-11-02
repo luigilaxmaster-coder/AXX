@@ -2890,7 +2890,7 @@ class ActionLearning:
         return self._save(plan)
 
     @active_operation
-    def execute(self, key, approved=False, *, initiative_grant_id=None, plan_hash=None, memory_scope=None, memory_context_id=None):
+    def execute(self, key, approved=False, *, initiative_grant_id=None, plan_hash=None, memory_scope=None, memory_context_id=None, authorization_check=None):
         if approved is not True: raise ApprovalRequired('Revisa y aprueba los pasos concretos del plan.')
         snapshot = self.get(key)
         self._assert_request(snapshot, memory_scope, memory_context_id)
@@ -2935,12 +2935,12 @@ class ActionLearning:
                          and all(required in succeeded for required in plan.get('dependencies', {}).get(record['step_id'], []))]
                 if not ready: raise ValueError('Una dependencia no se ha completado')
                 batch = [item for item in ready if item[0]['command_id'] in PARALLEL_READ_COMMANDS][:2] if ready[0][0]['command_id'] in PARALLEL_READ_COMMANDS else []
-                if len(batch) == 2:
+                if len(batch) == 2 and authorization_check is None:
                     with ThreadPoolExecutor(max_workers=2, thread_name_prefix='axx-skill-read') as pool:
-                        futures = [pool.submit(self._run_step, plan, step, record, event, True) for step, record in batch]
+                        futures = [pool.submit(self._run_step, plan, step, record, event, True, authorization_check) for step, record in batch]
                         results = [future.result() for future in futures]
                 else:
-                    results = [self._run_step(plan, *ready[0], event)]
+                    results = [self._run_step(plan, *ready[0], event, authorization_check=authorization_check)]
                 failures = [result for result in results if result['state'] != 'succeeded' or result.get('postconditions_passed') is not True]
                 if failures:
                     if all(result['state'] == 'paused' for result in failures):
@@ -2991,7 +2991,7 @@ class ActionLearning:
         finally:
             self.gate.release()
 
-    def _run_step(self, plan, step, record, event, parallel=False):
+    def _run_step(self, plan, step, record, event, parallel=False, authorization_check=None):
         operation_id = record['operation_id']
         try:
             with self.lock:
@@ -3021,6 +3021,9 @@ class ActionLearning:
                     if self.pause_events.setdefault(plan['operation_id'], threading.Event()).is_set():
                         return {'state': 'paused', 'postconditions_passed': False}
                     self._assert_workshop_plan(plan)
+                if authorization_check:
+                    authorization_check()
+                with self.lock:
                     record['state'] = 'running'; self._save(plan)
                 result = self.commands.execute(operation_id, approved=True, **({'allow_parallel_read': True} if parallel else {}))
         except Exception as exc:
