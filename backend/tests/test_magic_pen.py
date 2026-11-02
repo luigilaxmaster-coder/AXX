@@ -135,7 +135,9 @@ class MagicPenTests(unittest.TestCase):
                 {'name': 'authorized', 'model': 'vision', 'enabled': True,
                  'free_confirmed': False, 'billing_allowed': True, 'capabilities': ['vision']},
                 {'name': 'unauthorized', 'model': 'vision', 'enabled': True,
-                 'free_confirmed': False, 'billing_allowed': False, 'capabilities': ['vision']}]}
+                 'free_confirmed': False, 'billing_allowed': False, 'capabilities': ['vision']},
+                {'name': 'chat-only', 'model': 'vision', 'enabled': True,
+                 'free_confirmed': True, 'capabilities': ['vision'], 'tasks': ['chat']}]}
         self.service.adapter = Adapter()
         self.assertEqual(self.service.capabilities()['vision'], [{'name': 'authorized', 'model': 'vision'}])
 

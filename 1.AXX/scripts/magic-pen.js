@@ -27,7 +27,7 @@
         undoStack = []; redoStack = []; saveChain = Promise.resolve(); saveError = null; generation = 0; working = false; queries = new Set(); sessionChain = Promise.resolve();
         analysisEpoch = 0; analysisJob = null; analysisPending = false; analysisSetup = Promise.resolve(); cancelChain = Promise.resolve(); liveTimer = null; bubbleTimer = null; summaryBubbleMode = false; answerAvailable = false; summaryText = '';
         captureChain = Promise.resolve(); capturePending = 0;
-        live = false; livePaused = false; historyMode = false; previewImage = null; answerDirty = false; selectionOrigin = null; inkBaseSelection = null;
+        live = false; autoSpeak = true; livePaused = false; historyMode = false; previewImage = null; answerDirty = false; selectionOrigin = null; inkBaseSelection = null;
         constructor() {
             const view = document.createElement('section'); view.id = 'view-magicpen'; view.className = 'panel-view'; view.hidden = true;
             const icons = {
@@ -89,7 +89,7 @@
             void A.app.bridge.listen('axx-pen-geometry',()=>this.invalidateGeometry());
             addEventListener('pagehide',()=>this.suspend());
             addEventListener('resize',()=>{this.invalidateGeometry();if(this.active)this.positionWidget();});
-            try {const p=JSON.parse(localStorage.getItem('axx.magicpen.prefs')||'{}');for(const id of ['mp-color','mp-width','mp-tool','mp-directory']) if(p[id])$(id).value=p[id];this.live=p.live===true;}catch{}
+            try {const p=JSON.parse(localStorage.getItem('axx.magicpen.prefs')||'{}');for(const id of ['mp-color','mp-width','mp-tool','mp-directory']) if(p[id])$(id).value=p[id];this.live=p.live===true;this.autoSpeak=p.autoSpeak!==false;}catch{}
             this.voiceOwner = {state:'idle',onFinal:text=>{if(this.active)$('mp-question').value=text;},onError:text=>this.status(text),onState:()=>{$('mp-voice').innerHTML=this.voiceOwner.state==='listening'?'<span aria-hidden="true">■</span>':this.icon('mic');}};
             A.nativeVoice?.attach?.(this.voiceOwner);
             $('mp-voice').onclick=()=>{if(this.voiceOwner.state==='listening')this.voiceOwner.finish?.();else if(A.nativeVoice?.activeCapture)this.status('Termina el dictado activo antes de dictar esta pregunta.');else this.voiceOwner.start?.('es-ES');};
@@ -100,7 +100,7 @@
             this.view.before(this.root);this.root.append(this.view);this.view.className='';this.view.hidden=false;
             this.toolbar=document.createElement('div');this.toolbar.id='mp-toolbar';this.toolbar.setAttribute('role','toolbar');this.toolbar.setAttribute('aria-label','Magic Pen en el escritorio');
             this.view.append(this.toolbar);
-            this.toolbar.innerHTML='<div class="mp-toolbar-row"><div class="mp-primary-tools" role="group" aria-label="Herramientas principales"></div><button id="mp-interact" type="button" class="mp-icon-button" title="Usar escritorio sin cerrar Magic Pen" aria-label="Usar escritorio sin cerrar Magic Pen" aria-pressed="false">'+this.icon('pointer')+'</button><details id="mp-more-tools"><summary id="mp-more-toggle" aria-label="Más herramientas" aria-controls="mp-more-panel" aria-expanded="false" title="Más herramientas">'+this.icon('more')+'<span>Más</span></summary><div id="mp-more-panel" role="group" aria-label="Más herramientas de Magic Pen"><section class="mp-more-section" aria-labelledby="mp-selection-label"><span id="mp-selection-label" class="mp-section-label">Selección</span></section><section class="mp-more-section" aria-labelledby="mp-ink-label"><span id="mp-ink-label" class="mp-section-label">Tinta</span><div class="mp-ink-settings"></div></section><section class="mp-more-section" aria-labelledby="mp-analysis-label"><span id="mp-analysis-label" class="mp-section-label">Análisis</span><div class="mp-menu-actions"><button id="mp-live" type="button" aria-pressed="false">En directo</button><button id="mp-pause" type="button" hidden>Pausar</button></div><p id="mp-live-status" role="status" aria-live="polite">Análisis manual · solo al pulsar Preguntar</p></section></div></details><button id="mp-stop-analysis" type="button" aria-label="Detener análisis" title="Detener análisis" hidden>'+this.icon('stop')+'<span>Detener</span></button><button id="mp-done" type="button" aria-label="Cerrar Magic Pen" title="Cerrar Magic Pen · Esc">'+this.icon('done')+'<span>Listo</span></button></div>';
+            this.toolbar.innerHTML='<div class="mp-toolbar-row"><div class="mp-primary-tools" role="group" aria-label="Herramientas principales"></div><button id="mp-interact" type="button" class="mp-icon-button" title="Usar escritorio sin cerrar Magic Pen" aria-label="Usar escritorio sin cerrar Magic Pen" aria-pressed="false">'+this.icon('pointer')+'</button><details id="mp-more-tools"><summary id="mp-more-toggle" aria-label="Más herramientas" aria-controls="mp-more-panel" aria-expanded="false" title="Más herramientas">'+this.icon('more')+'<span>Más</span></summary><div id="mp-more-panel" role="group" aria-label="Más herramientas de Magic Pen"><section class="mp-more-section" aria-labelledby="mp-selection-label"><span id="mp-selection-label" class="mp-section-label">Selección</span></section><section class="mp-more-section" aria-labelledby="mp-ink-label"><span id="mp-ink-label" class="mp-section-label">Tinta</span><div class="mp-ink-settings"></div></section><section class="mp-more-section" aria-labelledby="mp-analysis-label"><span id="mp-analysis-label" class="mp-section-label">Análisis</span><div class="mp-menu-actions"><button id="mp-live" type="button" aria-pressed="false">En directo</button><button id="mp-pause" type="button" hidden>Pausar</button><button id="mp-auto-speak" type="button" aria-pressed="true">Leer respuestas</button></div><p id="mp-live-status" role="status" aria-live="polite">Análisis manual · solo al pulsar Preguntar</p></section></div></details><button id="mp-stop-analysis" type="button" aria-label="Detener análisis" title="Detener análisis" hidden>'+this.icon('stop')+'<span>Detener</span></button><button id="mp-done" type="button" aria-label="Cerrar Magic Pen" title="Cerrar Magic Pen · Esc">'+this.icon('done')+'<span>Listo</span></button></div>';
             for(const [id,label] of [['rect','Seleccionar'],['pen','Dibujar']]){
                 const button=this.view.querySelector('[data-mp-tool="'+id+'"]');button.className='mp-primary-tool';button.setAttribute('aria-label',id==='rect'?'Seleccionar un rectángulo':'Dibujar con pluma');button.insertAdjacentHTML('beforeend','<span>'+label+'</span>');this.toolbar.querySelector('.mp-primary-tools').append(button);
             }
@@ -137,6 +137,7 @@
             $('mp-done').onclick=()=>this.close();$('mp-hide-answer').onclick=()=>this.hideAnswer();reopen.onclick=()=>{this.closeTools();this.openAnswer();};
             $('mp-summary-expand').onclick=()=>this.openAnswer();$('mp-summary-listen').onclick=()=>this.readSummary();
             $('mp-live').onclick=()=>{this.live=!this.live;this.livePaused=false;this.cancelAnalysis();this.preferences();this.updateControls();this.status(this.live?'En directo: analiza al terminar una selección o al hacer una pausa en la tinta.':'Modo manual: selecciona y pulsa Preguntar.');};
+            $('mp-auto-speak').onclick=()=>{this.autoSpeak=!this.autoSpeak;this.preferences();this.updateControls();this.status(this.autoSpeak?'Magic Pen leerá las siguientes respuestas.':'Magic Pen mostrará las siguientes respuestas sin leerlas.');};
             $('mp-pause').onclick=()=>{this.livePaused=!this.livePaused;this.cancelAnalysis();this.updateControls();this.status(this.livePaused?'Análisis en directo pausado. Puedes seguir anotando.':'En directo preparado. Haz una nueva selección o marca.');};
             $('mp-stop-analysis').onclick=()=>{this.cancelAnalysis();if(this.live)this.livePaused=true;this.updateControls();this.status('Análisis detenido. Tus marcas se conservan.');};
             $('mp-back-desktop').onclick=()=>{void this.run(()=>this.returnDesktop());};
@@ -180,7 +181,7 @@
             this.summaryText=conciseSummary(response);if(!this.summaryText){this.clearSummaryBubble(true);this.status('La respuesta llegó vacía. Puedes volver a preguntar.');return;}
             this.clearSummaryBubble(false);this.answerAvailable=true;this.summaryBubbleMode=true;this.widget.classList.add('mp-bubble-mode');$('mp-summary-bubble').hidden=false;$('mp-summary-label').textContent='Lo esencial';$('mp-summary-text').textContent=this.summaryText;$('mp-summary-spinner').hidden=true;$('mp-summary-voice-status').hidden=true;$('mp-summary-listen').hidden=false;$('mp-summary-expand').hidden=false;$('mp-show-answer').hidden=true;this.showWidget();
             this.bubbleTimer=setTimeout(()=>this.dismissSummaryBubble(),12000);
-            const prefs=A.companion.data.prefs;if(prefs.voiceRead===true&&!prefs.mutedAll&&!this.speechBusy())this.readSummary(true);
+            if(this.autoSpeak&&!A.companion.data.prefs.mutedAll&&!this.speechBusy())this.readSummary(true);
         }
         dismissSummaryBubble(){
             if(!this.summaryBubbleMode)return;this.clearBubbleTimer();this.widget.classList.add('mp-bubble-leaving');this.bubbleTimer=setTimeout(()=>{this.summaryBubbleMode=false;this.widget.hidden=true;this.widget.classList.remove('mp-bubble-mode','mp-bubble-leaving');this.widget.removeAttribute('data-bubble-side');this.widget.style.removeProperty('--mp-bubble-enter');$('mp-summary-bubble').hidden=true;$('mp-show-answer').hidden=!this.answerAvailable;this.bubbleTimer=null;this.syncInput();},260);
@@ -198,7 +199,7 @@
             if(prefs.mutedAll){if(!automatic)this.summaryFeedback('La voz está silenciada en Sonido.');return false;}
             if(this.speechBusy()){if(!automatic)this.summaryFeedback('Axx está usando la voz o el micrófono. Espera a que termine y vuelve a pulsar.');return false;}
             if(!this.summaryText||typeof A.companion.read!=='function'){if(!automatic)this.summaryFeedback('La voz todavía no está disponible.');return false;}
-            try{A.companion.read(this.summaryText);this.summaryFeedback('Leyendo el resumen…');return true;}catch(e){this.summaryFeedback('No se pudo iniciar la voz: '+String(e.message||e));return false;}
+            try{if(A.companion.read(this.summaryText)===false){if(!automatic)this.summaryFeedback('La voz todavía no está disponible.');return false;}this.summaryFeedback('Leyendo el resumen…');return true;}catch(e){this.summaryFeedback('No se pudo iniciar la voz: '+String(e.message||e));return false;}
         }
         summaryFeedback(text){$('mp-summary-voice-status').textContent=text;$('mp-summary-voice-status').hidden=false;}
         positionWidget(){
@@ -223,7 +224,7 @@
         }
         showWidget(){this.widget.hidden=false;this.positionWidget();}
         status(text){$('mp-status').textContent=text;if(this.active&&text)this.showWidget();}
-        preferences(){try{localStorage.setItem('axx.magicpen.prefs',JSON.stringify({...Object.fromEntries(['mp-color','mp-width','mp-tool','mp-directory'].map(id=>[id,$(id).value])),live:this.live}));}catch{this.status('No se pudieron guardar las preferencias.');}}
+        preferences(){try{localStorage.setItem('axx.magicpen.prefs',JSON.stringify({...Object.fromEntries(['mp-color','mp-width','mp-tool','mp-directory'].map(id=>[id,$(id).value])),live:this.live,autoSpeak:this.autoSpeak}));}catch{this.status('No se pudieron guardar las preferencias.');}}
         async run(fn){
             if(this.working)return false;const token=this.generation;this.working=true;this.updateControls();
             try{return await fn();}catch(e){if(token===this.generation){this.state='error';this.status(String(e.message||e));}return false;}
@@ -351,6 +352,7 @@
             const more=$('mp-more-toggle'),mode=this.live?(this.livePaused?'en directo pausado':'en directo'):'manual';
             more.querySelector('span').textContent='Más';more.title='Más herramientas · análisis '+mode;more.setAttribute('aria-label',more.title);more.dataset.state=this.live?(this.livePaused?'paused':'live'):'idle';
             $('mp-live').setAttribute('aria-pressed',String(this.live));
+            $('mp-auto-speak').setAttribute('aria-pressed',String(this.autoSpeak));
             $('mp-pause').hidden=!this.live;$('mp-pause').textContent=this.livePaused?'Reanudar':'Pausar';
             $('mp-stop-analysis').hidden=!this.analysisPending;
             $('mp-capture').disabled=this.working;$('mp-ask').disabled=this.working;

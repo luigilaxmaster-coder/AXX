@@ -211,5 +211,5 @@
     return send(text, metadata);
   };
   Axx.capabilityWorkshop = {open,openDocument,openTask,propose,refresh,invalidateMemory,get current(){return current;}};
-  void run(() => refresh());
+  void run(() => refresh(), null);
 })(window.Axx);

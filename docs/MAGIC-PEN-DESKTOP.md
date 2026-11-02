@@ -22,6 +22,10 @@ Las transiciones respetan la preferencia de reducir movimiento del sistema.
 - **En directo:** analiza la región marcada al terminar la selección o tras una
   pausa de la tinta. Puede seguir marcando mientras llega la explicación.
 - **Preguntar:** envía la pregunta escrita o dictada sobre la selección actual.
+- **Leer respuestas:** Magic Pen lee por defecto un resumen breve con la voz ya
+  elegida en Axx. Puede desactivarlo en **Más herramientas → Análisis** sin
+  cambiar la voz del chat; **Escuchar resumen** permite repetirlo a demanda.
+  El silencio general y una sesión de voz o micrófono ocupada tienen prioridad.
 - **Detener:** cancela el análisis pendiente. **Listo / Escape** cierra la
   herramienta, cancela su trabajo y libera la entrada del escritorio.
 - **Guardar e historial:** exporta original o anotación a PNG; las capturas
@@ -47,6 +51,14 @@ restricciones del router siguen vigentes (`allow_paid: false`).
 La lista de modelos para visión ofrece **Usar en visión**: esta elección queda
 guardada aparte y conserva el modelo de texto del chat. Una selección de texto
 no basta para habilitar el análisis de imágenes.
+
+Si aparece «El modelo seleccionado no tiene análisis visual disponible», revise
+en **Conectar IA → Por API** que la conexión guardada declare tanto la capacidad
+**Visión** como la tarea **Visión**. Guárdela y selecciónela mediante **Usar en
+visión**. El nombre «Gemma» por sí solo no demuestra que el servidor acepte
+imágenes: compruébelo con una selección sin datos personales. Magic Pen conserva
+el permiso de cuota de la conexión; no activa facturación ni cambia a otro
+proveedor silenciosamente.
 
 Para esta entrega se comprobó la ruta existente `axxx3` / `gemma4:31b` con una
 imagen de prueba sin datos personales. Se añadió únicamente `vision` a las

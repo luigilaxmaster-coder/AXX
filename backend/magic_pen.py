@@ -178,7 +178,7 @@ class MagicPenService:
 
     def capabilities(self):
         providers = getattr(self.adapter, 'config', {}).get('providers', [])
-        vision = [{'name': p['name'], 'model': p['model']} for p in providers if p.get('enabled', True) and (p.get('free_confirmed') is True or p.get('billing_allowed') is True) and 'vision' in p.get('capabilities', [])]
+        vision = [{'name': p['name'], 'model': p['model']} for p in providers if p.get('enabled', True) and (p.get('free_confirmed') is True or p.get('billing_allowed') is True) and 'vision' in p.get('capabilities', []) and (not p.get('tasks') or 'vision' in p['tasks'] or '*' in p['tasks'])]
         return {'vision': vision, 'ocr': False, 'ocr_message': 'OCR no integrado; el proveedor visual puede leer texto si está configurado.', 'export_directory': str(self.root / 'exports')}
 
     def list(self):
