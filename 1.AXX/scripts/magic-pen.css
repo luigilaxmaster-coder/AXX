@@ -202,6 +202,8 @@ body.native.axx-resident[data-ui-theme] #mp-desktop :is(#mp-live-status,#mp-hist
 #mp-desktop .mp-visual-flow li::before{left:9px;top:10px;width:23px;height:23px;font-size:11px}
 #mp-desktop .mp-visual-flow li:not(:last-child)::after{left:20px;top:37px;bottom:-10px}
 #mp-desktop .mp-visual-flow span{font-size:12.5px;line-height:1.5}
+#mp-desktop .mp-step-bullets{margin:4px 0 0;padding-left:18px;list-style-type:disc}
+#mp-desktop .mp-step-bullets li{padding:2px 0;font-size:12px;line-height:1.45}
 #mp-desktop .mp-step-meta{gap:6px}
 #mp-desktop .mp-step-meta button{opacity:1;min-height:30px;padding-inline:10px}
 #mp-desktop .mp-visual-controls{flex-wrap:wrap;gap:6px;margin-top:12px}

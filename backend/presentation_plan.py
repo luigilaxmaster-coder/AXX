@@ -38,6 +38,7 @@ PLAN_CONTRACT = (
     'Si el contenido es un ejemplo didáctico y no un dato de la imagen, márcalo con basis="assumed". '
     'Solo si una vista 3D ayuda de verdad añade scene, usando shapes permitidas y valores acotados. '
     'En scene separa piezas funcionales visibles con etiquetas precisas y proporciones relativas coherentes; usa las formas semánticas de motor cuando correspondan. '
+    'En scene.objects usa ids o1, o2, etc.; focus y arrows deben referir esos mismos ids. '
     'Para objetos técnicos, compón la escena con piezas distinguibles, uniones y ejes de movimiento explicables; usa colores diferentes para identificar funciones y una vista despiezada útil. Evita adornos que aparenten especificaciones no observadas. '
     'Añade diagram con nodos d1..d16, bounds=[x,y,ancho,alto] normalizados y edges que refieran nodos existentes. '
     'Añade overlays solo sobre la selección: hasta 16 flechas, cajas, etiquetas o tarjetas vinculadas a step_id; photo=true muestra el recorte seleccionado. '
@@ -149,6 +150,56 @@ def normalize_model_focus(plan):
             focus = step['focus']
             if not isinstance(focus, list) or len(focus) > 8 or len(focus) != len(set(map(str, focus))) or any(not isinstance(item, str) or item not in ids or not OBJECT_ID.fullmatch(item) for item in focus):
                 step.pop('focus')
+    return result
+
+
+def normalize_model_object_ids(plan):
+    """Map unique model-named scene objects to the bounded IDs required by the renderer and clean nulls."""
+    if not isinstance(plan, dict):
+        return plan
+    result = copy.deepcopy(plan)
+    for opt in ('asset', 'diagram', 'overlays'):
+        if opt in result and result[opt] is None:
+            result.pop(opt)
+    scene = result.get('scene')
+    if not isinstance(scene, dict):
+        return result
+    if 'arrows' in scene and scene['arrows'] is None:
+        scene.pop('arrows')
+    objects = scene.get('objects')
+    if not isinstance(objects, list) or not 1 <= len(objects) <= MAX_OBJECTS:
+        return result
+    for obj in objects:
+        if isinstance(obj, dict):
+            for opt in ('rotation', 'explode'):
+                if opt in obj and obj[opt] is None:
+                    obj.pop(opt)
+    ids = [obj.get('id') if isinstance(obj, dict) else None for obj in objects]
+    if (any(not isinstance(value, str) or not re.fullmatch(r'[A-Za-z0-9_][A-Za-z0-9_-]{0,63}', value) for value in ids)
+            or len(set(ids)) != len(ids)):
+        return result
+    if all(OBJECT_ID.fullmatch(value) for value in ids):
+        mapping = {value: value for value in ids}
+    else:
+        mapping = {value: f'o{index}' for index, value in enumerate(ids, 1)}
+        for obj in objects:
+            obj['id'] = mapping[obj['id']]
+    arrows = scene.get('arrows')
+    if isinstance(arrows, list):
+        valid_arrows = []
+        for arrow in arrows:
+            if isinstance(arrow, dict) and arrow.get('from') in mapping and arrow.get('to') in mapping and arrow.get('from') != arrow.get('to'):
+                arrow['from'] = mapping[arrow['from']]
+                arrow['to'] = mapping[arrow['to']]
+                valid_arrows.append(arrow)
+        scene['arrows'] = valid_arrows
+    if isinstance(result.get('steps'), list):
+        for step in result['steps']:
+            if isinstance(step, dict) and isinstance(step.get('focus'), list):
+                if all(isinstance(value, str) and value in mapping for value in step['focus']):
+                    step['focus'] = [mapping[value] for value in step['focus']]
+                else:
+                    step.pop('focus')
     return result
 
 
@@ -266,9 +317,9 @@ def _object(obj):
     result = {'id': obj['id'], 'label': _text(obj['label'], 'label', 80), 'shape': obj['shape'],
               'size': _vector(obj['size'], 'size', .05, 10), 'position': _vector(obj['position'], 'position', -10, 10),
               'color': obj['color'].lower()}
-    if 'rotation' in obj:
+    if obj.get('rotation') is not None:
         result['rotation'] = _vector(obj['rotation'], 'rotation', -360, 360)
-    if 'explode' in obj:
+    if obj.get('explode') is not None:
         result['explode'] = _vector(obj['explode'], 'explode', -10, 10)
     return result
 
@@ -285,7 +336,7 @@ def _scene(scene):
     if len(ids) != len(objects):
         raise PlanError('Los ids de los objetos deben ser únicos.')
     result = {'fidelity': scene['fidelity'], 'objects': objects}
-    if 'arrows' in scene:
+    if scene.get('arrows') is not None:
         arrows = scene['arrows']
         if not isinstance(arrows, list) or len(arrows) > MAX_ARROWS:
             raise PlanError(f'La escena admite hasta {MAX_ARROWS} flechas.')
@@ -366,9 +417,9 @@ def validate_plan(plan, *, min_steps=2):
         raise PlanError('Los ids de los pasos deben ser únicos.')
     result = {'schema_version': SCHEMA_VERSION, 'kind': 'presentation', 'title': _text(plan['title'], 'title', 120),
               'summary': _text(plan['summary'], 'summary', 240), 'fidelity': plan['fidelity'], 'steps': steps}
-    if 'scene' in plan:
+    if plan.get('scene') is not None:
         result['scene'] = _scene(plan['scene'])
-    if 'asset' in plan:
+    if plan.get('asset') is not None:
         try:
             scene = engine_asset(plan['asset'])
         except ValueError as exc:
@@ -376,8 +427,8 @@ def validate_plan(plan, *, min_steps=2):
         result['asset'] = dict(plan['asset'])
         if 'scene' not in result: result['scene'] = _scene(scene)
     step_ids = {step['id'] for step in steps}
-    if 'diagram' in plan: result['diagram'] = _diagram(plan['diagram'], step_ids)
-    if 'overlays' in plan: result['overlays'] = _overlays(plan['overlays'], step_ids)
+    if plan.get('diagram') is not None: result['diagram'] = _diagram(plan['diagram'], step_ids)
+    if plan.get('overlays') is not None: result['overlays'] = _overlays(plan['overlays'], step_ids)
     ids = {o['id'] for o in result.get('scene', {}).get('objects', [])}
     if any(not set(s.get('focus', ())) <= ids for s in steps):
         raise PlanError('focus solo puede nombrar objetos de la escena.')

@@ -43,7 +43,30 @@ export function paintOverlays(ctx,overlays,stepId,selection,image,accent='#9274f
         if(item.kind==='arrow'){
             const angle=Math.atan2(ey-y,ex-x),head=Math.min(22,Math.hypot(w,h)*.25);ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(ex,ey);
             ctx.moveTo(ex-head*Math.cos(angle-.5),ey-head*Math.sin(angle-.5));ctx.lineTo(ex,ey);ctx.lineTo(ex-head*Math.cos(angle+.5),ey-head*Math.sin(angle+.5));ctx.stroke();
-        }else if(item.kind==='box'){ctx.strokeRect(x,y,w,h);}
+        }else if(item.kind==='box'){
+            ctx.fillStyle='rgba(133,185,255,.16)';ctx.fillRect(x,y,w,h);
+            ctx.strokeStyle='#85c4ff';ctx.lineWidth=Math.max(2,Math.min(width,height)/160);ctx.strokeRect(x,y,w,h);
+            const clen=Math.max(8,Math.min(22,Math.min(w,h)*.26));
+            ctx.strokeStyle='#ffffff';ctx.lineWidth=Math.max(3,Math.min(width,height)/120);
+            ctx.beginPath();
+            ctx.moveTo(x,y+clen);ctx.lineTo(x,y);ctx.lineTo(x+clen,y);
+            ctx.moveTo(ex-clen,y);ctx.lineTo(ex,y);ctx.lineTo(ex,y+clen);
+            ctx.moveTo(x,ey-clen);ctx.lineTo(x,ey);ctx.lineTo(x+clen,ey);
+            ctx.moveTo(ex-clen,ey);ctx.lineTo(ex,ey);ctx.lineTo(ex,ey-clen);
+            ctx.stroke();
+            if(item.text){
+                const label='📍 '+item.text,font=Math.max(11,Math.min(16,width/42));
+                ctx.font='600 '+font+'px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif';
+                const bw=ctx.measureText(label).width+18,bh=font*1.85;let bx=x+4,by=y-bh-6;
+                if(by<top+4)by=y+6;if(bx+bw>right-4)bx=Math.max(left+4,right-bw-4);
+                ctx.save();ctx.fillStyle='rgba(16,22,34,.94)';ctx.strokeStyle='#85c4ff';ctx.lineWidth=1.5;
+                ctx.beginPath();
+                if(ctx.roundRect)ctx.roundRect(bx,by,bw,bh,bh/2);else ctx.rect(bx,by,bw,bh);
+                ctx.fill();ctx.stroke();
+                ctx.fillStyle='#ffffff';ctx.fillText(label,bx+9,by+font*1.28);
+                ctx.restore();
+            }
+        }
         else{
             ctx.fillStyle='rgba(20,25,36,.93)';ctx.fillRect(x,y,w,h);ctx.strokeRect(x,y,w,h);
             let textY=y+8,textH=h-16;

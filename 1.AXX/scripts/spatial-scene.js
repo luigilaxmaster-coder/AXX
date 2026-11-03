@@ -9,26 +9,39 @@ export const liveScenes = () => live;
 function geometry(shape, [x, y, z]) {
     switch (shape) {
         case 'box': {
-            const r=Math.min(x,y,z)*.12,shape=new THREE.Shape();
-            shape.moveTo(-x/2+r,-y/2+r);shape.lineTo(x/2-r,-y/2+r);shape.lineTo(x/2-r,y/2-r);shape.lineTo(-x/2+r,y/2-r);shape.closePath();
-            const g=new THREE.ExtrudeGeometry(shape,{depth:z-2*r,bevelEnabled:true,bevelThickness:r,bevelSize:r,bevelSegments:2,steps:1});
+            const r=Math.min(x,y,z)*.08;
+            if(r<.015||z<=2*r||x<=2*r||y<=2*r)return new THREE.BoxGeometry(x,y,z);
+            const s=new THREE.Shape();
+            s.moveTo(-x/2+r,-y/2);s.lineTo(x/2-r,-y/2);s.quadraticCurveTo(x/2,-y/2,x/2,-y/2+r);
+            s.lineTo(x/2,y/2-r);s.quadraticCurveTo(x/2,y/2,x/2-r,y/2);
+            s.lineTo(-x/2+r,y/2);s.quadraticCurveTo(-x/2,y/2,-x/2,y/2-r);
+            s.lineTo(-x/2,-y/2+r);s.quadraticCurveTo(-x/2,-y/2,-x/2+r,-y/2);s.closePath();
+            const g=new THREE.ExtrudeGeometry(s,{depth:Math.max(.01,z-2*r),bevelEnabled:true,bevelThickness:r,bevelSize:r,bevelSegments:2,steps:1});
             g.translate(0,0,-(z-2*r)/2);return g;
         }
-        case 'sphere': return new THREE.SphereGeometry(x / 2, 32, 16);
-        case 'cylinder': return new THREE.CylinderGeometry(x / 2, x / 2, y, 32);
-        case 'cone': return new THREE.ConeGeometry(x / 2, y, 32);
-        case 'torus': return new THREE.TorusGeometry(x / 2, Math.max(.02, Math.min(x / 4, y / 2)), 16, 48);
-        default: return new THREE.BoxGeometry(x, .02, z); // plane: a thin box shows both faces
+        case 'sphere': return new THREE.SphereGeometry(x / 2, 36, 20);
+        case 'cylinder': return new THREE.CylinderGeometry(x / 2, x / 2, y, 36);
+        case 'cone': return new THREE.ConeGeometry(x / 2, y, 36);
+        case 'torus': return new THREE.TorusGeometry(x / 2, Math.max(.02, Math.min(x / 4, y / 2)), 20, 48);
+        default: return new THREE.BoxGeometry(x, .02, z);
     }
 }
 
 function objectMesh(o) {
     const [x,y,z]=o.size, engineered=['piston','connecting_rod','crankshaft','engine_cylinder'].includes(o.shape);
-    const material=new THREE.MeshStandardMaterial({color:o.color,roughness:engineered?.38:.55,metalness:engineered?.42:.15,transparent:true,side:o.shape==='engine_cylinder'?THREE.DoubleSide:THREE.FrontSide}), geometries=[],materials=[material];
-    const trim=engineered?new THREE.MeshStandardMaterial({color:0xd8e4f2,roughness:.28,metalness:.45,side:THREE.DoubleSide}):material;
-    const seal=engineered?new THREE.MeshStandardMaterial({color:0x24344a,roughness:.52,metalness:.35}):material;
+    const material=new THREE.MeshStandardMaterial({color:o.color,roughness:engineered?.32:.42,metalness:engineered?.45:.28,transparent:true,side:o.shape==='engine_cylinder'?THREE.DoubleSide:THREE.FrontSide}), geometries=[],materials=[material];
+    const trim=engineered?new THREE.MeshStandardMaterial({color:0xd8e4f2,roughness:.26,metalness:.48,side:THREE.DoubleSide}):material;
+    const seal=engineered?new THREE.MeshStandardMaterial({color:0x24344a,roughness:.50,metalness:.38}):material;
     if(engineered)materials.push(trim,seal);
-    const part=(root,g,position=[0,0,0],rotation=[0,0,0],finish=material)=>{const m=new THREE.Mesh(g,finish);m.position.fromArray(position);m.rotation.set(...rotation);m.userData.id=o.id;root.add(m);geometries.push(g);};
+    const addContour=(target,geo)=>{
+        const edges=new THREE.EdgesGeometry(geo,26);
+        const line=new THREE.LineSegments(edges,new THREE.LineBasicMaterial({color:0xffffff,transparent:true,opacity:.18,depthWrite:false}));
+        target.add(line);geometries.push(edges);materials.push(line.material);
+    };
+    const part=(root,g,position=[0,0,0],rotation=[0,0,0],finish=material)=>{
+        const m=new THREE.Mesh(g,finish);m.position.fromArray(position);m.rotation.set(...rotation);m.userData.id=o.id;
+        addContour(m,g);root.add(m);geometries.push(g);
+    };
     let root;
     if(['piston','connecting_rod','crankshaft','engine_cylinder'].includes(o.shape)){
         root=new THREE.Group();
@@ -48,12 +61,13 @@ function objectMesh(o) {
             for(const offset of [-.44,.44])part(root,new THREE.CylinderGeometry(z*.36,z*.36,x*.1,32),[x*offset,0,0],[0,0,Math.PI/2],trim);
             part(root,new THREE.CylinderGeometry(z*.22,z*.22,x*.46,32),[0,y*.5,0],[0,0,Math.PI/2],seal);
         }else{
-            // The open side exposes the conceptual internal parts without claiming a physical cutaway.
             part(root,new THREE.CylinderGeometry(x/2,x/2,y,48,1,true,Math.PI*.15,Math.PI*1.4));
             for(const offset of [-.42,-.14,.14,.42])part(root,new THREE.RingGeometry(x*.51,x*.58,48,1,Math.PI*.15,Math.PI*1.4),[0,y*offset,0],[-Math.PI/2,0,0],trim);
         }
     }else{
-        root=new THREE.Mesh(geometry(o.shape,o.size),material);geometries.push(root.geometry);
+        const g=geometry(o.shape,o.size);
+        root=new THREE.Mesh(g,material);geometries.push(g);
+        addContour(root,g);
     }
     root.position.fromArray(o.position);if(o.rotation)root.rotation.set(...o.rotation.map(THREE.MathUtils.degToRad));
     root.userData={id:o.id,base:root.position.clone(),explode:new THREE.Vector3(...(o.explode||[0,1.5,0])),material,materials,geometries,shape:o.shape,size:JSON.stringify(o.size)};
@@ -74,9 +88,10 @@ export function mountScene(container, scene, {reducedMotion = false, onPick = ()
     container.append(canvas,annotations,tooltip); live++;
 
     const world = new THREE.Scene(), camera = new THREE.PerspectiveCamera(40, 1, .1, 200), meshes = new Map(), arrows = [];
-    world.add(new THREE.HemisphereLight(0xffffff, 0x344861, 1.2));
-    const sun = new THREE.DirectionalLight(0xffffff, 2.0); sun.position.set(5, 8, 6); world.add(sun);
-    const rim = new THREE.DirectionalLight(0xa9bbff, 1.1); rim.position.set(-5, 3, -4); world.add(rim);
+    world.add(new THREE.HemisphereLight(0xf2f7ff, 0x182434, 0.95));
+    const sun = new THREE.DirectionalLight(0xffffff, 2.2); sun.position.set(6, 10, 8); world.add(sun);
+    const fill = new THREE.DirectionalLight(0xa6c5f2, 1.25); fill.position.set(-6, 4, 6); world.add(fill);
+    const rim = new THREE.DirectionalLight(0x78b8ff, 1.7); rim.position.set(-4, 6, -8); world.add(rim);
     for (const o of scene.objects) {
         const mesh=objectMesh(o);meshes.set(o.id,mesh);world.add(mesh);
     }

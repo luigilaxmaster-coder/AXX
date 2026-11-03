@@ -6,7 +6,7 @@ import uuid
 from pathlib import Path
 from PIL import Image
 from backend.magic_pen import MagicPenService
-from backend.presentation_plan import PlanError, apply_patch, normalize_model_focus, normalize_strict_output, output_schema, parse_json, validate_2d_plan, validate_plan
+from backend.presentation_plan import PlanError, apply_patch, normalize_model_focus, normalize_model_object_ids, normalize_strict_output, output_schema, parse_json, validate_2d_plan, validate_plan
 
 
 def plan(**kw):
@@ -52,6 +52,27 @@ class SceneContractTests(unittest.TestCase):
         candidate['diagram']['nodes'][0]['script'] = 'alert(1)'
         with self.assertRaises(PlanError):
             validate_2d_plan(candidate)
+
+    def test_normalize_model_object_ids_maps_semantic_ids_and_cleans_nulls(self):
+        candidate = scene_plan()
+        candidate['scene']['objects'][0]['id'] = 'nave'
+        candidate['scene']['objects'][1]['id'] = 'torre'
+        candidate['scene']['arrows'] = [{'from': 'nave', 'to': 'torre', 'label': 'apoya'}]
+        candidate['steps'][0]['focus'] = ['nave']
+        candidate['steps'][1]['focus'] = ['torre']
+        candidate['scene']['objects'][0]['rotation'] = None
+        candidate['scene']['objects'][0]['explode'] = None
+        candidate['diagram'] = None
+        candidate['overlays'] = None
+        candidate['asset'] = None
+        normalized = normalize_model_object_ids(candidate)
+        self.assertEqual([o['id'] for o in normalized['scene']['objects']], ['o1', 'o2'])
+        self.assertEqual(normalized['scene']['arrows'][0]['from'], 'o1')
+        self.assertEqual(normalized['scene']['arrows'][0]['to'], 'o2')
+        self.assertEqual(normalized['steps'][0]['focus'], ['o1'])
+        self.assertEqual(normalized['steps'][1]['focus'], ['o2'])
+        validated = validate_plan(normalize_model_focus(normalized))
+        self.assertEqual(len(validated['scene']['objects']), 2)
 
     def test_optional_model_focus_is_dropped_without_relaxing_plan_validation(self):
         response = scene_plan()

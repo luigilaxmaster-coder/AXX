@@ -148,11 +148,13 @@
             this.stage=document.createElement('section');this.stage.id='mp-spatial-stage';this.stage.hidden=true;this.stage.setAttribute('aria-label','Modelo 3D flotante');
             this.stage.innerHTML='<div class="mp-stage-top"><span>MODELO CONCEPTUAL</span><button type="button" class="mp-stage-move" aria-label="Mover modelo 3D" title="Arrastra para mover el modelo">Mover modelo</button></div><div class="mp-stage-viewport"></div><div class="mp-stage-bottom"><span>Arrastra para girar · rueda para acercar · toca una pieza</span><button type="button" class="mp-stage-center" aria-label="Centrar modelo 3D">Centrar</button></div>';
             this.stage.querySelector('.mp-stage-center').onclick=()=>{this.stage.style.removeProperty('left');this.stage.style.removeProperty('top');this.syncInput();};
-            const handle=this.stage.querySelector('.mp-stage-move');let moving=null;
-            handle.addEventListener('pointerdown',e=>{e.preventDefault();const r=this.stage.getBoundingClientRect();moving={x:e.clientX-r.left-r.width/2,y:e.clientY-r.top-r.height/2};handle.setPointerCapture(e.pointerId);});
-            handle.addEventListener('pointermove',e=>{if(!moving)return;const w=this.stage.offsetWidth,h=this.stage.offsetHeight;this.stage.style.left=Math.max(w/2,Math.min(innerWidth-w/2,e.clientX-moving.x))+'px';this.stage.style.top=Math.max(h/2,Math.min(innerHeight-h/2,e.clientY-moving.y))+'px';this.syncInput();});
+            const topBar=this.stage.querySelector('.mp-stage-top'),handle=this.stage.querySelector('.mp-stage-move');let moving=null;
+            const startDrag=e=>{if(e.target.tagName==='BUTTON'&&e.target!==handle)return;e.preventDefault();const r=this.stage.getBoundingClientRect();moving={x:e.clientX-r.left-r.width/2,y:e.clientY-r.top-r.height/2};(e.target.setPointerCapture?e.target:handle).setPointerCapture?.(e.pointerId);};
+            handle.addEventListener('pointerdown',startDrag);topBar.addEventListener('pointerdown',startDrag);
+            const onDragMove=e=>{if(!moving)return;const w=this.stage.offsetWidth,h=this.stage.offsetHeight;this.stage.style.left=Math.max(w/2,Math.min(innerWidth-w/2,e.clientX-moving.x))+'px';this.stage.style.top=Math.max(h/2,Math.min(innerHeight-h/2,e.clientY-moving.y))+'px';this.syncInput();};
+            handle.addEventListener('pointermove',onDragMove);topBar.addEventListener('pointermove',onDragMove);
             handle.addEventListener('keydown',e=>{const delta={ArrowLeft:[-20,0],ArrowRight:[20,0],ArrowUp:[0,-20],ArrowDown:[0,20]}[e.key];if(!delta)return;e.preventDefault();const r=this.stage.getBoundingClientRect();this.stage.style.left=Math.max(r.width/2,Math.min(innerWidth-r.width/2,r.left+r.width/2+delta[0]))+'px';this.stage.style.top=Math.max(r.height/2,Math.min(innerHeight-r.height/2,r.top+r.height/2+delta[1]))+'px';this.syncInput();});
-            for(const event of ['pointerup','pointercancel','lostpointercapture'])handle.addEventListener(event,()=>{moving=null;});
+            for(const event of ['pointerup','pointercancel','lostpointercapture']){handle.addEventListener(event,()=>{moving=null;});topBar.addEventListener(event,()=>{moving=null;});}
             this.view.append(this.canvas,this.stage,this.toolbar,this.widget);
             this.caption=document.createElement('div');this.caption.className='mp-caption';this.caption.hidden=true;this.caption.setAttribute('role','status');this.caption.setAttribute('aria-live','polite');this.view.append(this.caption);
             this.widget.addEventListener('animationend',e=>{if(e.target===this.widget&&e.animationName==='mp-bubble-in'&&this.active)this.syncInput();});
@@ -477,7 +479,12 @@
                 const item=el('li'),ask=el('button','Preguntar');ask.type='button';ask.setAttribute('aria-label','Preguntar sobre el paso '+step.title);
                 ask.onclick=()=>{const input=$('mp-question');input.value='Sobre el paso «'+step.title+'»: ';input.focus();};
                 if(i===player.index)item.setAttribute('aria-current','step');else if(i>player.index)item.classList.add('mp-step-pending');
-                const title=el('button',step.title,'mp-step-title'),meta=el('div',null,'mp-step-meta');title.type='button';title.setAttribute('aria-label','Ir al paso '+(i+1)+': '+step.title);title.onclick=()=>this.seekPresentation(i);meta.append(el('small',BASIS[step.basis],'mp-visual-basis'),ask);item.append(title,el('span',step.body),meta);list.append(item);
+                const title=el('button',step.title,'mp-step-title'),meta=el('div',null,'mp-step-meta');title.type='button';title.setAttribute('aria-label','Ir al paso '+(i+1)+': '+step.title);title.onclick=()=>this.seekPresentation(i);meta.append(el('small',BASIS[step.basis],'mp-visual-basis'),ask);
+                const sentences=step.body.split(/(?<=[.!?])\s+(?=[A-ZÁÉÍÓÚÑ¿¡])/).filter(Boolean);
+                const bodyWrap=el('div',null,'mp-step-body');
+                if(sentences.length>1){const ul=el('ul',null,'mp-step-bullets');for(const s of sentences)ul.append(el('li',s));bodyWrap.append(ul);}
+                else bodyWrap.append(el('span',step.body));
+                item.append(title,bodyWrap,meta);list.append(item);
             });
             controls.append(button('Paso anterior','‹',()=>this.seekPresentation(player.index-1),player.index===0),
                 button(player.playing?'Pausar narración':'Narrar desde este paso',player.playing?'Pausar':'Narrar',()=>{if(player.playing){this.stopPresentation();this.renderAnswers();}else this.playPresentation();}),
@@ -594,7 +601,7 @@
             if(mode==='model'&&!this.spatialProviders?.get($('mp-spatial-provider').value)?.spatial_3d)return this.status('Para 3D, elige ChatGPT/Codex o Claude con visión en «Proveedor y calidad».');
             const question=$('mp-question').value.trim();
             if(mode==='locate'&&!question)return this.status('Escribe qué elemento quieres que señale en la captura.');
-            const instruction={locate:'Ubica el elemento en la captura y marca sus límites con una caja visible en el primer paso. Si no está visible, dilo claramente sin inventar coordenadas.',diagram:'Explica la selección con un diagrama de pasos y relaciones.',model:'Si la selección muestra un objeto físico, crea un ensamblaje 3D conceptual con piezas funcionales identificables, proporciones coherentes y detalles visibles para explicar su funcionamiento. No extruyas una pantalla, texto, dibujo plano o fondo como una placa 3D: en ese caso ofrece un diagrama 2D. Marca claramente lo observado y lo supuesto; no inventes precisión CAD.'}[mode];
+            const instruction={locate:'Ubica el elemento en la captura y marca sus límites con una caja visible en el primer paso, con nombre exacto y una explicación en bullet points de su posición y función observada.',diagram:'Explica la selección con un diagrama de pasos y relaciones.',model:'Si la selección muestra un objeto o mecanismo físico, crea un ensamblaje 3D conceptual con piezas funcionales identificables, proporciones coherentes, uniones visibles y anotaciones explicativas. Estilo de diseño técnico y producto industrial de alta calidad. Descompón el objeto en partes principales y secundarias con colores distinguibles. No extruyas pantallas o fondos planos como placas 3D; en ese caso ofrece un diagrama 2D. Distingue lo observado de lo inferido.'}[mode];
             return this.ask({fresh:false,format:'presentation',question:(question||'¿Cómo funciona lo seleccionado?')+'\n\n'+instruction});
         }
         loadVisual(){
