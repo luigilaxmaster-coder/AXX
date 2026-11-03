@@ -61,7 +61,7 @@
                 <div class="mp-toolstrip"><div id="mp-select-tools" class="mp-toolgroup">${tool('rect','Rectángulo')}${tool('point','Punto y contexto')}${tool('lasso','Lazo')}</div><div id="mp-ink-tools" class="mp-toolgroup" hidden>${tool('pen','Pluma')}${tool('marker','Marcador')}${tool('erase','Borrar trazo')}<span class="mp-divider"></span><input id="mp-color" type="color" value="#b8aaff" aria-label="Color de tinta"><input id="mp-width" type="range" min="1" max="40" value="4" aria-label="Grosor de tinta"></div><span id="mp-tool-hint">Arrastra para seleccionar</span><div class="mp-history-tools"><button id="mp-undo" class="mp-icon-button" title="Deshacer tinta" aria-label="Deshacer tinta">${icon('undo')}</button><button id="mp-redo" class="mp-icon-button" title="Rehacer tinta" aria-label="Rehacer tinta">${icon('redo')}</button></div></div>
                 <div class="mp-stage"><div id="mp-viewport"><canvas id="mp-canvas" tabindex="0" aria-label="Captura congelada: selecciona o anota; Escape para salir"></canvas><div id="mp-empty">${icon('capture')}<strong>Todo empieza con una captura.</strong><span>Selecciona un detalle. Pregunta. Deja una nota.</span></div></div><div class="mp-stage-footer"><span id="mp-meta">Sin captura</span><label>Zoom <select id="mp-zoom"><option value="1">Ajustar</option><option value="2">200%</option><option value="4">400%</option></select></label></div></div>
                 <div class="mp-selection-row"><details><summary>Ajustar selección</summary><div class="mp-row">${['x0','y0','x1','y1'].map(k=>`<label>${k}<input id="mp-${k}" type="number" min="0" step="1"></label>`).join('')}<button id="mp-adjust">Aplicar</button></div><small>Coordenadas del original. Aplicar crea un rectángulo.</small></details><button id="mp-close-lasso" hidden>Cerrar lazo</button></div>
-                <div class="mp-spatial-options"><label>Canvas 3D <select id="mp-spatial-provider" aria-label="Proveedor y modelo del Canvas 3D"><option value="">Elige proveedor y modelo</option></select></label><label>Esfuerzo <select id="mp-spatial-effort" aria-label="Esfuerzo del modelo"><option value="auto">Auto</option></select></label><button id="mp-spatial-verify" type="button" title="Envía una imagen sintética al proveedor elegido">Probar conexión</button><button id="mp-spatial-create" type="button">Visualizar selección</button></div><small id="mp-spatial-status" class="mp-composer-help" role="status" aria-live="polite"></small>
+                <div class="mp-spatial-options"><label>Canvas 3D <select id="mp-spatial-provider" aria-label="Proveedor y modelo del Canvas 3D"><option value="">Elige proveedor y modelo</option></select></label><label>Esfuerzo <select id="mp-spatial-effort" aria-label="Esfuerzo del modelo"><option value="auto">Auto</option></select></label><button id="mp-spatial-verify" type="button" title="Envía una imagen sintética al proveedor elegido">Probar conexión</button><button id="mp-spatial-create" type="button">Visualizar selección</button></div><div id="mp-spatial-status" class="mp-spatial-status" role="status" aria-live="polite"></div>
                 <div class="mp-composer"><textarea id="mp-question" rows="1" maxlength="4000" placeholder="Escribe tu pregunta… (Intro para enviar)" aria-label="Pregunta o instrucción sobre la selección" aria-describedby="mp-question-help"></textarea><button id="mp-voice" class="mp-icon-button" title="Dictar pregunta" aria-label="Dictar pregunta">${icon('mic')}</button><button id="mp-ask" class="mp-icon-button" title="Enviar pregunta" aria-label="Enviar pregunta">${icon('send')}</button></div><small id="mp-question-help" class="mp-composer-help">Intro envía · Mayús+Intro añade una línea</small>
                 <p id="mp-status" role="status" aria-live="polite">Elige una pantalla y pulsa Capturar.</p><div id="mp-answers" aria-live="polite"></div>
                 <details class="mp-save-section"><summary>${icon('save')}Guardar e historial<span>PNG + tinta editable</span></summary><label>Carpeta de destino<input id="mp-directory" type="text"></label><label>Nombre<input id="mp-name" type="text" value="Captura-Axx" maxlength="100"></label><div class="mp-row"><button id="mp-original">Guardar original</button><button id="mp-annotated">Guardar anotado</button><button id="mp-retry">Guardar borrador</button></div><p id="mp-export" role="status"></p><label>Capturas anteriores<select id="mp-history"><option value="">Elige una captura</option></select></label></details><p id="mp-capability" class="mp-muted"></p>`;
@@ -279,22 +279,32 @@
             const provider=this.spatialProviders?.get($('mp-spatial-provider').value);
             return provider?{provider:provider.name,model:provider.model,selection_mode:'manual',effort:$('mp-spatial-effort').value||'auto'}:null;
         }
+        setSpatialStatus(message,state='info',detail=''){
+            const node=$('mp-spatial-status');if(!node)return;node.replaceChildren();node.dataset.state=state;
+            const text=document.createElement('span');text.className='mp-spatial-status-text';text.textContent=message;node.append(text);
+            if(detail){const disclosure=document.createElement('details'),summary=document.createElement('summary'),pre=document.createElement('pre');
+                summary.textContent='Detalles técnicos';pre.textContent=detail.slice(0,1600);disclosure.append(summary,pre);node.append(disclosure);}
+        }
         renderSpatialReadiness(){
             const node=$('mp-spatial-status');if(!node)return;const route=this.spatialRoute();
-            if(!route){node.textContent='Elige un proveedor visual con permiso existente. AXX no cambia proveedor automáticamente.';return;}
+            if(!route){this.setSpatialStatus('Elige un proveedor visual con permiso existente. AXX no cambia proveedor automáticamente.');return;}
             const provider=this.readiness?.providers?.find(item=>item.name===route.provider&&item.model===route.model);
-            node.textContent=provider?.status==='ready'?'Proveedor verificado. El visor y la ventana Windows se comprueban por separado.':
-                'Proveedor sin verificar para imagen y JSON. Pulsa «Probar conexión»; esta prueba envía una imagen sintética.';
+            this.setSpatialStatus(provider?.status==='ready'?'Proveedor verificado. El visor y la ventana Windows se comprueban por separado.':
+                'Proveedor sin verificar para imagen y JSON. Pulsa «Probar conexión»; esta prueba envía una imagen sintética.',provider?.status==='ready'?'success':'info');
         }
         async verifySpatial(){
-            const route=this.spatialRoute();if(!route)return this.status('Elige primero un proveedor y modelo visual.');
-            const button=$('mp-spatial-verify');button.disabled=true;this.status('Verificando imagen y salida estructurada con '+route.provider+'…');
+            const route=this.spatialRoute();if(!route){const message='Elige primero un proveedor y modelo visual.';this.setSpatialStatus(message);return this.status(message);}
+            const button=$('mp-spatial-verify'),label=button.textContent;button.disabled=true;button.setAttribute('aria-busy','true');button.textContent='Verificando…';
+            this.setSpatialStatus('Comprobando imagen y formato de respuesta con '+(route.provider==='@codex'?'ChatGPT/Codex':route.provider)+'…','checking');
+            this.status('Comprobando conexión visual…');
             try{const result=await A.backendRequest('POST','/axx-api/feature-readiness/verify',{feature_id:'spatial_intelligence',provider:route.provider,model:route.model,effort:route.effort});
                 this.status('Conexión verificada para '+result.provider+' · '+result.model+'.');
                 this.capabilities=(await api('status')).capabilities;this.setupSpatialOptions(this.capabilities);
                 this.readiness=await A.backendRequest('GET','/axx-api/feature-readiness?feature_id=spatial_intelligence');this.renderSpatialReadiness();
-            }catch(e){this.status('Verificación no completada: '+String(e.message||e));}
-            finally{button.disabled=false;}
+            }catch(e){const detail=String(e?.message||e||'Error no identificado').slice(0,1600),schemaError=route.provider==='@codex'&&/codex_output_schema/i.test(detail)&&/schema\.required|invalid_json_schema/i.test(detail);
+                const message=schemaError?'Codex rechazó el formato de respuesta estructurada. Revisa los detalles técnicos y vuelve a probar.':'No se pudo verificar la conexión. Revisa los detalles técnicos e inténtalo de nuevo.';
+                this.setSpatialStatus(message,'error',detail);this.status('');}
+            finally{button.disabled=false;button.removeAttribute('aria-busy');button.textContent=label;}
         }
         open(){
             if(this.active)return;

@@ -6,7 +6,7 @@ import uuid
 from pathlib import Path
 from PIL import Image
 from backend.magic_pen import MagicPenService
-from backend.presentation_plan import PlanError, apply_patch, parse_json, validate_plan
+from backend.presentation_plan import PlanError, apply_patch, normalize_strict_output, output_schema, parse_json, validate_plan
 
 
 def plan(**kw):
@@ -93,6 +93,7 @@ class ContractTests(unittest.TestCase):
             with self.subTest(text=text), self.assertRaises(PlanError):
                 validate_plan(parse_json(text))
 
+
     def test_patch_updates_inserts_removes_and_revalidates(self):
         base = validate_plan(plan())
         new_step = {'id': 's3', 'title': 'Conclusión', 'body': 'El límite es 1.', 'narration': 'Por eso vale 1.', 'basis': 'inferred'}
@@ -115,6 +116,47 @@ class ContractTests(unittest.TestCase):
         for ops in bad_ops:
             with self.subTest(ops=str(ops)[:60]), self.assertRaises(PlanError):
                 apply_patch(base, {'schema_version': '1.0', 'kind': 'patch', 'answer': 'x', 'ops': ops})
+
+
+class StrictSchemaTests(unittest.TestCase):
+    def test_strict_schemas_require_every_property_and_keep_objects_closed(self):
+        def inspect(node):
+            if not isinstance(node, dict): return
+            if node.get('type') == 'object':
+                properties = node.get('properties', {})
+                self.assertEqual(set(node.get('required', ())), set(properties))
+                self.assertIs(node.get('additionalProperties'), False)
+                for child in properties.values(): inspect(child)
+            if node.get('type') == 'array': inspect(node.get('items'))
+            for branch in node.get('anyOf', ()): inspect(branch)
+
+        for kind in ('presentation', 'patch'):
+            with self.subTest(kind=kind): inspect(output_schema(kind, strict=True))
+        self.assertIn('scene', output_schema('presentation')['properties'])
+        self.assertNotIn('anyOf', output_schema('presentation')['properties']['scene'])
+
+    def test_only_schema_declared_optional_nulls_are_removed_before_validation(self):
+        raw = scene_plan()
+        raw.update(diagram=None, overlays=None, asset=None)
+        raw['steps'][1]['focus'] = None
+        raw['scene']['arrows'] = None
+        raw['scene']['objects'][0]['rotation'] = None
+        result = validate_plan(normalize_strict_output(raw, output_schema('presentation', strict=True)))
+        self.assertNotIn('diagram', result)
+        self.assertNotIn('arrows', result['scene'])
+        self.assertNotIn('rotation', result['scene']['objects'][0])
+        unknown = scene_plan(); unknown['untrusted'] = None
+        with self.assertRaises(PlanError):
+            validate_plan(normalize_strict_output(unknown, output_schema('presentation', strict=True)))
+        invalid_required = plan(); invalid_required['title'] = None
+        with self.assertRaises(PlanError):
+            validate_plan(normalize_strict_output(invalid_required, output_schema('presentation', strict=True)))
+        patch_schema = output_schema('patch', strict=True)
+        operation = {name: None for name in patch_schema['properties']['ops']['items']['properties'] if name != 'op'}
+        operation.update(op='step.update', step_id='s1', title='Función principal')
+        patch = {'schema_version': '1.0', 'kind': 'patch', 'answer': 'Actualizo el título.', 'ops': [operation]}
+        updated, _ = apply_patch(validate_plan(plan()), normalize_strict_output(patch, patch_schema))
+        self.assertEqual(updated['steps'][0]['title'], 'Función principal')
 
 
 class MagicPenPresentationTests(unittest.TestCase):
@@ -168,6 +210,31 @@ class MagicPenPresentationTests(unittest.TestCase):
         reopened = MagicPenService(self.root, self.adapter)
         self.addCleanup(reopened.close)
         self.assertEqual(reopened.query({'id': self.doc['id'], 'query_id': second['id']})['presentation'], second['presentation'])
+
+    def test_codex_verification_and_canvas_use_strict_schema_and_accept_null_optionals(self):
+        codex_plan = plan(scene=None, asset=None, diagram=None, overlays=None)
+        for step in codex_plan['steps']: step['focus'] = None
+        chosen = {'name': '@codex', 'model': 'gpt-6.1-sol', 'efforts': ['low', 'medium', 'high', 'xhigh', 'max']}
+
+        class CodexProvider:
+            def __init__(inner): inner.calls = []
+            def generate_spatial(inner, request, **_kwargs):
+                inner.calls.append(request)
+                return {'ok': True, 'message': {'content': json.dumps(codex_plan)},
+                        'route': {'provider_name': '@codex', 'model': 'gpt-6.1-sol'}}
+
+        codex = self.service.codex_provider = CodexProvider()
+        self.service._provider = lambda _request: chosen
+        verified = self.service.verify_spatial({'provider': '@codex', 'model': 'gpt-6.1-sol', 'effort': 'auto'})
+        self.assertEqual((verified['provider'], verified['model']), ('@codex', 'gpt-6.1-sol'))
+        result = self.ask(format='presentation', provider='@codex', model='gpt-6.1-sol')
+        self.assertEqual(result['state'], 'completed', result.get('error'))
+        self.assertNotIn('scene', result['presentation'])
+        for request in codex.calls:
+            schema = request['generation']['output_schema']
+            self.assertEqual(set(schema['properties']), set(schema['required']))
+            self.assertEqual(schema['properties']['scene']['anyOf'][1], {'type': 'null'})
+            self.assertFalse(request['allow_paid'])
 
     def test_auto_effort_uses_supported_levels_for_new_scene_and_followup(self):
         self.adapter.config['providers'][0]['model'] = 'claude-opus-4-6'

@@ -66,7 +66,53 @@ PATCH_CONTRACT = (
 )
 
 
-def output_schema(kind='presentation'):
+def _strict_schema(schema):
+    schema = copy.deepcopy(schema)
+
+    def visit(node):
+        if not isinstance(node, dict):
+            return
+        if node.get('type') == 'object':
+            properties = node.get('properties', {})
+            required = set(node.get('required', ()))
+            for name, child in list(properties.items()):
+                visit(child)
+                if name not in required:
+                    properties[name] = {'anyOf': [child, {'type': 'null'}]}
+            node['required'] = list(properties)
+        elif node.get('type') == 'array':
+            visit(node.get('items'))
+        for branch in node.get('anyOf', ()):
+            visit(branch)
+
+    visit(schema)
+    return schema
+
+
+def normalize_strict_output(value, schema):
+    """Remove only null placeholders used for optional fields in a strict provider schema."""
+    if isinstance(value, dict) and isinstance(schema, dict):
+        properties = schema.get('properties', {})
+        result = {}
+        for name, item in value.items():
+            child = properties.get(name)
+            if not isinstance(child, dict):
+                result[name] = item
+                continue
+            branches = child.get('anyOf', ())
+            nullable = next((branch for branch in branches if branch.get('type') == 'null'), None)
+            if item is None and nullable is not None:
+                continue
+            if nullable is not None:
+                child = next(branch for branch in branches if branch is not nullable)
+            result[name] = normalize_strict_output(item, child)
+        return result
+    if isinstance(value, list) and isinstance(schema, dict):
+        return [normalize_strict_output(item, schema.get('items', {})) for item in value]
+    return value
+
+
+def output_schema(kind='presentation', *, strict=False):
     """Small strict JSON Schema for provider-constrained output; Python remains authoritative."""
     text = {'type': 'string'}
     vector = {'type': 'array', 'items': {'type': 'number'}, 'minItems': 3, 'maxItems': 3}
@@ -98,7 +144,7 @@ def output_schema(kind='presentation'):
                                     'properties': {'from': text, 'to': text, 'label': text},
                                     'required': ['from', 'to', 'label']}}},
                  'required': ['fidelity', 'objects']}
-        return {'type': 'object', 'additionalProperties': False,
+        schema = {'type': 'object', 'additionalProperties': False,
                 'properties': {'schema_version': text, 'kind': {'type': 'string', 'enum': ['presentation']},
                                'title': text, 'summary': text,
                                'fidelity': {'type': 'string', 'enum': list(FIDELITY)},
@@ -107,6 +153,7 @@ def output_schema(kind='presentation'):
                                    'kind': {'type': 'string', 'enum': ['single_cylinder_engine']}, 'scale': {'type': 'number'}},
                                    'required': ['kind', 'scale']}},
                 'required': ['schema_version', 'kind', 'title', 'summary', 'fidelity', 'steps']}
+        return _strict_schema(schema) if strict else schema
     if kind == 'patch':
         op = {'type': 'object', 'additionalProperties': False,
               'properties': {'op': {'type': 'string', 'enum': ['step.update', 'step.insert_after', 'step.remove', 'object.update']},
@@ -114,10 +161,11 @@ def output_schema(kind='presentation'):
                              'title': text, 'body': text, 'narration': text, 'basis': text, 'focus': {'type': 'array', 'items': text},
                              'label': text, 'shape': text, 'size': vector, 'position': vector, 'color': text,
                              'rotation': vector, 'explode': vector}, 'required': ['op']}
-        return {'type': 'object', 'additionalProperties': False,
+        schema = {'type': 'object', 'additionalProperties': False,
                 'properties': {'schema_version': text, 'kind': {'type': 'string', 'enum': ['patch']},
                                'answer': text, 'ops': {'type': 'array', 'items': op}},
                 'required': ['schema_version', 'kind', 'answer', 'ops']}
+        return _strict_schema(schema) if strict else schema
     raise ValueError('Unsupported presentation schema kind')
 
 

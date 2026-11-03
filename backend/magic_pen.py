@@ -18,7 +18,7 @@ import time
 import uuid
 from PIL import Image, ImageDraw, ImageGrab
 from backend.prompts import compose
-from backend.presentation_plan import PATCH_CONTRACT, PLAN_CONTRACT, PlanError, apply_patch, output_schema, parse_json, validate_plan
+from backend.presentation_plan import PATCH_CONTRACT, PLAN_CONTRACT, PlanError, apply_patch, normalize_strict_output, output_schema, parse_json, validate_plan
 from backend.inference.provider_settings import anthropic_efforts
 from backend.guide_plan import GUIDE_CONTRACT, evaluate, prompt_controls, resolve, snapshot as control_snapshot, validate_guide
 
@@ -228,7 +228,8 @@ class MagicPenService:
         buf = io.BytesIO()
         image.save(buf, format='PNG')
         request_id = 'spatial-verify-' + uuid.uuid4().hex
-        generation = {'max_tokens': 1200, 'output_schema': output_schema('presentation')}
+        schema = output_schema('presentation', strict=chosen['name'] == '@codex')
+        generation = {'max_tokens': 1200, 'output_schema': schema}
         effort = self._effective_effort(request, chosen)
         if effort:
             generation['effort'] = effort
@@ -246,7 +247,10 @@ class MagicPenService:
         text = message.get('content') if isinstance(message, dict) else None
         if not isinstance(text, str) or len(text) > MAX_RESPONSE_CHARS:
             raise ValueError('La verificación no recibió una respuesta estructurada válida.')
-        validate_plan(parse_json(text))
+        parsed = parse_json(text)
+        if chosen['name'] == '@codex':
+            parsed = normalize_strict_output(parsed, schema)
+        validate_plan(parsed)
         self._remember_spatial_provider(chosen, result)
         return dict(self.spatial_verified[(chosen['name'], chosen['model'])])
 
@@ -803,7 +807,7 @@ class MagicPenService:
                     return
             generation = {'max_tokens': 2048 if presentation or guide else 1024}
             if presentation:
-                generation['output_schema'] = output_schema('patch' if base_plan else 'presentation')
+                generation['output_schema'] = output_schema('patch' if base_plan else 'presentation', strict=chosen['name'] == '@codex')
                 if request.get('effective_effort'):
                     generation['effort'] = request['effective_effort']
             route_request = {'request_id': 'pen-' + q['id'], 'conversation_id': 'pen-' + q['id'],
@@ -829,6 +833,8 @@ class MagicPenService:
             if presentation:
                 try:
                     parsed = parse_json(text)
+                    if chosen['name'] == '@codex':
+                        parsed = normalize_strict_output(parsed, generation['output_schema'])
                     if base_plan:
                         changes['presentation'], changes['answer'] = apply_patch(base_plan, parsed)
                     else:
