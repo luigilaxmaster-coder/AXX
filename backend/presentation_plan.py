@@ -399,6 +399,14 @@ def validate_2d_plan(plan):
         for overlay in plan['overlays']:
             if isinstance(overlay, dict):
                 overlay.setdefault('photo', False)
+    diagram = plan.get('diagram')
+    if (isinstance(diagram, dict) and set(diagram) == {'nodes', 'edges'}
+            and isinstance(diagram['nodes'], list) and len(diagram['nodes']) < 2
+            and isinstance(diagram['edges'], list)
+            and all(isinstance(node, dict) and set(node) == {'id', 'label', 'step_id', 'bounds'} for node in diagram['nodes'])
+            and all(isinstance(edge, dict) and set(edge) == {'from', 'to', 'label'} for edge in diagram['edges'])):
+        # The renderer derives a diagram from validated steps when a local model omits nodes.
+        plan.pop('diagram')
     return validate_plan(plan, min_steps=1)
 
 

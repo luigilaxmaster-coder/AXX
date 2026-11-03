@@ -42,6 +42,17 @@ class SceneContractTests(unittest.TestCase):
         with self.assertRaises(PlanError): validate_plan(one_step)
         self.assertEqual(len(validate_2d_plan(one_step)['steps']), 1)
 
+    def test_local_2d_recovers_an_underfilled_diagram_without_ignoring_unknown_fields(self):
+        candidate = plan(diagram={'nodes': [
+            {'id': 'd1', 'label': 'Pistón', 'step_id': 's1', 'bounds': [.41, .22, .15, .3]}],
+            'edges': [{'from': 'd1', 'to': 'd2', 'label': 'mueve'}]})
+        with self.assertRaises(PlanError):
+            validate_plan(candidate)
+        self.assertNotIn('diagram', validate_2d_plan(candidate))
+        candidate['diagram']['nodes'][0]['script'] = 'alert(1)'
+        with self.assertRaises(PlanError):
+            validate_2d_plan(candidate)
+
     def test_optional_model_focus_is_dropped_without_relaxing_plan_validation(self):
         response = scene_plan()
         response['steps'][0]['focus'] = 'o1'
