@@ -155,8 +155,8 @@ def normalize_model_object_ids(plan):
         if not isinstance(item, dict):
             return plan
         ident = item.get('id')
-        if (not isinstance(ident, str) or not re.fullmatch(r'[\\w][\\w .-]{0,79}', ident)
-                or '\\x00' in ident):
+        if (not isinstance(ident, str) or not re.fullmatch(r'[\w][\w .-]{0,79}', ident)
+                or '\x00' in ident):
             return plan  # Do not legalize malformed or unsafe identifiers.
         original.append(ident)
     if len(set(original)) != len(original):
