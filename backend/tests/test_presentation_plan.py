@@ -293,6 +293,21 @@ class MagicPenPresentationTests(unittest.TestCase):
         self.addCleanup(reopened.close)
         self.assertEqual(reopened.query({'id': self.doc['id'], 'query_id': second['id']})['presentation'], second['presentation'])
 
+    def test_magic_pen_accepts_model_scene_using_semantic_ids(self):
+        self.adapter.config['providers'][0]['model'] = 'claude-opus-4-6'
+        response = scene_plan()
+        response['scene']['objects'][0]['id'] = 'nave'
+        response['scene']['objects'][1]['id'] = 'fachada'
+        response['scene']['arrows'][0].update({'from': 'fachada', 'to': 'nave'})
+        response['steps'][0]['focus'] = ['nave']
+        self.replies.append(json.dumps(response))
+
+        result = self.ask(format='presentation', model='claude-opus-4-6')
+        self.assertEqual(result['state'], 'completed', result.get('error'))
+        self.assertEqual([o['id'] for o in result['presentation']['scene']['objects']], ['o1', 'o2'])
+        self.assertEqual(result['presentation']['scene']['arrows'][0]['to'], 'o1')
+        self.assertEqual(result['presentation']['steps'][0]['focus'], ['o1'])
+
     def test_gemma_visual_route_uses_prompted_2d_without_native_schema(self):
         local = self.adapter.config['providers'][0]
         local.update(model='gemma4:31b', protocol='openai')
