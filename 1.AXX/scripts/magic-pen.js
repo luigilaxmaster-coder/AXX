@@ -464,9 +464,10 @@
             const card=el('figure',null,'mp-visual'),head=el('figcaption'),list=el('ol',null,'mp-visual-flow'),controls=el('div',null,'mp-visual-controls');
             head.append(el('strong',p.title),el('small',FIDELITY[p.fidelity]+' · explicación generada, no verificada','mp-visual-fidelity'));card.append(head);
             if(q.answer)card.append(el('p',q.answer,'mp-visual-answer'));
-            if(p.diagram){
-                const diagram=el('div',null,'mp-diagram');card.append(diagram);
-                if(this.visualModule)this.visualModule.renderDiagram(diagram,p.diagram,p.steps[player.index].id,id=>this.seekPresentation(p.steps.findIndex(s=>s.id===id)));
+            const diagram=p.diagram||(!p.scene&&p.steps.length>1?{nodes:p.steps.map((step,i)=>({id:'d'+(i+1),label:step.title,step_id:step.id,bounds:[i%2?.55:.07,.06+Math.floor(i/2)*.23,.38,.16]})),edges:p.steps.slice(1).map((_,i)=>({from:'d'+(i+1),to:'d'+(i+2),label:'paso'}))}:null);
+            if(diagram){
+                const surface=el('div',null,'mp-diagram');card.append(surface);
+                if(this.visualModule)this.visualModule.renderDiagram(surface,diagram,p.steps[player.index].id,id=>this.seekPresentation(p.steps.findIndex(s=>s.id===id)));
                 else this.loadVisual();
             }
             if(p.overlays&&!this.visualModule)this.loadVisual();
@@ -578,11 +579,15 @@
             const base=this.presentationQuery(),question=$('mp-question').value.trim();
             if(base&&this.localSceneCommand(question))return;
             const normalized=question.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
-            const locate=/\b(donde (esta|queda|se encuentra|puedo encontrar)|senala|marca|ubica)\b/.test(normalized),diagram=/\b(diagrama|esquema|flujo)\b/.test(normalized),model=/\b(3d|modelo tridimensional|en tres dimensiones)\b/.test(normalized);
-            const spatial=this.spatialRoute();
-            if(model&&!this.spatialProviders?.get($('mp-spatial-provider').value)?.spatial_3d)return this.status('Para 3D, elige ChatGPT/Codex o Claude con visión en «Proveedor y calidad».');
+            const locate=/\b(donde (esta|queda|se encuentra|puedo encontrar)|senala|marca|ubica)\b/.test(normalized),diagram=/\b(diagrama|esquema|flujo)\b/.test(normalized),model=/\b(3d|modelo tridimensional|en tres dimensiones|maqueta)\b/.test(normalized)||/\b(crea|genera|generame|haz|construye|muestrame)\b.{0,35}\bmodelo\b/.test(normalized),visual=/\b(analiza|explica|explicame|como funciona|funcionamiento|visualiza|ilustra|muestrame|desglosa|ensena)\b/.test(normalized);
+            const spatial=this.spatialRoute(),advanced=this.spatialProviders?.get($('mp-spatial-provider').value)?.spatial_3d;
+            if(model&&!advanced)return this.status('Para 3D, elige ChatGPT/Codex o Claude con visión en «Proveedor y calidad».');
             if(model&&!locate&&!diagram)return this.spatialAction('model');
-            if(locate||diagram||model||spatial?.provider==='@codex')return this.ask({fresh:false,format:'presentation',base:locate||diagram||model?null:base?.id||null,question:locate?question+'\n\nUbica el elemento en la captura y marca sus límites con una caja visible en el primer paso. Si no está visible, dilo claramente sin inventar coordenadas.':question});
+            if(visual&&!spatial){this.widget.querySelector('.mp-spatial-settings').open=true;return this.status('Elige un modelo visual en «Proveedor y calidad» para generar un diagrama o modelo.');}
+            if(locate||diagram||model||visual||spatial?.provider==='@codex'){
+                const rebuild=visual&&!base?.presentation?.scene,hint=(!base||rebuild)&&!locate&&!diagram&&!model?'\n\nExplica visualmente con un diagrama de pasos y relaciones.'+(advanced?' Si la captura muestra un objeto físico cuya estructura puede explicarse con 3D, agrega una escena conceptual con piezas identificables; si no, conserva solo el diagrama.':' No generes una escena 3D.'):'',guided=question.length+hint.length<=4000?question+hint:question;
+                return this.ask({fresh:false,format:'presentation',base:locate||diagram||model||rebuild?null:base?.id||null,question:locate?question+'\n\nUbica el elemento en la captura y marca sus límites con una caja visible en el primer paso. Si no está visible, dilo claramente sin inventar coordenadas.':guided});
+            }
             return base?this.ask({fresh:false,format:'presentation',base:base.id}):this.ask();
         }
         spatialAction(mode){
