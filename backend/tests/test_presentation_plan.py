@@ -6,7 +6,7 @@ import uuid
 from pathlib import Path
 from PIL import Image
 from backend.magic_pen import MagicPenService
-from backend.presentation_plan import PlanError, apply_patch, normalize_model_focus, normalize_strict_output, output_schema, parse_json, validate_2d_plan, validate_plan
+from backend.presentation_plan import PlanError, apply_patch, normalize_model_focus, normalize_model_object_ids, normalize_strict_output, output_schema, parse_json, validate_2d_plan, validate_plan
 
 
 def plan(**kw):
@@ -63,6 +63,50 @@ class SceneContractTests(unittest.TestCase):
         self.assertNotIn('focus', repaired['steps'][1])
         response['script'] = 'alert(1)'
         with self.assertRaises(PlanError): validate_plan(normalize_model_focus(response))
+
+    def test_semantic_scene_ids_preserve_references_and_existing_canonical_ids(self):
+        response = scene_plan()
+        response['scene']['objects'][0]['id'] = 'nave'
+        response['scene']['objects'][1]['id'] = 'o2'
+        response['scene']['arrows'][0].update({'from': 'o2', 'to': 'nave'})
+        response['steps'][0]['focus'] = ['nave', 'o2']
+        before = json.dumps(response, sort_keys=True)
+
+        normalized = normalize_model_object_ids(response)
+        self.assertEqual([o['id'] for o in normalized['scene']['objects']], ['o1', 'o2'])
+        self.assertEqual(normalized['scene']['arrows'], [{'from': 'o2', 'to': 'o1', 'label': 'cable plano'}])
+        self.assertEqual(normalized['steps'][0]['focus'], ['o1', 'o2'])
+        self.assertEqual(json.dumps(response, sort_keys=True), before, 'Model data must remain immutable')
+        self.assertEqual(normalize_model_object_ids(normalized), normalized, 'Normalization must be idempotent')
+        self.assertEqual(validate_plan(normalized)['steps'][0]['focus'], ['o1', 'o2'])
+
+    def test_semantic_ids_cannot_hide_duplicates_unknown_links_or_untrusted_fields(self):
+        response = scene_plan()
+        response['scene']['objects'][0]['id'] = 'fachada'
+        response['scene']['objects'][1]['id'] = 'nave'
+        response['scene']['arrows'][0].update({'from': 'nave', 'to': 'fachada'})
+        self.assertEqual([o['id'] for o in validate_plan(normalize_model_object_ids(response))['scene']['objects']], ['o1', 'o2'])
+
+        duplicate = scene_plan()
+        duplicate['scene']['objects'][0]['id'] = duplicate['scene']['objects'][1]['id'] = 'nave'
+        with self.assertRaisesRegex(PlanError, 'únicos'):
+            normalize_model_object_ids(duplicate)
+
+        unknown = scene_plan()
+        unknown['scene']['objects'][0]['id'] = 'nave'
+        unknown['scene']['arrows'][0]['to'] = 'fantasma'
+        with self.assertRaises(PlanError):
+            validate_plan(normalize_model_object_ids(unknown))
+
+        malicious = scene_plan()
+        malicious['scene']['objects'][0].update(id='nave', script='alert(1)')
+        with self.assertRaises(PlanError):
+            validate_plan(normalize_model_object_ids(malicious))
+
+        invalid = scene_plan()
+        invalid['scene']['objects'][0]['id'] = '../bad'
+        with self.assertRaises(PlanError):
+            validate_plan(normalize_model_object_ids(invalid))
 
     def test_scene_is_validated_normalized_and_focus_is_cross_checked(self):
         result = validate_plan(scene_plan())
