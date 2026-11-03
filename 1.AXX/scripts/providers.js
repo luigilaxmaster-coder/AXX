@@ -234,10 +234,8 @@
       c.brain.inferenceVerified=false;
       $('provider-probe-result').textContent='Esperando una respuesta del modelo seleccionado…';
       try{
-        const result=await Axx.backendRequest('POST','/axx-api/chat',{model:p.model,provider_name:p.apiConnection,selection_mode:'manual',
-          request_id:Axx.newId(),conversation_id:'connection-test-'+Axx.newId(),deadline_ms:15000,
-          messages:[{role:'user',content:'Responde exactamente AXX_API_OK.'}],temperature:0,max_tokens:64},ctrl.signal);
-        const text=result.choices?.[0]?.message?.content,route=result.axx_router;
+        const result=await Axx.backendRequest('POST','/axx-api/providers/probe',{model:p.model,provider_name:p.apiConnection},ctrl.signal);
+        const text=result.text,route=result.axx_router;
         if(typeof text!=='string'||!text.trim())throw Error('El proveedor no devolvió texto.');
         if(route?.provider!==p.apiConnection||(route.configured_model||route.model)!==p.model)throw Error('La respuesta no confirmó la ruta seleccionada.');
         if(signature!==c.brain.signatureOf(c.data.prefs))throw Error('La selección cambió durante la prueba; vuelve a comprobarla.');

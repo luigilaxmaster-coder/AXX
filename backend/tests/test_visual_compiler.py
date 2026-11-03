@@ -24,6 +24,22 @@ class VisualCompilerTests(unittest.TestCase):
         self.assertEqual(changed['asset'], plan['asset'])
         self.assertEqual(validate_plan(changed), changed)
 
+    def test_every_registered_generator_validates_at_scale_limits_and_keeps_focus(self):
+        from backend.presentation_plan import normalize_model_focus, output_schema
+        from backend.spatial_assets import KINDS
+        self.assertGreaterEqual(len(KINDS), 5)
+        self.assertEqual(output_schema()['properties']['asset']['properties']['kind']['enum'], list(KINDS))
+        for kind in KINDS:
+            for scale in (.2, 1, 2):
+                value = example(); value['asset'] = {'kind': kind, 'scale': scale}
+                value['steps'][0]['focus'] = ['o1']; value['steps'][1]['focus'] = ['o2']
+                with self.subTest(kind=kind, scale=scale):
+                    plan = validate_plan(normalize_model_focus(value))
+                    self.assertEqual(plan['steps'][1]['focus'], ['o2'])  # focus survives for non-engine assets
+                    self.assertEqual(len({o['id'] for o in plan['scene']['objects']}), len(plan['scene']['objects']))
+        value = example(); value['asset'] = {'kind': 'gothic_church', 'scale': 1}
+        self.assertEqual(len(validate_plan(value)['scene']['objects']), 11)
+
     def test_compiler_rejects_invalid_geometry_code_references_and_budgets(self):
         edits = [lambda p: p['asset'].update(scale=float('nan')), lambda p: p['asset'].update(kind='download_mesh'),
             lambda p: p['diagram']['nodes'][0].update(bounds=[.9, .1, .4, .3]),

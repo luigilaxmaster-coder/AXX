@@ -810,7 +810,9 @@ class MagicPenService:
                     return
             generation = {'max_tokens': 2048 if presentation or guide else 1024}
             if presentation and chosen.get('spatial_3d'):
-                generation['output_schema'] = output_schema('patch' if base_plan else 'presentation', strict=chosen['name'] == '@codex')
+                # Anthropic rejects the patch schema as "too complex" (live HTTP 400); its answer is bounded by PATCH_CONTRACT and apply_patch.
+                if not (base_plan and chosen.get('protocol') == 'anthropic'):
+                    generation['output_schema'] = output_schema('patch' if base_plan else 'presentation', strict=chosen['name'] == '@codex')
                 if request.get('effective_effort'):
                     generation['effort'] = request['effective_effort']
             route_request = {'request_id': 'pen-' + q['id'], 'conversation_id': 'pen-' + q['id'],

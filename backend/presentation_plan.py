@@ -10,7 +10,7 @@ import copy
 import json
 import math
 import re
-from backend.spatial_assets import engine_asset
+from backend.spatial_assets import KINDS, asset_scene, catalog_text
 
 SCHEMA_VERSION = '1.0'
 MAX_STEPS = 8
@@ -49,8 +49,8 @@ PLAN_CONTRACT = (
     'Para matemáticas, texto, software o pantallas omite scene: '
     'no uses 3D solo por ser vistoso. La escena es conceptual: no inventes geometría interna, dimensiones exactas ni conexiones. '
     'Nunca incluyas HTML, código ni enlaces.'
-    ' Para un motor didáctico de un cilindro visible, prefiere "asset":{"kind":"single_cylinder_engine","scale":1} '
-    'sin scene; Axx construye localmente cilindro con aletas, pistón con anillos, biela y cigüeñal, como piezas o1..o4. Es conceptual, sin simulación física ni precisión CAD. '
+    ' Si el sujeto coincide con un ensamblaje local, prefiere "asset":{"kind":"<kind>","scale":1} sin scene; '
+    'Axx lo construye localmente como piezas o1..oN, conceptual, sin simulación física ni precisión CAD. Ensamblajes disponibles: ' + catalog_text() + '. '
     'Puedes añadir "diagram":{"nodes":[{"id":"d1","label":"…","step_id":"s1","bounds":[x,y,ancho,alto]}],'
     '"edges":[{"from":"d1","to":"d2","label":"…"}]} con 2 a 16 nodos y hasta 24 enlaces. '
     'Las coordenadas están normalizadas entre 0 y 1. Para enseñar sobre la selección usa "overlays":'
@@ -142,8 +142,10 @@ def normalize_model_focus(plan):
     scene = plan.get('scene')
     objects = scene.get('objects') if isinstance(scene, dict) else None
     ids = {item.get('id') for item in objects if isinstance(item, dict)} if isinstance(objects, list) else set()
-    if isinstance(plan.get('asset'), dict) and plan['asset'].get('kind') == 'single_cylinder_engine':
-        ids.update(('o1', 'o2', 'o3', 'o4'))
+    try:
+        ids.update(o['id'] for o in asset_scene(plan['asset'])['objects'])
+    except (ValueError, KeyError):
+        pass  # no asset or an invalid one: validate_plan reports it
     result = copy.deepcopy(plan)
     for step in result['steps']:
         if isinstance(step, dict) and 'focus' in step:
@@ -241,7 +243,7 @@ def output_schema(kind='presentation', *, strict=False):
                                'fidelity': {'type': 'string', 'enum': list(FIDELITY)},
                                'steps': {'type': 'array', 'items': step}, 'scene': scene, 'diagram': diagram, 'overlays': overlays,
                                'asset': {'type': 'object', 'additionalProperties': False, 'properties': {
-                                   'kind': {'type': 'string', 'enum': ['single_cylinder_engine']}, 'scale': {'type': 'number'}},
+                                   'kind': {'type': 'string', 'enum': list(KINDS)}, 'scale': {'type': 'number'}},
                                    'required': ['kind', 'scale']}},
                 'required': ['schema_version', 'kind', 'title', 'summary', 'fidelity', 'steps']}
         return _strict_schema(schema) if strict else schema
@@ -421,7 +423,7 @@ def validate_plan(plan, *, min_steps=2):
         result['scene'] = _scene(plan['scene'])
     if plan.get('asset') is not None:
         try:
-            scene = engine_asset(plan['asset'])
+            scene = asset_scene(plan['asset'])
         except ValueError as exc:
             raise PlanError(str(exc)) from None
         result['asset'] = dict(plan['asset'])

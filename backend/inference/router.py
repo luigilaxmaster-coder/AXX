@@ -151,6 +151,15 @@ def _optional_auth(p):
         return False
     return _is_loopback_http(p['base_url']) or (p.get('auth_optional') is True and _is_local_endpoint(p['base_url']))
 
+def _anthropic_schema(node):
+    """Anthropic structured output rejects minItems > 1 and maxItems (verified live); AXX validators re-check every bound."""
+    if isinstance(node, dict):
+        return {k: _anthropic_schema(v) for k, v in node.items() if k != 'maxItems' and not (k == 'minItems' and v > 1)}
+    if isinstance(node, list):
+        return [_anthropic_schema(v) for v in node]
+    return node
+
+
 def http_transport(provider: dict, body: dict, timeout: float, *, response_observer=None) -> dict:
     """Standard HTTP transport with socket timeout and strict response parsing."""
     anthropic = provider.get('protocol') == 'anthropic'
@@ -192,12 +201,14 @@ def http_transport(provider: dict, body: dict, timeout: float, *, response_obser
         body['system'] = '\n\n'.join(system)
         body['messages'] = converted
         body.setdefault('max_tokens', provider.get('max_output_tokens', 2048))
+        if re.match(r'claude-[a-z]+-[5-9]', str(body.get('model', provider.get('model', '')))):
+            body.pop('temperature', None)  # Claude 5+ rejects `temperature` with HTTP 400 (verified against the live API)
         schema = body.pop('output_schema', None)
         effort = body.pop('effort', None)
         if schema is not None or effort is not None:
             config = dict(body.pop('output_config', {}) or {})
             if schema is not None:
-                config['format'] = {'type': 'json_schema', 'schema': schema}
+                config['format'] = {'type': 'json_schema', 'schema': _anthropic_schema(schema)}
             if effort is not None:
                 config['effort'] = effort
             body['output_config'] = config
@@ -900,7 +911,8 @@ class Router:
             attempts += 1
             attempt_budget_used += attempt_cost
             accounting.update(upstream_attempts=attempts, attempt_budget_used=attempt_budget_used)
-            call_timeout = min(self.timeout, time_left)
+            # Claude image + structured-output turns can exceed the 20 s default (a live scene patch timed out at 20 s); the 70 s global deadline still bounds it.
+            call_timeout = min(max(self.timeout, 60) if p.get('protocol') == 'anthropic' else self.timeout, time_left)
             if gateway:
                 call_timeout = min(call_timeout, p.get('gateway_timeout_ms', 20000) / 1000)
             call_start = time.monotonic()

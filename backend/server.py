@@ -787,6 +787,20 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                 if self.provider:
                     self.provider.cancel(request_id)
                 self._send_json(200, {'request_id': request_id, 'cancelled': self.adapter.cancel(request_id)})
+            elif path == '/axx-api/providers/probe':
+                # Fixed internal request: no client text, tools, tasks or memory, so it never touches user memory or chats.
+                if set(body) != {'provider_name', 'model'} or any(not isinstance(v, str) or not v.strip() or len(v) > 200 for v in body.values()):
+                    raise ValueError('Indica proveedor y modelo para comprobar la conexión.')
+                request_id = uuid.uuid4().hex
+                result = self.adapter.route({'provider_name': body['provider_name'], 'model': body['model'], 'task': 'chat',
+                    'selection_mode': 'manual', 'request_id': request_id, 'conversation_id': 'connection-test-' + request_id, 'deadline_ms': 15000,
+                    'messages': [{'role': 'user', 'content': 'Responde exactamente AXX_API_OK.'}],
+                    'generation': {'temperature': 0, 'max_tokens': 64}})
+                if not result.get('ok'):
+                    code = result.get('error', {}).get('code')
+                    self._send_json(409 if code == 'BUSY' else 400 if code == 'INVALID_REQUEST' else 499 if code == 'CANCELLED' else 502, result)
+                else:
+                    self._send_json(200, {'request_id': request_id, 'text': result['message'].get('content', ''), 'axx_router': result.get('route')})
             elif path == '/axx-api/providers/discover':
                 connection = self.freellmapi._body(body) if self.freellmapi and body.get('provider') == 'freellmapi' else body
                 self._send_json(200, provider_settings.discover(connection, self.adapter.config))

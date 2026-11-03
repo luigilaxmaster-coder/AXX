@@ -109,6 +109,17 @@ class MemoryHttpTests(unittest.TestCase):
         self.assertEqual(self.json('chat',{'model':'synthetic','messages':body['messages']})[0],400)
         self.assertEqual(self.adapter.route.call_count,before)
         self.assertEqual(self.json('chat',self.chat_body(self.a))[0],200)
+        probe={'model':'synthetic','conversation_id':'connection-test-abc123','messages':[{'role':'user','content':'Responde exactamente AXX_API_OK.'}]}
+        self.assertEqual(self.json('chat',probe)[0],400)  # a forged connection-test ID never bypasses the memory guard
+        route={'provider_name':'synthetic','model':'synthetic'}
+        code,result=self.json('providers/probe',route)  # dedicated fixed request keeps working after a forget
+        self.assertEqual((code,result['text']),(200,'SYNTHETIC_RESPONSE'))
+        sent=self.adapter.route.call_args.args[0]
+        self.assertEqual(sent['messages'],[{'role':'user','content':'Responde exactamente AXX_API_OK.'}])
+        self.assertNotIn('tools',sent['generation']);self.assertNotIn('memory_scope',sent)
+        for bad in (route|{'messages':[{'role':'user','content':'x'}]},route|{'tools':[]},{'model':'m'},route|{'model':''}):
+            self.assertEqual(self.json('providers/probe',bad)[0],400)
+        self.assertEqual(self.json('providers/probe',route,auth=False)[0],401)
 
     def test_chat_late_json_and_sse_are_rejected_after_forget(self):
         for stream in (False,True):

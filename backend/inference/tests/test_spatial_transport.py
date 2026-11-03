@@ -34,8 +34,19 @@ class SpatialTransportTests(unittest.TestCase):
         block = sent['messages'][0]['content'][1]
         self.assertEqual(sent['system'], 'JSON only')
         self.assertEqual(block, {'type': 'image', 'source': {'type': 'base64', 'media_type': 'image/png', 'data': image}})
-        self.assertEqual(sent['output_config'], {'format': {'type': 'json_schema', 'schema': schema}, 'effort': 'high'})
+        wire = json.dumps(sent['output_config']['format']['schema'])
+        self.assertNotIn('maxItems', wire); self.assertNotIn('"minItems": 3', wire)  # rejected by Anthropic; Python validators keep the bounds
+        self.assertIn('"required"', wire); self.assertEqual(sent['output_config']['effort'], 'high')
+        self.assertIn('maxItems', json.dumps(schema))  # the shared schema itself is unchanged
         self.assertEqual(result['choices'][0]['message']['content'], '{}')
+
+    def test_claude_5_drops_deprecated_temperature_but_older_models_keep_it(self):
+        for model, expected in (('claude-sonnet-5-5', False), ('claude-opus-5-5', False), ('claude-sonnet-4-6', True)):
+            provider = {'protocol': 'anthropic', 'base_url': 'https://api.anthropic.com/v1', 'model': model, 'api_key_env': 'AXX_TEST_SPATIAL_KEY'}
+            with patch('backend.inference.router.urllib.request.build_opener') as opener:
+                opener.return_value.open.return_value = Response()
+                http_transport(provider, {'model': model, 'temperature': 0, 'messages': [{'role': 'user', 'content': 'hola'}]}, 2)
+            self.assertEqual('temperature' in json.loads(opener.return_value.open.call_args.args[0].data), expected, model)
 
     def test_anthropic_rejects_non_data_image_before_network(self):
         provider = {'protocol': 'anthropic', 'base_url': 'https://api.anthropic.com/v1', 'model': 'm', 'api_key_env': ''}

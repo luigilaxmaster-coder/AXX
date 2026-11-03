@@ -1809,7 +1809,7 @@ body.axx-resident :is(.panel-head,.flow-library-head,.organic-satellite-head,.v1
 <script>"use strict";
 var Axx;
 (function (Axx) {
-    Axx.VERSION = '0.22.38';
+    Axx.VERSION = '0.22.39';
     function newId() {
         if (typeof crypto.randomUUID === 'function')
             return crypto.randomUUID();
@@ -14740,16 +14740,20 @@ var Axx;
             this.layout();
         }
         quickLink(a) {
-            // Keep the endpoint while retracting, including after the hovered button disappears.
             const now = performance.now(), dt = Math.min(.08, (now - (this.reachFrame || now)) / 1000);
             this.reachFrame = now;
             if (this.reduced) {
                 this.reachProgress = 0;
                 return [];
             }
-            const active = this.flow.nav.step === 2 && !this.flow.review && this.hot?.isConnected && this.hotRequested && !this.entering && now - this.hotSince > 100;
+            const hot = (this.hot?.isConnected && (this.hotRequested || this.hot.matches(':hover')))
+                ? this.hot
+                : oe('flow-fan')?.querySelector('[data-quick]:hover,[data-quick]:focus-within');
+            const active = this.flow.nav.step === 2 && !this.flow.review && !!hot;
             if (active) {
-                const q = this.hot.querySelector('.flow-orb').getBoundingClientRect();
+                this.hot = hot;
+                const orb = hot.querySelector('.flow-orb') || hot;
+                const q = orb.getBoundingClientRect();
                 this.reachTargetRadius = Math.min(q.width, q.height) * .5;
                 const end = { x: q.left + q.width / 2 - a.x, y: q.top + q.height / 2 - a.y };
                 if (!this.reachEnd || this.reachProgress < .004) this.reachEnd = end;
@@ -14759,7 +14763,7 @@ var Axx;
                     this.reachEnd.y += (end.y - this.reachEnd.y) * blend;
                 }
             }
-            this.reachProgress += ((active ? 1 : 0) - this.reachProgress) * (1 - Math.exp(-dt / (active ? .16 : .20)));
+            this.reachProgress += ((active ? 1 : 0) - this.reachProgress) * (1 - Math.exp(-dt / (active ? .14 : .18)));
             if (this.reachProgress < .004 || !this.reachEnd)
                 return [];
             return [{ id: 'orbit-reach', a, b: { x: a.x + this.reachEnd.x, y: a.y + this.reachEnd.y }, targetRadius: this.reachTargetRadius || 0, progress: this.reachProgress }];

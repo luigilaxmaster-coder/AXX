@@ -19,6 +19,8 @@ ANTHROPIC_EFFORTS = {
     'claude-opus-4-5': ('low', 'medium', 'high'),
     'claude-opus-4-6': ('low', 'medium', 'high', 'xhigh', 'max'),
     'claude-sonnet-4-6': ('low', 'medium', 'high', 'xhigh', 'max'),
+    'claude-opus-5-5': ('low', 'medium', 'high', 'xhigh', 'max'),
+    'claude-sonnet-5-5': ('low', 'medium', 'high', 'xhigh', 'max'),
     'claude-haiku-5-5': ('low', 'medium', 'high', 'xhigh', 'max'),
     'claude-fable-5-1': ('low', 'medium', 'high', 'xhigh', 'max'),
     'claude-mythos-5-1': ('low', 'medium', 'high', 'xhigh', 'max'),
@@ -167,7 +169,7 @@ def save(body, adapter, config_path):
         local = local_address(urllib.parse.urlsplit(url).hostname)
         # Legacy manual eligibility; automatic mode also requires explicit downstream cost evidence.
         free = local or (kind == 'openrouter' and (model.endswith(':free') or model == 'openrouter/free'))
-        capabilities = list(old['capabilities']) if old and old['model'] == model else ['text']
+        capabilities = list(old['capabilities']) if old and old['model'] == model else ['text', 'vision'] if protocol == 'anthropic' else ['text']  # Claude models accept images
         entry = dict(enabled=True, free_confirmed=free, billing_allowed=False, daily_attempt_limit=1000,
                      max_output_tokens=2048, auth_optional=local, cost_evidence='unknown',
                      route_kind='proxy' if kind == 'freellmapi' else 'unknown')

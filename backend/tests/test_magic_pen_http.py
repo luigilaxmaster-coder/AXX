@@ -25,7 +25,7 @@ class MagicPenHTTPTests(unittest.TestCase):
                 def __init__(self): self.calls = []
                 def route(self, request):
                     self.calls.append(request)
-                    if request['generation']['output_schema']['properties']['kind']['enum'] == ['patch']:
+                    if 'output_schema' not in request['generation']:  # Anthropic patches are prompt-bound (schema rejected as too complex)
                         return {'ok': True, 'message': {'content': json.dumps({'schema_version': '1.0', 'kind': 'patch', 'answer': 'Pistón conectado.', 'ops': []})},
                                 'route': {'provider_name': 'fixture', 'model': 'claude-opus-4-6'}}
                     plan = {'schema_version': '1.0', 'kind': 'presentation', 'title': 'Figura', 'summary': 'Una pieza azul.',
