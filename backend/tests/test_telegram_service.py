@@ -55,7 +55,7 @@ class TelegramServiceTests(unittest.TestCase):
     def test_status_command_uses_the_same_plain_language_as_the_menu(self):
         result = self.service.admit(self.body('/estado'))
         self.assertEqual(result['state'], 'succeeded')
-        self.assertIn('Notas de voz: En preparación', result['text'])
+        self.assertIn('Notas de voz: Falta comprobar', result['text'])
         self.assertIn('llamadas todavía están en reparación', result['text'])
         self.assertNotIn('{', result['text'])
         self.adapter.route.assert_not_called()
@@ -74,6 +74,41 @@ class TelegramServiceTests(unittest.TestCase):
         self.assertEqual(self.service.admit(text)['state'], 'succeeded')
         self.service.admit(text)
         self.adapter.route.assert_called_once()
+
+    def test_voice_request_requires_grant_and_creates_one_private_receipt(self):
+        body = self.body('/voz Explica por qué llueve.', message=81)
+        self.assertEqual(self.service.admit(body)['state'], 'blocked')
+        self.account['grants']['voice_notes'] = True
+        self.service.speech = Mock()
+        with patch('backend.telegram.voice_note.render_voice_note') as render:
+            render.side_effect = lambda _speech, _text, _voice, path, _language: (path.parent.mkdir(parents=True, exist_ok=True), path.write_bytes(b'OggS' + b'x' * 120))
+            body['message_id'] = 82
+            result = self.service.admit(body)
+            self.assertEqual(result['state'], 'succeeded')
+            self.assertEqual(result['voice_note']['bytes'], 124)
+            self.assertEqual(self.service.admit(body), result)
+            render.assert_called_once()
+        self.commands.execute.assert_not_called()
+
+    def test_natural_voice_request_uses_the_same_private_route(self):
+        self.account['grants']['voice_notes'] = True
+        self.service.speech = Mock()
+        with patch('backend.telegram.voice_note.render_voice_note') as render:
+            render.side_effect = lambda _speech, _text, _voice, path, _language: (path.parent.mkdir(parents=True, exist_ok=True), path.write_bytes(b'OggS' + b'x' * 120))
+            result = self.service.admit(self.body('Mándame un audio explicando por qué llueve.', message=83))
+        self.assertEqual(result['state'], 'succeeded')
+        self.assertIn('voice_note', result)
+        self.assertEqual(self.adapter.route.call_args.args[0]['messages'][-1]['content'], 'por qué llueve.')
+        self.commands.execute.assert_not_called()
+
+    def test_miniapp_voice_request_does_not_leave_an_unsent_audio_file(self):
+        self.account['grants']['voice_notes'] = True
+        self.service.speech = Mock()
+        with patch('backend.telegram.voice_note.render_voice_note') as render:
+            result = self.service.admit_miniapp(self.account['owner_id'], '/voz Explica la lluvia.', str(uuid.uuid4()))
+        self.assertEqual(result['state'], 'blocked')
+        self.assertNotIn('voice_note', result)
+        render.assert_not_called()
 
     def test_expired_input_never_dispatches(self):
         self.command()

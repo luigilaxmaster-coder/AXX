@@ -21,13 +21,27 @@ transcribed speech and an independent Spanish/English comparison before any
 checkpoint replaces the current inference model. Keep all weights and recordings
 private.
 
+The six Page 1–3 Spanish/English recordings supplied in November contain about
+7 min 25 s of source audio. A private CPU run already split them into 93 training
+clips and four held-out clips, then saved two epochs. The first epoch raised
+speaker similarity on three short probes but also lengthened speech and changed
+some words. A fresh reference comparison on three other phrases was mixed: the
+new Spanish clip improved one phrase from 17.6 s with repeated words to 4.88 s,
+but produced 30 s of unrecognized audio on another. The English clip improved
+one probe from 13.6 s with its first sentence missing to 5.04 s with one plural
+error. These results do not justify switching the active reference or checkpoint.
+The recordings, model candidates and evaluation audio remain private under
+`%LOCALAPPDATA%\Axx\speech\training`.
+
 When available, Axxmorcito appears in **Voces de Axx** and the chat and live
 voice selectors. A new profile prefers it; an existing saved voice selection is
 kept. Spanish and English use distinct reference hashes in the audio cache, so
 changing either clip invalidates only its own synthesized phrases. MOSS warmup
 is required on first use. Audio cache reuse accelerates repeated text, but does
-not prove a first-response latency or subjective voice quality. The sound panel
-offers per-voice bass, clarity, brightness, sibilance, volume and height/tempo
+not prove a first-response latency or subjective voice quality.
+The chat also speaks replies to typed messages when **Respuestas habladas** is
+enabled and global audio is not muted; that preference remains under user control.
+The sound panel offers per-voice bass, clarity, brightness, sibilance, volume and height/tempo
 controls with explanations on their info icons. Sibilance is a fixed frequency
 reduction, not a trained pronunciation model; height also changes duration.
 PCM packet boundaries use a short fade to reduce clicks. Listen to both

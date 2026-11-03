@@ -39,11 +39,12 @@ def status_text(status):
 
 
 class TelegramService:
-    def __init__(self, data_dir, chats, commands, adapter, preferences, appearance=None):
+    def __init__(self, data_dir, chats, commands, adapter, preferences, appearance=None, speech=None):
         self.data_dir = Path(data_dir)
         self.chats, self.commands, self.adapter = chats, commands, adapter
         self.preferences = preferences
         self.appearance = appearance or (lambda: None)
+        self.speech = speech
         self.lock = threading.Lock()
         self.process = None
         self.bot_process = None
@@ -93,7 +94,7 @@ class TelegramService:
         checked = any(json.loads(row[0]).get('postconditions_passed') is True for row in recent if row[0])
         return {'state': 'configured' if account['enabled'] else 'disabled',
                 'worker_running': any(p is not None and p.poll() is None for p in (self.process, self.bot_process)),
-                'messages': 'admitted' if recent else 'not_verified', 'voice_notes': 'not_implemented',
+                'messages': 'admitted' if recent else 'not_verified', 'voice_notes': 'admitted' if account['grants'].get('voice_notes') and self.speech else 'not_verified',
                 'files': 'not_implemented', 'pc_commands': 'verified_receipt' if checked else 'not_verified',
                 'conversation_message':self.diagnostics(account['owner_id'])['conversation']['message'] if account['enabled'] else 'Canal desactivado.',
                 'private_calls': 'not_verified'}
@@ -557,8 +558,18 @@ class TelegramService:
                 with self._db() as db:
                     db.execute('UPDATE inbox SET task_id=?,memory_scope=?,memory_context_id=? WHERE id=?',
                         (captured['task_id'],json.dumps(captured['memory_scope']),captured['memory_context_id'],key))
-                self._save_message(captured, key+':user', 'user', text)
-                result = self._turn(account, chat, key, text, require_remote_review=remote_review,captured=captured)
+                voice_question = text[5:].strip() if text.lower().startswith('/voz ') else None
+                if voice_question is None:
+                    spoken = re.fullmatch(
+                        r'(?:env[ií]ame|m[aá]ndame|gr[aá]bame) (?:una? )?(?:nota de voz|audio) (?:explicando|sobre|de) (.+)',
+                        text, re.I)
+                    voice_question = spoken.group(1).strip() if spoken else None
+                self._save_message(captured, key+':user', 'user', voice_question or text)
+                result = ({'state': 'blocked', 'text': 'Para recibir una nota de voz, envía /voz al chat privado de Telegram.'}
+                          if voice_question is not None and channel == 'miniapp' else
+                          self._voice_turn(account, chat, key, voice_question, captured)
+                          if voice_question is not None else
+                          self._turn(account, chat, key, text, require_remote_review=remote_review,captured=captured))
                 self._assert_chat(captured)
                 self._save_message(captured, key+':assistant', 'assistant', result['text'])
             with self._db() as db:
@@ -567,6 +578,7 @@ class TelegramService:
             if captured:self._assert_chat(captured)
             return result
         except Exception:
+            (self.data_dir / 'telegram' / 'outbox' / (key + '.ogg')).unlink(missing_ok=True)
             with self._db() as db:
                 db.execute("UPDATE inbox SET state='unknown',response=NULL WHERE id=?", (key,))
                 db.execute("UPDATE sequences SET state='stopped',payload='{}' WHERE (root=? OR current=?) AND state!='forgotten'", (key, key))
@@ -575,6 +587,32 @@ class TelegramService:
                     'text': 'No se pudo confirmar el resultado. Consulta esta operación en Axx antes de repetir: '+key}
         finally:
             self.lock.release()
+
+    def _voice_turn(self, account, chat, key, question, captured):
+        if not account['grants'].get('voice_notes') or self.speech is None:
+            return {'state': 'blocked', 'text': 'Activa Notas de voz en los permisos de Telegram de la PC.'}
+        resolved = self.commands.resolve(question, source='text')
+        if not question or question.startswith('/') or resolved.get('match') != 'none' or self._is_action_request(question):
+            return {'state': 'blocked', 'text': 'Usa /voz seguido de una pregunta para recibir una explicación hablada. Las acciones se piden aparte.'}
+        result = self._turn(account, chat, key, question, captured=captured)
+        if result.get('state') != 'succeeded':
+            return result
+        if not 1 <= len(result['text'].strip()) <= 900:
+            return {'state': 'failed', 'text': 'La explicación supera el límite de una nota de voz breve. Pide un resumen más corto.'}
+        latest = self._authorize({'account_id': account['account_id'], 'peer_id': account['owner_id']})
+        if not latest['grants'].get('voice_notes'):
+            return {'state': 'blocked', 'text': 'Se retiró el permiso de notas de voz antes de generar el audio.'}
+        voice = latest.get('voice') or 'moss:axx-morcito'
+        language = (self.preferences() or {}).get('voiceLanguage')
+        if language not in ('es', 'en'):
+            language = 'en' if re.search(r'\b(?:what|why|how|please|explain|tell me)\b', question, re.I) else 'es'
+        target = self.data_dir / 'telegram' / 'outbox' / (key + '.ogg')
+        try:
+            from backend.telegram.voice_note import render_voice_note
+            render_voice_note(self.speech, result['text'], voice, target, language)
+        except Exception:
+            return {'state': 'failed', 'text': 'La respuesta se generó, pero la voz local no pudo preparar la nota. Revisa la voz seleccionada en Axx.'}
+        return result | {'voice_note': {'operation_id': key, 'sha256': hashlib.sha256(target.read_bytes()).hexdigest(), 'bytes': target.stat().st_size}}
 
     def _control(self, account, text):
         if text == '/estado':

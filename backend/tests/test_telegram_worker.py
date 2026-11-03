@@ -2,6 +2,7 @@
 import asyncio
 from datetime import datetime, timezone
 import json
+import hashlib
 from pathlib import Path
 import tempfile
 from types import SimpleNamespace
@@ -44,7 +45,7 @@ class TelegramWorkerTests(unittest.IsolatedAsyncioTestCase):
             p = patch('backend.telegram.worker.' + name, side_effect=value)
             p.start()
             self.addCleanup(p.stop)
-        self.client = SimpleNamespace(send_message=AsyncMock(), disconnect=AsyncMock())
+        self.client = SimpleNamespace(send_message=AsyncMock(), send_file=AsyncMock(), disconnect=AsyncMock())
 
     def worker(self):
         worker = TelegramWorker(self.client, ACCOUNT.copy(), 'unused', self.temp.name)
@@ -107,6 +108,20 @@ class TelegramWorkerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(worker.queue.qsize(), 1)
         await worker.receive(event(media=object()))
         self.client.send_message.assert_awaited_once_with(22, 'Los adjuntos de Telegram aún no están habilitados.', parse_mode=None)
+
+    async def test_voice_note_is_sent_only_to_owner_then_removed(self):
+        worker = self.worker()
+        path = Path(self.temp.name) / 'telegram' / 'outbox' / ('a' * 36 + '.ogg')
+        path.parent.mkdir(parents=True)
+        path.write_bytes(b'OggS' + b'x' * 120)
+        note = {'operation_id': 'a' * 36, 'bytes': path.stat().st_size,
+                'sha256': hashlib.sha256(path.read_bytes()).hexdigest()}
+        with patch('backend.telegram.worker.load_account', return_value=dict(ACCOUNT, grants={'voice_notes': True})), \
+             patch('backend.telegram.worker.local_input', return_value={'state': 'succeeded', 'text': 'explicación', 'voice_note': note}):
+            await worker.dispatch((11, 22, 3), {'text': '/voz explica', 'account_id': 11, 'peer_id': 22, 'message_id': 3})
+        self.client.send_file.assert_awaited_once_with(22, str(path), voice_note=True)
+        self.client.send_message.assert_not_awaited()
+        self.assertFalse(path.exists())
 
     async def test_text_over_limit_is_rejected_before_persisting(self):
         worker = self.worker()

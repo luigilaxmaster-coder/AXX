@@ -7,7 +7,7 @@ import unittest
 import urllib.error
 from unittest.mock import patch
 
-from backend.telegram.bot import BotApiError, BotWorker, allowed, bot_request, menu
+from backend.telegram.bot import BotApiError, BotWorker, allowed, bot_request, bot_voice, menu
 from backend.telegram.bot_config import load_bot, save_bot, validate_bot
 
 
@@ -21,6 +21,18 @@ def message(update_id=1, owner=22, text='hola'):
 
 
 class BotConfigTests(unittest.TestCase):
+    def test_voice_upload_uses_owner_chat_and_ogg_multipart(self):
+        with tempfile.TemporaryDirectory() as directory:
+            audio = Path(directory) / 'note.ogg'
+            audio.write_bytes(b'OggS' + b'x' * 120)
+            with patch('backend.telegram.bot.urllib.request.build_opener') as build:
+                build.return_value.open.return_value = io.BytesIO(b'{"ok":true}')
+                bot_voice(BOT['token'], 22, audio)
+                request = build.return_value.open.call_args.args[0]
+            self.assertIn(b'name="chat_id"\r\n\r\n22', request.data)
+            self.assertIn(b'name="voice"', request.data)
+            self.assertIn(b'OggS', request.data)
+
     def test_http_errors_are_classified_without_exposing_url_or_description(self):
         scenarios = [(401, 'unauthorized', 'TOKEN_REJECTED'), (400, 'Bad Request: chat not found', 'OWNER_CHAT_NOT_STARTED'),
                      (400, 'Bad Request: web app URL invalid', 'MINIAPP_URL_REJECTED'),
