@@ -27,18 +27,18 @@
   <a href="LICENSE">MIT</a>
 </p>
 
-> **Axx is under active development.** Source is **v0.22.37**; the published Windows installer is **v0.22.32**. Delivery of the newer source is pending publication. Validation is recorded per feature; a working UI or build does not by itself certify every hardware-dependent behavior.
+> **Axx is under active development.** Source and published Windows installer are both **v0.22.37**. Validation is recorded per feature; a working UI or build does not by itself certify every hardware-dependent behavior.
 
 ## Download Axx for Windows
 
 <!-- release:download:start -->
-**[Download Windows x64 test installer · v0.22.32](https://github.com/luigilaxmaster-coder/AXX/releases/download/v0.22.32/Axx_0.22.32_x64-setup.exe)** · [Release files](https://github.com/luigilaxmaster-coder/AXX/releases/tag/v0.22.32) · [SHA-256](https://github.com/luigilaxmaster-coder/AXX/releases/download/v0.22.32/SHA256SUMS.txt)
+**[Download Windows x64 test installer · v0.22.37](https://github.com/luigilaxmaster-coder/AXX/releases/download/v0.22.37/Axx_0.22.37_x64-setup.exe)** · [Release files](https://github.com/luigilaxmaster-coder/AXX/releases/tag/v0.22.37) · [SHA-256](https://github.com/luigilaxmaster-coder/AXX/releases/download/v0.22.37/SHA256SUMS.txt)
 
 Run the installer and open Axx. Python and Node are not required. Start with **Automático gratis · Sin claves**; Axx checks available free routes, whose availability can change. Personal API keys are optional in Settings. Credentials and conversation history are not included in the installer. Windows may need Internet to install WebView2. The installer is unsigned.
 
 Backend dependencies are installed with the app and do not require extraction on every launch. Windows may still scan them during startup. The native host allows up to 90 seconds for backend readiness and reports a startup error if that limit is exceeded.
 
-Source is **v0.22.37**; the published Windows installer is **v0.22.32**. Delivery of the newer source is pending publication. Android APKs remain local test artifacts until separately published. See [mobile setup and validation](docs/mobile/README.md) and the [version and release procedure](docs/RELEASING.md).
+Source and published Windows installer are both **v0.22.37**. Android APKs remain local test artifacts until separately published. See [mobile setup and validation](docs/mobile/README.md) and the [version and release procedure](docs/RELEASING.md).
 <!-- release:download:end -->
 
 ---
@@ -255,10 +255,10 @@ confirme el hash del instalador verificado.
 <!-- release:history:start -->
 | Versión | Estado | Cambios y validación |
 | --- | --- | --- |
-| **0.22.37** | Fuente candidata | [Notas detalladas](docs/releases/0.22.37.md) |
+| **0.22.37** | Publicada · Windows x64 | [Notas detalladas](docs/releases/0.22.37.md) |
 | **0.22.36** | Notas archivadas | [Notas detalladas](docs/releases/0.22.36.md) |
 | **0.22.33** | Notas archivadas | [Notas detalladas](docs/releases/0.22.33.md) |
-| **0.22.32** | Publicada · Windows x64 | [Notas detalladas](docs/releases/0.22.32.md) |
+| **0.22.32** | Notas archivadas | [Notas detalladas](docs/releases/0.22.32.md) |
 | **0.22.31** | Notas archivadas | [Notas detalladas](docs/releases/0.22.31.md) |
 | **0.22.30** | Notas archivadas | [Notas detalladas](docs/releases/0.22.30.md) |
 | **0.22.29** | Notas archivadas | [Notas detalladas](docs/releases/0.22.29.md) |
