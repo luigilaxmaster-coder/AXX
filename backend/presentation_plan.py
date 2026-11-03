@@ -134,6 +134,67 @@ def normalize_strict_output(value, schema):
     return value
 
 
+
+def normalize_model_object_ids(plan):
+    """Map safe semantic model IDs to stable V1 oN IDs, including their references.
+
+    Keep existing canonical IDs; never repair duplicate IDs, missing references,
+    malformed object records or unrelated fields. Validation remains authoritative.
+    This operates only on a *new* plan: follow-up patches use canonical IDs.
+    """
+    if not isinstance(plan, dict):
+        return plan
+    scene = plan.get('scene')
+    if not isinstance(scene, dict) or not isinstance(scene.get('objects'), list):
+        return plan
+    objects = scene['objects']
+    if not 1 <= len(objects) <= MAX_OBJECTS:
+        return plan  # Let normal validation report invalid budgets.
+    original = []
+    for item in objects:
+        if not isinstance(item, dict):
+            return plan
+        ident = item.get('id')
+        if (not isinstance(ident, str) or not re.fullmatch(r'[\w][\w .-]{0,79}', ident)
+                or '\x00' in ident):
+            return plan  # Do not legalize malformed or unsafe identifiers.
+        original.append(ident)
+    if len(set(original)) != len(original):
+        raise PlanError('Los ids de los objetos deben ser únicos.')
+    if all(OBJECT_ID.fullmatch(ident) for ident in original):
+        return plan
+
+    used = {ident for ident in original if OBJECT_ID.fullmatch(ident)}
+    mapping = {}
+    next_number = 1
+    for old in original:
+        if OBJECT_ID.fullmatch(old):
+            mapping[old] = old
+            continue
+        while f'o{next_number}' in used:
+            next_number += 1
+        new_id = f'o{next_number}'
+        mapping[old] = new_id
+        used.add(new_id)
+        next_number += 1
+
+    result = copy.deepcopy(plan)
+    for obj in result['scene']['objects']:
+        obj['id'] = mapping[obj['id']]
+    for arrow in result['scene'].get('arrows', []):
+        if isinstance(arrow, dict):
+            for field in ('from', 'to'):
+                value = arrow.get(field)
+                if isinstance(value, str) and value in mapping:
+                    arrow[field] = mapping[value]
+    if isinstance(result.get('steps'), list):
+        for step in result['steps']:
+            if isinstance(step, dict) and isinstance(step.get('focus'), list):
+                step['focus'] = [mapping.get(ident, ident) if isinstance(ident, str) else ident
+                                 for ident in step['focus']]
+    return result
+
+
 def normalize_model_focus(plan):
     """Drop unreliable optional 3D focus from a model response; validation still owns every required field."""
     if not isinstance(plan, dict) or not isinstance(plan.get('steps'), list):

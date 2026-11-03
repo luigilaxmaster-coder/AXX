@@ -18,7 +18,7 @@ import time
 import uuid
 from PIL import Image, ImageDraw, ImageGrab
 from backend.prompts import compose
-from backend.presentation_plan import PATCH_CONTRACT, PLAN_CONTRACT, PLAN_2D_CONTRACT, PlanError, apply_patch, normalize_model_focus, normalize_strict_output, output_schema, parse_json, validate_2d_plan, validate_plan
+from backend.presentation_plan import PATCH_CONTRACT, PLAN_CONTRACT, PLAN_2D_CONTRACT, PlanError, apply_patch, normalize_model_focus, normalize_model_object_ids, normalize_strict_output, output_schema, parse_json, validate_2d_plan, validate_plan
 from backend.inference.provider_settings import anthropic_efforts
 from backend.guide_plan import GUIDE_CONTRACT, evaluate, prompt_controls, resolve, snapshot as control_snapshot, validate_guide
 
@@ -842,7 +842,7 @@ class MagicPenService:
                         if not chosen.get('spatial_3d'):
                             changes['presentation'] = validate_2d_plan(changes['presentation'])
                     else:
-                        changes['presentation'] = validate_plan(normalize_model_focus(parsed)) if chosen.get('spatial_3d') else validate_2d_plan(parsed)
+                        changes['presentation'] = validate_plan(normalize_model_focus(normalize_model_object_ids(parsed))) if chosen.get('spatial_3d') else validate_2d_plan(parsed)
                     self._remember_spatial_provider(chosen, result)
                 except PlanError as exc:
                     # The raw text stays for audit; nothing unvalidated reaches the renderer.
