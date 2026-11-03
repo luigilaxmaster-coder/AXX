@@ -18,26 +18,31 @@ function geometry(shape, [x, y, z]) {
 }
 
 function objectMesh(o) {
-    const [x,y,z]=o.size, material=new THREE.MeshStandardMaterial({color:o.color,roughness:.55,metalness:.15,transparent:true}), geometries=[];
+    const [x,y,z]=o.size, engineered=['piston','connecting_rod','crankshaft','engine_cylinder'].includes(o.shape);
+    const material=new THREE.MeshStandardMaterial({color:o.color,roughness:engineered?.32:.55,metalness:engineered?.62:.15,transparent:true,side:o.shape==='engine_cylinder'?THREE.DoubleSide:THREE.FrontSide}), geometries=[];
     const part=(root,g,position=[0,0,0],rotation=[0,0,0])=>{const m=new THREE.Mesh(g,material);m.position.fromArray(position);m.rotation.set(...rotation);m.userData.id=o.id;root.add(m);geometries.push(g);};
     let root;
     if(['piston','connecting_rod','crankshaft','engine_cylinder'].includes(o.shape)){
         root=new THREE.Group();
         if(o.shape==='piston'){
-            part(root,new THREE.CylinderGeometry(x/2,x/2,y,32));
-            part(root,new THREE.TorusGeometry(x*.49,Math.max(.015,y*.06),8,32),[0,y*.3,0],[Math.PI/2,0,0]);
-            part(root,new THREE.CylinderGeometry(x*.16,x*.16,z*1.1,16),[0,-y*.1,0],[Math.PI/2,0,0]);
+            part(root,new THREE.CylinderGeometry(x*.46,x*.48,y*.82,48));
+            part(root,new THREE.CylinderGeometry(x*.43,x*.46,y*.12,48),[0,y*.43,0]);
+            for(const offset of [.12,.24,.34])part(root,new THREE.TorusGeometry(x*.465,Math.max(.012,y*.025),8,48),[0,y*offset,0],[Math.PI/2,0,0]);
+            part(root,new THREE.CylinderGeometry(x*.14,x*.14,z*1.04,24),[0,-y*.13,0],[Math.PI/2,0,0]);
         }else if(o.shape==='connecting_rod'){
-            part(root,new THREE.BoxGeometry(x*.55,y*.75,z*.55));
-            for(const offset of [-.42,.42])part(root,new THREE.TorusGeometry(x*.45,x*.12,12,24),[0,y*offset,0]);
+            part(root,new THREE.BoxGeometry(x*.52,y*.78,z*.52));
+            for(const offset of [-.42,.42]){
+                for(const face of [-.22,.22])part(root,new THREE.TorusGeometry(x*.38,x*.11,10,32),[0,y*offset,z*face]);
+            }
         }else if(o.shape==='crankshaft'){
-            part(root,new THREE.CylinderGeometry(z*.25,z*.25,x,24),[0,0,0],[0,0,Math.PI/2]);
-            for(const offset of [-.2,.2])part(root,new THREE.CylinderGeometry(y*.55,y*.55,x*.14,24),[x*offset,0,0],[0,0,Math.PI/2]);
-            part(root,new THREE.CylinderGeometry(z*.2,z*.2,x*.45,24),[0,y*.5,0],[0,0,Math.PI/2]);
+            part(root,new THREE.CylinderGeometry(z*.24,z*.24,x,32),[0,0,0],[0,0,Math.PI/2]);
+            for(const offset of [-.22,.22])part(root,new THREE.CylinderGeometry(y*.56,y*.56,x*.13,32),[x*offset,0,0],[0,0,Math.PI/2]);
+            for(const offset of [-.44,.44])part(root,new THREE.CylinderGeometry(z*.36,z*.36,x*.1,32),[x*offset,0,0],[0,0,Math.PI/2]);
+            part(root,new THREE.CylinderGeometry(z*.22,z*.22,x*.46,32),[0,y*.5,0],[0,0,Math.PI/2]);
         }else{
             // The open side exposes the conceptual internal parts without claiming a physical cutaway.
-            part(root,new THREE.CylinderGeometry(x/2,x/2,y,32,1,true,Math.PI*.15,Math.PI*1.4));
-            for(const offset of [-.48,.48])part(root,new THREE.TorusGeometry(x/2,x*.055,8,32,Math.PI*1.4),[0,y*offset,0],[Math.PI/2,0,Math.PI*.15]);
+            part(root,new THREE.CylinderGeometry(x/2,x/2,y,48,1,true,Math.PI*.15,Math.PI*1.4));
+            for(const offset of [-.48,-.32,-.16,.16,.32,.48])part(root,new THREE.TorusGeometry(x*.52,x*.035,8,48,Math.PI*1.4),[0,y*offset,0],[Math.PI/2,0,Math.PI*.15]);
         }
     }else{
         root=new THREE.Mesh(geometry(o.shape,o.size),material);geometries.push(root.geometry);
@@ -52,14 +57,16 @@ function releaseObject(mesh){for(const g of mesh.userData.geometries)g.dispose()
 export function mountScene(container, scene, {reducedMotion = false, onPick = () => {}, onLost = () => {}, onChange = () => {}, initialView = null} = {}) {
     const canvas = document.createElement('canvas');
     const renderer = new THREE.WebGLRenderer({canvas, antialias: true, alpha: true}); // Throws when WebGL is unavailable.
+    renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.3;
     canvas.className = 'mp-scene-canvas'; canvas.tabIndex = 0; canvas.setAttribute('role', 'img');
     canvas.setAttribute('aria-label', 'Escena 3D conceptual. Arrastra o usa las flechas para girar; rueda, + o − para acercar.');
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
     container.append(canvas); live++;
 
     const world = new THREE.Scene(), camera = new THREE.PerspectiveCamera(40, 1, .1, 200), meshes = new Map(), arrows = [];
-    world.add(new THREE.HemisphereLight(0xffffff, 0x445566, 1.6));
-    const sun = new THREE.DirectionalLight(0xffffff, 1.4); sun.position.set(5, 8, 6); world.add(sun);
+    world.add(new THREE.HemisphereLight(0xffffff, 0x344861, 1.2));
+    const sun = new THREE.DirectionalLight(0xffffff, 2.0); sun.position.set(5, 8, 6); world.add(sun);
+    const rim = new THREE.DirectionalLight(0xa9bbff, 1.1); rim.position.set(-5, 3, -4); world.add(rim);
     for (const o of scene.objects) {
         const mesh=objectMesh(o);meshes.set(o.id,mesh);world.add(mesh);
     }
@@ -99,7 +106,7 @@ export function mountScene(container, scene, {reducedMotion = false, onPick = ()
     };
     const moveTarget = goal => { const from = view.target.clone(); tween('target', k => view.target.lerpVectors(from, goal, k)); };
     const resize = () => {
-        const width = Math.max(200, container.clientWidth || 300), height = Math.round(width * .62);
+        const width = Math.max(200, container.clientWidth || 300), height = Math.round(width * .76);
         renderer.setSize(width, height, false); canvas.style.width = '100%'; canvas.style.height = height + 'px';
         camera.aspect = width / height; camera.updateProjectionMatrix(); schedule();
     };
