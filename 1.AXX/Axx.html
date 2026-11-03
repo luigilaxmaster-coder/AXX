@@ -19780,7 +19780,7 @@ var Axx;
         }
         interactiveRegions() {
             const regions = [];
-            for (const n of document.querySelectorAll('#quick-actions,#quick-compose,#quick-reply,#anticipation-card,#mp-canvas,#mp-toolbar,#mp-more-panel,#mp-widget,#panel,#dock-shell,#flow-sheet,#flow-pill,#flow-fan>button,#flow-all,#reach-tray,#reach-preview,#ink-review,#v13-dock,#v13-settings,#v13-pad,#reader-mini,.organic-satellite,dialog[open],button,input,textarea,select,summary,.resident-resize-handle')) {
+            for (const n of document.querySelectorAll('#quick-actions,#quick-compose,#quick-reply,#anticipation-card,#mp-canvas,#mp-toolbar,#mp-more-panel,#mp-widget,#mp-spatial-stage .mp-stage-viewport,#panel,#dock-shell,#flow-sheet,#flow-pill,#flow-fan>button,#flow-all,#reach-tray,#reach-preview,#ink-review,#v13-dock,#v13-settings,#v13-pad,#reader-mini,.organic-satellite,dialog[open],button,input,textarea,select,summary,.resident-resize-handle')) {
                 if (!Axx.app.machine.visible && n.id !== 'restore') continue;
                 if (n.id === 'a11-main-button' || n.hidden || n.closest('[inert]') || !n.getClientRects().length) continue;
                 // These bounded surfaces already own their input. Descendant

@@ -38,6 +38,7 @@ PLAN_CONTRACT = (
     'Si el contenido es un ejemplo didáctico y no un dato de la imagen, márcalo con basis="assumed". '
     'Solo si una vista 3D ayuda de verdad añade scene, usando shapes permitidas y valores acotados. '
     'En scene separa piezas funcionales visibles con etiquetas precisas y proporciones relativas coherentes; usa las formas semánticas de motor cuando correspondan. '
+    'Para objetos técnicos, compón la escena con piezas distinguibles, uniones y ejes de movimiento explicables; usa colores diferentes para identificar funciones y una vista despiezada útil. Evita adornos que aparenten especificaciones no observadas. '
     'Añade diagram con nodos d1..d16, bounds=[x,y,ancho,alto] normalizados y edges que refieran nodos existentes. '
     'Añade overlays solo sobre la selección: hasta 16 flechas, cajas, etiquetas o tarjetas vinculadas a step_id; photo=true muestra el recorte seleccionado. '
     'Usa focus solo cuando el paso tenga objetos 3D reales de scene o asset; debe ser una lista de hasta 8 ids únicos existentes. '

@@ -207,11 +207,33 @@ body.native.axx-resident[data-ui-theme] #mp-desktop :is(#mp-live-status,#mp-hist
 #mp-desktop .mp-visual-controls{flex-wrap:wrap;gap:6px;margin-top:12px}
 #mp-desktop .mp-visual-controls button{min-height:36px;padding-inline:11px;font-size:11.5px}
 #mp-desktop .mp-visual-controls button:nth-of-type(2){background:var(--surface-subtle,#293349)}
-#mp-desktop .mp-scene-host{min-height:230px;border-radius:16px;background:radial-gradient(ellipse at 50% 43%,color-mix(in srgb,var(--mp-accent) 17%,var(--surface,#171d29)),color-mix(in srgb,var(--mp-ink) 3%,var(--surface,#171d29)) 78%)}
+#mp-desktop #mp-spatial-stage{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:1;width:min(42vw,640px);min-width:360px;pointer-events:none;color:var(--mp-ink);filter:drop-shadow(0 18px 22px #0005)}
+#mp-desktop .mp-stage-viewport{pointer-events:auto}
+#mp-desktop .mp-scene-host{position:relative;width:100%;min-height:0;overflow:visible;border:0;border-radius:0;background:transparent}
+#mp-desktop .mp-stage-top,#mp-desktop .mp-stage-bottom{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 12px;color:var(--mp-ink);font-size:11px;font-weight:600;text-shadow:0 1px 5px #0009}
+#mp-desktop .mp-stage-top{height:42px}
+#mp-desktop .mp-stage-top>span{font-size:10px;letter-spacing:.1em}
+#mp-desktop .mp-stage-bottom{margin-top:-4px;min-height:42px}
+#mp-desktop .mp-stage-top>span,#mp-desktop .mp-stage-bottom>span{padding:6px 10px;border:1px solid #ffffff25;border-radius:999px;background:#151b25d9;color:#fff;box-shadow:0 4px 16px #0003;backdrop-filter:blur(16px);text-shadow:none}
+#mp-desktop #mp-spatial-stage button{min-height:30px;padding:4px 12px;border:1px solid #ffffff25;border-radius:999px;background:#151b25e8!important;color:#fff!important;box-shadow:0 4px 16px #0003;font:inherit;cursor:pointer;pointer-events:auto;backdrop-filter:blur(16px);text-shadow:none}
+#mp-desktop #mp-spatial-stage button:hover{background:#303b4fe8!important}
+#mp-desktop #mp-spatial-stage button:focus-visible{outline:2px solid var(--mp-accent);outline-offset:3px}
+#mp-desktop .mp-stage-move{cursor:move!important;touch-action:none}
+#mp-desktop .mp-scene-canvas{background:transparent}
+@media(max-width:900px){#mp-desktop #mp-spatial-stage{width:min(70vw,520px);min-width:280px;top:38%}#mp-desktop .mp-stage-bottom>span{font-size:10px}}
+#mp-desktop .mp-scene-tooltip{position:absolute;left:12px;bottom:12px;max-width:calc(100% - 24px);padding:6px 10px;border:1px solid var(--mp-line);border-radius:10px;background:color-mix(in srgb,var(--surface,#171d29) 88%,transparent);color:var(--mp-ink);font-size:11px;font-weight:650;pointer-events:none;backdrop-filter:blur(12px)}
+#mp-desktop .mp-scene-hint{margin:0;color:var(--mp-muted);font-size:10.5px;line-height:1.4}
 #mp-desktop .mp-scene-tools,#mp-desktop .mp-scene-picked{gap:6px}
 #mp-desktop .mp-scene button{min-height:34px;padding-inline:11px;font-size:11.5px}
 #mp-desktop .mp-scene-parts{padding-top:2px}
 #mp-desktop .mp-scene-parts>summary{min-height:36px;color:var(--mp-muted);font-size:11.5px;cursor:pointer}
+#mp-desktop .mp-scene-parts button{display:inline-flex;align-items:center;gap:7px}
+#mp-desktop .mp-scene-swatch{width:9px;height:9px;flex:none;border-radius:50%;box-shadow:0 0 0 2px color-mix(in srgb,var(--mp-ink) 12%,transparent)}
+#mp-desktop .mp-scene-picked{display:grid;justify-items:start;gap:6px;padding:12px 13px;scroll-margin-bottom:190px;border:1px solid color-mix(in srgb,var(--mp-accent) 28%,var(--mp-line));border-radius:14px;background:color-mix(in srgb,var(--mp-accent) 7%,var(--surface,#171d29))}
+#mp-desktop .mp-scene-picked strong{font-size:15px;line-height:1.2}
+#mp-desktop .mp-scene-picked p{margin:0;color:var(--mp-ink);font-size:12px;line-height:1.5}
+#mp-desktop .mp-scene-picked .mp-scene-step-note,#mp-desktop .mp-scene-picked .mp-scene-source{color:var(--mp-muted)}
+#mp-desktop .mp-scene-picked .mp-scene-kicker{color:var(--mp-accent);font-size:9px;font-weight:700;letter-spacing:.08em}
 #mp-desktop .mp-chat-dock{position:sticky;bottom:-18px;z-index:3;margin:12px -18px -18px;padding:10px 18px 16px;border-top:1px solid color-mix(in srgb,var(--mp-line) 65%,transparent);border-radius:0 0 23px 23px;background:linear-gradient(180deg,color-mix(in srgb,var(--surface,#171d29) 90%,transparent),var(--mp-glass) 20%);backdrop-filter:blur(20px) saturate(145%)}
 #mp-desktop .mp-model-caption{margin:0 1px 8px;color:var(--mp-muted);font-size:10.5px;line-height:1.3}
 #mp-desktop .mp-spatial-actions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;margin:0 0 10px}

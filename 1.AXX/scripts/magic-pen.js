@@ -145,7 +145,15 @@
             this.widget.append(chatDock,settings,spatialStatus,this.view.querySelector('.mp-save-section'));
             const saved=this.widget.querySelector('.mp-save-section');saved.querySelector('summary').after($('mp-meta'));saved.append($('mp-capability'));
             const source=this.view.querySelector('.mp-source-row');this.widget.querySelector('.mp-save-section').append(source);source.hidden=true;
-            this.view.append(this.canvas,this.toolbar,this.widget);
+            this.stage=document.createElement('section');this.stage.id='mp-spatial-stage';this.stage.hidden=true;this.stage.setAttribute('aria-label','Modelo 3D flotante');
+            this.stage.innerHTML='<div class="mp-stage-top"><span>MODELO CONCEPTUAL</span><button type="button" class="mp-stage-move" aria-label="Mover modelo 3D" title="Arrastra para mover el modelo">Mover modelo</button></div><div class="mp-stage-viewport"></div><div class="mp-stage-bottom"><span>Arrastra para girar · rueda para acercar · toca una pieza</span><button type="button" class="mp-stage-center" aria-label="Centrar modelo 3D">Centrar</button></div>';
+            this.stage.querySelector('.mp-stage-center').onclick=()=>{this.stage.style.removeProperty('left');this.stage.style.removeProperty('top');this.syncInput();};
+            const handle=this.stage.querySelector('.mp-stage-move');let moving=null;
+            handle.addEventListener('pointerdown',e=>{e.preventDefault();const r=this.stage.getBoundingClientRect();moving={x:e.clientX-r.left-r.width/2,y:e.clientY-r.top-r.height/2};handle.setPointerCapture(e.pointerId);});
+            handle.addEventListener('pointermove',e=>{if(!moving)return;const w=this.stage.offsetWidth,h=this.stage.offsetHeight;this.stage.style.left=Math.max(w/2,Math.min(innerWidth-w/2,e.clientX-moving.x))+'px';this.stage.style.top=Math.max(h/2,Math.min(innerHeight-h/2,e.clientY-moving.y))+'px';this.syncInput();});
+            handle.addEventListener('keydown',e=>{const delta={ArrowLeft:[-20,0],ArrowRight:[20,0],ArrowUp:[0,-20],ArrowDown:[0,20]}[e.key];if(!delta)return;e.preventDefault();const r=this.stage.getBoundingClientRect();this.stage.style.left=Math.max(r.width/2,Math.min(innerWidth-r.width/2,r.left+r.width/2+delta[0]))+'px';this.stage.style.top=Math.max(r.height/2,Math.min(innerHeight-r.height/2,r.top+r.height/2+delta[1]))+'px';this.syncInput();});
+            for(const event of ['pointerup','pointercancel','lostpointercapture'])handle.addEventListener(event,()=>{moving=null;});
+            this.view.append(this.canvas,this.stage,this.toolbar,this.widget);
             this.caption=document.createElement('div');this.caption.className='mp-caption';this.caption.hidden=true;this.caption.setAttribute('role','status');this.caption.setAttribute('aria-live','polite');this.view.append(this.caption);
             this.widget.addEventListener('animationend',e=>{if(e.target===this.widget&&e.animationName==='mp-bubble-in'&&this.active)this.syncInput();});
             for(const selector of ['.mp-modebar','.mp-stage','.mp-selection-row'])this.view.querySelector(selector).hidden=true;
@@ -223,6 +231,12 @@
             if(this.widget.hidden)return;
             const toolbar=this.toolbar.getBoundingClientRect();
             this.widget.style.maxHeight=Math.max(80,Math.min(innerHeight-24,toolbar.top-24))+'px';
+            if(!this.stage.hidden&&!this.summaryBubbleMode){
+                const narrow=innerWidth<=900;if(narrow)this.widget.style.maxHeight=Math.max(120,Math.min(220,toolbar.top-24))+'px';
+                this.widget.style.left=Math.max(12,innerWidth-this.widget.offsetWidth-12)+'px';
+                this.widget.style.top=(narrow?Math.max(12,toolbar.top-this.widget.offsetHeight-12):Math.min(64,Math.max(12,toolbar.top-this.widget.offsetHeight-12)))+'px';
+                this.syncInput();return;
+            }
             const stage=$('stage').getBoundingClientRect(),canvas=$('avatar').getBoundingClientRect(),bounds=stage.width&&stage.height?stage:canvas,size=Math.min(bounds.width,bounds.height)*.58,cx=bounds.left+bounds.width/2,cy=bounds.top+bounds.height/2,avatar={left:cx-size/2,right:cx+size/2,top:cy-size/2,bottom:cy+size/2,width:size,height:size},width=this.widget.offsetWidth,height=this.widget.offsetHeight,bottom=Math.min(innerHeight-12,toolbar.top-12);
             if(this.summaryBubbleMode){
                 const center=avatar.left+avatar.width/2-width/2,mid=avatar.top+avatar.height/2-height/2;
@@ -481,6 +495,7 @@
                 for(const o of p.scene.objects)list.append(el('li',o.label));block.append(list);return block;
             }
             if(player.qa)block.append(el('small',player.qa.webgl&&player.qa.finite?`Visor local operativo · ${player.qa.objects} piezas · ${player.qa.triangles} triángulos`:'La comprobación local del visor detectó un problema.','mp-visual-fidelity'));
+            this.stage.hidden=false;
             if(!player.sceneHost){
                 player.sceneHost=el('div',null,'mp-scene-host');player.sceneHost.append(el('p','Cargando escena 3D…','mp-scene-loading'));
                 const fail=reason=>{if(this.player!==player)return;this.disposeScene();player.sceneFailed=reason+' Se muestran los componentes en lista.';this.renderAnswers();};
@@ -488,7 +503,7 @@
                     if(this.player!==player||!player.sceneHost)return;
                     player.sceneHost.replaceChildren();
                     try{player.scene=module.mountScene(player.sceneHost,p.scene,{reducedMotion:matchMedia('(prefers-reduced-motion: reduce)').matches,initialView:player.initialView,
-                        onPick:id=>{player.picked=id;this.renderAnswers();},onChange:()=>this.queueView(),onLost:()=>fail('Se perdió el contexto gráfico.')});}
+                        onPick:id=>{player.picked=id;player.overview=false;this.clearSummaryBubble(false);this.renderAnswers();this.showWidget();this.widget.querySelector('.mp-scene-picked')?.scrollIntoView({block:'nearest'});},onChange:()=>this.queueView(),onLost:()=>fail('Se perdió el contexto gráfico.')});}
                     catch{fail('Este equipo no ofrece WebGL para la escena 3D.');return;}
                     if(player.exploded)player.scene.setExploded(true);for(const id of player.hidden)player.scene.setHidden(id,true);for(const id of player.separated||[])player.scene.setObjectExploded(id,true);player.qa=player.scene.qa();this.renderAnswers();
                 },()=>fail('No se pudo cargar el motor 3D.'));
@@ -508,18 +523,26 @@
                 tools.append(button(separated?'Unir '+picked.label:'Separar '+picked.label,separated?'Unir pieza':'Separar pieza',()=>{player.scene?.setObjectExploded(picked.id,!separated);this.renderAnswers();},!player.scene));
             }
             tools.append(button('Guardar la escena como PNG','PNG',()=>this.run(()=>this.exportScene()),!player.scene));
-            block.append(player.sceneHost,tools);
+            const viewport=this.stage.querySelector('.mp-stage-viewport');if(player.sceneHost.parentElement!==viewport)viewport.append(player.sceneHost);
+            block.append(el('p','El modelo flota en el centro de la pantalla. Puedes moverlo, girarlo y seleccionar sus piezas.','mp-scene-hint'));
+            this.positionWidget();this.syncInput();
             const parts=el('details',null,'mp-scene-parts'),summary=el('summary','Seleccionar pieza');parts.append(summary);
-            for(const item of p.scene.objects){const choose=button('Seleccionar '+item.label,item.label,()=>{player.picked=item.id;player.overview=false;player.scene?.focus([item.id],player.isolated);this.renderAnswers();});choose.setAttribute('aria-pressed',String(player.picked===item.id));parts.append(choose);}
-            block.append(parts);
+            for(const item of p.scene.objects){const choose=button('Seleccionar '+item.label,item.label,()=>{player.picked=item.id;player.overview=false;player.scene?.focus([item.id],player.isolated);this.renderAnswers();this.widget.querySelector('.mp-scene-picked')?.scrollIntoView({block:'nearest'});}),swatch=el('span',null,'mp-scene-swatch');swatch.style.backgroundColor=item.color;choose.replaceChildren(swatch,el('span',item.label));choose.setAttribute('aria-pressed',String(player.picked===item.id));parts.append(choose);}
             if(picked){
-                const info=el('p',null,'mp-scene-picked');
-                info.append(el('span','Seleccionado: '+picked.label),button('Preguntar sobre '+picked.label,'Preguntar',()=>{const input=$('mp-question');input.value='Sobre «'+picked.label+'»: ';input.focus();}));
+                const info=el('section',null,'mp-scene-picked'),step=p.steps.find(item=>item.focus?.includes(picked.id));
+                const role=p.asset?.kind==='single_cylinder_engine'?{engine_cylinder:'Guía el recorrido del pistón y deja a la vista el interior del mecanismo.',piston:'Se desplaza dentro del cilindro y transmite el empuje a la biela.',connecting_rod:'Une el pistón con el cigüeñal y transmite su movimiento.',crankshaft:'Transforma el movimiento alternativo de la biela en giro.'}[picked.shape]:null;
+                info.setAttribute('aria-label','Detalle de '+picked.label);
+                info.append(el('small','PIEZA '+(p.scene.objects.findIndex(item=>item.id===picked.id)+1)+' / '+p.scene.objects.length+' · '+(step?BASIS[step.basis]:'CONCEPTUAL'),'mp-scene-kicker'),el('strong',picked.label));
+                if(role)info.append(el('p',role,'mp-scene-role'));
+                if(step)info.append(el('p',step.body,'mp-scene-step-note'),el('small','En el paso «'+step.title+'»','mp-scene-source'));
+                if(!role&&!step)info.append(el('p','Esta pieza forma parte de la escena conceptual. Pregunta para ampliar su función.','mp-scene-role'));
+                info.append(button('Preguntar sobre '+picked.label,'Preguntar sobre esta pieza',()=>{const input=$('mp-question');input.value='Sobre «'+picked.label+'»: ';input.focus();}));
                 block.append(info);
             }
+            block.append(tools,parts);
             return block;
         }
-        disposeScene(){const player=this.player;if(!player)return;player.scene?.dispose();player.scene=null;player.sceneHost=null;}
+        disposeScene(){this.stage.hidden=true;this.syncInput();const player=this.player;if(!player)return;player.scene?.dispose();player.scene=null;player.sceneHost?.remove();player.sceneHost=null;}
         async exportScene(){const image=this.player?.scene?.snapshot();if(!image)throw Error('La escena 3D no está disponible.');await this.export('scene',image);}
         seekPresentation(index){
             const q=this.presentationQuery(),player=this.player;if(!q||player?.queryId!==q.id||index<0||index>=q.presentation.steps.length)return;
