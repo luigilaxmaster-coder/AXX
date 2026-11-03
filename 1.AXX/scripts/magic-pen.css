@@ -220,6 +220,13 @@ body.native.axx-resident[data-ui-theme] #mp-desktop :is(#mp-live-status,#mp-hist
 #mp-desktop #mp-spatial-stage button:focus-visible{outline:2px solid var(--mp-accent);outline-offset:3px}
 #mp-desktop .mp-stage-move{cursor:move!important;touch-action:none}
 #mp-desktop .mp-scene-canvas{background:transparent}
+#mp-desktop .mp-scene-annotations{position:absolute;inset:0;pointer-events:none}
+#mp-desktop #mp-spatial-stage .mp-part-label{position:absolute;transform:translate(-50%,-100%);display:inline-flex;align-items:center;gap:7px;max-width:152px;min-height:27px;padding:4px 8px;border:1px solid #ffffff3b;border-radius:9px;background:#131c2be8!important;color:#fff!important;box-shadow:0 5px 15px #0005;font:600 10.5px/1.2 var(--interface-font,"Segoe UI",sans-serif);white-space:nowrap;cursor:pointer;pointer-events:auto;backdrop-filter:blur(14px)}
+#mp-desktop .mp-part-label>span:first-child{color:#88c7ff;font-size:9px;font-variant-numeric:tabular-nums}
+#mp-desktop .mp-part-label>span:last-child{overflow:hidden;text-overflow:ellipsis}
+#mp-desktop .mp-part-label:after{content:"";position:absolute;top:100%;left:50%;width:1px;height:var(--mp-leader,10px);background:linear-gradient(#88c7ffad,#88c7ff29);pointer-events:none}
+#mp-desktop #mp-spatial-stage .mp-part-label[data-focused=true]{border-color:#85c4ff;background:#1b3350ef!important;box-shadow:0 5px 18px #218afc55}
+#mp-desktop .mp-part-label:focus-visible{outline:2px solid #88c7ff;outline-offset:2px}
 @media(max-width:900px){#mp-desktop #mp-spatial-stage{width:min(70vw,520px);min-width:280px;top:38%}#mp-desktop .mp-stage-bottom>span{font-size:10px}}
 #mp-desktop .mp-scene-tooltip{position:absolute;left:12px;bottom:12px;max-width:calc(100% - 24px);padding:6px 10px;border:1px solid var(--mp-line);border-radius:10px;background:color-mix(in srgb,var(--surface,#171d29) 88%,transparent);color:var(--mp-ink);font-size:11px;font-weight:650;pointer-events:none;backdrop-filter:blur(12px)}
 #mp-desktop .mp-scene-hint{margin:0;color:var(--mp-muted);font-size:10.5px;line-height:1.4}

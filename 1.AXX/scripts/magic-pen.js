@@ -457,7 +457,7 @@
                 this.stopPresentation();
                 if(inherit&&previous?.scene&&q.presentation.scene){previous.scene.update(q.presentation.scene);previous.queryId=q.id;previous.index=Math.min(previous.index,q.presentation.steps.length-1);previous.picked=ids.has(picked)?picked:null;previous.hidden=new Set([...previous.hidden].filter(id=>ids.has(id)));previous.separated=new Set(previous.scene.getSeparated().filter(id=>ids.has(id)));}
                 else{this.disposeScene();this.player={queryId:q.id,index:Math.max(0,state?q.presentation.steps.findIndex(s=>s.id===state.step_id):0),playing:false,timer:null,token:0,spoke:false,
-                    exploded:state?.exploded||false,picked:ids.has(picked)?picked:null,overview:state?.overview||false,isolated:state?.isolated||false,
+                    exploded:state?.exploded||false,picked:ids.has(picked)?picked:null,overview:state?.overview??!!q.presentation.scene,isolated:state?.isolated||false,
                     hidden:new Set(state?.hidden||[]),separated:new Set(state?.separated||[]),initialView:view};}
             }
             const p=q.presentation,player=this.player,el=(tag,text,className)=>{const n=document.createElement(tag);if(text!=null)n.textContent=text;if(className)n.className=className;return n;};
@@ -523,8 +523,11 @@
                 tools.append(button(separated?'Unir '+picked.label:'Separar '+picked.label,separated?'Unir pieza':'Separar pieza',()=>{player.scene?.setObjectExploded(picked.id,!separated);this.renderAnswers();},!player.scene));
             }
             tools.append(button('Guardar la escena como PNG','PNG',()=>this.run(()=>this.exportScene()),!player.scene));
+            tools.append(button('Generar una versión con más detalle técnico','Más detalle',()=>this.ask({fresh:false,format:'presentation',question:'Genera otra versión del modelo 3D de esta selección, con más detalle técnico útil: piezas funcionales, conexiones y anotaciones explicativas. Conserva proporciones plausibles sin inventar medidas ni componentes que la imagen no permita inferir.'})));
+            const colors=[...new Set(p.scene.objects.map(item=>item.color.toLowerCase()))].slice(0,8),saved=this.sceneStyle(),same=JSON.stringify(saved?.colors)===JSON.stringify(colors)&&saved?.detail===p.scene.objects.length;
+            tools.append(button(same?'Quitar estilo guardado':'Conservar paleta de este modelo',same?'Estilo guardado':'Guardar estilo',()=>{if(same){localStorage.removeItem('axx.magicpen.scene-style');this.status('Estilo guardado eliminado.');}else this.saveSceneStyle();this.renderAnswers();}));
             const viewport=this.stage.querySelector('.mp-stage-viewport');if(player.sceneHost.parentElement!==viewport)viewport.append(player.sceneHost);
-            block.append(el('p','El modelo flota en el centro de la pantalla. Puedes moverlo, girarlo y seleccionar sus piezas.','mp-scene-hint'));
+            block.append(el('p','Toca una etiqueta para entender la pieza. Pide cambios de tamaño, posición o color en el chat.','mp-scene-hint'));
             this.positionWidget();this.syncInput();
             const parts=el('details',null,'mp-scene-parts'),summary=el('summary','Seleccionar pieza');parts.append(summary);
             for(const item of p.scene.objects){const choose=button('Seleccionar '+item.label,item.label,()=>{player.picked=item.id;player.overview=false;player.scene?.focus([item.id],player.isolated);this.renderAnswers();this.widget.querySelector('.mp-scene-picked')?.scrollIntoView({block:'nearest'});}),swatch=el('span',null,'mp-scene-swatch');swatch.style.backgroundColor=item.color;choose.replaceChildren(swatch,el('span',item.label));choose.setAttribute('aria-pressed',String(player.picked===item.id));parts.append(choose);}
@@ -578,6 +581,7 @@
             const locate=/\b(donde (esta|queda|se encuentra|puedo encontrar)|senala|marca|ubica)\b/.test(normalized),diagram=/\b(diagrama|esquema|flujo)\b/.test(normalized),model=/\b(3d|modelo tridimensional|en tres dimensiones)\b/.test(normalized);
             const spatial=this.spatialRoute();
             if(model&&!this.spatialProviders?.get($('mp-spatial-provider').value)?.spatial_3d)return this.status('Para 3D, elige ChatGPT/Codex o Claude con visión en «Proveedor y calidad».');
+            if(model&&!locate&&!diagram)return this.spatialAction('model');
             if(locate||diagram||model||spatial?.provider==='@codex')return this.ask({fresh:false,format:'presentation',base:locate||diagram||model?null:base?.id||null,question:locate?question+'\n\nUbica el elemento en la captura y marca sus límites con una caja visible en el primer paso. Si no está visible, dilo claramente sin inventar coordenadas.':question});
             return base?this.ask({fresh:false,format:'presentation',base:base.id}):this.ask();
         }
@@ -585,7 +589,7 @@
             if(mode==='model'&&!this.spatialProviders?.get($('mp-spatial-provider').value)?.spatial_3d)return this.status('Para 3D, elige ChatGPT/Codex o Claude con visión en «Proveedor y calidad».');
             const question=$('mp-question').value.trim();
             if(mode==='locate'&&!question)return this.status('Escribe qué elemento quieres que señale en la captura.');
-            const instruction={locate:'Ubica el elemento en la captura y marca sus límites con una caja visible en el primer paso. Si no está visible, dilo claramente sin inventar coordenadas.',diagram:'Explica la selección con un diagrama de pasos y relaciones.',model:'Explica la selección con un modelo 3D conceptual e interactivo si representa un objeto espacial. Aclara lo que la imagen no permite verificar.'}[mode];
+            const instruction={locate:'Ubica el elemento en la captura y marca sus límites con una caja visible en el primer paso. Si no está visible, dilo claramente sin inventar coordenadas.',diagram:'Explica la selección con un diagrama de pasos y relaciones.',model:'Si la selección muestra un objeto físico, crea un ensamblaje 3D conceptual con piezas funcionales identificables, proporciones coherentes y detalles visibles para explicar su funcionamiento. No extruyas una pantalla, texto, dibujo plano o fondo como una placa 3D: en ese caso ofrece un diagrama 2D. Marca claramente lo observado y lo supuesto; no inventes precisión CAD.'}[mode];
             return this.ask({fresh:false,format:'presentation',question:(question||'¿Cómo funciona lo seleccionado?')+'\n\n'+instruction});
         }
         loadVisual(){
@@ -607,9 +611,13 @@
             if(!this.active)return;this.stopPresentation();if(this.presentationQuery()&&this.localSceneCommand(text))return;
             const input=$('mp-question');input.value=text;input.dispatchEvent(new Event('input'));this.leaseFocus(input);
         }
+        sceneStyle(){try{const value=JSON.parse(localStorage.getItem('axx.magicpen.scene-style')||'null');return Array.isArray(value?.colors)&&value.colors.length>0&&value.colors.length<=8&&value.colors.every(color=>/^#[0-9a-f]{6}$/.test(color))&&Number.isInteger(value.detail)&&value.detail>=1&&value.detail<=24?value:null;}catch{return null;}}
+        saveSceneStyle(){const scene=this.presentationQuery()?.presentation?.scene;if(!scene){this.status('Primero crea un modelo 3D para guardar su estilo.');return;}
+            const colors=[...new Set(scene.objects.map(item=>item.color.toLowerCase()))].slice(0,8);localStorage.setItem('axx.magicpen.scene-style',JSON.stringify({colors,detail:scene.objects.length}));this.status('Paleta y nivel de detalle guardados para próximos modelos.');}
         localSceneCommand(raw){
             const q=this.presentationQuery(),p=this.player;if(!q||p?.queryId!==q.id)return false;
             const text=String(raw||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim().replace(/[.!?¿¡]+$/,'');
+            if(/^(me gusta(?: (?:este|el) (?:modelo|estilo)| como se ve)?|me encanta(?: (?:este|el) (?:modelo|estilo))?|asi me gusta)$/.test(text)){this.saveSceneStyle();$('mp-question').value='';this.renderAnswers();return true;}
             if(/^(pausa|pausar)( la explicacion)?$/.test(text)){this.stopPresentation();this.renderAnswers();return true;}
             if(/^(continua|reanuda|continuar)( la explicacion)?$/.test(text)){this.playPresentation();return true;}
             const match=/^(separa|separar|une|unir|junta|oculta|ocultar|muestra|mostrar|aisla|aislar)(?: (?:esta|esa|la) (?:pieza|parte))?$/.exec(text);
@@ -751,7 +759,7 @@
             const route=format==='presentation'?this.spatialRoute():this.route();
             if(format==='presentation'&&!route)return this.status('Elige un proveedor y modelo visual en «Proveedor y calidad».');
             if(format==='text'&&!this.hasVision()){this.livePaused=this.live;this.updateControls();return this.status('El modelo seleccionado no tiene visión disponible. Revisa Ajustes de conexión.');}
-            const epoch=this.cancelAnalysis(),session=this.generation,userQuestion=explicit||$('mp-question').value.trim()||'Explica el contenido de toda la región seleccionada. Ignora el cursor del ratón y cualquier indicador de puntero. Responde de forma clara y breve.',question=format!=='text'?userQuestion:userQuestion+'\n\nEmpieza con «Resumen:» y una síntesis en una frase de máximo 24 palabras; después da los detalles necesarios bajo «Detalle:».',
+            const epoch=this.cancelAnalysis(),session=this.generation,userQuestion=explicit||$('mp-question').value.trim()||'Explica el contenido de toda la región seleccionada. Ignora el cursor del ratón y cualquier indicador de puntero. Responde de forma clara y breve.',style=this.sceneStyle(),hint=format==='presentation'&&!base&&/\b(3d|modelo tridimensional|en tres dimensiones)\b/i.test(userQuestion)&&style?'\n\nPreferencia visual guardada por el usuario: usa esta paleta como referencia si encaja con el objeto: '+style.colors.join(', ')+'. Si tiene sentido, conserva un nivel de detalle comparable a '+style.detail+' piezas funcionales distinguibles, con anotaciones explicativas.':'',question=format!=='text'?userQuestion+(userQuestion.length+hint.length<=4000?hint:''):userQuestion+'\n\nEmpieza con «Resumen:» y una síntesis en una frase de máximo 24 palabras; después da los detalles necesarios bajo «Detalle:».',
                 providerRoute=format==='presentation'?{provider:route.provider,model:route.model,selection_mode:'manual'}:route;
             this.analysisPending=true;this.updateControls();this.showPendingBubble();
             const current=()=>this.active&&this.generation===session&&this.analysisEpoch===epoch;

@@ -8,7 +8,12 @@ export const liveScenes = () => live;
 
 function geometry(shape, [x, y, z]) {
     switch (shape) {
-        case 'box': return new THREE.BoxGeometry(x, y, z);
+        case 'box': {
+            const r=Math.min(x,y,z)*.12,shape=new THREE.Shape();
+            shape.moveTo(-x/2+r,-y/2+r);shape.lineTo(x/2-r,-y/2+r);shape.lineTo(x/2-r,y/2-r);shape.lineTo(-x/2+r,y/2-r);shape.closePath();
+            const g=new THREE.ExtrudeGeometry(shape,{depth:z-2*r,bevelEnabled:true,bevelThickness:r,bevelSize:r,bevelSegments:2,steps:1});
+            g.translate(0,0,-(z-2*r)/2);return g;
+        }
         case 'sphere': return new THREE.SphereGeometry(x / 2, 32, 16);
         case 'cylinder': return new THREE.CylinderGeometry(x / 2, x / 2, y, 32);
         case 'cone': return new THREE.ConeGeometry(x / 2, y, 32);
@@ -45,7 +50,7 @@ function objectMesh(o) {
         }else{
             // The open side exposes the conceptual internal parts without claiming a physical cutaway.
             part(root,new THREE.CylinderGeometry(x/2,x/2,y,48,1,true,Math.PI*.15,Math.PI*1.4));
-            for(const offset of [-.48,-.32,-.16,.16,.32,.48])part(root,new THREE.RingGeometry(x*.51,x*.64,48,1,Math.PI*.15,Math.PI*1.4),[0,y*offset,0],[-Math.PI/2,0,0],trim);
+            for(const offset of [-.42,-.14,.14,.42])part(root,new THREE.RingGeometry(x*.51,x*.58,48,1,Math.PI*.15,Math.PI*1.4),[0,y*offset,0],[-Math.PI/2,0,0],trim);
         }
     }else{
         root=new THREE.Mesh(geometry(o.shape,o.size),material);geometries.push(root.geometry);
@@ -64,8 +69,9 @@ export function mountScene(container, scene, {reducedMotion = false, onPick = ()
     canvas.className = 'mp-scene-canvas'; canvas.tabIndex = 0; canvas.setAttribute('role', 'img');
     canvas.setAttribute('aria-label', 'Escena 3D conceptual. Arrastra o usa las flechas para girar; rueda, + o − para acercar.');
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+    const annotations=document.createElement('div');annotations.className='mp-scene-annotations';
     const tooltip=document.createElement('div');tooltip.className='mp-scene-tooltip';tooltip.hidden=true;tooltip.setAttribute('aria-hidden','true');
-    container.append(canvas,tooltip); live++;
+    container.append(canvas,annotations,tooltip); live++;
 
     const world = new THREE.Scene(), camera = new THREE.PerspectiveCamera(40, 1, .1, 200), meshes = new Map(), arrows = [];
     world.add(new THREE.HemisphereLight(0xffffff, 0x344861, 1.2));
@@ -92,13 +98,26 @@ export function mountScene(container, scene, {reducedMotion = false, onPick = ()
         view.distance = Math.min(radius * 8, Math.max(radius * .8, initialView.distance));
     }
     let frame = 0, focused = [], exploded = false, disposed = false;
+    const labels=new Map();
+    const syncLabels=()=>{annotations.replaceChildren();labels.clear();for(const [index,o] of scene.objects.slice(0,8).entries()){
+        const label=document.createElement('button');label.type='button';label.className='mp-part-label';label.setAttribute('aria-label','Seleccionar '+o.label);
+        const number=document.createElement('span');number.textContent=String(index+1).padStart(2,'0');const name=document.createElement('span');name.textContent=o.label;
+        label.append(number,name);label.onclick=()=>onPick(o.id);annotations.append(label);labels.set(o.id,label);
+    }};
+    syncLabels();
     const hidden = new Set(), separated = new Set();
     const animations = {};
     const render = () => {
         if (disposed) return;
         const {target, theta, phi, distance} = view;
         camera.position.set(target.x + distance * Math.sin(phi) * Math.sin(theta), target.y + distance * Math.cos(phi), target.z + distance * Math.sin(phi) * Math.cos(theta));
-        camera.lookAt(target); renderer.render(world, camera);
+        camera.lookAt(target);camera.updateMatrixWorld();renderer.render(world, camera);
+        const placed=[];
+        for(const [id,label] of labels){const mesh=meshes.get(id);if(!mesh?.visible){label.hidden=true;continue;}const p=mesh.getWorldPosition(new THREE.Vector3()).project(camera);
+            label.hidden=p.z< -1||p.z>1||Math.abs(p.x)>.9||Math.abs(p.y)>.9;
+            if(!label.hidden){const x=Math.max(76,Math.min(canvas.clientWidth-76,(p.x+1)*canvas.clientWidth/2)),anchor=(1-p.y)*canvas.clientHeight/2;let y=Math.max(34,anchor-12);
+                while(placed.some(other=>Math.abs(other.x-x)<140&&Math.abs(other.y-y)<32)&&y>42)y-=34;
+                placed.push({x,y});label.style.left=x+'px';label.style.top=y+'px';label.style.setProperty('--mp-leader',Math.max(10,anchor-y)+'px');label.dataset.focused=String(focused.includes(id));}}
     };
     const schedule = () => { if (!frame && !disposed) frame = requestAnimationFrame(() => { frame = 0; render(); }); };
     const tween = (key, apply) => {
@@ -209,7 +228,7 @@ export function mountScene(container, scene, {reducedMotion = false, onPick = ()
                 const arrow=new THREE.ArrowHelper(direction.normalize(),from,length,0x9274ff,Math.min(.4,length*.25),Math.min(.2,length*.12));
                 arrow.visible=!exploded&&!hidden.has(a.from)&&!hidden.has(a.to)&&!separated.has(a.from)&&!separated.has(a.to);world.add(arrow);arrows.push(arrow);
             }
-            bounds.makeEmpty();meshes.forEach(m=>bounds.expandByObject(m));bounds.getCenter(center);radius=Math.max(.5,bounds.getSize(new THREE.Vector3()).length()/2);schedule();
+            bounds.makeEmpty();meshes.forEach(m=>bounds.expandByObject(m));bounds.getCenter(center);radius=Math.max(.5,bounds.getSize(new THREE.Vector3()).length()/2);syncLabels();schedule();
         },
         qa(){render();return {objects:meshes.size,triangles:renderer.info.render.triangles,webgl:!renderer.getContext().isContextLost(),finite:[...camera.position.toArray(),...view.target.toArray()].every(Number.isFinite)};},
         snapshot() { render(); return canvas.toDataURL('image/png'); },
@@ -219,7 +238,7 @@ export function mountScene(container, scene, {reducedMotion = false, onPick = ()
             if (disposed) return;
             disposed = true; live--; abort.abort(); observer.disconnect(); cancelAnimationFrame(frame);
             Object.values(animations).forEach(cancelAnimationFrame);
-            cancelAnimationFrame(hoverFrame);meshes.forEach(releaseObject);arrows.forEach(a=>a?.dispose());renderer.dispose(); renderer.forceContextLoss(); canvas.remove();tooltip.remove();
+            cancelAnimationFrame(hoverFrame);meshes.forEach(releaseObject);arrows.forEach(a=>a?.dispose());renderer.dispose(); renderer.forceContextLoss(); canvas.remove();annotations.remove();tooltip.remove();
         },
     };
 }
