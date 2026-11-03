@@ -25,10 +25,15 @@ class MagicPenHTTPTests(unittest.TestCase):
                 def __init__(self): self.calls = []
                 def route(self, request):
                     self.calls.append(request)
+                    if request['generation']['output_schema']['properties']['kind']['enum'] == ['patch']:
+                        return {'ok': True, 'message': {'content': json.dumps({'schema_version': '1.0', 'kind': 'patch', 'answer': 'Pistón conectado.', 'ops': []})},
+                                'route': {'provider_name': 'fixture', 'model': 'claude-opus-4-6'}}
                     plan = {'schema_version': '1.0', 'kind': 'presentation', 'title': 'Figura', 'summary': 'Una pieza azul.',
                         'fidelity': 'conceptual', 'steps': [
                             {'id': 's1', 'title': 'Pieza', 'body': 'Rectángulo azul.', 'narration': 'La pieza azul.', 'basis': 'observed'},
-                            {'id': 's2', 'title': 'Contexto', 'body': 'Está dentro de la selección.', 'narration': 'Vemos el contexto.', 'basis': 'inferred'}]}
+                            {'id': 's2', 'title': 'Contexto', 'body': 'Está dentro de la selección.', 'narration': 'Vemos el contexto.', 'basis': 'inferred'}],
+                        'scene': {'fidelity': 'conceptual', 'objects': [
+                            {'id': 'o1', 'label': 'Pistón', 'shape': 'piston', 'size': [1, 1, 1], 'position': [0, 0, 0], 'color': '#aaaaaa'}]}}
                     return {'ok': True, 'message': {'content': json.dumps(plan)},
                             'route': {'provider_name': 'fixture', 'model': 'claude-opus-4-6'}}
                 def cancel(self, request_id): return True
@@ -59,7 +64,8 @@ class MagicPenHTTPTests(unittest.TestCase):
                 self.assertEqual(adapter.calls[0]['generation']['effort'], 'medium')
                 self.assertIn('image_url', adapter.calls[0]['messages'][1]['content'][1])
                 readiness = request('GET', '/axx-api/feature-readiness?feature_id=spatial_intelligence')
-                self.assertEqual(readiness['status'], 'ready')
+                self.assertEqual(readiness['status'], 'partial', 'Provider verification does not certify WebGL or native teaching QA')
+                self.assertEqual(readiness['provider_status'], 'ready')
 
                 started = request('POST', '/axx-api/spatial/session/start', {'id': doc['id'], 'revision': 2,
                     'question': 'Explica la pieza.', 'provider': 'fixture', 'model': 'claude-opus-4-6',
@@ -73,6 +79,31 @@ class MagicPenHTTPTests(unittest.TestCase):
                 self.assertEqual(result['state'], 'completed', result.get('error'))
                 self.assertEqual(result['presentation']['title'], 'Figura')
                 self.assertEqual(adapter.calls[1]['generation']['output_schema'], output_schema('presentation'))
+                view = {'camera': {'target': [0, 0, 0], 'theta': .7, 'phi': 1.1, 'distance': 3},
+                    'step_id': 's1', 'selected': 'o1', 'hidden': [], 'separated': ['o1'],
+                    'exploded': False, 'isolated': True, 'overview': False}
+                saved = request('POST', '/axx-api/spatial/session/view', {'id': doc['id'], 'query_id': started['id'], 'view': view})
+                self.assertEqual(saved['view_state'], view)
+                self.assertEqual(request('POST', '/axx-api/spatial/session/get',
+                    {'id': doc['id'], 'query_id': started['id']})['view_state'], view)
+                with self.assertRaises(ValueError):
+                    pen.save_view({'id': doc['id'], 'query_id': started['id'], 'view': view | {'selected': 'o99'}})
+                followup = request('POST', '/axx-api/spatial/session/query', {'id': doc['id'], 'revision': 2,
+                    'question': 'Explica esta pieza.', 'provider': 'fixture', 'model': 'claude-opus-4-6',
+                    'selection_mode': 'manual', 'effort': 'auto', 'base_query_id': started['id'],
+                    'selected_object_id': 'o1', 'conversation_id': 'chat-fixture', 'request_id': uuid.uuid4().hex})
+                deadline = time.monotonic() + 2
+                while time.monotonic() < deadline:
+                    followup = request('POST', '/axx-api/spatial/session/get', {'id': doc['id'], 'query_id': followup['id']})
+                    if followup['state'] != 'running': break
+                    time.sleep(.01)
+                self.assertEqual(followup['state'], 'completed', followup.get('error'))
+                prompt = adapter.calls[2]['messages'][1]['content'][0]['text']
+                self.assertIn('Pieza seleccionada en esta misma sesión', prompt)
+                self.assertIn('chat-fixture', followup['conversation_id'])
+                pen.close(); pen = MagicPenService(root, adapter); handler.magic_pen = pen
+                self.assertEqual(pen.query({'id': doc['id'], 'query_id': started['id']})['view_state'], view,
+                                 'View state survives service restart without changing capture revision')
             finally:
                 pen.close(); server.shutdown(); server.server_close(); thread.join(2)
 

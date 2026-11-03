@@ -10,6 +10,7 @@ import copy
 import json
 import math
 import re
+from backend.spatial_assets import engine_asset
 
 SCHEMA_VERSION = '1.0'
 MAX_STEPS = 8
@@ -19,7 +20,7 @@ MAX_ARROWS = 12
 FIDELITY = ('illustrative', 'conceptual', 'technical')
 SCENE_FIDELITY = ('illustrative', 'conceptual')
 BASIS = ('observed', 'documented', 'inferred', 'assumed')
-SHAPES = ('box', 'sphere', 'cylinder', 'cone', 'torus', 'plane')
+SHAPES = ('box', 'sphere', 'cylinder', 'cone', 'torus', 'plane', 'piston', 'connecting_rod', 'crankshaft', 'engine_cylinder')
 STEP_ID = re.compile(r's[0-9]{1,3}')
 OBJECT_ID = re.compile(r'o[0-9]{1,3}')
 COLOR = re.compile(r'#[0-9a-fA-F]{6}')
@@ -35,13 +36,21 @@ PLAN_CONTRACT = (
     'basis="observed" solo para lo que se ve en la imagen; "inferred" para deducciones; "assumed" para conocimiento general. '
     'No inventes medidas, pines, especificaciones ni datos no visibles; si faltan, dilo y usa fidelity="conceptual". '
     'Si el contenido es un ejemplo didáctico y no un dato de la imagen, márcalo con basis="assumed". '
-    'Solo si una vista 3D ayuda de verdad (objeto físico, mecanismo, montaje o fuerzas) añade '
-    '"scene":{"fidelity":"illustrative|conceptual","objects":[{"id":"o1","label":"…","shape":"box|sphere|cylinder|cone|torus|plane",'
-    '"size":[ancho,alto,fondo],"position":[x,y,z],"color":"#rrggbb","explode":[dx,dy,dz]}],"arrows":[{"from":"o1","to":"o2","label":"…"}]} '
-    'con hasta 24 objetos, valores entre -10 y 10 y tamaños entre 0.05 y 10, y en cada paso "focus":["o1"] con los objetos que explica. '
-    'explode es el desplazamiento opcional en la vista despiezada. Para matemáticas, texto, software o pantallas omite scene: '
+    'Solo si una vista 3D ayuda de verdad añade scene, usando shapes permitidas y valores acotados. '
+    'Para un mecanismo monocilíndrico puedes pedir asset={"kind":"single_cylinder_engine","scale":1}; es una asamblea conceptual, no CAD. '
+    'Añade diagram con nodos d1..d16, bounds=[x,y,ancho,alto] normalizados y edges que refieran nodos existentes. '
+    'Añade overlays solo sobre la selección: hasta 16 flechas, cajas, etiquetas o tarjetas vinculadas a step_id; photo=true muestra el recorte seleccionado. '
+    'En cada paso usa focus con objetos existentes que explica. Para matemáticas, texto, software o pantallas omite scene: '
     'no uses 3D solo por ser vistoso. La escena es conceptual: no inventes geometría interna, dimensiones exactas ni conexiones. '
     'Nunca incluyas HTML, código ni enlaces.'
+    ' Para un motor didáctico de un cilindro puedes añadir "asset":{"kind":"single_cylinder_engine","scale":1} '
+    'sin scene; Axx construye localmente cilindro o1, pistón o2, biela o3 y cigüeñal o4. Son piezas conceptuales, sin simulación física. '
+    'Puedes añadir "diagram":{"nodes":[{"id":"d1","label":"…","step_id":"s1","bounds":[x,y,ancho,alto]}],'
+    '"edges":[{"from":"d1","to":"d2","label":"…"}]} con 2 a 16 nodos y hasta 24 enlaces. '
+    'Las coordenadas están normalizadas entre 0 y 1. Para enseñar sobre la selección usa "overlays":'
+    '[{"id":"a1","kind":"arrow|box|label|card","step_id":"s1","start":[x,y],"end":[x,y],"text":"…","photo":false}]. '
+    'Hasta 16 anotaciones; photo solo puede ser true para una tarjeta que muestra la captura seleccionada. '
+    'Cada anotación pertenece a un paso y desaparece al terminar o pausar la narración.'
 )
 
 PATCH_CONTRACT = (
@@ -70,6 +79,17 @@ def output_schema(kind='presentation'):
            'properties': {'id': text, 'label': text, 'shape': {'type': 'string', 'enum': list(SHAPES)},
                           'size': vector, 'position': vector, 'color': text, 'rotation': vector, 'explode': vector},
            'required': ['id', 'label', 'shape', 'size', 'position', 'color']}
+    bounds = {'type': 'array', 'items': {'type': 'number'}, 'minItems': 4, 'maxItems': 4}
+    point = {'type': 'array', 'items': {'type': 'number'}, 'minItems': 2, 'maxItems': 2}
+    diagram = {'type': 'object', 'additionalProperties': False, 'properties': {
+        'nodes': {'type': 'array', 'items': {'type': 'object', 'additionalProperties': False,
+            'properties': {'id': text, 'label': text, 'step_id': text, 'bounds': bounds}, 'required': ['id', 'label', 'step_id', 'bounds']}},
+        'edges': {'type': 'array', 'items': {'type': 'object', 'additionalProperties': False,
+            'properties': {'from': text, 'to': text, 'label': text}, 'required': ['from', 'to', 'label']}}}, 'required': ['nodes', 'edges']}
+    overlays = {'type': 'array', 'items': {'type': 'object', 'additionalProperties': False,
+        'properties': {'id': text, 'kind': {'type': 'string', 'enum': ['arrow', 'box', 'label', 'card']},
+                       'step_id': text, 'start': point, 'end': point, 'text': text, 'photo': {'type': 'boolean'}},
+        'required': ['id', 'kind', 'step_id', 'start', 'end', 'text', 'photo']}}
     if kind == 'presentation':
         scene = {'type': 'object', 'additionalProperties': False,
                  'properties': {'fidelity': {'type': 'string', 'enum': list(SCENE_FIDELITY)},
@@ -82,7 +102,10 @@ def output_schema(kind='presentation'):
                 'properties': {'schema_version': text, 'kind': {'type': 'string', 'enum': ['presentation']},
                                'title': text, 'summary': text,
                                'fidelity': {'type': 'string', 'enum': list(FIDELITY)},
-                               'steps': {'type': 'array', 'items': step}, 'scene': scene},
+                               'steps': {'type': 'array', 'items': step}, 'scene': scene, 'diagram': diagram, 'overlays': overlays,
+                               'asset': {'type': 'object', 'additionalProperties': False, 'properties': {
+                                   'kind': {'type': 'string', 'enum': ['single_cylinder_engine']}, 'scale': {'type': 'number'}},
+                                   'required': ['kind', 'scale']}},
                 'required': ['schema_version', 'kind', 'title', 'summary', 'fidelity', 'steps']}
     if kind == 'patch':
         op = {'type': 'object', 'additionalProperties': False,
@@ -187,8 +210,62 @@ def _scene(scene):
     return result
 
 
+def _normalized(value, count, name):
+    if (not isinstance(value, list) or len(value) != count
+            or any(type(n) not in (int, float) or not math.isfinite(n) or not 0 <= n <= 1 for n in value)):
+        raise PlanError(f'{name} requiere {count} coordenadas finitas entre 0 y 1.')
+    return list(value)
+
+
+def _diagram(value, steps):
+    _closed(value, ('nodes', 'edges'), name='Diagrama')
+    if not isinstance(value['nodes'], list) or not 2 <= len(value['nodes']) <= 16:
+        raise PlanError('El diagrama admite entre 2 y 16 nodos.')
+    nodes, ids = [], set()
+    for node in value['nodes']:
+        _closed(node, ('id', 'label', 'step_id', 'bounds'), name='Nodo')
+        if (not isinstance(node['id'], str) or not re.fullmatch(r'd[0-9]{1,3}', node['id']) or node['id'] in ids
+                or not isinstance(node['step_id'], str) or node['step_id'] not in steps):
+            raise PlanError('Nodo duplicado, identificador inválido o paso desconocido.')
+        x, y, width, height = _normalized(node['bounds'], 4, 'bounds')
+        if width < .03 or height < .03 or x + width > 1 or y + height > 1:
+            raise PlanError('El nodo debe ocupar una región visible dentro del diagrama.')
+        ids.add(node['id']); nodes.append({**node, 'label': _text(node['label'], 'label', 100), 'bounds': [x, y, width, height]})
+    if not isinstance(value['edges'], list) or len(value['edges']) > 24:
+        raise PlanError('El diagrama admite hasta 24 enlaces.')
+    edges = []
+    for edge in value['edges']:
+        _closed(edge, ('from', 'to', 'label'), name='Enlace')
+        if edge['from'] not in ids or edge['to'] not in ids or edge['from'] == edge['to']:
+            raise PlanError('El enlace requiere dos nodos existentes distintos.')
+        edges.append({**edge, 'label': _text(edge['label'], 'label', 80)})
+    return {'nodes': nodes, 'edges': edges}
+
+
+def _overlays(values, steps):
+    if not isinstance(values, list) or len(values) > 16:
+        raise PlanError('Se admiten hasta 16 anotaciones por presentación.')
+    result, ids = [], set()
+    for item in values:
+        _closed(item, ('id', 'kind', 'step_id', 'start', 'end', 'text', 'photo'), name='Anotación')
+        if (not isinstance(item['id'], str) or not re.fullmatch(r'a[0-9]{1,3}', item['id']) or item['id'] in ids
+                or item['kind'] not in ('arrow', 'box', 'label', 'card') or not isinstance(item['step_id'], str) or item['step_id'] not in steps
+                or type(item['photo']) is not bool or item['photo'] and item['kind'] != 'card'):
+            raise PlanError('Anotación, paso o referencia de foto inválida.')
+        start, end = _normalized(item['start'], 2, 'start'), _normalized(item['end'], 2, 'end')
+        if math.dist(start, end) < .02 or item['kind'] != 'arrow' and (end[0] <= start[0] or end[1] <= start[1]):
+            raise PlanError('La anotación requiere extensión visible dentro de la selección.')
+        text = item['text']
+        if not isinstance(text, str) or len(text) > 240 or '\x00' in text:
+            raise PlanError('Texto de anotación inválido.')
+        if item['kind'] in ('label', 'card') and not text.strip():
+            raise PlanError('La tarjeta o etiqueta requiere texto.')
+        ids.add(item['id']); result.append({**item, 'start': start, 'end': end, 'text': text.strip()})
+    return result
+
+
 def validate_plan(plan):
-    _closed(plan, ('schema_version', 'kind', 'title', 'summary', 'fidelity', 'steps'), ('scene',), name='Plan')
+    _closed(plan, ('schema_version', 'kind', 'title', 'summary', 'fidelity', 'steps'), ('scene', 'asset', 'diagram', 'overlays'), name='Plan')
     if plan['schema_version'] != SCHEMA_VERSION or plan['kind'] != 'presentation':
         raise PlanError('Versión o tipo de plan no compatible.')
     if plan['fidelity'] not in FIDELITY:
@@ -203,6 +280,16 @@ def validate_plan(plan):
               'summary': _text(plan['summary'], 'summary', 240), 'fidelity': plan['fidelity'], 'steps': steps}
     if 'scene' in plan:
         result['scene'] = _scene(plan['scene'])
+    if 'asset' in plan:
+        try:
+            scene = engine_asset(plan['asset'])
+        except ValueError as exc:
+            raise PlanError(str(exc)) from None
+        result['asset'] = dict(plan['asset'])
+        if 'scene' not in result: result['scene'] = _scene(scene)
+    step_ids = {step['id'] for step in steps}
+    if 'diagram' in plan: result['diagram'] = _diagram(plan['diagram'], step_ids)
+    if 'overlays' in plan: result['overlays'] = _overlays(plan['overlays'], step_ids)
     ids = {o['id'] for o in result.get('scene', {}).get('objects', [])}
     if any(not set(s.get('focus', ())) <= ids for s in steps):
         raise PlanError('focus solo puede nombrar objetos de la escena.')
@@ -254,7 +341,15 @@ def parse_json(text):
     """Accept one JSON object, optionally wrapped in a single ```json fence."""
     text = text.strip()
     fence = re.fullmatch(r'```(?:json)?\s*(.*?)\s*```', text, re.S)
+    def pairs(items):
+        result = {}
+        for key, value in items:
+            if key in result: raise ValueError('Campo JSON duplicado.')
+            result[key] = value
+        return result
+    def constant(value):
+        raise ValueError('Número JSON no finito.')
     try:
-        return json.loads(fence.group(1) if fence else text)
-    except (json.JSONDecodeError, RecursionError) as exc:
+        return json.loads(fence.group(1) if fence else text, object_pairs_hook=pairs, parse_constant=constant)
+    except (ValueError, RecursionError) as exc:
         raise PlanError('La respuesta del modelo no es JSON válido.') from exc

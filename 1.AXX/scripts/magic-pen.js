@@ -61,7 +61,7 @@
                 <div class="mp-toolstrip"><div id="mp-select-tools" class="mp-toolgroup">${tool('rect','Rectángulo')}${tool('point','Punto y contexto')}${tool('lasso','Lazo')}</div><div id="mp-ink-tools" class="mp-toolgroup" hidden>${tool('pen','Pluma')}${tool('marker','Marcador')}${tool('erase','Borrar trazo')}<span class="mp-divider"></span><input id="mp-color" type="color" value="#b8aaff" aria-label="Color de tinta"><input id="mp-width" type="range" min="1" max="40" value="4" aria-label="Grosor de tinta"></div><span id="mp-tool-hint">Arrastra para seleccionar</span><div class="mp-history-tools"><button id="mp-undo" class="mp-icon-button" title="Deshacer tinta" aria-label="Deshacer tinta">${icon('undo')}</button><button id="mp-redo" class="mp-icon-button" title="Rehacer tinta" aria-label="Rehacer tinta">${icon('redo')}</button></div></div>
                 <div class="mp-stage"><div id="mp-viewport"><canvas id="mp-canvas" tabindex="0" aria-label="Captura congelada: selecciona o anota; Escape para salir"></canvas><div id="mp-empty">${icon('capture')}<strong>Todo empieza con una captura.</strong><span>Selecciona un detalle. Pregunta. Deja una nota.</span></div></div><div class="mp-stage-footer"><span id="mp-meta">Sin captura</span><label>Zoom <select id="mp-zoom"><option value="1">Ajustar</option><option value="2">200%</option><option value="4">400%</option></select></label></div></div>
                 <div class="mp-selection-row"><details><summary>Ajustar selección</summary><div class="mp-row">${['x0','y0','x1','y1'].map(k=>`<label>${k}<input id="mp-${k}" type="number" min="0" step="1"></label>`).join('')}<button id="mp-adjust">Aplicar</button></div><small>Coordenadas del original. Aplicar crea un rectángulo.</small></details><button id="mp-close-lasso" hidden>Cerrar lazo</button></div>
-                <div class="mp-spatial-options"><label>Canvas 3D <select id="mp-spatial-provider" aria-label="Proveedor y modelo del Canvas 3D"><option value="">Elige proveedor y modelo</option></select></label><label>Esfuerzo <select id="mp-spatial-effort" aria-label="Esfuerzo del modelo"><option value="auto">Auto</option></select></label><button id="mp-spatial-verify" type="button" title="Envía una imagen sintética al proveedor elegido">Probar conexión</button><button id="mp-spatial-create" type="button">Visualizar selección</button></div>
+                <div class="mp-spatial-options"><label>Canvas 3D <select id="mp-spatial-provider" aria-label="Proveedor y modelo del Canvas 3D"><option value="">Elige proveedor y modelo</option></select></label><label>Esfuerzo <select id="mp-spatial-effort" aria-label="Esfuerzo del modelo"><option value="auto">Auto</option></select></label><button id="mp-spatial-verify" type="button" title="Envía una imagen sintética al proveedor elegido">Probar conexión</button><button id="mp-spatial-create" type="button">Visualizar selección</button></div><small id="mp-spatial-status" class="mp-composer-help" role="status" aria-live="polite"></small>
                 <div class="mp-composer"><textarea id="mp-question" rows="1" maxlength="4000" placeholder="Escribe tu pregunta… (Intro para enviar)" aria-label="Pregunta o instrucción sobre la selección" aria-describedby="mp-question-help"></textarea><button id="mp-voice" class="mp-icon-button" title="Dictar pregunta" aria-label="Dictar pregunta">${icon('mic')}</button><button id="mp-ask" class="mp-icon-button" title="Enviar pregunta" aria-label="Enviar pregunta">${icon('send')}</button></div><small id="mp-question-help" class="mp-composer-help">Intro envía · Mayús+Intro añade una línea</small>
                 <p id="mp-status" role="status" aria-live="polite">Elige una pantalla y pulsa Capturar.</p><div id="mp-answers" aria-live="polite"></div>
                 <details class="mp-save-section"><summary>${icon('save')}Guardar e historial<span>PNG + tinta editable</span></summary><label>Carpeta de destino<input id="mp-directory" type="text"></label><label>Nombre<input id="mp-name" type="text" value="Captura-Axx" maxlength="100"></label><div class="mp-row"><button id="mp-original">Guardar original</button><button id="mp-annotated">Guardar anotado</button><button id="mp-retry">Guardar borrador</button></div><p id="mp-export" role="status"></p><label>Capturas anteriores<select id="mp-history"><option value="">Elige una captura</option></select></label></details><p id="mp-capability" class="mp-muted"></p>`;
@@ -99,7 +99,7 @@
             addEventListener('pagehide',()=>this.suspend());
             addEventListener('resize',()=>{this.invalidateGeometry();if(this.active)this.positionWidget();});
             try {const p=JSON.parse(localStorage.getItem('axx.magicpen.prefs')||'{}');for(const id of ['mp-color','mp-width','mp-tool','mp-directory']) if(p[id])$(id).value=p[id];this.live=p.live===true;}catch{}
-            this.voiceOwner = {state:'idle',onFinal:text=>{if(this.active)$('mp-question').value=text;},onError:text=>this.status(text),onState:()=>{$('mp-voice').innerHTML=this.voiceOwner.state==='listening'?'<span aria-hidden="true">■</span>':this.icon('mic');}};
+            this.voiceOwner = {state:'idle',onFinal:text=>this.onDictated(text),onError:text=>this.status(text),onState:()=>{$('mp-voice').innerHTML=this.voiceOwner.state==='listening'?'<span aria-hidden="true">■</span>':this.icon('mic');}};
             A.nativeVoice?.attach?.(this.voiceOwner);
             $('mp-voice').onclick=()=>{if(this.voiceOwner.state==='listening')this.voiceOwner.finish?.();else if(A.nativeVoice?.activeCapture)this.status('Termina el dictado activo antes de dictar esta pregunta.');else this.voiceOwner.start?.('es-ES');};
             $('mp-voice').hidden=!this.voiceOwner.start;this.chooseTool($('mp-tool').value||'rect');this.updateControls();
@@ -133,11 +133,16 @@
                 this.cancelAnalysis();void this.run(async()=>{if(!await this.capture())return;this.doc.selection={shape:'rect',bounds:[0,0,this.doc.source.width,this.doc.source.height]};this.selectionChanged();this.scheduleAnalysis(0,false);});
             };this.toolbar.querySelector('#mp-select-tools').append(all);
             this.widget=document.createElement('aside');this.widget.addEventListener('pointerdown',e=>this.leaseFocus(e.target));this.widget.id='mp-widget';this.widget.setAttribute('aria-label','Explicación de la selección');this.widget.tabIndex=-1;this.widget.hidden=true;
-            this.widget.innerHTML='<div class="mp-widget-head"><span class="mp-head-mark" aria-hidden="true">'+this.icon('pen')+'</span><span class="mp-head-copy"><strong>Magic Pen</strong></span><span id="mp-summary-spinner" class="mp-summary-spinner" hidden aria-hidden="true"></span><button id="mp-hide-answer" aria-label="Ocultar explicación">×</button></div><section id="mp-summary-bubble" class="mp-summary-bubble" hidden><div class="mp-summary-kicker"><span id="mp-summary-label">Lo esencial</span></div><p id="mp-summary-text" role="status" aria-live="polite"></p><p id="mp-summary-voice-status" role="status" aria-live="polite" hidden></p><div class="mp-summary-actions"><button id="mp-summary-expand" type="button">Ver explicación</button><button id="mp-summary-visual" type="button" aria-label="Explicar visualmente" title="Explicar visualmente como diagrama de pasos">Visualizar</button><button id="mp-summary-listen" type="button" aria-label="Escuchar resumen" title="Escuchar resumen">'+this.icon('voice')+'</button></div></section><figure id="mp-history-preview" hidden><canvas id="mp-preview-canvas" aria-label="Vista previa de la captura guardada"></canvas><figcaption>Captura guardada · no es el escritorio actual</figcaption><button id="mp-back-desktop" type="button">Volver al escritorio</button></figure><div id="mp-vision-missing" hidden><p>El modelo seleccionado no tiene análisis visual disponible.</p><button id="mp-configure" type="button">Ajustes de conexión</button></div>';
-            for(const selector of ['#mp-answers','.mp-spatial-options','.mp-composer','.mp-composer-help','#mp-status','.mp-save-section'])this.widget.append(this.view.querySelector(selector));
+            this.widget.innerHTML='<div class="mp-widget-head"><span class="mp-head-mark" aria-hidden="true">'+this.icon('pen')+'</span><span class="mp-head-copy"><span><strong>Magic Pen</strong><small>LECTURA VISUAL</small></span></span><span id="mp-summary-spinner" class="mp-summary-spinner" hidden aria-hidden="true"></span><button id="mp-hide-answer" aria-label="Ocultar explicación">×</button></div><section id="mp-summary-bubble" class="mp-summary-bubble" hidden><div class="mp-summary-kicker"><span id="mp-summary-label">Lo esencial</span></div><p id="mp-summary-text" role="status" aria-live="polite"></p><p id="mp-summary-voice-status" role="status" aria-live="polite" hidden></p><div class="mp-summary-actions"><button id="mp-summary-expand" type="button">Ver explicación</button><button id="mp-summary-visual" type="button" aria-label="Explicar visualmente" title="Explicar visualmente como diagrama de pasos">Visualizar</button><button id="mp-summary-listen" type="button" aria-label="Escuchar resumen" title="Escuchar resumen">'+this.icon('voice')+'</button></div></section><figure id="mp-history-preview" hidden><canvas id="mp-preview-canvas" aria-label="Vista previa de la captura guardada"></canvas><figcaption>Captura guardada · no es el escritorio actual</figcaption><button id="mp-back-desktop" type="button">Volver al escritorio</button></figure><div id="mp-vision-missing" hidden><p>El modelo seleccionado no tiene análisis visual disponible.</p><button id="mp-configure" type="button">Ajustes de conexión</button></div>';
+            const spatial=this.view.querySelector('.mp-spatial-options'),spatialStatus=this.view.querySelector('#mp-spatial-status'),create=spatial.querySelector('#mp-spatial-create'),verify=spatial.querySelector('#mp-spatial-verify'),settings=document.createElement('details'),settingsTitle=document.createElement('summary'),settingsBody=spatial;
+            settings.className='mp-spatial-settings';settingsTitle.innerHTML='<span>Proveedor y calidad</span><small>POR SESIÓN</small>';settings.append(settingsTitle,settingsBody,verify);
+            const chatDock=document.createElement('div');chatDock.className='mp-chat-dock';const spatialActions=document.createElement('div');spatialActions.className='mp-spatial-actions';spatialActions.append(create);chatDock.append(spatialActions,this.view.querySelector('.mp-composer'),this.view.querySelector('#mp-question-help'));
+            for(const selector of ['#mp-answers','#mp-status'])this.widget.append(this.view.querySelector(selector));
+            this.widget.append(chatDock,settings,spatialStatus,this.view.querySelector('.mp-save-section'));
             const saved=this.widget.querySelector('.mp-save-section');saved.querySelector('summary').after($('mp-meta'));saved.append($('mp-capability'));
             const source=this.view.querySelector('.mp-source-row');this.widget.querySelector('.mp-save-section').append(source);source.hidden=true;
             this.view.append(this.canvas,this.toolbar,this.widget);
+            this.caption=document.createElement('div');this.caption.className='mp-caption';this.caption.hidden=true;this.caption.setAttribute('role','status');this.caption.setAttribute('aria-live','polite');this.view.append(this.caption);
             this.widget.addEventListener('animationend',e=>{if(e.target===this.widget&&e.animationName==='mp-bubble-in'&&this.active)this.syncInput();});
             for(const selector of ['.mp-modebar','.mp-stage','.mp-selection-row'])this.view.querySelector(selector).hidden=true;
             this.canvas.setAttribute('aria-label','Escritorio: selecciona o marca; Escape para salir');
@@ -246,6 +251,7 @@
             $('mp-capability').textContent=(data.capabilities.vision.length?'Visión · '+data.capabilities.vision.map(p=>p.name).join(', '):'Análisis visual no configurado')+' · '+data.capabilities.ocr_message;
             this.setupSpatialOptions(data.capabilities);
             try{this.readiness=await A.backendRequest('GET','/axx-api/feature-readiness?feature_id=spatial_intelligence');}catch{this.readiness=null;}
+            this.renderSpatialReadiness();
             this.updateControls();return data;
         }
         setupSpatialOptions(capabilities){
@@ -257,13 +263,13 @@
             const preferred=saved.provider&&saved.model?[saved.provider,saved.model]:[prefs.visionConnection||prefs.apiConnection||'',prefs.visionModel||prefs.model||''];
             const selected=[...this.spatialProviders].find(([,p])=>p.name===preferred[0]&&p.model===preferred[1])?.[0]||
                 (entries.length===1?[...this.spatialProviders.keys()][0]:'');
-            select.value=selected||'';this.spatialProviderChanged(saved.effort||'auto');
+            select.value=selected||'';this.spatialProviderChanged(saved.effort||'auto');this.renderSpatialReadiness();
         }
         spatialProviderChanged(preferredEffort){
             const key=$('mp-spatial-provider').value,provider=this.spatialProviders?.get(key),effort=$('mp-spatial-effort');
             const previous=preferredEffort||effort.value||'auto',levels=['auto',...(provider?.efforts||[]).filter(level=>['low','medium','high','xhigh','max'].includes(level))];
             effort.replaceChildren(...levels.map(level=>new Option(level==='auto'?'Auto':level,level)));
-            effort.value=levels.includes(previous)?previous:'auto';this.saveSpatialPreferences();
+            effort.value=levels.includes(previous)?previous:'auto';this.saveSpatialPreferences();this.renderSpatialReadiness();
         }
         saveSpatialPreferences(){
             const provider=this.spatialProviders?.get($('mp-spatial-provider').value);
@@ -273,13 +279,20 @@
             const provider=this.spatialProviders?.get($('mp-spatial-provider').value);
             return provider?{provider:provider.name,model:provider.model,selection_mode:'manual',effort:$('mp-spatial-effort').value||'auto'}:null;
         }
+        renderSpatialReadiness(){
+            const node=$('mp-spatial-status');if(!node)return;const route=this.spatialRoute();
+            if(!route){node.textContent='Elige un proveedor visual con permiso existente. AXX no cambia proveedor automáticamente.';return;}
+            const provider=this.readiness?.providers?.find(item=>item.name===route.provider&&item.model===route.model);
+            node.textContent=provider?.status==='ready'?'Proveedor verificado. El visor y la ventana Windows se comprueban por separado.':
+                'Proveedor sin verificar para imagen y JSON. Pulsa «Probar conexión»; esta prueba envía una imagen sintética.';
+        }
         async verifySpatial(){
             const route=this.spatialRoute();if(!route)return this.status('Elige primero un proveedor y modelo visual.');
             const button=$('mp-spatial-verify');button.disabled=true;this.status('Verificando imagen y salida estructurada con '+route.provider+'…');
             try{const result=await A.backendRequest('POST','/axx-api/feature-readiness/verify',{feature_id:'spatial_intelligence',provider:route.provider,model:route.model,effort:route.effort});
                 this.status('Conexión verificada para '+result.provider+' · '+result.model+'.');
                 this.capabilities=(await api('status')).capabilities;this.setupSpatialOptions(this.capabilities);
-                this.readiness=await A.backendRequest('GET','/axx-api/feature-readiness?feature_id=spatial_intelligence');
+                this.readiness=await A.backendRequest('GET','/axx-api/feature-readiness?feature_id=spatial_intelligence');this.renderSpatialReadiness();
             }catch(e){this.status('Verificación no completada: '+String(e.message||e));}
             finally{button.disabled=false;}
         }
@@ -305,7 +318,7 @@
             this.focusLeased=true;
             this.sessionChain=this.sessionChain.catch(()=>{}).then(()=>A.app.bridge.action('open_panel')).then(focus).catch(e=>{this.focusLeased=false;this.status(String(e.message||e));});
         }
-        suspend(){this.closeTools();this.clearSummaryBubble(true);this.cancelAnalysis();this.disposeScene();if(this.player)this.player.queryId=null;this.guide=null;this.session(false);this.active=false;this.root.hidden=true;this.state='closed';this.cancelGesture();this.setInput(false);this.voiceOwner.stop?.();++this.generation;this.working=false;this.updateControls();}
+        suspend(){this.saveViewNow();this.closeTools();this.clearSummaryBubble(true);this.cancelAnalysis();this.disposeScene();if(this.player)this.player.queryId=null;this.guide=null;this.session(false);this.active=false;this.root.hidden=true;this.state='closed';this.cancelGesture();this.setInput(false);this.voiceOwner.stop?.();++this.generation;this.working=false;this.updateControls();}
         close(){this.state='closing';this.suspend();this.syncInput();}
         invalidateGeometry(){
             // Native move/scale events also invalidate physical coordinates even
@@ -399,23 +412,32 @@
         undo(redo){if(!this.doc)return;const from=redo?this.redoStack:this.undoStack,to=redo?this.undoStack:this.redoStack;if(!from.length)return;this.cancelAnalysis();to.push(this.inkSnapshot());const snapshot=from.pop();this.doc.strokes=snapshot.strokes;this.doc.selection=snapshot.selection;this.selectionOrigin=snapshot.origin;this.inkBaseSelection=snapshot.base;this.answerDirty=true;this.queueSave();this.render();this.renderAnswers();this.paintPreview();this.scheduleAnalysis(650,true);}
         path(points,close=false){const c=this.ctx;c.beginPath();points.forEach((p,i)=>i?c.lineTo(...p):c.moveTo(...p));if(close)c.closePath();}
         stroke(s){const c=this.ctx;c.save();c.globalAlpha=s.tool==='marker'?.33:1;c.strokeStyle=s.color;c.fillStyle=s.color;c.lineWidth=s.width;c.lineCap='round';c.lineJoin='round';this.path(s.points);c.stroke();if(s.points.length===1){c.beginPath();c.arc(...s.points[0],s.width/2,0,Math.PI*2);c.fill();}c.restore();}
-        render(){const c=this.ctx;c.clearRect(0,0,this.canvas.width,this.canvas.height);if(!this.doc)return;this.doc.strokes.forEach(s=>this.stroke(s));const g=this.gesture;if(g&&['pen','marker'].includes(g.tool))this.stroke(g);c.save();c.strokeStyle='#9274ff';c.fillStyle='#b8aaff22';c.lineWidth=Math.max(2,this.canvas.width/450);c.setLineDash([c.lineWidth*3,c.lineWidth*2]);const s=this.pendingLasso||this.doc.selection;if(s){if(s.shape==='lasso'){this.path(s.points,true);c.fill('evenodd');c.stroke();}else{const [x,y,r,b]=s.bounds;c.strokeRect(x,y,r-x,b-y);}if(s.anchor){c.beginPath();c.arc(...s.anchor,6,0,Math.PI*2);c.stroke();}}if(g){if(g.tool==='rect'){const a=g.points[0],b=g.points.at(-1);c.strokeRect(...a,b[0]-a[0],b[1]-a[1]);}else if(g.tool==='lasso'){this.path(g.points);c.stroke();}else if(g.tool==='pointer'){c.setLineDash([]);c.beginPath();c.arc(...g.points.at(-1),12,0,Math.PI*2);c.stroke();}}c.restore();this.paintGuide();$('mp-close-lasso').hidden=!this.pendingLasso;this.updateMetadata();$('mp-undo').disabled=!this.undoStack.length;$('mp-redo').disabled=!this.redoStack.length;}
-        renderAnswers(){const root=$('mp-answers');root.replaceChildren();if(this.answerDirty)return;const current=this.presentationQuery(),guided=this.guideQuery();for(const q of (this.doc?.queries||[]).filter(q=>q.revision===this.doc.revision&&this.doc.selection&&q.selection?.shape===this.doc.selection.shape&&['bounds','points','anchor'].every(k=>JSON.stringify(q.selection[k])===JSON.stringify(this.doc.selection[k]))).slice(-5)){const visual=q===current||q===guided,card=q===current?this.presentationCard(q):q===guided?this.guideCard(q):document.createElement('p');card.classList.add('mp-answer');if(!visual)card.textContent=(q.format==='presentation'?q.presentation?.summary||q.error:q.format==='guide'?q.guide?.goal||q.error:q.response||q.error)||(q.state==='running'?'Analizando…':'Interrumpido; vuelve a preguntar.');card.title='Captura '+q.source_id.slice(0,6)+' · revisión '+q.revision;root.append(card);}}
+        render(){const c=this.ctx;c.clearRect(0,0,this.canvas.width,this.canvas.height);if(!this.doc)return;this.doc.strokes.forEach(s=>this.stroke(s));const g=this.gesture;if(g&&['pen','marker'].includes(g.tool))this.stroke(g);c.save();c.strokeStyle='#9274ff';c.fillStyle='#b8aaff22';c.lineWidth=Math.max(2,this.canvas.width/450);c.setLineDash([c.lineWidth*3,c.lineWidth*2]);const s=this.pendingLasso||this.doc.selection;if(s){if(s.shape==='lasso'){this.path(s.points,true);c.fill('evenodd');c.stroke();}else{const [x,y,r,b]=s.bounds;c.strokeRect(x,y,r-x,b-y);}if(s.anchor){c.beginPath();c.arc(...s.anchor,6,0,Math.PI*2);c.stroke();}}if(g){if(g.tool==='rect'){const a=g.points[0],b=g.points.at(-1);c.strokeRect(...a,b[0]-a[0],b[1]-a[1]);}else if(g.tool==='lasso'){this.path(g.points);c.stroke();}else if(g.tool==='pointer'){c.setLineDash([]);c.beginPath();c.arc(...g.points.at(-1),12,0,Math.PI*2);c.stroke();}}c.restore();this.paintGuide();this.paintVisual();$('mp-close-lasso').hidden=!this.pendingLasso;this.updateMetadata();$('mp-undo').disabled=!this.undoStack.length;$('mp-redo').disabled=!this.redoStack.length;}
+        renderAnswers(){const root=$('mp-answers');root.replaceChildren();if(this.answerDirty){this.disposeScene();return;}const current=this.presentationQuery(),guided=this.guideQuery();for(const q of (this.doc?.queries||[]).filter(q=>q.revision===this.doc.revision&&this.doc.selection&&q.selection?.shape===this.doc.selection.shape&&['bounds','points','anchor'].every(k=>JSON.stringify(q.selection[k])===JSON.stringify(this.doc.selection[k]))).slice(-5)){const visual=q===current||q===guided,card=q===current?this.presentationCard(q):q===guided?this.guideCard(q):document.createElement('p');card.classList.add('mp-answer');if(!visual)card.textContent=(q.format==='presentation'?q.presentation?.summary||q.error:q.format==='guide'?q.guide?.goal||q.error:q.response||q.error)||(q.state==='running'?'Analizando…':'Interrumpido; vuelve a preguntar.');card.title='Captura '+q.source_id.slice(0,6)+' · revisión '+q.revision;root.append(card);}this.queueView();}
         presentationQuery(){
             const d=this.doc,last=this.answerDirty?null:d?.queries?.findLast(q=>q.revision===d.revision&&q.state==='completed');
             return last?.presentation?last:null;
         }
         presentationCard(q){
             if(this.player?.queryId!==q.id){
-                const previous=this.player,view=previous?.scene?.getView(),ids=new Set(q.presentation.scene?.objects.map(o=>o.id)||[]);
-                this.stopPresentation();this.disposeScene();this.player={queryId:q.id,index:Math.min(previous?.index||0,q.presentation.steps.length-1),playing:false,timer:null,token:0,spoke:false,
-                    exploded:previous?.exploded||false,picked:ids.has(previous?.picked)?previous.picked:null,overview:previous?.overview||false,
-                    isolated:previous?.isolated||false,hidden:new Set([...(previous?.hidden||[])].filter(id=>ids.has(id))),initialView:view};
+                const previous=this.player,inherit=q.base_query_id===previous?.queryId,state=q.view_state,ids=new Set(q.presentation.scene?.objects.map(o=>o.id)||[]);
+                const view=state?.camera||(inherit?previous?.scene?.getView():null),picked=state?.selected||(inherit?previous?.picked:null);
+                this.stopPresentation();
+                if(inherit&&previous?.scene&&q.presentation.scene){previous.scene.update(q.presentation.scene);previous.queryId=q.id;previous.index=Math.min(previous.index,q.presentation.steps.length-1);previous.picked=ids.has(picked)?picked:null;previous.hidden=new Set([...previous.hidden].filter(id=>ids.has(id)));previous.separated=new Set(previous.scene.getSeparated().filter(id=>ids.has(id)));}
+                else{this.disposeScene();this.player={queryId:q.id,index:Math.max(0,state?q.presentation.steps.findIndex(s=>s.id===state.step_id):0),playing:false,timer:null,token:0,spoke:false,
+                    exploded:state?.exploded||false,picked:ids.has(picked)?picked:null,overview:state?.overview||false,isolated:state?.isolated||false,
+                    hidden:new Set(state?.hidden||[]),separated:new Set(state?.separated||[]),initialView:view};}
             }
             const p=q.presentation,player=this.player,el=(tag,text,className)=>{const n=document.createElement(tag);if(text!=null)n.textContent=text;if(className)n.className=className;return n;};
             const card=el('figure',null,'mp-visual'),head=el('figcaption'),list=el('ol',null,'mp-visual-flow'),controls=el('div',null,'mp-visual-controls');
             head.append(el('strong',p.title),el('small',FIDELITY[p.fidelity]+' · explicación generada, no verificada','mp-visual-fidelity'));card.append(head);
             if(q.answer)card.append(el('p',q.answer,'mp-visual-answer'));
+            if(p.diagram){
+                const diagram=el('div',null,'mp-diagram');card.append(diagram);
+                if(this.visualModule)this.visualModule.renderDiagram(diagram,p.diagram,p.steps[player.index].id,id=>this.seekPresentation(p.steps.findIndex(s=>s.id===id)));
+                else this.loadVisual();
+            }
+            if(p.overlays&&!this.visualModule)this.loadVisual();
             const button=(label,text,onclick,disabled=false)=>{const b=el('button',text);b.type='button';b.setAttribute('aria-label',label);b.disabled=disabled;b.onclick=onclick;return b;};
             if(p.scene)card.append(this.sceneBlock(p,player,el,button));
             p.steps.forEach((step,i)=>{
@@ -429,7 +451,7 @@
                 button('Paso siguiente','›',()=>this.seekPresentation(player.index+1),player.index>=p.steps.length-1),
                 button('Guíame para hacerlo en la aplicación','Guíame',()=>{void this.ask({fresh:false,format:'guide',base:q.id,question:$('mp-question').value.trim()||'Guíame paso a paso para hacer esto en la aplicación: '+p.title});}),el('span',(player.index+1)+' / '+p.steps.length,'mp-visual-progress'));
             card.append(list,controls);
-            if(player.scene){for(const id of player.hidden)player.scene.setHidden(id,true);player.scene.focus(player.isolated&&player.picked?[player.picked]:player.overview?[]:p.steps[player.index].focus||[]);}
+            if(player.scene){for(const id of player.hidden)player.scene.setHidden(id,true);player.scene.focus(player.picked?[player.picked]:player.overview?[]:p.steps[player.index].focus||[],player.isolated);}
             return card;
         }
         sceneBlock(p,player,el,button){
@@ -440,6 +462,7 @@
                 const list=el('ul',null,'mp-scene-fallback');block.append(el('p',player.sceneFailed));
                 for(const o of p.scene.objects)list.append(el('li',o.label));block.append(list);return block;
             }
+            if(player.qa)block.append(el('small',player.qa.webgl&&player.qa.finite?`Visor local operativo · ${player.qa.objects} piezas · ${player.qa.triangles} triángulos`:'La comprobación local del visor detectó un problema.','mp-visual-fidelity'));
             if(!player.sceneHost){
                 player.sceneHost=el('div',null,'mp-scene-host');player.sceneHost.append(el('p','Cargando escena 3D…','mp-scene-loading'));
                 const fail=reason=>{if(this.player!==player)return;this.disposeScene();player.sceneFailed=reason+' Se muestran los componentes en lista.';this.renderAnswers();};
@@ -447,9 +470,9 @@
                     if(this.player!==player||!player.sceneHost)return;
                     player.sceneHost.replaceChildren();
                     try{player.scene=module.mountScene(player.sceneHost,p.scene,{reducedMotion:matchMedia('(prefers-reduced-motion: reduce)').matches,initialView:player.initialView,
-                        onPick:id=>{player.picked=id;this.renderAnswers();},onLost:()=>fail('Se perdió el contexto gráfico.')});}
+                        onPick:id=>{player.picked=id;this.renderAnswers();},onChange:()=>this.queueView(),onLost:()=>fail('Se perdió el contexto gráfico.')});}
                     catch{fail('Este equipo no ofrece WebGL para la escena 3D.');return;}
-                    if(player.exploded)player.scene.setExploded(true);for(const id of player.hidden)player.scene.setHidden(id,true);this.renderAnswers();
+                    if(player.exploded)player.scene.setExploded(true);for(const id of player.hidden)player.scene.setHidden(id,true);for(const id of player.separated||[])player.scene.setObjectExploded(id,true);player.qa=player.scene.qa();this.renderAnswers();
                 },()=>fail('No se pudo cargar el motor 3D.'));
             }
             const tools=el('div',null,'mp-scene-tools'),picked=objects.get(player.picked);
@@ -463,9 +486,14 @@
                 },!player.scene),button(player.isolated?'Mostrar todas las piezas':'Aislar '+picked.label,player.isolated?'Mostrar todas':'Aislar',()=>{
                     player.isolated=!player.isolated;player.overview=false;this.renderAnswers();
                 },!player.scene));
+                const separated=player.scene?.getSeparated().includes(picked.id);
+                tools.append(button(separated?'Unir '+picked.label:'Separar '+picked.label,separated?'Unir pieza':'Separar pieza',()=>{player.scene?.setObjectExploded(picked.id,!separated);this.renderAnswers();},!player.scene));
             }
             tools.append(button('Guardar la escena como PNG','PNG',()=>this.run(()=>this.exportScene()),!player.scene));
             block.append(player.sceneHost,tools);
+            const parts=el('details',null,'mp-scene-parts'),summary=el('summary','Seleccionar pieza');parts.append(summary);
+            for(const item of p.scene.objects){const choose=button('Seleccionar '+item.label,item.label,()=>{player.picked=item.id;player.overview=false;player.scene?.focus([item.id],player.isolated);this.renderAnswers();});choose.setAttribute('aria-pressed',String(player.picked===item.id));parts.append(choose);}
+            block.append(parts);
             if(picked){
                 const info=el('p',null,'mp-scene-picked');
                 info.append(el('span','Seleccionado: '+picked.label),button('Preguntar sobre '+picked.label,'Preguntar',()=>{const input=$('mp-question');input.value='Sobre «'+picked.label+'»: ';input.focus();}));
@@ -481,14 +509,14 @@
         }
         playPresentation(){
             const q=this.presentationQuery(),player=this.player;if(!q||player?.queryId!==q.id)return;
-            const steps=q.presentation.steps,token=++player.token,step=steps[player.index];player.playing=true;player.picked=null;player.overview=false;this.renderAnswers();
+            const steps=q.presentation.steps,token=++player.token,step=steps[player.index];player.playing=true;player.overview=false;this.caption.textContent=step.narration;this.caption.hidden=false;this.renderAnswers();this.render();
             player.spoke=this.readNarration(step.narration);
             // One playback owner: a stale token (pause, seek, new answer) ends this chain without touching the voice.
             const next=()=>{
                 if(player.token!==token||!player.playing)return;
                 if(player.spoke&&this.speechBusy()){player.timer=setTimeout(next,300);return;}
-                if(player.index>=steps.length-1){player.playing=false;this.renderAnswers();return;}
-                player.index++;this.playPresentation();
+                if(player.index>=steps.length-1){player.playing=false;this.caption.hidden=true;this.render();this.renderAnswers();return;}
+                player.index++;player.picked=null;this.playPresentation();
             };
             player.timer=setTimeout(next,player.spoke?600:Math.max(2500,step.narration.length*60));
         }
@@ -496,6 +524,7 @@
             const player=this.player;if(!player)return;clearTimeout(player.timer);player.token++;
             if(player.playing&&player.spoke)try{A.companion.voiceDelegate?.stopOutput?.();}catch{}
             player.playing=false;player.spoke=false;
+            if(this.caption)this.caption.hidden=true;this.render();
         }
         readNarration(text){
             const prefs=A.companion.data.prefs;if(prefs.mutedAll||this.speechBusy()||typeof A.companion.read!=='function')return false;
@@ -503,7 +532,41 @@
         }
         askFromComposer(){
             const base=this.presentationQuery();
+            if(base&&this.localSceneCommand($('mp-question').value))return;
             return base?this.ask({fresh:false,format:'presentation',base:base.id}):this.ask();
+        }
+        loadVisual(){
+            if(this.visualLoading)return;this.visualLoading=import('./visual-canvas.js').then(module=>{this.visualModule=module;if(this.active){this.renderAnswers();this.render();}}).catch(()=>this.status('No se pudo cargar el diagrama local.'));
+        }
+        paintVisual(){const q=this.presentationQuery(),player=this.player;if(player?.playing&&q?.presentation.overlays&&this.visualModule)this.visualModule.paintOverlays(this.ctx,q.presentation.overlays,q.presentation.steps[player.index].id,this.doc?.selection,this.image);}
+        saveViewNow(){
+            clearTimeout(this.viewTimer);const q=this.presentationQuery(),p=this.player,d=this.doc;
+            if(!this.active||!q||p?.queryId!==q.id||!d)return Promise.resolve();
+            const view={camera:p.scene?.getView()||p.initialView||null,step_id:q.presentation.steps[p.index].id,selected:p.picked||null,
+                hidden:[...p.hidden],separated:p.scene?.getSeparated()||[...(p.separated||[])],exploded:!!p.exploded,isolated:!!p.isolated,overview:!!p.overview};
+            return spatialApi('view',{id:d.id,query_id:q.id,view}).then(()=>{q.view_state=view;this.viewError=false;}).catch(e=>{if(!this.viewError){this.viewError=true;this.status('No se pudo guardar la vista: '+String(e.message||e));}});
+        }
+        queueView(){
+            clearTimeout(this.viewTimer);if(!this.active)return;
+            this.viewTimer=setTimeout(()=>void this.saveViewNow(),300);
+        }
+        onDictated(text){
+            if(!this.active)return;this.stopPresentation();if(this.presentationQuery()&&this.localSceneCommand(text))return;
+            const input=$('mp-question');input.value=text;input.dispatchEvent(new Event('input'));this.leaseFocus(input);
+        }
+        localSceneCommand(raw){
+            const q=this.presentationQuery(),p=this.player;if(!q||p?.queryId!==q.id)return false;
+            const text=String(raw||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim().replace(/[.!?¿¡]+$/,'');
+            if(/^(pausa|pausar)( la explicacion)?$/.test(text)){this.stopPresentation();this.renderAnswers();return true;}
+            if(/^(continua|reanuda|continuar)( la explicacion)?$/.test(text)){this.playPresentation();return true;}
+            const match=/^(separa|separar|une|unir|junta|oculta|ocultar|muestra|mostrar|aisla|aislar)(?: (?:esta|esa|la) (?:pieza|parte))?$/.exec(text);
+            if(!match)return false;
+            if(!p.picked||!p.scene){this.status('Selecciona una pieza del modelo antes de dar esa orden.');return true;}
+            const action=match[1];
+            if(['separa','separar','une','unir','junta'].includes(action))p.scene.setObjectExploded(p.picked,['separa','separar'].includes(action));
+            else if(['oculta','ocultar','muestra','mostrar'].includes(action)){const hidden=['oculta','ocultar'].includes(action);if(hidden)p.hidden.add(p.picked);else p.hidden.delete(p.picked);p.scene.setHidden(p.picked,hidden);}
+            else{p.isolated=true;p.overview=false;}
+            $('mp-question').value='';this.status('Vista actualizada sobre la pieza seleccionada.');this.renderAnswers();this.queueView();return true;
         }
         guideQuery(){
             const d=this.doc,last=this.answerDirty?null:d?.queries?.findLast(q=>q.revision===d.revision&&q.state==='completed');
@@ -650,7 +713,7 @@
                 this.status('Analizando tu selección…');
                 const request_id=crypto.randomUUID().replace(/-/g,'');
                 this.analysisJob={id:request_id,source_id:d.id,format};
-                const body={id:d.id,revision,question,...providerRoute,request_id,...(format!=='text'?{format,effort:route.effort}:{}),...(base?{base_query_id:base}:{})};
+                const body={id:d.id,revision,question,...providerRoute,request_id,...(format!=='text'?{format,effort:route.effort}:{}),...(base?{base_query_id:base}:{}),...(base&&this.player?.picked?{selected_object_id:this.player.picked}:{}),...(A.chatWorkspace?.active?.id?{conversation_id:A.chatWorkspace.active.id}:{})};
                 const q=format==='presentation'?await spatialApi(base?'query':'start',body):await api('start',body);
                 if(q?.id!==request_id||q.source_id!==d.id)throw Error('El servicio devolvió un análisis sin identidad válida.');
                 if(!current()){await this.cancelQuery(q);return null;}

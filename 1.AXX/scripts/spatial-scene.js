@@ -17,7 +17,39 @@ function geometry(shape, [x, y, z]) {
     }
 }
 
-export function mountScene(container, scene, {reducedMotion = false, onPick = () => {}, onLost = () => {}, initialView = null} = {}) {
+function objectMesh(o) {
+    const [x,y,z]=o.size, material=new THREE.MeshStandardMaterial({color:o.color,roughness:.55,metalness:.15,transparent:true}), geometries=[];
+    const part=(root,g,position=[0,0,0],rotation=[0,0,0])=>{const m=new THREE.Mesh(g,material);m.position.fromArray(position);m.rotation.set(...rotation);m.userData.id=o.id;root.add(m);geometries.push(g);};
+    let root;
+    if(['piston','connecting_rod','crankshaft','engine_cylinder'].includes(o.shape)){
+        root=new THREE.Group();
+        if(o.shape==='piston'){
+            part(root,new THREE.CylinderGeometry(x/2,x/2,y,32));
+            part(root,new THREE.TorusGeometry(x*.49,Math.max(.015,y*.06),8,32),[0,y*.3,0],[Math.PI/2,0,0]);
+            part(root,new THREE.CylinderGeometry(x*.16,x*.16,z*1.1,16),[0,-y*.1,0],[Math.PI/2,0,0]);
+        }else if(o.shape==='connecting_rod'){
+            part(root,new THREE.BoxGeometry(x*.55,y*.75,z*.55));
+            for(const offset of [-.42,.42])part(root,new THREE.TorusGeometry(x*.45,x*.12,12,24),[0,y*offset,0]);
+        }else if(o.shape==='crankshaft'){
+            part(root,new THREE.CylinderGeometry(z*.25,z*.25,x,24),[0,0,0],[0,0,Math.PI/2]);
+            for(const offset of [-.2,.2])part(root,new THREE.CylinderGeometry(y*.55,y*.55,x*.14,24),[x*offset,0,0],[0,0,Math.PI/2]);
+            part(root,new THREE.CylinderGeometry(z*.2,z*.2,x*.45,24),[0,y*.5,0],[0,0,Math.PI/2]);
+        }else{
+            // The open side exposes the conceptual internal parts without claiming a physical cutaway.
+            part(root,new THREE.CylinderGeometry(x/2,x/2,y,32,1,true,Math.PI*.15,Math.PI*1.4));
+            for(const offset of [-.48,.48])part(root,new THREE.TorusGeometry(x/2,x*.055,8,32,Math.PI*1.4),[0,y*offset,0],[Math.PI/2,0,Math.PI*.15]);
+        }
+    }else{
+        root=new THREE.Mesh(geometry(o.shape,o.size),material);geometries.push(root.geometry);
+    }
+    root.position.fromArray(o.position);if(o.rotation)root.rotation.set(...o.rotation.map(THREE.MathUtils.degToRad));
+    root.userData={id:o.id,base:root.position.clone(),explode:new THREE.Vector3(...(o.explode||[0,1.5,0])),material,geometries,shape:o.shape,size:JSON.stringify(o.size)};
+    return root;
+}
+
+function releaseObject(mesh){for(const g of mesh.userData.geometries)g.dispose();mesh.userData.material.dispose();mesh.removeFromParent();}
+
+export function mountScene(container, scene, {reducedMotion = false, onPick = () => {}, onLost = () => {}, onChange = () => {}, initialView = null} = {}) {
     const canvas = document.createElement('canvas');
     const renderer = new THREE.WebGLRenderer({canvas, antialias: true, alpha: true}); // Throws when WebGL is unavailable.
     canvas.className = 'mp-scene-canvas'; canvas.tabIndex = 0; canvas.setAttribute('role', 'img');
@@ -25,26 +57,21 @@ export function mountScene(container, scene, {reducedMotion = false, onPick = ()
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
     container.append(canvas); live++;
 
-    const world = new THREE.Scene(), camera = new THREE.PerspectiveCamera(40, 1, .1, 200), disposables = [], meshes = new Map(), arrows = [];
+    const world = new THREE.Scene(), camera = new THREE.PerspectiveCamera(40, 1, .1, 200), meshes = new Map(), arrows = [];
     world.add(new THREE.HemisphereLight(0xffffff, 0x445566, 1.6));
     const sun = new THREE.DirectionalLight(0xffffff, 1.4); sun.position.set(5, 8, 6); world.add(sun);
     for (const o of scene.objects) {
-        const material = new THREE.MeshStandardMaterial({color: o.color, roughness: .55, metalness: .15, transparent: true});
-        const mesh = new THREE.Mesh(geometry(o.shape, o.size), material);
-        mesh.position.fromArray(o.position);
-        if (o.rotation) mesh.rotation.set(...o.rotation.map(THREE.MathUtils.degToRad));
-        mesh.userData = {id: o.id, base: mesh.position.clone(), explode: new THREE.Vector3(...(o.explode || [0, 0, 0]))};
-        meshes.set(o.id, mesh); world.add(mesh); disposables.push(mesh.geometry, material);
+        const mesh=objectMesh(o);meshes.set(o.id,mesh);world.add(mesh);
     }
     for (const a of scene.arrows || []) {
         const from = meshes.get(a.from).position, direction = meshes.get(a.to).position.clone().sub(from), length = direction.length();
         if (length < 1e-6) { arrows.push(null); continue; }
         const arrow = new THREE.ArrowHelper(direction.normalize(), from, length, 0x9274ff, Math.min(.4, length * .25), Math.min(.2, length * .12));
-        world.add(arrow); arrows.push(arrow); disposables.push(arrow.line.geometry, arrow.line.material, arrow.cone.geometry, arrow.cone.material);
+        world.add(arrow); arrows.push(arrow);
     }
 
     const bounds = new THREE.Box3(); meshes.forEach(m => bounds.expandByObject(m));
-    const center = bounds.getCenter(new THREE.Vector3()), radius = Math.max(.5, bounds.getSize(new THREE.Vector3()).length() / 2);
+    const center = bounds.getCenter(new THREE.Vector3());let radius = Math.max(.5, bounds.getSize(new THREE.Vector3()).length() / 2);
     const view = {target: center.clone(), theta: .7, phi: 1.1, distance: radius * 2.8};
     if (initialView && Array.isArray(initialView.target) && initialView.target.length === 3
         && [...initialView.target, initialView.theta, initialView.phi, initialView.distance].every(Number.isFinite)
@@ -54,7 +81,7 @@ export function mountScene(container, scene, {reducedMotion = false, onPick = ()
         view.distance = Math.min(radius * 8, Math.max(radius * .8, initialView.distance));
     }
     let frame = 0, focused = [], exploded = false, disposed = false;
-    const hidden = new Set();
+    const hidden = new Set(), separated = new Set();
     const animations = {};
     const render = () => {
         if (disposed) return;
@@ -91,23 +118,25 @@ export function mountScene(container, scene, {reducedMotion = false, onPick = ()
     }, {signal});
     canvas.addEventListener('pointerup', e => {
         const click = drag && drag.moved < 5; drag = null;
+        onChange();
         if (!click) return;
         const r = canvas.getBoundingClientRect();
         pointer.set((e.clientX - r.left) / r.width * 2 - 1, -(e.clientY - r.top) / r.height * 2 + 1);
         ray.setFromCamera(pointer, camera);
-        const hit = ray.intersectObjects([...meshes.values()])[0];
+        const hit = ray.intersectObjects([...meshes.values()],true)[0];
         if (hit) onPick(hit.object.userData.id);
     }, {signal});
-    canvas.addEventListener('wheel', e => { e.preventDefault(); zoom(Math.sign(e.deltaY) * .12); }, {signal, passive: false});
+    canvas.addEventListener('wheel', e => { e.preventDefault(); zoom(Math.sign(e.deltaY) * .12); onChange(); }, {signal, passive: false});
     canvas.addEventListener('keydown', e => {
         const keys = {ArrowLeft: () => rotate(-.15, 0), ArrowRight: () => rotate(.15, 0), ArrowUp: () => rotate(0, -.12), ArrowDown: () => rotate(0, .12),
             '+': () => zoom(-.12), '=': () => zoom(-.12), '-': () => zoom(.12)};
-        if (keys[e.key]) { e.preventDefault(); e.stopPropagation(); keys[e.key](); }
+        if (keys[e.key]) { e.preventDefault(); e.stopPropagation(); keys[e.key](); onChange(); }
     }, {signal});
     canvas.addEventListener('webglcontextlost', e => { e.preventDefault(); onLost(); }, {signal});
 
     // Targets come from resting/exploded goals, never from positions caught mid-animation.
-    const goal = m => m.userData.base.clone().addScaledVector(m.userData.explode, exploded ? 1 : 0);
+    const goal = m => m.userData.base.clone().addScaledVector(m.userData.explode, exploded||separated.has(m.userData.id) ? 1 : 0);
+    const showArrows=()=>arrows.forEach((arrow,index)=>{const link=scene.arrows[index];if(arrow)arrow.visible=!exploded&&!hidden.has(link.from)&&!hidden.has(link.to)&&!separated.has(link.from)&&!separated.has(link.to);});
     const focusCenter = () => {
         if (!focused.length && !exploded) return center.clone();
         const chosen = focused.length ? focused.map(id => meshes.get(id)) : [...meshes.values()];
@@ -115,12 +144,12 @@ export function mountScene(container, scene, {reducedMotion = false, onPick = ()
     };
 
     return {
-        focus(ids) {
+        focus(ids,isolated=false) {
             focused = ids.filter(id => meshes.has(id));
             for (const [id, mesh] of meshes) {
                 const on = !focused.length || focused.includes(id);
-                mesh.material.opacity = on ? 1 : .18; mesh.material.depthWrite = on; mesh.visible = !hidden.has(id);
-                mesh.material.emissive.set(focused.includes(id) ? 0x3a2a80 : 0x000000);
+                const material=mesh.userData.material;material.opacity = on ? 1 : .18; material.depthWrite = on; mesh.visible = !hidden.has(id)&&(!isolated||on);
+                material.emissive.set(focused.includes(id) ? 0x3a2a80 : 0x000000);
             }
             const visibleFocus = focused.filter(id => !hidden.has(id));
             if (focused.length && !visibleFocus.length) return;
@@ -132,23 +161,53 @@ export function mountScene(container, scene, {reducedMotion = false, onPick = ()
             if (!meshes.has(id)) return;
             if (value) hidden.add(id); else hidden.delete(id);
             meshes.get(id).visible = !value;
-            arrows.forEach((arrow, index) => { const link = scene.arrows[index]; if (arrow) arrow.visible = !exploded && !hidden.has(link.from) && !hidden.has(link.to); });
+            showArrows();
             schedule();
         },
         setExploded(value) {
             exploded = value;
+            if(!value)separated.clear();
             const starts = new Map([...meshes].map(([id, m]) => [id, m.position.clone()]));
-            arrows.forEach((a, index) => { const link = scene.arrows[index]; if (a) a.visible = !exploded && !hidden.has(link.from) && !hidden.has(link.to); }); // Arrows join resting positions only.
+            showArrows(); // Arrows join resting positions only.
             tween('explode', k => { for (const [id, m] of meshes) m.position.lerpVectors(starts.get(id), goal(m), k); });
             moveTarget(focusCenter());
         },
+        setObjectExploded(id,value){
+            const mesh=meshes.get(id);if(!mesh)return false;
+            if(value)separated.add(id);else separated.delete(id);mesh.position.copy(goal(mesh));showArrows();schedule();onChange();return true;
+        },
+        update(next){
+            if(disposed)return;
+            for(const key of Object.keys(animations)){cancelAnimationFrame(animations[key]);delete animations[key];}
+            const ids=new Set(next.objects.map(o=>o.id));
+            for(const [id,mesh] of meshes)if(!ids.has(id)){releaseObject(mesh);meshes.delete(id);hidden.delete(id);separated.delete(id);}
+            for(const o of next.objects){
+                let mesh=meshes.get(o.id);
+                if(!mesh||mesh.userData.shape!==o.shape||mesh.userData.size!==JSON.stringify(o.size)){
+                    if(mesh)releaseObject(mesh);mesh=objectMesh(o);meshes.set(o.id,mesh);world.add(mesh);
+                }
+                mesh.userData.base.fromArray(o.position);mesh.userData.explode.fromArray(o.explode||[0,1.5,0]);
+                mesh.position.copy(goal(mesh));mesh.rotation.set(...(o.rotation||[0,0,0]).map(THREE.MathUtils.degToRad));
+                mesh.userData.material.color.set(o.color);mesh.visible=!hidden.has(o.id);
+            }
+            for(const arrow of arrows)if(arrow){arrow.removeFromParent();arrow.dispose();}arrows.length=0;scene=next;
+            for(const a of scene.arrows||[]){
+                const from=meshes.get(a.from).position,direction=meshes.get(a.to).position.clone().sub(from),length=direction.length();
+                if(length<1e-6){arrows.push(null);continue;}
+                const arrow=new THREE.ArrowHelper(direction.normalize(),from,length,0x9274ff,Math.min(.4,length*.25),Math.min(.2,length*.12));
+                arrow.visible=!exploded&&!hidden.has(a.from)&&!hidden.has(a.to)&&!separated.has(a.from)&&!separated.has(a.to);world.add(arrow);arrows.push(arrow);
+            }
+            bounds.makeEmpty();meshes.forEach(m=>bounds.expandByObject(m));bounds.getCenter(center);radius=Math.max(.5,bounds.getSize(new THREE.Vector3()).length()/2);schedule();
+        },
+        qa(){render();return {objects:meshes.size,triangles:renderer.info.render.triangles,webgl:!renderer.getContext().isContextLost(),finite:[...camera.position.toArray(),...view.target.toArray()].every(Number.isFinite)};},
         snapshot() { render(); return canvas.toDataURL('image/png'); },
         getView() { return {target: view.target.toArray(), theta: view.theta, phi: view.phi, distance: view.distance}; },
+        getSeparated(){return [...separated];},
         dispose() {
             if (disposed) return;
             disposed = true; live--; abort.abort(); observer.disconnect(); cancelAnimationFrame(frame);
             Object.values(animations).forEach(cancelAnimationFrame);
-            disposables.forEach(d => d.dispose()); renderer.dispose(); renderer.forceContextLoss(); canvas.remove();
+            meshes.forEach(releaseObject);arrows.forEach(a=>a?.dispose());renderer.dispose(); renderer.forceContextLoss(); canvas.remove();
         },
     };
 }

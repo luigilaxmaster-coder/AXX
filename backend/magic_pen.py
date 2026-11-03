@@ -402,7 +402,7 @@ class MagicPenService:
 
     def _request(self, body):
         if not isinstance(body, dict) or set(body) - {'id', 'revision', 'question', 'provider', 'model', 'selection_mode', 'request_id',
-                                                      'format', 'base_query_id', 'effort'}:
+                                                      'format', 'base_query_id', 'effort', 'selected_object_id', 'conversation_id'}:
             raise ValueError('Parámetros de análisis inválidos.')
         self.directory(body.get('id'))
         request_id = body.get('request_id')
@@ -436,6 +436,16 @@ class MagicPenService:
             if 'format' not in request or not isinstance(base, str) or not re.fullmatch('[a-f0-9]{32}', base):
                 raise ValueError('base_query_id requiere formato presentation o guide y un identificador válido.')
             request['base_query_id'] = base
+        if 'selected_object_id' in body:
+            selected = body['selected_object_id']
+            if not request.get('base_query_id') or not isinstance(selected, str) or not re.fullmatch(r'o[0-9]{1,3}', selected):
+                raise ValueError('La pieza seleccionada requiere una presentación base e identificador válido.')
+            request['selected_object_id'] = selected
+        if 'conversation_id' in body:
+            conversation = body['conversation_id']
+            if not isinstance(conversation, str) or not re.fullmatch(r'[A-Za-z0-9_.:-]{1,128}', conversation):
+                raise ValueError('Referencia de conversación inválida.')
+            request['conversation_id'] = conversation
         return request
 
     def _provider(self, request):
@@ -517,11 +527,14 @@ class MagicPenService:
                 if not base or base.get('revision') != d['revision'] or not isinstance(base.get('presentation'), dict):
                     raise ValueError('STALE_PRESENTATION: la presentación base no pertenece a esta selección.')
                 base_plan = base['presentation']
+                if request.get('selected_object_id') and not any(o['id'] == request['selected_object_id'] for o in base_plan.get('scene', {}).get('objects', [])):
+                    raise ValueError('La pieza seleccionada no pertenece a esta presentación.')
             q = {'id': request['request_id'], 'source_id': d['id'], 'revision': d['revision'],
                  'selection': copy.deepcopy(d['selection']), 'question': request['question'], 'state': 'running',
                  'created_at': time.time(), 'provider': {'name': request['provider'], 'model': request['model']},
                  'selection_mode': request['selection_mode'], 'source_sha256': d['source']['sha256'],
-                 **{k: request[k] for k in ('format', 'base_query_id') if k in request}}
+                 **{k: request[k] for k in ('format', 'base_query_id', 'selected_object_id', 'conversation_id') if k in request},
+                 'context': {'session_id': d['id'], 'revision': d['revision'], 'capture_sha256': d['source']['sha256']}}
             try:
                 q['provider'] = self._provider(request)
                 request['effective_effort'] = self._effective_effort(request, q['provider'])
@@ -555,6 +568,36 @@ class MagicPenService:
             if not q:
                 raise ValueError('La consulta no existe en esta captura o salió del historial reciente; no se repetirá.')
             return copy.deepcopy(q)
+
+    def save_view(self, body):
+        if not isinstance(body, dict) or set(body) != {'id', 'query_id', 'view'}:
+            raise ValueError('Estado de vista inválido.')
+        with self.lock:
+            d = self.get(body['id'])
+            q = next((q for q in d.get('queries', []) if q['id'] == body['query_id']), None)
+            if not q or q.get('state') != 'completed' or not q.get('presentation') or q['revision'] != d['revision']:
+                raise ValueError('La vista requiere una presentación terminada de la revisión actual.')
+            value = body['view']
+            if not isinstance(value, dict) or set(value) != {'camera', 'step_id', 'selected', 'hidden', 'separated', 'exploded', 'isolated', 'overview'}:
+                raise ValueError('Campos de vista inválidos.')
+            objects = {o['id'] for o in q['presentation'].get('scene', {}).get('objects', [])}
+            if (not isinstance(value['step_id'], str) or value['step_id'] not in {s['id'] for s in q['presentation']['steps']}
+                    or value['selected'] is not None and (not isinstance(value['selected'], str) or value['selected'] not in objects)
+                    or any(type(value[key]) is not bool for key in ('exploded', 'isolated', 'overview'))):
+                raise ValueError('La vista referencia pasos o piezas desconocidos.')
+            for key in ('hidden', 'separated'):
+                ids = value[key]
+                if not isinstance(ids, list) or len(ids) > 24 or any(not isinstance(i, str) or i not in objects for i in ids) or len(set(ids)) != len(ids):
+                    raise ValueError('Lista de piezas de vista inválida.')
+            camera = value['camera']
+            if camera is not None:
+                if not isinstance(camera, dict) or set(camera) != {'target', 'theta', 'phi', 'distance'} or not isinstance(camera['target'], list) or len(camera['target']) != 3:
+                    raise ValueError('Cámara inválida.')
+                if any(type(v) not in (int, float) or not math.isfinite(v) or abs(v) > 1000 for v in [*camera['target'], camera['theta'], camera['phi'], camera['distance']]) or not .05 <= camera['distance'] <= 200 or not 0 < camera['phi'] < math.pi:
+                    raise ValueError('La cámara excede los límites de la escena.')
+            q['view_state'] = copy.deepcopy(value)
+            write_json(self.directory(d['id']) / 'document.json', d)
+            return {'id': d['id'], 'query_id': q['id'], 'view_state': copy.deepcopy(value)}
 
     def _uia(self):
         if self.uia is None:
@@ -750,6 +793,9 @@ class MagicPenService:
             contract = 'Responde en español sobre la imagen seleccionada.' + (
                 ' ' + GUIDE_CONTRACT if guide else ' ' + (PATCH_CONTRACT if base_plan else PLAN_CONTRACT) if presentation else '')
             prompt = q['question'] + ('\n\nPresentación actual:\n' + json.dumps(base_plan, ensure_ascii=False) if base_plan else '')
+            if request.get('selected_object_id'):
+                selected = next(o for o in base_plan['scene']['objects'] if o['id'] == request['selected_object_id'])
+                prompt += '\n\nPieza seleccionada en esta misma sesión (datos):\n' + json.dumps(selected, ensure_ascii=False)
             if guide:
                 window, observed = self._guide_window(d, job['cancel'])
                 prompt += '\n\nControles de la ventana:\n' + prompt_controls(observed)

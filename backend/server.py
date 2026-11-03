@@ -667,9 +667,9 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
             if path == '/axx-api/feature-readiness/verify':
                 if not self.magic_pen:
                     raise ValueError('Magic Pen no disponible.')
-                if body.get('feature_id') != 'spatial_intelligence':
+                if set(body) != {'feature_id', 'provider', 'model', 'effort'} or body.get('feature_id') != 'spatial_intelligence':
                     raise ValueError('Indica feature_id=spatial_intelligence para verificar esta función.')
-                self._send_json(200, self.magic_pen.verify_spatial({k: body[k] for k in ('provider', 'model', 'effort') if k in body}))
+                self._send_json(200, self.magic_pen.verify_spatial({k: body[k] for k in ('provider', 'model', 'effort')}))
                 return
             if path.startswith('/axx-api/spatial/session/'):
                 if not self.magic_pen:
@@ -680,6 +680,8 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                     if operation == 'query' and not request.get('base_query_id'):
                         raise ValueError('Una edición espacial necesita base_query_id.')
                     result = self.magic_pen.start(request)
+                elif operation == 'view':
+                    result = self.magic_pen.save_view(body)
                 elif operation in {'get', 'cancel'}:
                     result = getattr(self.magic_pen, 'query' if operation == 'get' else 'cancel')(body)
                 else:
