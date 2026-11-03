@@ -1514,7 +1514,7 @@ def run_server(host='127.0.0.1', port=4173, config_path='providers.json', state_
         publish_endpoint(state_dir, server)
         from backend.telegram.service import TelegramService
         handler.telegram = TelegramService(state_dir, chats, commands, adapter, lambda: server.mobile.preferences,
-                                           appearance=lambda: server.mobile.appearance)
+                                           appearance=lambda: server.mobile.appearance, speech=speech)
         handler.telegram.connection = server.core_bound
         services.append(handler.telegram)
         try:

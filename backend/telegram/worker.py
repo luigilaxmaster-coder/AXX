@@ -5,7 +5,9 @@ import argparse
 import asyncio
 from collections import OrderedDict
 import json
+import hashlib
 from pathlib import Path
+import re
 import sqlite3
 import sys
 import time
@@ -71,6 +73,20 @@ def chunks(text, limit=4000):
         size += units
     if part:
         yield ''.join(part)
+
+
+def validated_voice_path(data_dir, note):
+    if (not isinstance(note, dict) or not isinstance(note.get('operation_id'), str)
+            or not re.fullmatch(r'[0-9a-f-]{36}', note['operation_id'])
+            or not isinstance(note.get('sha256'), str) or not re.fullmatch(r'[0-9a-f]{64}', note['sha256'])
+            or type(note.get('bytes')) is not int or not 100 < note['bytes'] <= 8 * 1024 * 1024
+            or data_dir is None):
+        raise ValueError('Invalid voice note receipt')
+    path = account_path(data_dir).parent / 'outbox' / (note['operation_id'] + '.ogg')
+    if (not path.is_file() or path.is_symlink() or path.stat().st_size != note['bytes']
+            or hashlib.sha256(path.read_bytes()).hexdigest() != note['sha256']):
+        raise ValueError('Voice note receipt does not match audio')
+    return path
 
 
 class TelegramWorker:
@@ -219,6 +235,7 @@ class TelegramWorker:
 
     async def dispatch(self, key, payload):
         phase = 'dispatch_unknown'
+        voice_path = None
         try:
             if not await self.permitted():
                 return
@@ -226,12 +243,21 @@ class TelegramWorker:
             result = await asyncio.to_thread(local_input, self.endpoint_file, payload)
             self.state(key, 'sending')
             phase = 'delivery_unknown'
-            if result['text']:
+            note = result.get('voice_note')
+            if note:
+                voice_path = validated_voice_path(self.data_dir, note)
+                current = load_account(self.data_dir)
+                if not current['grants'].get('voice_notes') or not await self.permitted():
+                    raise RuntimeError('TELEGRAM_REVOKED')
+                await self.client.send_file(self.account['owner_id'], str(voice_path), voice_note=True)
+            elif result['text']:
                 await self.send(result['text'])
             self.state(key, 'sent')
         except Exception:
             self.state(key, phase)
         finally:
+            if voice_path is not None:
+                voice_path.unlink(missing_ok=True)
             self.queued.discard(key)
 
     async def consume(self):

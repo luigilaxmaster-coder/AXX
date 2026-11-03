@@ -9,6 +9,7 @@ import hashlib
 import json
 from pathlib import Path
 import re
+import secrets
 import sqlite3
 import sys
 import time
@@ -20,7 +21,7 @@ from backend.telegram.bot_config import load_bot
 from backend.telegram.config import _file_lease, account_path, load_account, confirmation_policy
 from backend.telegram.pairing import PairingStore
 from backend.telegram.service import status_text
-from backend.telegram.worker import NoRedirect, chunks
+from backend.telegram.worker import NoRedirect, chunks, validated_voice_path
 
 MAX_RESPONSE = 1024 * 1024
 
@@ -82,6 +83,32 @@ def bot_request(token, method, body, timeout=15):
         raise
     except Exception:
         # urllib exceptions may include the credential-bearing URL.
+        raise BotApiError('NETWORK_ERROR') from None
+
+
+def bot_voice(token, owner_id, path):
+    boundary = 'axx' + secrets.token_hex(16)
+    data = (('--' + boundary + '\r\nContent-Disposition: form-data; name="chat_id"\r\n\r\n'
+             + str(owner_id) + '\r\n--' + boundary + '\r\nContent-Disposition: form-data; name="voice"; filename="axx.ogg"\r\n'
+             + 'Content-Type: audio/ogg\r\n\r\n').encode('ascii') + Path(path).read_bytes()
+            + ('\r\n--' + boundary + '--\r\n').encode('ascii'))
+    request = urllib.request.Request('https://api.telegram.org/bot' + token + '/sendVoice', data=data,
+        headers={'Content-Type': 'multipart/form-data; boundary=' + boundary}, method='POST')
+    try:
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
+        with opener.open(request, timeout=60) as response:
+            raw = response.read(MAX_RESPONSE + 1)
+        if len(raw) > MAX_RESPONSE or json.loads(raw).get('ok') is not True:
+            raise BotApiError('BOT_RESPONSE_INVALID')
+    except urllib.error.HTTPError as exc:
+        try:
+            detail = json.loads(exc.read(16385))
+        except (ValueError, TypeError):
+            detail = {}
+        raise _bot_error(exc.code, detail) from None
+    except BotApiError:
+        raise
+    except Exception:
         raise BotApiError('NETWORK_ERROR') from None
 
 
@@ -266,7 +293,7 @@ class BotWorker:
                     lines.append('Se cambian en Axx de tu PC: Herramientas → Asistencia → Telegram. Un permiso no significa que la función ya esté lista.')
                     self.send('\n'.join(lines), menu(load_bot(self.data_dir)['public_url']))
                 elif choice == 'help':
-                    self.send('1. Deja Axx abierto en tu PC y habilita Confirmar comandos desde Telegram.\n2. Prueba «abre calculadora» o «información del sistema».\n3. Revisa la tarjeta y pulsa Aprobar una vez o Denegar. El botón vence en dos minutos.\nToca Abrir Axx para ver la actividad en la Mini App. Las órdenes reservadas requieren la PC; las llamadas siguen en reparación.', menu(load_bot(self.data_dir)['public_url']))
+                    self.send('1. Deja Axx abierto en tu PC y habilita Confirmar comandos desde Telegram.\n2. Prueba «abre calculadora» o «información del sistema».\n3. Revisa la tarjeta y pulsa Aprobar una vez o Denegar. El botón vence en dos minutos.\nPara una explicación hablada, activa Conversación y Notas de voz y escribe /voz seguido de tu pregunta.\nToca Abrir Axx para ver la actividad en la Mini App. Las órdenes reservadas requieren la PC; las llamadas siguen en reparación.', menu(load_bot(self.data_dir)['public_url']))
                 elif isinstance(choice, str) and re.fullmatch(r'tr:[0-9a-f-]{36}', choice):
                     self.review(choice[3:])
                 elif isinstance(choice, str) and re.fullmatch(r't[cx]:[A-Za-z0-9_-]{20,61}', choice):
@@ -313,6 +340,14 @@ class BotWorker:
                     if result.get('sequence_total'):
                         self.send(reply)
                     self.review(result['operation_id'])
+                elif result.get('voice_note'):
+                    path = validated_voice_path(self.data_dir, result['voice_note'])
+                    try:
+                        if not self.authorized() or not load_account(self.data_dir)['grants'].get('voice_notes'):
+                            raise RuntimeError('Telegram voice note permission revoked')
+                        bot_voice(self.config['token'], self.account['owner_id'], path)
+                    finally:
+                        path.unlink(missing_ok=True)
                 else:
                     self.send(reply)
             else:

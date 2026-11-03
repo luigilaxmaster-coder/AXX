@@ -44,6 +44,15 @@ respuestas anteriores que lleguen tarde. Una respuesta atrasada tampoco borra
 un borrador ni vuelve a abrir una revisión cerrada. Los envíos pendientes se
 consultan antes de reintentarlos; no se repiten automáticamente.
 
+Para pedir una explicación hablada, activa **Conversación** y **Notas de voz** en
+los permisos de la PC y envía `/voz ¿por qué llueve?` o «Mándame un audio
+explicando por qué llueve». Axx usa el modelo de chat ya seleccionado y sintetiza
+la respuesta con la voz local configurada para Telegram (Axxmorcito por defecto).
+La nota sale como OGG/Opus al chat
+privado del propietario; una pregunta de voz no ejecuta acciones en la PC. Si
+falla el modelo o la síntesis, se informa el error sin enviar un audio vacío.
+Las grabaciones temporales quedan en AppData y se borran tras el intento de envío.
+
 Si es la primera configuración y faltan datos de aplicación o del bot, abre
 **Opciones avanzadas** en ese mismo panel. Los datos se introducen solo en la PC:
 `api_id`, `api_hash`, ID numérico de tu cuenta personal, token del bot y dirección
@@ -104,8 +113,11 @@ el núcleo vuelve a verificar el plan y el permiso justo antes del despacho.
   archivo terminó con un tiempo de espera en la limpieza. No se ha comprobado una
   conversación de voz bidireccional ni su interrupción. El canal de mensajes puede
   rechazar una llamada y avisar al propietario de que está en reparación.
-- **Notas de voz y archivos:** pendientes de implementación y aceptación. El
-  canal responde que los adjuntos aún no están habilitados.
+- **Notas de voz:** la respuesta hablada solicitada está implementada en fuente;
+  falta comprobar el envío real desde la versión instalada. La recepción y
+  transcripción de notas entrantes siguen pendientes.
+- **Archivos:** pendientes de implementación y aceptación. El canal responde
+  que los adjuntos aún no están habilitados.
 - **Chat con IA:** se conserva el proveedor seleccionado en el escritorio. Si
   su acceso remoto no está disponible o no ha pasado las comprobaciones de
   aislamiento, la conversación queda bloqueada; Axx no cambia de proveedor ni
