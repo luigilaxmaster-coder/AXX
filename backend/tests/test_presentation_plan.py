@@ -6,7 +6,7 @@ import uuid
 from pathlib import Path
 from PIL import Image
 from backend.magic_pen import MagicPenService
-from backend.presentation_plan import PlanError, apply_patch, normalize_strict_output, output_schema, parse_json, validate_plan
+from backend.presentation_plan import PlanError, apply_patch, normalize_model_focus, normalize_strict_output, output_schema, parse_json, validate_2d_plan, validate_plan
 
 
 def plan(**kw):
@@ -26,6 +26,33 @@ def scene_plan():
 
 
 class SceneContractTests(unittest.TestCase):
+    def test_local_2d_plan_discards_scene_and_still_rejects_unknown_fields(self):
+        candidate = scene_plan()
+        candidate['overlays'] = [{'id': 'a1', 'kind': 'box', 'step_id': 's1', 'start': [.1, .1],
+                                  'end': [.3, .4], 'text': 'Figura'}]
+        result = validate_2d_plan(candidate)
+        self.assertNotIn('scene', result)
+        self.assertNotIn('focus', result['steps'][0])
+        self.assertEqual(result['overlays'][0]['text'], 'Figura')
+        self.assertIs(result['overlays'][0]['photo'], False)
+        candidate['script'] = 'alert(1)'
+        with self.assertRaises(PlanError): validate_2d_plan(candidate)
+        one_step = plan()
+        one_step['steps'] = one_step['steps'][:1]
+        with self.assertRaises(PlanError): validate_plan(one_step)
+        self.assertEqual(len(validate_2d_plan(one_step)['steps']), 1)
+
+    def test_optional_model_focus_is_dropped_without_relaxing_plan_validation(self):
+        response = scene_plan()
+        response['steps'][0]['focus'] = 'o1'
+        response['steps'][1]['focus'] = ['o9']
+        with self.assertRaises(PlanError): validate_plan(response)
+        repaired = validate_plan(normalize_model_focus(response))
+        self.assertNotIn('focus', repaired['steps'][0])
+        self.assertNotIn('focus', repaired['steps'][1])
+        response['script'] = 'alert(1)'
+        with self.assertRaises(PlanError): validate_plan(normalize_model_focus(response))
+
     def test_scene_is_validated_normalized_and_focus_is_cross_checked(self):
         result = validate_plan(scene_plan())
         self.assertEqual(result['scene']['objects'][0]['color'], '#2e8b57')
@@ -211,10 +238,28 @@ class MagicPenPresentationTests(unittest.TestCase):
         self.addCleanup(reopened.close)
         self.assertEqual(reopened.query({'id': self.doc['id'], 'query_id': second['id']})['presentation'], second['presentation'])
 
+    def test_gemma_visual_route_uses_prompted_2d_without_native_schema(self):
+        local = self.adapter.config['providers'][0]
+        local.update(model='gemma4:31b', protocol='openai')
+        response = scene_plan()
+        response['overlays'] = [{'id': 'a1', 'kind': 'box', 'step_id': 's1', 'start': [.1, .1],
+                                'end': [.3, .4], 'text': 'Placa', 'photo': False}]
+        self.replies.extend((json.dumps(response), json.dumps(response)))
+        verified = self.service.verify_spatial({'provider': 'fixture', 'model': 'gemma4:31b', 'effort': 'auto'})
+        self.assertFalse(verified['structured_output'])
+        query = self.ask(format='presentation', model='gemma4:31b')
+        self.assertEqual(query['state'], 'completed', query.get('error'))
+        self.assertNotIn('scene', query['presentation'])
+        self.assertEqual(query['presentation']['overlays'][0]['text'], 'Placa')
+        self.assertNotIn('output_schema', self.adapter.calls[-1]['generation'])
+        self.assertIn('No añadas scene', self.adapter.calls[-1]['messages'][0]['content'])
+        self.assertFalse(self.service.capabilities()['vision'][0]['spatial_3d'])
+
     def test_codex_verification_and_canvas_use_strict_schema_and_accept_null_optionals(self):
         codex_plan = plan(scene=None, asset=None, diagram=None, overlays=None)
         for step in codex_plan['steps']: step['focus'] = None
-        chosen = {'name': '@codex', 'model': 'gpt-6.1-sol', 'efforts': ['low', 'medium', 'high', 'xhigh', 'max']}
+        codex_plan['steps'][1]['focus'] = ['o9']
+        chosen = {'name': '@codex', 'model': 'gpt-6.1-sol', 'spatial_3d': True, 'efforts': ['low', 'medium', 'high', 'xhigh', 'max']}
 
         class CodexProvider:
             def __init__(inner): inner.calls = []
@@ -230,6 +275,7 @@ class MagicPenPresentationTests(unittest.TestCase):
         result = self.ask(format='presentation', provider='@codex', model='gpt-6.1-sol')
         self.assertEqual(result['state'], 'completed', result.get('error'))
         self.assertNotIn('scene', result['presentation'])
+        self.assertTrue(all('focus' not in step for step in result['presentation']['steps']))
         for request in codex.calls:
             schema = request['generation']['output_schema']
             self.assertEqual(set(schema['properties']), set(schema['required']))

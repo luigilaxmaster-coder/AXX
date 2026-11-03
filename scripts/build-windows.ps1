@@ -15,6 +15,8 @@ try {
     $dependency = Get-Content -LiteralPath 'resources\dependency-manifest.json' -Raw | ConvertFrom-Json
     & $PythonExecutable -c 'import PIL, pypdf'
     if ($LASTEXITCODE -ne 0) { throw 'Install requirements-converter.txt before building the Axx backend' }
+    & $PythonExecutable -c "import importlib.metadata as m, pathlib, faster_whisper, ctranslate2, tokenizers; requirements=[line.strip().split('==') for line in pathlib.Path('requirements-speech.txt').read_text().splitlines() if line.strip() and not line.lstrip().startswith('#')]; assert all(len(x)==2 and m.version(x[0])==x[1] for x in requirements)"
+    if ($LASTEXITCODE -ne 0) { throw 'Install exact requirements-speech.txt before building the Axx backend' }
     & $PythonExecutable -c "import websocket, win32com.client, pythoncom, playwright.async_api, mcp, uvicorn, psutil, jsonschema, ifcopenshell, rapidocr_onnxruntime, onnxruntime, importlib.metadata as m; assert all(m.version(k) == v for k,v in {'websocket-client':'1.9.2','pywin32':'311','playwright':'1.64.1','mcp':'1.30.0','psutil':'7.2.2','jsonschema':'4.26.0','ifcopenshell':'0.9.0.post1','rapidocr-onnxruntime':'1.4.4','onnxruntime':'1.31.0'}.items())"
     if ($LASTEXITCODE -ne 0) { throw 'Install requirements-computer-use.txt before building the Axx backend' }
     if (-not $SkipBackend) {
@@ -32,13 +34,13 @@ try {
     $sourceFiles = @(Get-ChildItem -LiteralPath '1.AXX' -File -Recurse | Where-Object { $_.Extension -in '.html','.js','.css','.json','.png','.ico','.svg','.woff','.woff2' } | ForEach-Object FullName) + @('axx-backend.spec', 'scripts\setup-freellmapi.ps1', 'src-tauri\tauri.conf.json', 'src-tauri\Cargo.toml', 'src-tauri\resources\ai-memory.exe') + $telegramAssets
     $sourceFiles += @(Get-ChildItem backend,src-tauri\src,resources,vendor -File -Recurse | Where-Object { $_.Extension -in '.ps1','.py','.rs','.json','.bin','.txt','.zip' -and $_.FullName -notmatch '\\(__pycache__|tests)\\' -and $_.Name -notlike 'test_*.py' } | ForEach-Object FullName)
     $sourceFiles += @(Get-ChildItem -LiteralPath 'src-tauri\resources\license-notices' -File -Recurse | ForEach-Object FullName)
-    $sourceFiles += @('LICENSE', 'scripts\configure-native-gateway.py', 'scripts\anythingmcp-local.py', 'scripts\backend_bundle.py', 'scripts\build-windows.ps1', 'src-tauri\windows\backend-bundle.nsh', 'requirements-telegram.txt')
+    $sourceFiles += @('LICENSE', 'scripts\configure-native-gateway.py', 'scripts\anythingmcp-local.py', 'scripts\backend_bundle.py', 'scripts\build-windows.ps1', 'src-tauri\windows\backend-bundle.nsh', 'requirements-telegram.txt', 'requirements-speech.txt')
     $before = @{}
     foreach ($file in $sourceFiles) { $before[$file] = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash }
     $steps = @()
     $started = [DateTimeOffset]::Now
     $backendInputs = @{}
-    foreach ($file in @(Get-ChildItem backend,resources,vendor -File -Recurse | Where-Object { $_.Extension -in '.ps1','.py','.json','.bin','.txt','.zip' -and $_.FullName -notmatch '\\(__pycache__|tests)\\' -and $_.Name -notlike 'test_*.py' } | ForEach-Object FullName) + @('axx-backend.spec', 'scripts\setup-freellmapi.ps1', 'scripts\configure-native-gateway.py', 'scripts\anythingmcp-local.py', 'scripts\backend_bundle.py', 'scripts\build-windows.ps1', 'requirements-telegram.txt') + $telegramAssets) {
+    foreach ($file in @(Get-ChildItem backend,resources,vendor -File -Recurse | Where-Object { $_.Extension -in '.ps1','.py','.json','.bin','.txt','.zip' -and $_.FullName -notmatch '\\(__pycache__|tests)\\' -and $_.Name -notlike 'test_*.py' } | ForEach-Object FullName) + @('axx-backend.spec', 'scripts\setup-freellmapi.ps1', 'scripts\configure-native-gateway.py', 'scripts\anythingmcp-local.py', 'scripts\backend_bundle.py', 'scripts\build-windows.ps1', 'requirements-telegram.txt', 'requirements-speech.txt') + $telegramAssets) {
         $backendInputs[$file] = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash
     }
     $backendReceiptPath = Join-Path $projectRoot 'build\backend-build-receipt.json'

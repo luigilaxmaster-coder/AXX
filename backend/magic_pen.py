@@ -18,7 +18,7 @@ import time
 import uuid
 from PIL import Image, ImageDraw, ImageGrab
 from backend.prompts import compose
-from backend.presentation_plan import PATCH_CONTRACT, PLAN_CONTRACT, PlanError, apply_patch, normalize_strict_output, output_schema, parse_json, validate_plan
+from backend.presentation_plan import PATCH_CONTRACT, PLAN_CONTRACT, PLAN_2D_CONTRACT, PlanError, apply_patch, normalize_model_focus, normalize_strict_output, output_schema, parse_json, validate_2d_plan, validate_plan
 from backend.inference.provider_settings import anthropic_efforts
 from backend.guide_plan import GUIDE_CONTRACT, evaluate, prompt_controls, resolve, snapshot as control_snapshot, validate_guide
 
@@ -200,6 +200,7 @@ class MagicPenService:
     def capabilities(self):
         providers = getattr(self.adapter, 'config', {}).get('providers', [])
         vision = [{'name': p['name'], 'model': p['model'], 'protocol': p.get('protocol', 'openai'),
+                   'spatial_3d': p.get('protocol') == 'anthropic',
                    'efforts': anthropic_efforts(p['model']) if p.get('protocol') == 'anthropic' else []}
                   for p in providers if p.get('enabled', True)
                   and (p.get('free_confirmed') is True or p.get('billing_allowed') is True)
@@ -207,11 +208,11 @@ class MagicPenService:
         codex = []
         for row in getattr(self.codex_provider, 'model_catalog', []):
             if row.get('model') and isinstance(row.get('input_modalities'), list) and 'image' in row['input_modalities']:
-                codex.append({'name': '@codex', 'model': row['model'], 'protocol': 'codex',
+                codex.append({'name': '@codex', 'model': row['model'], 'protocol': 'codex', 'spatial_3d': True,
                               'efforts': [level.get('reasoningEffort') if isinstance(level, dict) else level
                                           for level in row.get('reasoning_efforts') or []]})
         if self.codex_provider and not codex:
-            codex.append({'name': '@codex', 'model': 'gpt-6.1-sol', 'protocol': 'codex', 'efforts': [], 'status': 'not_verified'})
+            codex.append({'name': '@codex', 'model': 'gpt-6.1-sol', 'protocol': 'codex', 'spatial_3d': True, 'efforts': [], 'status': 'not_verified'})
         return {'vision': vision, 'codex_vision': codex, 'ocr': False,
                 'ocr_message': 'OCR no integrado; el proveedor visual puede leer texto si está configurado.',
                 'export_directory': str(self.root / 'exports')}
@@ -228,15 +229,16 @@ class MagicPenService:
         buf = io.BytesIO()
         image.save(buf, format='PNG')
         request_id = 'spatial-verify-' + uuid.uuid4().hex
-        schema = output_schema('presentation', strict=chosen['name'] == '@codex')
-        generation = {'max_tokens': 1200, 'output_schema': schema}
+        constrained = chosen['spatial_3d']
+        schema = output_schema('presentation', strict=chosen['name'] == '@codex') if constrained else None
+        generation = {'max_tokens': 1200, **({'output_schema': schema} if schema else {})}
         effort = self._effective_effort(request, chosen)
         if effort:
             generation['effort'] = effort
         route_request = {'request_id': request_id, 'conversation_id': request_id, 'task': 'vision',
             'selection_mode': 'manual', 'allow_paid': False, 'deadline_ms': 70000,
             'provider_name': chosen['name'], 'model': chosen['model'], 'generation': generation,
-            'messages': [{'role': 'system', 'content': compose('perception', contract=PLAN_CONTRACT)['text']},
+            'messages': [{'role': 'system', 'content': compose('perception', contract=PLAN_CONTRACT if constrained else PLAN_2D_CONTRACT)['text']},
                 {'role': 'user', 'content': [{'type': 'text', 'text': 'Explica la figura roja y el círculo azul de la imagen sintética.'},
                     {'type': 'image_url', 'image_url': {'url': 'data:image/png;base64,' + base64.b64encode(buf.getvalue()).decode()}}]}]}
         if chosen['name'] == '@codex':
@@ -250,7 +252,7 @@ class MagicPenService:
         parsed = parse_json(text)
         if chosen['name'] == '@codex':
             parsed = normalize_strict_output(parsed, schema)
-        validate_plan(parsed)
+        (validate_plan(normalize_model_focus(parsed)) if constrained else validate_2d_plan(parsed))
         self._remember_spatial_provider(chosen, result)
         return dict(self.spatial_verified[(chosen['name'], chosen['model'])])
 
@@ -260,7 +262,7 @@ class MagicPenService:
                 or route.get('model') != chosen['model']):
             raise ValueError('El proveedor o modelo real no coincide con la selección; no se marcará como verificado.')
         checked = {'provider': chosen['name'], 'model': chosen['model'], 'checked_at': time.time(),
-                   'state': 'ready', 'structured_output': True, 'image_input': True}
+                   'state': 'ready', 'structured_output': bool(chosen.get('spatial_3d')), 'image_input': True}
         self.spatial_verified[(chosen['name'], chosen['model'])] = checked
         return checked
 
@@ -459,15 +461,15 @@ class MagicPenService:
             if request['provider'] == '@codex':
                 match = next((p for p in self.capabilities()['codex_vision'] if p['model'] == request['model']), None)
                 if not match and request['model'] == 'gpt-6.1-sol' and self.codex_provider and request['effort'] == 'auto':
-                    match = {'name': '@codex', 'model': request['model'], 'protocol': 'codex', 'efforts': [], 'status': 'not_verified'}
+                    match = {'name': '@codex', 'model': request['model'], 'protocol': 'codex', 'spatial_3d': True, 'efforts': [], 'status': 'not_verified'}
                 if not match:
                     raise ValueError('El catálogo local no confirma visión para ese modelo Codex. Compruébalo desde Axx Connect.')
                 if request['effort'] != 'auto' and request['effort'] not in match['efforts']:
                     raise ValueError('El nivel de esfuerzo no está admitido por el modelo Codex seleccionado.')
                 return dict(match)
             chosen = next((p for p in self.capabilities()['vision'] if p['name'] == request['provider']), None)
-            if not chosen or chosen['model'] != request['model'] or chosen['protocol'] != 'anthropic':
-                raise ValueError('Selecciona una conexión Claude Messages API con visión y permiso de coste existente.')
+            if not chosen or chosen['model'] != request['model']:
+                raise ValueError('Selecciona una conexión visual autorizada y su modelo exacto.')
             if request['effort'] != 'auto' and request['effort'] not in chosen['efforts']:
                 raise ValueError('El nivel de esfuerzo no está admitido por el modelo Claude seleccionado.')
             return dict(chosen)
@@ -795,7 +797,7 @@ class MagicPenService:
                 watcher = threading.Thread(target=self._watch_cancellation, args=(job,), name='axx-pen-cancel', daemon=True)
                 watcher.start()
             contract = 'Responde en español sobre la imagen seleccionada.' + (
-                ' ' + GUIDE_CONTRACT if guide else ' ' + (PATCH_CONTRACT if base_plan else PLAN_CONTRACT) if presentation else '')
+                ' ' + GUIDE_CONTRACT if guide else ' ' + (PATCH_CONTRACT if base_plan else PLAN_CONTRACT if chosen.get('spatial_3d') else PLAN_2D_CONTRACT) if presentation else '')
             prompt = q['question'] + ('\n\nPresentación actual:\n' + json.dumps(base_plan, ensure_ascii=False) if base_plan else '')
             if request.get('selected_object_id'):
                 selected = next(o for o in base_plan['scene']['objects'] if o['id'] == request['selected_object_id'])
@@ -806,7 +808,7 @@ class MagicPenService:
                 if job['cancel'].is_set():
                     return
             generation = {'max_tokens': 2048 if presentation or guide else 1024}
-            if presentation:
+            if presentation and chosen.get('spatial_3d'):
                 generation['output_schema'] = output_schema('patch' if base_plan else 'presentation', strict=chosen['name'] == '@codex')
                 if request.get('effective_effort'):
                     generation['effort'] = request['effective_effort']
@@ -836,9 +838,11 @@ class MagicPenService:
                     if chosen['name'] == '@codex':
                         parsed = normalize_strict_output(parsed, generation['output_schema'])
                     if base_plan:
-                        changes['presentation'], changes['answer'] = apply_patch(base_plan, parsed)
+                        changes['presentation'], changes['answer'] = apply_patch(base_plan, parsed, min_steps=2 if chosen.get('spatial_3d') else 1)
+                        if not chosen.get('spatial_3d'):
+                            changes['presentation'] = validate_2d_plan(changes['presentation'])
                     else:
-                        changes['presentation'] = validate_plan(parsed)
+                        changes['presentation'] = validate_plan(normalize_model_focus(parsed)) if chosen.get('spatial_3d') else validate_2d_plan(parsed)
                     self._remember_spatial_provider(chosen, result)
                 except PlanError as exc:
                     # The raw text stays for audit; nothing unvalidated reaches the renderer.

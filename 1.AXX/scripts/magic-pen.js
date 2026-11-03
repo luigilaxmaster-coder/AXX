@@ -61,7 +61,7 @@
                 <div class="mp-toolstrip"><div id="mp-select-tools" class="mp-toolgroup">${tool('rect','Rectángulo')}${tool('point','Punto y contexto')}${tool('lasso','Lazo')}</div><div id="mp-ink-tools" class="mp-toolgroup" hidden>${tool('pen','Pluma')}${tool('marker','Marcador')}${tool('erase','Borrar trazo')}<span class="mp-divider"></span><input id="mp-color" type="color" value="#b8aaff" aria-label="Color de tinta"><input id="mp-width" type="range" min="1" max="40" value="4" aria-label="Grosor de tinta"></div><span id="mp-tool-hint">Arrastra para seleccionar</span><div class="mp-history-tools"><button id="mp-undo" class="mp-icon-button" title="Deshacer tinta" aria-label="Deshacer tinta">${icon('undo')}</button><button id="mp-redo" class="mp-icon-button" title="Rehacer tinta" aria-label="Rehacer tinta">${icon('redo')}</button></div></div>
                 <div class="mp-stage"><div id="mp-viewport"><canvas id="mp-canvas" tabindex="0" aria-label="Captura congelada: selecciona o anota; Escape para salir"></canvas><div id="mp-empty">${icon('capture')}<strong>Todo empieza con una captura.</strong><span>Selecciona un detalle. Pregunta. Deja una nota.</span></div></div><div class="mp-stage-footer"><span id="mp-meta">Sin captura</span><label>Zoom <select id="mp-zoom"><option value="1">Ajustar</option><option value="2">200%</option><option value="4">400%</option></select></label></div></div>
                 <div class="mp-selection-row"><details><summary>Ajustar selección</summary><div class="mp-row">${['x0','y0','x1','y1'].map(k=>`<label>${k}<input id="mp-${k}" type="number" min="0" step="1"></label>`).join('')}<button id="mp-adjust">Aplicar</button></div><small>Coordenadas del original. Aplicar crea un rectángulo.</small></details><button id="mp-close-lasso" hidden>Cerrar lazo</button></div>
-                <div class="mp-spatial-options"><label>Canvas 3D <select id="mp-spatial-provider" aria-label="Proveedor y modelo del Canvas 3D"><option value="">Elige proveedor y modelo</option></select></label><label>Esfuerzo <select id="mp-spatial-effort" aria-label="Esfuerzo del modelo"><option value="auto">Auto</option></select></label><button id="mp-spatial-verify" type="button" title="Envía una imagen sintética al proveedor elegido">Probar conexión</button><button id="mp-spatial-create" type="button">Visualizar selección</button></div><div id="mp-spatial-status" class="mp-spatial-status" role="status" aria-live="polite"></div>
+                <div class="mp-spatial-options"><label>Modelo visual <select id="mp-spatial-provider" aria-label="Proveedor y modelo visual"><option value="">Elige proveedor y modelo</option></select></label><label>Esfuerzo <select id="mp-spatial-effort" aria-label="Esfuerzo del modelo"><option value="auto">Auto</option></select></label><button id="mp-spatial-verify" type="button" title="Envía una imagen sintética al proveedor elegido">Probar conexión</button><button id="mp-spatial-create" type="button">Visualizar selección</button></div><div id="mp-spatial-status" class="mp-spatial-status" role="status" aria-live="polite"></div>
                 <div class="mp-composer"><textarea id="mp-question" rows="1" maxlength="4000" placeholder="Escribe tu pregunta… (Intro para enviar)" aria-label="Pregunta o instrucción sobre la selección" aria-describedby="mp-question-help"></textarea><button id="mp-voice" class="mp-icon-button" title="Dictar pregunta" aria-label="Dictar pregunta">${icon('mic')}</button><button id="mp-ask" class="mp-icon-button" title="Enviar pregunta" aria-label="Enviar pregunta">${icon('send')}</button></div><small id="mp-question-help" class="mp-composer-help">Intro envía · Mayús+Intro añade una línea</small>
                 <p id="mp-status" role="status" aria-live="polite">Elige una pantalla y pulsa Capturar.</p><div id="mp-answers" aria-live="polite"></div>
                 <details class="mp-save-section"><summary>${icon('save')}Guardar e historial<span>PNG + tinta editable</span></summary><label>Carpeta de destino<input id="mp-directory" type="text"></label><label>Nombre<input id="mp-name" type="text" value="Captura-Axx" maxlength="100"></label><div class="mp-row"><button id="mp-original">Guardar original</button><button id="mp-annotated">Guardar anotado</button><button id="mp-retry">Guardar borrador</button></div><p id="mp-export" role="status"></p><label>Capturas anteriores<select id="mp-history"><option value="">Elige una captura</option></select></label></details><p id="mp-capability" class="mp-muted"></p>`;
@@ -73,7 +73,7 @@
             $('mp-spatial-provider').onchange=()=>this.spatialProviderChanged();
             $('mp-spatial-effort').onchange=()=>this.saveSpatialPreferences();
             $('mp-spatial-verify').onclick=()=>{void this.verifySpatial();};
-            $('mp-spatial-create').onclick=()=>{void this.ask({fresh:false,format:'presentation'});};
+            $('mp-spatial-create').onclick=()=>{void this.spatialAction('diagram');};
             $('mp-question').oninput=()=>{const input=$('mp-question');input.style.height='42px';input.style.height=Math.min(96,input.scrollHeight)+'px';};
             $('mp-question').onkeydown = e => { if(e.key==='Enter'&&!e.shiftKey) {e.preventDefault();e.stopPropagation();this.askFromComposer();} };
             $('mp-original').onclick = () => this.run(()=>this.export('original'));
@@ -136,7 +136,11 @@
             this.widget.innerHTML='<div class="mp-widget-head"><span class="mp-head-mark" aria-hidden="true">'+this.icon('pen')+'</span><span class="mp-head-copy"><span><strong>Magic Pen</strong><small>LECTURA VISUAL</small></span></span><span id="mp-summary-spinner" class="mp-summary-spinner" hidden aria-hidden="true"></span><button id="mp-hide-answer" aria-label="Ocultar explicación">×</button></div><section id="mp-summary-bubble" class="mp-summary-bubble" hidden><div class="mp-summary-kicker"><span id="mp-summary-label">Lo esencial</span></div><p id="mp-summary-text" role="status" aria-live="polite"></p><p id="mp-summary-voice-status" role="status" aria-live="polite" hidden></p><div class="mp-summary-actions"><button id="mp-summary-expand" type="button">Ver explicación</button><button id="mp-summary-visual" type="button" aria-label="Explicar visualmente" title="Explicar visualmente como diagrama de pasos">Visualizar</button><button id="mp-summary-listen" type="button" aria-label="Escuchar resumen" title="Escuchar resumen">'+this.icon('voice')+'</button></div></section><figure id="mp-history-preview" hidden><canvas id="mp-preview-canvas" aria-label="Vista previa de la captura guardada"></canvas><figcaption>Captura guardada · no es el escritorio actual</figcaption><button id="mp-back-desktop" type="button">Volver al escritorio</button></figure><div id="mp-vision-missing" hidden><p>El modelo seleccionado no tiene análisis visual disponible.</p><button id="mp-configure" type="button">Ajustes de conexión</button></div>';
             const spatial=this.view.querySelector('.mp-spatial-options'),spatialStatus=this.view.querySelector('#mp-spatial-status'),create=spatial.querySelector('#mp-spatial-create'),verify=spatial.querySelector('#mp-spatial-verify'),settings=document.createElement('details'),settingsTitle=document.createElement('summary'),settingsBody=spatial;
             settings.className='mp-spatial-settings';settingsTitle.innerHTML='<span>Proveedor y calidad</span><small>POR SESIÓN</small>';settings.append(settingsTitle,settingsBody,verify);
-            const chatDock=document.createElement('div');chatDock.className='mp-chat-dock';const spatialActions=document.createElement('div');spatialActions.className='mp-spatial-actions';spatialActions.append(create);chatDock.append(spatialActions,this.view.querySelector('.mp-composer'),this.view.querySelector('#mp-question-help'));
+            const chatDock=document.createElement('div');chatDock.className='mp-chat-dock';const spatialActions=document.createElement('div');spatialActions.className='mp-spatial-actions';spatialActions.setAttribute('role','group');spatialActions.setAttribute('aria-label','Formas de explicar la selección');
+            const modeCaption=document.createElement('p');modeCaption.id='mp-model-caption';modeCaption.className='mp-model-caption';modeCaption.setAttribute('aria-live','polite');
+            const locate=document.createElement('button'),model=document.createElement('button');locate.type=model.type='button';locate.id='mp-spatial-locate';model.id='mp-spatial-model';locate.innerHTML=this.icon('point')+'<span><strong>Señalar</strong><small>En la captura</small></span>';model.innerHTML=this.icon('capture')+'<span><strong>Modelo 3D</strong><small>Vista conceptual</small></span>';create.innerHTML=this.icon('rect')+'<span><strong>Diagrama</strong><small>Pasos y relaciones</small></span>';
+            locate.title='Señalar en la captura lo que describes en la pregunta';create.title='Explicar la selección con un diagrama';model.title='Crear una vista 3D conceptual de la selección';
+            locate.onclick=()=>{void this.spatialAction('locate');};model.onclick=()=>{void this.spatialAction('model');};spatialActions.append(locate,create,model);chatDock.append(modeCaption,spatialActions,this.view.querySelector('.mp-composer'),this.view.querySelector('#mp-question-help'));
             for(const selector of ['#mp-answers','#mp-status'])this.widget.append(this.view.querySelector(selector));
             this.widget.append(chatDock,settings,spatialStatus,this.view.querySelector('.mp-save-section'));
             const saved=this.widget.querySelector('.mp-save-section');saved.querySelector('summary').after($('mp-meta'));saved.append($('mp-capability'));
@@ -149,7 +153,7 @@
             const option=new Option('Usar escritorio','interact');$('mp-tool').append(option);
             const reopen=document.createElement('button');reopen.id='mp-show-answer';reopen.type='button';reopen.className='mp-show-answer';reopen.hidden=true;reopen.innerHTML=this.icon('voice')+'<span>Ver explicación</span>';reopen.setAttribute('aria-label','Volver a la explicación');$('mp-more-panel').append(reopen);
             $('mp-done').onclick=()=>this.close();$('mp-hide-answer').onclick=()=>this.hideAnswer();reopen.onclick=()=>{this.closeTools();this.openAnswer();};
-            $('mp-summary-expand').onclick=()=>this.openAnswer();$('mp-summary-visual').onclick=()=>{void this.ask({fresh:false,format:'presentation'});};$('mp-summary-listen').onclick=()=>this.readSummary();
+            $('mp-summary-expand').onclick=()=>this.openAnswer();$('mp-summary-visual').onclick=()=>{void this.spatialAction('diagram');};$('mp-summary-listen').onclick=()=>this.readSummary();
             $('mp-live').onclick=()=>{this.live=!this.live;this.livePaused=false;this.cancelAnalysis();this.preferences();this.updateControls();this.status(this.live?'En directo: analiza al terminar una selección o al hacer una pausa en la tinta.':'Modo manual: selecciona y pulsa Preguntar.');};
             $('mp-pause').onclick=()=>{this.livePaused=!this.livePaused;this.cancelAnalysis();this.updateControls();this.status(this.livePaused?'Análisis en directo pausado. Puedes seguir anotando.':'En directo preparado. Haz una nueva selección o marca.');};
             $('mp-stop-analysis').onclick=()=>{this.cancelAnalysis();if(this.live)this.livePaused=true;this.updateControls();this.status('Análisis detenido. Tus marcas se conservan.');};
@@ -258,7 +262,7 @@
             const saved=(()=>{try{return JSON.parse(localStorage.getItem('axx.magicpen.spatial')||'{}');}catch{return {};}})(),prefs=A.companion.data.prefs||{};
             const entries=[...(capabilities.vision||[]),...(capabilities.codex_vision||[])];
             this.spatialProviders=new Map(entries.map(p=>[encodeURIComponent(p.name)+'::'+encodeURIComponent(p.model),p]));
-            const select=$('mp-spatial-provider'),options=[new Option('Elige proveedor y modelo',''),...entries.map(p=>new Option((p.name==='@codex'?'ChatGPT/Codex':p.name)+' · '+p.model,encodeURIComponent(p.name)+'::'+encodeURIComponent(p.model)))];
+            const select=$('mp-spatial-provider'),options=[new Option('Elige proveedor y modelo',''),...entries.map(p=>new Option((p.name==='@codex'?'ChatGPT/Codex':p.name)+' · '+p.model+' · '+(p.spatial_3d?'2D + 3D':'2D'),encodeURIComponent(p.name)+'::'+encodeURIComponent(p.model)))];
             select.replaceChildren(...options);
             const preferred=saved.provider&&saved.model?[saved.provider,saved.model]:[prefs.visionConnection||prefs.apiConnection||'',prefs.visionModel||prefs.model||''];
             const selected=[...this.spatialProviders].find(([,p])=>p.name===preferred[0]&&p.model===preferred[1])?.[0]||
@@ -269,7 +273,11 @@
             const key=$('mp-spatial-provider').value,provider=this.spatialProviders?.get(key),effort=$('mp-spatial-effort');
             const previous=preferredEffort||effort.value||'auto',levels=['auto',...(provider?.efforts||[]).filter(level=>['low','medium','high','xhigh','max'].includes(level))];
             effort.replaceChildren(...levels.map(level=>new Option(level==='auto'?'Auto':level,level)));
-            effort.value=levels.includes(previous)?previous:'auto';this.saveSpatialPreferences();this.renderSpatialReadiness();
+            effort.value=levels.includes(previous)?previous:'auto';
+            const model=$('mp-spatial-model'),caption=$('mp-model-caption');model.disabled=!provider?.spatial_3d;
+            model.title=provider?.spatial_3d?'Crear una vista 3D conceptual de la selección':'Elige ChatGPT/Codex o Claude con visión para crear una vista 3D';
+            caption.textContent=provider?(provider.spatial_3d?'Modelo avanzado · señala, dibuja y crea 3D conceptual':'Modelo visual 2D · señala y dibuja diagramas; el 3D requiere un modelo avanzado'):'Elige un modelo visual para señalar, diagramar o crear 3D.';
+            this.saveSpatialPreferences();this.renderSpatialReadiness();
         }
         saveSpatialPreferences(){
             const provider=this.spatialProviders?.get($('mp-spatial-provider').value);
@@ -289,8 +297,8 @@
             const node=$('mp-spatial-status');if(!node)return;const route=this.spatialRoute();
             if(!route){this.setSpatialStatus('Elige un proveedor visual con permiso existente. AXX no cambia proveedor automáticamente.');return;}
             const provider=this.readiness?.providers?.find(item=>item.name===route.provider&&item.model===route.model);
-            this.setSpatialStatus(provider?.status==='ready'?'Proveedor verificado. El visor y la ventana Windows se comprueban por separado.':
-                'Proveedor sin verificar para imagen y JSON. Pulsa «Probar conexión»; esta prueba envía una imagen sintética.',provider?.status==='ready'?'success':'info');
+            this.setSpatialStatus(provider?.status==='ready'?'Modelo visual verificado para imagen y plan '+(provider.spatial_3d?'2D/3D.':'2D.'):
+                'Modelo sin verificar. «Probar conexión» envía una imagen sintética para comprobar su respuesta visual.',provider?.status==='ready'?'success':'info');
         }
         async verifySpatial(){
             const route=this.spatialRoute();if(!route){const message='Elige primero un proveedor y modelo visual.';this.setSpatialStatus(message);return this.status(message);}
@@ -541,14 +549,26 @@
             try{return A.companion.read(text)!==false;}catch{return false;}
         }
         askFromComposer(){
-            const base=this.presentationQuery();
-            if(base&&this.localSceneCommand($('mp-question').value))return;
+            const base=this.presentationQuery(),question=$('mp-question').value.trim();
+            if(base&&this.localSceneCommand(question))return;
+            const normalized=question.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+            const locate=/\b(donde (esta|queda|se encuentra|puedo encontrar)|senala|marca|ubica)\b/.test(normalized),diagram=/\b(diagrama|esquema|flujo)\b/.test(normalized),model=/\b(3d|modelo tridimensional|en tres dimensiones)\b/.test(normalized);
+            const spatial=this.spatialRoute();
+            if(model&&!this.spatialProviders?.get($('mp-spatial-provider').value)?.spatial_3d)return this.status('Para 3D, elige ChatGPT/Codex o Claude con visión en «Proveedor y calidad».');
+            if(locate||diagram||model||spatial?.provider==='@codex')return this.ask({fresh:false,format:'presentation',base:locate||diagram||model?null:base?.id||null,question:locate?question+'\n\nUbica el elemento en la captura y marca sus límites con una caja visible en el primer paso. Si no está visible, dilo claramente sin inventar coordenadas.':question});
             return base?this.ask({fresh:false,format:'presentation',base:base.id}):this.ask();
+        }
+        spatialAction(mode){
+            if(mode==='model'&&!this.spatialProviders?.get($('mp-spatial-provider').value)?.spatial_3d)return this.status('Para 3D, elige ChatGPT/Codex o Claude con visión en «Proveedor y calidad».');
+            const question=$('mp-question').value.trim();
+            if(mode==='locate'&&!question)return this.status('Escribe qué elemento quieres que señale en la captura.');
+            const instruction={locate:'Ubica el elemento en la captura y marca sus límites con una caja visible en el primer paso. Si no está visible, dilo claramente sin inventar coordenadas.',diagram:'Explica la selección con un diagrama de pasos y relaciones.',model:'Explica la selección con un modelo 3D conceptual e interactivo si representa un objeto espacial. Aclara lo que la imagen no permite verificar.'}[mode];
+            return this.ask({fresh:false,format:'presentation',question:(question||'¿Cómo funciona lo seleccionado?')+'\n\n'+instruction});
         }
         loadVisual(){
             if(this.visualLoading)return;this.visualLoading=import('./visual-canvas.js').then(module=>{this.visualModule=module;if(this.active){this.renderAnswers();this.render();}}).catch(()=>this.status('No se pudo cargar el diagrama local.'));
         }
-        paintVisual(){const q=this.presentationQuery(),player=this.player;if(player?.playing&&q?.presentation.overlays&&this.visualModule)this.visualModule.paintOverlays(this.ctx,q.presentation.overlays,q.presentation.steps[player.index].id,this.doc?.selection,this.image);}
+        paintVisual(){const q=this.presentationQuery(),player=this.player;if(q&&player?.queryId===q.id&&q.presentation.overlays&&this.visualModule)this.visualModule.paintOverlays(this.ctx,q.presentation.overlays,q.presentation.steps[player.index].id,this.doc?.selection,this.image);}
         saveViewNow(){
             clearTimeout(this.viewTimer);const q=this.presentationQuery(),p=this.player,d=this.doc;
             if(!this.active||!q||p?.queryId!==q.id||!d)return Promise.resolve();
@@ -650,7 +670,8 @@
             {selection_mode:'manual',provider:p.visionConnection,model:p.visionModel}:
             {selection_mode:p.selection_mode||'manual',provider:p.apiConnection||(p.provider==='bridge'?'':p.provider)||'',model:p.model||''};}
         hasVision(){
-            const routes=this.capabilities?.vision||[],r=this.route();
+            const routes=[...(this.capabilities?.vision||[]),...(this.capabilities?.codex_vision||[])],r=this.route();
+            if(this.spatialRoute())return true;
             if(r.selection_mode!=='manual')return routes.length>0;
             return routes.some(p=>(!r.provider||p.name===r.provider)&&(!r.model||p.model===r.model));
         }
@@ -693,7 +714,7 @@
             if(!this.live||this.livePaused||this.historyMode||!this.active||!this.doc?.selection)return;
             if(!this.hasVision()){this.livePaused=true;this.updateControls();this.status('Configura un modelo con visión para activar el análisis en directo.');return;}
             const epoch=this.analysisEpoch;
-            this.liveTimer=setTimeout(()=>{this.liveTimer=null;if(epoch===this.analysisEpoch&&!this.gesture)void this.ask({fresh});},delay);
+            this.liveTimer=setTimeout(()=>{this.liveTimer=null;if(epoch===this.analysisEpoch&&!this.gesture)void this.ask({fresh,format:this.spatialRoute()?.provider==='@codex'?'presentation':'text'});},delay);
         }
         paintPreview(){
             if(!this.historyMode||!this.previewImage||!this.doc)return;
@@ -705,7 +726,7 @@
             if(!this.active||!this.doc?.selection)return this.status('Selecciona o marca una región antes de preguntar.');
             if(base&&!explicit&&!$('mp-question').value.trim())return this.status('Escribe qué quieres saber o cambiar de la presentación.');
             const route=format==='presentation'?this.spatialRoute():this.route();
-            if(format==='presentation'&&!route)return this.status('Elige proveedor y modelo para el Canvas 3D.');
+            if(format==='presentation'&&!route)return this.status('Elige un proveedor y modelo visual en «Proveedor y calidad».');
             if(format==='text'&&!this.hasVision()){this.livePaused=this.live;this.updateControls();return this.status('El modelo seleccionado no tiene visión disponible. Revisa Ajustes de conexión.');}
             const epoch=this.cancelAnalysis(),session=this.generation,userQuestion=explicit||$('mp-question').value.trim()||'Explica el contenido de toda la región seleccionada. Ignora el cursor del ratón y cualquier indicador de puntero. Responde de forma clara y breve.',question=format!=='text'?userQuestion:userQuestion+'\n\nEmpieza con «Resumen:» y una síntesis en una frase de máximo 24 palabras; después da los detalles necesarios bajo «Detalle:».',
                 providerRoute=format==='presentation'?{provider:route.provider,model:route.model,selection_mode:'manual'}:route;
@@ -743,7 +764,12 @@
                 if(!['completed','failed','cancelled','interrupted'].includes(q.state))throw Error('Estado de análisis desconocido.');
                 if(!job.d.queries.some(item=>item.id===q.id))job.d.queries.push(q);
                 this.answerDirty=false;this.renderAnswers();
-                if(q.state==='completed'){this.status('Respuesta lista. Puedes preguntar más o marcar otra zona.');this.showSummaryBubble(q.presentation?q.answer||q.presentation.summary:q.guide?q.guide.goal:q.response);if(q.presentation||q.guide)this.openAnswer();}
+                if(q.state==='completed'){
+                    if(q.presentation){try{const readiness=await A.backendRequest('GET','/axx-api/feature-readiness?feature_id=spatial_intelligence');if(current()){this.readiness=readiness;this.renderSpatialReadiness();}}catch{}}
+                    const location=/\b(donde (esta|queda|se encuentra|puedo encontrar)|senala|marca|ubica)\b/.test(userQuestion.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase());
+                    const marked=q.presentation?.overlays?.some(item=>item.step_id===q.presentation.steps[0].id&&['box','arrow','label'].includes(item.kind));
+                    this.status(location&&!marked?'No pude señalar una ubicación verificable en esta captura. Revisa la explicación o selecciona una zona más precisa.':'Respuesta lista. Puedes preguntar más o marcar otra zona.');
+                    this.showSummaryBubble(q.presentation?q.answer||q.presentation.summary:q.guide?q.guide.goal:q.response);if(q.presentation||q.guide)this.openAnswer();}
                 else {if(this.live)this.livePaused=true;this.clearSummaryBubble(true);this.status(q.error||'Análisis detenido. Puedes volver a intentarlo.');}
             }catch(e){if(current()){if(this.analysisJob)void this.cancelQuery(this.analysisJob);if(this.live)this.livePaused=true;this.clearSummaryBubble(true);this.status(String(e.message||e));}}
             finally{if(current()){this.analysisPending=false;this.analysisJob=null;this.queries.clear();this.updateControls();}}

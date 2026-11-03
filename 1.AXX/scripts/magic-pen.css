@@ -213,9 +213,17 @@ body.native.axx-resident[data-ui-theme] #mp-desktop :is(#mp-live-status,#mp-hist
 #mp-desktop .mp-scene-parts{padding-top:2px}
 #mp-desktop .mp-scene-parts>summary{min-height:36px;color:var(--mp-muted);font-size:11.5px;cursor:pointer}
 #mp-desktop .mp-chat-dock{position:sticky;bottom:-18px;z-index:3;margin:12px -18px -18px;padding:10px 18px 16px;border-top:1px solid color-mix(in srgb,var(--mp-line) 65%,transparent);border-radius:0 0 23px 23px;background:linear-gradient(180deg,color-mix(in srgb,var(--surface,#171d29) 90%,transparent),var(--mp-glass) 20%);backdrop-filter:blur(20px) saturate(145%)}
-#mp-desktop .mp-spatial-actions{display:flex;justify-content:flex-end;margin:0 0 7px}
-#mp-desktop #mp-spatial-create{min-height:32px;padding:5px 12px;border:1px solid color-mix(in srgb,var(--mp-accent) 35%,var(--mp-line));border-radius:999px;background:color-mix(in srgb,var(--mp-accent) 10%,transparent);color:var(--mp-accent);font-size:11px;font-weight:620}
-#mp-desktop #mp-spatial-create:hover{background:color-mix(in srgb,var(--mp-accent) 17%,transparent)}
+#mp-desktop .mp-model-caption{margin:0 1px 8px;color:var(--mp-muted);font-size:10.5px;line-height:1.3}
+#mp-desktop .mp-spatial-actions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;margin:0 0 10px}
+#mp-desktop .mp-spatial-actions button{grid-column:auto;display:flex;align-items:center;gap:7px;min-width:0;min-height:50px;padding:8px 9px;text-align:left;border:1px solid color-mix(in srgb,var(--mp-accent) 25%,var(--mp-line));border-radius:13px;background:linear-gradient(145deg,color-mix(in srgb,var(--mp-accent) 10%,var(--surface,#171d29)),color-mix(in srgb,var(--mp-ink) 2%,var(--surface,#171d29)));color:var(--mp-ink);box-shadow:0 1px 4px #00000010;transition:background .16s,border-color .16s,transform .16s}
+#mp-desktop #mp-spatial-create{grid-column:auto}
+#mp-desktop .mp-spatial-actions button svg{width:19px;height:19px;flex:none;color:var(--mp-accent)}
+#mp-desktop .mp-spatial-actions button span{display:grid;min-width:0;gap:2px}
+#mp-desktop .mp-spatial-actions button strong{font-size:11.5px;font-weight:650;white-space:nowrap}
+#mp-desktop .mp-spatial-actions button small{overflow:hidden;color:var(--mp-muted);font-size:9px;text-overflow:ellipsis;white-space:nowrap}
+#mp-desktop .mp-spatial-actions button:hover,#mp-desktop .mp-spatial-actions button:focus-visible{background:color-mix(in srgb,var(--mp-accent) 16%,var(--surface,#171d29));border-color:var(--mp-accent);transform:translateY(-1px)}
+#mp-desktop .mp-spatial-actions button:focus-visible{outline:2px solid var(--mp-accent);outline-offset:2px}
+#mp-desktop .mp-spatial-actions button:disabled{opacity:.46;cursor:not-allowed;box-shadow:none;transform:none}
 #mp-desktop .mp-composer{gap:6px;padding:5px;border-radius:16px;background:var(--field,#222b3c);box-shadow:0 2px 8px #0000000d}
 #mp-desktop #mp-question{height:44px;min-height:44px;font-size:13.5px}
 #mp-desktop #mp-ask{width:38px;height:38px;min-height:38px;border-radius:13px;background:var(--mp-accent);box-shadow:0 2px 7px color-mix(in srgb,var(--mp-accent) 28%,transparent)}
@@ -243,4 +251,5 @@ body.native.axx-resident[data-ui-theme] #mp-desktop :is(#mp-live-status,#mp-hist
 #mp-desktop #mp-spatial-status details>summary:focus-visible{outline:2px solid var(--mp-accent);outline-offset:3px;border-radius:3px}
 #mp-desktop #mp-spatial-status pre{max-height:120px;margin:6px 0 0;padding:7px 8px;overflow:auto;border-radius:8px;background:color-mix(in srgb,var(--mp-ink) 5%,transparent);color:var(--mp-muted);font:10px/1.4 ui-monospace,Consolas,monospace;white-space:pre-wrap;overflow-wrap:anywhere}
 @media(max-width:420px){#mp-desktop #mp-widget{padding:14px}#mp-desktop .mp-chat-dock{bottom:-14px;margin:10px -14px -14px;padding:9px 14px 13px}#mp-desktop .mp-spatial-settings>.mp-spatial-options{grid-template-columns:minmax(0,1fr) 86px}#mp-desktop .mp-diagram svg{max-height:190px}}
-@media(prefers-reduced-motion:reduce){#mp-desktop .mp-spatial-settings>summary:after{transition:none}}
+@media(max-width:420px){#mp-desktop .mp-spatial-actions{gap:5px}#mp-desktop .mp-spatial-actions button{min-height:44px;padding:7px 6px;gap:4px}#mp-desktop .mp-spatial-actions button svg{width:16px;height:16px}#mp-desktop .mp-spatial-actions button small{display:none}}
+@media(prefers-reduced-motion:reduce){#mp-desktop .mp-spatial-settings>summary:after,#mp-desktop .mp-spatial-actions button{transition:none}}

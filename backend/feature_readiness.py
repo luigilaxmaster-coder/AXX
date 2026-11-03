@@ -34,8 +34,9 @@ def readiness(feature_id, magic_pen, root):
     for provider in providers:
         cached = magic_pen.spatial_verified.get((provider['name'], provider['model']))
         provider_rows.append({**provider, 'status': 'ready' if cached else 'not_verified',
-                              'evidence': 'Prueba local de imagen y JSON estructurado completada.' if cached else
-                                          'Aún no se ha probado imagen y salida estructurada para esta conexión.',
+                              'evidence': ('Prueba de imagen y plan 3D validado completada.' if provider.get('spatial_3d') else
+                                           'Prueba de imagen y plan 2D validado completada.') if cached else
+                                          'Aún no se ha probado imagen y plan visual para esta conexión.',
                               'action': {'type': 'verify', 'provider': provider['name'], 'model': provider['model']}})
     verified = any(row['status'] == 'ready' for row in provider_rows)
     if not provider_rows:

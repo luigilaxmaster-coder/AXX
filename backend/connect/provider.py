@@ -1393,7 +1393,16 @@ class CodexProvider:
         if (run.get('runtime_model') != model or run.get('runtime_provider') != 'openai'
                 or run.get('tool_results') or run.get('pending_approvals')):
             raise ProviderError('SPATIAL_GENERATION_UNVERIFIED', 'La respuesta no conserva el modelo/proveedor y aislamiento solicitados.')
-        text = run.get('response')
+        # Planning images and cancelled sources are deliberately redacted from persisted runs.
+        # The verified caller may consume the in-memory answer once before it is forgotten.
+        with self.lock:
+            live = self.live.get(request_id) or {}
+            self._assert_memory(run)
+            text = live.get('response') if run.get('response_retained') is False else run.get('response')
+            if live.get('_source_tainted'):
+                live['response'] = ''
+        if cancel_event is not None and cancel_event.is_set():
+            raise ProviderError('CANCELLED', 'La selección cambió; se descartó la respuesta visual.')
         if not isinstance(text, str) or not text.strip() or len(text) > 64000:
             raise ProviderError('RESPONSE_LIMIT', 'La respuesta está vacía o supera 64000 caracteres.')
         return {'ok': True, 'message': {'content': text}, 'route': {'model': model, 'provider_name': '@codex'}}

@@ -193,7 +193,7 @@ class ProviderTests(unittest.TestCase):
             'generation': {'effort': 'high', 'output_schema': output_schema('presentation')}}
         result, errors = [], []
         def generate():
-            try: result.append(self.provider.generate_spatial(request))
+            try: result.append(self.provider.generate_spatial(request, cancel_event=threading.Event()))
             except Exception as exc: errors.append(exc)
         thread = threading.Thread(target=generate)
         thread.start()
@@ -212,6 +212,9 @@ class ProviderTests(unittest.TestCase):
         self.assertFalse(thread.is_alive())
         self.assertEqual(errors, [])
         self.assertEqual(result[0]['route'], {'model': 'gpt-6.1-sol', 'provider_name': '@codex'})
+        self.assertEqual(result[0]['message']['content'], '{}')
+        self.assertEqual(self.provider.get('spatial-test')['response'], '')
+        self.assertEqual(self.provider.live['spatial-test']['response'], '')
 
     def test_stream_completion_and_event_cursor(self):
         self.start(); self.wait_started()

@@ -40,7 +40,11 @@ PLAN_CONTRACT = (
     'Para un mecanismo monocilíndrico puedes pedir asset={"kind":"single_cylinder_engine","scale":1}; es una asamblea conceptual, no CAD. '
     'Añade diagram con nodos d1..d16, bounds=[x,y,ancho,alto] normalizados y edges que refieran nodos existentes. '
     'Añade overlays solo sobre la selección: hasta 16 flechas, cajas, etiquetas o tarjetas vinculadas a step_id; photo=true muestra el recorte seleccionado. '
-    'En cada paso usa focus con objetos existentes que explica. Para matemáticas, texto, software o pantallas omite scene: '
+    'Usa focus solo cuando el paso tenga objetos 3D reales de scene o asset; debe ser una lista de hasta 8 ids únicos existentes. '
+    'Si preguntan dónde está algo, dibuja un overlay kind="box" en s1 sobre sus límites visibles dentro de la selección; '
+    'si no puedes ubicarlo con confianza, di que no lo encuentras y no dibujes una marca inventada. '
+    'Si piden un diagrama, incluye diagram; si piden 3D y el objeto admite una explicación espacial útil, incluye scene o asset conceptual. '
+    'Para matemáticas, texto, software o pantallas omite scene: '
     'no uses 3D solo por ser vistoso. La escena es conceptual: no inventes geometría interna, dimensiones exactas ni conexiones. '
     'Nunca incluyas HTML, código ni enlaces.'
     ' Para un motor didáctico de un cilindro puedes añadir "asset":{"kind":"single_cylinder_engine","scale":1} '
@@ -50,7 +54,24 @@ PLAN_CONTRACT = (
     'Las coordenadas están normalizadas entre 0 y 1. Para enseñar sobre la selección usa "overlays":'
     '[{"id":"a1","kind":"arrow|box|label|card","step_id":"s1","start":[x,y],"end":[x,y],"text":"…","photo":false}]. '
     'Hasta 16 anotaciones; photo solo puede ser true para una tarjeta que muestra la captura seleccionada. '
-    'Cada anotación pertenece a un paso y desaparece al terminar o pausar la narración.'
+    'Cada anotación pertenece a un paso y permanece visible en ese paso hasta cambiar de paso o captura.'
+)
+
+PLAN_2D_CONTRACT = (
+    'Responde SOLO con JSON, sin Markdown: '
+    '{"schema_version":"1.0","kind":"presentation","title":"…","summary":"…",'
+    '"fidelity":"illustrative|conceptual|technical",'
+    '"steps":[{"id":"s1","title":"…","body":"…","narration":"…","basis":"observed|inferred|assumed"},'
+    '{"id":"s2","title":"…","body":"…","narration":"…","basis":"observed|inferred|assumed"}]}. '
+    'Usa de 1 a 4 pasos breves: uno basta para señalar; usa al menos dos para un diagrama explicativo. Si se pide señalar algo visible, añade "overlays":'
+    '[{"id":"a1","kind":"box","step_id":"s1","start":[0.1,0.1],"end":[0.3,0.3],"text":"…","photo":false}]. '
+    'start y end son esquinas de la región visible, coordenadas entre 0 y 1 relativas a la imagen seleccionada. '
+    'Si no puedes localizarlo con confianza, explica que no es visible y omite overlays. '
+    'Si se pide diagrama, añade "diagram":{"nodes":[{"id":"d1","label":"…","step_id":"s1",'
+    '"bounds":[0.1,0.1,0.3,0.2]},{"id":"d2","label":"…","step_id":"s2",'
+    '"bounds":[0.6,0.6,0.3,0.2]}],"edges":[{"from":"d1","to":"d2","label":"…"}]}. '
+    'En diagram, bounds significa [x,y,ancho,alto] entre 0 y 1. No añadas scene, asset, focus, HTML ni código. '
+    'Distingue lo observado de lo inferido; no inventes medidas ni componentes ocultos.'
 )
 
 PATCH_CONTRACT = (
@@ -110,6 +131,24 @@ def normalize_strict_output(value, schema):
     if isinstance(value, list) and isinstance(schema, dict):
         return [normalize_strict_output(item, schema.get('items', {})) for item in value]
     return value
+
+
+def normalize_model_focus(plan):
+    """Drop unreliable optional 3D focus from a model response; validation still owns every required field."""
+    if not isinstance(plan, dict) or not isinstance(plan.get('steps'), list):
+        return plan
+    scene = plan.get('scene')
+    objects = scene.get('objects') if isinstance(scene, dict) else None
+    ids = {item.get('id') for item in objects if isinstance(item, dict)} if isinstance(objects, list) else set()
+    if isinstance(plan.get('asset'), dict) and plan['asset'].get('kind') == 'single_cylinder_engine':
+        ids.update(('o1', 'o2', 'o3', 'o4'))
+    result = copy.deepcopy(plan)
+    for step in result['steps']:
+        if isinstance(step, dict) and 'focus' in step:
+            focus = step['focus']
+            if not isinstance(focus, list) or len(focus) > 8 or len(focus) != len(set(map(str, focus))) or any(not isinstance(item, str) or item not in ids or not OBJECT_ID.fullmatch(item) for item in focus):
+                step.pop('focus')
+    return result
 
 
 def output_schema(kind='presentation', *, strict=False):
@@ -312,15 +351,15 @@ def _overlays(values, steps):
     return result
 
 
-def validate_plan(plan):
+def validate_plan(plan, *, min_steps=2):
     _closed(plan, ('schema_version', 'kind', 'title', 'summary', 'fidelity', 'steps'), ('scene', 'asset', 'diagram', 'overlays'), name='Plan')
     if plan['schema_version'] != SCHEMA_VERSION or plan['kind'] != 'presentation':
         raise PlanError('Versión o tipo de plan no compatible.')
     if plan['fidelity'] not in FIDELITY:
         raise PlanError('fidelity debe ser illustrative, conceptual o technical.')
     steps = plan['steps']
-    if not isinstance(steps, list) or not 2 <= len(steps) <= MAX_STEPS:
-        raise PlanError(f'El plan necesita entre 2 y {MAX_STEPS} pasos.')
+    if not isinstance(steps, list) or not min_steps <= len(steps) <= MAX_STEPS:
+        raise PlanError(f'El plan necesita entre {min_steps} y {MAX_STEPS} pasos.')
     steps = [_step(s) for s in steps]
     if len({s['id'] for s in steps}) != len(steps):
         raise PlanError('Los ids de los pasos deben ser únicos.')
@@ -344,7 +383,25 @@ def validate_plan(plan):
     return result
 
 
-def apply_patch(plan, patch):
+def validate_2d_plan(plan):
+    """Keep local-model answers on the existing validated 2D canvas."""
+    if not isinstance(plan, dict):
+        raise PlanError('El plan 2D debe ser un objeto JSON.')
+    plan = copy.deepcopy(plan)
+    plan.pop('scene', None)
+    plan.pop('asset', None)
+    if isinstance(plan.get('steps'), list):
+        for step in plan['steps']:
+            if isinstance(step, dict):
+                step.pop('focus', None)
+    if isinstance(plan.get('overlays'), list):
+        for overlay in plan['overlays']:
+            if isinstance(overlay, dict):
+                overlay.setdefault('photo', False)
+    return validate_plan(plan, min_steps=1)
+
+
+def apply_patch(plan, patch, *, min_steps=2):
     """Apply a whitelisted patch to a valid plan; the result is revalidated as a whole."""
     _closed(patch, ('schema_version', 'kind', 'answer', 'ops'), name='Patch')
     if patch['schema_version'] != SCHEMA_VERSION or patch['kind'] != 'patch':
@@ -382,7 +439,7 @@ def apply_patch(plan, patch):
             result['steps'].pop(index)
         else:
             raise PlanError('Operación de patch no permitida.')
-    return validate_plan(result), answer
+    return validate_plan(result, min_steps=min_steps), answer
 
 
 def parse_json(text):
