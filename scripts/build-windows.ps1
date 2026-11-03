@@ -1,4 +1,5 @@
 param([string]$PythonExecutable = 'python', [switch]$SkipBackend, [switch]$BackendOnly,
+      [string]$CargoTargetDirectory = '',
       [string]$EvidenceDirectory = 'evidence\resident-20261019')
 $ErrorActionPreference = 'Stop'
 Import-Module Microsoft.PowerShell.Utility
@@ -103,6 +104,14 @@ try {
     }
     $tauri = Join-Path $projectRoot 'node_modules\.bin\tauri.cmd'
     if (-not (Test-Path -LiteralPath $tauri)) { throw 'Tauri CLI missing; run npm ci before building Windows' }
+    $targetRoot = Join-Path $projectRoot 'src-tauri\target'
+    if ($CargoTargetDirectory) {
+        $buildRoot = [IO.Path]::GetFullPath((Join-Path $projectRoot 'build'))
+        $targetRoot = [IO.Path]::GetFullPath((Join-Path $projectRoot $CargoTargetDirectory))
+        if (-not $targetRoot.StartsWith($buildRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw 'Cargo target directory must be inside build' }
+        New-Item -ItemType Directory -Path $targetRoot -Force | Out-Null
+        $env:CARGO_TARGET_DIR = $targetRoot
+    }
     $ErrorActionPreference = 'Continue'
     & $tauri build --bundles nsis *> (Join-Path $evidencePath 'tauri-nsis-build.log')
     $ErrorActionPreference = 'Stop'
@@ -116,7 +125,7 @@ try {
     & $PythonExecutable $bundleHelper verify $resourceRoot $bundleManifestPath
     if ($LASTEXITCODE -ne 0) { throw 'Staged backend bundle changed during Tauri packaging' }
     $version = (Get-Content 'src-tauri\tauri.conf.json' -Raw | ConvertFrom-Json).version
-    $artifacts = @("src-tauri\target\release\bundle\nsis\Axx_${version}_x64-setup.exe", 'src-tauri\target\release\Axx.exe', 'dist\axx-backend\axx-backend.exe') | ForEach-Object {
+    $artifacts = @((Join-Path $targetRoot "release\bundle\nsis\Axx_${version}_x64-setup.exe"), (Join-Path $targetRoot 'release\Axx.exe'), 'dist\axx-backend\axx-backend.exe') | ForEach-Object {
         $item=Get-Item -LiteralPath $_
         @{path=$item.FullName; bytes=$item.Length; sha256=(Get-FileHash -LiteralPath $item.FullName -Algorithm SHA256).Hash; architecture='x86_64'; version=$version}
     }
