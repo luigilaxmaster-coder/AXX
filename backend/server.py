@@ -31,6 +31,7 @@ from backend.inference.router import parse_strict_json
 from backend.prompts import public_compose
 from backend.inference.adapter import InferenceAdapter, worker_main
 from backend.inference import provider_settings
+from backend import ollama_models
 from backend.inference.freellmapi import FreeLLMAPIService
 from backend.inference.model_candidates import ModelCandidates
 from backend.inference.keyless import KeylessSetup
@@ -379,6 +380,20 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                 self._send_json(200, {'models': models, 'chatgpt_active': bool(self.chatgpt_auth and self.chatgpt_auth.is_authenticated())})
             elif path == '/axx-api/providers':
                 self._send_json(200, {'providers': provider_settings.public_entries(self.adapter.config)})
+            elif path == '/axx-api/ollama/models':
+                query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query, keep_blank_values=True)
+                if set(query) - {'base_url'} or len(query.get('base_url', [''])) != 1:
+                    raise ValueError('Consulta de Ollama inválida.')
+                providers = self.adapter.config.get('providers', []) if self.adapter else []
+                local = next((p for p in providers if p.get('kind') == 'ollama'), None)
+                result = ollama_models.detect((query.get('base_url') or [''])[0] or (local['base_url'] if local else ollama_models.DEFAULT_URL))
+                for model in result['models']:  # read-only: it only records what Ollama itself declares for connections the owner already saved
+                    saved = next((p for p in providers if p.get('model') == model['name'] and p['base_url'].rstrip('/').removesuffix('/v1') == result['base_url']), None)
+                    model['configured_as'] = saved['name'] if saved else None
+                    if saved and model['vision'] and self.magic_pen:
+                        self.magic_pen.caps.declare(saved['name'], model['name'], 'vision', 'Declarada por Ollama (/api/show).')
+                    model['aptitude'] = self.magic_pen.caps.summary(saved['name'], model['name']) if saved and self.magic_pen else None
+                self._send_json(200, result)
             elif path == '/axx-api/feature-readiness':
                 query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query, keep_blank_values=True)
                 if set(query) != {'feature_id'} or len(query['feature_id']) != 1 or not self.magic_pen:

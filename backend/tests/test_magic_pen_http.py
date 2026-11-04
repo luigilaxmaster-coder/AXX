@@ -30,10 +30,11 @@ class MagicPenHTTPTests(unittest.TestCase):
                                 'route': {'provider_name': 'fixture', 'model': 'claude-opus-4-6'}}
                     plan = {'schema_version': '1.0', 'kind': 'presentation', 'title': 'Figura', 'summary': 'Una pieza azul.',
                         'fidelity': 'conceptual', 'steps': [
-                            {'id': 's1', 'title': 'Pieza', 'body': 'Rectángulo azul.', 'narration': 'La pieza azul.', 'basis': 'observed'},
+                            {'id': 's1', 'title': 'Pieza', 'body': 'Figura roja y círculo azul.', 'narration': 'La pieza azul.', 'basis': 'observed'},
                             {'id': 's2', 'title': 'Contexto', 'body': 'Está dentro de la selección.', 'narration': 'Vemos el contexto.', 'basis': 'inferred'}],
                         'scene': {'fidelity': 'conceptual', 'objects': [
-                            {'id': 'o1', 'label': 'Pistón', 'shape': 'piston', 'size': [1, 1, 1], 'position': [0, 0, 0], 'color': '#aaaaaa'}]}}
+                            {'id': 'o1', 'label': 'Pistón', 'shape': 'piston', 'size': [1, 1, 1], 'position': [0, 0, 0], 'color': '#d33b36'},
+                            {'id': 'o2', 'label': 'Esfera azul', 'shape': 'sphere', 'size': [1, 1, 1], 'position': [2, 0, 0], 'color': '#2878c8'}]}}
                     return {'ok': True, 'message': {'content': json.dumps(plan)},
                             'route': {'provider_name': 'fixture', 'model': 'claude-opus-4-6'}}
                 def cancel(self, request_id): return True

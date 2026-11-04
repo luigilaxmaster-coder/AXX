@@ -32,6 +32,22 @@ def _source_json(raw):
     return json.loads(raw.decode('utf8'), object_pairs_hook=unique, parse_constant=constant)
 
 
+
+def normalize_usage(usage):
+    """One shape for every provider: input_tokens (not served from cache), output_tokens and cache read/write tokens."""
+    if not isinstance(usage, dict):
+        return {}
+    number = lambda value: value if type(value) is int and value >= 0 else None
+    cached = number(usage.get('cache_read_input_tokens'))
+    if cached is None and isinstance(usage.get('prompt_tokens_details'), dict):
+        cached = number(usage['prompt_tokens_details'].get('cached_tokens'))
+    prompt = number(usage.get('input_tokens'))
+    if prompt is None and number(usage.get('prompt_tokens')) is not None:
+        prompt = max(0, usage['prompt_tokens'] - (cached or 0))  # OpenAI-style prompt_tokens includes the cached part
+    out = {'input_tokens': prompt, 'output_tokens': number(usage.get('output_tokens', usage.get('completion_tokens'))),
+           'cache_read_input_tokens': cached, 'cache_creation_input_tokens': number(usage.get('cache_creation_input_tokens'))}
+    return {k: v for k, v in out.items() if v is not None}
+
 class SourceDestinationPolicy:
     """In-process authority; never accepted from a request/model JSON field."""
     __slots__ = ('_allowed_profile_ids', '_revalidate')
@@ -619,8 +635,11 @@ class InferenceAdapter:
                                        **_attempt_details(raw_result.get('axx_router', {})))
                 self.router._validate_response_message(raw_result)
                 active.completed, active.terminal_state = True, 'COMPLETED'
+            finish_reason = raw_result['choices'][0].get('finish_reason')
             return {'request_id': request_id, 'ok': True, 'message': raw_result['choices'][0]['message'],
-                    'route': raw_result.get('axx_router', {}), **_attempt_details(raw_result.get('axx_router', {}))}
+                    'route': raw_result.get('axx_router', {}), **({'finish_reason': finish_reason} if isinstance(finish_reason, str) else {}),
+                    **({'usage': normalize_usage(raw_result['usage'])} if normalize_usage(raw_result.get('usage')) else {}),
+                    **_attempt_details(raw_result.get('axx_router', {}))}
         except Exception as exc:
             code = getattr(exc, 'code', 'PROCESS_FAILURE')
             if isinstance(exc, UpstreamError) and exc.status == 504:

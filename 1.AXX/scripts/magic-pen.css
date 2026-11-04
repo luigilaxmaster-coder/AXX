@@ -66,6 +66,7 @@
 #mp-desktop .mp-scene-fallback{margin:0;padding-left:18px}
 #mp-desktop .mp-diagram{margin:10px 0;color:var(--mp-ink)}
 #mp-desktop .mp-diagram svg{display:block;width:100%;height:auto;max-height:320px}
+#mp-desktop .mp-diagram svg{pointer-events:auto}  /* the resident shell gives svg pointer-events:none, so mouse clicks fell through the nodes */
 #mp-desktop .mp-diagram-node{cursor:pointer}
 #mp-desktop .mp-diagram-node:focus{outline:none;filter:drop-shadow(0 0 4px var(--mp-accent))}
 #mp-desktop .mp-caption{position:fixed;z-index:3;left:50%;bottom:82px;transform:translateX(-50%);box-sizing:border-box;max-width:min(720px,calc(100vw - 24px));padding:10px 18px;border-radius:14px;background:#141924ed;color:#fff;font:16px/1.5 var(--interface-font,"Segoe UI",sans-serif);pointer-events:none;text-align:center;white-space:pre-wrap;overflow-wrap:anywhere;box-shadow:0 4px 20px #0004}
@@ -269,7 +270,7 @@ body.native.axx-resident[data-ui-theme] #mp-desktop :is(#mp-live-status,#mp-hist
 #mp-desktop .mp-spatial-settings>.mp-spatial-options{grid-template-columns:minmax(0,1fr) 92px;gap:8px;margin:0 0 8px;padding:10px;border:1px solid var(--mp-line);border-radius:14px;background:color-mix(in srgb,var(--mp-ink) 2%,transparent)}
 #mp-desktop .mp-spatial-settings .mp-spatial-options label{gap:5px;font-size:10px}
 #mp-desktop .mp-spatial-settings .mp-spatial-options select{height:38px;min-height:38px;border-radius:10px;font-size:11px}
-#mp-desktop .mp-spatial-settings>#mp-spatial-verify{width:100%;min-height:36px;margin:0 0 8px;border-radius:11px;font-size:11px}
+#mp-desktop .mp-spatial-settings>#mp-spatial-verify,#mp-desktop .mp-spatial-settings>#mp-spatial-ollama{width:100%;min-height:36px;margin:0 0 8px;border-radius:11px;font-size:11px}
 #mp-desktop #mp-spatial-status{display:grid;grid-template-columns:9px minmax(0,1fr);gap:1px 8px;align-items:start;margin:0 0 8px;padding:10px 11px;border:1px solid var(--mp-line);border-radius:13px;background:color-mix(in srgb,var(--mp-ink) 2.5%,transparent);color:var(--mp-muted);font-size:11px;line-height:1.45;overflow-wrap:anywhere}
 #mp-desktop #mp-spatial-status:before{content:"";width:7px;height:7px;margin-top:4px;border-radius:50%;background:var(--mp-accent)}
 #mp-desktop #mp-spatial-status[data-state=checking]:before{width:9px;height:9px;margin:1px 0 0 -1px;border:1.5px solid color-mix(in srgb,var(--mp-accent) 28%,var(--mp-line));border-top-color:var(--mp-accent);background:transparent;animation:mp-spinner .75s linear infinite}

@@ -137,7 +137,8 @@ class MagicPenTests(unittest.TestCase):
                 {'name': 'unauthorized', 'model': 'vision', 'enabled': True,
                  'free_confirmed': False, 'billing_allowed': False, 'capabilities': ['vision']}]}
         self.service.adapter = Adapter()
-        self.assertEqual(self.service.capabilities()['vision'], [{'name': 'authorized', 'model': 'vision', 'protocol': 'openai', 'spatial_3d': False, 'efforts': []}])
+        self.assertEqual(self.service.capabilities()['vision'], [{'name': 'authorized', 'model': 'vision', 'protocol': 'openai', 'spatial_3d': False, 'efforts': [],
+            'aptitude': {'vision': 'declarado', 'json_estricto': 'sin_datos', 'scene_3d': 'sin_datos', 'diagram_2d': 'sin_datos', 'explicacion': 'sin_datos'}}])
 
     def test_late_response_keeps_original_selection_and_never_sends_ink(self):
         entered, release = threading.Event(), threading.Event()

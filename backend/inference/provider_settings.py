@@ -171,7 +171,8 @@ def save(body, adapter, config_path):
         free = local or (kind == 'openrouter' and (model.endswith(':free') or model == 'openrouter/free'))
         capabilities = list(old['capabilities']) if old and old['model'] == model else ['text', 'vision'] if protocol == 'anthropic' else ['text']  # Claude models accept images
         entry = dict(enabled=True, free_confirmed=free, billing_allowed=False, daily_attempt_limit=1000,
-                     max_output_tokens=2048, auth_optional=local, cost_evidence='unknown',
+                     max_output_tokens=6144 if protocol == 'anthropic' else 2048,  # the router clamps every request to this; 3D plans need more than 2,048
+                     auth_optional=local, cost_evidence='unknown',
                      route_kind='proxy' if kind == 'freellmapi' else 'unknown')
         if old:
             entry.update(old)
@@ -186,7 +187,8 @@ def save(body, adapter, config_path):
                 raise ValueError('allow_sensitive debe ser un consentimiento booleano explícito')
             entry['allow_sensitive'] = body['allow_sensitive']
         for field in ('enabled', 'free_confirmed', 'billing_allowed', 'cost_evidence', 'route_kind', 'capabilities',
-                      'tasks', 'context_window', 'image_context_tokens', 'task_priority', 'gateway_free_model_ids'):
+                      'tasks', 'context_window', 'image_context_tokens', 'task_priority', 'gateway_free_model_ids',
+                      'prompt_caching', 'cache_ttl', 'cache_control'):
             if field in body:
                 entry[field] = body[field]
         # route_kind is also part of the recipient identity. A changed route

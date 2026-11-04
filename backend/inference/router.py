@@ -199,6 +199,11 @@ def http_transport(provider: dict, body: dict, timeout: float, *, response_obser
                     raise RequestError('Unsupported Anthropic message content block')
             converted.append({'role': message['role'], 'content': blocks})
         body['system'] = '\n\n'.join(system)
+        if body['system'] and provider.get('prompt_caching', True) is not False:
+            ttl = provider.get('cache_ttl')
+            control = provider['cache_control'] if isinstance(provider.get('cache_control'), dict) else ({'type': 'ephemeral', 'ttl': ttl} if ttl else {'type': 'ephemeral'})
+            # One explicit breakpoint at the end of the stable system prompt (contract + catalog), never on the image or the question.
+            body['system'] = [{'type': 'text', 'text': body['system'], 'cache_control': control}]
         body['messages'] = converted
         body.setdefault('max_tokens', provider.get('max_output_tokens', 2048))
         if re.match(r'claude-[a-z]+-[5-9]', str(body.get('model', provider.get('model', '')))):
@@ -243,8 +248,11 @@ def http_transport(provider: dict, body: dict, timeout: float, *, response_obser
                         data['provider'], data['model'] = platform, model
                 if anthropic:
                     content = ''.join(part.get('text', '') for part in data.get('content', []) if part.get('type') == 'text')
+                    usage = data.get('usage') if isinstance(data.get('usage'), dict) else {}
                     return {'model': data.get('model'), 'choices': [{'message': {'role': 'assistant', 'content': content},
-                                         'finish_reason': 'length' if data.get('stop_reason') == 'max_tokens' else 'stop'}]}
+                                         'finish_reason': 'length' if data.get('stop_reason') == 'max_tokens' else 'stop'}],
+                            'usage': {k: usage[k] for k in ('input_tokens', 'output_tokens', 'cache_read_input_tokens', 'cache_creation_input_tokens')
+                                      if type(usage.get(k)) is int}}
                 return data
             except (ValueError, UnicodeError) as exc:
                 raise UpstreamError(502, message=f"Invalid response JSON: {exc}") from None
@@ -362,6 +370,12 @@ class Router:
                 raise ValueError("Invalid capabilities list")
             if type(p.get('max_output_tokens', 1024)) is not int or p.get('max_output_tokens', 1024) < 1:
                 raise ValueError("Invalid max_output_tokens")
+            if 'prompt_caching' in p and not isinstance(p['prompt_caching'], bool):
+                raise ValueError('Invalid prompt_caching')
+            if 'cache_ttl' in p and p['cache_ttl'] not in ('5m', '1h'):
+                raise ValueError('Invalid cache_ttl')
+            if 'cache_control' in p and not isinstance(p['cache_control'], dict):
+                raise ValueError('Invalid cache_control')
             if 'tasks' in p and (not isinstance(p['tasks'], list) or not all(isinstance(t, str) for t in p['tasks'])):
                 raise ValueError("Invalid tasks")
             if 'scope_limit' in p and (type(p['scope_limit']) is not int or p['scope_limit'] < 1):

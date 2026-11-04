@@ -6,30 +6,164 @@ import * as THREE from './three.module.min.js';
 let live = 0;
 export const liveScenes = () => live;
 
-function geometry(shape, [x, y, z]) {
+const scaled=(g,x,y,z)=>{g.scale(x,y,z);return g;};
+// Physically based presets (roughness, metalness, base opacity). Environment reflections make the metals read as metal.
+const MATERIALS={metal_brushed:{r:.38,m:.92},metal_polished:{r:.14,m:1},metal_anodized:{r:.34,m:.8},plastic:{r:.46,m:0},rubber:{r:.92,m:0},glass:{r:.06,m:0,a:.32},ceramic:{r:.18,m:0},wood:{r:.72,m:0},fabric:{r:.96,m:0},stone:{r:.88,m:0},paint:{r:.38,m:.12},emissive:{r:.5,m:0,glow:true}};
+const sceneSignature=o=>JSON.stringify([o.size,o.param??null,o.material??null]);
+
+function geometry(shape, [x, y, z], param) {
     switch (shape) {
         case 'box': {
-            const r=Math.min(x,y,z)*.08;
+            const r=Math.min(x,y,z)*Math.min(.3,param??.08);
             if(r<.015||z<=2*r||x<=2*r||y<=2*r)return new THREE.BoxGeometry(x,y,z);
             const s=new THREE.Shape();
             s.moveTo(-x/2+r,-y/2);s.lineTo(x/2-r,-y/2);s.quadraticCurveTo(x/2,-y/2,x/2,-y/2+r);
             s.lineTo(x/2,y/2-r);s.quadraticCurveTo(x/2,y/2,x/2-r,y/2);
             s.lineTo(-x/2+r,y/2);s.quadraticCurveTo(-x/2,y/2,-x/2,y/2-r);
             s.lineTo(-x/2,-y/2+r);s.quadraticCurveTo(-x/2,-y/2,-x/2+r,-y/2);s.closePath();
-            const g=new THREE.ExtrudeGeometry(s,{depth:Math.max(.01,z-2*r),bevelEnabled:true,bevelThickness:r,bevelSize:r,bevelSegments:2,steps:1});
+            const g=new THREE.ExtrudeGeometry(s,{depth:Math.max(.01,z-2*r),bevelEnabled:true,bevelThickness:r,bevelSize:r,bevelSegments:3,steps:1});
             g.translate(0,0,-(z-2*r)/2);return g;
         }
-        case 'sphere': return new THREE.SphereGeometry(x / 2, 36, 20);
-        case 'cylinder': return new THREE.CylinderGeometry(x / 2, x / 2, y, 36);
-        case 'cone': return new THREE.ConeGeometry(x / 2, y, 36);
+        case 'sphere': return new THREE.SphereGeometry(x / 2, 40, 24);
+        case 'ellipsoid': return scaled(new THREE.SphereGeometry(.5, 40, 24), x, y, z);
+        case 'cylinder': return scaled(new THREE.CylinderGeometry(.5, .5, 1, 48), x, y, z);
+        case 'cone': return scaled(new THREE.ConeGeometry(.5, 1, 48), x, y, z);
+        case 'frustum': return scaled(new THREE.CylinderGeometry(.5 * Math.max(.05, param ?? .6), .5, 1, 48), x, y, z);
+        case 'hexprism': return scaled(new THREE.CylinderGeometry(.5, .5, 1, 6), x, y, z);
+        case 'tube': {
+            const inner=.5*(1-Math.min(.9,Math.max(.04,param ?? .18)));
+            const profile=[[inner,-.5],[.5,-.5],[.5,.5],[inner,.5],[inner,-.5]].map(([r,h])=>new THREE.Vector2(r,h));
+            return scaled(new THREE.LatheGeometry(profile, 48), x, y, z);
+        }
+        case 'capsule': {
+            const r=Math.min(x,z)/2;
+            return scaled(new THREE.CapsuleGeometry(r, Math.max(0,y-2*r), 10, 32), x/(2*r), 1, z/(2*r));
+        }
+        case 'dome': {
+            const g=scaled(new THREE.SphereGeometry(.5, 40, 20, 0, Math.PI*2, 0, Math.PI/2), x, 2*y, z);
+            g.translate(0, -y/2, 0);return g;
+        }
+        case 'wedge': {
+            const s=new THREE.Shape();s.moveTo(-x/2,-y/2);s.lineTo(x/2,-y/2);s.lineTo(-x/2,y/2);s.closePath();
+            const g=new THREE.ExtrudeGeometry(s,{depth:z,bevelEnabled:false,steps:1});g.translate(0,0,-z/2);return g;
+        }
+        case 'gable': {
+            const s=new THREE.Shape();s.moveTo(-x/2,-y/2);s.lineTo(x/2,-y/2);s.lineTo(0,y/2);s.closePath();
+            const g=new THREE.ExtrudeGeometry(s,{depth:z,bevelEnabled:false,steps:1});g.translate(0,0,-z/2);return g;
+        }
+        case 'gear': {
+            const teeth=Math.max(6,Math.min(36,Math.round(param??14))),s=new THREE.Shape();
+            const rOuter=.5,rRoot=.38,rHole=.16;
+            for(let i=0;i<teeth;i++){
+                const a0=(i/teeth)*Math.PI*2,a1=a0+(Math.PI/teeth)*.25,a2=a0+(Math.PI/teeth)*.55,a3=a0+(Math.PI/teeth)*.8;
+                if(i===0)s.moveTo(Math.cos(a0)*rRoot,Math.sin(a0)*rRoot);else s.lineTo(Math.cos(a0)*rRoot,Math.sin(a0)*rRoot);
+                s.lineTo(Math.cos(a1)*rOuter,Math.sin(a1)*rOuter);s.lineTo(Math.cos(a2)*rOuter,Math.sin(a2)*rOuter);s.lineTo(Math.cos(a3)*rRoot,Math.sin(a3)*rRoot);
+            }
+            s.closePath();const hole=new THREE.Path();hole.absarc(0,0,rHole,0,Math.PI*2,true);s.holes.push(hole);
+            const g=new THREE.ExtrudeGeometry(s,{depth:1,bevelEnabled:false,steps:1});g.translate(0,0,-.5);g.rotateX(Math.PI/2);return scaled(g,x,y,z);
+        }
+        case 'coil':
+        case 'spring': {
+            const turns=Math.max(2,Math.min(12,param??4.5));
+            class HelixCurve extends THREE.Curve{
+                getPoint(t){const a=t*Math.PI*2*turns;return new THREE.Vector3(Math.cos(a)*.42,t-.5,Math.sin(a)*.42);}
+            }
+            const g=new THREE.TubeGeometry(new HelixCurve(),Math.round(turns*24),.08,12,false);return scaled(g,x,y,z);
+        }
+        case 'l_bracket': {
+            const t=Math.min(.45,Math.max(.06,param??.18)),s=new THREE.Shape();
+            s.moveTo(-.5,-.5);s.lineTo(.5,-.5);s.lineTo(.5,-.5+t);s.lineTo(-.5+t,-.5+t);s.lineTo(-.5+t,.5);s.lineTo(-.5,.5);s.closePath();
+            const g=new THREE.ExtrudeGeometry(s,{depth:1,bevelEnabled:false,steps:1});g.translate(0,0,-.5);return scaled(g,x,y,z);
+        }
+        case 'u_channel': {
+            const t=Math.min(.35,Math.max(.06,param??.15)),s=new THREE.Shape();
+            s.moveTo(-.5,.5);s.lineTo(-.5+t,.5);s.lineTo(-.5+t,-.5+t);s.lineTo(.5-t,-.5+t);s.lineTo(.5-t,.5);s.lineTo(.5,.5);s.lineTo(.5,-.5);s.lineTo(-.5,-.5);s.closePath();
+            const g=new THREE.ExtrudeGeometry(s,{depth:1,bevelEnabled:false,steps:1});g.translate(0,0,-.5);return scaled(g,x,y,z);
+        }
+        case 'i_beam': {
+            const tf=Math.min(.25,Math.max(.05,param??.12)),tw=tf*.9,s=new THREE.Shape();
+            s.moveTo(-.5,.5);s.lineTo(.5,.5);s.lineTo(.5,.5-tf);s.lineTo(tw/2,.5-tf);s.lineTo(tw/2,-.5+tf);s.lineTo(.5,-.5+tf);s.lineTo(.5,-.5);s.lineTo(-.5,-.5);s.lineTo(-.5,-.5+tf);s.lineTo(-tw/2,-.5+tf);s.lineTo(-tw/2,.5-tf);s.lineTo(-.5,.5-tf);s.closePath();
+            const g=new THREE.ExtrudeGeometry(s,{depth:1,bevelEnabled:false,steps:1});g.translate(0,0,-.5);return scaled(g,x,y,z);
+        }
+        case 'pipe_elbow': {
+            const g=new THREE.TorusGeometry(.5,Math.min(.3,Math.max(.08,param??.22)),20,32,Math.PI/2);
+            g.translate(-.5,-.5,0);return scaled(g,x,y,z);
+        }
+        case 'heatsink': {
+            const fins=Math.max(3,Math.min(12,Math.round(param??6))),s=new THREE.Shape(),baseH=.18,finSpan=1/fins,finW=finSpan*.35;
+            s.moveTo(-.5,-.5);s.lineTo(.5,-.5);s.lineTo(.5,-.5+baseH);
+            for(let i=fins-1;i>=0;i--){
+                const xr=-.5+i*finSpan+finW,xl=-.5+i*finSpan;
+                s.lineTo(xr,-.5+baseH);s.lineTo(xr,.5);s.lineTo(xl,.5);s.lineTo(xl,-.5+baseH);
+            }
+            s.lineTo(-.5,-.5+baseH);s.closePath();
+            const g=new THREE.ExtrudeGeometry(s,{depth:1,bevelEnabled:false,steps:1});g.translate(0,0,-.5);return scaled(g,x,y,z);
+        }
+        case 'flange': {
+            const s=new THREE.Shape();s.absarc(0,0,.5,0,Math.PI*2,false);
+            const ch=new THREE.Path();ch.absarc(0,0,.22,0,Math.PI*2,true);s.holes.push(ch);
+            const bolts=Math.max(4,Math.min(12,Math.round(param??6)));
+            for(let i=0;i<bolts;i++){
+                const a=(i/bolts)*Math.PI*2,bh=new THREE.Path();bh.absarc(Math.cos(a)*.38,Math.sin(a)*.38,.04,0,Math.PI*2,true);s.holes.push(bh);
+            }
+            const g=new THREE.ExtrudeGeometry(s,{depth:1,bevelEnabled:false,steps:1});g.translate(0,0,-.5);g.rotateX(Math.PI/2);return scaled(g,x,y,z);
+        }
+        case 'pyramid': return scaled(new THREE.ConeGeometry(.5*Math.SQRT2,1,4),x,y,z);
+        case 'threaded_rod': {
+            const pitches=Math.max(4,Math.min(40,Math.round(param??14))),profile=[new THREE.Vector2(0,-.5)];
+            for(let i=0;i<=pitches*2;i++)profile.push(new THREE.Vector2(i%2?.5:.41,-.5+i/(pitches*2)));
+            profile.push(new THREE.Vector2(0,.5));
+            return scaled(new THREE.LatheGeometry(profile,32),x,y,z);
+        }
+        case 'slot': {
+            const s=new THREE.Shape(),r=.5*Math.min(1,y/Math.max(x,1e-3)),hx=.5-r;
+            s.absarc(hx,0,r,-Math.PI/2,Math.PI/2,false);s.absarc(-hx,0,r,Math.PI/2,Math.PI*1.5,false);s.closePath();
+            const g=new THREE.ExtrudeGeometry(s,{depth:1,bevelEnabled:false,steps:1,curveSegments:24});g.translate(0,0,-.5);return scaled(g,x,x,z);
+        }
+        case 'rect_tube': {
+            const t=Math.min(.4,Math.max(.04,param??.12)),s=new THREE.Shape();
+            s.moveTo(-.5,-.5);s.lineTo(.5,-.5);s.lineTo(.5,.5);s.lineTo(-.5,.5);s.closePath();
+            const h=new THREE.Path();h.moveTo(-.5+t,-.5+t);h.lineTo(-.5+t,.5-t);h.lineTo(.5-t,.5-t);h.lineTo(.5-t,-.5+t);h.closePath();s.holes.push(h);
+            const g=new THREE.ExtrudeGeometry(s,{depth:1,bevelEnabled:false,steps:1});g.translate(0,0,-.5);g.rotateX(Math.PI/2);return scaled(g,x,y,z);
+        }
+        case 'arc': {
+            const angle=THREE.MathUtils.degToRad(Math.max(30,Math.min(360,param??180)));
+            return scaled(new THREE.TorusGeometry(.42,.08,16,48,angle),x,y,z);
+        }
+        case 'knurled_cylinder': {
+            const ribs=Math.max(8,Math.min(48,Math.round(param??24))),s=new THREE.Shape();
+            for(let i=0;i<ribs*2;i++){const a=(i/(ribs*2))*Math.PI*2,r=i%2?.46:.5;i?s.lineTo(Math.cos(a)*r,Math.sin(a)*r):s.moveTo(Math.cos(a)*r,Math.sin(a)*r);}
+            s.closePath();const g=new THREE.ExtrudeGeometry(s,{depth:1,bevelEnabled:false,steps:1});g.translate(0,0,-.5);g.rotateX(Math.PI/2);return scaled(g,x,y,z);
+        }
+        case 'chamfer_cylinder': {
+            const c=Math.min(.25,Math.max(.02,param??.08));
+            const profile=[[0,-.5],[.5-c,-.5],[.5,-.5+c],[.5,.5-c],[.5-c,.5],[0,.5]].map(([r,h])=>new THREE.Vector2(r,h));
+            return scaled(new THREE.LatheGeometry(profile,48),x,y,z);
+        }
         case 'torus': return new THREE.TorusGeometry(x / 2, Math.max(.02, Math.min(x / 4, y / 2)), 20, 48);
         default: return new THREE.BoxGeometry(x, .02, z);
     }
 }
 
+// Studio environment (soft boxes over a graded dome) for physically based reflections; no external HDR asset is loaded.
+function studioEnvironment(renderer){
+    const pm=new THREE.PMREMGenerator(renderer),env=new THREE.Scene(),disposables=[];
+    const sky=new THREE.SphereGeometry(10,32,16),pos=sky.attributes.position,colors=[];
+    for(let i=0;i<pos.count;i++){const t=(pos.getY(i)/10+1)/2,c=new THREE.Color().setHSL(.6,.1,.06+.5*t);colors.push(c.r,c.g,c.b);}
+    sky.setAttribute('color',new THREE.Float32BufferAttribute(colors,3));
+    const skyMaterial=new THREE.MeshBasicMaterial({side:THREE.BackSide,vertexColors:true});env.add(new THREE.Mesh(sky,skyMaterial));disposables.push(sky,skyMaterial);
+    for(const [x,y,z,w,h,i] of [[4,6,6,5,3,4],[-7,3,3,2,5,2],[0,7,-6,6,2,2.5]]){
+        const g=new THREE.PlaneGeometry(w,h),m=new THREE.MeshBasicMaterial({color:new THREE.Color(i,i,i),side:THREE.DoubleSide}),box=new THREE.Mesh(g,m);
+        box.position.set(x,y,z);box.lookAt(0,0,0);env.add(box);disposables.push(g,m);
+    }
+    const target=pm.fromScene(env,.04);pm.dispose();disposables.forEach(d=>d.dispose());return target;
+}
+
 function objectMesh(o) {
     const [x,y,z]=o.size, engineered=['piston','connecting_rod','crankshaft','engine_cylinder'].includes(o.shape);
-    const material=new THREE.MeshStandardMaterial({color:o.color,roughness:engineered?.32:.42,metalness:engineered?.45:.28,transparent:true,side:o.shape==='engine_cylinder'?THREE.DoubleSide:THREE.FrontSide}), geometries=[],materials=[material];
+    const preset=MATERIALS[o.material]||{r:engineered?.32:.42,m:engineered?.45:.28};
+    const material=new THREE.MeshStandardMaterial({color:o.color,roughness:preset.r,metalness:preset.m,transparent:true,opacity:preset.a??1,envMapIntensity:.7,side:['engine_cylinder','tube','dome','pipe_elbow','flange','u_channel','l_bracket','rect_tube','arc'].includes(o.shape)?THREE.DoubleSide:THREE.FrontSide}), geometries=[],materials=[material];
+    material.userData={base:preset.a??1,glow:!!preset.glow};if(preset.glow){material.emissive.set(o.color);material.emissiveIntensity=.9;}
     const trim=engineered?new THREE.MeshStandardMaterial({color:0xd8e4f2,roughness:.26,metalness:.48,side:THREE.DoubleSide}):material;
     const seal=engineered?new THREE.MeshStandardMaterial({color:0x24344a,roughness:.50,metalness:.38}):material;
     if(engineered)materials.push(trim,seal);
@@ -65,12 +199,12 @@ function objectMesh(o) {
             for(const offset of [-.42,-.14,.14,.42])part(root,new THREE.RingGeometry(x*.51,x*.58,48,1,Math.PI*.15,Math.PI*1.4),[0,y*offset,0],[-Math.PI/2,0,0],trim);
         }
     }else{
-        const g=geometry(o.shape,o.size);
+        const g=geometry(o.shape,o.size,o.param);
         root=new THREE.Mesh(g,material);geometries.push(g);
         addContour(root,g);
     }
     root.position.fromArray(o.position);if(o.rotation)root.rotation.set(...o.rotation.map(THREE.MathUtils.degToRad));
-    root.userData={id:o.id,base:root.position.clone(),explode:new THREE.Vector3(...(o.explode||[0,1.5,0])),material,materials,geometries,shape:o.shape,size:JSON.stringify(o.size)};
+    root.userData={id:o.id,base:root.position.clone(),explode:new THREE.Vector3(...(o.explode||[0,1.5,0])),material,materials,geometries,shape:o.shape,size:sceneSignature(o)};
     return root;
 }
 
@@ -88,6 +222,7 @@ export function mountScene(container, scene, {reducedMotion = false, onPick = ()
     container.append(canvas,annotations,tooltip); live++;
 
     const world = new THREE.Scene(), camera = new THREE.PerspectiveCamera(40, 1, .1, 200), meshes = new Map(), arrows = [];
+    const environment=studioEnvironment(renderer);world.environment=environment.texture;
     world.add(new THREE.HemisphereLight(0xf2f7ff, 0x182434, 0.95));
     const sun = new THREE.DirectionalLight(0xffffff, 2.2); sun.position.set(6, 10, 8); world.add(sun);
     const fill = new THREE.DirectionalLight(0xa6c5f2, 1.25); fill.position.set(-6, 4, 6); world.add(fill);
@@ -194,8 +329,8 @@ export function mountScene(container, scene, {reducedMotion = false, onPick = ()
             focused = ids.filter(id => meshes.has(id));
             for (const [id, mesh] of meshes) {
                 const on = !focused.length || focused.includes(id);
-                const material=mesh.userData.material,shell=mesh.userData.shape==='engine_cylinder';material.opacity = shell ? .48 : on ? 1 : .58; material.depthWrite = on&&!shell; mesh.visible = !hidden.has(id)&&(!isolated||on);
-                material.emissive.set(focused.includes(id) ? 0x11182a : 0x000000);
+                const material=mesh.userData.material,shell=mesh.userData.shape==='engine_cylinder',base=material.userData.base??1;material.opacity = shell ? .48 : on ? base : base*.58; material.depthWrite = on&&!shell&&base>=1; mesh.visible = !hidden.has(id)&&(!isolated||on);
+                if(!material.userData.glow)material.emissive.set(focused.includes(id) ? 0x11182a : 0x000000);
             }
             const visibleFocus = focused.filter(id => !hidden.has(id));
             if (focused.length && !visibleFocus.length) return;
@@ -229,7 +364,7 @@ export function mountScene(container, scene, {reducedMotion = false, onPick = ()
             for(const [id,mesh] of meshes)if(!ids.has(id)){releaseObject(mesh);meshes.delete(id);hidden.delete(id);separated.delete(id);}
             for(const o of next.objects){
                 let mesh=meshes.get(o.id);
-                if(!mesh||mesh.userData.shape!==o.shape||mesh.userData.size!==JSON.stringify(o.size)){
+                if(!mesh||mesh.userData.shape!==o.shape||mesh.userData.size!==sceneSignature(o)){
                     if(mesh)releaseObject(mesh);mesh=objectMesh(o);meshes.set(o.id,mesh);world.add(mesh);
                 }
                 mesh.userData.base.fromArray(o.position);mesh.userData.explode.fromArray(o.explode||[0,1.5,0]);
@@ -253,7 +388,7 @@ export function mountScene(container, scene, {reducedMotion = false, onPick = ()
             if (disposed) return;
             disposed = true; live--; abort.abort(); observer.disconnect(); cancelAnimationFrame(frame);
             Object.values(animations).forEach(cancelAnimationFrame);
-            cancelAnimationFrame(hoverFrame);meshes.forEach(releaseObject);arrows.forEach(a=>a?.dispose());renderer.dispose(); renderer.forceContextLoss(); canvas.remove();annotations.remove();tooltip.remove();
+            cancelAnimationFrame(hoverFrame);meshes.forEach(releaseObject);arrows.forEach(a=>a?.dispose());environment.dispose();renderer.dispose(); renderer.forceContextLoss(); canvas.remove();annotations.remove();tooltip.remove();
         },
     };
 }

@@ -21,7 +21,7 @@ export function renderDiagram(host,diagram,stepId,onStep=()=>{}){
         const words=node.label.split(/\s+/),lines=[];let line='';
         for(const word of words){if(line.length+word.length>Math.max(7,Math.floor(w/20))){lines.push(line);line='';}line+=(line?' ':'')+word;}if(line)lines.push(line);
         lines.slice(0,4).forEach((text,i)=>g.append(svg('text',{x:x+w/2,y:y+h/2+(i-(Math.min(lines.length,4)-1)/2)*36,'text-anchor':'middle','dominant-baseline':'middle','font-size':32,'font-weight':550,fill:'currentColor'},text)));
-        g.addEventListener('click',()=>onStep(node.step_id));g.addEventListener('keydown',e=>{if(['Enter',' '].includes(e.key)){e.preventDefault();onStep(node.step_id);}});root.append(g);
+        g.addEventListener('click',()=>onStep(node.step_id,node));g.addEventListener('keydown',e=>{if(['Enter',' '].includes(e.key)){e.preventDefault();onStep(node.step_id,node);}});root.append(g);
     }
     host.append(root);
 }

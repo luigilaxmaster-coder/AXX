@@ -32,6 +32,7 @@ MAX_EVENTS = 4096
 MAX_RESPONSE = 512 * 1024
 MAX_CAPABILITY_MESSAGE = 128000
 TURN_TIMEOUT = 70
+SPATIAL_TIMEOUT = 150  # a full 3D plan from a reasoning model does not fit in 70 s; the aptitude test keeps 70 s
 # Requested process/thread overrides, not an inventory of effective built-ins.
 # Codex 0.160.0 ignores unified_exec=false; never treat it as a security boundary.
 REQUESTED_DISABLED_FEATURES = (
@@ -262,7 +263,10 @@ class CodexProvider:
         if run.get('_source_tainted'):
             persisted.update(response='', response_retained=False)
             if persisted.get('error'):
-                persisted['error']={'code':'SOURCE_INFERENCE_FAILED','message':'No terminó la consulta de contexto temporal.'}
+                if persisted['error'].get('code') == 'LIMIT_REACHED':  # a fixed message: it names the cause and carries no screen content
+                    persisted['error'] = {'code': 'LIMIT_REACHED', 'message': 'Se alcanzó el límite de uso de la cuenta de ChatGPT/Codex. Prueba más tarde o elige otro modelo.'}
+                else:
+                    persisted['error']={'code':'SOURCE_INFERENCE_FAILED','message':'No terminó la consulta de contexto temporal.'}
                 run['error']=dict(persisted['error'])
         with self.db:
             self.db.execute('UPDATE connect_runs SET body_json=?,updated_at=? WHERE request_id=?',
@@ -1363,8 +1367,8 @@ class CodexProvider:
         if not isinstance(request_id, str) or not re.fullmatch(r'[A-Za-z0-9_.:-]{1,128}', request_id):
             raise ProviderError('INVALID_INPUT', 'request_id inválido.')
         deadline_ms = request.get('deadline_ms', 70000)
-        if type(deadline_ms) is not int or not 1 <= deadline_ms <= TURN_TIMEOUT * 1000:
-            raise ProviderError('INVALID_INPUT', 'El plazo debe estar entre 1 y 70000 ms.')
+        if type(deadline_ms) is not int or not 1 <= deadline_ms <= SPATIAL_TIMEOUT * 1000:
+            raise ProviderError('INVALID_INPUT', f'El plazo debe estar entre 1 y {SPATIAL_TIMEOUT * 1000} ms.')
         digest = hashlib.sha256(image_bytes).hexdigest()
         text_prompt = messages[0]['content'] + '\n\n' + prompt['text']
         message = json.dumps({'system': messages[0]['content'], 'prompt': prompt['text'], 'image_sha256': digest,

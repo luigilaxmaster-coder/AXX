@@ -9,7 +9,7 @@ import math
 # shortcut: primitives only (no lofted/curved surfaces); upgrade when a generator needs real meshes.
 SPECS = {
     'single_cylinder_engine': {
-        'about': 'motor didáctico de un cilindro (cilindro, pistón, biela, cigüeñal)',
+        'about': 'motor de COMBUSTIÓN de un cilindro con pistón, biela y cigüeñal (no sirve para motores eléctricos)',
         'parts': [
             ('Cilindro', 'engine_cylinder', [2.4, 2.8, 2.4], [0, 1.7, 0], '#617b99', [3, 0, 0]),
             ('Pistón', 'piston', [1.8, .8, 1.8], [0, 1.7, 0], '#438ee8', [0, 2, 0]),

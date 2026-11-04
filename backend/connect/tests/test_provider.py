@@ -153,6 +153,17 @@ class ProviderTests(unittest.TestCase):
         self.provider.close()
         self.temp.cleanup()
 
+    def test_a_screen_run_that_hit_the_usage_limit_says_so_without_leaking_content(self):
+        with self.provider.db:  # a row no engine thread touches, so the check is deterministic
+            self.provider.db.execute('INSERT INTO connect_runs(request_id,fingerprint,conversation_id,body_json,created_at,updated_at) VALUES(?,?,?,?,?,?)',
+                                     ('limit-test', 'f', 'c', '{}', 1.0, 1.0))
+        for code, expected in (('LIMIT_REACHED', 'límite de uso'), ('SOMETHING_ELSE', 'contexto temporal')):
+            self.provider._store({'request_id': 'limit-test', '_source_tainted': True, 'state': 'failed',
+                                  'error': {'code': code, 'message': 'texto secreto de la pantalla'}})
+            body = json.loads(self.provider.db.execute('SELECT body_json FROM connect_runs WHERE request_id=?', ('limit-test',)).fetchone()[0])
+            self.assertIn(expected, body['error']['message'])
+            self.assertNotIn('secreto', json.dumps(body))
+
     def wait_started(self, request='r1'):
         deadline = time.monotonic()+2
         while time.monotonic() < deadline:

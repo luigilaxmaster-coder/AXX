@@ -89,7 +89,7 @@ class ProviderSettingsTests(unittest.TestCase):
             result=http_transport({'base_url':url,'protocol':'anthropic','api_key_env':'TEST_PROVIDER_KEY'}, {'model':'claude-test','messages':[{'role':'system','content':'system rules'},{'role':'user','content':'hi'}],'stream':False}, 3)
             self.assertEqual(result['choices'][0]['message']['content'],'hello')
             self.assertEqual(observed['path'],'/v1/messages'); self.assertEqual(observed['key'],'test-only')
-            self.assertEqual(observed['body']['system'],'system rules');self.assertEqual(len(observed['body']['messages']),1)
+            self.assertEqual(observed['body']['system'],[{'type':'text','text':'system rules','cache_control':{'type':'ephemeral'}}]);self.assertEqual(len(observed['body']['messages']),1)
             self.assertEqual(settings.discover({'provider':'anthropic','base_url':url},self.adapter.config)['models'],['claude-test'])
         finally:
             server.shutdown();server.server_close()
