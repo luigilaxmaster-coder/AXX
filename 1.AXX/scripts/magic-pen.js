@@ -466,6 +466,7 @@
             const card=el('figure',null,'mp-visual'),head=el('figcaption'),list=el('ol',null,'mp-visual-flow'),controls=el('div',null,'mp-visual-controls');
             head.append(el('strong',p.title),el('small',FIDELITY[p.fidelity]+' · explicación generada, no verificada','mp-visual-fidelity'));card.append(head);
             if(q.answer)card.append(el('p',q.answer,'mp-visual-answer'));
+            if(q.visual_notice)card.append(el('p',q.visual_notice,'mp-visual-fidelity'));
             const diagram=p.diagram||(!p.scene&&p.steps.length>1?{nodes:p.steps.map((step,i)=>({id:'d'+(i+1),label:step.title,step_id:step.id,bounds:[i%2?.55:.07,.06+Math.floor(i/2)*.23,.38,.16]})),edges:p.steps.slice(1).map((_,i)=>({from:'d'+(i+1),to:'d'+(i+2),label:'paso'}))}:null);
             if(diagram){
                 const surface=el('div',null,'mp-diagram');card.append(surface);
