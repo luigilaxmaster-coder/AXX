@@ -313,7 +313,7 @@
             const node=$('mp-spatial-status');if(!node)return;const route=this.spatialRoute();
             if(!route){this.setSpatialStatus('Elige un proveedor visual con permiso existente. AXX no cambia proveedor automáticamente.');return;}
             const provider=this.readiness?.providers?.find(item=>item.name===route.provider&&item.model===route.model);
-            this.setSpatialStatus(provider?.status==='ready'?'Modelo visual verificado para imagen y plan '+(provider.spatial_3d?'2D/3D.':'2D.'):
+            this.setSpatialStatus(provider?.status==='ready'?(provider.text_diagram?'Respuesta textual convertida a diagrama local 2D. La localización visual no está comprobada.':'Modelo visual verificado para imagen y plan '+(provider.spatial_3d?'2D/3D.':'2D.')):
                 'Modelo sin verificar. «Probar conexión» envía una imagen sintética para comprobar su respuesta visual.',provider?.status==='ready'?'success':'info');
         }
         async verifySpatial(){
