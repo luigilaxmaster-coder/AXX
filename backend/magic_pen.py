@@ -249,21 +249,30 @@ class MagicPenService:
         text = message.get('content') if isinstance(message, dict) else None
         if not isinstance(text, str) or len(text) > MAX_RESPONSE_CHARS:
             raise ValueError('La verificación no recibió una respuesta estructurada válida.')
-        parsed = parse_json(text)
-        if chosen['name'] == '@codex':
-            parsed = normalize_strict_output(parsed, schema)
-        parsed = normalize_model_object_ids(parsed)
-        (validate_plan(normalize_model_focus(parsed)) if constrained else validate_2d_plan(parsed))
-        self._remember_spatial_provider(chosen, result)
+        text_diagram = False
+        try:
+            parsed = parse_json(text)
+        except PlanError:
+            if constrained:
+                raise
+            plain_text_diagram(text, 'Explica la figura roja y el círculo azul de la imagen sintética.')
+            text_diagram = True
+        if not text_diagram:
+            if chosen['name'] == '@codex':
+                parsed = normalize_strict_output(parsed, schema)
+            parsed = normalize_model_object_ids(parsed)
+            (validate_plan(normalize_model_focus(parsed)) if constrained else validate_2d_plan(parsed))
+        self._remember_spatial_provider(chosen, result, text_diagram=text_diagram)
         return dict(self.spatial_verified[(chosen['name'], chosen['model'])])
 
-    def _remember_spatial_provider(self, chosen, result):
+    def _remember_spatial_provider(self, chosen, result, *, text_diagram=False):
         route = result.get('route') if isinstance(result, dict) else None
         if (not isinstance(route, dict) or route.get('provider_name', route.get('provider')) != chosen['name']
                 or route.get('model') != chosen['model']):
             raise ValueError('El proveedor o modelo real no coincide con la selección; no se marcará como verificado.')
         checked = {'provider': chosen['name'], 'model': chosen['model'], 'checked_at': time.time(),
-                   'state': 'ready', 'structured_output': bool(chosen.get('spatial_3d')), 'image_input': True}
+                   'state': 'ready', 'structured_output': bool(chosen.get('spatial_3d')),
+                   'image_input': True, 'text_diagram': bool(text_diagram)}
         self.spatial_verified[(chosen['name'], chosen['model'])] = checked
         return checked
 
