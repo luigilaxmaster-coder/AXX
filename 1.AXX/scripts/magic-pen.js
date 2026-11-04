@@ -313,7 +313,7 @@
             const node=$('mp-spatial-status');if(!node)return;const route=this.spatialRoute();
             if(!route){this.setSpatialStatus('Elige un proveedor visual con permiso existente. AXX no cambia proveedor automáticamente.');return;}
             const provider=this.readiness?.providers?.find(item=>item.name===route.provider&&item.model===route.model);
-            this.setSpatialStatus(provider?.status==='ready'?'Modelo visual verificado para imagen y plan '+(provider.spatial_3d?'2D/3D.':'2D.'):
+            this.setSpatialStatus(provider?.status==='ready'?(provider.text_diagram?'Respuesta textual convertida a diagrama local 2D. La localización visual no está comprobada.':'Modelo visual verificado para imagen y plan '+(provider.spatial_3d?'2D/3D.':'2D.')):
                 'Modelo sin verificar. «Probar conexión» envía una imagen sintética para comprobar su respuesta visual.',provider?.status==='ready'?'success':'info');
         }
         async verifySpatial(){
@@ -466,6 +466,7 @@
             const card=el('figure',null,'mp-visual'),head=el('figcaption'),list=el('ol',null,'mp-visual-flow'),controls=el('div',null,'mp-visual-controls');
             head.append(el('strong',p.title),el('small',FIDELITY[p.fidelity]+' · explicación generada, no verificada','mp-visual-fidelity'));card.append(head);
             if(q.answer)card.append(el('p',q.answer,'mp-visual-answer'));
+            if(q.visual_notice)card.append(el('p',q.visual_notice,'mp-visual-fidelity'));
             const diagram=p.diagram||(!p.scene&&p.steps.length>1?{nodes:p.steps.map((step,i)=>({id:'d'+(i+1),label:step.title,step_id:step.id,bounds:[i%2?.55:.07,.06+Math.floor(i/2)*.23,.38,.16]})),edges:p.steps.slice(1).map((_,i)=>({from:'d'+(i+1),to:'d'+(i+2),label:'paso'}))}:null);
             if(diagram){
                 const surface=el('div',null,'mp-diagram');card.append(surface);
@@ -769,7 +770,7 @@
             if(!this.active||!this.doc?.selection)return this.status('Selecciona o marca una región antes de preguntar.');
             if(base&&!explicit&&!$('mp-question').value.trim())return this.status('Escribe qué quieres saber o cambiar de la presentación.');
             const route=format==='presentation'?this.spatialRoute():this.route();
-            if(format==='presentation'&&!route)return this.status('Elige un proveedor y modelo visual en «Proveedor y calidad».');
+            if(format==='presentation'&&!route){this.widget.querySelector('.mp-spatial-settings').open=true;this.showWidget();return this.status('Selecciona un modelo con visión en «Proveedor y calidad». El botón no puede generar una escena sin proveedor visual.');}
             if(format==='text'&&!this.hasVision()){this.livePaused=this.live;this.updateControls();return this.status('El modelo seleccionado no tiene visión disponible. Revisa Ajustes de conexión.');}
             const epoch=this.cancelAnalysis(),session=this.generation,userQuestion=explicit||$('mp-question').value.trim()||'Explica el contenido de toda la región seleccionada. Ignora el cursor del ratón y cualquier indicador de puntero. Responde de forma clara y breve.',style=this.sceneStyle(),hint=format==='presentation'&&!base&&/\b(3d|modelo tridimensional|en tres dimensiones)\b/i.test(userQuestion)&&style?'\n\nPreferencia visual guardada por el usuario: usa esta paleta como referencia si encaja con el objeto: '+style.colors.join(', ')+'. Si tiene sentido, conserva un nivel de detalle comparable a '+style.detail+' piezas funcionales distinguibles, con anotaciones explicativas.':'',question=format!=='text'?userQuestion+(userQuestion.length+hint.length<=4000?hint:''):userQuestion+'\n\nEmpieza con «Resumen:» y una síntesis en una frase de máximo 24 palabras; después da los detalles necesarios bajo «Detalle:».',
                 providerRoute=format==='presentation'?{provider:route.provider,model:route.model,selection_mode:'manual'}:route;

@@ -6,7 +6,7 @@ import uuid
 from pathlib import Path
 from PIL import Image
 from backend.magic_pen import MagicPenService
-from backend.presentation_plan import PlanError, apply_patch, normalize_model_focus, normalize_model_object_ids, normalize_strict_output, output_schema, parse_json, validate_2d_plan, validate_plan
+from backend.presentation_plan import PlanError, apply_patch, normalize_model_focus, normalize_model_object_ids, normalize_strict_output, output_schema, parse_json, plain_text_diagram, validate_2d_plan, validate_plan
 
 
 def plan(**kw):
@@ -137,6 +137,26 @@ class ContractTests(unittest.TestCase):
         p = plan(title='  Límite  ')
         self.assertEqual(validate_plan(p)['title'], 'Límite')
         self.assertEqual(validate_plan(parse_json('```json\n' + json.dumps(p) + '\n```'))['steps'][1]['id'], 's2')
+        prefaced = 'Aquí está el resultado:\n@@FENCE@@json\n' + json.dumps(p) + '\n@@FENCE@@\nFin.'
+        self.assertEqual(parse_json(prefaced.replace('@@FENCE@@', chr(96) * 3))['title'], p['title'])
+
+    def test_plain_text_diagram_uses_text_only_and_does_not_claim_visual_accuracy(self):
+        response = ('La placa utiliza un procesador central. '
+                    'Los puertos conectan dispositivos externos. '
+                    'La memoria conserva datos durante la ejecución. ')
+        visual = plain_text_diagram(response, 'Explícame esta placa')
+        self.assertEqual(visual['fidelity'], 'illustrative')
+        self.assertNotIn('scene', visual)
+        self.assertGreaterEqual(len(visual['diagram']['nodes']), 2)
+        self.assertEqual(len(visual['steps']), len(visual['diagram']['nodes']))
+        self.assertTrue(all(s['basis'] == 'assumed' for s in visual['steps']))
+        self.assertIn('no verificado', visual['summary'])
+        self.assertEqual(len(visual['diagram']['edges']), len(visual['steps']) - 1)
+        for rejected in ('<script>alert(1)</script>', '{"incomplete":', '@@@',
+                         'Lo siento, no puedo analizar esta imagen.',
+                         '##########'):
+            with self.subTest(rejected=rejected), self.assertRaises(PlanError):
+                plain_text_diagram(rejected, 'Explica')
 
     def test_rejects_extra_fields_bad_enums_ids_sizes_and_versions(self):
         bad = [plan(script='alert(1)'), plan(fidelity='verified'), plan(schema_version='2.0'), plan(kind='patch'),
@@ -257,7 +277,7 @@ class MagicPenPresentationTests(unittest.TestCase):
         self.assertEqual(first['presentation']['steps'][0]['title'], 'Función')
         system = self.adapter.calls[0]['messages'][0]['content']
         self.assertIn('"kind":"presentation"', system)
-        self.assertEqual(self.adapter.calls[0]['generation']['max_tokens'], 2048)
+        self.assertEqual(self.adapter.calls[0]['generation']['max_tokens'], 4096)
         self.replies.append(json.dumps({'schema_version': '1.0', 'kind': 'patch', 'answer': 'Detallo el paso 2.',
                                         'ops': [{'op': 'step.update', 'step_id': 's2', 'title': 'Aproximación'}]}))
         second = self.ask(format='presentation', base_query_id=first['id'], question='¿Por qué el paso 2?')
@@ -269,6 +289,58 @@ class MagicPenPresentationTests(unittest.TestCase):
         reopened = MagicPenService(self.root, self.adapter)
         self.addCleanup(reopened.close)
         self.assertEqual(reopened.query({'id': self.doc['id'], 'query_id': second['id']})['presentation'], second['presentation'])
+
+    def test_gemma_probe_can_validate_local_text_to_diagram_without_claiming_structured_output(self):
+        self.adapter.config['providers'][0].update(model='gemma4:31b', protocol='openai')
+        self.replies.append('La figura roja es un rectángulo. El círculo azul está a su derecha. '
+                            'Ambas figuras están separadas y tienen colores distintos.')
+        verified = self.service.verify_spatial({'provider': 'fixture', 'model': 'gemma4:31b', 'effort': 'auto'})
+        self.assertEqual(verified['state'], 'ready')
+        self.assertIs(verified['structured_output'], False)
+        self.assertIs(verified['text_diagram'], True)
+
+    def test_gemma_prose_generates_a_deterministic_2d_visual_with_notice(self):
+        self.adapter.config['providers'][0].update(model='gemma4:31b', protocol='openai')
+        self.replies.append('La imagen contiene una placa con puertos. La entrada conecta periféricos. '
+                            'Los datos se procesan en el chip principal. Luego se genera la salida.')
+        result = self.ask(format='presentation', model='gemma4:31b')
+        self.assertEqual(result['state'], 'completed', result.get('error'))
+        self.assertIn('diagram', result['presentation'])
+        self.assertNotIn('scene', result['presentation'])
+        self.assertIn('no devolvió JSON', result['visual_notice'])
+        self.assertNotIn('output_schema', self.adapter.calls[-1]['generation'])
+
+    def test_explicit_3d_request_prioritizes_a_bounded_complete_scene(self):
+        self.adapter.config['providers'][0]['model'] = 'claude-sonnet-5-5'
+        self.replies.append(json.dumps(scene_plan()))
+        result = self.ask(format='presentation', model='claude-sonnet-5-5',
+                          question='Explícame este objeto en 3D')
+        self.assertEqual(result['state'], 'completed', result.get('error'))
+        self.assertIn('SOLICITUD 3D EXPLÍCITA', self.adapter.calls[-1]['messages'][0]['content'])
+        self.assertIn('scene', result['presentation'])
+
+    def test_anthropic_3d_does_not_silently_turn_invalid_json_into_a_fake_model(self):
+        self.adapter.config['providers'][0]['model'] = 'claude-sonnet-5-5'
+        self.replies.append('Este es un mecanismo con engranajes, pero no tengo JSON.')
+        result = self.ask(format='presentation', model='claude-sonnet-5-5')
+        self.assertEqual(result['state'], 'failed')
+        self.assertNotIn('presentation', result)
+        self.assertIn('JSON válido', result['error'])
+
+    def test_truncated_spatial_output_is_identified_without_retry(self):
+        self.adapter.config['providers'][0]['model'] = 'claude-sonnet-5-5'
+        original_route = self.adapter.route
+        def truncated(request):
+            result = original_route(request)
+            result['finish_reason'] = 'length'
+            return result
+        self.adapter.route = truncated
+        self.replies.append('La imagen muestra una placa de circuitos.')
+        result = self.ask(format='presentation', model='claude-sonnet-5-5')
+        self.assertEqual(result['state'], 'failed')
+        self.assertIn('agotó los tokens', result['error'])
+        self.assertEqual(len(self.adapter.calls), 1)
+        self.assertEqual(self.adapter.calls[-1]['generation']['max_tokens'], 4096)
 
     def test_gemma_visual_route_uses_prompted_2d_without_native_schema(self):
         local = self.adapter.config['providers'][0]
