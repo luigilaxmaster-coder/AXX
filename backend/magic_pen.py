@@ -808,6 +808,13 @@ class MagicPenService:
                 watcher.start()
             contract = 'Responde en español sobre la imagen seleccionada.' + (
                 ' ' + GUIDE_CONTRACT if guide else ' ' + (PATCH_CONTRACT if base_plan else PLAN_CONTRACT if chosen.get('spatial_3d') else PLAN_2D_CONTRACT) if presentation else '')
+            if (presentation and chosen.get('spatial_3d') and not base_plan
+                    and re.search(r'(?i)\b(?:3d|tridimensional|maqueta)\b', q['question'])):
+                contract += (' SOLICITUD 3D EXPLÍCITA: prioriza asset local o scene sobre diagram; '
+                             'genera 2 a 4 pasos breves y como máximo 12 piezas explicables. '
+                             'Omite diagram y overlays si pueden hacer que el JSON 3D quede incompleto. '
+                             'Toda escena debe conservar unidades relativas plausibles y fidelidad conceptual. '
+                             'Nunca reduzcas una pantalla 2D plana a un falso modelo físico.')
             prompt = q['question'] + ('\n\nPresentación actual:\n' + json.dumps(base_plan, ensure_ascii=False) if base_plan else '')
             if request.get('selected_object_id'):
                 selected = next(o for o in base_plan['scene']['objects'] if o['id'] == request['selected_object_id'])
