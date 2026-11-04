@@ -290,6 +290,15 @@ class MagicPenPresentationTests(unittest.TestCase):
         self.addCleanup(reopened.close)
         self.assertEqual(reopened.query({'id': self.doc['id'], 'query_id': second['id']})['presentation'], second['presentation'])
 
+    def test_gemma_probe_can_validate_local_text_to_diagram_without_claiming_structured_output(self):
+        self.adapter.config['providers'][0].update(model='gemma4:31b', protocol='openai')
+        self.replies.append('La figura roja es un rectángulo. El círculo azul está a su derecha. '
+                            'Ambas figuras están separadas y tienen colores distintos.')
+        verified = self.service.verify_spatial({'provider': 'fixture', 'model': 'gemma4:31b', 'effort': 'auto'})
+        self.assertEqual(verified['state'], 'ready')
+        self.assertIs(verified['structured_output'], False)
+        self.assertIs(verified['text_diagram'], True)
+
     def test_gemma_prose_generates_a_deterministic_2d_visual_with_notice(self):
         self.adapter.config['providers'][0].update(model='gemma4:31b', protocol='openai')
         self.replies.append('La imagen contiene una placa con puertos. La entrada conecta periféricos. '
