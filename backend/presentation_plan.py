@@ -565,7 +565,15 @@ def plain_text_diagram(text, question):
 def parse_json(text):
     """Accept one JSON object, optionally wrapped in a single ```json fence."""
     text = text.strip()
-    fence = re.fullmatch(r'```(?:json)?\s*(.*?)\s*```', text, re.S)
+    fence = re.fullmatch(r'```(?:json)?\s*(.*?)\s*```', text, re.S | re.I)
+    if fence is None:
+        # Some weak models prepend a short explanation around ONE JSON code block.
+        # The extracted object still must pass the full closed schema.
+        candidate = re.search(r'```json\s*(\{[\s\S]*?\})\s*```', text, re.I)
+        if candidate:
+            outside = (text[:candidate.start()] + text[candidate.end():]).strip()
+            if len(outside) <= 200 and not any(char in outside for char in ('{', '}', '[', ']', '<', '>')):
+                fence = candidate
     def pairs(items):
         result = {}
         for key, value in items:
