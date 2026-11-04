@@ -516,7 +516,7 @@ def plain_text_diagram(text, question):
         raise PlanError('El modelo no devolvió texto para el diagrama 2D.')
     raw = text.strip()
     if (len(raw) < 12 or len(raw) > 32000 or '\x00' in raw
-            or raw.startswith(('{', '[', '```', '<'))
+            or raw.startswith(('{', '[', '```', '<')) or any(mark in raw for mark in ('{', '}', '```'))
             or re.search(r'(?m)^\s*```|<\s*/?\s*[a-zA-Z][^>]*>', raw)
             or re.match(r'(?i)^(?:lo siento|no puedo|i cannot|i am sorry|sorry)\b', raw)):
         raise PlanError('La respuesta no contiene una explicación textual válida para el diagrama 2D.')
