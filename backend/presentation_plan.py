@@ -504,6 +504,64 @@ def apply_patch(plan, patch, *, min_steps=2):
     return validate_plan(result, min_steps=min_steps), answer
 
 
+
+def plain_text_diagram(text, question):
+    """Produce a bounded illustrative 2D diagram from a visual model's prose.
+
+    Used only for 2D-capable routes. It is not image grounding, and never
+    creates a 3D scene or claims its statements were directly observed.
+    Malformed JSON, code and HTML remain errors.
+    """
+    if not isinstance(text, str):
+        raise PlanError('El modelo no devolvió texto para el diagrama 2D.')
+    raw = text.strip()
+    if (len(raw) < 12 or len(raw) > 32000 or '\x00' in raw
+            or raw.startswith(('{', '[', '```', '<'))
+            or re.search(r'(?m)^\s*```|<\s*/?\s*[a-zA-Z][^>]*>', raw)
+            or re.match(r'(?i)^(?:lo siento|no puedo|i cannot|i am sorry|sorry)\b', raw)):
+        raise PlanError('La respuesta no contiene una explicación textual válida para el diagrama 2D.')
+    clean = re.sub(r'(?m)^\s{0,3}(?:#{1,4}\s+|[-*]\s+|\d{1,2}[.)]\s+)', '', raw)
+    clean = re.sub(r'\s+', ' ', clean).strip()
+    if len(clean) < 12:
+        raise PlanError('La explicación textual es demasiado breve.')
+    chunks, current = [], ''
+    for word in clean.split(' '):
+        if len(word) > 360:
+            raise PlanError('La respuesta contiene texto que no se puede representar de forma segura.')
+        candidate = (current + ' ' + word).strip()
+        if len(candidate) > 360 and current:
+            chunks.append(current)
+            current = word
+            if len(chunks) == 4:
+                break
+        else:
+            current = candidate
+    if current and len(chunks) < 4:
+        chunks.append(current)
+    if not chunks:
+        raise PlanError('No se encontró contenido para el diagrama.')
+    if len(chunks) == 1:
+        context = re.sub(r'\s+', ' ', question if isinstance(question, str) else '').strip()[:380]
+        chunks.insert(0, context or 'Objeto o región seleccionada por el usuario.')
+    labels = ('Contexto', 'Explicación', 'Relaciones', 'Detalles')
+    steps = [{'id': f's{i+1}', 'title': labels[i], 'body': chunk,
+              'narration': chunk, 'basis': 'assumed'}
+             for i, chunk in enumerate(chunks)]
+    positions = ((.08, .17, .36, .22), (.56, .17, .36, .22),
+                 (.08, .61, .36, .22), (.56, .61, .36, .22))
+    diagram = {'nodes': [{'id': f'd{i+1}', 'label': step['title'],
+                          'step_id': step['id'], 'bounds': list(positions[i])}
+                         for i, step in enumerate(steps)],
+               'edges': [{'from': f'd{i}', 'to': f'd{i+1}', 'label': 'continúa'}
+                         for i in range(1, len(steps))]}
+    return validate_2d_plan({
+        'schema_version': SCHEMA_VERSION, 'kind': 'presentation',
+        'title': 'Diagrama de la selección',
+        'summary': 'Esquema local derivado de texto del modelo; contenido no verificado contra la captura.',
+        'fidelity': 'illustrative', 'steps': steps, 'diagram': diagram
+    })
+
+
 def parse_json(text):
     """Accept one JSON object, optionally wrapped in a single ```json fence."""
     text = text.strip()
