@@ -619,8 +619,10 @@ class InferenceAdapter:
                                        **_attempt_details(raw_result.get('axx_router', {})))
                 self.router._validate_response_message(raw_result)
                 active.completed, active.terminal_state = True, 'COMPLETED'
+            finish_reason = raw_result['choices'][0].get('finish_reason')
             return {'request_id': request_id, 'ok': True, 'message': raw_result['choices'][0]['message'],
-                    'route': raw_result.get('axx_router', {}), **_attempt_details(raw_result.get('axx_router', {}))}
+                    'route': raw_result.get('axx_router', {}), **({'finish_reason': finish_reason} if isinstance(finish_reason, str) else {}),
+                    **_attempt_details(raw_result.get('axx_router', {}))}
         except Exception as exc:
             code = getattr(exc, 'code', 'PROCESS_FAILURE')
             if isinstance(exc, UpstreamError) and exc.status == 504:
