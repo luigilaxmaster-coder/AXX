@@ -137,6 +137,8 @@ class ContractTests(unittest.TestCase):
         p = plan(title='  Límite  ')
         self.assertEqual(validate_plan(p)['title'], 'Límite')
         self.assertEqual(validate_plan(parse_json('```json\n' + json.dumps(p) + '\n```'))['steps'][1]['id'], 's2')
+        prefaced = 'Aquí está el resultado:\n@@FENCE@@json\n' + json.dumps(p) + '\n@@FENCE@@\nFin.'
+        self.assertEqual(parse_json(prefaced.replace('@@FENCE@@', chr(96) * 3))['title'], p['title'])
 
     def test_plain_text_diagram_uses_text_only_and_does_not_claim_visual_accuracy(self):
         response = ('La placa utiliza un procesador central. '
