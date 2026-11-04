@@ -310,6 +310,15 @@ class MagicPenPresentationTests(unittest.TestCase):
         self.assertIn('no devolvió JSON', result['visual_notice'])
         self.assertNotIn('output_schema', self.adapter.calls[-1]['generation'])
 
+    def test_explicit_3d_request_prioritizes_a_bounded_complete_scene(self):
+        self.adapter.config['providers'][0]['model'] = 'claude-sonnet-5-5'
+        self.replies.append(json.dumps(scene_plan()))
+        result = self.ask(format='presentation', model='claude-sonnet-5-5',
+                          question='Explícame este objeto en 3D')
+        self.assertEqual(result['state'], 'completed', result.get('error'))
+        self.assertIn('SOLICITUD 3D EXPLÍCITA', self.adapter.calls[-1]['messages'][0]['content'])
+        self.assertIn('scene', result['presentation'])
+
     def test_anthropic_3d_does_not_silently_turn_invalid_json_into_a_fake_model(self):
         self.adapter.config['providers'][0]['model'] = 'claude-sonnet-5-5'
         self.replies.append('Este es un mecanismo con engranajes, pero no tengo JSON.')
