@@ -21,6 +21,16 @@ FIDELITY = ('illustrative', 'conceptual', 'technical')
 SCENE_FIDELITY = ('illustrative', 'conceptual')
 BASIS = ('observed', 'documented', 'inferred', 'assumed')
 SHAPES = ('box', 'sphere', 'cylinder', 'cone', 'torus', 'plane', 'piston', 'connecting_rod', 'crankshaft', 'engine_cylinder')
+SHAPE_MAP = {
+    'cube': 'box', 'block': 'box', 'plate': 'box', 'cuboid': 'box', 'rectangle': 'box',
+    'prism': 'box', 'wall': 'box', 'tower': 'box', 'building': 'box', 'base': 'box',
+    'ball': 'sphere', 'orb': 'sphere', 'dome': 'sphere', 'globe': 'sphere',
+    'pipe': 'cylinder', 'rod': 'cylinder', 'tube': 'cylinder', 'capsule': 'cylinder',
+    'column': 'cylinder', 'pillar': 'cylinder', 'shaft': 'cylinder', 'pin': 'cylinder', 'disc': 'cylinder',
+    'pyramid': 'cone', 'roof': 'cone', 'spire': 'cone', 'steeple': 'cone', 'tip': 'cone',
+    'ring': 'torus', 'donut': 'torus', 'arch': 'torus',
+    'surface': 'plane', 'ground': 'plane', 'floor': 'plane', 'sheet': 'plane',
+}
 STEP_ID = re.compile(r's[0-9]{1,3}')
 OBJECT_ID = re.compile(r'o[0-9]{1,3}')
 COLOR = re.compile(r'#[0-9a-fA-F]{6}')
@@ -63,11 +73,12 @@ PLAN_2D_CONTRACT = (
     'Responde SOLO con JSON, sin Markdown: '
     '{"schema_version":"1.0","kind":"presentation","title":"…","summary":"…",'
     '"fidelity":"illustrative|conceptual|technical",'
-    '"steps":[{"id":"s1","title":"…","body":"…","narration":"…","basis":"observed|inferred|assumed"},'
-    '{"id":"s2","title":"…","body":"…","narration":"…","basis":"observed|inferred|assumed"}]}. '
-    'Usa de 1 a 4 pasos breves: uno basta para señalar; usa al menos dos para un diagrama explicativo. Si se pide señalar algo visible, añade "overlays":'
-    '[{"id":"a1","kind":"box","step_id":"s1","start":[0.1,0.1],"end":[0.3,0.3],"text":"…","photo":false}]. '
-    'start y end son esquinas de la región visible, coordenadas entre 0 y 1 relativas a la imagen seleccionada. '
+    '"steps":[{"id":"s1","title":"…","body":"…","narration":"…","basis":"observed|inferred|assumed"}],'
+    '"overlays":[{"id":"a1","kind":"box","step_id":"s1","start":[0.1,0.1],"end":[0.3,0.3],"text":"…","photo":false}]}. '
+    'Usa de 1 a 4 pasos breves: uno basta para señalar; usa al menos dos para un diagrama explicativo. '
+    'IMPORTANTE: "steps" contiene pasos explicativos con id, title, body, narration, basis. '
+    'Si se pide señalar algo visible, añade "overlays" como lista separada al nivel principal del JSON, FUERA de steps. '
+    'start y end son esquinas de la región visible [x, y], coordenadas entre 0 y 1 relativas a la imagen seleccionada. '
     'Si no puedes localizarlo con confianza, explica que no es visible y omite overlays. '
     'Si se pide diagrama, añade "diagram":{"nodes":[{"id":"d1","label":"…","step_id":"s1",'
     '"bounds":[0.1,0.1,0.3,0.2]},{"id":"d2","label":"…","step_id":"s2",'
@@ -135,23 +146,65 @@ def normalize_strict_output(value, schema):
     return value
 
 
+def _clean_focus_list(focus, ids):
+    if not isinstance(focus, list) or len(focus) > 8 or len(focus) != len(set(map(str, focus))):
+        return None
+    if any(not isinstance(item, str) or item not in ids or not OBJECT_ID.fullmatch(item) for item in focus):
+        return None
+    return list(focus)
+
+
 def normalize_model_focus(plan):
     """Drop unreliable optional 3D focus from a model response; validation still owns every required field."""
-    if not isinstance(plan, dict) or not isinstance(plan.get('steps'), list):
+    if not isinstance(plan, dict):
         return plan
-    scene = plan.get('scene')
+    result = copy.deepcopy(plan)
+    if result.get('kind') == 'patch' and isinstance(result.get('ops'), list):
+        for op in result['ops']:
+            if isinstance(op, dict):
+                if 'focus' in op:
+                    focus = op['focus']
+                    if focus is not None:
+                        if not isinstance(focus, list):
+                            op.pop('focus', None)
+                        else:
+                            # deduplicate and keep valid
+                            seen = set()
+                            cleaned = [i for i in focus if isinstance(i, str) and OBJECT_ID.fullmatch(i) and not (i in seen or seen.add(i))][:8]
+                            if cleaned:
+                                op['focus'] = cleaned
+                            else:
+                                op['focus'] = None
+                if isinstance(op.get('step'), dict) and 'focus' in op['step']:
+                    focus = op['step']['focus']
+                    if focus is not None:
+                        if not isinstance(focus, list):
+                            op['step'].pop('focus', None)
+                        else:
+                            seen = set()
+                            cleaned = [i for i in focus if isinstance(i, str) and OBJECT_ID.fullmatch(i) and not (i in seen or seen.add(i))][:8]
+                            if cleaned:
+                                op['step']['focus'] = cleaned
+                            else:
+                                op['step'].pop('focus', None)
+        return result
+    if not isinstance(result.get('steps'), list):
+        return result
+    scene = result.get('scene')
     objects = scene.get('objects') if isinstance(scene, dict) else None
     ids = {item.get('id') for item in objects if isinstance(item, dict)} if isinstance(objects, list) else set()
     try:
-        ids.update(o['id'] for o in asset_scene(plan['asset'])['objects'])
+        if 'asset' in result and isinstance(result['asset'], dict):
+            ids.update(o['id'] for o in asset_scene(result['asset'])['objects'])
     except (ValueError, KeyError):
         pass  # no asset or an invalid one: validate_plan reports it
-    result = copy.deepcopy(plan)
     for step in result['steps']:
         if isinstance(step, dict) and 'focus' in step:
-            focus = step['focus']
-            if not isinstance(focus, list) or len(focus) > 8 or len(focus) != len(set(map(str, focus))) or any(not isinstance(item, str) or item not in ids or not OBJECT_ID.fullmatch(item) for item in focus):
-                step.pop('focus')
+            cleaned = _clean_focus_list(step['focus'], ids)
+            if cleaned is not None:
+                step['focus'] = cleaned
+            else:
+                step.pop('focus', None)
     return result
 
 
@@ -165,6 +218,18 @@ def normalize_model_object_ids(plan):
             result.pop(opt)
     scene = result.get('scene')
     if not isinstance(scene, dict):
+        if result.get('kind') == 'patch' and isinstance(result.get('ops'), list):
+            for op in result['ops']:
+                if isinstance(op, dict) and op.get('op') == 'object.update':
+                    if 'shape' in op and op['shape'] not in SHAPES:
+                        op['shape'] = SHAPE_MAP.get(str(op['shape']).lower(), 'box')
+                    if 'color' in op and isinstance(op['color'], str):
+                        c = op['color'].strip().lower()
+                        if re.fullmatch(r'#[0-9a-f]{3}', c):
+                            c = '#' + ''.join(ch * 2 for ch in c[1:])
+                        elif not COLOR.fullmatch(c):
+                            c = '#888888'
+                        op['color'] = c
         return result
     if 'arrows' in scene and scene['arrows'] is None:
         scene.pop('arrows')
@@ -176,6 +241,19 @@ def normalize_model_object_ids(plan):
             for opt in ('rotation', 'explode'):
                 if opt in obj and obj[opt] is None:
                     obj.pop(opt)
+            if 'shape' in obj and obj['shape'] not in SHAPES:
+                obj['shape'] = SHAPE_MAP.get(str(obj['shape']).lower(), 'box')
+            if 'color' in obj and isinstance(obj['color'], str):
+                c = obj['color'].strip().lower()
+                if re.fullmatch(r'#[0-9a-f]{3}', c):
+                    c = '#' + ''.join(ch * 2 for ch in c[1:])
+                elif not COLOR.fullmatch(c):
+                    c = '#888888'
+                obj['color'] = c
+            for vec_field, low, high in (('size', 0.05, 10.0), ('position', -10.0, 10.0), ('rotation', -360.0, 360.0), ('explode', -10.0, 10.0)):
+                if vec_field in obj and isinstance(obj[vec_field], list) and len(obj[vec_field]) == 3:
+                    if all(type(v) in (int, float) and math.isfinite(v) for v in obj[vec_field]):
+                        obj[vec_field] = [round(max(low, min(high, float(v))), 4) for v in obj[vec_field]]
     ids = [obj.get('id') if isinstance(obj, dict) else None for obj in objects]
     if (any(not isinstance(value, str) or not re.fullmatch(r'[A-Za-z0-9_][A-Za-z0-9_-]{0,63}', value) for value in ids)
             or len(set(ids)) != len(ids)):
@@ -203,7 +281,6 @@ def normalize_model_object_ids(plan):
                 else:
                     step.pop('focus')
     return result
-
 
 def output_schema(kind='presentation', *, strict=False):
     """Small strict JSON Schema for provider-constrained output; Python remains authoritative."""
@@ -445,13 +522,58 @@ def validate_2d_plan(plan):
     plan.pop('scene', None)
     plan.pop('asset', None)
     if isinstance(plan.get('steps'), list):
-        for step in plan['steps']:
-            if isinstance(step, dict):
-                step.pop('focus', None)
+        extracted_overlays = []
+        clean_steps = []
+        for i, step in enumerate(plan['steps']):
+            if not isinstance(step, dict):
+                continue
+            step.pop('focus', None)
+            has_overlay = any(k in step for k in ('start', 'end', 'kind'))
+            raw_text = str(step.get('text') or step.get('title') or step.get('body') or plan.get('title') or 'Ubicación observada').strip()[:240]
+            if has_overlay:
+                kind = step.get('kind') if step.get('kind') in ('arrow', 'box', 'label', 'card') else 'box'
+                start = step.get('start') if isinstance(step.get('start'), list) and len(step['start']) == 2 else [0.1, 0.1]
+                end = step.get('end') if isinstance(step.get('end'), list) and len(step['end']) == 2 else [0.3, 0.3]
+                extracted_overlays.append({
+                    'id': f"a{len(extracted_overlays) + 1}",
+                    'kind': kind,
+                    'step_id': step.get('step_id') or step.get('id') or f"s{i+1}",
+                    'start': start,
+                    'end': end,
+                    'text': raw_text,
+                    'photo': bool(step.get('photo', False)) if kind == 'card' else False
+                })
+            step_id = step.get('id') if isinstance(step.get('id'), str) and STEP_ID.fullmatch(step['id']) else f"s{len(clean_steps) + 1}"
+            title = str(step.get('title') or raw_text).strip()[:80]
+            body = str(step.get('body') or raw_text).strip()[:400]
+            narration = str(step.get('narration') or title).strip()[:400]
+            basis = step.get('basis') if step.get('basis') in BASIS else 'observed'
+            clean_steps.append({'id': step_id, 'title': title, 'body': body, 'narration': narration, 'basis': basis})
+        plan['steps'] = clean_steps
+        if extracted_overlays:
+            existing = plan.get('overlays', [])
+            if not isinstance(existing, list):
+                existing = []
+            combined = existing + extracted_overlays
+            valid_steps = {s['id'] for s in clean_steps}
+            for ov in combined:
+                if ov.get('step_id') not in valid_steps and clean_steps:
+                    ov['step_id'] = clean_steps[0]['id']
+            plan['overlays'] = combined[:16]
+
     if isinstance(plan.get('overlays'), list):
         for overlay in plan['overlays']:
             if isinstance(overlay, dict):
                 overlay.setdefault('photo', False)
+                if overlay.get('kind') != 'arrow' and isinstance(overlay.get('start'), list) and isinstance(overlay.get('end'), list) and len(overlay['start']) == 2 and len(overlay['end']) == 2:
+                    s, e = overlay['start'], overlay['end']
+                    if all(type(v) in (int, float) and math.isfinite(v) for v in s + e):
+                        x0, x1 = min(s[0], e[0]), max(s[0], e[0])
+                        y0, y1 = min(s[1], e[1]), max(s[1], e[1])
+                        if x1 - x0 < 0.03: x1 = min(1.0, x0 + 0.04)
+                        if y1 - y0 < 0.03: y1 = min(1.0, y0 + 0.04)
+                        overlay['start'] = [round(max(0.0, min(1.0, x0)), 4), round(max(0.0, min(1.0, y0)), 4)]
+                        overlay['end'] = [round(max(0.0, min(1.0, x1)), 4), round(max(0.0, min(1.0, y1)), 4)]
     diagram = plan.get('diagram')
     if (isinstance(diagram, dict) and set(diagram) == {'nodes', 'edges'}
             and isinstance(diagram['nodes'], list) and len(diagram['nodes']) < 2
@@ -473,7 +595,8 @@ def apply_patch(plan, patch, *, min_steps=2):
     if not isinstance(ops, list) or len(ops) > MAX_OPS:
         raise PlanError(f'El patch admite hasta {MAX_OPS} operaciones.')
     result = copy.deepcopy(plan)
-    for op in ops:
+    patch_normalized = normalize_model_focus(normalize_model_object_ids(copy.deepcopy(patch)))
+    for op in patch_normalized.get('ops', ops):
         kind = op.get('op') if isinstance(op, dict) else None
         if kind == 'object.update':
             _closed(op, ('op', 'object_id'), OBJECT_FIELDS, name='object.update')
@@ -492,7 +615,10 @@ def apply_patch(plan, patch, *, min_steps=2):
             changes = {k: v for k, v in op.items() if k not in ('op', 'step_id')}
             if not changes:
                 raise PlanError('step.update necesita al menos un cambio.')
-            result['steps'][index] = _step({**result['steps'][index], **changes})
+            updated = {**result['steps'][index], **changes}
+            if 'focus' in changes and changes['focus'] is None:
+                updated.pop('focus', None)
+            result['steps'][index] = _step(updated)
         elif kind == 'step.insert_after':
             _closed(op, ('op', 'step_id', 'step'), name='step.insert_after')
             result['steps'].insert(index + 1, _step(op['step']))
@@ -501,22 +627,50 @@ def apply_patch(plan, patch, *, min_steps=2):
             result['steps'].pop(index)
         else:
             raise PlanError('Operación de patch no permitida.')
-    return validate_plan(result, min_steps=min_steps), answer
+    return validate_plan(normalize_model_focus(result), min_steps=min_steps), answer
 
 
 def parse_json(text):
-    """Accept one JSON object, optionally wrapped in a single ```json fence."""
-    text = text.strip()
-    fence = re.fullmatch(r'```(?:json)?\s*(.*?)\s*```', text, re.S)
+    """Accept one JSON object or array, stripping markdown fences or wrapping commentary."""
+    if not isinstance(text, str) or not text.strip():
+        raise PlanError('La respuesta del modelo no es JSON válido.')
+    raw = text.strip()
+    candidate = None
+    fence_match = re.search(r'```(?:json)?\s*([\{\[].*?[\}\]])\s*```', raw, re.S)
+    if fence_match:
+        candidate = fence_match.group(1).strip()
+    if not candidate:
+        start = -1
+        for i, ch in enumerate(raw):
+            if ch in ('{', '['):
+                start = i
+                break
+        if start != -1:
+            end = max(raw.rfind('}'), raw.rfind(']'))
+            if end > start:
+                candidate = raw[start:end + 1]
+    if not candidate:
+        candidate = raw
+
     def pairs(items):
         result = {}
         for key, value in items:
             if key in result: raise ValueError('Campo JSON duplicado.')
             result[key] = value
         return result
+
     def constant(value):
         raise ValueError('Número JSON no finito.')
+
+    def _clean_json(s):
+        s = re.sub(r'//[^\n]*', '', s)
+        s = re.sub(r',\s*([\}\]])', r'\1', s)
+        return s
+
     try:
-        return json.loads(fence.group(1) if fence else text, object_pairs_hook=pairs, parse_constant=constant)
-    except (ValueError, RecursionError) as exc:
-        raise PlanError('La respuesta del modelo no es JSON válido.') from exc
+        return json.loads(candidate, object_pairs_hook=pairs, parse_constant=constant)
+    except (ValueError, RecursionError):
+        try:
+            return json.loads(_clean_json(candidate), object_pairs_hook=pairs, parse_constant=constant)
+        except (ValueError, RecursionError) as exc:
+            raise PlanError('La respuesta del modelo no es JSON válido.') from exc

@@ -253,7 +253,8 @@ class MagicPenService:
         if chosen['name'] == '@codex':
             parsed = normalize_strict_output(parsed, schema)
         parsed = normalize_model_object_ids(parsed)
-        (validate_plan(normalize_model_focus(parsed)) if constrained else validate_2d_plan(parsed))
+        parsed = normalize_model_focus(parsed)
+        (validate_plan(parsed) if constrained else validate_2d_plan(parsed))
         self._remember_spatial_provider(chosen, result)
         return dict(self.spatial_verified[(chosen['name'], chosen['model'])])
 
@@ -841,12 +842,13 @@ class MagicPenService:
                     if chosen['name'] == '@codex':
                         parsed = normalize_strict_output(parsed, generation['output_schema'])
                     parsed = normalize_model_object_ids(parsed)
+                    parsed = normalize_model_focus(parsed)
                     if base_plan:
                         changes['presentation'], changes['answer'] = apply_patch(base_plan, parsed, min_steps=2 if chosen.get('spatial_3d') else 1)
                         if not chosen.get('spatial_3d'):
                             changes['presentation'] = validate_2d_plan(changes['presentation'])
                     else:
-                        changes['presentation'] = validate_plan(normalize_model_focus(parsed)) if chosen.get('spatial_3d') else validate_2d_plan(parsed)
+                        changes['presentation'] = validate_plan(parsed) if chosen.get('spatial_3d') else validate_2d_plan(parsed)
                     self._remember_spatial_provider(chosen, result)
                 except PlanError as exc:
                     # The raw text stays for audit; nothing unvalidated reaches the renderer.

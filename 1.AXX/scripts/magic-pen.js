@@ -586,7 +586,7 @@
             const base=this.presentationQuery(),question=$('mp-question').value.trim();
             if(base&&this.localSceneCommand(question))return;
             const normalized=question.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
-            const locate=/\b(donde (esta|queda|se encuentra|puedo encontrar)|senala|marca|ubica)\b/.test(normalized),diagram=/\b(diagrama|esquema|flujo)\b/.test(normalized),model=/\b(3d|modelo tridimensional|en tres dimensiones|maqueta)\b/.test(normalized)||/\b(crea|genera|generame|haz|construye|muestrame)\b.{0,35}\bmodelo\b/.test(normalized),visual=/\b(analiza|explica|explicame|como funciona|funcionamiento|visualiza|ilustra|muestrame|desglosa|ensena)\b/.test(normalized);
+            const locate=/\b(donde (esta|queda|se encuentra|puedo encontrar)|senala|senalame|marca|marcame|ubica|ubicame|indica|indicame|encuentra|encuentrame|resalta|resaltame)\b/.test(normalized),diagram=/\b(diagrama|esquema|flujo)\b/.test(normalized),model=/\b(3d|modelo tridimensional|en tres dimensiones|maqueta|isometrica|isometria|despiece|explotad[oa]|perspectiva 3d)\b/.test(normalized)||/\b(crea|genera|generame|haz|construye|muestrame|ensename|dame)\b.{0,35}\b(modelo|isometric[oa]|vista 3d|escena 3d)\b/.test(normalized),visual=/\b(analiza|explica|explicame|como funciona|funcionamiento|visualiza|ilustra|muestrame|desglosa|ensena)\b/.test(normalized);
             const spatial=this.spatialRoute(),advanced=this.spatialProviders?.get($('mp-spatial-provider').value)?.spatial_3d;
             if(model&&!advanced)return this.status('Para 3D, elige ChatGPT/Codex o Claude con visión en «Proveedor y calidad».');
             if(model&&!locate&&!diagram)return this.spatialAction('model');
@@ -600,9 +600,10 @@
         spatialAction(mode){
             if(mode==='model'&&!this.spatialProviders?.get($('mp-spatial-provider').value)?.spatial_3d)return this.status('Para 3D, elige ChatGPT/Codex o Claude con visión en «Proveedor y calidad».');
             const question=$('mp-question').value.trim();
-            if(mode==='locate'&&!question)return this.status('Escribe qué elemento quieres que señale en la captura.');
+            if(mode==='locate'&&!question){$('mp-question').focus();return this.status('Escribe en el campo de texto qué elemento quieres señalar en la captura.');}
+            const defaultPrompt=mode==='model'?'Crea un modelo 3D conceptual de lo seleccionado':mode==='locate'?'Señala los elementos principales de lo seleccionado':'¿Cómo funciona lo seleccionado?';
             const instruction={locate:'Ubica el elemento en la captura y marca sus límites con una caja visible en el primer paso, con nombre exacto y una explicación en bullet points de su posición y función observada.',diagram:'Explica la selección con un diagrama de pasos y relaciones.',model:'Si la selección muestra un objeto o mecanismo físico, crea un ensamblaje 3D conceptual con piezas funcionales identificables, proporciones coherentes, uniones visibles y anotaciones explicativas. Estilo de diseño técnico y producto industrial de alta calidad. Descompón el objeto en partes principales y secundarias con colores distinguibles. No extruyas pantallas o fondos planos como placas 3D; en ese caso ofrece un diagrama 2D. Distingue lo observado de lo inferido.'}[mode];
-            return this.ask({fresh:false,format:'presentation',question:(question||'¿Cómo funciona lo seleccionado?')+'\n\n'+instruction});
+            return this.ask({fresh:false,format:'presentation',question:(question||defaultPrompt)+'\n\n'+instruction});
         }
         loadVisual(){
             if(this.visualLoading)return;this.visualLoading=import('./visual-canvas.js').then(module=>{this.visualModule=module;if(this.active){this.renderAnswers();this.render();}}).catch(()=>this.status('No se pudo cargar el diagrama local.'));

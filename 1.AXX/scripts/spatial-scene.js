@@ -155,13 +155,13 @@ export function mountScene(container, scene, {reducedMotion = false, onPick = ()
     const zoom = f => { view.distance = Math.min(radius * 8, Math.max(radius * .8, view.distance * (1 + f))); schedule(); };
     const pan = (dx,dy) => {const unit=2*view.distance*Math.tan(THREE.MathUtils.degToRad(camera.fov/2))/canvas.clientHeight;view.target.addScaledVector(new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld,0),-dx*unit).addScaledVector(new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld,1),dy*unit);schedule();};
     const ray = new THREE.Raycaster(), pointer = new THREE.Vector2();
-    const hitId=e=>{const r=canvas.getBoundingClientRect();pointer.set((e.clientX-r.left)/r.width*2-1,-(e.clientY-r.top)/r.height*2+1);ray.setFromCamera(pointer,camera);return ray.intersectObjects([...meshes.values()],true)[0]?.object.userData.id||null;};
+    const hitId=e=>{const r=canvas.getBoundingClientRect();pointer.set((e.clientX-r.left)/r.width*2-1,-(e.clientY-r.top)/r.height*2+1);ray.setFromCamera(pointer,camera);const hits=ray.intersectObjects([...meshes.values()],true);for(const hit of hits){let obj=hit.object;while(obj&&!obj.userData?.id&&obj!==world)obj=obj.parent;if(obj?.userData?.id)return obj.userData.id;}return null;};
     let drag = null,hover=null,hoverFrame=0,hoverPoint=null;
     const setHover=id=>{if(id!==hover){hover=id;tooltip.textContent=scene.objects.find(o=>o.id===id)?.label||'';tooltip.hidden=!id;}canvas.style.cursor=id?'pointer':'grab';};
     canvas.addEventListener('contextmenu',e=>e.preventDefault(),{signal});
     canvas.addEventListener('pointerdown', e => { cancelAnimationFrame(hoverFrame);hoverFrame=0;setHover(null);drag = {x: e.clientX, y: e.clientY, moved: 0,pan:e.button===2||e.shiftKey};canvas.style.cursor='grabbing';canvas.setPointerCapture?.(e.pointerId); }, {signal});
     canvas.addEventListener('pointermove', e => {
-        if (!drag){hoverPoint={clientX:e.clientX,clientY:e.clientY};if(!hoverFrame)hoverFrame=requestAnimationFrame(()=>{hoverFrame=0;if(!disposed)setHover(hitId(hoverPoint));});return;}
+        if (!drag){const id=hitId(e);setHover(id);return;}
         const dx = e.clientX - drag.x, dy = e.clientY - drag.y; drag.moved += Math.abs(dx) + Math.abs(dy); drag.x = e.clientX; drag.y = e.clientY;
         if(drag.pan)pan(dx,dy);else rotate(-dx * .01, -dy * .01);
     }, {signal});

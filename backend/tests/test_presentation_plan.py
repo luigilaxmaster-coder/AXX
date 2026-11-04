@@ -26,6 +26,55 @@ def scene_plan():
 
 
 class SceneContractTests(unittest.TestCase):
+    def test_local_2d_recovers_overlays_placed_in_steps_by_local_models(self):
+        # Gemma places overlay directly into steps
+        raw = {
+            'schema_version': '1.0', 'kind': 'presentation', 'title': 'Ventana', 'summary': 'Ventana observada',
+            'fidelity': 'illustrative',
+            'steps': [{'id': 's1', 'kind': 'box', 'step_id': 's1', 'start': [0.4, 0.3], 'end': [0.6, 0.5], 'text': 'Ventana', 'photo': False}]
+        }
+        validated = validate_2d_plan(raw)
+        self.assertEqual(len(validated['steps']), 1)
+        self.assertEqual(validated['steps'][0]['title'], 'Ventana')
+        self.assertEqual(len(validated['overlays']), 1)
+        self.assertEqual(validated['overlays'][0]['kind'], 'box')
+        self.assertEqual(validated['overlays'][0]['text'], 'Ventana')
+        self.assertEqual(validated['overlays'][0]['step_id'], 's1')
+
+    def test_parse_json_extracts_from_fences_and_commentary_and_cleans_trailing_commas(self):
+        sample = {'schema_version': '1.0', 'kind': 'presentation', 'title': 'Test', 'summary': 'Summary',
+                  'fidelity': 'conceptual', 'steps': [{'id': 's1', 'title': 'T', 'body': 'B', 'narration': 'N', 'basis': 'observed'}]}
+        wrapped = 'Aquí tienes el modelo 3D:\n```json\n' + json.dumps(sample) + '\n```\nEspero que te sirva.'
+        parsed = parse_json(wrapped)
+        self.assertEqual(parsed['title'], 'Test')
+        with_trailing_comma = '{\n  "schema_version": "1.0",\n  "kind": "presentation",\n  "title": "Test",\n  "summary": "Summary",\n  "fidelity": "conceptual",\n  "steps": [\n    {"id": "s1", "title": "T", "body": "B", "narration": "N", "basis": "observed",},\n  ],\n}'
+        parsed2 = parse_json(with_trailing_comma)
+        self.assertEqual(parsed2['title'], 'Test')
+
+    def test_normalize_model_object_ids_maps_architectural_shapes_and_colors(self):
+        candidate = scene_plan()
+        candidate['scene']['objects'][0]['shape'] = 'tower'
+        candidate['scene']['objects'][1]['shape'] = 'roof'
+        candidate['scene']['objects'][0]['color'] = '#f00'
+        candidate['scene']['objects'][1]['color'] = '#ABCDEF'
+        normalized = normalize_model_object_ids(candidate)
+        self.assertEqual(normalized['scene']['objects'][0]['shape'], 'box')
+        self.assertEqual(normalized['scene']['objects'][1]['shape'], 'cone')
+        self.assertEqual(normalized['scene']['objects'][0]['color'], '#ff0000')
+        self.assertEqual(normalized['scene']['objects'][1]['color'], '#abcdef')
+        validated = validate_plan(normalize_model_focus(normalized))
+        self.assertEqual(validated['scene']['objects'][0]['shape'], 'box')
+
+    def test_patch_with_null_or_duplicate_focus_is_normalized_cleanly(self):
+        base = validate_plan(scene_plan())
+        patch = {'schema_version': '1.0', 'kind': 'patch', 'answer': 'Actualizo foco.',
+                 'ops': [{'op': 'step.update', 'step_id': 's1', 'focus': None},
+                         {'op': 'step.update', 'step_id': 's2', 'focus': ['o1', 'o1']}]}
+        updated, answer = apply_patch(base, patch)
+        self.assertEqual(answer, 'Actualizo foco.')
+        self.assertNotIn('focus', updated['steps'][0])
+        self.assertEqual(updated['steps'][1]['focus'], ['o1'])
+
     def test_local_2d_plan_discards_scene_and_still_rejects_unknown_fields(self):
         candidate = scene_plan()
         candidate['overlays'] = [{'id': 'a1', 'kind': 'box', 'step_id': 's1', 'start': [.1, .1],
