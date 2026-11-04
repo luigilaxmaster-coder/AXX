@@ -18,7 +18,7 @@ import time
 import uuid
 from PIL import Image, ImageDraw, ImageGrab
 from backend.prompts import compose
-from backend.presentation_plan import PATCH_CONTRACT, PLAN_CONTRACT, PLAN_2D_CONTRACT, PlanError, apply_patch, normalize_model_focus, normalize_model_object_ids, normalize_strict_output, output_schema, parse_json, validate_2d_plan, validate_plan
+from backend.presentation_plan import PATCH_CONTRACT, PLAN_CONTRACT, PLAN_2D_CONTRACT, PlanError, apply_patch, normalize_model_focus, normalize_model_object_ids, normalize_strict_output, output_schema, parse_json, plain_text_diagram, validate_2d_plan, validate_plan
 from backend.inference.provider_settings import anthropic_efforts
 from backend.guide_plan import GUIDE_CONTRACT, evaluate, prompt_controls, resolve, snapshot as control_snapshot, validate_guide
 
@@ -808,7 +808,7 @@ class MagicPenService:
                 prompt += '\n\nControles de la ventana:\n' + prompt_controls(observed)
                 if job['cancel'].is_set():
                     return
-            generation = {'max_tokens': 2048 if presentation or guide else 1024}
+            generation = {'max_tokens': 4096 if presentation and chosen.get('spatial_3d') and not base_plan else 2048 if presentation or guide else 1024}
             if presentation and chosen.get('spatial_3d'):
                 # Anthropic rejects the patch schema as "too complex" (live HTTP 400); its answer is bounded by PATCH_CONTRACT and apply_patch.
                 if not (base_plan and chosen.get('protocol') == 'anthropic'):
@@ -837,16 +837,29 @@ class MagicPenService:
             changes = {'state': 'completed', 'response': text, 'route': result.get('route'), 'finished_at': time.time()}
             if presentation:
                 try:
-                    parsed = parse_json(text)
-                    if chosen['name'] == '@codex':
-                        parsed = normalize_strict_output(parsed, generation['output_schema'])
-                    parsed = normalize_model_object_ids(parsed)
-                    if base_plan:
-                        changes['presentation'], changes['answer'] = apply_patch(base_plan, parsed, min_steps=2 if chosen.get('spatial_3d') else 1)
-                        if not chosen.get('spatial_3d'):
-                            changes['presentation'] = validate_2d_plan(changes['presentation'])
-                    else:
-                        changes['presentation'] = validate_plan(normalize_model_focus(parsed)) if chosen.get('spatial_3d') else validate_2d_plan(parsed)
+                    if result.get('finish_reason') == 'length':
+                        raise PlanError('El proveedor agotó los tokens antes de completar el plan visual. Prueba un objeto más concreto o un ensamblaje local; no se repetirá la llamada automáticamente.')
+                    local_prose = False
+                    try:
+                        parsed = parse_json(text)
+                    except PlanError:
+                        if chosen.get('spatial_3d') or base_plan:
+                            raise  # Never invent or silently downgrade a requested 3D scene/patch.
+                        changes['presentation'] = plain_text_diagram(text, q['question'])
+                        changes['visual_notice'] = ('Diagrama 2D construido localmente a partir de texto: '
+                                                    'el proveedor no devolvió JSON estructurado. No es una localización '
+                                                    'verificada de objetos de la captura.')
+                        local_prose = True
+                    if not local_prose:
+                        if chosen['name'] == '@codex':
+                            parsed = normalize_strict_output(parsed, generation['output_schema'])
+                        parsed = normalize_model_object_ids(parsed)
+                        if base_plan:
+                            changes['presentation'], changes['answer'] = apply_patch(base_plan, parsed, min_steps=2 if chosen.get('spatial_3d') else 1)
+                            if not chosen.get('spatial_3d'):
+                                changes['presentation'] = validate_2d_plan(changes['presentation'])
+                        else:
+                            changes['presentation'] = validate_plan(normalize_model_focus(parsed)) if chosen.get('spatial_3d') else validate_2d_plan(parsed)
                     self._remember_spatial_provider(chosen, result)
                 except PlanError as exc:
                     # The raw text stays for audit; nothing unvalidated reaches the renderer.
