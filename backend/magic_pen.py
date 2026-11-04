@@ -860,7 +860,8 @@ class MagicPenService:
                                 changes['presentation'] = validate_2d_plan(changes['presentation'])
                         else:
                             changes['presentation'] = validate_plan(normalize_model_focus(parsed)) if chosen.get('spatial_3d') else validate_2d_plan(parsed)
-                    self._remember_spatial_provider(chosen, result)
+                    if not local_prose:
+                        self._remember_spatial_provider(chosen, result)
                 except PlanError as exc:
                     # The raw text stays for audit; nothing unvalidated reaches the renderer.
                     changes.update(state='failed', error='El modelo no devolvió una presentación válida: ' + str(exc))
