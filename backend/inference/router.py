@@ -927,6 +927,8 @@ class Router:
             accounting.update(upstream_attempts=attempts, attempt_budget_used=attempt_budget_used)
             # Claude image + structured-output turns can exceed the 20 s default (a live scene patch timed out at 20 s); the 70 s global deadline still bounds it.
             call_timeout = min(max(self.timeout, 60) if p.get('protocol') == 'anthropic' else self.timeout, time_left)
+            if request.get('max_tokens', 0) > 4096:  # a long structured answer (detailed 3D plan) is bounded by the request deadline, not by the 20/60 s chat timeout
+                call_timeout = time_left
             if gateway:
                 call_timeout = min(call_timeout, p.get('gateway_timeout_ms', 20000) / 1000)
             call_start = time.monotonic()

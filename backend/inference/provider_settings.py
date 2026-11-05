@@ -171,7 +171,7 @@ def save(body, adapter, config_path):
         free = local or (kind == 'openrouter' and (model.endswith(':free') or model == 'openrouter/free'))
         capabilities = list(old['capabilities']) if old and old['model'] == model else ['text', 'vision'] if protocol == 'anthropic' else ['text']  # Claude models accept images
         entry = dict(enabled=True, free_confirmed=free, billing_allowed=False, daily_attempt_limit=1000,
-                     max_output_tokens=6144 if protocol == 'anthropic' else 2048,  # the router clamps every request to this; 3D plans need more than 2,048
+                     max_output_tokens=16384,  # the router clamps every request to this; a detailed 3D plan can need 8-10k tokens and the owner's budget, not this ceiling, caps the spend
                      auth_optional=local, cost_evidence='unknown',
                      route_kind='proxy' if kind == 'freellmapi' else 'unknown')
         if old:

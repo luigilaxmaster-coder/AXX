@@ -48,6 +48,8 @@ def normalize_usage(usage):
            'cache_read_input_tokens': cached, 'cache_creation_input_tokens': number(usage.get('cache_creation_input_tokens'))}
     return {k: v for k, v in out.items() if v is not None}
 
+MAX_DEADLINE_MS = 300000  # chat stays at 70 s by its callers; a detailed 3D plan from a reasoning model needs minutes
+
 class SourceDestinationPolicy:
     """In-process authority; never accepted from a request/model JSON field."""
     __slots__ = ('_allowed_profile_ids', '_revalidate')
@@ -528,7 +530,7 @@ class InferenceAdapter:
         conversation_id, deadline_ms = envelope.get('conversation_id', 'default'), envelope.get('deadline_ms', 70000)
         if (not isinstance(request_id, str) or not 1 <= len(request_id) <= 128
                 or not isinstance(conversation_id, str) or not 1 <= len(conversation_id) <= 128
-                or type(deadline_ms) is not int or not 1 <= deadline_ms <= 70000):
+                or type(deadline_ms) is not int or not 1 <= deadline_ms <= MAX_DEADLINE_MS):
             return self._error(str(request_id)[:128], 'INVALID_REQUEST', 'Invalid request identity or deadline', upstream_attempted=False)
         if 'upstream_attempt_budget' in envelope and (type(envelope['upstream_attempt_budget']) is not int
                 or not 1 <= envelope['upstream_attempt_budget'] <= 10):

@@ -138,10 +138,16 @@
             settings.className='mp-spatial-settings';settingsTitle.innerHTML='<span>Proveedor y calidad</span><small>POR SESIÓN</small>';settings.append(settingsTitle,settingsBody,verify,ollama);
             const ranking=document.createElement('details'),rankingTitle=document.createElement('summary');
             ranking.className='mp-ranking';rankingTitle.innerHTML='<span>Mejores modelos</span><small>RANKING</small>';
-            ranking.innerHTML='<p class="mp-ranking-note">Orden por pruebas medidas en este equipo; sin pruebas, por una referencia orientativa. Ningún modelo se conecta ni se descarga sin tu decisión.</p>'
-                +'<button id="mp-ranking-refresh" type="button" title="Consulta, solo lectura, los catálogos de tus conexiones guardadas y tu Ollama local">Actualizar ranking</button><p id="mp-ranking-sources" class="mp-ranking-sources" role="status"></p><ol id="mp-ranking-list" class="mp-ranking-list" aria-label="Ranking de modelos para Magic Pen"></ol>';
+            ranking.innerHTML='<p class="mp-ranking-note">Los modelos que existen hoy, ordenados con datos públicos de cada uno (visión, JSON estricto, salida larga, razonamiento, precio/tamaño y novedad) más lo que mediste en este equipo. No es un benchmark. Nada se conecta, activa ni descarga sin tu decisión.</p>'
+                +'<div id="mp-ranking-budget" class="mp-ranking-budget" role="group" aria-label="Presupuesto de gasto"><p id="mp-budget-line" role="status"></p><label>Tope en USD<input id="mp-budget-limit" type="number" min="0.5" max="1000" step="0.5"></label><button id="mp-budget-save" type="button">Guardar tope</button><button id="mp-budget-reset" type="button" title="Empieza a contar el gasto desde cero">Reiniciar gasto</button></div>'
+                +'<button id="mp-ranking-refresh" type="button" title="Descarga los catálogos públicos de OpenRouter y Ollama Cloud (sin clave) y consulta, solo lectura, tus conexiones guardadas y tu Ollama local">Actualizar ranking</button>'
+                +'<div class="mp-ranking-filters" role="group" aria-label="Filtrar el ranking"><button type="button" data-filter="all" aria-pressed="true">Todos</button><button type="button" data-filter="connected" aria-pressed="false">Conectados</button><button type="button" data-filter="configurable" aria-pressed="false">Configurables</button><button type="button" data-filter="free" aria-pressed="false">Gratis</button></div>'
+                +'<p id="mp-ranking-sources" class="mp-ranking-sources" role="status"></p><ol id="mp-ranking-list" class="mp-ranking-list" aria-label="Ranking de modelos para Magic Pen"></ol>';
             ranking.prepend(rankingTitle);
             ranking.querySelector('#mp-ranking-refresh').onclick=()=>{void this.loadRanking(true);};
+            this.rankingFilter='all';ranking.querySelectorAll('[data-filter]').forEach(b=>b.onclick=()=>{this.rankingFilter=b.dataset.filter;ranking.querySelectorAll('[data-filter]').forEach(o=>o.setAttribute('aria-pressed',String(o===b)));if(this.rankingData)this.renderRanking(this.rankingData);});
+            ranking.querySelector('#mp-budget-save').onclick=()=>void this.saveBudget({limit_usd:Number(ranking.querySelector('#mp-budget-limit').value)});
+            ranking.querySelector('#mp-budget-reset').onclick=()=>void this.saveBudget({reset:true});
             ranking.ontoggle=()=>{if(ranking.open&&!this.rankingLoaded){this.rankingLoaded=true;void this.loadRanking(false);}};
             const chatDock=document.createElement('div');chatDock.className='mp-chat-dock';const spatialActions=document.createElement('div');spatialActions.className='mp-spatial-actions';spatialActions.setAttribute('role','group');spatialActions.setAttribute('aria-label','Formas de explicar la selección');
             const modeCaption=document.createElement('p');modeCaption.id='mp-model-caption';modeCaption.className='mp-model-caption';modeCaption.setAttribute('aria-live','polite');
@@ -336,22 +342,48 @@
             catch(e){const li=document.createElement('li');li.className='mp-ranking-empty';li.textContent='No se pudo cargar el ranking: '+String(e?.message||e).slice(0,160);list.replaceChildren(li);}
             finally{button.disabled=false;button.removeAttribute('aria-busy');button.textContent=label;}
         }
+        async saveBudget(body){
+            try{const b=await A.backendRequest('POST','/axx-api/pen/budget',body);this.renderBudget(b);this.status(body.reset?'Gasto reiniciado.':'Tope guardado: '+b.limit_usd+' USD.');}
+            catch(e){this.status('No se pudo guardar el presupuesto: '+String(e?.message||e).slice(0,140));}
+        }
+        renderBudget(b){
+            const line=$('mp-budget-line'),input=$('mp-budget-limit');if(!line||!b)return;
+            line.textContent='Gasto estimado: '+b.spent_usd.toFixed(2)+' USD de '+b.limit_usd.toFixed(2)+' USD · quedan '+b.remaining_usd.toFixed(2)+' USD · '+b.calls+' llamada(s) de pago. Es una estimación con tokens y precios supuestos (3 USD/M entrada, 15 USD/M salida) salvo que la conexión declare los suyos. Suscripciones y modelos gratuitos no cuentan.';
+            line.dataset.state=b.remaining_usd<=0?'exhausted':b.remaining_usd<b.limit_usd*.2?'low':'ok';if(document.activeElement!==input)input.value=b.limit_usd;
+        }
+        configureConnection(option){
+            try{A.companion.openFeature('ai');}catch{}
+            setTimeout(()=>{const done=typeof A.prefillConnection==='function'&&A.prefillConnection(option);this.status(done?'Formulario de conexión rellenado desde el ranking. Pega tu clave y pulsa Guardar.':'No se pudo abrir el formulario de conexiones: ábrelo en Ajustes e introduce '+option.kind+' · '+option.model+'.');},350);
+        }
         renderRanking(r){
+            this.rankingData=r;
             const el=(tag,cls,text)=>{const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=text;return n;};
-            const sources=$('mp-ranking-sources'),stamp=new Date(r.generated_at*1000).toLocaleTimeString('es',{hour:'2-digit',minute:'2-digit'});
-            sources.textContent=(r.refreshed?'Actualizado a las '+stamp+' · ':'Sin consultar la red · ')+r.sources.map(s=>s.name+': '+(s.state==='ok'?'ok':'no disponible')).join(' · ');
-            sources.title=r.sources.map(s=>s.name+' — '+s.message).join('\n')+'\nReferencia orientativa de '+r.reference_date;
-            $('mp-ranking-list').replaceChildren(...r.entries.map(e=>{
-                const li=el('li','mp-ranking-item'),head=el('div','mp-ranking-head'),t=e.tasks,parts=[];li.dataset.status=e.status;
-                const score=el('span','mp-ranking-score',String(e.score));score.title='Puntuación: pruebas medidas + referencia orientativa';
+            const compact=n=>n>=1e6?(n/1e6).toFixed(n%1e6?1:0)+' M':n>=1e3?Math.round(n/1e3)+' k':String(n),usd=n=>n===0?'gratis':n<1?n.toFixed(2):n.toFixed(n<10?2:0);
+            const sources=$('mp-ranking-sources'),stamp=new Date(r.generated_at*1000).toLocaleTimeString('es',{hour:'2-digit',minute:'2-digit'}),marketDate=r.market_at?new Date(r.market_at*1000).toLocaleDateString('es',{day:'2-digit',month:'short'}):null;
+            sources.textContent=(r.refreshed?'Actualizado a las '+stamp+' · ':'Sin consultar la red · ')+(marketDate?'datos de mercado del '+marketDate+' · ':'')+r.sources.map(s=>s.name+': '+(s.state==='ok'?'ok':'no disponible')).join(' · ');
+            sources.title=r.sources.map(s=>s.name+' — '+s.message).join('\n');
+            this.renderBudget(r.budget||this.capabilities?.budget);
+            const filter=this.rankingFilter||'all',keep=e=>filter==='connected'?['apto_3d','conectado','solo_2d','instalado'].includes(e.status):filter==='configurable'?e.status==='configurable':filter==='free'?e.market?.price?.free===true:true;
+            const shown=r.entries.filter(keep);
+            if(!shown.length){const li=el('li','mp-ranking-empty',r.entries.length?'Ningún modelo cumple este filtro.':'Pulsa «Actualizar ranking» para cargar los modelos actuales.');$('mp-ranking-list').replaceChildren(li);return;}
+            $('mp-ranking-list').replaceChildren(...shown.map(e=>{
+                const li=el('li','mp-ranking-item'),head=el('div','mp-ranking-head'),t=e.tasks,parts=[],m=e.market;li.dataset.status=e.status;
+                const score=el('span','mp-ranking-score',String(e.score));score.title='Puntuación: estimación con datos públicos + pruebas medidas en este equipo';
                 head.append(el('span','mp-ranking-rank','#'+e.rank),el('strong','',e.model),score);
+                const facts=[e.provider+' · '+e.status_label];if(m?.market_rank)facts.push('mercado #'+m.market_rank+' de '+m.market_total);
                 if(t.verificado.length)parts.push('Verificado: '+t.verificado.join(', '));if(t.declarado.length)parts.push('Declarado: '+t.declarado.join(', '));if(t.no_apto.length)parts.push('No apto: '+t.no_apto.join(', '));
-                li.append(head,el('small','mp-ranking-meta',e.provider+' · '+e.status_label),el('small','mp-ranking-tasks',parts.join(' · ')||'Sin pruebas todavía'),el('small','mp-ranking-basis',e.basis));
+                li.append(head,el('small','mp-ranking-meta',facts.join(' · ')));
+                if(m){const chips=[];if(m.price&&(m.price.in!=null||m.price.out!=null))chips.push(m.price.free?'gratis':'USD/M '+usd(m.price.in??0)+' entrada · '+usd(m.price.out??0)+' salida');if(m.context)chips.push('contexto '+compact(m.context));if(m.max_output_tokens)chips.push('salida máx. '+compact(m.max_output_tokens));if(m.structured_outputs)chips.push('JSON estricto');if(m.reasoning)chips.push('razona');if(m.released_days_ago!=null)chips.push('hace '+m.released_days_ago+' días');li.append(el('small','mp-ranking-chips',chips.join(' · ')));}
+                li.append(el('small','mp-ranking-tasks',parts.join(' · ')||'Sin pruebas en este equipo todavía'));
+                const why=document.createElement('details');why.append(el('summary','','¿Por qué esta puntuación?'),el('p','',(e.reasons||[]).join('. ')+'.'));li.append(why);
                 if(e.action.type==='select'){
                     const key=encodeURIComponent(e.connection)+'::'+encodeURIComponent(e.model),select=$('mp-spatial-provider'),use=el('button','mp-ranking-use','Usar este modelo');use.type='button';
                     use.disabled=![...select.options].some(o=>o.value===key);
                     use.onclick=()=>{select.value=key;this.spatialProviderChanged();this.status('Modelo elegido: '+e.model+'. Tu selección de pantalla se mantiene.');};li.append(use);
-                }else{const how=document.createElement('details');how.append(el('summary','','Cómo conectarlo'),el('p','',e.action.text));li.append(how);}
+                }else{
+                    li.append(el('small','mp-ranking-note-small',e.action.note));
+                    for(const option of e.action.options){const b=el('button','mp-ranking-use',option.label);b.type='button';b.title='Abre el formulario de conexión con '+option.kind+' y el modelo '+option.model+' ya rellenados; la clave la pegas tú.';b.onclick=()=>this.configureConnection(option);li.append(b);}
+                }
                 return li;
             }));
         }
@@ -516,8 +548,10 @@
             head.append(el('strong',p.title),el('small',FIDELITY[p.fidelity]+' · explicación generada, no verificada','mp-visual-fidelity'));card.append(head);
             if(q.answer)card.append(el('p',q.answer,'mp-visual-answer'));
             if(q.visual_notice)card.append(el('p',q.visual_notice,'mp-visual-fidelity'));
+            if(q.blueprint?.objeto)card.append(el('small','Identificado: '+q.blueprint.objeto+(q.blueprint.categoria?' ('+q.blueprint.categoria+')':'')+(q.blueprint.dudas?.length?' · dudas: '+q.blueprint.dudas.join('; '):''),'mp-visual-fidelity mp-visual-identified'));
+            if(q.repairs)card.append(el('small','La respuesta del modelo no pasó la validación y Axx le pidió corregirla ('+q.repairs+' reintento).','mp-visual-fidelity'));
             for(const warning of q.warnings||[]){const note=el('p','⚠ '+warning,'mp-visual-fidelity');note.setAttribute('role','note');card.append(note);}
-            if(q.usage){const u=q.usage,parts=['entrada nueva '+(u.input_tokens??0),'salida '+(u.output_tokens??0)];if(u.cache_read_input_tokens)parts.push('caché leída '+u.cache_read_input_tokens);if(u.cache_creation_input_tokens)parts.push('caché escrita '+u.cache_creation_input_tokens);card.append(el('small','Tokens · '+parts.join(' · '),'mp-visual-fidelity'));}
+            if(q.usage){const u=q.usage,parts=['entrada nueva '+(u.input_tokens??0),'salida '+(u.output_tokens??0)];if(u.cache_read_input_tokens)parts.push('caché leída '+u.cache_read_input_tokens);if(u.cache_creation_input_tokens)parts.push('caché escrita '+u.cache_creation_input_tokens);if(q.cost_usd>0)parts.push('≈ '+q.cost_usd.toFixed(3)+' USD (estimado)');card.append(el('small','Tokens · '+parts.join(' · '),'mp-visual-fidelity'));}
             const diagram=p.diagram||(!p.scene&&p.steps.length>1?{nodes:p.steps.map((step,i)=>({id:'d'+(i+1),label:step.title,step_id:step.id,bounds:[i%2?.55:.07,.06+Math.floor(i/2)*.23,.38,.16]})),edges:p.steps.slice(1).map((_,i)=>({from:'d'+(i+1),to:'d'+(i+2),label:'paso'}))}:null);
             if(diagram){
                 const surface=el('div',null,'mp-diagram');card.append(surface);
@@ -583,6 +617,7 @@
                 tools.append(button(separated?'Unir '+picked.label:'Separar '+picked.label,separated?'Unir pieza':'Separar pieza',()=>{player.scene?.setObjectExploded(picked.id,!separated);this.renderAnswers();},!player.scene));
             }
             tools.append(button('Guardar la escena como PNG','PNG',()=>this.run(()=>this.exportScene()),!player.scene));
+            tools.append(button('Comparar el modelo 3D con la imagen original y corregir las diferencias','Comparar y corregir',()=>void this.compareAndFix(),!player.scene));
             tools.append(button('Generar una versión con más detalle técnico','Más detalle',()=>this.ask({fresh:false,format:'presentation',question:'Genera otra versión del modelo 3D de esta selección, con más detalle técnico útil: piezas funcionales, conexiones y anotaciones explicativas. Conserva proporciones plausibles sin inventar medidas ni componentes que la imagen no permita inferir.'})));
             const colors=[...new Set(p.scene.objects.map(item=>item.color.toLowerCase()))].slice(0,8),saved=this.sceneStyle(),same=JSON.stringify(saved?.colors)===JSON.stringify(colors)&&saved?.detail===p.scene.objects.length;
             tools.append(button(same?'Quitar estilo guardado':'Conservar paleta de este modelo',same?'Estilo guardado':'Guardar estilo',()=>{if(same){localStorage.removeItem('axx.magicpen.scene-style');this.status('Estilo guardado eliminado.');}else this.saveSceneStyle();this.renderAnswers();}));
@@ -606,6 +641,10 @@
             return block;
         }
         disposeScene(){this.stage.hidden=true;this.render();this.syncInput();const player=this.player;if(!player)return;player.scene?.dispose();player.scene=null;player.sceneHost?.remove();player.sceneHost=null;}
+        async compareAndFix(){
+            const player=this.player,image=player?.scene?.snapshot();if(!player?.queryId||!image)return this.status('No hay un modelo 3D que comparar.');
+            return this.ask({fresh:false,format:'presentation',base:player.queryId,compareScene:image,question:'Compara el modelo 3D con la imagen original y corrige las diferencias importantes de forma, proporciones, número y posición de las partes y color. Conserva lo que ya es correcto y no inventes piezas que la imagen no muestre.'});
+        }
         async exportScene(){const image=this.player?.scene?.snapshot();if(!image)throw Error('La escena 3D no está disponible.');await this.export('scene',image);}
         seekPresentation(index,pick=null){
             const q=this.presentationQuery(),player=this.player;if(!q||player?.queryId!==q.id||index<0||index>=q.presentation.steps.length)return;
@@ -818,7 +857,7 @@
             const c=canvas.getContext('2d');c.drawImage(this.previewImage,0,0,canvas.width,canvas.height);c.scale(scale,scale);
             for(const stroke of this.doc.strokes){c.save();c.globalAlpha=stroke.tool==='marker'?.33:1;c.strokeStyle=stroke.color;c.fillStyle=stroke.color;c.lineWidth=stroke.width;c.lineCap=c.lineJoin='round';c.beginPath();stroke.points.forEach((p,i)=>i?c.lineTo(...p):c.moveTo(...p));c.stroke();if(stroke.points.length===1){c.beginPath();c.arc(...stroke.points[0],stroke.width/2,0,Math.PI*2);c.fill();}c.restore();}
         }
-        async ask({fresh=true,format='text',base=null,question:explicit=''}={}){
+        async ask({fresh=true,format='text',base=null,question:explicit='',compareScene=null}={}){
             if(!this.active||!this.doc?.selection)return this.status('Selecciona o marca una región antes de preguntar.');
             if(base&&!explicit&&!$('mp-question').value.trim())return this.status('Escribe qué quieres saber o cambiar de la presentación.');
             const route=format==='presentation'?this.spatialRoute():this.route();
@@ -840,7 +879,7 @@
                 this.status('Analizando tu selección…');
                 const request_id=crypto.randomUUID().replace(/-/g,'');
                 this.analysisJob={id:request_id,source_id:d.id,format};
-                const body={id:d.id,revision,question,...providerRoute,request_id,...(format!=='text'?{format,effort:route.effort}:{}),...(base?{base_query_id:base}:{}),...(base&&this.player?.picked?{selected_object_id:this.player.picked}:{}),...(A.chatWorkspace?.active?.id?{conversation_id:A.chatWorkspace.active.id}:{})};
+                const body={id:d.id,revision,question,...providerRoute,request_id,...(format!=='text'?{format,effort:route.effort}:{}),...(base?{base_query_id:base}:{}),...(base&&compareScene?{compare_scene:compareScene}:{}),...(base&&this.player?.picked?{selected_object_id:this.player.picked}:{}),...(A.chatWorkspace?.active?.id?{conversation_id:A.chatWorkspace.active.id}:{})};
                 const q=format==='presentation'?await spatialApi(base?'query':'start',body):await api('start',body);
                 if(q?.id!==request_id||q.source_id!==d.id)throw Error('El servicio devolvió un análisis sin identidad válida.');
                 if(!current()){await this.cancelQuery(q);return null;}

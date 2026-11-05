@@ -20,6 +20,8 @@ from PIL import Image, ImageDraw, ImageGrab
 from backend.prompts import compose
 from backend.shape_registry import ShapeRegistry
 from backend.provider_capabilities import CapabilityTable
+from backend.spend_budget import SpendBudget
+from backend.spatial_pipeline import COMPARE_CONTRACT, IDENTIFY_CONTRACT, blueprint_context, catalog_matches, parse_blueprint, repair_message
 from backend.presentation_plan import PATCH_CONTRACT, PLAN_CONTRACT, PLAN_2D_CONTRACT, PlanError, apply_patch, normalize_model_focus, normalize_model_object_ids, normalize_strict_output, output_schema, parse_json, plain_text_diagram, validate_2d_plan, validate_plan, expand_components, learn_groups, plan_contract, patch_contract, check_plan, diagram_overlaps, prune_invalid_overlays
 from backend.inference.provider_settings import anthropic_efforts
 from backend.guide_plan import GUIDE_CONTRACT, evaluate, prompt_controls, resolve, snapshot as control_snapshot, validate_guide
@@ -157,6 +159,7 @@ class MagicPenService:
     def __init__(self, root, adapter=None, codex_provider=None):
         self.root = Path(root).resolve() / 'magic-pen'
         self.caps = CapabilityTable(self.root / 'provider-capabilities.json')  # verified / declared / unsupported, per connection and model
+        self.budget = SpendBudget(self.root / 'spend-ledger.json')  # estimated spend of paid models; the owner sets the ceiling (5 USD by default)
         self.shapes = ShapeRegistry(self.root / 'shape-registry.json')  # learned components live in the user's data directory, never the repo
         self.root.mkdir(parents=True, exist_ok=True)
         self.adapter = adapter
@@ -237,7 +240,7 @@ class MagicPenService:
             codex.append(self._row('@codex', 'gpt-6.1-sol', 'codex', True, [], status='not_verified'))
         return {'vision': vision, 'codex_vision': codex, 'ocr': False,
                 'ocr_message': 'OCR no integrado; el proveedor visual puede leer texto si está configurado.',
-                'export_directory': str(self.root / 'exports')}
+                'export_directory': str(self.root / 'exports'), 'budget': self.budget.summary()}
 
     def verify_spatial(self, body):
         """Explicit aptitude test: one small fixed image, a reduced contract and one call. The verdict and its reason are stored per model."""
@@ -487,7 +490,7 @@ class MagicPenService:
 
     def _request(self, body):
         if not isinstance(body, dict) or set(body) - {'id', 'revision', 'question', 'provider', 'model', 'selection_mode', 'request_id',
-                                                      'format', 'base_query_id', 'effort', 'selected_object_id', 'conversation_id'}:
+                                                      'format', 'base_query_id', 'effort', 'selected_object_id', 'conversation_id', 'compare_scene'}:
             raise ValueError('Parámetros de análisis inválidos.')
         self.directory(body.get('id'))
         request_id = body.get('request_id')
@@ -526,6 +529,11 @@ class MagicPenService:
             if not request.get('base_query_id') or not isinstance(selected, str) or not re.fullmatch(r'o[0-9]{1,3}', selected):
                 raise ValueError('La pieza seleccionada requiere una presentación base e identificador válido.')
             request['selected_object_id'] = selected
+        if 'compare_scene' in body:
+            if not request.get('base_query_id') or request.get('format') != 'presentation':
+                raise ValueError('Comparar el modelo con la imagen requiere una presentación 3D base.')
+            scene_png(body['compare_scene'])  # bounded PNG or a clear error; the image itself is used only for this one call
+            request['compare_scene'] = body['compare_scene']
         if 'conversation_id' in body:
             conversation = body['conversation_id']
             if not isinstance(conversation, str) or not re.fullmatch(r'[A-Za-z0-9_.:-]{1,128}', conversation):
@@ -850,6 +858,62 @@ class MagicPenService:
                         self.processing = None
                     self.condition.notify_all()
 
+    def _connection(self, chosen):
+        """The saved connection behind a chosen row, merged with it: what the budget needs (prices, kind, free flags)."""
+        saved = next((p for p in getattr(self.adapter, 'config', {}).get('providers', []) if p.get('name') == chosen.get('name')), {})
+        return {**saved, **{k: chosen[k] for k in ('name', 'model', 'protocol') if k in chosen}}
+
+    def _call(self, job, chosen, route_request, presentation, purpose):
+        """One model call: budget check, route, readable failure, budget record. Raises ValueError with the reason."""
+        connection = self._connection(chosen)
+        self.budget.check(connection)
+        if presentation and chosen['name'] == '@codex':
+            if not self.codex_provider:
+                raise ValueError('Axx Connect con Codex no está disponible.')
+            result = self.codex_provider.generate_spatial(route_request, cancel_event=job['cancel'])
+        else:
+            result = self.adapter.route(route_request,
+                **({'cancel_event': job['cancel']} if getattr(self.adapter, 'supports_cancel_event', False) is True else {}))
+        if not isinstance(result, dict) or result.get('ok') is not True:
+            error = result.get('error', {}) if isinstance(result, dict) else {}
+            err_msg = str(error.get('message', 'El proveedor no respondió.'))
+            if re.search(r'\b429\b', err_msg) or re.search(r'(?i)\b(l[ií]mite|rate[ _]limit|quota|agotad[oa]|5 horas|too many requests)\b', err_msg):
+                alts = []
+                try:
+                    for p in self.capabilities().get('vision', []):
+                        if p.get('name') != chosen.get('name') or p.get('model') != chosen.get('model'):
+                            alts.append(f"{p.get('name')}:{p.get('model')}")
+                except Exception:
+                    pass
+                if alts:
+                    err_msg += f" Sugerencia: cambia en 'Proveedor y calidad' a {', '.join(alts[:3])} para continuar sin agotar tu cuota."
+            raise ValueError(err_msg[:2000])
+        job['cost_usd'] = job.get('cost_usd', 0.0) + self.budget.record(connection, result.get('usage'), purpose)  # estimated cost of this query, shown in its card
+        return result
+
+    def _identify(self, job, chosen, jpeg, q):
+        """Cheap first pass: who/what is this and which parts does it have. Never blocks the main call; any failure just means "no blueprint"."""
+        route_request = {'request_id': 'pen-' + q['id'] + '-id', 'conversation_id': 'pen-' + q['id'], 'task': 'vision', 'selection_mode': 'manual', 'allow_paid': False,
+                         'deadline_ms': 60000, 'provider_name': chosen['name'], 'model': chosen['model'], 'generation': {'max_tokens': 1400},
+                         'messages': [{'role': 'system', 'content': IDENTIFY_CONTRACT},
+                                      {'role': 'user', 'content': [{'type': 'text', 'text': 'Identifica el objeto de la imagen y sus partes.'},
+                                                                   {'type': 'image_url', 'image_url': {'url': 'data:image/jpeg;base64,' + base64.b64encode(jpeg).decode()}}]}]}
+        try:
+            result = self._call(job, chosen, route_request, False, 'identify')
+            text = (result.get('message') or {}).get('content')
+            return (parse_blueprint(text), result.get('usage')) if isinstance(text, str) else (None, result.get('usage'))
+        except (ValueError, PlanError):
+            return None, None
+
+    @staticmethod
+    def _sum_usage(*usages):
+        total = {}
+        for usage in usages:
+            for key in ('input_tokens', 'output_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens'):
+                if isinstance(usage, dict) and isinstance(usage.get(key), int) and not isinstance(usage.get(key), bool):
+                    total[key] = total.get(key, 0) + usage[key]
+        return total
+
     def _run(self, job):
         watcher = None
         try:
@@ -875,10 +939,22 @@ class MagicPenService:
             if not event_support:
                 watcher = threading.Thread(target=self._watch_cancellation, args=(job,), name='axx-pen-cancel', daemon=True)
                 watcher.start()
+            explicit_3d = bool(presentation and chosen.get('spatial_3d') and not base_plan
+                               and re.search(r'(?i)\b(?:3d|tridimensional|maqueta)\b', q['question']))
+            compare_jpeg = None
+            if base_plan and request.get('compare_scene'):
+                rendered = scene_png(request['compare_scene'])
+                flat = Image.new('RGB', rendered.size, (232, 234, 238))
+                flat.paste(rendered, mask=rendered.split()[3])
+                flat.thumbnail((1024, 1024))
+                out = io.BytesIO()
+                flat.save(out, format='JPEG', quality=88)
+                compare_jpeg = out.getvalue()
             contract = 'Responde en español sobre la imagen seleccionada.' + (
                 ' ' + GUIDE_CONTRACT if guide else ' ' + (patch_contract(self.shapes) if base_plan else plan_contract(self.shapes) if chosen.get('spatial_3d') else PLAN_2D_CONTRACT) if presentation else '')
-            if (presentation and chosen.get('spatial_3d') and not base_plan
-                    and re.search(r'(?i)\b(?:3d|tridimensional|maqueta)\b', q['question'])):
+            if compare_jpeg:
+                contract += ' ' + COMPARE_CONTRACT
+            if explicit_3d:
                 contract += (' SOLICITUD 3D EXPLÍCITA: analiza primero la imagen y modela el objeto concreto que aparece en ella, nunca un ejemplo genérico ni otro objeto; '
                              'genera 4 a 7 pasos técnicos (s1 «Qué se observa», último «Proporciones y límites») y hasta 32 piezas, una por componente visible y detalle relevante, con scene propia y sin asset; '
                              'respeta las proporciones medidas sobre la imagen. '
@@ -886,8 +962,16 @@ class MagicPenService:
                              'toda pieza que no esté en el catálogo y se componga de 2 o más primitivas DEBE llevar "group" con un nombre técnico de al menos dos palabras para que Axx la reutilice. '
                              'Omite diagram y overlays si pueden hacer que el JSON 3D quede incompleto. '
                              'Toda escena debe conservar unidades relativas plausibles y fidelidad conceptual. '
-                             'Nunca reduzcas una pantalla 2D plana a un falso modelo físico.')
+                             'Nunca reduzcas una pantalla 2D plana a un falso modelo físico.'
+                             ' El JSON DEBE incluir "scene" con todas las piezas: una respuesta sin escena se rechaza.')
             prompt = q['question'] + ('\n\nPresentación actual:\n' + json.dumps(base_plan, ensure_ascii=False) if base_plan else '')
+            if compare_jpeg:
+                prompt += '\n\nImagen 1: el objeto original. Imagen 2: el render actual del modelo 3D.'
+            blueprint, identify_usage = None, None
+            if explicit_3d and chosen['name'] != '@codex' and not job['cancel'].is_set():
+                blueprint, identify_usage = self._identify(job, chosen, buf.getvalue(), q)
+                if blueprint:  # it goes after the stable system prefix, so prompt caching of the contract still works
+                    prompt += '\n\n' + blueprint_context(blueprint, catalog_matches(self.shapes, blueprint))
             if request.get('selected_object_id'):
                 selected = next(o for o in base_plan['scene']['objects'] if o['id'] == request['selected_object_id'])
                 prompt += '\n\nPieza seleccionada en esta misma sesión (datos):\n' + json.dumps(selected, ensure_ascii=False)
@@ -896,54 +980,49 @@ class MagicPenService:
                 prompt += '\n\nControles de la ventana:\n' + prompt_controls(observed)
                 if job['cancel'].is_set():
                     return
-            # Detailed 3D first plans (up to 32 parts + technical steps) need ~4,000+ tokens; 6,144 is a cap, not a target. Patches and 2D keep 2,048.
-            generation = {'max_tokens': 6144 if presentation and chosen.get('spatial_3d') and not base_plan else 2048 if presentation or guide else 1024}
+            # A detailed first 3D plan (up to 32 parts + technical steps) can need 8-10k tokens: the ceiling is high because the owner asked for detail,
+            # the real spend is capped by the budget. Patches and 2D stay small.
+            generation = {'max_tokens': 12288 if presentation and chosen.get('spatial_3d') and not base_plan else 4096 if compare_jpeg else 2048 if presentation or guide else 1024}
             if presentation and chosen.get('spatial_3d') and (chosen['name'] == '@codex' or chosen.get('protocol') == 'anthropic'):
                 # Anthropic rejects the patch schema as "too complex" (live HTTP 400); its answer is bounded by PATCH_CONTRACT and apply_patch.
                 if not (base_plan and chosen.get('protocol') == 'anthropic'):
-                    generation['output_schema'] = output_schema('patch' if base_plan else 'presentation', strict=chosen['name'] == '@codex')
+                    generation['output_schema'] = output_schema('patch' if base_plan else 'presentation', strict=chosen['name'] == '@codex', require_scene=explicit_3d)
                 if request.get('effective_effort'):
                     generation['effort'] = request['effective_effort']
+            images = [{'type': 'image_url', 'image_url': {'url': 'data:image/jpeg;base64,' + base64.b64encode(buf.getvalue()).decode()}}]
+            if compare_jpeg:
+                images.append({'type': 'image_url', 'image_url': {'url': 'data:image/jpeg;base64,' + base64.b64encode(compare_jpeg).decode()}})
+            deadline_ms = 150000 if presentation and chosen['name'] == '@codex' else 240000 if presentation and chosen.get('spatial_3d') else 70000
             route_request = {'request_id': 'pen-' + q['id'], 'conversation_id': 'pen-' + q['id'],
                 'task': 'vision', 'selection_mode': request['selection_mode'], 'allow_paid': False,
-                'deadline_ms': 150000 if presentation and chosen['name'] == '@codex' else 70000,
+                'deadline_ms': deadline_ms,
                 'provider_name': chosen['name'], 'model': chosen['model'], 'generation': generation,
                 'messages': [{'role': 'system', 'content': compose('perception', contract=contract)['text']},
-                    {'role': 'user', 'content': [{'type': 'text', 'text': prompt}, {'type': 'image_url', 'image_url': {'url': 'data:image/jpeg;base64,'+base64.b64encode(buf.getvalue()).decode()}}]}]}
-            if presentation and chosen['name'] == '@codex':
-                if not self.codex_provider:
-                    raise ValueError('Axx Connect con Codex no está disponible.')
-                result = self.codex_provider.generate_spatial(route_request, cancel_event=job['cancel'])
-            else:
-                result = self.adapter.route(route_request,
-                    **({'cancel_event': job['cancel']} if getattr(self.adapter, 'supports_cancel_event', False) is True else {}))
-            if not isinstance(result, dict) or result.get('ok') is not True:
-                error = result.get('error', {}) if isinstance(result, dict) else {}
-                err_msg = str(error.get('message', 'El proveedor no respondió.'))
-                if re.search(r'\b429\b', err_msg) or re.search(r'(?i)\b(l[ií]mite|rate[ _]limit|quota|agotad[oa]|5 horas|too many requests)\b', err_msg):
-                    alts = []
-                    try:
-                        caps = self.capabilities()
-                        for p in caps.get('vision', []):
-                            if p.get('name') != chosen.get('name') or p.get('model') != chosen.get('model'):
-                                alts.append(f"{p.get('name')}:{p.get('model')}")
-                    except Exception:
-                        pass
-                    if alts:
-                        err_msg += f" Sugerencia: cambia en 'Proveedor y calidad' a {', '.join(alts[:3])} para continuar sin agotar tu cuota."
-                raise ValueError(err_msg[:2000])
-            message = result.get('message', {})
-            text = message.get('content') if isinstance(message, dict) else None
-            if not isinstance(text, str) or not text.strip() or len(text) > MAX_RESPONSE_CHARS:
-                raise ValueError('El proveedor no devolvió texto válido dentro del límite.')
-            changes = {'state': 'completed', 'response': text, 'route': result.get('route'), 'finished_at': time.time()}
-            if isinstance(result.get('usage'), dict) and result['usage']:
-                changes['usage'] = result['usage']  # tokens in/out and cache read/write, shown in the card
-            if presentation:
+                    {'role': 'user', 'content': [{'type': 'text', 'text': prompt}, *images]}]}
+            attempts, calls_usage = 0, [identify_usage]
+            while True:
+                result = self._call(job, chosen, route_request, presentation, 'plan' if attempts == 0 else 'repair')
+                message = result.get('message', {})
+                text = message.get('content') if isinstance(message, dict) else None
+                if not isinstance(text, str) or not text.strip() or len(text) > MAX_RESPONSE_CHARS:
+                    raise ValueError('El proveedor no devolvió texto válido dentro del límite.')
+                calls_usage.append(result.get('usage'))
+                changes = {'state': 'completed', 'response': text, 'route': result.get('route'), 'finished_at': time.time()}
+                total_usage = self._sum_usage(*calls_usage)
+                if total_usage:
+                    changes['usage'] = total_usage  # tokens in/out and cache read/write across every call of this query, shown in the card
+                if job.get('cost_usd'):
+                    changes['cost_usd'] = round(job['cost_usd'], 4)
+                if blueprint:
+                    changes['blueprint'] = blueprint
+                if attempts:
+                    changes['repairs'] = attempts
+                if not presentation:
+                    break
                 try:
                     changes['finish_reason'] = result.get('finish_reason')  # real provider stop reason, kept for diagnosis
                     if result.get('finish_reason') == 'length':
-                        raise PlanError('El proveedor agotó los tokens antes de completar el plan visual. Prueba un objeto más concreto o un ensamblaje local; no se repetirá la llamada automáticamente.')
+                        raise PlanError('El proveedor agotó los tokens antes de completar el plan visual, también tras un reintento más compacto. Prueba un objeto más concreto o un modelo con más salida.')
                     local_prose = False
                     try:
                         parsed = parse_json(text)
@@ -972,6 +1051,8 @@ class MagicPenService:
                                 changes['presentation'] = validate_2d_plan(changes['presentation'])
                         else:
                             changes['presentation'] = validate_plan(parsed) if chosen.get('spatial_3d') else validate_2d_plan(parsed)
+                            if explicit_3d and not changes['presentation'].get('scene'):
+                                raise PlanError('la petición era un modelo 3D y la respuesta no incluye "scene": falta la escena 3D con las piezas del objeto.')
                         if chosen.get('spatial_3d'):
                             learn_groups(changes['presentation'], self.shapes)  # only validated pieces are ever stored
                         notes = check_plan(changes['presentation']) if chosen.get('spatial_3d') else []  # local checks: they warn, never fix
@@ -983,11 +1064,25 @@ class MagicPenService:
                         if notes:
                             changes['warnings'] = notes
                         self._remember_spatial_provider(chosen, result)
+                    break
                 except PlanError as exc:
-                    # The raw text stays for audit; nothing unvalidated reaches the renderer.
-                    changes.update(state='failed', error='El modelo no devolvió una presentación válida: ' + str(exc))
+                    # One automatic repair: the model sees its own answer and the exact validation error. It never repeats a request that failed upstream.
+                    if attempts >= 1 or not chosen.get('spatial_3d') or job['cancel'].is_set():
+                        for key in ('presentation', 'answer', 'warnings', 'visual_notice'):  # nothing half-validated is ever kept
+                            changes.pop(key, None)
+                        changes.update(state='failed', error='El modelo no devolvió una presentación válida: ' + str(exc))
+                        break
+                    attempts += 1
+                    fix = repair_message(exc, length=result.get('finish_reason') == 'length')
+                    if chosen['name'] == '@codex':  # that path takes exactly one system and one user turn with one image
+                        retry_messages = [route_request['messages'][0], {'role': 'user', 'content': [{'type': 'text', 'text': prompt + '\n\n' + fix + '\nRespuesta anterior inválida:\n' + text[:6000]}, images[0]]}]
+                    else:
+                        retry_messages = [*route_request['messages'], {'role': 'assistant', 'content': text}, {'role': 'user', 'content': fix}]
+                    route_request = {**route_request, 'request_id': f"pen-{q['id']}-r{attempts}", 'messages': retry_messages}
+                    continue
                 except ValueError as exc:
                     changes.update(state='failed', error=str(exc))
+                    break
             if guide:
                 try:
                     changes.update(guide=validate_guide(parse_json(text)), guide_window=window, guide_progress={})

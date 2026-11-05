@@ -337,7 +337,7 @@ class MagicPenPresentationTests(unittest.TestCase):
         self.assertEqual(first['presentation']['steps'][0]['title'], 'Función')
         system = self.adapter.calls[0]['messages'][0]['content']
         self.assertIn('"kind":"presentation"', system)
-        self.assertEqual(self.adapter.calls[0]['generation']['max_tokens'], 6144)
+        self.assertEqual(self.adapter.calls[0]['generation']['max_tokens'], 12288)  # a detailed 3D plan may be long; the budget caps the spend
         self.replies.append(json.dumps({'schema_version': '1.0', 'kind': 'patch', 'answer': 'Detallo el paso 2.',
                                         'ops': [{'op': 'step.update', 'step_id': 's2', 'title': 'Aproximación'}]}))
         second = self.ask(format='presentation', base_query_id=first['id'], question='¿Por qué el paso 2?')
@@ -381,9 +381,123 @@ class MagicPenPresentationTests(unittest.TestCase):
                 self.assertIn(message, result['error'])
                 self.assertEqual('other:other-vision' in result['error'], suggests, result['error'])
 
+    IDENTIFICATION = json.dumps({'objeto': 'Placa de circuitos', 'categoria': 'electrico', 'descripcion': 'Placa con puertos.', 'buscar': ['placa'],
+                                 'componentes': [{'nombre': 'Placa base', 'forma': 'placa', 'proporcion': 'todo el conjunto', 'material': 'fibra'}], 'dudas': ['no se ve el reverso']})
+
+    def ask_3d(self, *replies, question='Explícame este objeto en 3D'):
+        self.adapter.config['providers'][0]['model'] = 'claude-sonnet-5-5'
+        self.replies.extend(replies)
+        return self.ask(format='presentation', model='claude-sonnet-5-5', question=question)
+
+    def test_explicit_3d_request_identifies_first_and_gives_the_plan_that_analysis_after_the_stable_prefix(self):
+        result = self.ask_3d(self.IDENTIFICATION, json.dumps(scene_plan()))
+        self.assertEqual(result['state'], 'completed', result.get('error'))
+        self.assertEqual(len(self.adapter.calls), 2)
+        identify, plan = self.adapter.calls
+        self.assertIn('analista técnico', identify['messages'][0]['content'])
+        self.assertLess(identify['generation']['max_tokens'], 2000)
+        self.assertNotIn('ANÁLISIS PREVIO', plan['messages'][0]['content'])  # the cacheable system prefix never changes with the image
+        self.assertIn('ANÁLISIS PREVIO DE LA IMAGEN', plan['messages'][1]['content'][0]['text'])
+        self.assertIn('Placa de circuitos', plan['messages'][1]['content'][0]['text'])
+        self.assertEqual(result['blueprint']['objeto'], 'Placa de circuitos')
+        self.assertIn('scene', plan['generation']['output_schema']['required'])  # an explicit 3D request cannot be answered without a scene
+
+    def test_a_failed_identification_never_blocks_the_plan(self):
+        result = self.ask_3d('esto no es json', json.dumps(scene_plan()))
+        self.assertEqual(result['state'], 'completed', result.get('error'))
+        self.assertNotIn('blueprint', result)
+        self.assertNotIn('ANÁLISIS PREVIO', self.adapter.calls[1]['messages'][1]['content'][0]['text'])
+
+    def test_an_invalid_plan_is_repaired_once_with_its_own_text_and_the_exact_error(self):
+        bad = 'Aquí tienes el modelo, pero sin JSON.'
+        result = self.ask_3d(self.IDENTIFICATION, bad, json.dumps(scene_plan()))
+        self.assertEqual(result['state'], 'completed', result.get('error'))
+        self.assertEqual(result['repairs'], 1)
+        retry = self.adapter.calls[2]['messages']
+        self.assertEqual([m['role'] for m in retry[-2:]], ['assistant', 'user'])
+        self.assertEqual(retry[-2]['content'], bad)
+        self.assertIn('no pasó la validación', retry[-1]['content'])
+        self.assertNotEqual(self.adapter.calls[2]['request_id'], self.adapter.calls[1]['request_id'])  # a replay can never return the failed answer
+
+    def test_an_explicit_3d_answer_without_a_scene_is_rejected_and_repaired(self):
+        diagram_only = scene_plan()
+        del diagram_only['scene']
+        result = self.ask_3d(self.IDENTIFICATION, json.dumps(diagram_only), json.dumps(scene_plan()))
+        self.assertEqual(result['state'], 'completed', result.get('error'))
+        self.assertEqual(result['repairs'], 1)
+        self.assertIn('scene', result['presentation'])
+        self.assertIn('escena 3D', self.adapter.calls[2]['messages'][-1]['content'])
+        failed = self.ask_3d(self.IDENTIFICATION, json.dumps(diagram_only), json.dumps(diagram_only))
+        self.assertEqual(failed['state'], 'failed')
+        self.assertNotIn('presentation', failed)
+
+    def test_a_non_3d_question_is_not_forced_to_have_a_scene_and_costs_one_call(self):
+        plain = scene_plan()
+        del plain['scene']
+        self.adapter.config['providers'][0]['model'] = 'claude-sonnet-5-5'
+        self.replies.append(json.dumps(plain))
+        result = self.ask(format='presentation', model='claude-sonnet-5-5', question='¿Cómo funciona?')
+        self.assertEqual(result['state'], 'completed', result.get('error'))
+        self.assertEqual(len(self.adapter.calls), 1)
+
+    def test_the_budget_stops_paid_calls_before_they_are_made(self):
+        self.adapter.config['providers'][0].update(free_confirmed=False, billing_allowed=True, kind='anthropic')
+        self.service.budget.configure(limit_usd=0.01)
+        self.service.budget.record({'name': 'fixture', 'model': 'visual-model', 'kind': 'anthropic', 'billing_allowed': True},
+                                   {'input_tokens': 10000, 'output_tokens': 5000})
+        result = self.ask_3d(self.IDENTIFICATION, json.dumps(scene_plan()))
+        self.assertEqual(result['state'], 'failed')
+        self.assertIn('presupuesto', result['error'].lower())
+        self.assertEqual(self.adapter.calls, [])
+
+    def test_calls_of_a_paid_connection_are_counted_and_reported(self):
+        self.adapter.config['providers'][0].update(free_confirmed=False, billing_allowed=True, kind='anthropic', usd_per_mtok_in=1, usd_per_mtok_out=5)
+        original = self.adapter.route
+        def with_usage(request):
+            reply = original(request)
+            reply['usage'] = {'input_tokens': 1000, 'output_tokens': 2000, 'cache_creation_input_tokens': 0, 'cache_read_input_tokens': 0}
+            return reply
+        self.adapter.route = with_usage
+        result = self.ask_3d(self.IDENTIFICATION, json.dumps(scene_plan()))
+        self.assertEqual(result['state'], 'completed', result.get('error'))
+        self.assertEqual(result['usage']['output_tokens'], 4000)  # identification + plan
+        self.assertAlmostEqual(self.service.budget.summary()['spent_usd'], 2 * (1000 + 2000 * 5) / 1_000_000, places=4)
+        self.assertEqual(self.service.capabilities()['budget']['limit_usd'], 5.0)
+
+    def render_png(self, size=(64, 48)):
+        import base64, io
+        buffer = io.BytesIO()
+        Image.new('RGBA', size, (200, 40, 40, 255)).save(buffer, format='PNG')
+        return 'data:image/png;base64,' + base64.b64encode(buffer.getvalue()).decode()
+
+    def test_compare_mode_sends_the_original_and_the_render_and_applies_the_corrections_as_a_patch(self):
+        first = self.ask_3d(self.IDENTIFICATION, json.dumps(scene_plan()))
+        self.assertEqual(first['state'], 'completed', first.get('error'))
+        patch = {'schema_version': '1.0', 'kind': 'patch', 'answer': 'Corregí el color de la placa.',
+                 'ops': [{'op': 'object.update', 'object_id': 'o1', 'color': '#336699'}]}
+        self.replies.append(json.dumps(patch))
+        before = len(self.adapter.calls)
+        result = self.ask(format='presentation', model='claude-sonnet-5-5', base_query_id=first['id'], compare_scene=self.render_png(),
+                          question='Compara el modelo con la imagen original y corrige las diferencias.')
+        self.assertEqual(result['state'], 'completed', result.get('error'))
+        self.assertEqual(len(self.adapter.calls), before + 1)  # one call: no identification pass for a correction
+        call = self.adapter.calls[-1]
+        images = [part for part in call['messages'][1]['content'] if part['type'] == 'image_url']
+        self.assertEqual(len(images), 2)
+        self.assertIn('MODO COMPARAR Y CORREGIR', call['messages'][0]['content'])
+        self.assertIn('Imagen 2: el render actual', call['messages'][1]['content'][0]['text'])
+        self.assertEqual(next(o for o in result['presentation']['scene']['objects'] if o['id'] == 'o1')['color'].lower(), '#336699')
+
+    def test_compare_mode_needs_a_base_presentation_and_a_real_png(self):
+        for body in ({'compare_scene': self.render_png()}, {'base_query_id': 'a' * 32, 'compare_scene': 'data:image/png;base64,no'},
+                     {'base_query_id': 'a' * 32, 'compare_scene': 'x' * 10}):
+            with self.subTest(body=list(body)), self.assertRaises(ValueError):
+                self.service.start({'id': self.doc['id'], 'revision': 2, 'question': 'x', 'provider': 'fixture', 'model': 'visual-model',
+                                    'selection_mode': 'manual', 'request_id': uuid.uuid4().hex, 'format': 'presentation', **body})
+
     def test_explicit_3d_request_prioritizes_a_bounded_complete_scene(self):
         self.adapter.config['providers'][0]['model'] = 'claude-sonnet-5-5'
-        self.replies.append(json.dumps(scene_plan()))
+        self.replies.extend([self.IDENTIFICATION, json.dumps(scene_plan())])
         result = self.ask(format='presentation', model='claude-sonnet-5-5',
                           question='Explícame este objeto en 3D')
         self.assertEqual(result['state'], 'completed', result.get('error'))
@@ -395,13 +509,14 @@ class MagicPenPresentationTests(unittest.TestCase):
 
     def test_anthropic_3d_does_not_silently_turn_invalid_json_into_a_fake_model(self):
         self.adapter.config['providers'][0]['model'] = 'claude-sonnet-5-5'
-        self.replies.append('Este es un mecanismo con engranajes, pero no tengo JSON.')
+        self.replies.extend(['Este es un mecanismo con engranajes, pero no tengo JSON.'] * 2)  # the answer and its one automatic repair
         result = self.ask(format='presentation', model='claude-sonnet-5-5')
         self.assertEqual(result['state'], 'failed')
         self.assertNotIn('presentation', result)
         self.assertIn('JSON válido', result['error'])
+        self.assertEqual(len(self.adapter.calls), 2)
 
-    def test_truncated_spatial_output_is_identified_without_retry(self):
+    def test_truncated_spatial_output_gets_one_compact_retry_and_is_then_identified(self):
         self.adapter.config['providers'][0]['model'] = 'claude-sonnet-5-5'
         original_route = self.adapter.route
         def truncated(request):
@@ -409,12 +524,13 @@ class MagicPenPresentationTests(unittest.TestCase):
             result['finish_reason'] = 'length'
             return result
         self.adapter.route = truncated
-        self.replies.append('La imagen muestra una placa de circuitos.')
+        self.replies.extend(['La imagen muestra una placa de circuitos.'] * 2)
         result = self.ask(format='presentation', model='claude-sonnet-5-5')
         self.assertEqual(result['state'], 'failed')
         self.assertIn('agotó los tokens', result['error'])
-        self.assertEqual(len(self.adapter.calls), 1)
-        self.assertEqual(self.adapter.calls[-1]['generation']['max_tokens'], 6144)
+        self.assertEqual(len(self.adapter.calls), 2)
+        self.assertIn('se cortó por longitud', self.adapter.calls[1]['messages'][-1]['content'])
+        self.assertEqual(self.adapter.calls[-1]['generation']['max_tokens'], 12288)
 
     def test_gemma_visual_route_uses_prompted_2d_without_native_schema(self):
         local = self.adapter.config['providers'][0]
@@ -480,7 +596,7 @@ class MagicPenPresentationTests(unittest.TestCase):
                                                            {'efforts': ['low', 'medium', 'high']}), 'low')
 
     def test_invalid_model_output_fails_closed_and_text_mode_is_unchanged(self):
-        self.replies.append('<script>alert(1)</script>')
+        self.replies.extend(['<script>alert(1)</script>'] * 2)
         failed = self.ask(format='presentation')
         self.assertEqual(failed['state'], 'failed')
         self.assertNotIn('presentation', failed)
@@ -489,7 +605,7 @@ class MagicPenPresentationTests(unittest.TestCase):
         text = self.ask()
         self.assertEqual((text['state'], text['response']), ('completed', 'Resumen: texto normal.'))
         self.assertNotIn('format', text)
-        self.assertNotIn('kind', self.adapter.calls[1]['messages'][0]['content'])
+        self.assertNotIn('kind', self.adapter.calls[2]['messages'][0]['content'])
 
     def test_patch_requires_existing_presentation_on_current_revision(self):
         self.replies.append('Resumen: texto.')

@@ -100,6 +100,13 @@ class HardenedRouterTests(unittest.TestCase):
         self.assertEqual(ctx.exception.status, 504)
         self.assertIn("deadline exceeded", str(ctx.exception).lower())
 
+    def test_a_long_structured_answer_gets_the_request_deadline_while_chat_keeps_its_short_timeout(self):
+        r = self.make_router()
+        r.chat({'messages': [{'role': 'user', 'content': 'hi'}], 'max_tokens': 12000}, deadline_time=time.monotonic() + 240)
+        self.assertGreater(self.calls[-1][2], 100)  # a detailed 3D plan may take minutes; the 20 s chat timeout would cut it
+        r.chat({'messages': [{'role': 'user', 'content': 'hi'}], 'max_tokens': 800}, deadline_time=time.monotonic() + 240)
+        self.assertLessEqual(self.calls[-1][2], 20)
+
     # === H02: Parseo estricto JSON y rechazo NaN / Infinity ===
     def test_h02_strict_json_rejects_nan_and_infinity(self):
         # NaN and Infinity must fail

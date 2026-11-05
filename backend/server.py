@@ -399,9 +399,11 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                 if set(query) - {'refresh'} or len(query.get('refresh', ['0'])) != 1 or query.get('refresh', ['0'])[0] not in ('0', '1') or not self.magic_pen or not self.adapter:
                     raise ValueError('Consulta de ranking de modelos inválida.')
                 local = next((p for p in self.adapter.config.get('providers', []) if p.get('kind') == 'ollama'), None)
-                self._send_json(200, model_ranking.gather(self.magic_pen.capabilities(), self.adapter.config, refresh=query.get('refresh', ['0'])[0] == '1',
+                ranking = model_ranking.gather(self.magic_pen.capabilities(), self.adapter.config, refresh=query.get('refresh', ['0'])[0] == '1',
                                                           discover_fn=provider_settings.discover, ollama_fn=ollama_models.detect,
-                                                          ollama_url=local['base_url'] if local else ollama_models.DEFAULT_URL))
+                                                          ollama_url=local['base_url'] if local else ollama_models.DEFAULT_URL,
+                                                          cache_path=self.magic_pen.root / 'market-cache.json')
+                self._send_json(200, {**ranking, 'budget': self.magic_pen.budget.summary()})
             elif path == '/axx-api/feature-readiness':
                 query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query, keep_blank_values=True)
                 if set(query) != {'feature_id'} or len(query['feature_id']) != 1 or not self.magic_pen:
@@ -717,6 +719,10 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                 operation = path.rsplit('/', 1)[-1]
                 if operation == 'status':
                     result = {'capabilities': self.magic_pen.capabilities(), 'monitors': pen_monitors(), 'history': self.magic_pen.list()}
+                elif operation == 'budget':  # the owner's decision (ceiling and restart); nothing else can change it
+                    if set(body) - {'limit_usd', 'reset'} or (body.get('reset') is not None and type(body['reset']) is not bool):
+                        raise ValueError('Indica solo limit_usd y reset para el presupuesto.')
+                    result = self.magic_pen.budget.configure(limit_usd=body.get('limit_usd'), reset=body.get('reset') is True)
                 elif operation == 'get':
                     result = self.magic_pen.get(body.get('id'), image=True)
                 elif operation in {'capture', 'save', 'export', 'analyze', 'start', 'query', 'cancel', 'guide_check'}:

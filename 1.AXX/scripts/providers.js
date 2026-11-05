@@ -370,6 +370,18 @@
       $('provider-catalog-status').textContent = $('provider-kind').value === 'ollama_cloud' ? 'Modelos de la nube de Ollama. No necesitas descargarlos.' : $('provider-kind').value === 'ollama' ? 'Aquí aparecen solo los modelos instalados en este servidor.' : '';
     };
     $('provider-kind').onchange = platform;
+    // Used by the Magic Pen ranking: fills the form so the owner only pastes their own key and presses Save. It never saves, reads or sends a key.
+    Axx.prefillConnection = spec => {
+      if (!spec || typeof spec.kind !== 'string' || !Object.hasOwn(presets, spec.kind) || typeof spec.model !== 'string' || !spec.model || spec.model.length > 200) return false;
+      $('provider-saved').value = ''; $('provider-kind').value = spec.kind; platform();
+      $('provider-name').value = String(spec.name || '').slice(0, 80);
+      $('provider-model').replaceChildren(new Option(spec.model, spec.model), new Option('Escribir ID manualmente…', '__manual__')); $('provider-model').value = spec.model;
+      const wanted = (base) => [base, ...(spec.vision === true ? ['vision'] : [])];
+      for (const option of $('provider-capabilities').options) option.selected = wanted('text').includes(option.value);
+      for (const option of $('provider-tasks').options) option.selected = wanted('chat').includes(option.value);
+      modelProfile(); status('Rellenado desde el ranking. Pega tu clave de API y pulsa Guardar: nada se conecta sin ti.');
+      return true;
+    };
     $('provider-saved').onchange = () => {
       const p = entries.find(p => p.name === $('provider-saved').value);
       if (!p) { $('provider-name').value = ''; platform(); return; }

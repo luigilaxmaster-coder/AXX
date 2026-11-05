@@ -350,8 +350,10 @@ def plan_contract(registry=None):
     return PLAN_CONTRACT + ' Catálogo de componentes disponibles: ' + component_catalog(registry or ShapeRegistry()) + '.'
 
 
-def output_schema(kind='presentation', *, strict=False):
-    """Small strict JSON Schema for provider-constrained output; Python remains authoritative."""
+def output_schema(kind='presentation', *, strict=False, require_scene=False):
+    """Small strict JSON Schema for provider-constrained output; Python remains authoritative.
+
+    require_scene makes the 3D scene mandatory for an explicit 3D request, so the model cannot answer with a 2D diagram only."""
     text = {'type': 'string'}
     vector = {'type': 'array', 'items': {'type': 'number'}, 'minItems': 3, 'maxItems': 3}
     step = {'type': 'object', 'additionalProperties': False,
@@ -391,7 +393,7 @@ def output_schema(kind='presentation', *, strict=False):
                                'steps': {'type': 'array', 'items': step}, 'scene': scene, 'diagram': diagram, 'overlays': overlays},
                 # No `asset`: presets are no longer offered, and with it Anthropic rejects the grammar as too large (verified live).
                 # validate_plan still accepts `asset` so stored plans keep opening.
-                'required': ['schema_version', 'kind', 'title', 'summary', 'fidelity', 'steps']}
+                'required': ['schema_version', 'kind', 'title', 'summary', 'fidelity', 'steps', *(['scene'] if require_scene else [])]}
         return _strict_schema(schema) if strict else schema
     if kind == 'patch':
         op = {'type': 'object', 'additionalProperties': False,
