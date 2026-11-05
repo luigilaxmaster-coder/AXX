@@ -169,7 +169,11 @@ def save(body, adapter, config_path):
         local = local_address(urllib.parse.urlsplit(url).hostname)
         # Legacy manual eligibility; automatic mode also requires explicit downstream cost evidence.
         free = local or (kind == 'openrouter' and (model.endswith(':free') or model == 'openrouter/free'))
-        capabilities = list(old['capabilities']) if old and old['model'] == model else ['text', 'vision'] if protocol == 'anthropic' else ['text']  # Claude models accept images
+        model_lower = model.lower()
+        is_vision = (protocol == 'anthropic' or kind == 'gemini'
+                     or (kind == 'openai' and any(m in model_lower for m in ('gpt-4', 'o1', 'o3', 'o4')))
+                     or any(k in model_lower for k in ('vision', 'vl', 'llava', 'minicpm', 'pixtral', 'qwen2-vl', 'qwen2.5-vl')))
+        capabilities = list(old['capabilities']) if old and old['model'] == model else (['text', 'vision'] if is_vision else ['text'])
         entry = dict(enabled=True, free_confirmed=free, billing_allowed=False, daily_attempt_limit=1000,
                      max_output_tokens=16384,  # the router clamps every request to this; a detailed 3D plan can need 8-10k tokens and the owner's budget, not this ceiling, caps the spend
                      auth_optional=local, cost_evidence='unknown',

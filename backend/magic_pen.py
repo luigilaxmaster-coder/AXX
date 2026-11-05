@@ -229,7 +229,10 @@ class MagicPenService:
                     and 'vision' in p.get('capabilities', [])):
                 self.caps.declare(p['name'], p['model'], 'vision', 'Declarada en la configuración de la conexión.')
                 anthropic = p.get('protocol') == 'anthropic'
-                vision.append(self._row(p['name'], p['model'], p.get('protocol', 'openai'), anthropic,
+                model_lower = str(p.get('model', '')).lower()
+                multimodal_3d = (anthropic or p.get('kind') in ('gemini', 'openai')
+                                 or any(m in model_lower for m in ('gemini', 'gpt-4o', 'o1', 'claude')))
+                vision.append(self._row(p['name'], p['model'], p.get('protocol', 'openai'), multimodal_3d,
                                         anthropic_efforts(p['model']) if anthropic else []))
         codex = []
         for row in getattr(self.codex_provider, 'model_catalog', []):

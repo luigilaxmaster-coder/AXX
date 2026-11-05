@@ -362,11 +362,30 @@
       $('provider-enabled').checked = true;
       $('provider-cost').value = 'unknown'; $('provider-route').value = 'unknown'; $('provider-free').checked = false;
       $('provider-context').value = ''; $('provider-image-context').value = ''; $('provider-priority').value = 50;
-      for (const option of $('provider-capabilities').options) option.selected = option.value === 'text';
+      const kindVal = $('provider-kind').value;
+      const isVisionKind = ['anthropic', 'gemini'].includes(kindVal);
+      for (const option of $('provider-capabilities').options) option.selected = option.value === 'text' || (isVisionKind && option.value === 'vision');
       for (const option of $('provider-tasks').options) option.selected = option.value === 'chat';
-      $('provider-model').replaceChildren(new Option('Pulsa Consultar modelos', ''), new Option('Escribir ID manualmente…', '__manual__'));
+      if (kindVal === 'gemini') {
+        $('provider-model').replaceChildren(
+          new Option('gemini-2.0-flash (Recomendado rápido / visión)', 'gemini-2.0-flash'),
+          new Option('gemini-1.5-pro (Máxima precisión / 3D complejo)', 'gemini-1.5-pro'),
+          new Option('gemini-1.5-flash (Balanceado)', 'gemini-1.5-flash'),
+          new Option('Escribir ID manualmente…', '__manual__')
+        );
+        $('provider-model').value = 'gemini-2.0-flash';
+      } else if (kindVal === 'openai') {
+        $('provider-model').replaceChildren(
+          new Option('gpt-4o (Visión y razonamiento 3D)', 'gpt-4o'),
+          new Option('gpt-4o-mini (Rápido)', 'gpt-4o-mini'),
+          new Option('Escribir ID manualmente…', '__manual__')
+        );
+        $('provider-model').value = 'gpt-4o';
+      } else {
+        $('provider-model').replaceChildren(new Option('Pulsa Consultar modelos', ''), new Option('Escribir ID manualmente…', '__manual__'));
+      }
       $('provider-manual-row').hidden = true; $('provider-model-manual').value = '';
-      $('provider-key').placeholder = $('provider-kind').value === 'ollama' ? 'No hace falta para Ollama local' : 'Pega tu clave o deja vacío para conservar la guardada';
+      $('provider-key').placeholder = kindVal === 'gemini' ? 'Pega tu clave de Google AI Studio (AIzaSy...)' : kindVal === 'ollama' ? 'No hace falta para Ollama local' : 'Pega tu clave o deja vacío para conservar la guardada';
       $('provider-catalog-status').textContent = $('provider-kind').value === 'ollama_cloud' ? 'Modelos de la nube de Ollama. No necesitas descargarlos.' : $('provider-kind').value === 'ollama' ? 'Aquí aparecen solo los modelos instalados en este servidor.' : '';
     };
     $('provider-kind').onchange = platform;

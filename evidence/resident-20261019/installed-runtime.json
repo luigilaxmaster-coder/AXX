@@ -1,41 +1,38 @@
 ﻿{
     "result":  "INSTALLED_RUNTIME_STARTED",
-    "version":  "0.20.4",
-    "started":  "2026-10-19T19:32:11.1388404-04:00",
-    "completed":  "2026-10-19T19:32:26.7278299-04:00",
-    "installer":  "C:\\Users\\luigi\\Desktop\\Axx assistant\\build\\resident-release-0.20.3\\src-tauri\\target\\release\\bundle\\nsis\\Axx_0.20.4_x64-setup.exe",
-    "installer_sha256":  "AC6FE03FD25323F6C03227E31CA9FBB7E313C653B41E0DB52D4A3C653BD28BC8",
+    "version":  "0.22.45",
+    "started":  "2026-11-05T14:48:03.9597827-04:00",
+    "completed":  "2026-11-05T14:50:14.5178450-04:00",
+    "installer":  "C:\\Users\\luigi\\Desktop\\axx2\\.claude\\worktrees\\axx-visual-spatial-intelligence-9246f0\\src-tauri\\target\\release\\bundle\\nsis\\Axx_0.22.45_x64-setup.exe",
+    "installer_sha256":  "5B8A4BCA76F4FAC0B5011AEBA6A035F40402AF931609DAE0C9FF81BB582701A1",
     "installer_exit":  0,
     "executable":  "C:\\Users\\luigi\\AppData\\Local\\Programs\\Axx\\Axx.exe",
-    "pid":  25976,
-    "launch":  "Installed EXE; UseShellExecute=false; PATH limited to Windows; Python environment overrides removed",
-    "launched_at":  "2026-10-19T19:32:15.9103052-04:00",
+    "pid":  37532,
+    "launch":  "Installed EXE; UseShellExecute=false; closed launcher streams; PATH limited to Windows; Python environment overrides removed",
+    "launched_at":  "2026-11-05T14:49:55.1028542-04:00",
     "working_directory":  "C:\\Users\\luigi\\AppData\\Local\\Programs\\Axx",
     "backend":  {
-                    "port":  64645,
-                    "instance_id":  "dc252b61-6614-4560-b99b-fd4e86995186",
-                    "pid":  18260,
+                    "port":  57473,
+                    "instance_id":  "cb1639a4-96db-4cb0-91b8-490e15031fa9",
+                    "pid":  35220,
                     "unauthenticated_http_status":  401,
                     "authenticated_by_native_host":  true,
                     "executable":  "C:\\Users\\luigi\\AppData\\Local\\Programs\\Axx\\resources\\axx-backend.exe"
                 },
     "native_surface":  {
-                           "anchorX":  152.0,
-                           "anchorY":  152.0,
-                           "height":  304.0,
-                           "pinned":  false,
+                           "anchorX":  1336.0,
+                           "anchorY":  616.0,
+                           "height":  816.0,
                            "ready":  true,
-                           "reducedMotion":  true,
-                           "roam":  true,
                            "scaleFactor":  1.25,
-                           "screenX":  1640.0,
-                           "screenY":  740.0,
-                           "spaceAbove":  592.0,
-                           "spaceBelow":  224.0,
-                           "spaceLeft":  1312.0,
-                           "spaceRight":  224.0,
+                           "screenX":  1670.0,
+                           "screenY":  770.0,
+                           "spaceAbove":  616.0,
+                           "spaceBelow":  200.0,
+                           "spaceLeft":  1336.0,
+                           "spaceRight":  200.0,
                            "virtualDesktopError":  null,
-                           "width":  304.0,
+                           "width":  1536.0,
                            "workHeight":  816.0,
                            "workWidth":  1536.0
                        },
@@ -43,7 +40,7 @@
     "registry":  {
                      "install_location":  "\"C:\\Users\\luigi\\AppData\\Local\\Programs\\Axx\"",
                      "uninstall":  "\"C:\\Users\\luigi\\AppData\\Local\\Programs\\Axx\\uninstall.exe\"",
-                     "display_version":  "0.20.4"
+                     "display_version":  "0.22.45"
                  },
     "shortcuts":  [
                       {
@@ -58,5 +55,5 @@
                       }
                   ],
     "visual_acceptance":  "Separate native observation required",
-    "recording":  "DEFERRED_BY_USER"
+    "recording":  "NOT_VERIFIED"
 }
