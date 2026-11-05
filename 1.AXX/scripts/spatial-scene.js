@@ -140,6 +140,71 @@ function geometry(shape, [x, y, z], param) {
             const profile=[[0,-.5],[.5-c,-.5],[.5,-.5+c],[.5,.5-c],[.5-c,.5],[0,.5]].map(([r,h])=>new THREE.Vector2(r,h));
             return scaled(new THREE.LatheGeometry(profile,48),x,y,z);
         }
+                case 'octaprism': return scaled(new THREE.CylinderGeometry(.5, .5, 1, 8), x, y, z);
+        case 'paraboloid': {
+            const steps=24,profile=[new THREE.Vector2(0,-.5)];
+            for(let i=1;i<=steps;i++){const t=i/steps;profile.push(new THREE.Vector2(Math.sqrt(t)*.5,t-.5));}
+            return scaled(new THREE.LatheGeometry(profile,36),x,y,z);
+        }
+        case 'arch': {
+            const angle=THREE.MathUtils.degToRad(Math.max(30,Math.min(180,param??180)));
+            const g=new THREE.TorusGeometry(.5,Math.min(.3,Math.max(.05,param??.15)),20,36,angle);
+            g.translate(-.5,0,0);return scaled(g,x,y,z);
+        }
+        case 'dna_helix': {
+            const turns=Math.max(1.5,Math.min(6,param??3));
+            class DoubleHelixCurve extends THREE.Curve{
+                getPoint(t){
+                    if(t<=0.48){const s=t/0.48,a=s*Math.PI*2*turns;return new THREE.Vector3(Math.cos(a)*.4,s-.5,Math.sin(a)*.4);}
+                    else if(t<=0.52){const u=(t-0.48)/0.04,a=Math.PI*2*turns+u*Math.PI;return new THREE.Vector3(Math.cos(a)*.4,.5,Math.sin(a)*.4);}
+                    else{const s=1-(t-0.52)/0.48,a=s*Math.PI*2*turns+Math.PI;return new THREE.Vector3(Math.cos(a)*.4,s-.5,Math.sin(a)*.4);}
+                }
+            }
+            return scaled(new THREE.TubeGeometry(new DoubleHelixCurve(),Math.round(turns*48),.06,10,false),x,y,z);
+        }
+        case 'tapered_capsule': {
+            const profile=[new THREE.Vector2(0,-.5),new THREE.Vector2(.25,-.48),new THREE.Vector2(.45,-.2),new THREE.Vector2(.5,.1),new THREE.Vector2(.35,.4),new THREE.Vector2(0,.5)];
+            return scaled(new THREE.LatheGeometry(profile,36),x,y,z);
+        }
+        case 'hyperboloid': {
+            const steps=32,profile=[],waist=Math.min(.45,Math.max(.1,param??.25));
+            for(let i=0;i<=steps;i++){const t=i/steps,y=t-.5,r=Math.sqrt(waist*waist+y*y*(.25-waist*waist)/.25);profile.push(new THREE.Vector2(r,y));}
+            return scaled(new THREE.LatheGeometry(profile,36),x,y,z);
+        }
+        case 'barrel': {
+            const steps=32,profile=[],bulge=Math.min(.5,Math.max(.2,param??.42));
+            for(let i=0;i<=steps;i++){const t=i/steps,y=t-.5,r=bulge*Math.cos(y*Math.PI*.7);profile.push(new THREE.Vector2(r,y));}
+            return scaled(new THREE.LatheGeometry(profile,36),x,y,z);
+        }
+        case 'trefoil_knot': {
+            const p=Math.max(1,Math.min(8,Math.round(param??2))),q=3;
+            return scaled(new THREE.TorusKnotGeometry(.35,.08,64,16,p,q),x,y,z);
+        }
+        case 'triangular_prism': return scaled(new THREE.CylinderGeometry(.5, .5, 1, 3), x, y, z);
+        case 'pentaprism': return scaled(new THREE.CylinderGeometry(.5, .5, 1, 5), x, y, z);
+        case 'helix_spring': {
+            const turns=Math.max(2,Math.min(10,param??4));
+            class SpringCurve extends THREE.Curve{
+                getPoint(t){const a=t*Math.PI*2*turns;return new THREE.Vector3(Math.cos(a)*.4,t-.5,Math.sin(a)*.4);}
+            }
+            return scaled(new THREE.TubeGeometry(new SpringCurve(),Math.round(turns*36),.07,12,false),x,y,z);
+        }
+        case 'tetrahedron': return scaled(new THREE.TetrahedronGeometry(0.5), x, y, z);
+        case 'dodecahedron': return scaled(new THREE.DodecahedronGeometry(0.5), x, y, z);
+        case 'icosahedron': return scaled(new THREE.IcosahedronGeometry(0.5), x, y, z);
+        case 'bipyramid': return scaled(new THREE.OctahedronGeometry(0.5), x, y, z);
+        case 'fluted_column': return scaled(new THREE.CylinderGeometry(0.48, 0.48, 1, 32), x, y, z);
+        case 'conical_spring': {
+            const turns = Math.max(2, Math.min(10, param ?? 4));
+            class ConicalCurve extends THREE.Curve {
+                getPoint(t) {
+                    const a = t * Math.PI * 2 * turns;
+                    const r = 0.15 + 0.35 * (1 - t);
+                    return new THREE.Vector3(Math.cos(a) * r, t - 0.5, Math.sin(a) * r);
+                }
+            }
+            return scaled(new THREE.TubeGeometry(new ConicalCurve(), Math.round(turns * 36), 0.06, 12, false), x, y, z);
+        }
         case 'torus': return new THREE.TorusGeometry(x / 2, Math.max(.02, Math.min(x / 4, y / 2)), 20, 48);
         default: return new THREE.BoxGeometry(x, .02, z);
     }
@@ -329,7 +394,7 @@ export function mountScene(container, scene, {reducedMotion = false, onPick = ()
         if(drag.pan)pan(dx,dy);else rotate(-dx * .01, -dy * .01);
     }, {signal});
     canvas.addEventListener('pointerup', e => {
-        const click = drag && drag.moved < 5 && !drag.pan; drag = null;
+        const click = drag && drag.moved < 16 && !drag.pan; drag = null;
         onChange();
         const id=hitId(e);setHover(id);if(click&&id)onPick(id);
     }, {signal});

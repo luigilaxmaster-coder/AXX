@@ -7,15 +7,11 @@
     const clone = value => structuredClone(value);
     function sourcePoint(x, y, rect, width, height) {
         if (![x,y,rect.left,rect.top,rect.width,rect.height,width,height].every(Number.isFinite) || rect.width <= 0 || rect.height <= 0) throw Error('Transformación inválida.');
-        const p = [(x-rect.left)*width/rect.width, (y-rect.top)*height/rect.height];
-        if (p[0]<0 || p[1]<0 || p[0]>=width || p[1]>=height) throw Error('Fuera de la imagen.');
-        return p;
+        return [Math.max(0, Math.min(width, (x-rect.left)*width/rect.width)), Math.max(0, Math.min(height, (y-rect.top)*height/rect.height))];
     }
     function desktopPoint(x, y, viewport, source) {
         if (![x,y,viewport.x,viewport.y,viewport.scale,source.x,source.y].every(Number.isFinite) || viewport.scale <= 0) throw Error('Geometría de escritorio no disponible.');
-        const p = [viewport.x + x * viewport.scale - source.x, viewport.y + y * viewport.scale - source.y];
-        if (p[0]<0 || p[1]<0 || p[0]>=source.width || p[1]>=source.height) throw Error('Fuera de la pantalla activa.');
-        return p;
+        return [Math.max(0, Math.min(source.width, viewport.x + x * viewport.scale - source.x)), Math.max(0, Math.min(source.height, viewport.y + y * viewport.scale - source.y))];
     }
     function conciseSummary(response) {
         let text=String(response||'').replace(/```[\s\S]*?```/g,' ').replace(/!\[[^\]]*\]\([^)]*\)/g,' ').replace(/^\s*#{1,6}\s*/gm,'').replace(/[>*_`]/g,' ').split(/\n\s*\n/)[0].replace(/\s+/g,' ').trim();
@@ -131,7 +127,8 @@
             const all=document.createElement('button');all.id='mp-all';all.innerHTML=this.icon('capture')+'<span>Pantalla</span>';all.title='Seleccionar toda la pantalla actual';all.onclick=()=>{
                 this.chooseTool('rect');this.setInput(false);
                 this.cancelAnalysis();void this.run(async()=>{if(!await this.capture())return;this.doc.selection={shape:'rect',bounds:[0,0,this.doc.source.width,this.doc.source.height]};this.selectionChanged();this.scheduleAnalysis(0,false);});
-            };this.toolbar.querySelector('#mp-select-tools').append(all);
+            };const clear=document.createElement('button');clear.id='mp-clear-sel';clear.className='mp-secondary-tool';clear.innerHTML=this.icon('stop')+'<span>Limpiar</span>';clear.title='Desmarcar y limpiar la selección actual';clear.onclick=()=>{if(this.doc){this.cancelAnalysis();this.doc.selection=null;this.selectionChanged();this.status('Selección borrada.');}};
+            this.toolbar.querySelector('#mp-select-tools').append(all,clear);
             this.widget=document.createElement('aside');this.widget.addEventListener('pointerdown',e=>this.leaseFocus(e.target));this.widget.id='mp-widget';this.widget.setAttribute('aria-label','Explicación de la selección');this.widget.tabIndex=-1;this.widget.hidden=true;
             this.widget.innerHTML='<div class="mp-widget-head"><span class="mp-head-mark" aria-hidden="true">'+this.icon('pen')+'</span><span class="mp-head-copy"><span><strong>Magic Pen</strong><small>LECTURA VISUAL</small></span></span><span id="mp-summary-spinner" class="mp-summary-spinner" hidden aria-hidden="true"></span><button id="mp-hide-answer" aria-label="Ocultar explicación">×</button></div><section id="mp-summary-bubble" class="mp-summary-bubble" hidden><div class="mp-summary-kicker"><span id="mp-summary-label">Lo esencial</span></div><p id="mp-summary-text" role="status" aria-live="polite"></p><p id="mp-summary-voice-status" role="status" aria-live="polite" hidden></p><div class="mp-summary-actions"><button id="mp-summary-expand" type="button">Ver explicación</button><button id="mp-summary-visual" type="button" aria-label="Explicar visualmente" title="Explicar visualmente como diagrama de pasos">Visualizar</button><button id="mp-summary-listen" type="button" aria-label="Escuchar resumen" title="Escuchar resumen">'+this.icon('voice')+'</button></div></section><figure id="mp-history-preview" hidden><canvas id="mp-preview-canvas" aria-label="Vista previa de la captura guardada"></canvas><figcaption>Captura guardada · no es el escritorio actual</figcaption><button id="mp-back-desktop" type="button">Volver al escritorio</button></figure><div id="mp-vision-missing" hidden><p>El modelo seleccionado no tiene análisis visual disponible.</p><button id="mp-configure" type="button">Ajustes de conexión</button></div>';
             const spatial=this.view.querySelector('.mp-spatial-options'),spatialStatus=this.view.querySelector('#mp-spatial-status'),create=spatial.querySelector('#mp-spatial-create'),verify=spatial.querySelector('#mp-spatial-verify'),ollama=spatial.querySelector('#mp-spatial-ollama'),settings=document.createElement('details'),settingsTitle=document.createElement('summary'),settingsBody=spatial;
@@ -454,7 +451,7 @@
             if(!d||!current())return false;
             const old=this.doc,undo=this.undoStack,redo=this.redoStack,origin=this.selectionOrigin,base=this.inkBaseSelection;
             await this.load(d);if(token!==this.generation)return false;
-            if(old&&(!['x','y','width','height'].every(k=>old.source[k]===d.source[k])||!['x','y','scale'].every(k=>old.viewport?.[k]===d.viewport?.[k]))){this.pendingSelection=null;this.setInput(false);throw Error('La pantalla o la posición de Axx cambió. Selecciona otra vez.');}
+            if(old&&(!['x','y','width','height'].every(k=>Math.abs((old.source[k]??0)-(d.source[k]??0))<=4)||!['x','y','scale'].every(k=>Math.abs((old.viewport?.[k]??0)-(d.viewport?.[k]??0))<=4&&Math.abs((old.viewport?.scale??1)-(d.viewport?.scale??1))<=0.05))){this.pendingSelection=null;this.setInput(false);throw Error('La pantalla o la posición de Axx cambió. Selecciona otra vez.');}
             if(old&&['x','y','width','height'].every(k=>old.source[k]===d.source[k])){
                 d.strokes=clone(old.strokes);this.undoStack=undo;this.redoStack=redo;this.selectionOrigin=origin;this.inkBaseSelection=base;this.render();
             }
@@ -483,7 +480,7 @@
         fit(){if(!this.doc||!this.viewport)return;const s=this.doc.source,v=this.viewport;Object.assign(this.canvas.style,{left:(s.x-v.x)/v.scale+'px',top:(s.y-v.y)/v.scale+'px',width:s.width/v.scale+'px',height:s.height/v.scale+'px'});}
         point(e){if(!this.viewport)throw Error('Espera a que el escritorio esté listo.');return desktopPoint(e.clientX,e.clientY,this.viewport,this.doc.source);}
         down(e){if(!this.doc||!this.inputEnabled||this.working||e.button!==0)return;e.preventDefault();e.stopPropagation();try{const p=this.point(e),tool=$('mp-tool').value;if(tool!=='pointer')this.cancelAnalysis();this.pendingLasso=null;this.gesture={id:e.pointerId,tool,points:[p],color:$('mp-color').value,width:Math.min(80,Number($('mp-width').value)*(tool==='marker'?4:1)*this.viewport.scale)};this.canvas.setPointerCapture(e.pointerId);this.render();}catch(e){this.status(e.message);}}
-        move(e){if(!this.gesture)return;e.preventDefault();e.stopPropagation();try{const p=this.point(e);if(this.gesture.points.length>=4096)return;this.gesture.points.push(p);if(!this.paintPending){this.paintPending=requestAnimationFrame(()=>{this.paintPending=0;this.render();});}}catch{this.cancelGesture();this.status('Gesto cancelado fuera de la imagen.');}}
+        move(e){if(!this.gesture)return;e.preventDefault();e.stopPropagation();try{const p=this.point(e);if(this.gesture.points.length>=4096)return;this.gesture.points.push(p);if(!this.paintPending){this.paintPending=requestAnimationFrame(()=>{this.paintPending=0;this.render();});}}catch{}}
         up(e){
             const g=this.gesture;if(!g)return;e.preventDefault();e.stopPropagation();this.gesture=null;
             if(this.canvas.hasPointerCapture(e.pointerId))this.canvas.releasePointerCapture(e.pointerId);
@@ -491,7 +488,7 @@
             const a=g.points[0],b=g.points.at(-1),w=this.canvas.width,h=this.canvas.height;
             let selection=null;
             if(g.tool==='point'){const r=100*this.viewport.scale;selection={shape:'point',anchor:a,bounds:[Math.max(0,a[0]-r),Math.max(0,a[1]-r),Math.min(w,a[0]+r),Math.min(h,a[1]+r)]};}
-            else if(g.tool==='rect'){const bounds=[Math.min(a[0],b[0]),Math.min(a[1],b[1]),Math.max(a[0],b[0]),Math.max(a[1],b[1])];if(bounds[2]-bounds[0]>=2&&bounds[3]-bounds[1]>=2)selection={shape:'rect',bounds};}
+            else if(g.tool==='rect'){const bounds=[Math.min(a[0],b[0]),Math.min(a[1],b[1]),Math.max(a[0],b[0]),Math.max(a[1],b[1])];if(bounds[2]-bounds[0]>=2&&bounds[3]-bounds[1]>=2)selection={shape:'rect',bounds};else{const r=80*this.viewport.scale;selection={shape:'rect',bounds:[Math.max(0,a[0]-r),Math.max(0,a[1]-r),Math.min(w,a[0]+r),Math.min(h,a[1]+r)]};}}
             else if(g.tool==='lasso'&&g.points.length>=3){
                 const xs=g.points.map(p=>p[0]),ys=g.points.map(p=>p[1]);const pts=g.points;
                 const area=pts.reduce((sum,p,i)=>{const q=pts[(i+1)%pts.length];return sum+p[0]*q[1]-q[0]*p[1];},0);

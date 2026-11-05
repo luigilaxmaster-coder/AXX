@@ -17,7 +17,7 @@ const { chromium } = createRequire(path.join(process.env.USERPROFILE, '.cache/co
     await page.goto(`http://127.0.0.1:${server.address().port}/`);
     const result = await page.evaluate(async () => {
       const { mountScene, liveScenes } = await import('/scripts/spatial-scene.js');
-      const techShapes = ['gear', 'coil', 'l_bracket', 'u_channel', 'i_beam', 'pipe_elbow', 'heatsink', 'flange', 'pyramid', 'chamfer_cylinder', 'threaded_rod', 'slot', 'rect_tube', 'arc', 'knurled_cylinder'];
+      const techShapes = ['gear', 'coil', 'l_bracket', 'u_channel', 'i_beam', 'pipe_elbow', 'heatsink', 'flange', 'pyramid', 'chamfer_cylinder', 'threaded_rod', 'slot', 'rect_tube', 'arc', 'knurled_cylinder', 'octaprism', 'paraboloid', 'arch', 'dna_helix', 'tapered_capsule', 'hyperboloid', 'barrel', 'trefoil_knot', 'triangular_prism', 'pentaprism', 'helix_spring', 'tetrahedron', 'dodecahedron', 'icosahedron', 'bipyramid', 'fluted_column', 'conical_spring'];
       const materials = ['metal_polished', 'metal_anodized', 'metal_brushed', 'plastic', 'ceramic'];
       const objects = techShapes.map((shape, i) => ({
         id: 'tech_' + (i + 1),
@@ -40,7 +40,7 @@ const { chromium } = createRequire(path.join(process.env.USERPROFILE, '.cache/co
     });
     fs.writeFileSync(path.join(out, 'spatial-tech-shapes.png'), Buffer.from(result.shot.split(',')[1], 'base64'));
     assert.equal(errors.length, 0, errors.join('\n'));
-    assert.equal(result.qa.objects, 15);
+    assert.equal(result.qa.objects, 32);
     assert.ok(result.qa.webgl && result.qa.finite, 'WebGL context alive and camera finite');
     assert.ok(result.qa.triangles > 3000, 'Detailed technical shapes produce real geometry: ' + result.qa.triangles);
     assert.ok(result.lit > result.total * .03, 'The scene paints visible pixels: ' + result.lit + '/' + result.total);

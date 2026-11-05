@@ -24,7 +24,7 @@ class ShapeRegistryTests(unittest.TestCase):
         source = (Path(__file__).resolve().parents[2] / '1.AXX' / 'scripts' / 'shape-library.js').read_text(encoding='utf-8')
         copied = json.loads(source[source.index('{'):source.rindex('}') + 1])
         self.assertEqual(copied, json.loads(json.dumps(TECHNICAL_COMPONENTS)))  # regenerate shape-library.js after editing the catalog
-        self.assertEqual(len(copied), 50)
+        self.assertGreaterEqual(len(copied), 100)
 
     def test_instantiate_component_with_custom_scale_and_position(self):
         # Instantiate hex_bolt with 2x scale and offset
@@ -78,7 +78,7 @@ class ShapeRegistryTests(unittest.TestCase):
         self.assertEqual(restored['label'], 'carcasa_especial_alfa')
 
     def test_catalog_has_29_components_and_compact_text(self):
-        self.assertGreaterEqual(len(TECHNICAL_COMPONENTS), 50)
+        self.assertGreaterEqual(len(TECHNICAL_COMPONENTS), 100)
         text = catalog_text(self.registry)
         self.assertIn('spur_gear', text)
         self.assertIn('knurled_knob', text)
@@ -101,3 +101,63 @@ class ShapeRegistryTests(unittest.TestCase):
         self.assertEqual(out[1]['axx_component'], 'o2')
         with self.assertRaises(ValueError):
             expand_component_refs([{'id': 'o1', 'component': 'no_existe'}], self.registry)
+    def test_multi_discipline_coverage(self):
+        cat = self.registry.catalog
+        categories = {c.get('category') for c in cat.values()}
+        for req_cat in ('medical', 'biological', 'veterinary', 'architectural', 'electrical', 'computing', 'mechatronic', 'everyday'):
+            self.assertIn(req_cat, categories, f'Missing requested discipline: {req_cat}')
+            count = sum(1 for c in cat.values() if c.get('category') == req_cat)
+            self.assertGreaterEqual(count, 4, f'Discipline {req_cat} has too few components ({count})')
+
+    def test_dynamic_novel_object_learning_and_persistence(self):
+        from backend.presentation_plan import learn_groups, validate_plan
+        p = {
+            'schema_version': '1.0',
+            'kind': 'presentation',
+            'title': 'Bisturí Ultrasónico Quirúrgico',
+            'summary': 'Instrumento quirúrgico ultrasónico para disección tisular precisa.',
+            'fidelity': 'conceptual',
+            'steps': [
+                {'id': 's1', 'title': 'Mango y transductor', 'body': 'Pieza de mano ergonómica.', 'narration': 'Primero el mango.', 'basis': 'observed', 'focus': ['o1']},
+                {'id': 's2', 'title': 'Punta activa de titanio', 'body': 'Cuchilla vibratoria.', 'narration': 'Después la punta.', 'basis': 'observed', 'focus': ['o2']},
+            ],
+            'scene': {
+                'fidelity': 'conceptual',
+                'objects': [
+                    {'id': 'o1', 'label': 'Pieza de mano transductora', 'shape': 'cylinder', 'size': [0.6, 2.5, 0.6], 'position': [0, 0, 0], 'color': '#334455', 'material': 'plastic'},
+                    {'id': 'o2', 'label': 'Hoja de corte activa', 'shape': 'wedge', 'size': [0.2, 0.9, 0.05], 'position': [0, 1.7, 0], 'color': '#cccccc', 'material': 'metal_polished'},
+                ]
+            }
+        }
+        validated = validate_plan(p)
+        stored_slugs = learn_groups(validated, self.registry)
+        self.assertIn('bisturi_ultrasonico_quirurgico', stored_slugs)
+        self.assertTrue(self.registry.has_shape('bisturi_ultrasonico_quirurgico'))
+        
+        # Verify persistence across registry reload
+        reloaded = ShapeRegistry(persistence_path=self.db_path)
+        self.assertTrue(reloaded.has_shape('bisturi_ultrasonico_quirurgico'))
+        instantiated = reloaded.instantiate('bisturi_ultrasonico_quirurgico', scale=1.5, position=[2, 0, 1])
+        self.assertEqual(len(instantiated), 2)
+        self.assertTrue(all('position' in part and 'size' in part for part in instantiated))
+
+    def test_all_new_procedural_base_shapes(self):
+        from backend.presentation_plan import SHAPES, validate_plan
+        new_shapes = ('octaprism', 'paraboloid', 'arch', 'dna_helix', 'tapered_capsule')
+        for s in new_shapes:
+            self.assertIn(s, SHAPES)
+            p = {
+                'schema_version': '1.0',
+                'kind': 'presentation',
+                'title': f'Prueba de forma {s}',
+                'summary': f'Demostración de forma base {s}.',
+                'fidelity': 'conceptual',
+                'steps': [{'id': 's1', 'title': 'Forma', 'body': 'Forma geométrica.', 'narration': 'Vemos la forma.', 'basis': 'observed', 'focus': ['o1']}, {'id': 's2', 'title': 'Detalle', 'body': 'Detalle de la pieza.', 'narration': 'Detalle visible.', 'basis': 'observed', 'focus': ['o1']}],
+                'scene': {
+                    'fidelity': 'conceptual',
+                    'objects': [{'id': 'o1', 'label': f'Pieza {s}', 'shape': s, 'size': [1, 2, 1], 'position': [0, 0, 0], 'color': '#4488cc', 'material': 'plastic'}]
+                }
+            }
+            validated = validate_plan(p)
+            self.assertEqual(validated['scene']['objects'][0]['shape'], s)
+

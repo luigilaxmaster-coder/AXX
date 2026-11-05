@@ -24,28 +24,43 @@ BASIS = ('observed', 'documented', 'inferred', 'assumed')
 SHAPES = ('box', 'sphere', 'cylinder', 'cone', 'torus', 'plane', 'piston', 'connecting_rod', 'crankshaft', 'engine_cylinder',
           'ellipsoid', 'capsule', 'tube', 'frustum', 'dome', 'wedge', 'hexprism', 'gable',
           'gear', 'coil', 'l_bracket', 'u_channel', 'i_beam', 'pipe_elbow', 'heatsink', 'flange', 'pyramid', 'chamfer_cylinder',
-          'threaded_rod', 'slot', 'rect_tube', 'arc', 'knurled_cylinder')
+          'threaded_rod', 'slot', 'rect_tube', 'arc', 'knurled_cylinder',
+          'octaprism', 'paraboloid', 'arch', 'dna_helix', 'tapered_capsule',
+          'hyperboloid', 'barrel', 'trefoil_knot', 'triangular_prism', 'pentaprism', 'helix_spring',
+          'fluted_column', 'tetrahedron', 'dodecahedron', 'icosahedron', 'bipyramid', 'conical_spring')
 MATERIALS = ('metal_brushed', 'metal_polished', 'metal_anodized', 'plastic', 'rubber', 'glass', 'ceramic', 'wood', 'fabric', 'stone', 'paint', 'emissive')
 SHAPE_MAP = {
     'cube': 'box', 'block': 'box', 'plate': 'box', 'cuboid': 'box', 'rectangle': 'box',
     'prism': 'box', 'wall': 'box', 'tower': 'box', 'building': 'box', 'base': 'box',
     'ball': 'sphere', 'orb': 'sphere', 'dome': 'sphere', 'globe': 'sphere',
-    'pipe': 'cylinder', 'rod': 'cylinder', 'tube': 'cylinder', 'capsule': 'cylinder',
+    'pipe': 'cylinder', 'rod': 'cylinder', 'tube': 'tube', 'capsule': 'capsule',
     'column': 'cylinder', 'pillar': 'cylinder', 'shaft': 'cylinder', 'pin': 'cylinder', 'disc': 'cylinder',
-    'pyramid': 'cone', 'roof': 'gable', 'gable_roof': 'gable', 'pitched_roof': 'gable', 'spire': 'cone', 'steeple': 'cone', 'tip': 'cone',
-    'ring': 'torus', 'donut': 'torus', 'arch': 'torus',
+    'pyramid': 'pyramid', 'roof': 'gable', 'gable_roof': 'gable', 'pitched_roof': 'gable', 'spire': 'cone', 'steeple': 'cone', 'tip': 'cone',
+    'ring': 'torus', 'donut': 'torus', 'arch': 'arch',
     'oval': 'ellipsoid', 'egg': 'ellipsoid', 'pill': 'capsule', 'hemisphere': 'dome', 'half_sphere': 'dome',
-    'ramp': 'wedge', 'triangular_prism': 'gable', 'hexagon': 'hexprism', 'hex': 'hexprism', 'nut': 'hexprism',
+    'octagonal_prism': 'octaprism', 'octagon': 'octaprism', 'octahedron': 'octaprism',
+    'parabola': 'paraboloid', 'dish': 'paraboloid', 'reflector': 'paraboloid', 'antena': 'paraboloid',
+    'curved_tube': 'arch', 'curved_pipe': 'arch', 'arco': 'arch',
+    'dna': 'dna_helix', 'double_helix': 'dna_helix',
+    'streamline_capsule': 'tapered_capsule', 'pod': 'tapered_capsule', 'gondola': 'tapered_capsule',
+    'ramp': 'wedge', 'triangular_prism': 'triangular_prism', 'prisma_triangular': 'triangular_prism', 'hexagon': 'hexprism', 'hex': 'hexprism', 'nut': 'hexprism',
+    'hiperboloide': 'hyperboloid', 'cooling_tower': 'hyperboloid', 'barril': 'barrel', 'cask': 'barrel',
+    'trebol': 'trefoil_knot', 'pentagon': 'pentaprism', 'pentagono': 'pentaprism',
     'hollow_cylinder': 'tube', 'sleeve': 'tube', 'bushing': 'tube', 'truncated_cone': 'frustum', 'taper': 'frustum', 'funnel': 'frustum',
     'cog': 'gear', 'sprocket': 'gear', 'pinion': 'gear', 'toothed_wheel': 'gear',
-    'helix': 'coil', 'resorte': 'coil', 'muelle': 'coil',
+    'helix': 'coil', 'resorte': 'helix_spring', 'muelle': 'helix_spring', 'spring': 'helix_spring',
     'bracket': 'l_bracket', 'angle_bracket': 'l_bracket', 'escuadra': 'l_bracket',
     'channel': 'u_channel', 'c_channel': 'u_channel', 'perfil_u': 'u_channel',
     'beam': 'i_beam', 'h_beam': 'i_beam', 'girder': 'i_beam', 'perfil_i': 'i_beam',
     'elbow': 'pipe_elbow', 'bend': 'pipe_elbow', 'codo': 'pipe_elbow',
     'radiator': 'heatsink', 'fins': 'heatsink', 'disipador': 'heatsink',
     'collar': 'flange', 'ring_flange': 'flange', 'brida': 'flange',
-    'tetrahedron': 'pyramid', 'piramide': 'pyramid',
+    'tetrahedro': 'tetrahedron', 'tetraedro': 'tetrahedron', 'piramide': 'pyramid',
+    'dodecaedro': 'dodecahedron', 'icosaedro': 'icosahedron', 'bipiramide': 'bipyramid',
+    'columna_estriada': 'fluted_column', 'estriado': 'fluted_column', 'fluted': 'fluted_column',
+    'resorte_conico': 'conical_spring', 'muelle_conico': 'conical_spring',
+    'comb': 'heatsink', 'peine': 'heatsink', 'pines': 'heatsink',
+    'hex_bolt': 'hexprism', 'bolt': 'hexprism', 'perno': 'hexprism',
     'beveled_cylinder': 'chamfer_cylinder', 'chamfered_cylinder': 'chamfer_cylinder',
     'threaded': 'threaded_rod', 'thread': 'threaded_rod', 'varilla_roscada': 'threaded_rod', 'stud': 'threaded_rod',
     'oblong': 'slot', 'stadium': 'slot', 'ranura': 'slot',
@@ -855,10 +870,15 @@ def learn_groups(plan, registry):
     try:
         groups = {}
         for obj in (plan.get('scene') or {}).get('objects', []):
-            if obj.get('group'):
-                groups.setdefault(obj['group'].strip(), []).append(obj)
+            grp = obj.get('group')
+            if not grp and ('·' in obj.get('label', '') or ' - ' in obj.get('label', '')):
+                prefix = re.split(r'[·\-]', obj['label'])[0].strip()
+                if len(prefix) >= 4 and len(prefix.split()) >= 2:
+                    grp = prefix
+            if grp:
+                groups.setdefault(grp.strip(), []).append(obj)
         for name, parts in groups.items():
-            slug = re.sub(r'[^a-z0-9]+', '_', name.lower().replace('ñ', 'n').encode('ascii', 'ignore').decode()).strip('_')[:40]
+            slug = re.sub(r'[^a-z0-9]+', '_', _plain(name)).strip('_')[:40]
             # a reusable component has a technical designation: two or more words or a number; a bare "Motor" or "Soporte" is not one
             if (len(parts) < 2 or len(name) < 4 or not slug or slug in GENERIC_GROUPS or name.lower() in GENERIC_GROUPS
                     or (len(name.split()) < 2 and not re.search(r'\d', name))
@@ -881,6 +901,33 @@ def learn_groups(plan, registry):
             registry.register_dynamic_shape(slug, {'label': name, 'category': 'learned', 'aliases': [name.lower(), slug],
                 'size': [round(hi[i] - lo[i], 4) for i in range(3)], 'parts': defined})
             stored.append(slug)
+        # If no explicit groups were defined, learn the full assembly if the plan title is a technical multi-word object
+        if not groups and plan.get('title'):
+            title = plan.get('title', '').strip()
+            scene_objs = (plan.get('scene') or {}).get('objects', [])
+            title_slug = re.sub(r'[^a-z0-9]+', '_', _plain(title)).strip('_')[:40]
+            if (len(scene_objs) >= 2 and len(title) >= 4 and len(title.split()) >= 2
+                    and title_slug and title_slug not in GENERIC_GROUPS and title.lower() not in GENERIC_GROUPS
+                    and not registry.has_shape(title_slug) and not registry.match_shape(title)
+                    and len(registry._dynamic) < MAX_LEARNED):
+                lo = [min(o['position'][i] - o['size'][i] / 2 for o in scene_objs) for i in range(3)]
+                hi = [max(o['position'][i] + o['size'][i] / 2 for o in scene_objs) for i in range(3)]
+                center = [(lo[i] + hi[i]) / 2 for i in range(3)]
+                defined = []
+                for o in scene_objs:
+                    part = {'label': o['label'], 'shape': o['shape'], 'size': list(o['size']),
+                            'position': [round(o['position'][i] - center[i], 4) for i in range(3)],
+                            'material': o.get('material', 'metal_brushed'), 'color': o['color']}
+                    if o.get('rotation'):
+                        part['rotation'] = list(o['rotation'])
+                    if 'param' in o:
+                        part['param'] = o['param']
+                    _object({'id': 'o1', **part})
+                    defined.append(part)
+                registry.register_dynamic_shape(title_slug, {'label': title, 'category': 'learned_scene',
+                    'aliases': [title.lower(), title_slug], 'size': [round(hi[i] - lo[i], 4) for i in range(3)],
+                    'parts': defined})
+                stored.append(title_slug)
     except Exception:
         pass
     return stored

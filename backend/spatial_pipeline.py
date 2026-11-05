@@ -12,7 +12,7 @@ from backend.shape_registry import ShapeRegistry
 
 IDENTIFY_CONTRACT = (
     'Eres un analista técnico de objetos. Mira la imagen y responde SOLO con JSON, sin Markdown: '
-    '{"objeto":"nombre concreto del objeto","categoria":"mecanico|electrico|mueble|vehiculo|natural|edificio|herramienta|deportivo|otro",'
+    '{"objeto":"nombre concreto del objeto","categoria":"mecanico|electrico|electronico|informatico|medico|biologico|veterinario|arquitectonico|mueble|vehiculo|herramienta|cotidiano|natural|otro",'
     '"descripcion":"qué es y para qué sirve, en una frase","vista":"frontal|lateral|trasera|superior|tres cuartos|detalle",'
     '"componentes":[{"nombre":"…","forma":"cilindro|caja|esfera|tubo|placa|…","proporcion":"tamaño aproximado respecto del conjunto","material":"…"}],'
     '"proporcion_global":"largo:alto:ancho aproximado","simetria":"…","buscar":["palabras clave de piezas estándar visibles: tornillo, engranaje, rodamiento, rueda…"],'
@@ -63,11 +63,12 @@ def catalog_matches(registry: ShapeRegistry, blueprint: Dict[str, Any], limit: i
     wanted = _tokens(' '.join([blueprint.get('objeto', ''), blueprint.get('categoria', ''), blueprint.get('descripcion', ''), ' '.join(blueprint.get('buscar', [])),
                                ' '.join(c['nombre'] + ' ' + c['forma'] for c in blueprint.get('componentes', []))]))
     explicit = _tokens(' '.join(blueprint.get('buscar', [])))
+    comp_names = _tokens(' '.join(c['nombre'] for c in blueprint.get('componentes', [])))
     scored = []
     for cid, entry in registry.catalog.items():
         words = _tokens(' '.join([cid.replace('_', ' '), entry.get('label', ''), entry.get('category', ''), ' '.join(entry.get('aliases', []))]))
-        # A shared word counts once; a word the model asked for explicitly counts double. Substring hits catch plurals ("tornillos" ~ "tornillo").
-        score = sum(2 if w in explicit else 1 for w in words if w in wanted)
+        score = sum((5 if w in explicit or w in comp_names else 1) for w in words if w in wanted)
+        score += sum(2 for w in words for t in (explicit | comp_names) if w != t and len(w) >= 5 and (w.startswith(t[:5]) and t.startswith(w[:5])))
         score += sum(1 for w in words for t in wanted if w != t and len(w) >= 5 and (w.startswith(t[:5]) and t.startswith(w[:5])))
         if score:
             scored.append((score, cid, entry))
