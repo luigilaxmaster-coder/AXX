@@ -136,13 +136,20 @@
             this.widget.innerHTML='<div class="mp-widget-head"><span class="mp-head-mark" aria-hidden="true">'+this.icon('pen')+'</span><span class="mp-head-copy"><span><strong>Magic Pen</strong><small>LECTURA VISUAL</small></span></span><span id="mp-summary-spinner" class="mp-summary-spinner" hidden aria-hidden="true"></span><button id="mp-hide-answer" aria-label="Ocultar explicación">×</button></div><section id="mp-summary-bubble" class="mp-summary-bubble" hidden><div class="mp-summary-kicker"><span id="mp-summary-label">Lo esencial</span></div><p id="mp-summary-text" role="status" aria-live="polite"></p><p id="mp-summary-voice-status" role="status" aria-live="polite" hidden></p><div class="mp-summary-actions"><button id="mp-summary-expand" type="button">Ver explicación</button><button id="mp-summary-visual" type="button" aria-label="Explicar visualmente" title="Explicar visualmente como diagrama de pasos">Visualizar</button><button id="mp-summary-listen" type="button" aria-label="Escuchar resumen" title="Escuchar resumen">'+this.icon('voice')+'</button></div></section><figure id="mp-history-preview" hidden><canvas id="mp-preview-canvas" aria-label="Vista previa de la captura guardada"></canvas><figcaption>Captura guardada · no es el escritorio actual</figcaption><button id="mp-back-desktop" type="button">Volver al escritorio</button></figure><div id="mp-vision-missing" hidden><p>El modelo seleccionado no tiene análisis visual disponible.</p><button id="mp-configure" type="button">Ajustes de conexión</button></div>';
             const spatial=this.view.querySelector('.mp-spatial-options'),spatialStatus=this.view.querySelector('#mp-spatial-status'),create=spatial.querySelector('#mp-spatial-create'),verify=spatial.querySelector('#mp-spatial-verify'),ollama=spatial.querySelector('#mp-spatial-ollama'),settings=document.createElement('details'),settingsTitle=document.createElement('summary'),settingsBody=spatial;
             settings.className='mp-spatial-settings';settingsTitle.innerHTML='<span>Proveedor y calidad</span><small>POR SESIÓN</small>';settings.append(settingsTitle,settingsBody,verify,ollama);
+            const ranking=document.createElement('details'),rankingTitle=document.createElement('summary');
+            ranking.className='mp-ranking';rankingTitle.innerHTML='<span>Mejores modelos</span><small>RANKING</small>';
+            ranking.innerHTML='<p class="mp-ranking-note">Orden por pruebas medidas en este equipo; sin pruebas, por una referencia orientativa. Ningún modelo se conecta ni se descarga sin tu decisión.</p>'
+                +'<button id="mp-ranking-refresh" type="button" title="Consulta, solo lectura, los catálogos de tus conexiones guardadas y tu Ollama local">Actualizar ranking</button><p id="mp-ranking-sources" class="mp-ranking-sources" role="status"></p><ol id="mp-ranking-list" class="mp-ranking-list" aria-label="Ranking de modelos para Magic Pen"></ol>';
+            ranking.prepend(rankingTitle);
+            ranking.querySelector('#mp-ranking-refresh').onclick=()=>{void this.loadRanking(true);};
+            ranking.ontoggle=()=>{if(ranking.open&&!this.rankingLoaded){this.rankingLoaded=true;void this.loadRanking(false);}};
             const chatDock=document.createElement('div');chatDock.className='mp-chat-dock';const spatialActions=document.createElement('div');spatialActions.className='mp-spatial-actions';spatialActions.setAttribute('role','group');spatialActions.setAttribute('aria-label','Formas de explicar la selección');
             const modeCaption=document.createElement('p');modeCaption.id='mp-model-caption';modeCaption.className='mp-model-caption';modeCaption.setAttribute('aria-live','polite');
             const locate=document.createElement('button'),model=document.createElement('button');locate.type=model.type='button';locate.id='mp-spatial-locate';model.id='mp-spatial-model';locate.innerHTML=this.icon('point')+'<span><strong>Señalar</strong><small>En la captura</small></span>';model.innerHTML=this.icon('capture')+'<span><strong>Modelo 3D</strong><small>Vista conceptual</small></span>';create.innerHTML=this.icon('rect')+'<span><strong>Diagrama</strong><small>Pasos y relaciones</small></span>';
             locate.title='Señalar en la captura lo que describes en la pregunta';create.title='Explicar la selección con un diagrama';model.title='Crear una vista 3D conceptual de la selección';
             locate.onclick=()=>{void this.spatialAction('locate');};model.onclick=()=>{void this.spatialAction('model');};spatialActions.append(locate,create,model);chatDock.append(modeCaption,spatialActions,this.view.querySelector('.mp-composer'),this.view.querySelector('#mp-question-help'));
             for(const selector of ['#mp-answers','#mp-status'])this.widget.append(this.view.querySelector(selector));
-            this.widget.append(chatDock,settings,spatialStatus,this.view.querySelector('.mp-save-section'));
+            this.widget.append(chatDock,settings,ranking,spatialStatus,this.view.querySelector('.mp-save-section'));
             const saved=this.widget.querySelector('.mp-save-section');saved.querySelector('summary').after($('mp-meta'));saved.append($('mp-capability'));
             const source=this.view.querySelector('.mp-source-row');this.widget.querySelector('.mp-save-section').append(source);source.hidden=true;
             this.stage=document.createElement('section');this.stage.id='mp-spatial-stage';this.stage.hidden=true;this.stage.setAttribute('aria-label','Modelo 3D flotante');
@@ -322,6 +329,32 @@
                 'Modelo sin verificar. «Probar conexión» envía una imagen sintética para comprobar su respuesta visual.',provider?.status==='ready'?'success':'info');
             const line=this.capabilityLine(this.spatialProviders?.get($('mp-spatial-provider').value));if(line){const small=document.createElement('small');small.className='mp-spatial-caps';small.style.gridColumn='2';small.textContent=line;node.append(small);}
         }
+        async loadRanking(refresh=false){
+            const list=$('mp-ranking-list'),button=$('mp-ranking-refresh'),label='Actualizar ranking';
+            button.disabled=true;button.setAttribute('aria-busy','true');if(refresh)button.textContent='Consultando…';
+            try{this.renderRanking(await A.backendRequest('GET','/axx-api/model-ranking?refresh='+(refresh?1:0)));}
+            catch(e){const li=document.createElement('li');li.className='mp-ranking-empty';li.textContent='No se pudo cargar el ranking: '+String(e?.message||e).slice(0,160);list.replaceChildren(li);}
+            finally{button.disabled=false;button.removeAttribute('aria-busy');button.textContent=label;}
+        }
+        renderRanking(r){
+            const el=(tag,cls,text)=>{const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=text;return n;};
+            const sources=$('mp-ranking-sources'),stamp=new Date(r.generated_at*1000).toLocaleTimeString('es',{hour:'2-digit',minute:'2-digit'});
+            sources.textContent=(r.refreshed?'Actualizado a las '+stamp+' · ':'Sin consultar la red · ')+r.sources.map(s=>s.name+': '+(s.state==='ok'?'ok':'no disponible')).join(' · ');
+            sources.title=r.sources.map(s=>s.name+' — '+s.message).join('\n')+'\nReferencia orientativa de '+r.reference_date;
+            $('mp-ranking-list').replaceChildren(...r.entries.map(e=>{
+                const li=el('li','mp-ranking-item'),head=el('div','mp-ranking-head'),t=e.tasks,parts=[];li.dataset.status=e.status;
+                const score=el('span','mp-ranking-score',String(e.score));score.title='Puntuación: pruebas medidas + referencia orientativa';
+                head.append(el('span','mp-ranking-rank','#'+e.rank),el('strong','',e.model),score);
+                if(t.verificado.length)parts.push('Verificado: '+t.verificado.join(', '));if(t.declarado.length)parts.push('Declarado: '+t.declarado.join(', '));if(t.no_apto.length)parts.push('No apto: '+t.no_apto.join(', '));
+                li.append(head,el('small','mp-ranking-meta',e.provider+' · '+e.status_label),el('small','mp-ranking-tasks',parts.join(' · ')||'Sin pruebas todavía'),el('small','mp-ranking-basis',e.basis));
+                if(e.action.type==='select'){
+                    const key=encodeURIComponent(e.connection)+'::'+encodeURIComponent(e.model),select=$('mp-spatial-provider'),use=el('button','mp-ranking-use','Usar este modelo');use.type='button';
+                    use.disabled=![...select.options].some(o=>o.value===key);
+                    use.onclick=()=>{select.value=key;this.spatialProviderChanged();this.status('Modelo elegido: '+e.model+'. Tu selección de pantalla se mantiene.');};li.append(use);
+                }else{const how=document.createElement('details');how.append(el('summary','','Cómo conectarlo'),el('p','',e.action.text));li.append(how);}
+                return li;
+            }));
+        }
         async detectOllama(){
             const button=$('mp-spatial-ollama'),label=button.textContent;button.disabled=true;button.textContent='Buscando…';
             try{const r=await A.backendRequest('GET','/axx-api/ollama/models');
@@ -344,7 +377,7 @@
                 const notApt=/^Modelo no apto para Magic Pen/.test(detail);const message=notApt?detail:schemaError?'Codex rechazó el formato de respuesta estructurada. Revisa los detalles técnicos y vuelve a probar.':'No se pudo verificar la conexión. Revisa los detalles técnicos e inténtalo de nuevo.';
                 if(notApt){try{this.capabilities=(await api('status')).capabilities;this.setupSpatialOptions(this.capabilities);}catch{}}
                 this.setSpatialStatus(message,'error',detail);this.status('');}
-            finally{button.disabled=false;button.removeAttribute('aria-busy');button.textContent=label;}
+            finally{button.disabled=false;button.removeAttribute('aria-busy');button.textContent=label;if(this.rankingLoaded)void this.loadRanking(false);}
         }
         open(){
             if(this.active)return;
@@ -463,7 +496,7 @@
         path(points,close=false){const c=this.ctx;c.beginPath();points.forEach((p,i)=>i?c.lineTo(...p):c.moveTo(...p));if(close)c.closePath();}
         stroke(s){const c=this.ctx;c.save();c.globalAlpha=s.tool==='marker'?.33:1;c.strokeStyle=s.color;c.fillStyle=s.color;c.lineWidth=s.width;c.lineCap='round';c.lineJoin='round';this.path(s.points);c.stroke();if(s.points.length===1){c.beginPath();c.arc(...s.points[0],s.width/2,0,Math.PI*2);c.fill();}c.restore();}
         render(){const c=this.ctx;c.clearRect(0,0,this.canvas.width,this.canvas.height);if(!this.doc)return;this.doc.strokes.forEach(s=>this.stroke(s));const g=this.gesture;if(g&&['pen','marker'].includes(g.tool))this.stroke(g);c.save();c.strokeStyle='#9274ff';c.fillStyle='#b8aaff22';c.lineWidth=Math.max(2,this.canvas.width/450);c.setLineDash([c.lineWidth*3,c.lineWidth*2]);const s=this.pendingLasso||this.stage.hidden&&this.doc.selection;if(s){if(s.shape==='lasso'){this.path(s.points,true);c.fill('evenodd');c.stroke();}else{const [x,y,r,b]=s.bounds;c.strokeRect(x,y,r-x,b-y);}if(s.anchor){c.beginPath();c.arc(...s.anchor,6,0,Math.PI*2);c.stroke();}}if(g){if(g.tool==='rect'){const a=g.points[0],b=g.points.at(-1);c.strokeRect(...a,b[0]-a[0],b[1]-a[1]);}else if(g.tool==='lasso'){this.path(g.points);c.stroke();}else if(g.tool==='pointer'){c.setLineDash([]);c.beginPath();c.arc(...g.points.at(-1),12,0,Math.PI*2);c.stroke();}}c.restore();this.paintGuide();this.paintVisual();$('mp-close-lasso').hidden=!this.pendingLasso;this.updateMetadata();$('mp-undo').disabled=!this.undoStack.length;$('mp-redo').disabled=!this.redoStack.length;}
-        renderAnswers(){const root=$('mp-answers');root.replaceChildren();if(this.answerDirty){this.disposeScene();return;}const current=this.presentationQuery(),guided=this.guideQuery();for(const q of (this.doc?.queries||[]).filter(q=>q.revision===this.doc.revision&&this.doc.selection&&q.selection?.shape===this.doc.selection.shape&&['bounds','points','anchor'].every(k=>JSON.stringify(q.selection[k])===JSON.stringify(this.doc.selection[k]))).slice(-5)){const visual=q===current||q===guided,card=q===current?this.presentationCard(q):q===guided?this.guideCard(q):document.createElement('p');card.classList.add('mp-answer');if(!visual)card.textContent=(q.format==='presentation'?q.presentation?.summary||q.error:q.format==='guide'?q.guide?.goal||q.error:q.response||q.error)||(q.state==='running'?'Analizando…':'Interrumpido; vuelve a preguntar.');card.title='Captura '+q.source_id.slice(0,6)+' · revisión '+q.revision;root.append(card);}this.queueView();}
+        renderAnswers(){const root=$('mp-answers');root.replaceChildren();if(this.answerDirty){this.disposeScene();return;}const current=this.presentationQuery(),guided=this.guideQuery();const sameSel=(s1,s2)=>{if(!s1||!s2)return !s1&&!s2;if(s1.shape!==s2.shape)return false;if(s1.bounds&&s2.bounds)return s1.bounds.every((v,i)=>Math.abs(v-s2.bounds[i])<2.0);return ['points','anchor'].every(k=>JSON.stringify(s1[k])===JSON.stringify(s2[k]));};const docSel=this.doc?.selection;const matches=(this.doc?.queries||[]).filter(q=>q.revision===this.doc.revision&&(q===current||q===guided||(docSel&&sameSel(q.selection,docSel)))).slice(-5);if(current&&!matches.includes(current))matches.push(current);if(guided&&!matches.includes(guided))matches.push(guided);for(const q of matches){const visual=q===current||q===guided,card=q===current?this.presentationCard(q):q===guided?this.guideCard(q):document.createElement('p');card.classList.add('mp-answer');if(!visual)card.textContent=(q.format==='presentation'?q.presentation?.summary||q.error:q.format==='guide'?q.guide?.goal||q.error:q.response||q.error)||(q.state==='running'?'Analizando...':'Interrumpido; vuelve a preguntar.');card.title='Captura '+q.source_id.slice(0,6)+' · revisión '+q.revision;root.append(card);}this.queueView();}
         presentationQuery(){
             const d=this.doc,last=this.answerDirty?null:d?.queries?.findLast(q=>q.revision===d.revision&&q.state==='completed');
             return last?.presentation?last:null;

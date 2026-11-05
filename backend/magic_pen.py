@@ -882,6 +882,8 @@ class MagicPenService:
                 contract += (' SOLICITUD 3D EXPLÍCITA: analiza primero la imagen y modela el objeto concreto que aparece en ella, nunca un ejemplo genérico ni otro objeto; '
                              'genera 4 a 7 pasos técnicos (s1 «Qué se observa», último «Proporciones y límites») y hasta 32 piezas, una por componente visible y detalle relevante, con scene propia y sin asset; '
                              'respeta las proporciones medidas sobre la imagen. '
+                             'Antes de modelar una pieza, busca en el catálogo de componentes: si existe una equivalente (tornillo, engranaje, rodamiento, rotor, válvula, placa…) DEBES usarla con "component" y no reconstruirla con primitivas; '
+                             'toda pieza que no esté en el catálogo y se componga de 2 o más primitivas DEBE llevar "group" con un nombre técnico de al menos dos palabras para que Axx la reutilice. '
                              'Omite diagram y overlays si pueden hacer que el JSON 3D quede incompleto. '
                              'Toda escena debe conservar unidades relativas plausibles y fidelidad conceptual. '
                              'Nunca reduzcas una pantalla 2D plana a un falso modelo físico.')
@@ -917,7 +919,19 @@ class MagicPenService:
                     **({'cancel_event': job['cancel']} if getattr(self.adapter, 'supports_cancel_event', False) is True else {}))
             if not isinstance(result, dict) or result.get('ok') is not True:
                 error = result.get('error', {}) if isinstance(result, dict) else {}
-                raise ValueError(str(error.get('message', 'El proveedor no respondió.'))[:2000])
+                err_msg = str(error.get('message', 'El proveedor no respondió.'))
+                if re.search(r'\b429\b', err_msg) or re.search(r'(?i)\b(l[ií]mite|rate[ _]limit|quota|agotad[oa]|5 horas|too many requests)\b', err_msg):
+                    alts = []
+                    try:
+                        caps = self.capabilities()
+                        for p in caps.get('vision', []):
+                            if p.get('name') != chosen.get('name') or p.get('model') != chosen.get('model'):
+                                alts.append(f"{p.get('name')}:{p.get('model')}")
+                    except Exception:
+                        pass
+                    if alts:
+                        err_msg += f" Sugerencia: cambia en 'Proveedor y calidad' a {', '.join(alts[:3])} para continuar sin agotar tu cuota."
+                raise ValueError(err_msg[:2000])
             message = result.get('message', {})
             text = message.get('content') if isinstance(message, dict) else None
             if not isinstance(text, str) or not text.strip() or len(text) > MAX_RESPONSE_CHARS:
@@ -943,6 +957,7 @@ class MagicPenService:
                     if not local_prose:
                         if chosen['name'] == '@codex':
                             parsed = normalize_strict_output(parsed, generation['output_schema'])
+                        fidelity_missing = isinstance(parsed, dict) and isinstance(parsed.get('scene'), dict) and 'fidelity' not in parsed['scene']
                         parsed = normalize_model_object_ids(parsed)
                         parsed = expand_components(parsed, self.shapes)  # catalog references become real parts before validation
                         parsed, dropped_overlays = prune_invalid_overlays(parsed) if not base_plan else (parsed, [])
@@ -961,6 +976,8 @@ class MagicPenService:
                             learn_groups(changes['presentation'], self.shapes)  # only validated pieces are ever stored
                         notes = check_plan(changes['presentation']) if chosen.get('spatial_3d') else []  # local checks: they warn, never fix
                         notes += dropped_overlays
+                        if fidelity_missing:
+                            notes.append('El modelo no indicó la fidelidad de la escena; se usó la del plan o «conceptual».')
                         if drew_overlaps and not base_plan:
                             notes.append('El modelo dibujó nodos solapados; Axx reorganizó el diagrama automáticamente.')
                         if notes:

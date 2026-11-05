@@ -31,7 +31,7 @@ from backend.inference.router import parse_strict_json
 from backend.prompts import public_compose
 from backend.inference.adapter import InferenceAdapter, worker_main
 from backend.inference import provider_settings
-from backend import ollama_models
+from backend import ollama_models, model_ranking
 from backend.inference.freellmapi import FreeLLMAPIService
 from backend.inference.model_candidates import ModelCandidates
 from backend.inference.keyless import KeylessSetup
@@ -394,6 +394,14 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                         self.magic_pen.caps.declare(saved['name'], model['name'], 'vision', 'Declarada por Ollama (/api/show).')
                     model['aptitude'] = self.magic_pen.caps.summary(saved['name'], model['name']) if saved and self.magic_pen else None
                 self._send_json(200, result)
+            elif path == '/axx-api/model-ranking':
+                query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query, keep_blank_values=True)
+                if set(query) - {'refresh'} or len(query.get('refresh', ['0'])) != 1 or query.get('refresh', ['0'])[0] not in ('0', '1') or not self.magic_pen or not self.adapter:
+                    raise ValueError('Consulta de ranking de modelos inválida.')
+                local = next((p for p in self.adapter.config.get('providers', []) if p.get('kind') == 'ollama'), None)
+                self._send_json(200, model_ranking.gather(self.magic_pen.capabilities(), self.adapter.config, refresh=query.get('refresh', ['0'])[0] == '1',
+                                                          discover_fn=provider_settings.discover, ollama_fn=ollama_models.detect,
+                                                          ollama_url=local['base_url'] if local else ollama_models.DEFAULT_URL))
             elif path == '/axx-api/feature-readiness':
                 query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query, keep_blank_values=True)
                 if set(query) != {'feature_id'} or len(query['feature_id']) != 1 or not self.magic_pen:

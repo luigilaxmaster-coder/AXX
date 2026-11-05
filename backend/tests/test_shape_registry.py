@@ -19,6 +19,13 @@ class ShapeRegistryTests(unittest.TestCase):
         self.assertGreaterEqual(len(components), 20)
         self.assertGreaterEqual(len(TECHNICAL_COMPONENTS), 20)
 
+    def test_the_browser_library_is_the_generated_copy_of_the_python_catalog(self):
+        import json
+        source = (Path(__file__).resolve().parents[2] / '1.AXX' / 'scripts' / 'shape-library.js').read_text(encoding='utf-8')
+        copied = json.loads(source[source.index('{'):source.rindex('}') + 1])
+        self.assertEqual(copied, json.loads(json.dumps(TECHNICAL_COMPONENTS)))  # regenerate shape-library.js after editing the catalog
+        self.assertEqual(len(copied), 50)
+
     def test_instantiate_component_with_custom_scale_and_position(self):
         # Instantiate hex_bolt with 2x scale and offset
         parts = self.registry.instantiate('hex_bolt', scale=2.0, position=(1.0, 2.0, 3.0), color='#ff0000')
@@ -71,7 +78,7 @@ class ShapeRegistryTests(unittest.TestCase):
         self.assertEqual(restored['label'], 'carcasa_especial_alfa')
 
     def test_catalog_has_29_components_and_compact_text(self):
-        self.assertGreaterEqual(len(TECHNICAL_COMPONENTS), 29)
+        self.assertGreaterEqual(len(TECHNICAL_COMPONENTS), 50)
         text = catalog_text(self.registry)
         self.assertIn('spur_gear', text)
         self.assertIn('knurled_knob', text)

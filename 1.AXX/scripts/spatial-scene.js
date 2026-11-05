@@ -159,7 +159,7 @@ function studioEnvironment(renderer){
     const target=pm.fromScene(env,.04);pm.dispose();disposables.forEach(d=>d.dispose());return target;
 }
 
-function objectMesh(o) {
+function objectMesh(o, fallbackExplode) {
     const [x,y,z]=o.size, engineered=['piston','connecting_rod','crankshaft','engine_cylinder'].includes(o.shape);
     const preset=MATERIALS[o.material]||{r:engineered?.32:.42,m:engineered?.45:.28};
     const material=new THREE.MeshStandardMaterial({color:o.color,roughness:preset.r,metalness:preset.m,transparent:true,opacity:preset.a??1,envMapIntensity:.7,side:['engine_cylinder','tube','dome','pipe_elbow','flange','u_channel','l_bracket','rect_tube','arc'].includes(o.shape)?THREE.DoubleSide:THREE.FrontSide}), geometries=[],materials=[material];
@@ -204,11 +204,38 @@ function objectMesh(o) {
         addContour(root,g);
     }
     root.position.fromArray(o.position);if(o.rotation)root.rotation.set(...o.rotation.map(THREE.MathUtils.degToRad));
-    root.userData={id:o.id,base:root.position.clone(),explode:new THREE.Vector3(...(o.explode||[0,1.5,0])),material,materials,geometries,shape:o.shape,size:sceneSignature(o)};
+    root.userData={id:o.id,base:root.position.clone(),explode:new THREE.Vector3(...(o.explode||fallbackExplode||[0,1.5,0])),material,materials,geometries,shape:o.shape,size:sceneSignature(o)};
     return root;
 }
 
 function releaseObject(mesh){for(const g of mesh.userData.geometries)g.dispose();for(const m of mesh.userData.materials)m.dispose();mesh.removeFromParent();}
+
+// Default exploded view when the model gives no `explode` vector (it almost never does, and the old default lifted every piece by the same
+// amount, so nothing visibly separated). Sub-assemblies (same `group`) move together away from the assembly centre and open slightly inside
+// themselves; central pieces move along the main axis, alternating direction. Explicit vectors from the plan are always respected.
+export function explodeVectors(objects){
+    const out=new Map(),todo=objects.filter(o=>!Array.isArray(o.explode));if(!todo.length)return out;
+    const lo=[Infinity,Infinity,Infinity],hi=[-Infinity,-Infinity,-Infinity];
+    // Effective size: a quarter turn about an axis swaps the other two dimensions (the usual case: shafts and tubes lying on their side).
+    const dims=o=>{const d=[...(o.size||[0,0,0])];(o.rotation||[0,0,0]).forEach((deg,axis)=>{if(Math.round(Math.abs(deg)/90)%2===1){const [i,j]=[0,1,2].filter(k=>k!==axis);[d[i],d[j]]=[d[j],d[i]];}});return d;};
+    for(const o of objects){const d=dims(o);for(let i=0;i<3;i++){lo[i]=Math.min(lo[i],o.position[i]-d[i]/2);hi[i]=Math.max(hi[i],o.position[i]+d[i]/2);}}
+    const center=lo.map((v,i)=>(v+hi[i])/2),ext=hi.map((v,i)=>v-lo[i]),span=Math.max(...ext,1),axis=ext.indexOf(Math.max(...ext));
+    const norm=v=>{const l=Math.hypot(...v);return l>1e-6?v.map(x=>x/l):null;},alongAxis=sign=>{const a=[0,0,0];a[axis]=sign;return a;};
+    const units=new Map();
+    for(const o of todo){const key=o.group?'g:'+o.group:'o:'+o.id,u=units.get(key)||{items:[],sum:[0,0,0]};u.items.push(o);for(let i=0;i<3;i++)u.sum[i]+=o.position[i];units.set(key,u);}
+    let turn=0;
+    for(const u of units.values()){
+        const c=u.sum.map(v=>v/u.items.length),off=c.map((v,i)=>v-center[i]),dist=Math.hypot(...off);
+        // A central sub-assembly opens up on itself without travelling; a lone central piece slides along the main axis.
+        const central=dist<=span*.12,multi=u.items.length>1,dir=!central?norm(off):multi?[0,0,0]:alongAxis(turn++%2?-1:1),push=dir.map(v=>v*span*(.22+.5*Math.min(1,dist/span)));
+        for(const o of u.items){
+            let local=[0,0,0];
+            if(u.items.length>1){const d=o.position.map((v,i)=>v-c[i]),n=norm(d)||alongAxis(1),k=central?1:.8,m=Math.min(span*(central?.3:.16),Math.hypot(...d)*k+span*(central?.05:.04));local=n.map(v=>v*m);}
+            out.set(o.id,push.map((v,i)=>+(v+local[i]).toFixed(3)));
+        }
+    }
+    return out;
+}
 
 export function mountScene(container, scene, {reducedMotion = false, onPick = () => {}, onLost = () => {}, onChange = () => {}, initialView = null} = {}) {
     const canvas = document.createElement('canvas');
@@ -227,8 +254,9 @@ export function mountScene(container, scene, {reducedMotion = false, onPick = ()
     const sun = new THREE.DirectionalLight(0xffffff, 2.2); sun.position.set(6, 10, 8); world.add(sun);
     const fill = new THREE.DirectionalLight(0xa6c5f2, 1.25); fill.position.set(-6, 4, 6); world.add(fill);
     const rim = new THREE.DirectionalLight(0x78b8ff, 1.7); rim.position.set(-4, 6, -8); world.add(rim);
+    const autoExplode=explodeVectors(scene.objects);
     for (const o of scene.objects) {
-        const mesh=objectMesh(o);meshes.set(o.id,mesh);world.add(mesh);
+        const mesh=objectMesh(o,autoExplode.get(o.id));meshes.set(o.id,mesh);world.add(mesh);
     }
     for (const a of scene.arrows || []) {
         const from = meshes.get(a.from).position, direction = meshes.get(a.to).position.clone().sub(from), length = direction.length();
@@ -238,7 +266,7 @@ export function mountScene(container, scene, {reducedMotion = false, onPick = ()
     }
 
     const bounds = new THREE.Box3(); meshes.forEach(m => bounds.expandByObject(m));
-    const center = bounds.getCenter(new THREE.Vector3());let radius = Math.max(.5, bounds.getSize(new THREE.Vector3()).length() / 2);
+    const center = bounds.getCenter(new THREE.Vector3());let radius = Math.max(.5, bounds.getSize(new THREE.Vector3()).length() / 2), restDistance = 0;
     const view = {target: center.clone(), theta: scene.objects.some(o=>o.shape==='engine_cylinder')?-.95:.7, phi: 1.1, distance: radius * 2.45};
     if (initialView && Array.isArray(initialView.target) && initialView.target.length === 3
         && [...initialView.target, initialView.theta, initialView.phi, initialView.distance].every(Number.isFinite)
@@ -318,8 +346,10 @@ export function mountScene(container, scene, {reducedMotion = false, onPick = ()
     // Targets come from resting/exploded goals, never from positions caught mid-animation.
     const goal = m => m.userData.base.clone().addScaledVector(m.userData.explode, exploded||separated.has(m.userData.id) ? 1 : 0);
     const showArrows=()=>arrows.forEach((arrow,index)=>{const link=scene.arrows[index];if(arrow)arrow.visible=!exploded&&!hidden.has(link.from)&&!hidden.has(link.to)&&!separated.has(link.from)&&!separated.has(link.to);});
+    const goalBox = () => { const box = new THREE.Box3(); for (const m of meshes.values()) box.union(new THREE.Box3().setFromObject(m).translate(goal(m).sub(m.position))); return box; };
     const focusCenter = () => {
         if (!focused.length && !exploded) return center.clone();
+        if (!focused.length) return goalBox().getCenter(new THREE.Vector3());
         const chosen = focused.length ? focused.map(id => meshes.get(id)) : [...meshes.values()];
         return chosen.reduce((sum, m) => sum.add(goal(m)), new THREE.Vector3()).divideScalar(chosen.length);
     };
@@ -348,6 +378,9 @@ export function mountScene(container, scene, {reducedMotion = false, onPick = ()
         setExploded(value) {
             exploded = value;
             if(!value)separated.clear();
+            // Keep the whole exploded assembly in frame; the resting distance comes back when it is put together again.
+            if(value){restDistance=view.distance;const reach=Math.max(.5,goalBox().getSize(new THREE.Vector3()).length()/2);radius=Math.max(radius,reach);view.distance=Math.max(view.distance,reach*2.45);}
+            else if(restDistance){view.distance=restDistance;restDistance=0;}
             const starts = new Map([...meshes].map(([id, m]) => [id, m.position.clone()]));
             showArrows(); // Arrows join resting positions only.
             tween('explode', k => { for (const [id, m] of meshes) m.position.lerpVectors(starts.get(id), goal(m), k); });
@@ -362,12 +395,13 @@ export function mountScene(container, scene, {reducedMotion = false, onPick = ()
             for(const key of Object.keys(animations)){cancelAnimationFrame(animations[key]);delete animations[key];}
             const ids=new Set(next.objects.map(o=>o.id));
             for(const [id,mesh] of meshes)if(!ids.has(id)){releaseObject(mesh);meshes.delete(id);hidden.delete(id);separated.delete(id);}
+            const nextExplode=explodeVectors(next.objects);
             for(const o of next.objects){
                 let mesh=meshes.get(o.id);
                 if(!mesh||mesh.userData.shape!==o.shape||mesh.userData.size!==sceneSignature(o)){
-                    if(mesh)releaseObject(mesh);mesh=objectMesh(o);meshes.set(o.id,mesh);world.add(mesh);
+                    if(mesh)releaseObject(mesh);mesh=objectMesh(o,nextExplode.get(o.id));meshes.set(o.id,mesh);world.add(mesh);
                 }
-                mesh.userData.base.fromArray(o.position);mesh.userData.explode.fromArray(o.explode||[0,1.5,0]);
+                mesh.userData.base.fromArray(o.position);mesh.userData.explode.fromArray(o.explode||nextExplode.get(o.id)||[0,1.5,0]);
                 mesh.position.copy(goal(mesh));mesh.rotation.set(...(o.rotation||[0,0,0]).map(THREE.MathUtils.degToRad));
                 mesh.userData.material.color.set(o.color);mesh.visible=!hidden.has(o.id);
             }

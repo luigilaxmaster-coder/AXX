@@ -65,6 +65,17 @@ class SceneContractTests(unittest.TestCase):
         validated = validate_plan(normalize_model_focus(normalized))
         self.assertEqual(validated['scene']['objects'][0]['shape'], 'box')
 
+    def test_a_scene_without_fidelity_inherits_the_one_the_model_gave_on_the_plan_or_the_stated_default(self):
+        for plan_fidelity, expected in (('illustrative', 'illustrative'), ('technical', 'conceptual'), ('conceptual', 'conceptual')):
+            with self.subTest(plan_fidelity=plan_fidelity):
+                raw = scene_plan()
+                del raw['scene']['fidelity']
+                raw['fidelity'] = plan_fidelity
+                fixed = normalize_model_object_ids(raw)
+                self.assertEqual(fixed['scene']['fidelity'], expected)
+                self.assertNotIn('fidelity', raw['scene'])  # the input is never mutated
+                validate_plan(fixed)
+
     def test_patch_with_null_or_duplicate_focus_is_normalized_cleanly(self):
         base = validate_plan(scene_plan())
         patch = {'schema_version': '1.0', 'kind': 'patch', 'answer': 'Actualizo foco.',
@@ -359,13 +370,27 @@ class MagicPenPresentationTests(unittest.TestCase):
         self.assertIn('no devolvió JSON', result['visual_notice'])
         self.assertNotIn('output_schema', self.adapter.calls[-1]['generation'])
 
+    def test_a_quota_error_suggests_other_connected_models_and_a_number_inside_text_is_not_a_quota_error(self):
+        from unittest.mock import patch
+        self.adapter.config['providers'].append({'name': 'other', 'model': 'other-vision', 'protocol': 'openai', 'enabled': True,
+                                                 'free_confirmed': True, 'capabilities': ['vision']})
+        for message, suggests in (('HTTP 429: demasiadas solicitudes', True), ('Límite de uso de 5 horas alcanzado', True), ('El archivo mide 14290 bytes', False)):
+            with self.subTest(message=message), patch.object(self.adapter, 'route', return_value={'ok': False, 'error': {'message': message}}):
+                result = self.ask(format='presentation')
+                self.assertEqual(result['state'], 'failed')
+                self.assertIn(message, result['error'])
+                self.assertEqual('other:other-vision' in result['error'], suggests, result['error'])
+
     def test_explicit_3d_request_prioritizes_a_bounded_complete_scene(self):
         self.adapter.config['providers'][0]['model'] = 'claude-sonnet-5-5'
         self.replies.append(json.dumps(scene_plan()))
         result = self.ask(format='presentation', model='claude-sonnet-5-5',
                           question='Explícame este objeto en 3D')
         self.assertEqual(result['state'], 'completed', result.get('error'))
-        self.assertIn('SOLICITUD 3D EXPLÍCITA', self.adapter.calls[-1]['messages'][0]['content'])
+        contract = self.adapter.calls[-1]['messages'][0]['content']
+        self.assertIn('SOLICITUD 3D EXPLÍCITA', contract)
+        self.assertIn('DEBES usarla con "component"', contract)  # catalog parts are reused, not rebuilt from primitives
+        self.assertIn('DEBE llevar "group"', contract)  # new sub-assemblies get a name so Axx can learn them
         self.assertIn('scene', result['presentation'])
 
     def test_anthropic_3d_does_not_silently_turn_invalid_json_into_a_fake_model(self):

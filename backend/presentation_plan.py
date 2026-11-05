@@ -297,6 +297,8 @@ def normalize_model_object_ids(plan):
         return result
     if 'arrows' in scene and scene['arrows'] is None:
         scene.pop('arrows')
+    if 'fidelity' not in scene:  # some models put it on the plan instead of the scene; the value they gave is reused, otherwise the stated default
+        scene['fidelity'] = result['fidelity'] if result.get('fidelity') in SCENE_FIDELITY else 'conceptual'
     objects = scene.get('objects')
     if not isinstance(objects, list) or not 1 <= len(objects) <= MAX_OBJECTS:
         return result
