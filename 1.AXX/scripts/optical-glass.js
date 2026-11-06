@@ -1,11 +1,14 @@
-/* AXX Optical Glass: optional finish for native AXX. No geometry or actions replaced. */
+/* AXX Optical Glass: additive visual finish for native AXX. No geometry or core replaced. */
 (() => {
   'use strict';
   const A = window.Axx;
   if (!A?.SoftwareRenderer || A.PALETTES?.length !== 9) return;
   const proto = A.SoftwareRenderer.prototype;
   if (proto.__axxOpticalGlass) return;
-  const original = proto.shadeTable, KEY = 'axx-optical-glass-v1';
+
+  const originalShadeTable = proto.shadeTable;
+  const originalDraw = proto.draw;
+  const KEY = 'axx-optical-glass-v1';
 
   const PRESETS = {
     reference: { transmission: .91, ior: 1.48, thickness: .76, roughness: .045, iridescence: .63, rim: .96, saturation: .72, exposure: 1.21, envBoost: 1.08, aurora: 1.00, mode: 'glass' },
@@ -27,16 +30,20 @@
     exposure: [.48, 2.1]
   };
 
-  const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
-  const decode = h => [1, 3, 5].map(i => Math.pow(parseInt(h.slice(i, i + 2), 16) / 255, 2.2));
-
-  const invAces = y => {
-    if (y <= 0) return 0;
-    if (y >= .999) return 10;
-    const a = 2.51 - 2.43 * y, b = .03 - .59 * y, c = -.14 * y;
-    const disc = b * b - 4 * a * c;
-    return (-b + Math.sqrt(Math.max(0, disc))) / (2 * a);
+  const K_FILM = [0, 2.094395, 4.18879];
+  const K_SPEC = [0, -2.094395, 2.094395];
+  const K_WHITE = [0.88, 0.92, 1.04];
+  const clamp = (v, a = 0, b = 1) => Math.max(a, Math.min(b, v));
+  const exp = Math.exp;
+  const gauss = (v, m, s) => exp(-(((v - m) / s) ** 2));
+  const decode = hex => {
+    const n = parseInt(hex.slice(1), 16);
+    return [Math.pow((n >> 16 & 255) / 255, 2.2), Math.pow((n >> 8 & 255) / 255, 2.2), Math.pow((n & 255) / 255, 2.2)];
   };
+  const norm = v => { const l = Math.hypot(...v) || 1; return v.map(x => x / l); };
+  const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
 
   let p = { ...DEFAULT }, color = '', revision = 0, panel = null, inputs = new Map();
 
@@ -89,8 +96,10 @@
     sync();
   };
 
+  // --- 1. SHADE TABLE (Shared HDR lighting for body & OrganicTendrils) ---
   proto.shadeTable = function opticalGlassShadeTable() {
-    if (this.finish !== 'opticalglass') return original.call(this);
+    if (this.finish !== 'opticalglass') return originalShadeTable.call(this);
+
     const signature = [
       this.settings.palette,
       this.studio.roughness,
@@ -98,28 +107,49 @@
       this.studio.lightAngle,
       this.state,
       this.settings.keepForm,
+      color,
       revision
     ].join('/');
 
     if (this.__opticalGlassSignature === signature && this.lutKey === 'opticalglass/' + signature) return;
 
-    // Use original obsidian chrome pass to generate studio reflection card data
-    this.finish = 'obsidian';
-    this.lutKey = '';
-    try {
-      original.call(this);
-    } finally {
-      this.finish = 'opticalglass';
-    }
-
     const lut = this.lut;
     const colors = A.PALETTES[this.settings.palette].colors;
     const palette = colors.map(decode);
-    const tintV = /^#[0-9a-fA-F]{6}$/.test(color)
-      ? [parseInt(color.slice(1, 3), 16) / 255, parseInt(color.slice(3, 5), 16) / 255, parseInt(color.slice(5, 7), 16) / 255]
-      : null;
+    const custom = /^#[0-9a-fA-F]{6}$/.test(color) ? decode(color) : null;
+    const tintBlend = custom ? 0.72 : 0;
+    const blendRGB = col => col.map((v, i) => v * (1 - tintBlend) + (custom ? custom[i] : v) * tintBlend);
+    const effPalette = palette.map(blendRGB);
+    const tintV = custom ? [custom[0] ** (1/2.2), custom[1] ** (1/2.2), custom[2] ** (1/2.2)] : null;
+
+    const w = .028 + this.studio.roughness * .32;
+    const rawCards = [
+      { dir: [-.64, .80, .60], size: [.17, .57], feather: w * 2.3, color: [1.35, 1.48, 1.75] },
+      { dir: [-.81, .74, .40], size: [.022, .53], feather: w * .62, color: [2.0, 2.12, 2.3] },
+      { dir: [.15, .79, 1], size: [.52, .20], feather: w * 2.0, color: [.012, .019, .034] },
+      { dir: [.87, .46, .48], size: [.055, .67], feather: w * 1.4, color: [1.2, 1.4, 1.65] },
+      { dir: [-.25, 1, -.22], size: [.78, .026], feather: w * .8, color: [2, 2.16, 2.35] },
+      { dir: [-1, -.06, .04], size: [.25, .81], feather: w * 2.1, color: effPalette[0].map(n => n * 2.1) },
+      { dir: [-.61, -.53, .94], size: [.075, .57], feather: w * 1.2, color: effPalette[0].map(n => n * .80) },
+      { dir: [.66, .16, .76], size: [.055, .44], feather: w * .85, color: effPalette[2].map(n => n * .70) },
+      { dir: [-.34, -.91, .35], size: [.48, .085], feather: w * 1.3, color: effPalette[1].map(n => n * .95) },
+      { dir: [.77, 0, -.72], size: [.14, .78], feather: w * 1.4, color: effPalette[2].map(n => n * 1.8) },
+      { dir: [.98, -.20, .43], size: [.045, .67], feather: w * .85, color: effPalette[3].map(n => n * 1.9) },
+      { dir: [-.63, -.37, -.62], size: [.078, .62], feather: w * 1.5, color: [.36, .40, .48] },
+      { dir: [.30, -.63, -.72], size: [.56, .075], feather: w, color: [.26, .33, .46] }
+    ];
+
+    const cards = rawCards.map(c => {
+      const d = norm(c.dir), right = norm(cross([0, 1, .02], d)), up = cross(d, right);
+      return { ...c, dir: d, right, up };
+    });
+
+    const keydir = norm([-.64, .8, .6]), forward = norm([.1, .12, 1]);
+    const co = Math.cos(this.studio.lightAngle), si = Math.sin(this.studio.lightAngle);
+    const r = [0, 0, 0];
 
     const highlightPower = 9 + 30 * (1 - p.roughness / .48);
+    const hpA = highlightPower * .31, hpB = highlightPower * .22, hpC = highlightPower * .76;
     const iorRatio = (p.ior - 1) / (p.ior + 1);
     const f0 = iorRatio * iorRatio;
     const envBoost = p.envBoost || 1.08;
@@ -128,75 +158,292 @@
     const lightResponse = this.settings.keepForm ? 1 : Axx.MOTION_PROFILES[this.state].lightResponse;
 
     for (let j = 0; j < 512; j++) {
+      const ny = j / 511 * 2 - 1;
+      const top = Math.pow(Math.max(0, ny * .5 + .5), 1.4);
+      const row = j * 512;
+
       for (let i = 0; i < 512; i++) {
-        const o = (j * 512 + i) * 4;
-        const nx = i / 511 * 2 - 1, ny = j / 511 * 2 - 1;
+        const nx = i / 511 * 2 - 1;
         const nz = Math.sqrt(Math.max(.000001, 1 - nx * nx - ny * ny));
+        const rx = 2 * nx * nz, ry = 2 * ny * nz, rz = 2 * nz * nz - 1;
+        r[0] = rx * co + rz * si;
+        r[1] = ry;
+        r[2] = -rx * si + rz * co;
+
+        const gDot = dot(r, keydir);
+        const g = gDot > 0 ? Math.pow(gDot, 18) : 0;
+        const fDot = dot(r, forward);
+        const ambient = fDot > 0 ? Math.pow(fDot, 5) : 0;
+        const fres = Math.pow(1 - nz, 5);
+
+        let cr = .002 + .009 * top + .009 * ambient + .06 * g;
+        let cg = .003 + .013 * top + .012 * ambient + .085 * g;
+        let cb = .005 + .021 * top + .019 * ambient + .12 * g;
+
+        for (const card of cards) {
+          const facing = dot(r, card.dir);
+          if (facing <= 0) continue;
+          const qx = Math.abs(dot(r, card.right) / facing), qy = Math.abs(dot(r, card.up) / facing);
+          if (qx >= card.size[0] + card.feather || qy >= card.size[1] + card.feather) continue;
+          const m = (1 - smooth(card.size[0] - card.feather, card.size[0] + card.feather, qx)) *
+                    (1 - smooth(card.size[1] - card.feather, card.size[1] + card.feather, qy));
+          cr += card.color[0] * m;
+          cg += card.color[1] * m;
+          cb += card.color[2] * m;
+        }
+
+        const base = [cr, cg, cb];
         const grazing = clamp(1 - nz, 0, 1);
         const edge = Math.pow(grazing, 1.32);
         const fresnel = f0 + (1 - f0) * Math.pow(grazing, 5);
 
-        const whiteWide = Math.pow(Math.max(0, .45 + ny * .59 - nx * .16), 4.8);
-        const upperBox = Math.pow(Math.max(0, .29 + ny * .76 + nz * .28 - nx * .18), highlightPower * .31);
-        const sideBox = Math.pow(Math.max(0, .25 - nx * .80 + ny * .14 + nz * .12), highlightPower * .22);
-        const glint = Math.pow(Math.max(0, .17 + ny * .72 - nx * .25 + nz * .27), highlightPower * .76);
-        const bottomBox = Math.pow(Math.max(0, -ny * .84 + nx * .11 + .13), 4.3);
+        const ww = .45 + ny * .59 - nx * .16;
+        const whiteWide = ww > 0 ? Math.pow(ww, 4.8) : 0;
+        const ub = .29 + ny * .76 + nz * .28 - nx * .18;
+        const upperBox = ub > 0 ? Math.pow(ub, hpA) : 0;
+        const sb = .25 - nx * .80 + ny * .14 + nz * .12;
+        const sideBox = sb > 0 ? Math.pow(sb, hpB) : 0;
+        const gl = .17 + ny * .72 - nx * .25 + nz * .27;
+        const glint = gl > 0 ? Math.pow(gl, hpC) : 0;
+        const bb = -ny * .84 + nx * .11 + .13;
+        const bottomBox = bb > 0 ? Math.pow(bb, 4.3) : 0;
 
         const phase = Math.atan2(ny, nx) * 2.7 + nx * 4.2 - ny * 3.1 + this.studio.lightAngle * .50;
         const opticalPhase = phase + (1 - nz) * 7.5 * (.25 + p.ior * .30);
 
-        const whiteCoat = (upperBox * .43 + whiteWide * .15 + sideBox * .31 + glint * .84 + bottomBox * .18) * (.46 + .55 * p.rim) * (1 - p.roughness * .57);
         const neutralRim = (.17 + .57 * p.rim) * Math.pow(grazing, .65) * (.80 + .24 * p.thickness);
+        const whiteCoat = (upperBox * .43 + whiteWide * .15 + sideBox * .31 + glint * .84 + bottomBox * .18) * (.46 + .55 * p.rim) * (1 - p.roughness * .57);
+
+        const o = (row + i) * 4;
 
         for (let k = 0; k < 3; k++) {
-          const mapped = Math.pow(lut[o + k] / 255, 2.2);
-          const obsVal = invAces(mapped);
-          const film = .5 + .5 * Math.cos([0, 2.094395, 4.18879][k] + (1 - nz) * 10.7);
-          const obsidianTint = .72 + (.16 + .20 * Math.pow(1 - nz, 5)) * film;
-          const baseK = Math.max(0, obsVal / (this.studio.exposure * lightResponse) - .003) / obsidianTint;
-
-          const accent = palette[[0, 1, 2][k]][k];
+          const film = .5 + .5 * Math.cos(K_FILM[k] + (1 - nz) * 10.7);
+          const tint = .72 + (.16 + .20 * fres) * film;
+          const accent = effPalette[[0, 1, 2][k]][k];
           const tintR = tintV ? (tintV[k] * tintV[k]) : accent;
-          const spectrum = .5 + .5 * Math.cos(opticalPhase * (.68 + .8 * p.iridescence) + [0, -2.094395, 2.094395][k]);
-          const iris = spectrum * (.09 + .28 * p.iridescence) * edge * p.iridescence * p.saturation * aurora;
 
-          const reflection = baseK * (.12 + .40 * edge + .14 * fresnel) * envBoost;
+          const spectrum = .5 + .5 * Math.cos(opticalPhase * (.68 + .8 * p.iridescence) + K_SPEC[k]);
+          const iris = spectrum * (.09 + .28 * p.iridescence) * edge * p.iridescence * p.saturation * aurora;
+          const reflection = base[k] * (.12 + .40 * edge + .14 * fresnel) * envBoost;
           const transmissionBody = (.009 + .065 * tintR + .012 * spectrum) * p.transmission * (1 - .58 * edge) * (.9 + .4 * p.thickness);
           const absorption = Math.exp(-p.thickness * (.23 + .48 * tintR) * (1 + .62 * edge));
           const chroma = iris * (.12 + .58 * tintR + .26 * spectrum);
           const glassBase = (transmissionBody + chroma + reflection * .46) * absorption;
-          const clear = glassBase + neutralRim * .34 + whiteCoat * (k === 0 ? .88 : k === 1 ? .92 : 1.04);
-          const chromeReflection = baseK * obsidianTint * (.58 + .56 * edge) * (1 - p.roughness * .48);
+          const clear = glassBase + neutralRim * .34 + whiteCoat * K_WHITE[k];
+          
+          // Transparent optical glass transmits light; metallic chrome reflection is strongly attenuated
+          const chromeReflection = base[k] * tint * (.58 + .56 * edge) * (1 - p.roughness * .48) * (1 - p.transmission * 0.72);
 
-          let value = chromeReflection + clear * .54 + fresnel * .18 * baseK;
-          if (mode === 'crystal') value += Math.pow(Math.abs(Math.sin(phase * 3.6)), 22) * edge * .15;
-          if (mode === 'aura') value += spectrum * .18 * edge * p.saturation;
+          let val = chromeReflection + clear * .54 + fresnel * .18 * base[k];
+          if (mode === 'crystal') val += Math.pow(Math.abs(Math.sin(phase * 3.6)), 22) * edge * .15;
+          if (mode === 'aura') val += spectrum * .18 * edge * p.saturation;
 
-          value *= p.exposure * lightResponse;
-          const finalMapped = clamp((value * (2.51 * value + .03)) / (value * (2.43 * value + .59) + .14), 0, 1);
-          lut[o + k] = Math.round(255 * Math.pow(finalMapped, 1 / 2.2));
+          val *= p.exposure * lightResponse;
+          const mapped = clamp((val * (2.51 * val + .03)) / (val * (2.43 * val + .59) + .14), 0, 1);
+          lut[o + k] = Math.round(255 * Math.pow(mapped, 1 / 2.2));
         }
 
-        // Keep alpha fully opaque for native hit-testing, root attachments and morph reach.
+        // Keep alpha fully opaque in raster.pixels for bulletproof hit-testing & OrganicTendrils root attachment
         lut[o + 3] = 255;
       }
     }
 
     this.__opticalGlassSignature = signature;
-    this.lutKey = 'opticalglass/' + signature; // Tendrils share and cache this exact LUT.
+    this.lutKey = 'opticalglass/' + signature;
+  };
+
+  // --- 2. GLASS SILHOUETTE PASS & POST-PROCESS (Transparent Bevel, Cavity, Caustic Glints) ---
+  function applyGlassSilhouettePass(renderer) {
+    const img = renderer.image;
+    if (!img || !renderer.raster || renderer.studio.view !== 0) return;
+    const w = img.width, h = img.height;
+    const rw = renderer.raster.width, depth = renderer.raster.depth;
+    if (!depth) return;
+
+    // Build anti-aliased surface coverage from raster depth
+    if (!renderer.__glassCoverage || renderer.__glassCoverage.length !== w * h) {
+      renderer.__glassCoverage = new Uint8Array(w * h);
+    }
+    const cov = renderer.__glassCoverage;
+    for (let y = 0; y < h; y++) {
+      const rA = (y * 2) * rw, rB = (y * 2 + 1) * rw, row = y * w;
+      for (let x = 0; x < w; x++) {
+        const x2 = x * 2;
+        const ia = rA + x2, ib = ia + 1, ic = rB + x2, id = ic + 1;
+        cov[row + x] = ((depth[ia] > 0 ? 1 : 0) + (depth[ib] > 0 ? 1 : 0) + (depth[ic] > 0 ? 1 : 0) + (depth[id] > 0 ? 1 : 0)) * 63.75;
+      }
+    }
+
+    const sw = Math.ceil(w / 2), sh = Math.ceil(h / 2), count = sw * sh;
+    if (!renderer.__edgeDist || renderer.__edgeDist.length !== count) {
+      renderer.__edgeDist = new Uint8Array(count);
+      renderer.__edgeMask = new Uint8Array(count);
+    }
+    const mask = renderer.__edgeMask, dist = renderer.__edgeDist;
+
+    // Body bounds from projected mesh vertices
+    const verts = renderer.mesh?.projected;
+    let bxmin = w * 2, bymin = h * 2, bxmax = 0, bymax = 0;
+    if (verts) {
+      for (let k = 0; k < verts.length; k += 6) {
+        const vx = verts[k], vy = verts[k + 1];
+        if (Number.isFinite(vx) && Number.isFinite(vy)) {
+          bxmin = Math.min(bxmin, vx); bxmax = Math.max(bxmax, vx);
+          bymin = Math.min(bymin, vy); bymax = Math.max(bymax, vy);
+        }
+      }
+    }
+    // Also include reach tube bounds if morph reach is active
+    if (renderer.reaching && renderer.tube?.projected) {
+      const tv = renderer.tube.projected;
+      for (let k = 0; k < tv.length; k += 6) {
+        const tx = tv[k], ty = tv[k + 1];
+        if (Number.isFinite(tx) && Number.isFinite(ty)) {
+          bxmin = Math.min(bxmin, tx); bxmax = Math.max(bxmax, tx);
+          bymin = Math.min(bymin, ty); bymax = Math.max(bymax, ty);
+        }
+      }
+    }
+
+    const bodyLeft = Math.max(0, Math.floor(bxmin / 4) - 3);
+    const bodyRight = Math.min(sw - 1, Math.ceil(bxmax / 4) + 3);
+    const bodyTop = Math.max(0, Math.floor(bymin / 4) - 3);
+    const bodyBottom = Math.min(sh - 1, Math.ceil(bymax / 4) + 3);
+
+    let xmin = sw, ymin = sh, xmax = 0, ymax = 0;
+    for (let y = 0; y < sh; y++) {
+      for (let x = 0; x < sw; x++) {
+        const sx = Math.min(w - 1, x * 2), sy = Math.min(h - 1, y * 2);
+        const a = cov[sy * w + sx], ind = y * sw + x;
+        const inside = a > 35 && x >= bodyLeft && x <= bodyRight && y >= bodyTop && y <= bodyBottom;
+        mask[ind] = inside ? 1 : 0;
+        dist[ind] = inside ? 64 : 0;
+        if (inside) {
+          if (x < xmin) xmin = x;
+          if (x > xmax) xmax = x;
+          if (y < ymin) ymin = y;
+          if (y > ymax) ymax = y;
+        }
+      }
+    }
+
+    if (xmax <= xmin || ymax <= ymin) return;
+
+    // Chamfer distance transform (forward & backward)
+    for (let y = 1; y < sh - 1; y++) {
+      for (let x = 1; x < sw - 1; x++) {
+        const i = y * sw + x;
+        if (!mask[i]) continue;
+        dist[i] = Math.min(dist[i], dist[i - 1] + 1, dist[i - sw] + 1, dist[i - sw - 1] + 1.4, dist[i - sw + 1] + 1.4);
+      }
+    }
+    for (let y = sh - 2; y >= 1; y--) {
+      for (let x = sw - 2; x >= 1; x--) {
+        const i = y * sw + x;
+        if (!mask[i]) continue;
+        dist[i] = Math.min(dist[i], dist[i + 1] + 1, dist[i + sw] + 1, dist[i + sw + 1] + 1.4, dist[i + sw - 1] + 1.4);
+      }
+    }
+
+    const palette = A.PALETTES[renderer.settings.palette] || A.PALETTES[0];
+    const fromHex = hex => { const n = parseInt(hex.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+    const cool = fromHex(palette.colors[1]), warm = fromHex(palette.colors[3]), magenta = fromHex(palette.colors[2]);
+    const custom = /^#[0-9a-fA-F]{6}$/.test(color) ? fromHex(color) : null;
+    const tintBlend = custom ? clamp(0.72, 0, 1) : 0;
+    const blendRGB = col => col.map((v, i) => v * (1 - tintBlend) + (custom ? custom[i] : v) * tintBlend);
+    const accentCool = blendRGB(cool), accentWarm = blendRGB(warm), accentMagenta = blendRGB(magenta);
+
+    const rx = Math.max(10, xmax - xmin), ry = Math.max(10, ymax - ymin);
+    const cx = (xmin + xmax) * .5, cy = (ymin + ymax) * .5;
+    const tw = Math.max(2.7, Math.min(10, rx * .018 * (.65 + .65 * p.thickness)));
+    const pix = img.data;
+
+    const yStart = Math.max(2, (ymin - 2) * 2), yEnd = Math.min(h - 2, (ymax + 3) * 2);
+    const xStart = Math.max(2, (xmin - 2) * 2), xEnd = Math.min(w - 2, (xmax + 3) * 2);
+
+    for (let y = yStart; y < yEnd; y++) {
+      const ym = (y * .5 - cy) / ry * 2;
+      const toplight = gauss(ym, -.74, .49);
+      const bottom = gauss(ym, .91, .26);
+      const row = y * w;
+
+      for (let x = xStart; x < xEnd; x++) {
+        const idx = row + x, cover = cov[idx] / 255;
+        if (cover < .008) continue;
+        const pIdx = idx * 4;
+
+        const x2 = x * .5, y2 = y * .5, xi = x2 | 0, yi = y2 | 0;
+        const sub = x2 - xi, suby = y2 - yi;
+        const yi0 = Math.min(sh - 1, yi) * sw, yi1 = Math.min(sh - 1, yi + 1) * sw;
+        const xi0 = Math.min(sw - 1, xi), xi1 = Math.min(sw - 1, xi + 1);
+        const a = dist[yi0 + xi0], b = dist[yi0 + xi1], c_d = dist[yi1 + xi0], d = dist[yi1 + xi1];
+        const dd = (a * (1 - sub) + b * sub) * (1 - suby) + (c_d * (1 - sub) + d * sub) * suby;
+
+        const xn = (x2 - cx) / rx * 2;
+        const side = gauss(Math.abs(xn), .88, .29);
+        const topGold = gauss(xn, -.70, .43) * toplight;
+        const pink = gauss(xn, .70, .44) * toplight;
+        const cyan = gauss(xn, -.22, .44) * toplight;
+        const whiteCap = (toplight * (.65 + .38 * gauss(xn, 0, .75)) + .19 * side + .17 * bottom);
+
+        const width = tw * (1 + .42 * toplight + .07 * side);
+        const edge1 = gauss(dd, width * .26, Math.max(1.2, width * .23));
+        const body = gauss(dd, width * .76, Math.max(2.2, width * .66));
+        const inner = gauss(dd, width * 1.9, Math.max(1.6, width * .45));
+        const rimIntensity = (.48 + p.rim * .65);
+
+        const white = clamp((edge1 * 1.10 + body * .26 + inner * .08) * whiteCap * rimIntensity * .95);
+        const blueGlint = (edge1 * .82 + body * .50 + inner * .18) * (cyan * 1.50 + bottom * 1.15 + gauss(xn, .85, .35) * .28) * p.iridescence * p.saturation;
+        const pinkGlint = (edge1 * .72 + body * .52) * pink * p.iridescence * p.saturation;
+        const goldGlint = (edge1 * .62 + body * .46) * (topGold + gauss(xn, -.95, .36) * .19) * p.iridescence * p.saturation;
+
+        // Dark depth cavity enhances transparent volumetric feeling
+        const depthCavity = inner * .14 * (1 - p.transmission * .8);
+
+        const opticalWave = gauss(dd, width * 2.65, Math.max(3, width * 2.20));
+        const blueBloom = gauss(xn, -.35, .60) * gauss(ym, -.55, .52) * opticalWave * p.iridescence * p.saturation;
+        const pinkBloom = gauss(xn, .68, .41) * gauss(ym, -.66, .37) * opticalWave * p.iridescence * p.saturation;
+        const warmBloom = gauss(xn, -.76, .36) * gauss(ym, -.62, .43) * opticalWave * p.iridescence * p.saturation;
+
+        const addR = (235 * white + blueGlint * accentCool[0] * .70 + pinkGlint * accentMagenta[0] * .85 + goldGlint * accentWarm[0] * .60 + blueBloom * accentCool[0] * 1.9 + pinkBloom * accentMagenta[0] * 2.0 + warmBloom * accentWarm[0] * 1.35) * cover;
+        const addG = (244 * white + blueGlint * accentCool[1] * .70 + pinkGlint * accentMagenta[1] * .85 + goldGlint * accentWarm[1] * .60 + blueBloom * accentCool[1] * 1.9 + pinkBloom * accentMagenta[1] * 2.0 + warmBloom * accentWarm[1] * 1.35) * cover;
+        const addB = (253 * white + blueGlint * accentCool[2] * .70 + pinkGlint * accentMagenta[2] * .85 + goldGlint * accentWarm[2] * .60 + blueBloom * accentCool[2] * 1.9 + pinkBloom * accentMagenta[2] * 2.0 + warmBloom * accentWarm[2] * 1.35) * cover;
+
+        pix[pIdx] = Math.min(255, Math.max(0, pix[pIdx] * (1 - depthCavity) + addR));
+        pix[pIdx + 1] = Math.min(255, Math.max(0, pix[pIdx + 1] * (1 - depthCavity) + addG));
+        pix[pIdx + 2] = Math.min(255, Math.max(0, pix[pIdx + 2] * (1 - depthCavity) + addB));
+
+        // Genuine optical glass transparency: central transmission + refractive rim + specular glints
+        const grazing = clamp(1.0 - dd / (width * 1.8), 0.0, 1.0);
+        const baseAlpha = (0.05 + 0.12 * p.thickness + 0.20 * (1.0 - p.transmission)) + (0.35 + 0.25 * p.thickness) * Math.pow(grazing, 0.70);
+        const specAlpha = clamp(white * 1.15 + (blueGlint + pinkGlint + goldGlint) * 0.75 + (blueBloom + pinkBloom + warmBloom) * 0.65);
+        const totAlpha = clamp(baseAlpha + specAlpha * (1.0 - baseAlpha), 0.05, 1.0);
+        pix[pIdx + 3] = Math.round(255 * totAlpha * cover);
+      }
+    }
+
+    renderer.ctx.putImageData(renderer.image, 0, 0);
+  }
+
+  proto.draw = function opticalGlassDraw(timeSeconds) {
+    originalDraw.call(this, timeSeconds);
+    if (this.finish === 'opticalglass' && this.ctx && this.image && this.raster) {
+      applyGlassSilhouettePass(this);
+    }
   };
 
   Object.defineProperty(proto, '__axxOpticalGlass', { value: true });
 
+  // --- 3. UI CONTROLS & APPEARANCE INTEGRATION ---
   const spec = [
-    ['transmission', 'Transmisión óptica', 0, 1, .01],
-    ['ior', 'Índice de refracción (IOR)', 1.01, 1.85, .01],
+    ['transmission', 'Transmisi\u00f3n \u00f3ptica', 0, 1, .01],
+    ['ior', '\u00cdndice de refracci\u00f3n (IOR)', 1.01, 1.85, .01],
     ['thickness', 'Espesor del cristal', 0, 1, .01],
-    ['roughness', 'Rugosidad microscópica', .015, .48, .005],
+    ['roughness', 'Rugosidad microsc\u00f3pica', .015, .48, .005],
     ['iridescence', 'Iridescencia', 0, 1, .01],
     ['rim', 'Intensidad del borde', 0, 1, .01],
-    ['saturation', 'Saturación', 0, 1, .01],
-    ['exposure', 'Exposición HDR', .48, 2.1, .01]
+    ['saturation', 'Saturaci\u00f3n', 0, 1, .01],
+    ['exposure', 'Exposici\u00f3n HDR', .48, 2.1, .01]
   ];
 
   function sync() {
@@ -218,83 +465,73 @@
     panel = document.createElement('section');
     panel.id = 'axx-optical-controls';
     panel.hidden = true;
-    panel.setAttribute('aria-label', 'Ajustes de Optical Glass');
-    panel.style.cssText = 'border-top:1px solid #c4dfff24;margin:14px 0;padding:14px 0 0';
+    panel.innerHTML = `
+      <div class="field-title" style="margin-top:16px;">AJUSTES OPTICAL GLASS</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin:8px 0 12px 0;">
+        <button type="button" class="tool-btn" data-preset="reference">Reference Glass</button>
+        <button type="button" class="tool-btn" data-preset="crystal">Optical Crystal</button>
+        <button type="button" class="tool-btn" data-preset="liquid">Liquid Gel</button>
+        <button type="button" class="tool-btn" data-preset="silica">Pure Silica</button>
+        <button type="button" class="tool-btn" data-preset="aura">Prismatic Aura</button>
+      </div>
+      <div id="axx-optical-sliders" style="display:grid;grid-template-columns:1fr;gap:10px;"></div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-top:12px;">
+        <label for="axx-glass-color" style="font-size:12px;color:var(--text-muted, #94a3b8);">Color personalizado</label>
+        <input type="color" id="axx-glass-color" value="${color || '#70caff'}" style="background:none;border:none;width:36px;height:24px;cursor:pointer;">
+      </div>
+    `;
 
-    const h = document.createElement('h4');
-    h.textContent = 'OPTICAL GLASS · LUZ Y CRISTAL';
-    h.style.cssText = 'font:600 10px system-ui;letter-spacing:1.4px;color:#bad9ea;margin:0 0 12px';
-    panel.append(h);
-
-    const presetBar = document.createElement('div');
-    presetBar.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px';
-    for (const [key, label] of [
-      ['reference', 'Reference Glass'],
-      ['crystal', 'Optical Crystal'],
-      ['liquid', 'Liquid Gel'],
-      ['silica', 'Pure Silica'],
-      ['aura', 'Prismatic Aura']
-    ]) {
-      const b = document.createElement('button');
-      b.type = 'button';
-      b.textContent = label;
-      b.style.cssText = 'font:11px system-ui;min-height:34px;padding:6px 9px;border-radius:9px';
-      b.onclick = () => set(PRESETS[key]);
-      presetBar.append(b);
-    }
-    panel.append(presetBar);
-
-    for (const [k, label, min, max, step] of spec) {
-      const row = document.createElement('label');
-      row.style.cssText = 'display:block;margin:12px 0 0;color:#bcd1e4;font:11px system-ui';
-      const title = document.createElement('span');
-      title.textContent = label;
-      const output = document.createElement('output');
-      output.style.cssText = 'float:right;color:#a2dff5';
-      const slider = document.createElement('input');
-      slider.type = 'range';
-      slider.min = min;
-      slider.max = max;
-      slider.step = step;
-      slider.style.cssText = 'width:100%;display:block;margin-top:8px';
-      slider.oninput = () => set({ [k]: Number(slider.value) });
-      row.append(title, output, slider);
-      panel.append(row);
-      inputs.set(k, { slider, output });
+    const container = panel.querySelector('#axx-optical-sliders');
+    for (const [key, label, min, max, step] of spec) {
+      const row = document.createElement('div');
+      row.style.display = 'grid';
+      row.style.gridTemplateColumns = '140px 1fr 44px';
+      row.style.alignItems = 'center';
+      row.style.gap = '8px';
+      row.innerHTML = `
+        <span style="font-size:11px;color:var(--text-muted, #94a3b8);">${label}</span>
+        <input type="range" min="${min}" max="${max}" step="${step}" value="${p[key]}" style="width:100%;">
+        <output style="font-size:11px;text-align:right;color:var(--text, #e2e8f0);font-variant-numeric:tabular-nums;">${p[key].toFixed(2)}</output>
+      `;
+      const slider = row.querySelector('input');
+      const output = row.querySelector('output');
+      slider.oninput = () => {
+        output.value = Number(slider.value).toFixed(2);
+        set({ [key]: Number(slider.value) });
+      };
+      inputs.set(key, { slider, output });
+      container.appendChild(row);
     }
 
-    const label = document.createElement('label');
-    label.style.cssText = 'display:flex;justify-content:space-between;align-items:center;font:11px system-ui;margin:12px 0';
-    label.textContent = 'Color personalizado';
-    const picker = document.createElement('input');
-    picker.type = 'color';
-    picker.value = '#70caff';
-    picker.style.cssText = 'width:55px;height:36px';
-    picker.oninput = () => set({ color: picker.value });
-    label.append(picker);
-    panel.append(label);
-    inputs.set('color', picker);
+    const colorPicker = panel.querySelector('#axx-glass-color');
+    colorPicker.oninput = () => set({ color: colorPicker.value });
+    inputs.set('color', colorPicker);
 
-    const reset = document.createElement('button');
-    reset.type = 'button';
-    reset.textContent = 'Colores originales de la paleta';
-    reset.onclick = () => set({ color: '' });
-    panel.append(reset);
+    panel.querySelectorAll('[data-preset]').forEach(btn => {
+      btn.onclick = () => set({ preset: btn.dataset.preset });
+    });
 
     status.insertAdjacentElement('afterend', panel);
-    for (const b of document.querySelectorAll('.finish-cards [data-finish],#finish-apply,#finish-restore')) {
-      b.addEventListener('click', () => queueMicrotask(sync));
-    }
     sync();
   }
 
-  mount();
-  if (!panel) document.addEventListener('DOMContentLoaded', mount, { once: true });
-  window.AxxOpticalGlass = Object.freeze({
+  const origSetFinish = proto.setFinish;
+  proto.setFinish = function patchedSetFinish(f) {
+    origSetFinish.call(this, f);
+    sync();
+  };
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', mount, { once: true });
+  } else {
+    mount();
+  }
+
+  window.AxxOpticalGlass = {
+    version: '1.0.0',
     get: () => ({ ...p, color }),
     set,
-    setPreset: name => { if (PRESETS[name]) set(PRESETS[name]); },
-    presets: Object.keys(PRESETS),
-    version: '1.0.0'
-  });
+    setPreset: name => set({ preset: name }),
+    presets: Object.keys(PRESETS)
+  };
 })();
