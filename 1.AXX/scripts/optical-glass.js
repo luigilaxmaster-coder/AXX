@@ -1,324 +1,246 @@
-/* AXX Optical Glass: additive visual finish for native AXX. No geometry or core replaced. */
 (() => {
   'use strict';
+
   const A = window.Axx;
-  if (!A?.SoftwareRenderer || A.PALETTES?.length !== 9) return;
+  if (!A || !A.SoftwareRenderer) return;
+
   const proto = A.SoftwareRenderer.prototype;
   if (proto.__axxOpticalGlass) return;
 
-  const originalShadeTable = proto.shadeTable;
-  const originalDraw = proto.draw;
-  const KEY = 'axx-optical-glass-v1';
-
   const PRESETS = {
-    reference: { transmission: .91, ior: 1.48, thickness: .76, roughness: .045, iridescence: .63, rim: .96, saturation: .72, exposure: 1.21, envBoost: 1.08, aurora: 1.00, mode: 'glass' },
-    crystal:   { transmission: .83, ior: 1.64, thickness: .87, roughness: .023, iridescence: .43, rim: 1.00, saturation: .45, exposure: 1.23, envBoost: 1.20, aurora: .17,  mode: 'crystal' },
-    liquid:    { transmission: .60, ior: 1.39, thickness: .68, roughness: .18,  iridescence: .43, rim: .57, saturation: .56, exposure: .96,  envBoost: 1.08, aurora: 1.00, mode: 'glass' },
-    silica:    { transmission: .96, ior: 1.46, thickness: .60, roughness: .026, iridescence: .12, rim: .94, saturation: .10, exposure: 1.21, envBoost: 1.20, aurora: .17,  mode: 'glass' },
-    aura:      { transmission: .82, ior: 1.52, thickness: .62, roughness: .056, iridescence: 1.0, rim: .91, saturation: 1.0, exposure: 1.18, envBoost: 1.04, aurora: 1.28, mode: 'aura' }
+    reference: { transmission: .85, ior: 1.48, thickness: .50, roughness: .035, iridescence: .75, rim: .80, saturation: .80, exposure: 1.05, envBoost: 1.15, aurora: .55 },
+    crystal:   { transmission: .60, ior: 1.72, thickness: .85, roughness: .018, iridescence: .95, rim: .95, saturation: .90, exposure: 1.25, envBoost: 1.35, aurora: .70 },
+    liquid:    { transmission: .92, ior: 1.33, thickness: .30, roughness: .080, iridescence: .45, rim: .60, saturation: .65, exposure: .95,  envBoost: 1.00, aurora: .40 },
+    silica:    { transmission: .75, ior: 1.45, thickness: .60, roughness: .025, iridescence: .60, rim: .70, saturation: .70, exposure: 1.00, envBoost: 1.10, aurora: .45 },
+    aura:      { transmission: .80, ior: 1.60, thickness: .65, roughness: .030, iridescence: 1.0, rim: .90, saturation: 1.0, exposure: 1.15, envBoost: 1.40, aurora: .90 }
   };
 
-  const DEFAULT = { ...PRESETS.reference };
-  const R = {
-    transmission: [0, 1],
-    ior: [1.01, 1.85],
-    thickness: [0, 1],
-    roughness: [.015, .48],
-    iridescence: [0, 1],
-    rim: [0, 1],
-    saturation: [0, 1],
-    exposure: [.48, 2.1]
-  };
-
-  const K_FILM = [0, 2.094395, 4.18879];
-  const K_SPEC = [0, -2.094395, 2.094395];
-  const K_WHITE = [0.88, 0.92, 1.04];
-  const clamp = (v, a = 0, b = 1) => Math.max(a, Math.min(b, v));
-  const exp = Math.exp;
-  const gauss = (v, m, s) => exp(-(((v - m) / s) ** 2));
-  const decode = hex => {
-    const n = parseInt(hex.slice(1), 16);
-    return [Math.pow((n >> 16 & 255) / 255, 2.2), Math.pow((n >> 8 & 255) / 255, 2.2), Math.pow((n & 255) / 255, 2.2)];
-  };
-  const norm = v => { const l = Math.hypot(...v) || 1; return v.map(x => x / l); };
-  const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-  const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
-  const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
-
-  let p = { ...DEFAULT }, color = '', revision = 0, panel = null, inputs = new Map();
+  const STORAGE_KEY = 'axx_optical_glass_params';
+  let p = { ...PRESETS.reference };
+  let color = '';
 
   try {
-    const saved = JSON.parse(localStorage.getItem(KEY) || 'null');
-    if (saved && typeof saved === 'object') {
-      for (const [k, [a, b]] of Object.entries(R)) {
-        if (typeof saved[k] === 'number' && Number.isFinite(saved[k])) p[k] = clamp(saved[k], a, b);
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') {
+        p = { ...p, ...parsed };
+        if (typeof parsed.color === 'string') color = parsed.color;
       }
-      if (typeof saved.envBoost === 'number' && Number.isFinite(saved.envBoost)) p.envBoost = saved.envBoost;
-      if (typeof saved.aurora === 'number' && Number.isFinite(saved.aurora)) p.aurora = saved.aurora;
-      if (['glass', 'crystal', 'aura'].includes(saved.mode)) p.mode = saved.mode;
-      if (/^#[0-9a-fA-F]{6}$/i.test(saved.color || '')) color = saved.color;
     }
-  } catch (e) {
-    console.warn('[AXX Optical Glass] Settings read skipped', e);
+  } catch (_) {}
+
+  const clamp = (v, min = 0, max = 1) => Math.max(min, Math.min(max, v));
+  const lerp = (a, b, t) => a + (b - a) * t;
+
+  let panel = null;
+  const inputs = new Map();
+
+  function persist() {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...p, color }));
+    } catch (_) {}
   }
 
-  const invalidate = () => {
-    revision++;
-    const renderer = A.app?.renderer;
-    if (renderer) {
-      renderer.lutKey = '';
-      renderer.lastDrawnSignature = '';
+  function set(updates) {
+    if (updates.preset && PRESETS[updates.preset]) {
+      p = { ...p, ...PRESETS[updates.preset] };
     }
-  };
-
-  const save = () => {
-    try {
-      localStorage.setItem(KEY, JSON.stringify({ ...p, color }));
-    } catch (e) {
-      console.warn('[AXX Optical Glass] Settings save skipped', e);
+    for (const k of ['transmission', 'ior', 'thickness', 'roughness', 'iridescence', 'rim', 'saturation', 'exposure', 'envBoost', 'aurora']) {
+      if (typeof updates[k] === 'number' && !Number.isNaN(updates[k])) {
+        p[k] = updates[k];
+      }
     }
-  };
-
-  const set = patch => {
-    if (!patch || typeof patch !== 'object') return;
-    if (typeof patch.preset === 'string' && PRESETS[patch.preset]) {
-      patch = { ...PRESETS[patch.preset], ...patch };
+    if (typeof updates.color === 'string') {
+      color = updates.color;
     }
-    for (const [k, [a, b]] of Object.entries(R)) {
-      if (Object.hasOwn(patch, k) && Number.isFinite(Number(patch[k]))) p[k] = clamp(Number(patch[k]), a, b);
-    }
-    if (typeof patch.envBoost === 'number' && Number.isFinite(patch.envBoost)) p.envBoost = patch.envBoost;
-    if (typeof patch.aurora === 'number' && Number.isFinite(patch.aurora)) p.aurora = patch.aurora;
-    if (['glass', 'crystal', 'aura'].includes(patch.mode)) p.mode = patch.mode;
-    if (Object.hasOwn(patch, 'color')) color = /^#[0-9a-fA-F]{6}$/i.test(patch.color || '') ? patch.color : '';
-    save();
-    invalidate();
+    persist();
     sync();
-  };
+    const r = A.app?.renderer;
+    if (r) {
+      r.lutKey = '';
+      r.draw?.(0);
+    }
+  }
+
+  function getPaletteAccents(paletteIdx, customColor) {
+    const palette = A.PALETTES[paletteIdx] || A.PALETTES[0];
+    const fromHex = hex => { const n = parseInt(hex.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+    const cool = fromHex(palette.colors[1]), warm = fromHex(palette.colors[3]), magenta = fromHex(palette.colors[2]);
+    const custom = /^#[0-9a-fA-F]{6}$/.test(customColor) ? fromHex(customColor) : null;
+    const tintBlend = custom ? clamp(0.72, 0, 1) : 0;
+    const blendRGB = col => col.map((v, i) => v * (1 - tintBlend) + (custom ? custom[i] : v) * tintBlend);
+    return {
+      cool: blendRGB(cool),
+      warm: blendRGB(warm),
+      magenta: blendRGB(magenta)
+    };
+  }
 
   // --- 1. SHADE TABLE (Shared HDR lighting for body & OrganicTendrils) ---
+  const originalShadeTable = proto.shadeTable;
   proto.shadeTable = function opticalGlassShadeTable() {
-    if (this.finish !== 'opticalglass') return originalShadeTable.call(this);
+    if (this.finish !== 'opticalglass') {
+      return originalShadeTable.call(this);
+    }
 
-    const signature = [
-      this.settings.palette,
-      this.studio.roughness,
-      this.studio.exposure,
-      this.studio.lightAngle,
-      this.state,
-      this.settings.keepForm,
-      color,
-      revision
-    ].join('/');
+    const palIdx = this.settings?.palette ?? 0;
+    const cacheKey = `opticalglass/${palIdx}/${color}/${p.ior.toFixed(2)}/${p.roughness.toFixed(3)}/${p.iridescence.toFixed(2)}/${p.rim.toFixed(2)}/${p.saturation.toFixed(2)}/${p.exposure.toFixed(2)}/${p.thickness.toFixed(2)}/${p.transmission.toFixed(2)}/${(p.envBoost || 1).toFixed(2)}/${(p.aurora || .5).toFixed(2)}`;
 
-    if (this.__opticalGlassSignature === signature && this.lutKey === 'opticalglass/' + signature) return;
+    if (this.lutKey === cacheKey && this.lut) return;
 
+    const width = 512;
+    if (!this.lut || this.lut.length !== width * width * 4) {
+      this.lut = new Uint8ClampedArray(width * width * 4);
+    }
     const lut = this.lut;
-    const colors = A.PALETTES[this.settings.palette].colors;
-    const palette = colors.map(decode);
-    const custom = /^#[0-9a-fA-F]{6}$/.test(color) ? decode(color) : null;
-    const tintBlend = custom ? 0.72 : 0;
-    const blendRGB = col => col.map((v, i) => v * (1 - tintBlend) + (custom ? custom[i] : v) * tintBlend);
-    const effPalette = palette.map(blendRGB);
-    const tintV = custom ? [custom[0] ** (1/2.2), custom[1] ** (1/2.2), custom[2] ** (1/2.2)] : null;
+    const pal = A.PALETTES[palIdx] || A.PALETTES[0];
 
-    const w = .028 + this.studio.roughness * .32;
-    const rawCards = [
-      { dir: [-.64, .80, .60], size: [.17, .57], feather: w * 2.3, color: [1.35, 1.48, 1.75] },
-      { dir: [-.81, .74, .40], size: [.022, .53], feather: w * .62, color: [2.0, 2.12, 2.3] },
-      { dir: [.15, .79, 1], size: [.52, .20], feather: w * 2.0, color: [.012, .019, .034] },
-      { dir: [.87, .46, .48], size: [.055, .67], feather: w * 1.4, color: [1.2, 1.4, 1.65] },
-      { dir: [-.25, 1, -.22], size: [.78, .026], feather: w * .8, color: [2, 2.16, 2.35] },
-      { dir: [-1, -.06, .04], size: [.25, .81], feather: w * 2.1, color: effPalette[0].map(n => n * 2.1) },
-      { dir: [-.61, -.53, .94], size: [.075, .57], feather: w * 1.2, color: effPalette[0].map(n => n * .80) },
-      { dir: [.66, .16, .76], size: [.055, .44], feather: w * .85, color: effPalette[2].map(n => n * .70) },
-      { dir: [-.34, -.91, .35], size: [.48, .085], feather: w * 1.3, color: effPalette[1].map(n => n * .95) },
-      { dir: [.77, 0, -.72], size: [.14, .78], feather: w * 1.4, color: effPalette[2].map(n => n * 1.8) },
-      { dir: [.98, -.20, .43], size: [.045, .67], feather: w * .85, color: effPalette[3].map(n => n * 1.9) },
-      { dir: [-.63, -.37, -.62], size: [.078, .62], feather: w * 1.5, color: [.36, .40, .48] },
-      { dir: [.30, -.63, -.72], size: [.56, .075], feather: w, color: [.26, .33, .46] }
+    const fromHex = hex => {
+      const n = parseInt(hex.slice(1), 16);
+      return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+    };
+
+    const cBase = fromHex(pal.colors[0]);
+    const cCool = fromHex(pal.colors[1]);
+    const cMag  = fromHex(pal.colors[2]);
+    const cWarm = fromHex(pal.colors[3]);
+
+    const custom = /^#[0-9a-fA-F]{6}$/.test(color) ? fromHex(color) : null;
+    const tintBlend = custom ? clamp(0.72, 0, 1) : 0;
+    const blendRGB = col => col.map((v, i) => v * (1 - tintBlend) + (custom ? custom[i] : v) * tintBlend);
+
+    const baseCol = blendRGB(cBase);
+    const coolCol = blendRGB(cCool);
+    const magCol  = blendRGB(cMag);
+    const warmCol = blendRGB(cWarm);
+
+    const invRough = 1 / Math.max(0.005, p.roughness);
+    const specPow = 24 + invRough * 5.2;
+    const softPow = 4 + invRough * 0.9;
+    const f0 = Math.pow((p.ior - 1) / (p.ior + 1), 2);
+    const envBoost = p.envBoost || 1.15;
+    const aurora = p.aurora || 0.55;
+
+    const cards = [
+      { dir: [0.00,  0.88, 0.47], col: [255, 255, 255], power: specPow * 1.35,  gain: 2.40 * p.exposure * envBoost },
+      { dir: [-0.72, 0.52, 0.45], col: coolCol,          power: specPow * 0.85,  gain: 1.80 * p.iridescence * envBoost },
+      { dir: [0.72,  0.50, 0.48], col: magCol,           power: specPow * 0.90,  gain: 1.95 * p.iridescence * envBoost },
+      { dir: [0.00, -0.85, 0.52], col: warmCol,          power: specPow * 0.75,  gain: 1.55 * p.iridescence * envBoost },
+      { dir: [-0.45,-0.65, 0.61], col: coolCol,          power: softPow * 1.10,  gain: 0.95 * p.saturation },
+      { dir: [0.55, -0.58, 0.59], col: magCol,           power: softPow * 1.05,  gain: 1.05 * p.saturation },
+      { dir: [0.00,  0.95, 0.31], col: [240, 248, 255], power: softPow * 1.30,  gain: 1.40 * envBoost },
+      { dir: [-0.92, 0.15, 0.35], col: coolCol,          power: softPow * 0.80,  gain: 1.10 * aurora },
+      { dir: [0.92,  0.18, 0.33], col: warmCol,          power: softPow * 0.80,  gain: 1.00 * aurora },
+      { dir: [0.00,  0.00, 1.00], col: baseCol,          power: 2.0,            gain: 0.45 * (1 - p.transmission * 0.5) },
+      { dir: [0.38,  0.78, 0.49], col: [255, 255, 255], power: specPow * 1.60,  gain: 1.85 * p.exposure },
+      { dir: [-0.58, 0.62, 0.52], col: coolCol,          power: specPow * 1.10,  gain: 1.45 * p.iridescence },
+      { dir: [0.62,  0.48, 0.62], col: magCol,           power: specPow * 1.15,  gain: 1.50 * p.iridescence }
     ];
 
-    const cards = rawCards.map(c => {
-      const d = norm(c.dir), right = norm(cross([0, 1, .02], d)), up = cross(d, right);
-      return { ...c, dir: d, right, up };
-    });
+    for (let c = 0; c < cards.length; c++) {
+      const cd = cards[c].dir;
+      const len = Math.hypot(cd[0], cd[1], cd[2]) || 1;
+      cd[0] /= len; cd[1] /= len; cd[2] /= len;
+    }
 
-    const keydir = norm([-.64, .8, .6]), forward = norm([.1, .12, 1]);
-    const co = Math.cos(this.studio.lightAngle), si = Math.sin(this.studio.lightAngle);
-    const r = [0, 0, 0];
+    const V = [0, 0, 1];
+    const halfWidth = width * 0.5;
+    const invHalfWidth = 1 / halfWidth;
 
-    const highlightPower = 9 + 30 * (1 - p.roughness / .48);
-    const hpA = highlightPower * .31, hpB = highlightPower * .22, hpC = highlightPower * .76;
-    const iorRatio = (p.ior - 1) / (p.ior + 1);
-    const f0 = iorRatio * iorRatio;
-    const envBoost = p.envBoost || 1.08;
-    const aurora = p.aurora || 1.00;
-    const mode = p.mode || 'glass';
-    const lightResponse = this.settings.keepForm ? 1 : Axx.MOTION_PROFILES[this.state].lightResponse;
+    for (let j = 0; j < width; j++) {
+      const ny = (j - halfWidth) * invHalfWidth;
+      const ny2 = ny * ny;
+      const rowOffset = j * width * 4;
 
-    for (let j = 0; j < 512; j++) {
-      const ny = j / 511 * 2 - 1;
-      const top = Math.pow(Math.max(0, ny * .5 + .5), 1.4);
-      const row = j * 512;
+      for (let i = 0; i < width; i++) {
+        const nx = (i - halfWidth) * invHalfWidth;
+        const nxy2 = nx * nx + ny2;
 
-      for (let i = 0; i < 512; i++) {
-        const nx = i / 511 * 2 - 1;
-        const nz = Math.sqrt(Math.max(.000001, 1 - nx * nx - ny * ny));
-        const rx = 2 * nx * nz, ry = 2 * ny * nz, rz = 2 * nz * nz - 1;
-        r[0] = rx * co + rz * si;
-        r[1] = ry;
-        r[2] = -rx * si + rz * co;
+        const o = rowOffset + (i << 2);
 
-        const gDot = dot(r, keydir);
-        const g = gDot > 0 ? Math.pow(gDot, 18) : 0;
-        const fDot = dot(r, forward);
-        const ambient = fDot > 0 ? Math.pow(fDot, 5) : 0;
-        const fres = Math.pow(1 - nz, 5);
-
-        let cr = .002 + .009 * top + .009 * ambient + .06 * g;
-        let cg = .003 + .013 * top + .012 * ambient + .085 * g;
-        let cb = .005 + .021 * top + .019 * ambient + .12 * g;
-
-        for (const card of cards) {
-          const facing = dot(r, card.dir);
-          if (facing <= 0) continue;
-          const qx = Math.abs(dot(r, card.right) / facing), qy = Math.abs(dot(r, card.up) / facing);
-          if (qx >= card.size[0] + card.feather || qy >= card.size[1] + card.feather) continue;
-          const m = (1 - smooth(card.size[0] - card.feather, card.size[0] + card.feather, qx)) *
-                    (1 - smooth(card.size[1] - card.feather, card.size[1] + card.feather, qy));
-          cr += card.color[0] * m;
-          cg += card.color[1] * m;
-          cb += card.color[2] * m;
+        if (nxy2 > 1.0) {
+          lut[o] = 0;
+          lut[o + 1] = 0;
+          lut[o + 2] = 0;
+          lut[o + 3] = 255;
+          continue;
         }
 
-        const base = [cr, cg, cb];
-        const grazing = clamp(1 - nz, 0, 1);
-        const edge = Math.pow(grazing, 1.32);
-        const fresnel = f0 + (1 - f0) * Math.pow(grazing, 5);
+        const nz = Math.sqrt(Math.max(0.000001, 1.0 - nxy2));
+        const VdotN = Math.max(0, nz);
+        const fresnel = f0 + (1 - f0) * Math.pow(1 - VdotN, 4.5);
+        const rimGlow = Math.pow(1 - VdotN, 2.8) * p.rim * 1.6;
 
-        const ww = .45 + ny * .59 - nx * .16;
-        const whiteWide = ww > 0 ? Math.pow(ww, 4.8) : 0;
-        const ub = .29 + ny * .76 + nz * .28 - nx * .18;
-        const upperBox = ub > 0 ? Math.pow(ub, hpA) : 0;
-        const sb = .25 - nx * .80 + ny * .14 + nz * .12;
-        const sideBox = sb > 0 ? Math.pow(sb, hpB) : 0;
-        const gl = .17 + ny * .72 - nx * .25 + nz * .27;
-        const glint = gl > 0 ? Math.pow(gl, hpC) : 0;
-        const bb = -ny * .84 + nx * .11 + .13;
-        const bottomBox = bb > 0 ? Math.pow(bb, 4.3) : 0;
+        const rx = 2 * nz * nx;
+        const ry = 2 * nz * ny;
+        const rz = 2 * nz * nz - 1;
 
-        const phase = Math.atan2(ny, nx) * 2.7 + nx * 4.2 - ny * 3.1 + this.studio.lightAngle * .50;
-        const opticalPhase = phase + (1 - nz) * 7.5 * (.25 + p.ior * .30);
+        let accumR = 0, accumG = 0, accumB = 0;
 
-        const neutralRim = (.17 + .57 * p.rim) * Math.pow(grazing, .65) * (.80 + .24 * p.thickness);
-        const whiteCoat = (upperBox * .43 + whiteWide * .15 + sideBox * .31 + glint * .84 + bottomBox * .18) * (.46 + .55 * p.rim) * (1 - p.roughness * .57);
+        for (let c = 0; c < cards.length; c++) {
+          const card = cards[c];
+          const cd = card.dir;
+          const rDotL = rx * cd[0] + ry * cd[1] + rz * cd[2];
+          if (rDotL <= 0) continue;
 
-        const o = (row + i) * 4;
-
-        for (let k = 0; k < 3; k++) {
-          const film = .5 + .5 * Math.cos(K_FILM[k] + (1 - nz) * 10.7);
-          const tint = .72 + (.16 + .20 * fres) * film;
-          const accent = effPalette[[0, 1, 2][k]][k];
-          const tintR = tintV ? (tintV[k] * tintV[k]) : accent;
-
-          const spectrum = .5 + .5 * Math.cos(opticalPhase * (.68 + .8 * p.iridescence) + K_SPEC[k]);
-          const iris = spectrum * (.09 + .28 * p.iridescence) * edge * p.iridescence * p.saturation * aurora;
-          const reflection = base[k] * (.12 + .40 * edge + .14 * fresnel) * envBoost;
-          const transmissionBody = (.009 + .065 * tintR + .012 * spectrum) * p.transmission * (1 - .58 * edge) * (.9 + .4 * p.thickness);
-          const absorption = Math.exp(-p.thickness * (.23 + .48 * tintR) * (1 + .62 * edge));
-          const chroma = iris * (.12 + .58 * tintR + .26 * spectrum);
-          const glassBase = (transmissionBody + chroma + reflection * .46) * absorption;
-          const clear = glassBase + neutralRim * .34 + whiteCoat * K_WHITE[k];
-          
-          // Transparent optical glass transmits light; metallic chrome reflection is strongly attenuated
-          const chromeReflection = base[k] * tint * (.58 + .56 * edge) * (1 - p.roughness * .48) * (1 - p.transmission * 0.72);
-
-          let val = chromeReflection + clear * .54 + fresnel * .18 * base[k];
-          if (mode === 'crystal') val += Math.pow(Math.abs(Math.sin(phase * 3.6)), 22) * edge * .15;
-          if (mode === 'aura') val += spectrum * .18 * edge * p.saturation;
-
-          val *= p.exposure * lightResponse;
-          const mapped = clamp((val * (2.51 * val + .03)) / (val * (2.43 * val + .59) + .14), 0, 1);
-          lut[o + k] = Math.round(255 * Math.pow(mapped, 1 / 2.2));
+          const spec = Math.pow(rDotL, card.power) * card.gain;
+          accumR += card.col[0] * spec;
+          accumG += card.col[1] * spec;
+          accumB += card.col[2] * spec;
         }
 
-        // Keep alpha fully opaque in raster.pixels for bulletproof hit-testing & OrganicTendrils root attachment
+        const dispersion = (1 - nz) * p.iridescence * 0.85;
+        const dispR = 1 + dispersion * 0.45;
+        const dispG = 1;
+        const dispB = 1 + dispersion * 0.70;
+
+        const bodyDarkening = 0.18 + 0.82 * (1 - p.transmission * 0.75);
+        const bodyToneR = baseCol[0] * bodyDarkening * 0.28;
+        const bodyToneG = baseCol[1] * bodyDarkening * 0.28;
+        const bodyToneB = baseCol[2] * bodyDarkening * 0.28;
+
+        const outR = (bodyToneR + (accumR * dispR * fresnel + rimGlow * coolCol[0] * 0.45)) * p.exposure;
+        const outG = (bodyToneG + (accumG * dispG * fresnel + rimGlow * magCol[1]  * 0.40)) * p.exposure;
+        const outB = (bodyToneB + (accumB * dispB * fresnel + rimGlow * coolCol[2] * 0.55)) * p.exposure;
+
+        lut[o]     = Math.min(255, Math.max(0, Math.round(outR)));
+        lut[o + 1] = Math.min(255, Math.max(0, Math.round(outG)));
+        lut[o + 2] = Math.min(255, Math.max(0, Math.round(outB)));
         lut[o + 3] = 255;
       }
     }
 
-    this.__opticalGlassSignature = signature;
-    this.lutKey = 'opticalglass/' + signature;
+    this.lutKey = cacheKey;
   };
 
-  // --- 2. GLASS SILHOUETTE PASS & POST-PROCESS (Transparent Bevel, Cavity, Caustic Glints) ---
+  // --- 2. MULTI-LAYER SILHOUETTE PASS (Volumetric Glass Body) ---
+  const gauss = (v, target, spread) => Math.exp(-Math.pow(v - target, 2) / (spread * spread));
+
   function applyGlassSilhouettePass(renderer) {
+    const raster = renderer.raster;
     const img = renderer.image;
-    if (!img || !renderer.raster || renderer.studio.view !== 0) return;
-    const w = img.width, h = img.height;
-    const rw = renderer.raster.width, depth = renderer.raster.depth;
-    if (!depth) return;
+    if (!raster || !img || !renderer.ctx) return;
 
-    // Build anti-aliased surface coverage from raster depth
-    if (!renderer.__glassCoverage || renderer.__glassCoverage.length !== w * h) {
-      renderer.__glassCoverage = new Uint8Array(w * h);
-    }
-    const cov = renderer.__glassCoverage;
-    for (let y = 0; y < h; y++) {
-      const rA = (y * 2) * rw, rB = (y * 2 + 1) * rw, row = y * w;
-      for (let x = 0; x < w; x++) {
-        const x2 = x * 2;
-        const ia = rA + x2, ib = ia + 1, ic = rB + x2, id = ic + 1;
-        cov[row + x] = ((depth[ia] > 0 ? 1 : 0) + (depth[ib] > 0 ? 1 : 0) + (depth[ic] > 0 ? 1 : 0) + (depth[id] > 0 ? 1 : 0)) * 63.75;
-      }
-    }
+    const w = raster.width, h = raster.height;
+    const cov = raster.coverage;
+    if (!cov) return;
 
-    const sw = Math.ceil(w / 2), sh = Math.ceil(h / 2), count = sw * sh;
-    if (!renderer.__edgeDist || renderer.__edgeDist.length !== count) {
-      renderer.__edgeDist = new Uint8Array(count);
-      renderer.__edgeMask = new Uint8Array(count);
-    }
-    const mask = renderer.__edgeMask, dist = renderer.__edgeDist;
+    const sw = w >> 1, sh = h >> 1;
+    if (sw < 4 || sh < 4) return;
 
-    // Body bounds from projected mesh vertices
-    const verts = renderer.mesh?.projected;
-    let bxmin = w * 2, bymin = h * 2, bxmax = 0, bymax = 0;
-    if (verts) {
-      for (let k = 0; k < verts.length; k += 6) {
-        const vx = verts[k], vy = verts[k + 1];
-        if (Number.isFinite(vx) && Number.isFinite(vy)) {
-          bxmin = Math.min(bxmin, vx); bxmax = Math.max(bxmax, vx);
-          bymin = Math.min(bymin, vy); bymax = Math.max(bymax, vy);
-        }
-      }
-    }
-    // Also include reach tube bounds if morph reach is active
-    if (renderer.reaching && renderer.tube?.projected) {
-      const tv = renderer.tube.projected;
-      for (let k = 0; k < tv.length; k += 6) {
-        const tx = tv[k], ty = tv[k + 1];
-        if (Number.isFinite(tx) && Number.isFinite(ty)) {
-          bxmin = Math.min(bxmin, tx); bxmax = Math.max(bxmax, tx);
-          bymin = Math.min(bymin, ty); bymax = Math.max(bymax, ty);
-        }
-      }
-    }
+    const mask = new Uint8Array(sw * sh);
+    const dist = new Float32Array(sw * sh);
+    dist.fill(1e4);
 
-    const bodyLeft = Math.max(0, Math.floor(bxmin / 4) - 3);
-    const bodyRight = Math.min(sw - 1, Math.ceil(bxmax / 4) + 3);
-    const bodyTop = Math.max(0, Math.floor(bymin / 4) - 3);
-    const bodyBottom = Math.min(sh - 1, Math.ceil(bymax / 4) + 3);
-
-    let xmin = sw, ymin = sh, xmax = 0, ymax = 0;
+    let xmin = sw, xmax = 0, ymin = sh, ymax = 0;
     for (let y = 0; y < sh; y++) {
+      const srcRow = (y * 2) * w;
+      const dstRow = y * sw;
       for (let x = 0; x < sw; x++) {
-        const sx = Math.min(w - 1, x * 2), sy = Math.min(h - 1, y * 2);
-        const a = cov[sy * w + sx], ind = y * sw + x;
-        const inside = a > 35 && x >= bodyLeft && x <= bodyRight && y >= bodyTop && y <= bodyBottom;
-        mask[ind] = inside ? 1 : 0;
-        dist[ind] = inside ? 64 : 0;
-        if (inside) {
+        if (cov[srcRow + (x * 2)] > 16) {
+          mask[dstRow + x] = 1;
+          dist[dstRow + x] = 0;
           if (x < xmin) xmin = x;
           if (x > xmax) xmax = x;
           if (y < ymin) ymin = y;
@@ -326,10 +248,8 @@
         }
       }
     }
-
     if (xmax <= xmin || ymax <= ymin) return;
 
-    // Chamfer distance transform (forward & backward)
     for (let y = 1; y < sh - 1; y++) {
       for (let x = 1; x < sw - 1; x++) {
         const i = y * sw + x;
@@ -345,18 +265,28 @@
       }
     }
 
-    const palette = A.PALETTES[renderer.settings.palette] || A.PALETTES[0];
-    const fromHex = hex => { const n = parseInt(hex.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
-    const cool = fromHex(palette.colors[1]), warm = fromHex(palette.colors[3]), magenta = fromHex(palette.colors[2]);
-    const custom = /^#[0-9a-fA-F]{6}$/.test(color) ? fromHex(color) : null;
-    const tintBlend = custom ? clamp(0.72, 0, 1) : 0;
-    const blendRGB = col => col.map((v, i) => v * (1 - tintBlend) + (custom ? custom[i] : v) * tintBlend);
-    const accentCool = blendRGB(cool), accentWarm = blendRGB(warm), accentMagenta = blendRGB(magenta);
+    const accents = getPaletteAccents(renderer.settings?.palette ?? 0, color);
+    const accentCool = accents.cool, accentWarm = accents.warm, accentMagenta = accents.magenta;
 
     const rx = Math.max(10, xmax - xmin), ry = Math.max(10, ymax - ymin);
     const cx = (xmin + xmax) * .5, cy = (ymin + ymax) * .5;
     const tw = Math.max(2.7, Math.min(10, rx * .018 * (.65 + .65 * p.thickness)));
     const pix = img.data;
+
+    // Collect active tendril roots to damp the body contour rim at the attachment junction
+    const activeRoots = [];
+    if (renderer.__activeTendrilRoots && renderer.canvas) {
+      const cr = renderer.canvas.getBoundingClientRect();
+      const scaleX = w / Math.max(1, cr.width), scaleY = h / Math.max(1, cr.height);
+      for (let rIdx = 0; rIdx < renderer.__activeTendrilRoots.length; rIdx++) {
+        const ar = renderer.__activeTendrilRoots[rIdx];
+        activeRoots.push({
+          cx: (ar.x - cr.left) * scaleX,
+          cy: (ar.y - cr.top) * scaleY,
+          cRad: ar.radius * scaleX
+        });
+      }
+    }
 
     const yStart = Math.max(2, (ymin - 2) * 2), yEnd = Math.min(h - 2, (ymax + 3) * 2);
     const xStart = Math.max(2, (xmin - 2) * 2), xEnd = Math.min(w - 2, (xmax + 3) * 2);
@@ -392,12 +322,24 @@
         const inner = gauss(dd, width * 1.9, Math.max(1.6, width * .45));
         const rimIntensity = (.48 + p.rim * .65);
 
-        const white = clamp((edge1 * 1.10 + body * .26 + inner * .08) * whiteCap * rimIntensity * .95);
-        const blueGlint = (edge1 * .82 + body * .50 + inner * .18) * (cyan * 1.50 + bottom * 1.15 + gauss(xn, .85, .35) * .28) * p.iridescence * p.saturation;
-        const pinkGlint = (edge1 * .72 + body * .52) * pink * p.iridescence * p.saturation;
-        const goldGlint = (edge1 * .62 + body * .46) * (topGold + gauss(xn, -.95, .36) * .19) * p.iridescence * p.saturation;
+        // Seamless junction: damp body outline rim where tendril connects
+        let tendrilDamp = 1.0;
+        if (activeRoots.length > 0) {
+          for (let rIdx = 0; rIdx < activeRoots.length; rIdx++) {
+            const ar = activeRoots[rIdx];
+            const distToRoot = Math.hypot(x - ar.cx, y - ar.cy);
+            if (distToRoot < ar.cRad * 2.5) {
+              const d = clamp((distToRoot - ar.cRad * 0.35) / (ar.cRad * 1.6), 0, 1);
+              tendrilDamp = Math.min(tendrilDamp, d * d * (3 - 2 * d));
+            }
+          }
+        }
 
-        // Dark depth cavity enhances transparent volumetric feeling
+        const white = clamp((edge1 * 1.10 + body * .26 + inner * .08) * whiteCap * rimIntensity * .95) * tendrilDamp;
+        const blueGlint = (edge1 * .82 + body * .50 + inner * .18) * (cyan * 1.50 + bottom * 1.15 + gauss(xn, .85, .35) * .28) * p.iridescence * p.saturation * tendrilDamp;
+        const pinkGlint = (edge1 * .72 + body * .52) * pink * p.iridescence * p.saturation * tendrilDamp;
+        const goldGlint = (edge1 * .62 + body * .46) * (topGold + gauss(xn, -.95, .36) * .19) * p.iridescence * p.saturation * tendrilDamp;
+
         const depthCavity = inner * .14 * (1 - p.transmission * .8);
 
         const opticalWave = gauss(dd, width * 2.65, Math.max(3, width * 2.20));
@@ -414,7 +356,7 @@
         pix[pIdx + 2] = Math.min(255, Math.max(0, pix[pIdx + 2] * (1 - depthCavity) + addB));
 
         // Genuine optical glass transparency: central transmission + refractive rim + specular glints
-        const grazing = clamp(1.0 - dd / (width * 1.8), 0.0, 1.0);
+        const grazing = clamp(1.0 - dd / (width * 1.8), 0.0, 1.0) * tendrilDamp;
         const baseAlpha = (0.05 + 0.12 * p.thickness + 0.20 * (1.0 - p.transmission)) + (0.35 + 0.25 * p.thickness) * Math.pow(grazing, 0.70);
         const specAlpha = clamp(white * 1.15 + (blueGlint + pinkGlint + goldGlint) * 0.75 + (blueBloom + pinkBloom + warmBloom) * 0.65);
         const totAlpha = clamp(baseAlpha + specAlpha * (1.0 - baseAlpha), 0.05, 1.0);
@@ -425,16 +367,232 @@
     renderer.ctx.putImageData(renderer.image, 0, 0);
   }
 
+  const originalDraw = proto.draw;
   proto.draw = function opticalGlassDraw(timeSeconds) {
-    originalDraw.call(this, timeSeconds);
+    if (originalDraw) originalDraw.call(this, timeSeconds);
     if (this.finish === 'opticalglass' && this.ctx && this.image && this.raster) {
       applyGlassSilhouettePass(this);
     }
   };
 
+  // --- 3. SEAMLESS ORGANIC TENDRIL INTEGRATION (Root Flare, Dissolve, & Glass Translucency) ---
+  if (A.OrganicTendrils) {
+    const origTendrilDraw = A.OrganicTendrils.prototype.draw;
+    if (origTendrilDraw) {
+      A.OrganicTendrils.prototype.draw = function opticalTendrilDraw(links, phase, lut, view, renderer) {
+        if (renderer && renderer.finish === 'opticalglass' && Array.isArray(links)) {
+          const rect = renderer.canvas?.getBoundingClientRect();
+          const raster = renderer.raster;
+          const opaque = rect?.width && rect?.height && raster ? (x, y) => {
+            const px = Math.floor((x - rect.left) * raster.width / rect.width);
+            const py = Math.floor((y - rect.top) * raster.height / rect.height);
+            return px >= 0 && py >= 0 && px < raster.width && py < raster.height && raster.pixels[(py * raster.width + px) * 4 + 3] > 128;
+          } : null;
+
+          const roots = [];
+          for (let lIdx = 0; lIdx < links.length; lIdx++) {
+            const raw = links[lIdx];
+            const fitted = A.fitTendrilLink(raw, opaque, rect ? Math.hypot(rect.width, rect.height) * .5 : 0);
+            if (fitted && fitted.a && Number.isFinite(fitted.rootRadius)) {
+              roots.push({
+                x: fitted.a.x,
+                y: fitted.a.y,
+                radius: fitted.rootRadius
+              });
+            }
+          }
+          renderer.__activeTendrilRoots = roots;
+        }
+        return origTendrilDraw.call(this, links, phase, lut, view, renderer);
+      };
+    }
+
+    const origTendrilRender = A.OrganicTendrils.prototype.render;
+    if (origTendrilRender) {
+      A.OrganicTendrils.prototype.render = function opticalTendrilRender(links, phase, lut, view, renderer) {
+        if (renderer && renderer.finish === 'opticalglass') {
+          const rect = renderer.canvas?.getBoundingClientRect();
+          const raster = renderer.raster;
+          const opaque = rect?.width && rect?.height && raster ? (x, y) => {
+            const px = Math.floor((x - rect.left) * raster.width / rect.width);
+            const py = Math.floor((y - rect.top) * raster.height / rect.height);
+            return px >= 0 && py >= 0 && px < raster.width && py < raster.height && raster.pixels[(py * raster.width + px) * 4 + 3] > 128;
+          } : null;
+
+          const roots = [];
+          if (Array.isArray(links)) {
+            for (let lIdx = 0; lIdx < links.length; lIdx++) {
+              const raw = links[lIdx];
+              const fitted = A.fitTendrilLink(raw, opaque, rect ? Math.hypot(rect.width, rect.height) * .5 : 0);
+              if (fitted && fitted.a && Number.isFinite(fitted.rootRadius)) {
+                roots.push({
+                  x: fitted.a.x,
+                  y: fitted.a.y,
+                  radius: fitted.rootRadius
+                });
+              }
+            }
+          }
+          renderer.__activeTendrilRoots = roots;
+        } else if (renderer) {
+          renderer.__activeTendrilRoots = null;
+        }
+        return origTendrilRender.call(this, links, phase, lut, view, renderer);
+      };
+    }
+
+    const origTube = A.OrganicTendrils.prototype.tube;
+    if (origTube) {
+      A.OrganicTendrils.prototype.tube = function opticalGlassTube(link, phase, lut, view) {
+        const renderer = A.app?.renderer;
+        if (!renderer || renderer.finish !== 'opticalglass') {
+          return origTube.call(this, link, phase, lut, view);
+        }
+
+      const pVal = Math.max(0, Math.min(1, link.progress)), route = document.body.classList.contains('a11-action-mode');
+      const point = (t) => {
+        const q = A.organicCurve(link.a, link.b, t, phase);
+        if (route) q.x += A.actionArmOffset(link.a, link.b, t, this.width);
+        return q;
+      };
+      const end = point(pVal);
+      const dx = link.b.x - link.a.x, dy = link.b.y - link.a.y, fullLength = Math.hypot(dx, dy);
+      if (!Number.isFinite(fullLength) || fullLength < 1) return;
+      const ux = dx / fullLength, uy = dy / fullLength;
+      const totalDist = Math.hypot(end.x - link.a.x, end.y - link.a.y);
+      const rootRadius = Math.min(link.rootRadius, 24 * A.OrganicTendrils.thickness, Math.max(1, totalDist * .2));
+      const radius = t => A.flowArmRadius(t, totalDist) * rootRadius / 24 * Math.sqrt(pVal);
+
+      const segments = Math.min(1024, Math.max(64, Math.ceil(totalDist / 2)));
+      const centers = new Float32Array((segments + 1) * 5);
+      let minY = 0, maxY = 0;
+      for (let j = 0; j <= segments; j++) {
+        const t = j / segments, q = point(t * pVal), x = q.x - link.a.x, y = q.y - link.a.y;
+        const k = j * 5;
+        centers[k] = x * ux + y * uy;
+        centers[k + 1] = -x * uy + y * ux;
+        centers[k + 2] = radius(t);
+        minY = Math.min(minY, centers[k + 1]); maxY = Math.max(maxY, centers[k + 1]);
+      }
+      for (let j = 0; j <= segments; j++) {
+        const k = j * 5, before = Math.max(0, j - 1) * 5, after = Math.min(segments, j + 1) * 5;
+        const span = Math.max(.0001, centers[after] - centers[before]);
+        centers[k + 3] = (centers[after + 1] - centers[before + 1]) / span;
+        centers[k + 4] = (centers[after + 2] - centers[before + 2]) / span;
+        const projectedRadius = centers[k + 2] * Math.sqrt(1 + centers[k + 3] * centers[k + 3]);
+        minY = Math.min(minY, centers[k + 1] - projectedRadius);
+        maxY = Math.max(maxY, centers[k + 1] + projectedRadius);
+      }
+
+      const pad = Math.ceil(rootRadius * 1.6 + 6), left = -pad, top = Math.floor(minY - 4);
+      const width = Math.ceil(fullLength + pad * 2), height = Math.ceil(maxY - minY + 8);
+      const scale = Math.min(Math.max(2.5, this.dpr * 1.5), 8192 / width, Math.sqrt(2600000 / (width * height)));
+      const w = Math.max(32, Math.ceil(width * scale / 32) * 32), h = Math.max(16, Math.ceil(height * scale / 16) * 16);
+      let buffer = this.buffers.get(link.id);
+      if (!buffer || buffer.width !== w || buffer.height !== h) {
+        const c = document.createElement('canvas');
+        c.width = w; c.height = h;
+        const ctx = c.getContext('2d', { alpha: true });
+        if (!ctx) return;
+        const image = ctx.createImageData(w, h);
+        buffer = { canvas: c, ctx, image, raster: { width: w, height: h, pixels: image.data }, width: w, height: h };
+        this.buffers.set(link.id, buffer);
+      }
+      const r = buffer.raster, pixels = r.pixels, sampling = scale, color = this.color;
+      const lutSize = Math.round(Math.sqrt(lut.length / 4));
+      pixels.fill(0);
+      let segment = 0;
+
+      const rootTransition = Math.max(10, rootRadius * 1.8);
+      const glassTransmission = p.transmission;
+      const glassThickness = p.thickness;
+      const glassRim = p.rim;
+
+      const accents = getPaletteAccents(renderer.settings?.palette ?? 0, color);
+      const accentCool = accents.cool, accentWarm = accents.warm, accentMagenta = accents.magenta;
+
+      for (let x = Math.max(0, Math.floor(-left * sampling)); x < r.width; x++) {
+        const along = left + (x + .5) / sampling;
+        if (along > centers[segments * 5]) break;
+        while (segment < segments - 1 && centers[(segment + 1) * 5] < along) segment++;
+        const k = segment * 5, span = centers[k + 5] - centers[k];
+        if (span <= .0001) continue;
+        const f = Math.max(0, Math.min(1, (along - centers[k]) / span));
+        const cy = centers[k + 1] * (1 - f) + centers[k + 6] * f;
+        let rad = centers[k + 2] * (1 - f) + centers[k + 7] * f;
+        if (rad < .0001) continue;
+
+        // Smooth trumpet flare at the base merging seamlessly into the body volume
+        const rootT = clamp(along / rootTransition, 0, 1);
+        const flare = 1.0 + 0.42 * Math.pow(1.0 - rootT, 2.0);
+        rad *= flare;
+
+        // Smooth dissolve inside the body volume: zero hard truncated cylinder edge
+        const smoothFade = rootT * rootT * (3.0 - 2.0 * rootT);
+
+        const tangent = centers[k + 3] * (1 - f) + centers[k + 8] * f;
+        const inv = 1 / Math.sqrt(1 + tangent * tangent), tx = inv, ty = tangent * inv;
+        const slope = (centers[k + 4] * (1 - f) + centers[k + 9] * f) * inv;
+        const normalLength = Math.sqrt(1 + slope * slope);
+        const half = rad / tx, first = Math.max(0, Math.floor((cy - half - top) * sampling - 1));
+        const last = Math.min(r.height - 1, Math.ceil((cy + half - top) * sampling + 1));
+
+        for (let y = first; y <= last; y++) {
+          const transverse = (top + (y + .5) / sampling - cy) * tx;
+          const coverage = Math.max(0, Math.min(1, (rad - Math.abs(transverse)) * sampling + .5));
+          if (!coverage) continue;
+          const q = Math.max(-1, Math.min(1, transverse / rad));
+          const nAlong = (-ty * q - tx * slope) / normalLength, nAcross = (tx * q - ty * slope) / normalLength;
+          const nx = ux * nAlong - uy * nAcross, ny = -(uy * nAlong + ux * nAcross);
+          const nz = Math.sqrt(Math.max(0, 1 - q * q)) / normalLength;
+          const o = (y * r.width + x) * 4;
+
+          A.sampleMaterial(lut, lutSize, nx, ny, color);
+
+          const grazing = clamp(1.0 - nz, 0.0, 1.0);
+          const toplight = Math.max(0.0, -ny);
+          const side = Math.abs(nx);
+
+          // Studio specular highlights on the cylindrical glass rod
+          const whiteGlint = Math.pow(grazing, 2.4) * (0.60 + 0.40 * toplight) * glassRim;
+          const blueGlint = Math.pow(grazing, 3.2) * (0.45 + 0.55 * Math.max(0.0, ny)) * p.iridescence * p.saturation;
+          const pinkGlint = Math.pow(grazing, 3.6) * (0.35 + 0.65 * side) * p.iridescence * p.saturation;
+          const goldGlint = Math.pow(grazing, 2.8) * (0.40 + 0.60 * toplight) * p.iridescence * p.saturation;
+
+          const addR = whiteGlint * 235 + blueGlint * accentCool[0] * 0.70 + pinkGlint * accentMagenta[0] * 0.85 + goldGlint * accentWarm[0] * 0.60;
+          const addG = whiteGlint * 244 + blueGlint * accentCool[1] * 0.70 + pinkGlint * accentMagenta[1] * 0.85 + goldGlint * accentWarm[1] * 0.60;
+          const addB = whiteGlint * 253 + blueGlint * accentCool[2] * 0.70 + pinkGlint * accentMagenta[2] * 0.85 + goldGlint * accentWarm[2] * 0.60;
+
+          // Pure optical glass transmission & volumetric Fresnel
+          const baseAlpha = (0.05 + 0.10 * glassThickness + 0.16 * (1.0 - glassTransmission)) + (0.35 + 0.25 * glassThickness) * Math.pow(grazing, 0.75);
+          const specAlpha = clamp(whiteGlint * 1.15 + (blueGlint + pinkGlint + goldGlint) * 0.75, 0.0, 1.0);
+          const totAlpha = clamp(baseAlpha + specAlpha * (1.0 - baseAlpha), 0.05, 1.0);
+
+          // Translucent transmission: dampen dark cavity in the center so the background shines through
+          const cavityDamp = (1.0 - 0.75 * glassTransmission);
+          pixels[o]     = Math.min(255, Math.max(0, color[0] * cavityDamp + addR));
+          pixels[o + 1] = Math.min(255, Math.max(0, color[1] * cavityDamp + addG));
+          pixels[o + 2] = Math.min(255, Math.max(0, color[2] * cavityDamp + addB));
+          pixels[o + 3] = Math.round(coverage * smoothFade * 255 * totAlpha);
+        }
+      }
+      buffer.ctx.putImageData(buffer.image, 0, 0);
+      this.ctx.imageSmoothingEnabled = true;
+      this.ctx.imageSmoothingQuality = 'high';
+      this.ctx.globalAlpha = Math.min(1, pVal / .08);
+      this.ctx.save();
+      this.ctx.translate(link.a.x, link.a.y);
+      this.ctx.transform(ux, uy, -uy, ux, 0, 0);
+      this.ctx.drawImage(buffer.canvas, left, top, w / scale, h / scale);
+      this.ctx.restore();
+      this.ctx.globalAlpha = 1;
+    };
+    }
+  }
+
   Object.defineProperty(proto, '__axxOpticalGlass', { value: true });
 
-  // --- 3. UI CONTROLS & APPEARANCE INTEGRATION ---
+  // --- 4. UI CONTROLS & APPEARANCE INTEGRATION ---
   const spec = [
     ['transmission', 'Transmisi\u00f3n \u00f3ptica', 0, 1, .01],
     ['ior', '\u00cdndice de refracci\u00f3n (IOR)', 1.01, 1.85, .01],
