@@ -568,6 +568,8 @@ class InferenceAdapter:
             request = {'messages': envelope.get('messages', []), 'axx_task': envelope.get('task', 'chat'),
                        'selection_mode': envelope.get('selection_mode', 'manual'),
                        'axx_sensitive': envelope.get('sensitivity') == 'approved_sensitive'}
+            if envelope.get('probe'):
+                request['probe'] = True
             if 'upstream_attempt_budget' in envelope:
                 request['axx_attempt_budget'] = envelope['upstream_attempt_budget']
             if envelope.get('model') and request['selection_mode'] != 'automatic_free':

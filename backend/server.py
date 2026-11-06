@@ -821,7 +821,9 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                 if set(body) != {'provider_name', 'model'} or any(not isinstance(v, str) or not v.strip() or len(v) > 200 for v in body.values()):
                     raise ValueError('Indica proveedor y modelo para comprobar la conexión.')
                 request_id = uuid.uuid4().hex
-                provider_entry = next((p for p in self.adapter.config.get('providers', []) if p.get('name') == body['provider_name']), None)
+                cfg = self.adapter.config if isinstance(getattr(self.adapter, 'config', None), dict) else {}
+                providers_list = cfg.get('providers', []) if isinstance(cfg.get('providers'), list) else []
+                provider_entry = next((p for p in providers_list if isinstance(p, dict) and p.get('name') == body['provider_name']), None)
                 tasks = provider_entry.get('tasks') if provider_entry else None
                 probe_task = 'chat'
                 if tasks and '*' not in tasks and 'chat' not in tasks and len(tasks) > 0:
@@ -830,7 +832,7 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                     'selection_mode': 'manual', 'request_id': request_id, 'conversation_id': 'connection-test-' + request_id, 'deadline_ms': 15000,
                     'probe': True,
                     'messages': [{'role': 'user', 'content': 'Responde exactamente AXX_API_OK.'}],
-                    'generation': {'temperature': 0, 'max_tokens': 64}})
+                    'generation': {'temperature': 0, 'max_tokens': 512}})
                 if not result.get('ok'):
                     code = result.get('error', {}).get('code')
                     self._send_json(409 if code == 'BUSY' else 400 if code == 'INVALID_REQUEST' else 499 if code == 'CANCELLED' else 502, result)

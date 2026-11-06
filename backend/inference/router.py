@@ -482,7 +482,7 @@ class Router:
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
 
-    def _reserve(self, p: dict) -> bool:
+    def _reserve(self, p: dict, is_probe: bool = False) -> bool:
         """Atomic reservation honoring cooldown, daily limit, and quota_scope_id (H04)."""
         day = dt.datetime.now(dt.timezone.utc).date().isoformat()
         scope_id = p.get('quota_scope_id') or p['name']
@@ -491,12 +491,13 @@ class Router:
             with self.db:
                 self.db.execute('BEGIN IMMEDIATE')
                 # Check cooldown by name or by quota scope
-                row = self.db.execute(
-                    'SELECT MAX(until) FROM cooldown WHERE name=? OR quota_scope_id=?',
-                    (p['name'], scope_id)
-                ).fetchone()
-                if row and row[0] is not None and row[0] > now:
-                    return False
+                if not is_probe:
+                    row = self.db.execute(
+                        'SELECT MAX(until) FROM cooldown WHERE name=? OR quota_scope_id=?',
+                        (p['name'], scope_id)
+                    ).fetchone()
+                    if row and row[0] is not None and row[0] > now:
+                        return False
                 
                 # Check provider daily limit
                 self.db.execute('INSERT OR IGNORE INTO usage VALUES(?,?,0,?)', (p['name'], day, scope_id))
@@ -569,7 +570,7 @@ class Router:
         """Validates chat request with null checks per field (H02, D)."""
         if not isinstance(request, dict):
             raise RequestError("Request must be a JSON object")
-        allowed = {'messages', 'axx_task', 'axx_sensitive', 'temperature', 'max_tokens', 'tools', 'stream', 'model', 'provider_name', 'selection_mode', 'axx_attempt_budget', 'effort', 'output_schema'}
+        allowed = {'messages', 'axx_task', 'axx_sensitive', 'temperature', 'max_tokens', 'tools', 'stream', 'model', 'provider_name', 'selection_mode', 'axx_attempt_budget', 'effort', 'output_schema', 'probe'}
         if 'axx_attempt_budget' in request and (type(request['axx_attempt_budget']) is not int or not 1 <= request['axx_attempt_budget'] <= 10):
             raise RequestError('axx_attempt_budget must be an integer between 1 and 10')
         if request.get('selection_mode', 'manual') not in ('manual', 'automatic_free'):
@@ -933,7 +934,7 @@ class Router:
                 time_left = deadline_time - time.monotonic()
                 if time_left <= 0:
                     raise UpstreamError(504, message='Global inference deadline exceeded before source admission')
-            if not self._reserve(p):
+            if not self._reserve(p, is_probe=is_probe):
                 continue
 
             attempts += 1
