@@ -821,8 +821,14 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                 if set(body) != {'provider_name', 'model'} or any(not isinstance(v, str) or not v.strip() or len(v) > 200 for v in body.values()):
                     raise ValueError('Indica proveedor y modelo para comprobar la conexión.')
                 request_id = uuid.uuid4().hex
-                result = self.adapter.route({'provider_name': body['provider_name'], 'model': body['model'], 'task': 'chat',
+                provider_entry = next((p for p in self.adapter.config.get('providers', []) if p.get('name') == body['provider_name']), None)
+                tasks = provider_entry.get('tasks') if provider_entry else None
+                probe_task = 'chat'
+                if tasks and '*' not in tasks and 'chat' not in tasks and len(tasks) > 0:
+                    probe_task = tasks[0]
+                result = self.adapter.route({'provider_name': body['provider_name'], 'model': body['model'], 'task': probe_task,
                     'selection_mode': 'manual', 'request_id': request_id, 'conversation_id': 'connection-test-' + request_id, 'deadline_ms': 15000,
+                    'probe': True,
                     'messages': [{'role': 'user', 'content': 'Responde exactamente AXX_API_OK.'}],
                     'generation': {'temperature': 0, 'max_tokens': 64}})
                 if not result.get('ok'):

@@ -1,27 +1,27 @@
 ﻿{
-    "started":  "2026-11-05T14:32:55.2868029-04:00",
-    "completed":  "2026-11-05T14:47:03.6625779-04:00",
+    "started":  "2026-11-06T00:39:15.7609288-04:00",
+    "completed":  "2026-11-06T00:57:25.1721153-04:00",
     "artifacts":  [
                       {
                           "architecture":  "x86_64",
-                          "path":  "C:\\Users\\luigi\\Desktop\\axx2\\.claude\\worktrees\\axx-visual-spatial-intelligence-9246f0\\src-tauri\\target\\release\\bundle\\nsis\\Axx_0.22.45_x64-setup.exe",
-                          "sha256":  "5B8A4BCA76F4FAC0B5011AEBA6A035F40402AF931609DAE0C9FF81BB582701A1",
-                          "bytes":  201348126,
-                          "version":  "0.22.45"
+                          "path":  "C:\\Users\\luigi\\Desktop\\axx2\\.claude\\worktrees\\axx-visual-spatial-intelligence-9246f0\\src-tauri\\target\\release\\bundle\\nsis\\Axx_0.22.46_x64-setup.exe",
+                          "sha256":  "E6F89361566BD546FDA6063AFB305C266F543008F8BEAB72C7901E6836914E4A",
+                          "bytes":  201351337,
+                          "version":  "0.22.46"
                       },
                       {
                           "architecture":  "x86_64",
                           "path":  "C:\\Users\\luigi\\Desktop\\axx2\\.claude\\worktrees\\axx-visual-spatial-intelligence-9246f0\\src-tauri\\target\\release\\Axx.exe",
-                          "sha256":  "551D5C866896F4AA7D4EB2D3CB0D8A6DDE059CD260A9355C7859AFA82057498D",
+                          "sha256":  "C5ADB98AA112CA8BA9C1D0DB1DEEABE0099602E7D48DEEFC8AA16C77987CE01C",
                           "bytes":  15237120,
-                          "version":  "0.22.45"
+                          "version":  "0.22.46"
                       },
                       {
                           "architecture":  "x86_64",
                           "path":  "C:\\Users\\luigi\\Desktop\\axx2\\.claude\\worktrees\\axx-visual-spatial-intelligence-9246f0\\dist\\axx-backend\\axx-backend.exe",
-                          "sha256":  "C26EE21B495733080D2EDA5E18DD85155C1C8C3B211DA277AE03712DF9B52FA5",
-                          "bytes":  23214361,
-                          "version":  "0.22.45"
+                          "sha256":  "AEF3639FEA92A27503A926DDF7BED6590EE2D1BCE06E03962DCD4A85BBDA3B48",
+                          "bytes":  23216074,
+                          "version":  "0.22.46"
                       }
                   ],
     "steps":  [
@@ -44,7 +44,7 @@
               ],
     "source_hashes":  {
                           "C:\\Users\\luigi\\Desktop\\axx2\\.claude\\worktrees\\axx-visual-spatial-intelligence-9246f0\\src-tauri\\resources\\license-notices\\jsonschema\\jsonschema-4.26.0.dist-info\\licenses\\COPYING":  "66010C33DA1256C30C4359F6EDD8C30FBCCBF41A4BF66CB0C576E5C726978142",
-                          "C:\\Users\\luigi\\Desktop\\axx2\\.claude\\worktrees\\axx-visual-spatial-intelligence-9246f0\\backend\\magic_pen.py":  "FB3A8AB592F024F47077BC574FD0CD43BF47F012D235FA08FB6BAA3A3F56E892",
+                          "C:\\Users\\luigi\\Desktop\\axx2\\.claude\\worktrees\\axx-visual-spatial-intelligence-9246f0\\backend\\magic_pen.py":  "9D7881BA893FBDE87E199C6AF23CD967BC49A0F74926DC6E0CBC830058FBCDBA",
                           "C:\\Users\\luigi\\Desktop\\axx2\\.claude\\worktrees\\axx-visual-spatial-intelligence-9246f0\\1.AXX\\scripts\\application-catalog.js":  "3D5F91DADDBE5C74E47A2693DA62EDA848A5D959E247B4DA07EF478E45E0A3FE",
                           "C:\\Users\\luigi\\Desktop\\axx2\\.claude\\worktrees\\axx-visual-spatial-intelligence-9246f0\\vendor\\cli_anything_blender\\cli_anything\\blender\\utils\\bpy_gen.py":  "EEC8F5F036EC5E9731F3A1ECC7491579F503EB5365B71EA19D8F80CB35A8FEB9",
                           "C:\\Users\\luigi\\Desktop\\axx2\\.claude\\worktrees\\axx-visual-spatial-intelligence-9246f0\\backend\\actions\\browser_bridge.py":  "F4D171DC05FA013C1F5359F021649F93AAF45777331AC49AFF66C0D1214D74EC",
@@ -79,7 +79,7 @@
                           "C:\\Users\\luigi\\Desktop\\axx2\\.claude\\worktrees\\axx-visual-spatial-intelligence-9246f0\\backend\\provider_capabilities.py":  "F090E13942475022590FCD9873726B75427EFCAADCE351B2F31F5529B5EED616",
                           "C:\\Users\\luigi\\Desktop\\axx2\\.claude\\worktrees\\axx-visual-spatial-intelligence-9246f0\\backend\\mcp_host\\catalog.py":  "360717E94EF110B16485AEAA54F3F4A8F3546DBBC92A0EC7D744E8CDD7B4E1D6",
                           "C:\\Users\\luigi\\Desktop\\axx2\\.claude\\worktrees\\axx-visual-spatial-intelligence-9246f0\\backend\\telegram\\voice_note.py":  "336703301306A902AE51F615163B140EC4417C04A2A71FA4B707F75EB5D9CD7C",
-                          "src-tauri\\Cargo.toml":  "8F30795BCFC361B107A8FDC9D5B952EAC3EEF81EFF9169060E251F4BA50DCB02",
+                          "src-tauri\\Cargo.toml":  "767C45FD9796809EC1D242B68CB76F931AA162060DB5ADB5891AE4D6134F7363",
                           "C:\\Users\\luigi\\Desktop\\axx2\\.claude\\worktrees\\axx-visual-spatial-intelligence-9246f0\\1.AXX\\scripts\\mobile-work-approval.js":  "0F74F7EF66503CE9BB4AFCB7B895FB9C9AECD68DF4BE4B29A309E4847EB3FDC3",
                           "C:\\Users\\luigi\\Desktop\\axx2\\.claude\\worktrees\\axx-visual-spatial-intelligence-9246f0\\backend\\auth\\__init__.py":  "6CEEEFA71E75A0C4EB6288E09057457DFCB2A5B21CA7E9274C328B71D29FCB6D",
                           "C:\\Users\\luigi\\Desktop\\axx2\\.claude\\worktrees\\axx-visual-spatial-intelligence-9246f0\\src-tauri\\resources\\license-notices\\numpy\\numpy-2.4.4.dist-info\\licenses\\numpy\\ma\\LICENSE":  "D78DBB208B80D92B4D333E41A4BAAE50D12444F46E53199FA7726A91DE6E2DA7",
@@ -98,7 +98,7 @@
                           "C:\\Users\\luigi\\Desktop\\axx2\\.claude\\worktrees\\axx-visual-spatial-intelligence-9246f0\\backend\\guide_plan.py":  "267B8AA1AAF6AD742C524DC5713D0CA8944B207BFF1DDC7EF9D2F1FD5C4C6C77",
                           "C:\\Users\\luigi\\Desktop\\axx2\\.claude\\worktrees\\axx-visual-spatial-intelligence-9246f0\\backend\\telegram\\worker.py":  "508A79A923B11F6C9DB31794746BF1B32B165FC637B17089FC24810E0A79B1DC",
                           "C:\\Users\\luigi\\Desktop\\axx2\\.claude\\worktrees\\axx-visual-spatial-intelligence-9246f0\\1.AXX\\scripts\\chat-workspace.js":  "91C3C838EC63646CD85C2E951EDB8CDDACCEE6A88A6EA766209C1451004DB082",
-                          "C:\\Users\\luigi\\Desktop\\axx2\\.claude\\worktrees\\axx-visual-spatial-intelligence-9246f0\\backend\\prompts.py":  "90F1A2F343C04E9047DC43491874FC11534F37C106862B31DE933A1C1BB95FBC",
+                          "C:\\Users\\luigi\\Desktop\\axx2\\.claude\\worktrees\\axx-visual-spatial-intelligence-9246f0\\backend\\prompts.py":  "F6CFAA3DCE6AF73C30675A5A12E87A8F0253B4024E101D5D6D6975250ABAEED2",
                           "C:\\Users\\luigi\\Desktop\\axx2\\.claude\\worktrees\\axx-visual-spatial-intelligence-9246f0\\backend\\telegram\\catalog.py":  "16A7F6231D7261DCC1A0F7CFF053511B973F99D2F078A80FEBADF5731D11CCDD",
                           "C:\\Users\\luigi\\Desktop\\axx2\\.claude\\worktrees\\axx-visual-spatial-intelligence-9246f0\\src-tauri\\resources\\license-notices\\numpy\\numpy-2.4.4.dist-info\\licenses\\numpy\\_core\\src\\common\\pythoncapi-compat\\COPYING":  "AEA41976C720F91BD19725C16916A1ACE40EB1EA42620D340E587A5DE4BBCEA0",
                           "mobile\\js\\avatar-renderer.js":  "0EF2D356C3BA4B48168673093FA1D7DC38B05F5720CCB58835C01B7C5A22248F",
@@ -106,7 +106,7 @@
                           "C:\\Users\\luigi\\Desktop\\axx2\\.claude\\worktrees\\axx-visual-spatial-intelligence-9246f0\\1.AXX\\Axx-20-base.png":  "9D06793267C5E714675E72347D444668663C9DAD06E19CCC5C6D312BBD6BEE72",
                           "C:\\Users\\luigi\\Desktop\\axx2\\.claude\\worktrees\\axx-visual-spatial-intelligence-9246f0\\src-tauri\\resources\\license-notices\\psutil\\psutil-7.2.2.dist-info\\LICENSE":  "C7ADC4D5D1337A548B967421F1FBE258B93033A0417708FD6F4E38F8ECBCEB80",
                           "C:\\Users\\luigi\\Desktop\\axx2\\.claude\\worktrees\\axx-visual-spatial-intelligence-9246f0\\resources\\asr-model-manifest.json":  "529D2486C45D6214F57A324A9D71947E1E4B1B6020E2143DA04EB6790D1D6A27",
-                          "C:\\Users\\luigi\\Desktop\\axx2\\.claude\\worktrees\\axx-visual-spatial-intelligence-9246f0\\1.AXX\\Axx.html":  "442751B0371B5BBCE21B6C2FB1A0BD892427AE4A35ACB4F578B5126873C9C1D5",
+                          "C:\\Users\\luigi\\Desktop\\axx2\\.claude\\worktrees\\axx-visual-spatial-intelligence-9246f0\\1.AXX\\Axx.html":  "1A0705FC34EFC381FDA453063B22DA066E3A589693CED0AB264E57D5684994BD",
                           "scripts\\configure-native-gateway.py":  "0CA4A4C0A2D1F6CB501670ED935FA53E260DB0F8E58334710781AF2CFFD3F4A8",
                           "C:\\Users\\luigi\\Desktop\\axx2\\.claude\\worktrees\\axx-visual-spatial-intelligence-9246f0\\backend\\actions\\desktop.py":  "54D0B72EA5BA1945AFDDA74C66BFC71D2EB20ABE77A06E3B49970A7BAFCA6389",
                           "C:\\Users\\luigi\\Desktop\\axx2\\.claude\\worktrees\\axx-visual-spatial-intelligence-9246f0\\backend\\actions\\obs_bridge.py":  "253A24EECBAE0EA2F55707606BC1B372FA0BF97C0A608DB60874B15DCCB0FA40",
@@ -150,7 +150,7 @@
                           "C:\\Users\\luigi\\Desktop\\axx2\\.claude\\worktrees\\axx-visual-spatial-intelligence-9246f0\\backend\\demonstration.py":  "FD16AFEA18C15D6CE97324A79105EEB2C307B1532C3B9DEB880F091718C2EE98",
                           "C:\\Users\\luigi\\Desktop\\axx2\\.claude\\worktrees\\axx-visual-spatial-intelligence-9246f0\\backend\\mcp_host\\native_bridge.py":  "2CEB1BABD53D54006DAAFB274D86D6B248CD1FA7D2167744AA36FDB4BE51F3A7",
                           "C:\\Users\\luigi\\Desktop\\axx2\\.claude\\worktrees\\axx-visual-spatial-intelligence-9246f0\\backend\\memory\\selection_policy.py":  "F3A6175BFDE323515E35E3B4C63068D773FBC7C347AAA571EF538CE0F1A378BE",
-                          "mobile\\www\\js\\desktop-avatar.js":  "650D6BB54C962F4FC92F77EFEF97E1BF6247F30DDC12C2E62787F7D60ED5A51B",
+                          "mobile\\www\\js\\desktop-avatar.js":  "1BE1953D76733AC227100F3773D84E292D47350CD5FE70394BF5BB2D4379C2B7",
                           "requirements-telegram.txt":  "9D2EB0076CB1DD731CBC185F4A3F59FF52C5DDB1B2A93710344EA3E402C3CFA3",
                           "C:\\Users\\luigi\\Desktop\\axx2\\.claude\\worktrees\\axx-visual-spatial-intelligence-9246f0\\backend\\generated_commands.py":  "42171A4753921C3BB0E3C779A0A9D87357B595C34D2C9D5CBE5365584E6CCD43",
                           "C:\\Users\\luigi\\Desktop\\axx2\\.claude\\worktrees\\axx-visual-spatial-intelligence-9246f0\\backend\\actions\\browser_tasks.py":  "8143854D20E09D378DA7D33C1909BB63A233BAE714B650F54777E5CAA956BC49",
@@ -216,7 +216,7 @@
                           "C:\\Users\\luigi\\Desktop\\axx2\\.claude\\worktrees\\axx-visual-spatial-intelligence-9246f0\\backend\\telegram\\daemon.py":  "0682AF5625BAEFD0EC6744887371EA078598DD089AD36B05E6D37148B84E3D6F",
                           "C:\\Users\\luigi\\Desktop\\axx2\\.claude\\worktrees\\axx-visual-spatial-intelligence-9246f0\\1.AXX\\scripts\\panel-design.css":  "6AF4CCB5143F9C7F06C522353DDC8DE374DFB1892150396DBBDBB183E88A76EB",
                           "C:\\Users\\luigi\\Desktop\\axx2\\.claude\\worktrees\\axx-visual-spatial-intelligence-9246f0\\1.AXX\\Axx-20-movimiento.png":  "D7E01A79C08CF8B2632B49DDE06B87643094DBB7D5F6DEEFE2D56FDE694544A8",
-                          "C:\\Users\\luigi\\Desktop\\axx2\\.claude\\worktrees\\axx-visual-spatial-intelligence-9246f0\\backend\\server.py":  "E08749099DC821FF8C5065CD44F0B8946C5701B1E113C162986606754E0B4006",
+                          "C:\\Users\\luigi\\Desktop\\axx2\\.claude\\worktrees\\axx-visual-spatial-intelligence-9246f0\\backend\\server.py":  "B8060C61CCEF248070835B8AB0B289D3A3455F7961204FBFE78B5F4B5D4BC424",
                           "C:\\Users\\luigi\\Desktop\\axx2\\.claude\\worktrees\\axx-visual-spatial-intelligence-9246f0\\src-tauri\\resources\\license-notices\\numpy\\numpy-2.4.4.dist-info\\licenses\\numpy\\_core\\include\\numpy\\libdivide\\LICENSE.txt":  "D544761558B510866C21F7E8A2D5716FCA76E0B98117E3B6B86314DB7244D150",
                           "C:\\Users\\luigi\\Desktop\\axx2\\.claude\\worktrees\\axx-visual-spatial-intelligence-9246f0\\backend\\actions\\process_runner.py":  "27D79B3282B78BDBD0ECFCEB8DBF83941AA6A8C8973567486EB14B80FD47B652",
                           "C:\\Users\\luigi\\Desktop\\axx2\\.claude\\worktrees\\axx-visual-spatial-intelligence-9246f0\\backend\\sync\\__init__.py":  "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
@@ -257,9 +257,9 @@
                           "scripts\\backend_bundle.py":  "A5D2A39CCE639C9A461511F846C4AF98419EF6708C6788FE69286DC031934577",
                           "C:\\Users\\luigi\\Desktop\\axx2\\.claude\\worktrees\\axx-visual-spatial-intelligence-9246f0\\vendor\\cli_anything_blender\\cli_anything\\blender\\core\\lighting.py":  "5449445E2841451F03871820C59130E13BA23DF129E8660456FB79BE26451645",
                           "C:\\Users\\luigi\\Desktop\\axx2\\.claude\\worktrees\\axx-visual-spatial-intelligence-9246f0\\backend\\memory\\__init__.py":  "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
-                          "C:\\Users\\luigi\\Desktop\\axx2\\.claude\\worktrees\\axx-visual-spatial-intelligence-9246f0\\backend\\inference\\router.py":  "3DE4EB49F4BB01F8F95744D21EEE1D3C33DF0AF87228BD061D9096F92EF914CB",
+                          "C:\\Users\\luigi\\Desktop\\axx2\\.claude\\worktrees\\axx-visual-spatial-intelligence-9246f0\\backend\\inference\\router.py":  "75483FF442DD424E7BE815A6BE8EA3BAE5ABE4B70EB5626DDA6CE3C005C08DE6",
                           "C:\\Users\\luigi\\Desktop\\axx2\\.claude\\worktrees\\axx-visual-spatial-intelligence-9246f0\\backend\\actions\\blender_scene.py":  "AE2E228ED91C3EDE12EBC3ABA240509DFFF4FC90D8DE7158139E9173E9F44945",
-                          "src-tauri\\tauri.conf.json":  "2EC2B038B30DB8C977115611F84594A78A01A32A81760A8E71B109F676E3F361",
+                          "src-tauri\\tauri.conf.json":  "891AD94A99979C8050F3B868E5D47AE91AF4F7233B89D9AC0071F3BAB9868701",
                           "C:\\Users\\luigi\\Desktop\\axx2\\.claude\\worktrees\\axx-visual-spatial-intelligence-9246f0\\backend\\spatial_assets.py":  "7CB782E7218659DA6BEB7634B6FC155E155CA87B1196EC5504538854E4016BF4",
                           "C:\\Users\\luigi\\Desktop\\axx2\\.claude\\worktrees\\axx-visual-spatial-intelligence-9246f0\\src-tauri\\resources\\license-notices\\numpy\\numpy-2.4.4.dist-info\\licenses\\numpy\\_core\\src\\umath\\svml\\LICENSE":  "585483905B13D4B42F800C55BA99E89D6E2E33CCD5F503E201C07531D148FF41",
                           "C:\\Users\\luigi\\Desktop\\axx2\\.claude\\worktrees\\axx-visual-spatial-intelligence-9246f0\\resources\\dependency-manifest.json":  "569AE507D260E00864AC4794AAD2FD927E66A76D941C36211AC889496C1B3540",
@@ -305,7 +305,7 @@
                           "C:\\Users\\luigi\\Desktop\\axx2\\.claude\\worktrees\\axx-visual-spatial-intelligence-9246f0\\1.AXX\\Axx-20-apariencia.png":  "3B6CE3CCA51E67D563EA40E240FA6B7287A27B1BD5C64A955F856FA8F4554000",
                           "C:\\Users\\luigi\\Desktop\\axx2\\.claude\\worktrees\\axx-visual-spatial-intelligence-9246f0\\backend\\actions\\uia_observer.ps1":  "F0A5F989DF622F9178D0A97555EE102944DE5B0D349F93ADE7D95B81BA86CDB1",
                           "C:\\Users\\luigi\\Desktop\\axx2\\.claude\\worktrees\\axx-visual-spatial-intelligence-9246f0\\backend\\connect\\__init__.py":  "C35B44EC1229BBC73EC97414EE5E226E27F5AA2C2D9EDFBB7AE60B85ACB5DDC3",
-                          "C:\\Users\\luigi\\Desktop\\axx2\\.claude\\worktrees\\axx-visual-spatial-intelligence-9246f0\\backend\\inference\\provider_settings.py":  "177DB3A4C1CE9C122EE80B730EA817D735D5E01CFD1F090A6F6BC52195C15FC2",
+                          "C:\\Users\\luigi\\Desktop\\axx2\\.claude\\worktrees\\axx-visual-spatial-intelligence-9246f0\\backend\\inference\\provider_settings.py":  "E4259DA4723406CEC2B08A0CCA6C2221E7B99372E2FDCE2A388843E6087C81F2",
                           "C:\\Users\\luigi\\Desktop\\axx2\\.claude\\worktrees\\axx-visual-spatial-intelligence-9246f0\\1.AXX\\scripts\\quick-reply.js":  "C8C206ADF001E4AE3DD9FE49A8B7C34CF08F3DE94D7E5CEAADB96152511FDD3E",
                           "C:\\Users\\luigi\\Desktop\\axx2\\.claude\\worktrees\\axx-visual-spatial-intelligence-9246f0\\backend\\effort_evaluation.py":  "800E762A5DAB7B12FB78AB084A0F67355341115B246AF83AED0469C823040824",
                           "C:\\Users\\luigi\\Desktop\\axx2\\.claude\\worktrees\\axx-visual-spatial-intelligence-9246f0\\1.AXX\\scripts\\command-library.js":  "2654C101247AB876585B702A1335168A58ED65D5ED62110C004A3D3CB4327BF7",
@@ -5731,7 +5731,7 @@
                                          },
                                          {
                                              "path":  "_internal/base_library.zip",
-                                             "sha256":  "4eff454e877f58b8d05290df86b269240815293f5e0caade5ad5034ca88b9256",
+                                             "sha256":  "93a3e2ed6e4e7b6604ae26248745df234b8acfbd411186708a0eb6a32d00a5d7",
                                              "bytes":  1333717
                                          },
                                          {
@@ -6431,7 +6431,7 @@
                                          },
                                          {
                                              "path":  "_internal/mobile/www/js/desktop-avatar.js",
-                                             "sha256":  "650d6bb54c962f4fc92f77efef97e1bf6247f30ddc12c2e62787f7d60ed5a51b",
+                                             "sha256":  "1be1953d76733ac227100f3773d84e292d47350cd5fe70394bf5bb2d4379c2b7",
                                              "bytes":  214156
                                          },
                                          {
@@ -10776,10 +10776,10 @@
                                          },
                                          {
                                              "path":  "axx-backend.exe",
-                                             "sha256":  "c26ee21b495733080d2eda5e18dd85155c1c8c3b211da277ae03712df9b52fa5",
-                                             "bytes":  23214361
+                                             "sha256":  "aef3639fea92a27503a926ddf7bed6590ee2d1bce06e03962dcd4a85bbda3b48",
+                                             "bytes":  23216074
                                          }
                                      ],
-                           "manifest_sha256":  "ba0334cc547a0b1ec2869e82f2587d7d41b946b585dfb76f66341fd302c8370e"
+                           "manifest_sha256":  "6ddeed7601bb86814ff9b484090448389feb8433007c7c1f0ded8f2142731400"
                        }
 }

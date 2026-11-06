@@ -217,6 +217,12 @@ def http_transport(provider: dict, body: dict, timeout: float, *, response_obser
             if effort is not None:
                 config['effort'] = effort
             body['output_config'] = config
+    is_gemini = provider.get('kind') == 'gemini' or ('googleapis.com' in provider.get('base_url', ''))
+    if is_gemini and isinstance(body.get('model'), str):
+        if body['model'].startswith('models/'):
+            body['model'] = body['model'].removeprefix('models/')
+        if body['model'] in ('gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'):
+            body['model'] = 'gemini-3.5-flash'
     body_bytes = json.dumps(body, allow_nan=False).encode('utf-8')
     key_env = provider.get('api_key_env')
     api_key = os.environ.get(key_env, '').strip() if key_env else ''
@@ -226,6 +232,9 @@ def http_transport(provider: dict, body: dict, timeout: float, *, response_obser
         'Content-Type': 'application/json',
         'Authorization': 'Bearer ' + api_key
     }
+    if is_gemini and api_key:
+        headers['x-goog-api-key'] = api_key
+        headers['api-key'] = api_key
     if anthropic:
         headers.pop('Authorization', None)
         headers.update({'x-api-key': api_key, 'anthropic-version': '2023-06-01'})
@@ -852,6 +861,7 @@ class Router:
         attempts = 0
         attempt_budget_used = 0
         last_error = None
+        is_probe = bool(request.get('probe'))
 
         for p in providers:
             if source_profile_ids is not None and (profile_id(p) not in source_profile_ids
@@ -862,7 +872,7 @@ class Router:
             if time_left <= 0:
                 raise UpstreamError(504, message="Global inference deadline exceeded (70s budget)")
 
-            if not p.get('enabled', False) or p.get('candidate_only') is True:
+            if not p.get('enabled', False) or (not is_probe and p.get('candidate_only') is True):
                 continue
             if structured and p.get('protocol') != 'anthropic':
                 continue
@@ -884,8 +894,11 @@ class Router:
             attempt_cost = p['gateway_attempt_limit'] if gateway else 1
             if attempt_budget_used + attempt_cost > attempt_limit:
                 continue
-            if not automatic and request.get('model') and request['model'] != p['model']:
-                continue
+            if not automatic and request.get('model'):
+                clean_req = request['model'].removeprefix('models/')
+                clean_p = p['model'].removeprefix('models/')
+                if request['model'] != p['model'] and clean_req != clean_p:
+                    continue
             if not automatic and request.get('provider_name') and request['provider_name'] != p['name']:
                 continue
 
@@ -900,9 +913,10 @@ class Router:
                 continue
 
             # Task & sensitivity checks
-            tasks = p.get('tasks')
-            if tasks and '*' not in tasks and req_task not in tasks:
-                continue
+            if not is_probe:
+                tasks = p.get('tasks')
+                if tasks and '*' not in tasks and req_task not in tasks:
+                    continue
             if req_sensitive and not p.get('allow_sensitive', False):
                 continue
 

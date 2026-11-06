@@ -5413,7 +5413,7 @@
     },
     {
       "path": "_internal/base_library.zip",
-      "sha256": "4eff454e877f58b8d05290df86b269240815293f5e0caade5ad5034ca88b9256",
+      "sha256": "93a3e2ed6e4e7b6604ae26248745df234b8acfbd411186708a0eb6a32d00a5d7",
       "bytes": 1333717
     },
     {
@@ -6113,7 +6113,7 @@
     },
     {
       "path": "_internal/mobile/www/js/desktop-avatar.js",
-      "sha256": "650d6bb54c962f4fc92f77efef97e1bf6247f30ddc12c2e62787f7d60ed5a51b",
+      "sha256": "1be1953d76733ac227100f3773d84e292d47350cd5fe70394bf5bb2d4379c2b7",
       "bytes": 214156
     },
     {
@@ -10458,9 +10458,9 @@
     },
     {
       "path": "axx-backend.exe",
-      "sha256": "c26ee21b495733080d2eda5e18dd85155c1c8c3b211da277ae03712df9b52fa5",
-      "bytes": 23214361
+      "sha256": "aef3639fea92a27503a926ddf7bed6590ee2d1bce06e03962dcd4a85bbda3b48",
+      "bytes": 23216074
     }
   ],
-  "manifest_sha256": "ba0334cc547a0b1ec2869e82f2587d7d41b946b585dfb76f66341fd302c8370e"
+  "manifest_sha256": "6ddeed7601bb86814ff9b484090448389feb8433007c7c1f0ded8f2142731400"
 }

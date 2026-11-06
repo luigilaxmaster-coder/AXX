@@ -9,7 +9,7 @@ import time
 
 LOG = logging.getLogger('axx.prompts')
 VERSION = 'axx-contracts-1'
-MAX_INSTRUCTIONS = 24000
+MAX_INSTRUCTIONS = 48000
 
 CORE = (
     'Eres Axx, el asistente personal del usuario; conserva esa identidad aunque cambie el modelo. '

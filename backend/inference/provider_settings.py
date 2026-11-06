@@ -120,6 +120,8 @@ def discover(body, config):
         headers.update({'x-api-key': key, 'anthropic-version': '2023-06-01'})
     elif key:
         headers['Authorization'] = 'Bearer ' + key
+    if kind == 'gemini' and key:
+        headers['x-goog-api-key'] = key
     ollama = kind in ('ollama', 'ollama_cloud')
     catalog_url = url.removesuffix('/v1') + '/api/tags' if ollama else url + '/models'
     req = urllib.request.Request(catalog_url, headers=headers)
@@ -142,6 +144,8 @@ def discover(body, config):
                 continue
             model = item.get('name', item.get('id')) if ollama else item.get('id')
             if isinstance(model, str) and 0 < len(model) <= 200:
+                if kind == 'gemini':
+                    model = model.removeprefix('models/')
                 models.append(model)
         return {'models': list(dict.fromkeys(models))[:300]}
     except Exception as exc:
@@ -186,6 +190,19 @@ def save(body, adapter, config_path):
                 entry.update(free_confirmed=free, cost_evidence='unknown')
         entry.update(name=name, kind=kind, base_url=url, protocol=protocol, model=model, api_key_env=env,
                      capabilities=capabilities)
+        if kind == 'gemini':
+            if entry['model'].startswith('models/'):
+                entry['model'] = entry['model'].removeprefix('models/')
+            if entry['model'] in ('gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'):
+                entry['model'] = 'gemini-3.5-flash'
+            if 'vision' not in entry['capabilities']:
+                entry['capabilities'].append('vision')
+            if 'tasks' not in entry or not entry['tasks']:
+                entry['tasks'] = ['chat', 'vision', 'plan', 'parameters', 'repair', 'code', 'writing', 'translation']
+            elif 'vision' not in entry['tasks']:
+                entry['tasks'].append('vision')
+        if 'candidate_only' in entry and not body.get('candidate_only'):
+            entry['candidate_only'] = False
         if 'allow_sensitive' in body:
             if type(body['allow_sensitive']) is not bool:
                 raise ValueError('allow_sensitive debe ser un consentimiento booleano explícito')

@@ -260,7 +260,7 @@ class MagicPenService:
         request_id = 'spatial-verify-' + uuid.uuid4().hex
         structured = chosen['name'] == '@codex' or chosen.get('protocol') == 'anthropic'  # only these routes accept a JSON schema
         schema = output_schema('presentation', strict=chosen['name'] == '@codex') if structured else None
-        generation = {'max_tokens': 1500, **({'output_schema': schema} if schema else {})}
+        generation = {'max_tokens': 4096, **({'output_schema': schema} if schema else {})}
         effort = self._effective_effort(request, chosen)
         if effort:
             generation['effort'] = effort
@@ -278,7 +278,8 @@ class MagicPenService:
         message = result.get('message', {}) if isinstance(result, dict) else {}
         text = message.get('content') if isinstance(message, dict) else None
         if not isinstance(text, str) or not text.strip() or len(text) > MAX_RESPONSE_CHARS:
-            raise ValueError('La prueba no recibió una respuesta de texto válida del modelo.')
+            err = result.get('error', {}).get('message') if isinstance(result, dict) else None
+            raise ValueError(f'La prueba no recibió una respuesta de texto válida del modelo: {err}' if err else 'La prueba no recibió una respuesta de texto válida del modelo.')
         verdict = self._judge_aptitude(chosen, text, schema, question)
         if verdict['verdict'] == 'no_apto':
             raise ValueError('Modelo no apto para Magic Pen: ' + verdict['reason'])

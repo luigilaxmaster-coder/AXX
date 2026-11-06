@@ -1,12 +1,12 @@
 {
   "result": "PASS",
-  "version": "0.22.45",
+  "version": "0.22.46",
   "license_notices_verified": 36,
   "installed_directory": "C:\\Users\\luigi\\AppData\\Local\\Programs\\Axx",
   "tauri_bundle_marker": "Tauri UNK -> NSS; exactly three bytes",
-  "installed_exe_sha256": "d2bf1c66423d2bda61861c8a7bfe81d317c7f667029a08fc0c4d458e4d19336a",
-  "release_exe_sha256": "551d5c866896f4aa7d4eb2d3cb0d8a6dde059cd260a9355c7859afa82057498d",
-  "backend_sha256": "c26ee21b495733080d2eda5e18dd85155c1c8c3b211da277ae03712df9b52fa5",
+  "installed_exe_sha256": "bdc0e2a2ff29414584b3bfc6afa551869082ef1b3afb954b11102770f22aa224",
+  "release_exe_sha256": "c5adb98aa112ca8ba9c1d0db1deeabe0099602e7d48deefc8aa16c77987ce01c",
+  "backend_sha256": "aef3639fea92a27503a926ddf7bed6590ee2d1bce06e03962dcd4a85bbda3b48",
   "ai_memory_sha256": "c2ba1391a763e3d68e2b1cb10677f428934d1f54ddf066103c6a9dbea372dc11",
   "files": [
     {
@@ -15,7 +15,7 @@
     },
     {
       "path": "C:\\Users\\luigi\\AppData\\Local\\Programs\\Axx\\resources\\axx-backend.exe",
-      "bytes": 23214361
+      "bytes": 23216074
     },
     {
       "path": "C:\\Users\\luigi\\AppData\\Local\\Programs\\Axx\\resources\\ai-memory.exe",
@@ -24,7 +24,7 @@
   ],
   "backend_bundle": {
     "layout": "onedir",
-    "manifest_sha256": "ba0334cc547a0b1ec2869e82f2587d7d41b946b585dfb76f66341fd302c8370e",
+    "manifest_sha256": "6ddeed7601bb86814ff9b484090448389feb8433007c7c1f0ded8f2142731400",
     "files_verified": 2092
   }
 }
