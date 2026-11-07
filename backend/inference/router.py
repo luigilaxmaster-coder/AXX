@@ -140,9 +140,30 @@ def http_transport(provider: dict, body: dict, timeout: float) -> dict:
     if anthropic:
         body = dict(body)
         messages = body['messages']
-        body['system'] = '\n\n'.join(m['content'] for m in messages if m['role'] == 'system')
-        body['messages'] = [m for m in messages if m['role'] != 'system']
+        sys_msgs = [m for m in messages if m.get('role') == 'system']
+        if sys_msgs:
+            all_blocks = []
+            plain_texts = []
+            for sm in sys_msgs:
+                cnt = sm.get('content', '')
+                if isinstance(cnt, list):
+                    all_blocks.extend(cnt)
+                elif isinstance(cnt, str):
+                    plain_texts.append(cnt)
+            if all_blocks:
+                if plain_texts:
+                    all_blocks.insert(0, {'type': 'text', 'text': '\n\n'.join(plain_texts)})
+                body['system'] = all_blocks
+            else:
+                body['system'] = '\n\n'.join(plain_texts)
+        body['messages'] = [m for m in messages if m.get('role') != 'system']
         body.setdefault('max_tokens', provider.get('max_output_tokens', 2048))
+        if 'cache_control' not in body:
+            if 'cache_control' in provider:
+                body['cache_control'] = provider['cache_control']
+            elif provider.get('prompt_caching', True):
+                ttl = provider.get('cache_ttl')
+                body['cache_control'] = {'type': 'ephemeral', 'ttl': ttl} if ttl else {'type': 'ephemeral'}
     body_bytes = json.dumps(body, allow_nan=False).encode('utf-8')
     key_env = provider.get('api_key_env')
     api_key = os.environ.get(key_env, '').strip() if key_env else ''
@@ -172,8 +193,11 @@ def http_transport(provider: dict, body: dict, timeout: float) -> dict:
                         data['provider'], data['model'] = platform, model
                 if anthropic:
                     content = ''.join(part.get('text', '') for part in data.get('content', []) if part.get('type') == 'text')
-                    return {'model': data.get('model'), 'choices': [{'message': {'role': 'assistant', 'content': content},
+                    res = {'model': data.get('model'), 'choices': [{'message': {'role': 'assistant', 'content': content},
                                          'finish_reason': 'length' if data.get('stop_reason') == 'max_tokens' else 'stop'}]}
+                    if 'usage' in data:
+                        res['usage'] = data['usage']
+                    return res
                 return data
             except (ValueError, UnicodeError) as exc:
                 raise UpstreamError(502, message=f"Invalid response JSON: {exc}") from None
@@ -316,6 +340,12 @@ class Router:
             if 'gateway_dashboard_env' in p and (not isinstance(p['gateway_dashboard_env'], str)
                     or not p['gateway_dashboard_env'].startswith('AXX_API_') or len(p['gateway_dashboard_env']) > 100):
                 raise ValueError('Invalid gateway_dashboard_env')
+            if 'prompt_caching' in p and not isinstance(p['prompt_caching'], bool):
+                raise ValueError('Invalid prompt_caching')
+            if 'cache_ttl' in p and p['cache_ttl'] not in ('5m', '1h'):
+                raise ValueError('Invalid cache_ttl')
+            if 'cache_control' in p and not isinstance(p['cache_control'], dict):
+                raise ValueError('Invalid cache_control')
 
     def _init_schema(self):
         # Schema with quota_scope_id (H04)
@@ -473,7 +503,7 @@ class Router:
         """Validates chat request with null checks per field (H02, D)."""
         if not isinstance(request, dict):
             raise RequestError("Request must be a JSON object")
-        allowed = {'messages', 'axx_task', 'axx_sensitive', 'temperature', 'max_tokens', 'tools', 'stream', 'model', 'provider_name', 'selection_mode'}
+        allowed = {'messages', 'axx_task', 'axx_sensitive', 'temperature', 'max_tokens', 'tools', 'stream', 'model', 'provider_name', 'selection_mode', 'cache_control'}
         if request.get('selection_mode', 'manual') not in ('manual', 'automatic_free'):
             raise RequestError('Invalid selection_mode')
         if request.get('selection_mode') == 'automatic_free' and request.get('axx_task', 'chat') not in TASK_PROFILES:
@@ -785,6 +815,8 @@ class Router:
                     payload['max_tokens'] = p.get('max_output_tokens', 1024)
                 if 'tools' in request and 'tools' in p.get('capabilities', []):
                     payload['tools'] = request['tools']
+                if 'cache_control' in request:
+                    payload['cache_control'] = request['cache_control']
 
                 resp = self.transport(p, payload, timeout=call_timeout)
                 validated_resp = self._validate_response_message(resp)

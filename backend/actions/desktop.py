@@ -16,10 +16,10 @@ from backend.inference.process_manager import spawn_managed_process, terminate_p
 from .command_language import command_text, target_name
 
 APPS = {
-    'calculator': ('Calculadora', 'System32/calc.exe', ['calculadora', 'calculator', 'calc']),
-    'notepad': ('Bloc de notas', 'System32/notepad.exe', ['bloc de notas', 'notepad']),
-    'paint': ('Paint', 'System32/mspaint.exe', ['paint']),
-    'explorer': ('Explorador de archivos', 'explorer.exe', ['explorador', 'explorador de archivos', 'file explorer', 'explorer']),
+    'calculator': ('Calculadora', 'System32/calc.exe', ['calculadora', 'calculadora de windows', 'calculator', 'calc']),
+    'notepad': ('Bloc de notas', 'System32/notepad.exe', ['bloc de notas', 'block de notas', 'blog de notas', 'notepad']),
+    'paint': ('Paint', 'System32/mspaint.exe', ['paint', 'mspaint']),
+    'explorer': ('Explorador de archivos', 'explorer.exe', ['explorador', 'explorador de archivos', 'explorador de windows', 'file explorer', 'explorer']),
 }
 SITES = {'youtube': 'https://www.youtube.com/', 'google': 'https://www.google.com/',
          'gmail': 'https://mail.google.com/', 'github': 'https://github.com/',
@@ -306,7 +306,7 @@ def resolve_desktop(text, source, context=None):
     music_search = re.fullmatch(r'(?:busca|buscar|buscame|búscame)\s+(?:(?:una|un|la|el)\s+)?(?:musica|música|cancion|canción|tema)\s+(?:de\s+)?(.+)', raw, re.I)
     if music_search:return search_result('youtube', music_search[1])
     # Preserve URL case and query punctuation. Only trim sentence marks for named targets.
-    opening = re.fullmatch(r'(?:abre|abrir|abrirme|abras|abreme|ábreme|inicia|ejecuta)\s+(?:(?:la|el)\s+)?(.+)', raw, re.I)
+    opening = re.fullmatch(r'(?:abre|abrir|abrirme|abras|abreme|ábreme|abrelo|ábrelo|abrela|ábrela|inicia|iniciar|ejecuta|ejecutar)\s+(?:(?:la|el)\s+)?(.+)', raw, re.I)
     if opening:
         target = opening[1].strip()
         name = re.sub(r'^(?:(?:la|el|mi)\s+)?(?:aplicacion|app|programa)(?:\s+de)?\s+|^(?:mi|la|el)\s+', '', plain(target).rstrip('.!?'))

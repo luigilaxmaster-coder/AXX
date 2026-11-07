@@ -101,6 +101,7 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
     recording = None
     magic_pen = None
     converter = None
+    telegram = None
     chatgpt_auth = chatgpt_adapter = None
     connect = provider = None
     frontend_path = root_dir / '1.AXX' / 'Axx.html'
@@ -213,6 +214,9 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
         if not self._authorized():
             return
         try:
+            if path == '/axx-api/telegram/status':
+                self._send_json(200, self.telegram.status() if self.telegram else {'state': 'unavailable'})
+                return
             if MobileHTTP(self).get(path):
                 return
             if ConnectHTTP(self).get(path):
@@ -445,6 +449,11 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
             return
         path = urllib.parse.urlsplit(self.path).path
         try:
+            if path == '/axx-api/telegram/input':
+                if not self.telegram:
+                    raise ValueError('Telegram no está disponible en este runtime.')
+                self._send_json(200, self.telegram.admit(body))
+                return
             if path == '/axx-api/prompts/compose':
                 self._send_json(200, public_compose(body))
                 return
@@ -486,7 +495,7 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                     result = {'capabilities': self.magic_pen.capabilities(), 'monitors': pen_monitors(), 'history': self.magic_pen.list()}
                 elif operation == 'get':
                     result = self.magic_pen.get(body.get('id'), image=True)
-                elif operation in {'capture', 'save', 'export', 'analyze', 'start', 'query', 'cancel'}:
+                elif operation in {'capture', 'save', 'export', 'analyze', 'start', 'query', 'cancel', 'spatial_plan'}:
                     try:
                         result = getattr(self.magic_pen, operation)(body)
                     except OSError as exc:
@@ -1204,6 +1213,10 @@ def run_server(host='127.0.0.1', port=4173, config_path='providers.json', state_
         services.append(server.mobile)
         server.mobile.resume()
         publish_endpoint(state_dir, server)
+        from backend.telegram.service import TelegramService
+        handler.telegram = TelegramService(state_dir, chats, commands, adapter, lambda: server.mobile.preferences)
+        services.append(handler.telegram)
+        handler.telegram.start()
         if ready_path:
             ready_path.parent.mkdir(parents=True, exist_ok=True)
             temporary = ready_path.with_suffix('.tmp')
@@ -1227,6 +1240,16 @@ def run_server(host='127.0.0.1', port=4173, config_path='providers.json', state_
             ready_path.unlink(missing_ok=True)
 
 def main():
+    if sys.argv[1:2] == ['--telegram-worker']:
+        from backend.telegram.worker import main as telegram_worker_main
+        sys.argv.pop(1)
+        return telegram_worker_main()
+    if sys.argv[1:2] == ['--configure-telegram']:
+        from backend.telegram.setup import main as telegram_setup_main
+        return telegram_setup_main()
+    if sys.argv[1:2] == ['--telegram-call-probe']:
+        from backend.telegram.call_probe import main as telegram_probe_main
+        return telegram_probe_main(sys.argv[2:])
     if sys.argv[1:2] == ['--configure-native-gateway']:
         import runpy
         script = Path(getattr(sys, '_MEIPASS', root_dir)) / 'scripts' / 'configure-native-gateway.py'

@@ -9,7 +9,7 @@ def plain(value):
 
 
 VERBS = {
-    'abre': ('abre', 'abrir', 'abrirme', 'abreme', 'abras', 'abrirnos', 'lanza', 'lanzar', 'arranca', 'inicia', 'iniciar'),
+    'abre': ('abre', 'abrir', 'abrirme', 'abreme', 'abras', 'abrirnos', 'abrelo', 'abrela', 'lanza', 'lanzar', 'arranca', 'inicia', 'iniciar', 'ejecuta', 'ejecutar'),
     'cierra': ('cierra', 'cerrar', 'cerrarme', 'cierrame', 'cierres'),
     'busca': ('busca', 'buscar', 'buscarme', 'buscame', 'busques'),
     'reproduce': ('reproduce', 'reproducir', 'reproduceme', 'reproduzcas', 'escucha', 'escuchar'),
@@ -21,10 +21,10 @@ VERBS = {
 FORM = {word: verb for verb, words in VERBS.items() for word in words}
 VOICE_VERBS = {'habre': 'abre', 'avre': 'abre', 'bosca': 'busca', 'vusca': 'busca',
                'reprogoce': 'reproduce', 'reprodose': 'reproduce'}
-TARGETS = {'you tube': 'youtube', 'yotube': 'youtube', 'yotune': 'youtube', 'google chrome': 'chrome', 'chat gpt': 'chatgpt'}
+TARGETS = {'you tube': 'youtube', 'yotube': 'youtube', 'yotune': 'youtube', 'google chrome': 'chrome', 'chat gpt': 'chatgpt', 'vs code': 'visual studio code', 'vscode': 'visual studio code', 'block de notas': 'bloc de notas', 'blog de notas': 'bloc de notas', 'explorador de windows': 'explorador de archivos', 'calculadora de windows': 'calculadora'}
 VOICE_TARGETS = {'yotube': 'youtube', 'yutube': 'youtube', 'yu tube': 'youtube',
                  'crom': 'chrome', 'gugle': 'google', 'espotifai': 'spotify',
-                 'espotify': 'spotify', 'spatifi': 'spotify', 'obsedia': 'obsidian'}
+                 'espotify': 'spotify', 'spatifi': 'spotify', 'obsedia': 'obsidian', 'block de notas': 'bloc de notas', 'blog de notas': 'bloc de notas'}
 CARRIER = re.compile(
     r'^(?:(?:(?:oye|hola|hey|ok|ey|escucha)[,\s]+)?axx\b[\s,.:!-]*|(?:oye|hola|hey)[,\s]+|'
     r'por\s+favor[,\s]+|(?:(?:me|nos)\s+)?(?:puedes|podr[ií]as|pod[ií]as)[,:\s]+|'
@@ -90,7 +90,7 @@ def command_carrier(text):
 def command_text(text, source):
     """Return canonical command syntax while keeping every argument literal."""
     raw = command_carrier(text)
-    if raw.startswith('/') or re.match(r'^(?:escribe|pega|teclea|ejecuta\s+en\s+(?:cmd|powershell):)\b', raw, re.I):
+    if raw.startswith('/') or re.match(r'^(?:escribe|pega|teclea)\b|^(?:ejecuta\s+en\s+(?:cmd|powershell):)', raw, re.I):
         return raw
     # Only an explicit imperative carrier is removed. Negation, quotes and
     # informational requests keep their leading words and cannot match a verb.

@@ -1,0 +1,7 @@
+{
+  "deployment": "AnythingMCP local via Ubuntu-24.04 WSL Docker",
+  "health_http": 200,
+  "anonymous_mcp_http": 401,
+  "authenticated_tool_execution_verified": false,
+  "health_after_cli_exit_http": 200
+}

@@ -133,7 +133,7 @@ class ChatStore:
                 raise ValueError('El mensaje pertenece a otro chat')
             payload = {k: m[k] for k in ('id','role','source','status','at','model') if k in m}
             payload['text'] = content
-            db.execute('INSERT INTO chat_messages VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload', (mid,cid,at,json.dumps(payload,ensure_ascii=False)))
+            db.execute('INSERT INTO chat_messages(id, conversation_id, at, payload) VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload', (mid,cid,at,json.dumps(payload,ensure_ascii=False)))
 
     def get(self, cid):
         self.purge()
@@ -203,7 +203,7 @@ class ChatStore:
                     return {'id':old[0]}
                 cid = self._new(db, body)
                 self._messages(db, cid, body.get('messages', []))
-                db.execute("INSERT OR REPLACE INTO chat_settings VALUES('migration_v4',?)", (cid,))
+                db.execute("INSERT OR REPLACE INTO chat_settings(key, value) VALUES('migration_v4',?)", (cid,))
             elif action == 'create':
                 cid = self._new(db, body)
             elif action in ('save','update','delete'):
@@ -223,7 +223,7 @@ class ChatStore:
                             if type(at) not in (int,float) or not math.isfinite(at) or at>self.clock()+60000:
                                 raise ValueError('Fecha de adjunto inválida')
                             if at>self.clock()-TTL:
-                                db.execute('INSERT OR REPLACE INTO chat_attachments VALUES(?,?,?,?)',(cid,text(item.get('name'),255),text(item.get('text'),200000),at))
+                                db.execute('INSERT OR REPLACE INTO chat_attachments(conversation_id, name, text, at) VALUES(?,?,?,?)',(cid,text(item.get('name'),255),text(item.get('text'),200000),at))
                     draft = text(body.get('draft',row['draft']))
                     draft_at = self.clock() if draft != row['draft'] else row['draft_at']
                     title = row['title']
@@ -254,7 +254,7 @@ class ChatStore:
                                (text(body.get('title',row['title']),120),group,mode,int(bool(body.get('archived',row['archived']))),str(uuid.uuid4()) if group!=row['group_id'] else row['connect_id'],cid))
             elif action == 'group':
                 cid = str(uuid.uuid4())
-                db.execute('INSERT INTO chat_groups VALUES(?,?)',(cid,text(body.get('title'),120)))
+                db.execute('INSERT INTO chat_groups(id, title) VALUES(?,?)',(cid,text(body.get('title'),120)))
             elif action in ('group_update','group_delete'):
                 group = ident(body.get('id'))
                 if action == 'group_update':
@@ -277,7 +277,7 @@ class ChatStore:
                     total = db.execute('SELECT COALESCE(SUM(length(text)),0) FROM chat_context WHERE group_id=?',(group,)).fetchone()[0]
                     if total+len(note)>12000:
                         raise ValueError('El contexto del grupo admite hasta 12 000 caracteres. Reduce o quita una nota.')
-                    db.execute('INSERT INTO chat_context VALUES(?,?,?,?)',(str(uuid.uuid4()),group,note,self.clock()))
+                    db.execute('INSERT INTO chat_context(id, group_id, text, at) VALUES(?,?,?,?)',(str(uuid.uuid4()),group,note,self.clock()))
                 for r in db.execute('SELECT id FROM chat_conversations WHERE group_id=?',(group,)).fetchall():
                     db.execute('UPDATE chat_conversations SET connect_id=? WHERE id=?',(str(uuid.uuid4()),r[0]))
             elif action == 'profile':
@@ -289,14 +289,14 @@ class ChatStore:
                 if not isinstance(commands,list) or len(commands)>20:
                     raise ValueError('Elige hasta 20 comandos preferidos')
                 profile['preferred_commands'] = list(dict.fromkeys(ident(v) for v in commands))
-                db.execute("INSERT OR REPLACE INTO chat_settings VALUES('agent_profile',?)", (json.dumps(profile,ensure_ascii=False),))
+                db.execute("INSERT OR REPLACE INTO chat_settings(key, value) VALUES('agent_profile',?)", (json.dumps(profile,ensure_ascii=False),))
                 for row in db.execute('SELECT id FROM chat_conversations').fetchall():
                     db.execute('UPDATE chat_conversations SET connect_id=? WHERE id=?',(str(uuid.uuid4()),row[0]))
             elif action == 'default':
                 mode = body.get('command_mode')
                 if mode not in MODES:
                     raise ValueError('Modo inválido')
-                db.execute("INSERT OR REPLACE INTO chat_settings VALUES('default_mode',?)",(mode,))
+                db.execute("INSERT OR REPLACE INTO chat_settings(key, value) VALUES('default_mode',?)",(mode,))
             elif action in ('link','unlink'):
                 cid, source = ident(cid), ident(body.get('source_id'))
                 if cid == source:
@@ -325,10 +325,10 @@ class ChatStore:
                             break
                     if not selected:
                         raise ValueError('Este hilo no tiene mensajes guardados y vigentes')
-                    db.execute('INSERT OR REPLACE INTO chat_links VALUES(?,?,?,?)', (cid,source,origin['title'],self.clock()))
+                    db.execute('INSERT OR REPLACE INTO chat_links(conversation_id, source_id, title, updated) VALUES(?,?,?,?)', (cid,source,origin['title'],self.clock()))
                     db.execute('DELETE FROM chat_link_messages WHERE conversation_id=? AND source_id=?', (cid,source))
                     for message in selected:
-                        db.execute('INSERT INTO chat_link_messages VALUES(?,?,?,?,?)', (cid,source,message['id'],message['at'],json.dumps(message,ensure_ascii=False)))
+                        db.execute('INSERT INTO chat_link_messages(conversation_id, source_id, message_id, at, payload) VALUES(?,?,?,?,?)', (cid,source,message['id'],message['at'],json.dumps(message,ensure_ascii=False)))
                 else:
                     db.execute('DELETE FROM chat_links WHERE conversation_id=? AND source_id=?', (cid,source))
                     db.execute('DELETE FROM chat_link_messages WHERE conversation_id=? AND source_id=?', (cid,source))

@@ -251,7 +251,7 @@
     }
     const render=lib.renderOperation.bind(lib);lib.renderOperation=function(op){render(op);operationCard(op);};
     const request=lib.request.bind(lib);lib.request=function(method,path,body){
-        if(path==='/axx-api/commands/prepare')body={...body,conversation_id:active?.id,command_mode:active?.mode||'ask'};
+        if(path==='/axx-api/commands/prepare')body={...body,conversation_id:active?.id,command_mode:body.command_mode||(body.source==='voice'&&(!active?.mode||active.mode==='ask')?'auto_safe':active?.mode||'ask')};
         if(path==='/axx-api/learning/propose')body={...body,conversation_id:active?.id};
         return request(method,path,body);
     };

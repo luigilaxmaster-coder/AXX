@@ -108,5 +108,5 @@
             }
         }
     };
-    window.setInterval(() => Axx.voiceConversation.maybeSurprise(), 30_000);
+    if (typeof window.setInterval === 'function') window.setInterval(() => Axx.voiceConversation?.maybeSurprise?.(), 30_000);
 })(window.Axx = window.Axx || {});

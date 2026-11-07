@@ -17,7 +17,7 @@ else:
     from speech_text import prepare_spoken_text, resolve_language
 
 PERSONAL_VOICES = (
-    'axx-morcito',
+    'axx-morcito', 'axx-morcito-calma', 'axx-morcito-emocion', 'axx-morcito-atencion',
     'axx-sam',
     'axx-valeria', 'axx-elena', 'axx-mateo', 'axx-dante',
     'axx-alba', 'axx-nova', 'axx-aura', 'axx-titan'
@@ -91,7 +91,8 @@ def create_runtime(model_root, cache_root):
             return self.reference_codes[key]
 
         def synthesize_single_chunk(self, *, text, prompt_audio_codes, streaming):
-            tokens = self.encode_text(text)
+            padded = f'        {text.lstrip()}' if len(text.split()) < 5 else text
+            tokens = self.encode_text(padded)
             rows = self.build_voice_clone_request_rows(prompt_audio_codes, tokens)
             pending, waveforms = [], []
             emitted = 0
@@ -100,7 +101,7 @@ def create_runtime(model_root, cache_root):
 
             def decode(force=False):
                 nonlocal emitted
-                budget = 1 if emitted == 0 else 4
+                budget = 2 if emitted == 0 else 8
                 if not pending or (not force and len(pending) < budget):
                     return
                 frames = list(pending)
@@ -112,6 +113,10 @@ def create_runtime(model_root, cache_root):
                 if length <= 0:
                     return
                 waveform = np.asarray(audio[0, :, :length].T, dtype=np.float32)
+                if force and len(waveform) > 64:
+                    fade_len = min(int(0.025 * rate), len(waveform) // 3)
+                    if fade_len > 0:
+                        waveform[-fade_len:] *= np.linspace(1.0, 0.0, fade_len, dtype=np.float32)[:, None]
                 waveforms.append(waveform)
                 emitted += length
                 if self.emit_pcm:
@@ -123,6 +128,10 @@ def create_runtime(model_root, cache_root):
                 pending.append(list(frame))
                 decode()
 
+            defaults = self.manifest.get('generation_defaults') or {}
+            old_max = defaults.get('max_new_frames', 375)
+            char_len = len(text.strip())
+            defaults['max_new_frames'] = min(int(old_max), max(18, min(len(tokens) * 4 + 8, int(char_len * 1.35) + 8)))
             try:
                 if self.cancelled.is_set():
                     raise SynthesisCancelled()
@@ -131,6 +140,7 @@ def create_runtime(model_root, cache_root):
                 if self.cancelled.is_set():
                     raise SynthesisCancelled()
             finally:
+                defaults['max_new_frames'] = old_max
                 self.codec_streaming_session.reset()
             channels = int(self.codec_meta['codec_config']['channels'])
             waveform = np.concatenate(waveforms) if waveforms else np.zeros((0, channels), dtype=np.float32)
@@ -152,7 +162,7 @@ def create_runtime(model_root, cache_root):
                 self.emit_pcm(bytes(round(rate * seconds) * channels * 2), rate, channels)
             return seconds
 
-    threads = max(1, min(8, int(os.environ.get('AXX_MOSS_THREADS', str(min(4, os.cpu_count() or 2))))))
+    threads = max(1, min(8, int(os.environ.get('AXX_MOSS_THREADS', str(min(6, os.cpu_count() or 2))))))
     return StreamingRuntime(model_dir=model_root, thread_count=threads, execution_provider='cpu')
 
 
@@ -201,13 +211,18 @@ def main():
             # Match the service's current reference instead of its startup path.
             if name in PERSONAL_VOICES and personal.is_file():
                 voice = personal
-            english = personal_samples / 'axx-morcito-en.wav'
-            if (name == 'axx-morcito' and not request.get('prepare') and english.is_file()
+            # Axxmorcito styles may ship their own English reference; otherwise
+            # they share the base English clip.
+            morcito = name.startswith('axx-morcito')
+            english = personal_samples / f'{name}-en.wav'
+            if morcito and not english.is_file():
+                english = personal_samples / 'axx-morcito-en.wav'
+            if (morcito and not request.get('prepare') and english.is_file()
                     and resolve_language(request.get('text', ''), request.get('language', 'auto')) == 'en'):
                 voice = english
             if request.get('prepare'):
                 codes = runtime.encode_reference_audio(voice)
-                if name == 'axx-morcito' and english.is_file():
+                if morcito and english.is_file():
                     runtime.encode_reference_audio(english)
                 # Ready means the actual prefill, frame and PCM decoder have
                 # executed, not merely that their ONNX sessions were allocated.
@@ -238,7 +253,7 @@ def main():
             runtime.synthesize(text=spoken, prompt_audio_path=voice, output_audio_path=output,
                                streaming=True, sample_mode='fixed', enable_wetext=False,
                                enable_normalize_tts_text=language not in ('es', 'en'),
-                               voice_clone_max_text_tokens=36)
+                               voice_clone_max_text_tokens=64)
             print(json.dumps({'id': request_id, 'ok': True,
                               'elapsed_ms': round((time.monotonic() - started) * 1000)}), flush=True)
         except SynthesisCancelled:

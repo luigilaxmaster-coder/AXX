@@ -1,39 +1,25 @@
 # Axxmorcito
 
-`moss:axx-morcito` uses two private MOSS reference clips in
+`moss:axx-morcito` and its style variants use private MOSS reference clips in
 `%LOCALAPPDATA%\Axx\speech\voices\`:
 
-- `axx-morcito.wav` for Spanish (required for the voice to appear).
-- `axx-morcito-en.wav` for English (optional; Spanish is used if absent).
+- `axx-morcito.wav` / `axx-morcito-en.wav` for **Axxmorcito** (Natural).
+- `axx-morcito-calma.wav` / `axx-morcito-calma-en.wav` for **Axxmorcito · Tranquila**.
+- `axx-morcito-emocion.wav` / `axx-morcito-emocion-en.wav` for **Axxmorcito · Emocionada**.
+- `axx-morcito-atencion.wav` / `axx-morcito-atencion-en.wav` for **Axxmorcito · Atenta**.
 
-The recordings stay in the user's AppData directory. They are not part of Git,
-the Windows installer, or the public download. To use this voice on another PC,
-copy the reference clips privately to the same folder and refresh the voice list.
-The active MOSS ONNX model clones the selected reference at inference time;
-these recordings do not change its weights. A private CPU fine-tuning experiment
-exists under the local training directory, but its checkpoint is not active:
-the earlier held-out comparison improved Spanish recognition while English
-speaker similarity declined. A local single-phrase speaker check measured
-baseline/trained cosine similarity of 0.7843/0.7880 in Spanish and
-0.7254/0.6872 in English; these scores do not measure listening quality.
-Another training run should use more clean,
-transcribed speech and an independent Spanish/English comparison before any
-checkpoint replaces the current inference model. Keep all weights and recordings
-private.
+Private Piper models (`axx-morcito-es.onnx` and `axx-morcito-en.onnx` with matching
+`.onnx.json` files in `%LOCALAPPDATA%\Axx\speech\piper\models\`) expose the fast
+`piper:axx-morcito-es` and `piper:axx-morcito-en` voices and their `@calma`,
+`@emocion` and `@atencion` prosody variants (~0.22–0.39 s synthesis on CPU after
+initial warmup). Build or refresh the dataset and Colab/WSL training bundle with:
 
-When available, Axxmorcito appears in **Voces de Axx** and the chat and live
-voice selectors. A new profile prefers it; an existing saved voice selection is
-kept. Spanish and English use distinct reference hashes in the audio cache, so
-changing either clip invalidates only its own synthesized phrases. MOSS warmup
-is required on first use. Audio cache reuse accelerates repeated text, but does
-not prove a first-response latency or subjective voice quality. The sound panel
-offers per-voice bass, clarity, brightness, sibilance, volume and height/tempo
-controls with explanations on their info icons. Sibilance is a fixed frequency
-reduction, not a trained pronunciation model; height also changes duration.
-PCM packet boundaries use a short fade to reduce clicks. Listen to both
-languages in the installed app before acoustic acceptance.
+- `python scripts/voice/prepare_piper_dataset.py`
+- `python scripts/voice/prepare_moss_references.py`
+- `python scripts/voice/colab_piper_bundle.py pack` / `install <zip>`
+- `scripts/voice/train_axxmorcito_colab.ipynb` (GPU T4) or `scripts/voice/wsl-train-piper.sh` (WSL CPU)
 
-An isolated CPU comparison tried joining the two Spanish references. On one
-new phrase the ASR result improved, but on another the generated voice changed
-the requested sentence into an unrelated question. The joined reference was
-rejected; the installed voice sample and selected model were not replaced.
+The recordings and trained models stay in the user's AppData directory. They are
+not part of Git, the Windows installer, or the public download. To use this voice
+on another PC, copy the reference clips or ONNX files privately to the same folders
+and refresh the voice list.

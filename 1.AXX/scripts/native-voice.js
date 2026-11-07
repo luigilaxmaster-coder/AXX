@@ -294,7 +294,7 @@
                         noiseFloor=settled[Math.floor(settled.length/2)];
                     }else if(ready){ready();ready=null;this.calibrationCancelled=null;}
                     const threshold=Math.max(.004,Math.min(.08,noiseFloor*2.5+.002));
-                    const voiced=!calibrating&&noiseFloor<.04&&rms>threshold;
+                    const voiced=!calibrating&&((noiseFloor<.04&&rms>threshold)||(noiseFloor<.065&&rms>Math.max(threshold,noiseFloor*2.8+.004)));
                     if (voiced) { voiceFrames++; if(voiceFrames>=2)heardSpeech = true; lastVoiceAt = now; if (heardSpeech) this.lastVoiceAt = now; }
                     else {
                         voiceFrames=0;

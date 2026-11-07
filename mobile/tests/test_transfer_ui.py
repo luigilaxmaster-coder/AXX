@@ -74,6 +74,22 @@ class TransferUI(unittest.TestCase):
         page.locator('#sync-status[data-state=complete]').wait_for()
         return page
 
+    def test_permission_help_identifies_this_phone_and_recovers_without_repairing(self):
+        with sync_playwright() as p:
+            page=self.open(p,'readAllowed=false;')
+            page.evaluate("dispatchEvent(new CustomEvent('axxSnapshot',{detail:{device_id:'phone'}}))")
+            self.assertNotIn('Cambió el enlace',page.locator('#tfm-status').text_content())
+            page.locator('#tfm-launch').click()
+            page.get_by_role('button',name='Comprobar carpetas',exact=True).wait_for()
+            self.assertIn('Teléfono PHONE',page.locator('#tfm-target').text_content())
+            self.assertIn('teléfono PHONE',page.locator('#tfm-browser-list').text_content())
+            self.assertTrue(page.locator('#tfm-query').is_disabled())
+            page.evaluate('readAllowed=true')
+            page.get_by_role('button',name='Comprobar carpetas',exact=True).click()
+            page.get_by_role('button',name='Abrir carpeta Proyectos',exact=True).wait_for()
+            self.assertFalse(page.locator('#tfm-query').is_disabled())
+            self.assertEqual(page.evaluate("calls.filter(c=>c.path.startsWith('/v1/pair')).length"),0)
+
     def test_browse_folders_recents_types_and_pagination_at_339px(self):
         with sync_playwright() as p:
             page=self.open(p)
@@ -209,7 +225,7 @@ class TransferUI(unittest.TestCase):
         with sync_playwright() as p:
             page=self.open(p,'window.readAllowed=false;')
             page.locator('#tfm-launch').click()
-            page.get_by_text('Autoriza las carpetas desde tu PC',exact=True).wait_for()
+            page.get_by_text('Autoriza las carpetas para este teléfono',exact=True).wait_for()
             self.assertIn('Actividad y permisos',page.locator('#tfm-browser-list').inner_text())
             self.assertTrue(page.locator('#tfm-explore').is_disabled())
             self.assertTrue(page.locator('#tfm-kind').is_disabled())

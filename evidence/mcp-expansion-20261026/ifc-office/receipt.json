@@ -1,0 +1,117 @@
+{
+  "source_only": true,
+  "guid": "1zIn9MQ6X2rOTqWqoiItoB",
+  "receipts": [
+    {
+      "operation_id": "26720765-ce9f-4caf-afb1-d1c9b04e7d64",
+      "tool_name": "ifc_inventory_csv",
+      "state": "succeeded",
+      "preconditions_passed": true,
+      "postconditions_passed": true,
+      "output": {
+        "path": "C:\\Users\\luigi\\Desktop\\axx2\\evidence\\mcp-expansion-20261026\\ifc-office\\inventory.csv",
+        "sha256": "7466e5cd0da8f462e1eb7b6eb494a9bb73b21438d9f6c2adcc677c8db40b4a01",
+        "bytes": 122,
+        "elements": 1,
+        "source_sha256": "fa243c1b37127ec3cb1853fa61bcf1cab9d94273c837962bb223cfebc721d5af",
+        "schema": "IFC4",
+        "length_unit": "MILLIMETRE",
+        "numeric_column": "Count",
+        "delimiter": ",",
+        "geometry_verified": false
+      },
+      "error": null,
+      "duration_ms": 2110.0,
+      "evidence": {
+        "verification": "ifc_guids_units_and_csv_readback"
+      },
+      "delivery_mode": "background",
+      "dispatch_status": "delivered",
+      "effect_status": "confirmed"
+    },
+    {
+      "operation_id": "e0364212-177f-4d3f-abda-4db998433708",
+      "tool_name": "office_excel_csv",
+      "state": "succeeded",
+      "preconditions_passed": true,
+      "postconditions_passed": true,
+      "output": {
+        "data_rows": 1,
+        "columns": 6,
+        "total": "1",
+        "formula": "=SUM(D2:D2)",
+        "verification": "reopened_com_and_independent_ooxml_cells",
+        "path": "C:\\Users\\luigi\\Desktop\\axx2\\evidence\\mcp-expansion-20261026\\ifc-office\\inventory.xlsx",
+        "sha256": "6c8ec0a7f85db0700608a8a43c0acb3a96425e666a9779c43b374e0be2475b28",
+        "bytes": 9231,
+        "source": "C:\\Users\\luigi\\Desktop\\axx2\\evidence\\mcp-expansion-20261026\\ifc-office\\inventory.csv",
+        "source_sha256": "7466e5cd0da8f462e1eb7b6eb494a9bb73b21438d9f6c2adcc677c8db40b4a01",
+        "application": {
+          "success": true,
+          "application": "Excel",
+          "version": "16.0",
+          "owned_pid": 16240,
+          "process_started": "134374763211381497",
+          "reopened_verified": true
+        }
+      },
+      "error": null,
+      "duration_ms": 5125.0,
+      "evidence": {
+        "verification": "reopened_com_and_independent_ooxml_cells",
+        "source_unchanged": true
+      },
+      "delivery_mode": "foreground",
+      "dispatch_status": "delivered",
+      "effect_status": "confirmed"
+    },
+    {
+      "operation_id": "1bd48e34-5654-4bec-a998-2408d5cdcd8c",
+      "tool_name": "office_word_pdf",
+      "state": "succeeded",
+      "preconditions_passed": true,
+      "postconditions_passed": true,
+      "output": {
+        "directory": "C:\\Users\\luigi\\Desktop\\axx2\\evidence\\mcp-expansion-20261026\\ifc-office\\report",
+        "files": [
+          {
+            "path": "C:\\Users\\luigi\\Desktop\\axx2\\evidence\\mcp-expansion-20261026\\ifc-office\\report\\document.docx",
+            "sha256": "36c35606b0d7f3b5023b52c3f6441aea9edba0bc8ef46bb98aa6f9eeb1c98393",
+            "bytes": 12170
+          },
+          {
+            "path": "C:\\Users\\luigi\\Desktop\\axx2\\evidence\\mcp-expansion-20261026\\ifc-office\\report\\document.pdf",
+            "sha256": "57e2862adc6ec0b1faae6c4f69258498cb0cf89384097b6f238b3f25aabde717",
+            "bytes": 98176
+          }
+        ],
+        "pages": 1,
+        "verification": "reopened_word_text_and_independent_docx_pdf",
+        "source": "C:\\Users\\luigi\\Desktop\\axx2\\evidence\\mcp-expansion-20261026\\ifc-office\\template.docx",
+        "source_sha256": "1fd58f868222c0fcaaad48b47465da3af008c3d1727c7e9d028cef784b7f67a8",
+        "application": {
+          "success": true,
+          "application": "Word",
+          "version": "16.0",
+          "owned_pid": 792,
+          "process_started": "134374763269602221",
+          "reopened_verified": true
+        }
+      },
+      "error": null,
+      "duration_ms": 9656.0,
+      "evidence": {
+        "verification": "reopened_word_text_and_independent_docx_pdf",
+        "source_unchanged": true,
+        "created_paths": [
+          "C:\\Users\\luigi\\Desktop\\axx2\\evidence\\mcp-expansion-20261026\\ifc-office\\report",
+          "C:\\Users\\luigi\\Desktop\\axx2\\evidence\\mcp-expansion-20261026\\ifc-office\\report\\document.docx",
+          "C:\\Users\\luigi\\Desktop\\axx2\\evidence\\mcp-expansion-20261026\\ifc-office\\report\\document.pdf"
+        ]
+      },
+      "delivery_mode": "foreground",
+      "dispatch_status": "delivered",
+      "effect_status": "confirmed"
+    }
+  ]
+}

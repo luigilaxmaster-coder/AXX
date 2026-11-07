@@ -90,9 +90,47 @@ class ProviderSettingsTests(unittest.TestCase):
             self.assertEqual(result['choices'][0]['message']['content'],'hello')
             self.assertEqual(observed['path'],'/v1/messages'); self.assertEqual(observed['key'],'test-only')
             self.assertEqual(observed['body']['system'],'system rules');self.assertEqual(len(observed['body']['messages']),1)
+            self.assertEqual(observed['body']['cache_control'], {'type': 'ephemeral'})
             self.assertEqual(settings.discover({'provider':'anthropic','base_url':url},self.adapter.config)['models'],['claude-test'])
         finally:
             server.shutdown();server.server_close()
+
+
+    def test_anthropic_prompt_caching_variants(self):
+        observed = []
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, *args): pass
+            def do_POST(self):
+                body = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+                observed.append(body)
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b'{"content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","usage":{"input_tokens":10,"output_tokens":5,"cache_creation_input_tokens":100,"cache_read_input_tokens":50}}')
+        server = HTTPServer(('127.0.0.1', 0), Handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        try:
+            url = f'http://127.0.0.1:{server.server_port}/v1'
+            os.environ['TEST_PROVIDER_KEY'] = 'test-key'
+            
+            # 1. 1h TTL
+            p_1h = {'base_url': url, 'protocol': 'anthropic', 'api_key_env': 'TEST_PROVIDER_KEY', 'cache_ttl': '1h'}
+            res1 = http_transport(p_1h, {'model': 'claude-test', 'messages': [{'role': 'user', 'content': 'q1'}]}, 3)
+            self.assertEqual(observed[-1]['cache_control'], {'type': 'ephemeral', 'ttl': '1h'})
+            self.assertEqual(res1.get('usage', {}).get('cache_creation_input_tokens'), 100)
+
+            # 2. Disabled prompt caching
+            p_disabled = {'base_url': url, 'protocol': 'anthropic', 'api_key_env': 'TEST_PROVIDER_KEY', 'prompt_caching': False}
+            http_transport(p_disabled, {'model': 'claude-test', 'messages': [{'role': 'user', 'content': 'q2'}]}, 3)
+            self.assertNotIn('cache_control', observed[-1])
+
+            # 3. Explicit structured system blocks
+            p_structured = {'base_url': url, 'protocol': 'anthropic', 'api_key_env': 'TEST_PROVIDER_KEY'}
+            sys_block = [{'type': 'text', 'text': 'static prompt', 'cache_control': {'type': 'ephemeral'}}]
+            http_transport(p_structured, {'model': 'claude-test', 'messages': [{'role': 'system', 'content': sys_block}, {'role': 'user', 'content': 'q3'}]}, 3)
+            self.assertEqual(observed[-1]['system'], sys_block)
+        finally:
+            server.shutdown()
+            server.server_close()
 
     def test_cannot_save_while_request_active(self):
         self.adapter.active_requests['test']=object()

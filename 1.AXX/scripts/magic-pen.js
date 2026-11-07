@@ -6,15 +6,11 @@
     const clone = value => structuredClone(value);
     function sourcePoint(x, y, rect, width, height) {
         if (![x,y,rect.left,rect.top,rect.width,rect.height,width,height].every(Number.isFinite) || rect.width <= 0 || rect.height <= 0) throw Error('Transformación inválida.');
-        const p = [(x-rect.left)*width/rect.width, (y-rect.top)*height/rect.height];
-        if (p[0]<0 || p[1]<0 || p[0]>=width || p[1]>=height) throw Error('Fuera de la imagen.');
-        return p;
+        return [Math.max(0, Math.min(width, (x-rect.left)*width/rect.width)), Math.max(0, Math.min(height, (y-rect.top)*height/rect.height))];
     }
     function desktopPoint(x, y, viewport, source) {
         if (![x,y,viewport.x,viewport.y,viewport.scale,source.x,source.y].every(Number.isFinite) || viewport.scale <= 0) throw Error('Geometría de escritorio no disponible.');
-        const p = [viewport.x + x * viewport.scale - source.x, viewport.y + y * viewport.scale - source.y];
-        if (p[0]<0 || p[1]<0 || p[0]>=source.width || p[1]>=source.height) throw Error('Fuera de la pantalla activa.');
-        return p;
+        return [Math.max(0, Math.min(source.width, viewport.x + x * viewport.scale - source.x)), Math.max(0, Math.min(source.height, viewport.y + y * viewport.scale - source.y))];
     }
     function conciseSummary(response) {
         let text=String(response||'').replace(/```[\s\S]*?```/g,' ').replace(/!\[[^\]]*\]\([^)]*\)/g,' ').replace(/^\s*#{1,6}\s*/gm,'').replace(/[>*_`]/g,' ').split(/\n\s*\n/)[0].replace(/\s+/g,' ').trim();
@@ -58,7 +54,7 @@
                 <div class="mp-toolstrip"><div id="mp-select-tools" class="mp-toolgroup">${tool('rect','Rectángulo')}${tool('point','Punto y contexto')}${tool('lasso','Lazo')}</div><div id="mp-ink-tools" class="mp-toolgroup" hidden>${tool('pen','Pluma')}${tool('marker','Marcador')}${tool('erase','Borrar trazo')}<span class="mp-divider"></span><input id="mp-color" type="color" value="#b8aaff" aria-label="Color de tinta"><input id="mp-width" type="range" min="1" max="40" value="4" aria-label="Grosor de tinta"></div><span id="mp-tool-hint">Arrastra para seleccionar</span><div class="mp-history-tools"><button id="mp-undo" class="mp-icon-button" title="Deshacer tinta" aria-label="Deshacer tinta">${icon('undo')}</button><button id="mp-redo" class="mp-icon-button" title="Rehacer tinta" aria-label="Rehacer tinta">${icon('redo')}</button></div></div>
                 <div class="mp-stage"><div id="mp-viewport"><canvas id="mp-canvas" tabindex="0" aria-label="Captura congelada: selecciona o anota; Escape para salir"></canvas><div id="mp-empty">${icon('capture')}<strong>Todo empieza con una captura.</strong><span>Selecciona un detalle. Pregunta. Deja una nota.</span></div></div><div class="mp-stage-footer"><span id="mp-meta">Sin captura</span><label>Zoom <select id="mp-zoom"><option value="1">Ajustar</option><option value="2">200%</option><option value="4">400%</option></select></label></div></div>
                 <div class="mp-selection-row"><details><summary>Ajustar selección</summary><div class="mp-row">${['x0','y0','x1','y1'].map(k=>`<label>${k}<input id="mp-${k}" type="number" min="0" step="1"></label>`).join('')}<button id="mp-adjust">Aplicar</button></div><small>Coordenadas del original. Aplicar crea un rectángulo.</small></details><button id="mp-close-lasso" hidden>Cerrar lazo</button></div>
-                <div class="mp-composer"><input id="mp-question" type="text" maxlength="4000" placeholder="¿Qué quieres saber de esta selección?" aria-label="Pregunta sobre la selección"><button id="mp-voice" class="mp-icon-button" title="Dictar pregunta" aria-label="Dictar pregunta">${icon('mic')}</button><button id="mp-ask" class="mp-icon-button" title="Preguntar" aria-label="Preguntar">${icon('send')}</button></div>
+                <div class="mp-composer"><div class="mp-prompt-chips" style="display:flex;gap:5px;margin-bottom:6px"><button type="button" class="mp-chip" data-mp-prompt="point" style="font:600 11px system-ui;padding:2px 7px;border-radius:10px;background:#1e293b;color:#38bdf8;border:1px solid #38bdf844;cursor:pointer">📍 Señalar</button><button type="button" class="mp-chip" data-mp-prompt="diagram" style="font:600 11px system-ui;padding:2px 7px;border-radius:10px;background:#1e293b;color:#22c55e;border:1px solid #22c55e44;cursor:pointer">📊 Diagrama</button><button type="button" class="mp-chip" id="mp-chip-3d" data-mp-prompt="3d" style="font:600 11px system-ui;padding:2px 7px;border-radius:10px;background:#1e293b;color:#f59e0b;border:1px solid #f59e0b44;cursor:pointer" hidden>🧊 3D</button></div><div class="mp-input-row" style="display:flex;align-items:center;gap:4px"><input id="mp-question" type="text" maxlength="4000" placeholder="¿Qué quieres saber de esta selección?" aria-label="Pregunta sobre la selección"><button id="mp-voice" class="mp-icon-button" title="Dictar pregunta" aria-label="Dictar pregunta">${icon('mic')}</button><button id="mp-ask" class="mp-icon-button" title="Preguntar" aria-label="Preguntar">${icon('send')}</button></div></div>
                 <p id="mp-status" role="status" aria-live="polite">Elige una pantalla y pulsa Capturar.</p><div id="mp-answers" aria-live="polite"></div>
                 <details class="mp-save-section"><summary>${icon('save')}Guardar e historial<span>PNG + tinta editable</span></summary><label>Carpeta de destino<input id="mp-directory" type="text"></label><label>Nombre<input id="mp-name" type="text" value="Captura-Axx" maxlength="100"></label><div class="mp-row"><button id="mp-original">Guardar original</button><button id="mp-annotated">Guardar anotado</button><button id="mp-retry">Guardar borrador</button></div><p id="mp-export" role="status"></p><label>Capturas anteriores<select id="mp-history"><option value="">Elige una captura</option></select></label></details><p id="mp-capability" class="mp-muted"></p>`;
             document.body.append(view); this.view = view; this.canvas = $('mp-canvas'); this.ctx = this.canvas.getContext('2d');
@@ -73,6 +69,13 @@
             $('mp-history').onchange = () => this.run(()=>this.restore($('mp-history').value));
             $('mp-tool').onchange = () => this.chooseTool($('mp-tool').value);
             view.querySelectorAll('[data-mp-tool]').forEach(b=>b.onclick=()=>this.chooseTool(b.dataset.mpTool));
+            view.querySelectorAll('[data-mp-prompt]').forEach(b=>b.onclick=()=>{
+                const p=b.dataset.mpPrompt;
+                if(p==='point')$('mp-question').value='Señala y marca con flechas los elementos clave de esta selección.';
+                else if(p==='diagram')$('mp-question').value='Crea un diagrama 2D de componentes y flujo de esta selección.';
+                else if(p==='3d')$('mp-question').value='Explica esto en 3D interactivo con sus piezas y vista explosionada.';
+                void this.ask();
+            });
             view.querySelectorAll('[data-mp-mode]').forEach(b=>b.onclick=()=>this.chooseTool({select:'rect',ink:'pen',pointer:'pointer'}[b.dataset.mpMode]));
             for(const id of ['mp-color','mp-width','mp-directory']) $(id).onchange=()=>this.preferences();
             $('mp-zoom').onchange = () => {this.cancelGesture();this.fit();};
@@ -171,7 +174,7 @@
         clearBubbleTimer(){clearTimeout(this.bubbleTimer);this.bubbleTimer=null;}
         clearSummaryBubble(clearAnswer=false){
             this.clearBubbleTimer();this.summaryBubbleMode=false;this.widget.classList.remove('mp-bubble-mode','mp-bubble-leaving');this.widget.removeAttribute('data-bubble-side');this.widget.style.removeProperty('--mp-bubble-enter');$('mp-summary-bubble').hidden=true;$('mp-summary-spinner').hidden=true;$('mp-summary-voice-status').hidden=true;$('mp-show-answer').hidden=true;
-            if(clearAnswer){this.answerAvailable=false;this.summaryText='';$('mp-summary-text').textContent='';}
+            if(clearAnswer){this.answerAvailable=false;this.summaryText='';$('mp-summary-text').textContent='';this.activeSpatialPlan=null;A.spatialRuntime?.dismiss3DCard();}
         }
         showPendingBubble(){
             this.clearSummaryBubble(true);this.summaryBubbleMode=true;this.widget.classList.add('mp-bubble-mode');$('mp-summary-bubble').hidden=false;$('mp-summary-label').textContent='Analizando';$('mp-summary-text').textContent='Estoy revisando esa zona…';$('mp-summary-spinner').hidden=false;$('mp-summary-listen').hidden=true;$('mp-summary-expand').hidden=true;this.showWidget();
@@ -287,11 +290,11 @@
         queueSave(){if(!this.doc)return;const d=this.doc,snapshot={selection:clone(d.selection),strokes:clone(d.strokes)};this.saveChain=this.saveChain.then(async()=>{if(this.saveError)return;try{const saved=await api('save',{id:d.id,expected_revision:d.revision,...snapshot});d.revision=saved.revision;}catch(e){this.saveError=e;this.status('Borrador sin guardar: '+String(e.message||e));}});}
         async flush(){await this.saveChain;if(this.saveError)throw this.saveError;}
         selectionFields(){if(!this.doc?.selection)return;['x0','y0','x1','y1'].forEach((k,i)=>$('mp-'+k).value=Math.round(this.doc.selection.bounds[i]));}
-        selectionChanged(){this.clearSummaryBubble(true);this.pendingSelection=null;this.pendingLasso=null;this.selectionOrigin='explicit';this.inkBaseSelection=null;this.answerDirty=true;this.selectionFields();this.render();this.renderAnswers();this.queueSave();this.setInput(this.live&&!this.livePaused&&!this.historyMode);this.showWidget();}
+        selectionChanged(){this.clearSummaryBubble(true);this.pendingSelection=null;this.pendingLasso=null;this.selectionOrigin='explicit';this.inkBaseSelection=null;this.answerDirty=true;this.selectionFields();this.render();this.renderAnswers();this.queueSave();this.setInput(!this.historyMode&&.value!=='interact');this.showWidget();}
         fit(){if(!this.doc||!this.viewport)return;const s=this.doc.source,v=this.viewport;Object.assign(this.canvas.style,{left:(s.x-v.x)/v.scale+'px',top:(s.y-v.y)/v.scale+'px',width:s.width/v.scale+'px',height:s.height/v.scale+'px'});}
         point(e){if(!this.viewport)throw Error('Espera a que el escritorio esté listo.');return desktopPoint(e.clientX,e.clientY,this.viewport,this.doc.source);}
         down(e){if(!this.doc||!this.inputEnabled||this.working||e.button!==0)return;e.preventDefault();e.stopPropagation();try{const p=this.point(e),tool=$('mp-tool').value;if(tool!=='pointer')this.cancelAnalysis();this.pendingLasso=null;this.gesture={id:e.pointerId,tool,points:[p],color:$('mp-color').value,width:Math.min(80,Number($('mp-width').value)*(tool==='marker'?4:1)*this.viewport.scale)};this.canvas.setPointerCapture(e.pointerId);this.render();}catch(e){this.status(e.message);}}
-        move(e){if(!this.gesture)return;e.preventDefault();e.stopPropagation();try{const p=this.point(e);if(this.gesture.points.length>=4096)return;this.gesture.points.push(p);if(!this.paintPending){this.paintPending=requestAnimationFrame(()=>{this.paintPending=0;this.render();});}}catch{this.cancelGesture();this.status('Gesto cancelado fuera de la imagen.');}}
+        move(e){if(!this.gesture)return;e.preventDefault();e.stopPropagation();try{const p=this.point(e);if(this.gesture.points.length>=4096)return;this.gesture.points.push(p);if(!this.paintPending){this.paintPending=requestAnimationFrame(()=>{this.paintPending=0;this.render();});}}catch{}}
         up(e){
             const g=this.gesture;if(!g)return;e.preventDefault();e.stopPropagation();this.gesture=null;
             if(this.canvas.hasPointerCapture(e.pointerId))this.canvas.releasePointerCapture(e.pointerId);
@@ -299,7 +302,7 @@
             const a=g.points[0],b=g.points.at(-1),w=this.canvas.width,h=this.canvas.height;
             let selection=null;
             if(g.tool==='point'){const r=100*this.viewport.scale;selection={shape:'point',anchor:a,bounds:[Math.max(0,a[0]-r),Math.max(0,a[1]-r),Math.min(w,a[0]+r),Math.min(h,a[1]+r)]};}
-            else if(g.tool==='rect'){const bounds=[Math.min(a[0],b[0]),Math.min(a[1],b[1]),Math.max(a[0],b[0]),Math.max(a[1],b[1])];if(bounds[2]-bounds[0]>=2&&bounds[3]-bounds[1]>=2)selection={shape:'rect',bounds};}
+            else if(g.tool==='rect'){const bounds=[Math.min(a[0],b[0]),Math.min(a[1],b[1]),Math.max(a[0],b[0]),Math.max(a[1],b[1])];if(bounds[2]-bounds[0]>=2&&bounds[3]-bounds[1]>=2)selection={shape:'rect',bounds};else{const r=80*this.viewport.scale;selection={shape:'rect',bounds:[Math.max(0,a[0]-r),Math.max(0,a[1]-r),Math.min(w,a[0]+r),Math.min(h,a[1]+r)]};}}
             else if(g.tool==='lasso'&&g.points.length>=3){
                 const xs=g.points.map(p=>p[0]),ys=g.points.map(p=>p[1]);const pts=g.points;
                 const area=pts.reduce((sum,p,i)=>{const q=pts[(i+1)%pts.length];return sum+p[0]*q[1]-q[0]*p[1];},0);
@@ -335,7 +338,7 @@
         undo(redo){if(!this.doc)return;const from=redo?this.redoStack:this.undoStack,to=redo?this.undoStack:this.redoStack;if(!from.length)return;this.cancelAnalysis();to.push(this.inkSnapshot());const snapshot=from.pop();this.doc.strokes=snapshot.strokes;this.doc.selection=snapshot.selection;this.selectionOrigin=snapshot.origin;this.inkBaseSelection=snapshot.base;this.answerDirty=true;this.queueSave();this.render();this.renderAnswers();this.paintPreview();this.scheduleAnalysis(650,true);}
         path(points,close=false){const c=this.ctx;c.beginPath();points.forEach((p,i)=>i?c.lineTo(...p):c.moveTo(...p));if(close)c.closePath();}
         stroke(s){const c=this.ctx;c.save();c.globalAlpha=s.tool==='marker'?.33:1;c.strokeStyle=s.color;c.fillStyle=s.color;c.lineWidth=s.width;c.lineCap='round';c.lineJoin='round';this.path(s.points);c.stroke();if(s.points.length===1){c.beginPath();c.arc(...s.points[0],s.width/2,0,Math.PI*2);c.fill();}c.restore();}
-        render(){const c=this.ctx;c.clearRect(0,0,this.canvas.width,this.canvas.height);if(!this.doc)return;this.doc.strokes.forEach(s=>this.stroke(s));const g=this.gesture;if(g&&['pen','marker'].includes(g.tool))this.stroke(g);c.save();c.strokeStyle='#9274ff';c.fillStyle='#b8aaff22';c.lineWidth=Math.max(2,this.canvas.width/450);c.setLineDash([c.lineWidth*3,c.lineWidth*2]);const s=this.pendingLasso||this.doc.selection;if(s){if(s.shape==='lasso'){this.path(s.points,true);c.fill('evenodd');c.stroke();}else{const [x,y,r,b]=s.bounds;c.strokeRect(x,y,r-x,b-y);}if(s.anchor){c.beginPath();c.arc(...s.anchor,6,0,Math.PI*2);c.stroke();}}if(g){if(g.tool==='rect'){const a=g.points[0],b=g.points.at(-1);c.strokeRect(...a,b[0]-a[0],b[1]-a[1]);}else if(g.tool==='lasso'){this.path(g.points);c.stroke();}else if(g.tool==='pointer'){c.setLineDash([]);c.beginPath();c.arc(...g.points.at(-1),12,0,Math.PI*2);c.stroke();}}c.restore();$('mp-close-lasso').hidden=!this.pendingLasso;this.updateMetadata();$('mp-undo').disabled=!this.undoStack.length;$('mp-redo').disabled=!this.redoStack.length;}
+        render(){const c=this.ctx;c.clearRect(0,0,this.canvas.width,this.canvas.height);if(!this.doc)return;this.doc.strokes.forEach(s=>this.stroke(s));if(this.activeSpatialPlan)A.spatialRuntime?.renderOverlay(c,this.activeSpatialPlan,this.doc.selection);const g=this.gesture;if(g&&['pen','marker'].includes(g.tool))this.stroke(g);c.save();c.strokeStyle='#9274ff';c.fillStyle='#b8aaff22';c.lineWidth=Math.max(2,this.canvas.width/450);c.setLineDash([c.lineWidth*3,c.lineWidth*2]);const s=this.pendingLasso||this.doc.selection;if(s){if(s.shape==='lasso'){this.path(s.points,true);c.fill('evenodd');c.stroke();}else{const [x,y,r,b]=s.bounds;c.strokeRect(x,y,r-x,b-y);}if(s.anchor){c.beginPath();c.arc(...s.anchor,6,0,Math.PI*2);c.stroke();}}if(g){if(g.tool==='rect'){const a=g.points[0],b=g.points.at(-1);c.strokeRect(...a,b[0]-a[0],b[1]-a[1]);}else if(g.tool==='lasso'){this.path(g.points);c.stroke();}else if(g.tool==='pointer'){c.setLineDash([]);c.beginPath();c.arc(...g.points.at(-1),12,0,Math.PI*2);c.stroke();}}c.restore();$('mp-close-lasso').hidden=!this.pendingLasso;this.updateMetadata();$('mp-undo').disabled=!this.undoStack.length;$('mp-redo').disabled=!this.redoStack.length;}
         renderAnswers(){const root=$('mp-answers');root.replaceChildren();if(this.answerDirty)return;for(const q of (this.doc?.queries||[]).filter(q=>q.revision===this.doc.revision&&this.doc.selection&&q.selection?.shape===this.doc.selection.shape&&['bounds','points','anchor'].every(k=>JSON.stringify(q.selection[k])===JSON.stringify(this.doc.selection[k]))).slice(-5)){const card=document.createElement('p');card.className='mp-answer';card.textContent=q.response||q.error||(q.state==='running'?'Analizando…':'Interrumpido; vuelve a preguntar.');card.title='Captura '+q.source_id.slice(0,6)+' · revisión '+q.revision;root.append(card);}}
         route(){const p=A.companion.data.prefs;return p.visionConnection&&p.visionModel?
             {selection_mode:'manual',provider:p.visionConnection,model:p.visionModel}:
@@ -358,6 +361,10 @@
             $('mp-live-status').textContent=this.analysisPending?'Analizando · puedes seguir dibujando':this.livePaused?'Directo en pausa':live?'Directo · al seleccionar o dibujar':'Manual · pulsa Preguntar';
             $('mp-live-status').dataset.state=this.analysisPending?'running':live?'live':'idle';
             $('mp-vision-missing').hidden=!this.capabilities||this.hasVision();
+            const r=this.route();
+            const has3D=(this.capabilities?.spatial_3d_supported===true)||Boolean(r.model&&r.model.toLowerCase().includes('sol')&&r.model.toLowerCase().includes('fast'));
+            const chip3D=$('mp-chip-3d');
+            if(chip3D)chip3D.hidden=!has3D;
             this.updateMetadata();if(this.active){this.positionWidget();this.syncInput();}
         }
         updateMetadata(){
@@ -428,7 +435,7 @@
                 if(!['completed','failed','cancelled','interrupted'].includes(q.state))throw Error('Estado de análisis desconocido.');
                 if(!job.d.queries.some(item=>item.id===q.id))job.d.queries.push(q);
                 this.answerDirty=false;this.renderAnswers();
-                if(q.state==='completed'){this.status('Respuesta lista. Puedes preguntar más o marcar otra zona.');this.showSummaryBubble(q.response);}
+                if(q.state==='completed'){this.status('Respuesta lista. Puedes preguntar más o marcar otra zona.');this.activeSpatialPlan=q.spatial_plan||null;this.render();if(this.activeSpatialPlan?.mode==='interactive_3d'&&this.activeSpatialPlan?.scene_3d)A.spatialRuntime?.show3DCard(document.body,this.activeSpatialPlan);this.showSummaryBubble(q.response);}
                 else {if(this.live)this.livePaused=true;this.clearSummaryBubble(true);this.status(q.error||'Análisis detenido. Puedes volver a intentarlo.');}
             }catch(e){if(current()){if(this.analysisJob)void this.cancelQuery(this.analysisJob);if(this.live)this.livePaused=true;this.clearSummaryBubble(true);this.status(String(e.message||e));}}
             finally{if(current()){this.analysisPending=false;this.analysisJob=null;this.queries.clear();this.updateControls();}}

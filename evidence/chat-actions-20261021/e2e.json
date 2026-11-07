@@ -1,13 +1,13 @@
 {
   "kind": "FULL_HTML_HTTP_FROZEN_WINDOWS_ACTIONS",
-  "binary": "C:\\Users\\PD2\\Desktop\\axx\\dist\\axx-backend.exe",
-  "sha256": "0d611d2692119d0408a4fa2ee0f87163284baefe12518d8b6769bccaf4cd8c06",
+  "binary": "C:\\Users\\luigi\\Desktop\\axx2\\dist\\axx-backend.exe",
+  "sha256": "c9c645cdf26962ae03d82c183f3c3e7e74f888ab85c3ad4f44f8a3f9a247ddf6",
   "passed": [
-    "YouTube command from chat reaches real Windows handoff",
+    "YouTube command from chat reaches real Windows handoff after approval",
     "No model required or called",
-    "PowerShell approval is visible before execution",
+    "CMD approval is visible in chat before execution",
     "Stopping speech preserves pending command approval",
-    "Real PowerShell output returns to chat",
+    "Real CMD output returns to chat",
     "Real local Whisper transcription of generated speech",
     "No browser exceptions"
   ],

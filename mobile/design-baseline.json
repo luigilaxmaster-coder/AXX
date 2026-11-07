@@ -13,7 +13,7 @@
     "mobile/css/live-client.css": "7c8cfb08c1cd3a43a8ee232ab5dbdf7a9b26ae9f03b3647553febce874f5c9ed",
     "mobile/css/remote-control.css": "f0dfc5ab87abab55f3af202faae238a7e50602d20f3efe9c7ee9f33d53303eac",
     "mobile/js/display.js": "92164b6865dd0fcf0649d54e1e4f028f575276375c8ba3a39fe4ae9bc03f8abc",
-    "mobile/js/avatar-renderer.js": "1e8be23b8527f4bbda31c599d5ee0395be86883fa740991b52360fa66c365a93",
+    "mobile/js/avatar-renderer.js": "1ca600123fc70740535679dfcb02664ad8fc48012e313dcf0e60271c98c64d46",
     "mobile/android/app/src/main/res/values/styles.xml": "510791b095e832d9da1e96cbf10eaac56a663ef8d12dacb9d849c34325ae2a34",
     "1.AXX/scripts/chat-workspace.css": "b390739c2df337bd10ccd47bc6451a11cb92d601ea6502e3c2c7fc5c924b7649",
     "1.AXX/scripts/interface-theme.css": "0c95c98eeaaee6e90cd742e9f6075e597716fadbf5d8b5489b51afd93a950c4b",
@@ -35,5 +35,13 @@
     "change": "Cache immutable Float32 sphere samples; retain original motion, three droplets, mesh, shaders, resolution, lighting and CPU fallback",
     "regression_test": "mobile.tests.test_personalization.PersonalizationTests.test_cached_droplets_keep_exact_pixels_and_stop_repeating_base_geometry",
     "evidence": "docs/mobile/PERFORMANCE-20261029.md"
+  },
+  "camera_motion_review": {
+    "date": "2026-10-29",
+    "authorization": "User requested more fluent character motion without reducing graphics quality",
+    "previous_renderer_sha256": "1e8be23b8527f4bbda31c599d5ee0395be86883fa740991b52360fa66c365a93",
+    "change": "Ease PC camera correction by shortest angular path while preserving ongoing rotation, direct input and reduced motion; preserve Desktop 0.22.29 hidden-canvas semantics in GPU adapter",
+    "regression_test": "mobile.tests.test_personalization.PersonalizationTests.test_snapshot_camera_correction_is_smooth_wrapped_and_respects_direct_input",
+    "evidence": "docs/mobile/FLUENCY-AND-PATHS-20261029.md"
   }
 }

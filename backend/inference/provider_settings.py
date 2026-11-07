@@ -159,7 +159,8 @@ def save(body, adapter, config_path):
         entry.update(name=name, kind=kind, base_url=url, protocol=protocol, model=model, api_key_env=env,
                      capabilities=capabilities)
         for field in ('enabled', 'free_confirmed', 'billing_allowed', 'cost_evidence', 'route_kind', 'capabilities',
-                      'tasks', 'context_window', 'image_context_tokens', 'task_priority', 'gateway_free_model_ids'):
+                      'tasks', 'context_window', 'image_context_tokens', 'task_priority', 'gateway_free_model_ids',
+                      'prompt_caching', 'cache_ttl', 'cache_control'):
             if field in body:
                 entry[field] = body[field]
         config['providers'] = [entry if p['name'] == name else p for p in config.get('providers', [])]

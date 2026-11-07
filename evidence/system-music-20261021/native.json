@@ -1,8 +1,8 @@
 {
   "nativeWindows": true,
   "available": true,
-  "audioAvailable": false,
-  "detectedPeak": 0,
+  "audioAvailable": true,
+  "detectedPeak": 0.03207206726074219,
   "checks": [
     "own Edge session detected",
     "GSMTC pause confirmed by HTMLMediaElement and native status",
@@ -10,5 +10,5 @@
     "closed session disappears",
     "stale control rejected"
   ],
-  "audioMeterValidation": "No active output; positive physical audio measurement remains unverified"
+  "audioMeterValidation": "real output measured"
 }

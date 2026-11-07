@@ -1,0 +1,88 @@
+{
+  "test": "native MCP cursor round trip",
+  "source_only": true,
+  "renderer": "source Edge headless",
+  "original": {
+    "x": 1064,
+    "y": 619
+  },
+  "target": {
+    "x": 1076,
+    "y": 619
+  },
+  "restored": true,
+  "receipts": [
+    {
+      "operation_id": "mcp-pointer-move",
+      "command_id": "axx.desktop.pointer.move",
+      "inputs": {
+        "x": 1076,
+        "y": 619
+      },
+      "source": "text",
+      "conversation_id": null,
+      "command_mode": null,
+      "delivery_mode": "foreground",
+      "context_id": "host",
+      "state": "succeeded",
+      "requires_approval": false,
+      "postconditions_passed": true,
+      "evidence": {
+        "verification": "cursor_readback",
+        "accepted": true,
+        "transport": "mcp_streamable_http",
+        "native_operation_id": "cmd-567317bb56c19afca538b7876c65961a8ed1e20b8b42536c9dd27c96472686fd"
+      },
+      "output": {
+        "x": 1076,
+        "y": 619,
+        "confirmed": true
+      },
+      "cancel_requested": false,
+      "error": null,
+      "duration_ms": 78.0,
+      "dispatch_status": "delivered",
+      "effect_status": "confirmed",
+      "action_operation_id": "cmd-567317bb56c19afca538b7876c65961a8ed1e20b8b42536c9dd27c96472686fd",
+      "tool_name": "desktop_move_pointer",
+      "model_calls_used": 0,
+      "model_calls_source": "deterministic_no_model_path"
+    },
+    {
+      "operation_id": "mcp-pointer-restore",
+      "command_id": "axx.desktop.pointer.move",
+      "inputs": {
+        "x": 1064,
+        "y": 619
+      },
+      "source": "text",
+      "conversation_id": null,
+      "command_mode": null,
+      "delivery_mode": "foreground",
+      "context_id": "host",
+      "state": "succeeded",
+      "requires_approval": false,
+      "postconditions_passed": true,
+      "evidence": {
+        "verification": "cursor_readback",
+        "accepted": true,
+        "transport": "mcp_streamable_http",
+        "native_operation_id": "cmd-7629e81378e2c6ad2d751075eaed091fe6f1d0f5995296dc871eb26b507c988a"
+      },
+      "output": {
+        "x": 1064,
+        "y": 619,
+        "confirmed": true
+      },
+      "cancel_requested": false,
+      "error": null,
+      "duration_ms": 47.0,
+      "dispatch_status": "delivered",
+      "effect_status": "confirmed",
+      "action_operation_id": "cmd-7629e81378e2c6ad2d751075eaed091fe6f1d0f5995296dc871eb26b507c988a",
+      "tool_name": "desktop_move_pointer",
+      "model_calls_used": 0,
+      "model_calls_source": "deterministic_no_model_path"
+    }
+  ]
+}

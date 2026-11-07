@@ -658,6 +658,10 @@ fn find_backend(app: &AppHandle) -> Option<PathBuf> {
             paths.push(base.join("axx-backend.exe"));
         }
     }
+    if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
+        paths.push(PathBuf::from(&local_app_data).join("Programs/Axx/resources/axx-backend.exe"));
+        paths.push(PathBuf::from(&local_app_data).join("Programs/Axx/axx-backend.exe"));
+    }
     #[cfg(debug_assertions)]
     {
         paths.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources/axx-backend.exe"));

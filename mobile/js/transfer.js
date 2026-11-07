@@ -35,7 +35,7 @@
   function renderCapacity(){const limits=[serverMax,localCapacity?.max_size].filter(n=>Number.isFinite(n)&&n>0),limit=limits.length?Math.min(...limits):0,free=localCapacity?.free_bytes;const text=[limit?'Hasta '+bytes(limit)+' por archivo':'',Number.isFinite(free)&&free>=0?bytes(free)+' libres en este teléfono':''].filter(Boolean).join(' · ');$('tfm-capacity').textContent=text;$('tfm-capacity').hidden=!text;}
   function browserMessage(title,detail){const card=element('div');card.className='tf-browser-empty';card.append(element('strong',title),element('p',detail));$('tfm-browser-list').replaceChildren(card);}
   function readPermission(){return permissions.read===false;}
-  function showReadPermission(){candidates=[];folderRows=[];nextOffset=null;browserStarted=false;$('tfm-more').hidden=true;$('tfm-breadcrumbs').replaceChildren();$('tfm-browser-list').setAttribute('aria-busy','false');browserMessage('Autoriza las carpetas desde tu PC','En Axx de la PC, abre Herramientas → Archivos → Actividad y permisos. Activa la lectura y elige las carpetas que quieres ver aquí. Después, vuelve a abrir Archivos en el teléfono.');}
+  function showReadPermission(){candidates=[];folderRows=[];nextOffset=null;browserStarted=false;$('tfm-more').hidden=true;$('tfm-breadcrumbs').replaceChildren();$('tfm-browser-list').setAttribute('aria-busy','false');browserMessage('Autoriza las carpetas para este teléfono','En tu PC, abre Archivos → Actividad y permisos. Elige el teléfono '+currentDevice.slice(-6).toUpperCase()+', activa «Buscar y copiar al teléfono», indica la carpeta y guarda los permisos.');$('tfm-browser-list').append(button('Comprobar carpetas',refresh));}
   function fileMark(name){const suffix=(name||'').split('.').pop().toUpperCase();return suffix&&suffix.length<=5?suffix:'ARCH';}
   function downloadLimit(file){const limits=[serverMax,localCapacity?.max_size].filter(n=>Number.isFinite(n)&&n>0);if(limits.length&&total(file)>Math.min(...limits))return 'Supera el límite de '+bytes(Math.min(...limits))+' por archivo.';if(Number.isFinite(localCapacity?.free_bytes)&&total(file)>localCapacity.free_bytes)return 'No hay suficiente espacio libre en este teléfono.';return '';}
   function renderBrowser(){
@@ -61,7 +61,7 @@
       if(!sameDevice(binding))return;
       permissions=data.permissions||{};history=data.transfers||[];
       serverMax=Number(data.max_size)||0;renderCapacity();
-      $('tfm-target').textContent='Axx · '+($('pc-name')?.textContent||'Tu PC');
+      $('tfm-target').textContent='Axx · '+($('pc-name')?.textContent||'Tu PC')+' · Teléfono '+currentDevice.slice(-6).toUpperCase();
       $('tfm-permissions').textContent=(permissions.read?'Lectura autorizada':'Lectura sin autorizar')+' · '+(permissions.write?'Recepción autorizada':'Recepción sin autorizar');
       for(const id of ['tfm-query','tfm-search','tfm-search-toggle','tfm-explore','tfm-recents','tfm-kind'])$(id).disabled=!permissions.read;$('tfm-send').disabled=!permissions.write||!native;
       if(!permissions.read){searchRevision++;browserLoading=false;showReadPermission();}
@@ -210,7 +210,7 @@
     return {query,filters};
   }
   window.AxxTransfer={open,privateQuery,handleText(text){const plain=text.trim().normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();const ordinal=plain.match(/^(?:(?:mandame|traeme|enviame|quiero)\s+)?el\s+(primero|segundo|tercero|ultimo)[.!]?$/);if(ordinal&&candidates.length){open();const index=ordinal[1]==='ultimo'?0:['primero','segundo','tercero'].indexOf(ordinal[1]);if(!candidates[index])status('No hay un resultado con ese número. Elige una tarjeta.');else void startDownload(candidates[index]).catch(e=>status(e.message||String(e),true));return true;}const parsed=privateQuery(text);if(!parsed){if(/\b(?:archivo|documento|pdf|dwg|rvt|excel|plano|render)\b/.test(plain)&&/\b(?:buscar|busca|trae|traeme|traig|enviar|envia|mandar|manda|descarga|guardar|guarda)/.test(plain)){open();status('Usa «busca el nombre en mi PC» y elige un resultado. Esta orden queda en Archivos, sin enviarse al modelo.');return true;}return false;}open();$('tfm-query').value=parsed.query;void search(parsed.query,parsed.filters).catch(e=>status(e.message||String(e),true));return true;}};
-  window.addEventListener('axxSnapshot',event=>{const next=event.detail.device_id||currentDevice;if(next!==currentDevice){generation++;permissions={};history=[];currentFingerprint='';resetBrowser();status('Cambió el enlace. Consulta las transferencias de la PC antes de continuar.');}currentDevice=next;if(native&&!running&&Date.now()-lastRefresh>4000)void refresh();});
+  window.addEventListener('axxSnapshot',event=>{const next=event.detail.device_id||currentDevice;if(currentDevice&&next!==currentDevice){generation++;permissions={};history=[];currentFingerprint='';resetBrowser();status('Cambió el enlace. Consulta las transferencias de la PC antes de continuar.');}currentDevice=next;if(native&&!running&&Date.now()-lastRefresh>4000)void refresh();});
   document.addEventListener('visibilitychange',()=>{if(document.hidden&&running){generation++;status('Transferencia interrumpida al salir. Reanuda al volver a Axx.');}else if(dialog.open)void refresh();});
   dialog.addEventListener('close',()=>{if(!arrival.hidden)pulse();});
   if(!native){$('tfm-send').disabled=true;status('Actualiza Axx Mobile para enviar y guardar archivos.');}

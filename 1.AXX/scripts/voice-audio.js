@@ -39,7 +39,7 @@
         const number = Number(value), [min, max] = limits[name];
         return Number.isFinite(number) ? Math.round(Math.max(min, Math.min(max, number)) * 100) / 100 : neutral[name];
     };
-    const valid = voice => /^(moss|piper):[a-z0-9_-]{1,70}$/i.test(voice || '');
+    const valid = voice => /^(moss|piper):[a-z0-9_@-]{1,70}$/i.test(voice || '');
     const personality = () => Axx.companion?.data?.prefs?.personalityStyle || 'natural';
     const manual = voice => Object.keys(saved[voice] || {}).some(name => Object.hasOwn(limits, name));
     const get = voice => Object.fromEntries(Object.keys(limits).map(name =>

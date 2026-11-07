@@ -1,5 +1,13 @@
 # Axx delivery rules
 
+## Autoría y asistencia de IA
+
+- La autoría de este proyecto pertenece a su creador humano. Las herramientas y modelos de IA pueden asistir con análisis, código, documentación y correcciones, pero no son autores ni coautores y no deben atribuirse crédito de autoría.
+- No añadas trailers `Co-authored-by` para modelos, asistentes, proveedores de IA ni cuentas operadas por IA. No añadas sus nombres a créditos de autoría, contribuyentes o propiedad intelectual. Conserva la atribución humana existente y los avisos legales de terceros que correspondan.
+- Al crear commits, usa la identidad humana configurada por el propietario; no cambies la configuración Git del usuario. No reescribas ni elimines atribuciones históricas.
+- El workflow `Author policy / no-ai-coauthor` rechaza trailers de coautoría y commits que no usen la identidad Git del propietario. Para bloquear la integración, GitHub debe exigir ese estado y firmas verificadas en la rama protegida, sin actores de bypass.
+- Esta es una regla obligatoria para agentes y colaboradores y se debe respetar en cada cambio.
+
 - When changing the desktop version, update the manifests and README with `python scripts/release.py sync --version X.Y.Z`. Do not edit version fields independently.
 - The user's standing instruction is to update the installed app and its published Windows download whenever the desktop version changes. A source push alone does not complete delivery.
 - Follow `docs/RELEASING.md`: build, install and verify, push the source, then publish with the verified receipts. Keep existing native visual and functional acceptance checks. Report any blocked step explicitly.

@@ -281,8 +281,8 @@
                 chat:'chat', conversacion:'chat', dictar:'dictation', dictado:'dictation', microfono:'dictation',
                 grabar:'screen', grabadora:'screen', grabacion:'screen', 'grabar pantalla':'screen', pantalla:'screen',
                 musica:'music', reproductor:'music', lector:'reader', lectura:'reader', cronometro:'stopwatch',
-                temporizador:'timer', notas:'notes', tareas:'todos', calculadora:'calculator', unidades:'calculator',
-                biblioteca:'files', archivos:'files', comandos:'commands', ajustes:'settings', configuracion:'settings',
+                temporizador:'timer', notas:'notes', tareas:'todos', 'calculadora y unidades':'calculator', 'calculadora de axx':'calculator', conversor:'calculator', unidades:'calculator', ...(!Axx.isNative() ? {calculadora:'calculator'} : {}),
+                biblioteca:'files', archivos:'transfer', comandos:'commands', ajustes:'settings', configuracion:'settings', voces:'voices', voz:'voices',
                 apariencia:'appearance', formas:'appearance', colores:'appearance', estudio:'studio', sonido:'sound', audio:'audio',
                 ayuda:'help', actividad:'inbox', ia:'ai', modelos:'ai', 'conectar ia':'ai', subtitulos:'transcript',
                 traduccion:'translation', traducir:'translation', imagenes:'images', 'editor de imagenes':'images',
@@ -290,7 +290,7 @@
             };
             const featureId = value => {
                 const name = value.replace(/^(?:el|la|los|las|un|una)\s+/, '').replace(/^(?:apartado|panel|funcion) (?:de )?/, '').replace(/ de axx$/, '');
-                return aliases[name] || Axx.FEATURES?.find(f => plain(f.title).replace(/^(?:el|la|los|las|un|una)\s+/, '') === name || plain(f.id) === name)?.id;
+                return Axx.FEATURES?.find(f => plain(f.title).replace(/^(?:el|la|los|las|un|una)\s+/, '').replace(/ de axx$/, '') === name || plain(f.id) === name)?.id || aliases[name];
             };
             let match = text.match(/^(?:abre|abrir|abrirme|abreme|abras|muestra|muestrame|mostrar|ver|ve a|entra en) (.+)$/);
             if (match) { const id = featureId(match[1]); return id ? { id, verb:'open' } : null; }
@@ -382,7 +382,7 @@
             try { if (Axx.parseIntent?.(raw)) return true; }
             catch { return true; } // Let the local tool display its own input error.
             const local = raw.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
-            if (/^(?:(?:pon|poner)\s+(?:(?:el|la)\s+)?(?:forma|paleta|color)\s+.+|pon musica|reproduce musica|inicia la musica)$/.test(local) && Axx.isLocalExternalCommand?.(raw)) return true;
+            if ((/^(?:(?:pon|poner)\s+(?:(?:el|la)\s+)?(?:forma|paleta|color)\s+.+|pon musica|reproduce musica|inicia la musica)$/.test(local) && Axx.isLocalExternalCommand?.(raw)) || Axx.isStudioExternalCommand?.(raw)) return true;
             if(this.isActionRequest(raw))return false;
             // The legacy reach tray treats any "abre ..." as its own resource.
             // Route supported desktop requests to the backend before that catch-all.
@@ -412,7 +412,7 @@
                     const draft = node('chat-input').value.trim();
                     if ((this.busy || this.operation) && !Axx.modelSelection?.parse(draft) && !this.hasLocalIntent(draft) && !/^(?:\/cancelar-comando|cancelar comando|cancela el comando|\/comandos(?:\s+.*)?)$/i.test(draft)) {
                         Axx.chatWorkspace?.operationCard(this.operation || this.lastOperation);
-                        if (this.isActionRequest(draft)) { Axx.companion.openChat(); return; }
+                        if (!this.busy && Axx.chatWorkspace && ['awaiting_approval','prepared'].includes(this.operation?.state) && this.isActionRequest(draft) && requestWords(draft) !== requestWords(this.pendingRaw || '')) await this.cancel(); else if (this.isActionRequest(draft)) { Axx.companion.openChat(); return; }
                     }
                     return submit();
                 };
@@ -457,17 +457,17 @@
                 if (learn) { Axx.companion.message('user', raw, 'local'); await this.planAction(learn[1]); return; }
                 const catalogQuery = raw.match(/^\/comandos(?:\s+(.*))?$/i);
                 if (catalogQuery) { this.open(); try { await this.search(catalogQuery[1] || ''); } catch (error) { this.status(errorText(error)); } return; }
-                if (/^(?:\/cancelar-comando|cancelar comando|cancela el comando)$/i.test(raw)) { await this.cancel(); return; }
+                if (/^(?:\/cancelar-comando|cancelar comando|cancela el comando)$/i.test(raw)) { await this.cancel(); return; } if (this.operation?.state === 'awaiting_approval' && !this.operation.requires_approval && /^(?:aprobar y ejecutar|aprobar comando|aprueba el comando|ejecutar comando|ejecuta el comando)$/i.test(requestWords(raw))) { Axx.companion.message('user', raw, 'local'); await this.approve(); return; }
                 if (!Axx.isNative() || !raw || Axx.companion.attachment || Axx.companion.pending || Axx.companion.externalBusy) return previous(raw, metadata);
                 if (raw.length > 10000) {
                     if (this.isActionRequest(raw)) { Axx.companion.localNotice('La petición de acción es demasiado larga. Resúmela o usa un comando concreto.'); return; }
                     return previous(raw, metadata);
                 }
                 if (this.hasLocalIntent(raw)) return previous(raw, metadata);
-                if (this.busy || this.operation) { Axx.chatWorkspace?.operationCard(this.operation || this.lastOperation); if (!this.isActionRequest(raw)) return previous(raw, metadata); Axx.companion.openChat(); return; }
+                if (!this.busy && Axx.chatWorkspace && ['awaiting_approval','prepared'].includes(this.operation?.state) && this.isActionRequest(raw) && (metadata.source === 'voice' || requestWords(raw) !== requestWords(this.pendingRaw || ''))) await this.cancel(); if (this.busy || this.operation) { Axx.chatWorkspace?.operationCard(this.operation || this.lastOperation); if (!this.isActionRequest(raw)) return previous(raw, metadata); Axx.companion.openChat(); return; }
                 const source = metadata.source === 'voice' || this.voiceDraft?.value === raw ? 'voice' : 'text';
                 this.voiceDraft = null;
-                const serial = ++this.generation; let prepared = false; this.busy = true;
+                const serial = ++this.generation; let prepared = false; this.busy = true; this.pendingRaw = raw;
                 try {
                     if (this.actionContextChat !== (origin || '') || Date.now() - this.actionContextAt > 600000) this.actionContext = {};
                     const resolved = await this.request('POST', '/axx-api/commands/resolve', { text: raw, source, context: this.actionContext, project_id:Axx.skillLibrary?.project() || '' });

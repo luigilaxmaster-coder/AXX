@@ -65,7 +65,7 @@ class SharedState:
                 if status not in ('sent', 'done', 'complete', 'error', 'pending', 'failed'):
                     status = 'sent'
                 msg = dict(id=m['id'], role=m['role'], text=m['text'], at=at, source=source, status=status, conversation_id=conversation_id)
-                db.execute('INSERT INTO shared_messages VALUES(?,?,?,?,?,?,?)',
+                db.execute('INSERT INTO shared_messages(id, role, text, at, source, status, conversation_id) VALUES(?,?,?,?,?,?,?)',
                            (msg['id'], msg['role'], msg['text'], at, source, status, conversation_id))
                 db.execute('INSERT INTO shared_events(type,data,at) VALUES(?,?,?)',
                            ('message', json.dumps(msg, ensure_ascii=False), time.time()))

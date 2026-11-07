@@ -18,6 +18,11 @@ import time
 import uuid
 from PIL import Image, ImageDraw, ImageGrab
 from backend.prompts import compose
+from backend.spatial_plan import (
+    is_gpt_fast_model,
+    get_perception_contract,
+    extract_or_build_spatial_plan,
+)
 
 MAX_QUERY_HISTORY = 100
 MAX_RESPONSE_CHARS = 32000
@@ -179,7 +184,8 @@ class MagicPenService:
     def capabilities(self):
         providers = getattr(self.adapter, 'config', {}).get('providers', [])
         vision = [{'name': p['name'], 'model': p['model']} for p in providers if p.get('enabled', True) and (p.get('free_confirmed') is True or p.get('billing_allowed') is True) and 'vision' in p.get('capabilities', [])]
-        return {'vision': vision, 'ocr': False, 'ocr_message': 'OCR no integrado; el proveedor visual puede leer texto si está configurado.', 'export_directory': str(self.root / 'exports')}
+        has_3d = any(is_gpt_fast_model(p['name'], p['model']) for p in vision)
+        return {'vision': vision, 'spatial_3d_supported': has_3d, 'ocr': False, 'ocr_message': 'OCR no integrado; el proveedor visual puede leer texto si está configurado.', 'export_directory': str(self.root / 'exports')}
 
     def list(self):
         with self.lock:
@@ -525,10 +531,12 @@ class MagicPenService:
                 watcher = threading.Thread(target=self._watch_cancellation, args=(job,), name='axx-pen-cancel', daemon=True)
                 watcher.start()
             chosen = q['provider']
+            spatial_allowed = is_gpt_fast_model(chosen.get('name'), chosen.get('model'))
+            contract = get_perception_contract(spatial_3d_allowed=spatial_allowed)
             result = self.adapter.route({'request_id': 'pen-' + q['id'], 'conversation_id': 'pen-' + q['id'],
                 'task': 'vision', 'selection_mode': request['selection_mode'], 'allow_paid': False, 'deadline_ms': 70000,
                 'provider_name': chosen['name'], 'model': chosen['model'], 'generation': {'max_tokens': 1024},
-                'messages': [{'role': 'system', 'content': compose('perception', contract='Responde en español sobre la imagen seleccionada.')['text']},
+                'messages': [{'role': 'system', 'content': compose('perception', contract=contract)['text']},
                     {'role': 'user', 'content': [{'type': 'text', 'text': q['question']}, {'type': 'image_url', 'image_url': {'url': 'data:image/jpeg;base64,'+base64.b64encode(buf.getvalue()).decode()}}]}]},
                 **({'cancel_event': job['cancel']} if event_support else {}))
             if not isinstance(result, dict) or result.get('ok') is not True:
@@ -538,9 +546,17 @@ class MagicPenService:
             text = message.get('content') if isinstance(message, dict) else None
             if not isinstance(text, str) or not text.strip() or len(text) > MAX_RESPONSE_CHARS:
                 raise ValueError('El proveedor no devolvió texto válido dentro del límite.')
+            spatial_plan = extract_or_build_spatial_plan(
+                text,
+                selection=s,
+                spatial_3d_allowed=spatial_allowed,
+                provider_name=chosen.get('name'),
+                model_name=chosen.get('model')
+            )
             with self.lock:
                 if not job['cancel'].is_set() and not self.closing:
                     self._replace_query(d['id'], q['id'], {'state': 'completed', 'response': text,
+                                        'spatial_plan': spatial_plan,
                                         'route': result.get('route'), 'finished_at': time.time()})
         except Exception as exc:
             with self.lock:
@@ -564,3 +580,18 @@ class MagicPenService:
                 self.condition.wait(timeout=.05)
             q = self.query({'id': q['source_id'], 'query_id': q['id']})
         return q
+
+    def spatial_plan(self, body):
+        q = self.query(body)
+        plan = q.get('spatial_plan')
+        if not plan and q.get('response'):
+            chosen = q.get('provider') or {}
+            spatial_allowed = is_gpt_fast_model(chosen.get('name'), chosen.get('model'))
+            plan = extract_or_build_spatial_plan(
+                q['response'],
+                selection=q.get('selection'),
+                spatial_3d_allowed=spatial_allowed,
+                provider_name=chosen.get('name'),
+                model_name=chosen.get('model')
+            )
+        return plan or {'mode': 'overlay_2d', 'summary': q.get('error', 'Sin datos'), 'annotations_2d': []}

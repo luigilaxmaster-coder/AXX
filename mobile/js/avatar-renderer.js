@@ -40,6 +40,28 @@
         this.grids=new WeakMap();this.textureKey=null;this.accelerated=true;this.lastDrawnSignature='';
       }catch(error){this.accelerated=false;console.warn('Axx: GPU unavailable, using the desktop-compatible renderer.',error.message);}
     }
+    setCamera20(raw){
+      const previous=this.angle;
+      super.setCamera20(raw);
+      if(this.angle===previous)return;
+      if(!this.cameraInitialized||!this.moving()){
+        this.cameraInitialized=true;this.cameraCorrection=null;return;
+      }
+      const target=this.angle;
+      this.angle=previous;
+      // Correct snapshot drift over frames, without undoing ongoing rotation or taking the long way around 2π.
+      this.cameraCorrection=[Math.atan2(Math.sin(target[0]-previous[0]),Math.cos(target[0]-previous[0])),target[1]-previous[1]];
+    }
+    advanceMotion(dt){
+      super.advanceMotion(dt);
+      if(!this.cameraCorrection)return;
+      const amount=this.moving()?1-Math.exp(-12*Axx.clamp(dt,0,.08)):1;
+      for(let i=0;i<2;i++){const step=this.cameraCorrection[i]*amount;this.angle[i]+=step;this.cameraCorrection[i]-=step;}
+      this.angle[1]=Axx.clamp(this.angle[1],-1.3,1.3);
+      if(Math.abs(this.cameraCorrection[0])+Math.abs(this.cameraCorrection[1])<.0001)this.cameraCorrection=null;
+    }
+    rotate(dx,dy){this.cameraCorrection=null;super.rotate(dx,dy);}
+    resetCamera(){this.cameraCorrection=null;super.resetCamera();}
     project(grid,rotate=true){
       if(!this.gpuFrame)return super.project(grid,rotate);
       const triangle=this.raster.triangle;
@@ -87,7 +109,7 @@
     }
     draw(time){
       // The desktop's diagnostic wireframe stays on its original rasterizer.
-      if(!this.accelerated||this.gl.isContextLost()||this.studio.view===3)return super.draw(time);
+      if(this.hidden||!this.accelerated||this.gl.isContextLost()||this.studio.view===3)return super.draw(time);
       const started=performance.now(),gl=this.gl,r=this.canvas.getBoundingClientRect(),parent=this.canvas.parentElement.getBoundingClientRect();
       this.lastTime=time;
       try{
@@ -108,13 +130,14 @@
       }catch(error){this.gpuFrame=false;this.accelerated=false;console.warn('Axx: compatible rendering restored.',error.message);super.draw(time);}
     }
     hitMask(cols=64,rows=64){
-      if(!this.accelerated||this.studio.view===3)return super.hitMask(cols,rows);
+      if(this.hidden||!this.accelerated||this.studio.view===3)return super.hitMask(cols,rows);
       cols=Math.round(Axx.clamp(cols,8,128));rows=Math.round(Axx.clamp(rows,8,128));
       const {width,height}=this.canvas,data=this.ctx.getImageData(0,0,width,height).data,bits=[];
       for(let y=0;y<rows;y++)for(let x=0;x<cols;x++)bits.push(data[(Math.min(height-1,Math.floor((y+.5)*height/rows))*width+Math.min(width-1,Math.floor((x+.5)*width/cols)))*4+3]>16?1:0);
       const r=this.canvas.getBoundingClientRect();return {width:r.width,height:r.height,cols,rows,bits};
     }
     hitTest(x,y){
+      if(this.hidden)return false;
       if(!this.accelerated||this.studio.view===3)return super.hitTest(x,y);
       const r=this.canvas.getBoundingClientRect(),px=Math.floor((x-r.left)/r.width*this.canvas.width),py=Math.floor((y-r.top)/r.height*this.canvas.height);
       return px>=0&&py>=0&&px<this.canvas.width&&py<this.canvas.height&&this.ctx.getImageData(px,py,1,1).data[3]>16;

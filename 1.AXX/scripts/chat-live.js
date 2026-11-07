@@ -42,11 +42,11 @@
   if(c.pending||s.liveBusy){lastError='Espera a que termine la respuesta actual o pulsa Detener.';render();return;}
   const id=++revision;starting=true;lastError='';render();
   try{
-   if(!c.brain.connected)await c.connect();
+   if(!c.brain.connected&&c.data.prefs.provider!=='none'){try{await c.connect();}catch{}}
    if(id!==revision)return;
-   if(!c.brain.connected)throw Error('Conecta un modelo en IA y vuelve a iniciar.');
+   /* Local and desktop voice commands remain available even before connecting a remote model. */
    models();
-   if(c.data.prefs.voiceModel&&(c.data.prefs.selection_mode==='automatic_free'||!c.brain.models.includes(c.data.prefs.voiceModel)))throw Error('El modelo para voz no está disponible en esta conexión. Elige Mismo del chat o un modelo de la lista.');
+   if(c.brain.connected&&c.data.prefs.voiceModel&&(c.data.prefs.selection_mode==='automatic_free'||!c.brain.models.includes(c.data.prefs.voiceModel)))throw Error('El modelo para voz no está disponible en esta conexión. Elige Mismo del chat o un modelo de la lista.');
    await Axx.prepareSpeechAudio?.();
    Axx.nativeVoice.prepareVoice(s.reader.voiceURI);
    if(id!==revision)return;
@@ -111,7 +111,7 @@
   $('chat-live-model').onchange=e=>{const m=e.target.value;if(m&&(!c.brain.connected||c.data.prefs.selection_mode==='automatic_free'||!c.brain.models.includes(m))){lastError='Selecciona un modelo disponible en esta conexión.';models();render();return;}c.data.prefs.voiceModel=m;lastError='';c.save();render();};
  $('chat-live-microphone').onchange=e=>{Axx.nativeVoice.liveDeviceId=e.target.value;try{localStorage.setItem('axx.live.microphone',e.target.value);}catch{lastError='No se pudo guardar el micrófono seleccionado.';}render();};
  const deviceChange=()=>{void microphones();};navigator.mediaDevices?.addEventListener?.('devicechange',deviceChange);
- const poll=setInterval(()=>{if((s.liveActive||starting)&&($('panel').hidden||$('panel').dataset.view!=='chat'||document.hidden))stop();if(!card.hidden)render();},200);
+ const poll=setInterval(()=>{if((s.liveActive||starting)&&($('panel').hidden||document.hidden))stop();if(!card.hidden)render();},200);
  document.addEventListener('visibilitychange',()=>{if(document.hidden)stop();});window.addEventListener('pagehide',()=>{stop();clearInterval(poll);navigator.mediaDevices?.removeEventListener?.('devicechange',deviceChange);});
  Axx.liveConversation={start,stop,interrupt,show,get active(){return s.liveActive;},get pauseMs(){return pauseMs;},get firstAudioMs(){return firstAudio;}};
  render();

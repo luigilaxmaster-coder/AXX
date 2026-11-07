@@ -1,0 +1,46 @@
+{
+  "source_only": true,
+  "receipt": {
+    "operation_id": "3b925f3c-4277-4015-bacf-192d4891c555",
+    "tool_name": "blender_scene_render",
+    "state": "succeeded",
+    "preconditions_passed": true,
+    "postconditions_passed": true,
+    "output": {
+      "files": [
+        {
+          "path": "C:\\Users\\luigi\\AppData\\Local\\Temp\\tmpuexujqa5\\result\\scene.blend",
+          "sha256": "15a974241407da9233ba7d6a36240cc5ac7391ed9b9d8d0071a640f976b82ce5",
+          "bytes": 435143
+        },
+        {
+          "path": "C:\\Users\\luigi\\AppData\\Local\\Temp\\tmpuexujqa5\\result\\render.png",
+          "sha256": "783af004fb92be9a842a10af1bd2e10a7fbf8fb5f81d7a5a254909fa388a1256",
+          "bytes": 15693
+        }
+      ],
+      "scene": {
+        "scene": "Scene",
+        "camera": "Camera",
+        "object": "Cube",
+        "position": [
+          0.25,
+          0.0,
+          0.0
+        ],
+        "width": 128,
+        "height": 128
+      },
+      "source_sha256": "8040c638bd6fd86ca3359d04e5214545d658f497cebfca45c347ccdc32ebcfcb",
+      "visual_quality_verified": false
+    },
+    "error": null,
+    "duration_ms": 3672.0,
+    "evidence": {
+      "verification": "blender_scene_and_decoded_png"
+    },
+    "delivery_mode": "foreground",
+    "dispatch_status": "delivered",
+    "effect_status": "confirmed"
+  }
+}

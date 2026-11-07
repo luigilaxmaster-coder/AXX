@@ -5,6 +5,44 @@ from mobile.tests import test_companion_ui as companion
 
 class PersonalizationTests(unittest.TestCase):
     open = companion.CompanionUI.open
+    def test_snapshot_camera_correction_is_smooth_wrapped_and_respects_direct_input(self):
+        with sync_playwright() as p:
+            page=self.open(p)
+            result=page.evaluate('''()=>{
+              const r=axxMobileRenderer;r.stop();r.configure({...r.settings,reducedMotion:false,staticMode:false});r.setStudio({living:true,autoRotate:false});
+              r.cameraInitialized=false;r.setCamera20([0,0]);r.setCamera20([1.2,.4]);const immediate=r.angle.slice();
+              let maxStep=0;for(let i=0;i<60;i++){const before=r.angle[0];r.advanceMotion(1/60);maxStep=Math.max(maxStep,Math.abs(r.angle[0]-before));}
+              const settled=r.angle.slice();r.setCamera20([2*Math.PI-.02,0]);const wrapped=r.cameraCorrection[0];
+              r.rotate(.1,.1);const touchCleared=r.cameraCorrection===null;
+              const beforeInvalid=r.angle.slice();r.setCamera20([NaN,Infinity]);const invalidIgnored=JSON.stringify(beforeInvalid)===JSON.stringify(r.angle);
+              r.configure({...r.settings,reducedMotion:true});r.setCamera20([.7,.2]);
+              return {immediate,maxStep,settled,wrapped,touchCleared,invalidIgnored,reduced:r.angle.slice(),noReducedAnimation:r.cameraCorrection===null};
+            }''')
+            self.assertEqual(result['immediate'],[0,0])
+            self.assertLess(result['maxStep'],.3)
+            self.assertAlmostEqual(result['settled'][0],1.2,delta=.001)
+            self.assertAlmostEqual(result['settled'][1],.4,delta=.001)
+            self.assertLess(abs(result['wrapped']),1.3)
+            self.assertTrue(result['touchCleared'])
+            self.assertTrue(result['invalidIgnored'])
+            self.assertEqual(result['reduced'],[.7,.2])
+            self.assertTrue(result['noReducedAnimation'])
+
+    def test_gpu_respects_shared_hidden_canvas_and_restores_visible_pixels(self):
+        with sync_playwright() as p:
+            page=self.open(p)
+            result=page.evaluate('''()=>{
+              const r=axxMobileRenderer;r.stop();r.draw(1);const before=r.pixelSummary().solid;
+              r.setHidden(true);const hidden=r.pixelSummary().solid,hit=r.hitTest(0,0);
+              r.setHidden(false);r.draw(1);
+              return {before,hidden,hit,restored:r.pixelSummary().solid,mode:r.diagnostics().mode};
+            }''')
+            self.assertGreater(result['before'],0)
+            self.assertEqual(result['hidden'],0)
+            self.assertFalse(result['hit'])
+            self.assertGreater(result['restored'],0)
+            self.assertEqual(result['mode'],'gpu')
+
     def test_theme_and_accent_persist_and_keep_readable_foregrounds(self):
         with sync_playwright() as p:
             page=self.open(p,339);page.locator('#character-options').click()

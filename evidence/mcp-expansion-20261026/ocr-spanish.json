@@ -1,0 +1,16 @@
+{
+  "source_only": true,
+  "expected": [
+    "Año 2026 - revisión técnica",
+    "Área 12,50 m² - longitud 3,25 m",
+    "NO borrar plano_ñ.ifc"
+  ],
+  "recognized": "Año 2026 - revisión técnica\nÁrea 12,50 m² - longitud 3,25\nm\nNO borrar plano_ñ.ifc",
+  "elapsed_seconds": [
+    2.5344882999779657,
+    0.0,
+    0.5649933815002441
+  ],
+  "model": "Latin PP-OCRv5",
+  "fixture_passed": true
+}

@@ -52,12 +52,15 @@
             source.playbackRate.value = speed; source.connect(gain).connect(this.audioChain?.input || this.context.destination);
             const now = this.context.currentTime;
             if (this.nextTime && this.nextTime < now) this.evidence.underruns++;
-            const duration = buffer.duration / speed, fade = Math.min(.006, duration / 3);
-            const start = Math.max(now + .04, this.nextTime ? this.nextTime - fade : 0);
-            gain.gain.setValueAtTime(0, start);
-            gain.gain.linearRampToValueAtTime(1, start + fade);
-            gain.gain.setValueAtTime(1, start + duration - fade);
-            gain.gain.linearRampToValueAtTime(0, start + duration);
+            const duration = buffer.duration / speed, fade = Math.min(.004, duration / 4);
+            const contiguous = Boolean(this.nextTime && this.nextTime >= now);
+            const start = contiguous ? this.nextTime : Math.max(now + .03, this.nextTime || 0);
+            if (!contiguous) {
+                gain.gain.setValueAtTime(0, start);
+                gain.gain.linearRampToValueAtTime(1, start + fade);
+            } else {
+                gain.gain.setValueAtTime(1, start);
+            }
             this.nextTime = start + duration;
             this.sources.add(source); this.evidence.chunks++;
             source.onended = () => { this.sources.delete(source); source.disconnect(); gain.disconnect(); };
@@ -120,7 +123,7 @@
                 const elapsed = Math.max(performance.now() - (firstPacket?.at || performance.now()),
                     (latest?.elapsed_ms || 0) - (firstPacket?.elapsed || 0)) / 1000;
                 const ratio = produced > 0 ? elapsed / produced : Infinity;
-                const reserve = .6 + Math.max(0, Math.max(1, expectedSeconds - seconds) * (ratio - 1 / speed));
+                const reserve = Math.min(2.2, .6 + Math.max(0, Math.max(1, expectedSeconds - seconds) * (ratio - 1 / speed)));
                 // Slow CPUs need enough buffered audio to cover the estimated
                 // remaining synthesis. A later stall falls back to whole phrases.
                 if (!streaming && latest && !rebuffered &&
@@ -150,7 +153,14 @@
                     let remaining = text || '';
                     while (remaining && this.valid()) {
                         const length = Axx.voiceConversation?.phraseLength(remaining, true) || remaining.length;
-                        await this.phrase(remaining.slice(0, length).trim(), index);
+                        const chunk = remaining.slice(0, length).trim();
+                        if (chunk) {
+                            try {
+                                await this.phrase(chunk, index);
+                            } catch (e) {
+                                console.warn('[native-stream] phrase failed:', e);
+                            }
+                        }
                         remaining = remaining.slice(length).trimStart();
                     }
                 } else if (!this.sources.size && this.nextIndex >= this.reader.chunks.length && !this.reader.awaitingText) {
