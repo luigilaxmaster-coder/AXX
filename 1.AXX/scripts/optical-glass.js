@@ -8,12 +8,16 @@
   if (proto.__axxOpticalGlass) return;
 
   const PRESETS = {
-    reference: { transmission: .85, ior: 1.48, thickness: .50, roughness: .035, iridescence: .75, rim: .80, saturation: .80, exposure: 1.05, envBoost: 1.15, aurora: .55 },
-    crystal:   { transmission: .60, ior: 1.72, thickness: .85, roughness: .018, iridescence: .95, rim: .95, saturation: .90, exposure: 1.25, envBoost: 1.35, aurora: .70 },
-    liquid:    { transmission: .92, ior: 1.33, thickness: .30, roughness: .080, iridescence: .45, rim: .60, saturation: .65, exposure: .95,  envBoost: 1.00, aurora: .40 },
-    silica:    { transmission: .75, ior: 1.45, thickness: .60, roughness: .025, iridescence: .60, rim: .70, saturation: .70, exposure: 1.00, envBoost: 1.10, aurora: .45 },
-    aura:      { transmission: .80, ior: 1.60, thickness: .65, roughness: .030, iridescence: 1.0, rim: .90, saturation: 1.0, exposure: 1.15, envBoost: 1.40, aurora: .90 }
+    reference: { transmission: .85, ior: 1.48, thickness: .50, roughness: .035, iridescence: .75, rim: .80, saturation: .80, exposure: 1.05, envBoost: 1.15, aurora: .55, mode: 'glass' },
+    crystal:   { transmission: .60, ior: 1.72, thickness: .85, roughness: .018, iridescence: .95, rim: .95, saturation: .90, exposure: 1.25, envBoost: 1.35, aurora: .70, mode: 'crystal' },
+    liquid:    { transmission: .92, ior: 1.33, thickness: .30, roughness: .080, iridescence: .45, rim: .60, saturation: .65, exposure: .95,  envBoost: 1.00, aurora: .40, mode: 'liquid' },
+    silica:    { transmission: .75, ior: 1.45, thickness: .60, roughness: .025, iridescence: .60, rim: .70, saturation: .70, exposure: 1.00, envBoost: 1.10, aurora: .45, mode: 'silica' },
+    aura:      { transmission: .80, ior: 1.60, thickness: .65, roughness: .030, iridescence: 1.0, rim: .90, saturation: 1.0, exposure: 1.15, envBoost: 1.40, aurora: .90, mode: 'aura' },
+    ethereal:  { transmission: .98, ior: 1.50, thickness: .20, roughness: .020, iridescence: .85, rim: 1.00, saturation: .85, exposure: 1.10, envBoost: 1.25, aurora: .75, mode: 'ethereal' }
   };
+
+  const gammaTable = new Uint8Array(1024);
+  for (let g = 0; g < 1024; g++) gammaTable[g] = Math.round(255 * Math.pow(g / 1023, 1 / 2.2));
 
   const STORAGE_KEY = 'axx_optical_glass_params';
   let p = { ...PRESETS.reference };
@@ -31,7 +35,9 @@
   } catch (_) {}
 
   const clamp = (v, min = 0, max = 1) => Math.max(min, Math.min(max, v));
-  const lerp = (a, b, t) => a + (b - a) * t;
+  const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+  const norm = v => { const l = Math.hypot(...v) || 1; return v.map(x => x / l); };
+  const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
 
   let panel = null;
   const inputs = new Map();
@@ -54,13 +60,22 @@
     if (typeof updates.color === 'string') {
       color = updates.color;
     }
+    if (typeof updates.mode === 'string') {
+      p.mode = updates.mode;
+    }
     persist();
     sync();
     const r = A.app?.renderer;
     if (r) {
       r.lutKey = '';
-      r.draw?.(0);
     }
+    const companion = A.app?.companion;
+    const tendrils = companion?.experience?.tendrils || companion?.delivery || A.app?.tendrils;
+    if (tendrils && tendrils.buffers) {
+      tendrils.buffers.clear();
+      tendrils.filteredMaterial = null;
+    }
+    r?.draw?.(0);
   }
 
   function getPaletteAccents(paletteIdx, customColor) {
@@ -77,7 +92,7 @@
     };
   }
 
-  // --- 1. SHADE TABLE (Shared HDR lighting for body & OrganicTendrils) ---
+  // --- 1. SHADE TABLE (Full V7 Optical Glass Studio Illumination) ---
   const originalShadeTable = proto.shadeTable;
   proto.shadeTable = function opticalGlassShadeTable() {
     if (this.finish !== 'opticalglass') {
@@ -85,7 +100,7 @@
     }
 
     const palIdx = this.settings?.palette ?? 0;
-    const cacheKey = `opticalglass/${palIdx}/${color}/${p.ior.toFixed(2)}/${p.roughness.toFixed(3)}/${p.iridescence.toFixed(2)}/${p.rim.toFixed(2)}/${p.saturation.toFixed(2)}/${p.exposure.toFixed(2)}/${p.thickness.toFixed(2)}/${p.transmission.toFixed(2)}/${(p.envBoost || 1).toFixed(2)}/${(p.aurora || .5).toFixed(2)}`;
+    const cacheKey = `opticalglass/${palIdx}/${color}/${p.ior.toFixed(2)}/${p.roughness.toFixed(3)}/${p.iridescence.toFixed(2)}/${p.rim.toFixed(2)}/${p.saturation.toFixed(2)}/${p.exposure.toFixed(2)}/${p.thickness.toFixed(2)}/${p.transmission.toFixed(2)}/${(p.envBoost || 1).toFixed(2)}/${(p.aurora || .5).toFixed(2)}/${p.mode || 'glass'}`;
 
     if (this.lutKey === cacheKey && this.lut) return;
 
@@ -96,67 +111,65 @@
     const lut = this.lut;
     const pal = A.PALETTES[palIdx] || A.PALETTES[0];
 
-    const fromHex = hex => {
+    const decodeColor = hex => {
       const n = parseInt(hex.slice(1), 16);
-      return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+      return [Math.pow(((n >> 16) & 255) / 255, 2.2), Math.pow(((n >> 8) & 255) / 255, 2.2), Math.pow((n & 255) / 255, 2.2)];
     };
 
-    const cBase = fromHex(pal.colors[0]);
-    const cCool = fromHex(pal.colors[1]);
-    const cMag  = fromHex(pal.colors[2]);
-    const cWarm = fromHex(pal.colors[3]);
+    const palette = pal.colors.map(decodeColor);
+    if (/^#[0-9a-fA-F]{6}$/.test(color)) {
+      const user = decodeColor(color);
+      const str = 0.65;
+      for (const channel of palette) {
+        for (let i = 0; i < 3; i++) channel[i] = channel[i] * (1 - str) + user[i] * str;
+      }
+    }
 
-    const custom = /^#[0-9a-fA-F]{6}$/.test(color) ? fromHex(color) : null;
-    const tintBlend = custom ? clamp(0.72, 0, 1) : 0;
-    const blendRGB = col => col.map((v, i) => v * (1 - tintBlend) + (custom ? custom[i] : v) * tintBlend);
+    const customTint = /^#[0-9a-fA-F]{6}$/.test(color) ? color : '';
+    const tintV = customTint ? [parseInt(customTint.slice(1, 3), 16) / 255, parseInt(customTint.slice(3, 5), 16) / 255, parseInt(customTint.slice(5, 7), 16) / 255] : null;
 
-    const baseCol = blendRGB(cBase);
-    const coolCol = blendRGB(cCool);
-    const magCol  = blendRGB(cMag);
-    const warmCol = blendRGB(cWarm);
+    const w = .028 + p.roughness * .32;
+    const cards = [
+      { dir: [-.64, .80, .60], size: [.17, .57], feather: w * 2.3, color: [1.35, 1.48, 1.75] },
+      { dir: [-.81, .74, .40], size: [.022, .53], feather: w * .62, color: [2.0, 2.12, 2.3] },
+      { dir: [.15, .79, 1], size: [.52, .20], feather: w * 2.0, color: [.012, .019, .034] },
+      { dir: [.87, .46, .48], size: [.055, .67], feather: w * 1.4, color: [1.2, 1.4, 1.65] },
+      { dir: [-.25, 1, -.22], size: [.78, .026], feather: w * .8, color: [2, 2.16, 2.35] },
+      { dir: [-1, -.06, .04], size: [.25, .81], feather: w * 2.1, color: palette[0].map(n => n * 2.1) },
+      { dir: [-.61, -.53, .94], size: [.075, .57], feather: w * 1.2, color: palette[0].map(n => n * .80) },
+      { dir: [.66, .16, .76], size: [.055, .44], feather: w * .85, color: palette[2].map(n => n * .70) },
+      { dir: [-.34, -.91, .35], size: [.48, .085], feather: w * 1.3, color: palette[1].map(n => n * .95) },
+      { dir: [.77, 0, -.72], size: [.14, .78], feather: w * 1.4, color: palette[2].map(n => n * 1.8) },
+      { dir: [.98, -.20, .43], size: [.045, .67], feather: w * .85, color: palette[3].map(n => n * 1.9) },
+      { dir: [-.63, -.37, -.62], size: [.078, .62], feather: w * 1.5, color: [.36, .40, .48] },
+      { dir: [.30, -.63, -.72], size: [.56, .075], feather: w, color: [.26, .33, .46] }
+    ];
 
-    const invRough = 1 / Math.max(0.005, p.roughness);
-    const specPow = 24 + invRough * 5.2;
-    const softPow = 4 + invRough * 0.9;
-    const f0 = Math.pow((p.ior - 1) / (p.ior + 1), 2);
+    const preparedCards = cards.map(card => {
+      const d = norm(card.dir);
+      const r = norm(cross([0, 1, .02], d));
+      const u = cross(d, r);
+      return { ...card, dir: d, right: r, up: u };
+    });
+
+    const keydir = norm([-.64, .8, .6]);
+    const forward = norm([.1, .12, 1]);
     const envBoost = p.envBoost || 1.15;
     const aurora = p.aurora || 0.55;
 
-    const cards = [
-      { dir: [0.00,  0.88, 0.47], col: [255, 255, 255], power: specPow * 1.35,  gain: 2.40 * p.exposure * envBoost },
-      { dir: [-0.72, 0.52, 0.45], col: coolCol,          power: specPow * 0.85,  gain: 1.80 * p.iridescence * envBoost },
-      { dir: [0.72,  0.50, 0.48], col: magCol,           power: specPow * 0.90,  gain: 1.95 * p.iridescence * envBoost },
-      { dir: [0.00, -0.85, 0.52], col: warmCol,          power: specPow * 0.75,  gain: 1.55 * p.iridescence * envBoost },
-      { dir: [-0.45,-0.65, 0.61], col: coolCol,          power: softPow * 1.10,  gain: 0.95 * p.saturation },
-      { dir: [0.55, -0.58, 0.59], col: magCol,           power: softPow * 1.05,  gain: 1.05 * p.saturation },
-      { dir: [0.00,  0.95, 0.31], col: [240, 248, 255], power: softPow * 1.30,  gain: 1.40 * envBoost },
-      { dir: [-0.92, 0.15, 0.35], col: coolCol,          power: softPow * 0.80,  gain: 1.10 * aurora },
-      { dir: [0.92,  0.18, 0.33], col: warmCol,          power: softPow * 0.80,  gain: 1.00 * aurora },
-      { dir: [0.00,  0.00, 1.00], col: baseCol,          power: 2.0,            gain: 0.45 * (1 - p.transmission * 0.5) },
-      { dir: [0.38,  0.78, 0.49], col: [255, 255, 255], power: specPow * 1.60,  gain: 1.85 * p.exposure },
-      { dir: [-0.58, 0.62, 0.52], col: coolCol,          power: specPow * 1.10,  gain: 1.45 * p.iridescence },
-      { dir: [0.62,  0.48, 0.62], col: magCol,           power: specPow * 1.15,  gain: 1.50 * p.iridescence }
-    ];
-
-    for (let c = 0; c < cards.length; c++) {
-      const cd = cards[c].dir;
-      const len = Math.hypot(cd[0], cd[1], cd[2]) || 1;
-      cd[0] /= len; cd[1] /= len; cd[2] /= len;
-    }
-
-    const V = [0, 0, 1];
-    const halfWidth = width * 0.5;
-    const invHalfWidth = 1 / halfWidth;
+    const film = [0, 2.094395, 4.18879];
+    const specPhase = [0, -2.094395, 2.094395];
+    const f0 = Math.pow((p.ior - 1) / (p.ior + 1), 2);
+    const highlightPower = 9 + 30 * (1 - p.roughness / .48);
+    const expVal = p.exposure;
 
     for (let j = 0; j < width; j++) {
-      const ny = (j - halfWidth) * invHalfWidth;
-      const ny2 = ny * ny;
+      const ny = j / 511 * 2 - 1;
       const rowOffset = j * width * 4;
 
       for (let i = 0; i < width; i++) {
-        const nx = (i - halfWidth) * invHalfWidth;
-        const nxy2 = nx * nx + ny2;
-
+        const nx = i / 511 * 2 - 1;
+        const nxy2 = nx * nx + ny * ny;
         const o = rowOffset + (i << 2);
 
         if (nxy2 > 1.0) {
@@ -168,45 +181,80 @@
         }
 
         const nz = Math.sqrt(Math.max(0.000001, 1.0 - nxy2));
-        const VdotN = Math.max(0, nz);
-        const fresnel = f0 + (1 - f0) * Math.pow(1 - VdotN, 4.5);
-        const rimGlow = Math.pow(1 - VdotN, 2.8) * p.rim * 1.6;
+        const rx = 2 * nx * nz, ry = 2 * ny * nz, rz = 2 * nz * nz - 1;
 
-        const rx = 2 * nz * nx;
-        const ry = 2 * nz * ny;
-        const rz = 2 * nz * nz - 1;
+        const top = Math.pow(Math.max(0, ry * .5 + .5), 1.4);
+        const g = Math.pow(Math.max(rx * keydir[0] + ry * keydir[1] + rz * keydir[2], 0), 18);
+        const ambient = Math.pow(Math.max(rx * forward[0] + ry * forward[1] + rz * forward[2], 0), 5);
+        const fres = Math.pow(1 - nz, 5);
 
-        let accumR = 0, accumG = 0, accumB = 0;
+        let cr = .002 + .009 * top + .009 * ambient + .06 * g;
+        let cg = .003 + .013 * top + .012 * ambient + .085 * g;
+        let cb = .005 + .021 * top + .019 * ambient + .12 * g;
 
-        for (let c = 0; c < cards.length; c++) {
-          const card = cards[c];
-          const cd = card.dir;
-          const rDotL = rx * cd[0] + ry * cd[1] + rz * cd[2];
-          if (rDotL <= 0) continue;
-
-          const spec = Math.pow(rDotL, card.power) * card.gain;
-          accumR += card.col[0] * spec;
-          accumG += card.col[1] * spec;
-          accumB += card.col[2] * spec;
+        for (let c = 0; c < preparedCards.length; c++) {
+          const card = preparedCards[c];
+          const facing = rx * card.dir[0] + ry * card.dir[1] + rz * card.dir[2];
+          if (facing <= 0) continue;
+          const invF = 1 / facing;
+          const qx = Math.abs((rx * card.right[0] + ry * card.right[1] + rz * card.right[2]) * invF);
+          const qy = Math.abs((rx * card.up[0] + ry * card.up[1] + rz * card.up[2]) * invF);
+          const s0 = card.size[0], f0c = card.feather, s1 = card.size[1];
+          if (qx > s0 + f0c || qy > s1 + f0c) continue;
+          const mask = (1 - smooth(s0 - f0c, s0 + f0c, qx)) * (1 - smooth(s1 - f0c, s1 + f0c, qy));
+          cr += card.color[0] * mask;
+          cg += card.color[1] * mask;
+          cb += card.color[2] * mask;
         }
 
-        const dispersion = (1 - nz) * p.iridescence * 0.85;
-        const dispR = 1 + dispersion * 0.45;
-        const dispG = 1;
-        const dispB = 1 + dispersion * 0.70;
+        const base = [cr, cg, cb];
+        const grazing = clamp(1 - nz, 0, 1);
+        const edge = Math.pow(grazing, 1.32);
+        const fresnel = f0 + (1 - f0) * Math.pow(grazing, 5);
 
-        const bodyDarkening = 0.18 + 0.82 * (1 - p.transmission * 0.75);
-        const bodyToneR = baseCol[0] * bodyDarkening * 0.28;
-        const bodyToneG = baseCol[1] * bodyDarkening * 0.28;
-        const bodyToneB = baseCol[2] * bodyDarkening * 0.28;
+        const wwVal = .45 + ny * .59 - nx * .16;
+        const ubVal = .29 + ny * .76 + nz * .28 - nx * .18;
+        const sbVal = .25 - nx * .80 + ny * .14 + nz * .12;
+        const glVal = .17 + ny * .72 - nx * .25 + nz * .27;
+        const bbVal = -ny * .84 + nx * .11 + .13;
 
-        const outR = (bodyToneR + (accumR * dispR * fresnel + rimGlow * coolCol[0] * 0.45)) * p.exposure;
-        const outG = (bodyToneG + (accumG * dispG * fresnel + rimGlow * magCol[1]  * 0.40)) * p.exposure;
-        const outB = (bodyToneB + (accumB * dispB * fresnel + rimGlow * coolCol[2] * 0.55)) * p.exposure;
+        const whiteWide = wwVal > 0.01 ? Math.pow(wwVal, 4.8) : 0;
+        const upperBox  = ubVal > 0.01 ? Math.pow(ubVal, highlightPower * .31) : 0;
+        const sideBox   = sbVal > 0.01 ? Math.pow(sbVal, highlightPower * .22) : 0;
+        const glint     = glVal > 0.01 ? Math.pow(glVal, highlightPower * .76) : 0;
+        const bottomBox = bbVal > 0.01 ? Math.pow(bbVal, 4.3) : 0;
 
-        lut[o]     = Math.min(255, Math.max(0, Math.round(outR)));
-        lut[o + 1] = Math.min(255, Math.max(0, Math.round(outG)));
-        lut[o + 2] = Math.min(255, Math.max(0, Math.round(outB)));
+        const neutralRim = (.17 + .57 * p.rim) * Math.pow(grazing, .65) * (.80 + .24 * p.thickness);
+        const whiteCoat = (upperBox * .43 + whiteWide * .15 + sideBox * .31 + glint * .84 + bottomBox * .18) * (.46 + .55 * p.rim) * (1 - p.roughness * .57);
+
+        const phase = Math.atan2(ny, nx) * 2.7 + nx * 4.2 - ny * 3.1;
+        const opticalPhase = phase + (1 - nz) * 7.5 * (.25 + p.ior * .30);
+
+        for (let k = 0; k < 3; k++) {
+          const filmVal = .5 + .5 * Math.cos(film[k] + (1 - nz) * 10.7);
+          const tint = .72 + (.16 + .20 * fres) * filmVal;
+          const accent = palette[Math.min(3, k)][k];
+          const tintR = tintV ? (tintV[k] * tintV[k]) : accent;
+
+          const spectrum = .5 + .5 * Math.cos(opticalPhase * (.68 + .8 * p.iridescence) + specPhase[k]);
+          const iris = spectrum * (.09 + .28 * p.iridescence) * edge * p.iridescence * p.saturation * aurora;
+          const reflection = base[k] * (.12 + .40 * edge + .14 * fresnel) * envBoost;
+
+          const transmissionBody = (.009 + .065 * tintR + .012 * spectrum) * p.transmission * (1 - .58 * edge) * (.9 + .4 * p.thickness);
+          const absorption = Math.exp(-p.thickness * (.23 + .48 * tintR) * (1 + .62 * edge));
+          const chroma = iris * (.12 + .58 * tintR + .26 * spectrum);
+          const glassBase = (transmissionBody + chroma + reflection * .46) * absorption;
+          const clear = glassBase + neutralRim * .34 + whiteCoat * (k === 0 ? .88 : k === 1 ? .92 : 1.04);
+          const chromeReflection = base[k] * tint * (.58 + .56 * edge) * (1 - p.roughness * .48);
+
+          let value = chromeReflection + clear * .54 + fresnel * .18 * base[k];
+          if (p.mode === 'crystal') value += Math.pow(Math.abs(Math.sin(phase * 3.6)), 22) * edge * .15;
+          if (p.mode === 'aura')    value += spectrum * .18 * edge * p.saturation;
+
+          value *= expVal;
+          const mapped = clamp((value * (2.51 * value + .03)) / (value * (2.43 * value + .59) + .14), 0, 1);
+          lut[o + k] = gammaTable[(mapped * 1023) | 0];
+        }
         lut[o + 3] = 255;
       }
     }
@@ -273,7 +321,6 @@
     const tw = Math.max(2.7, Math.min(10, rx * .018 * (.65 + .65 * p.thickness)));
     const pix = img.data;
 
-    // Collect active tendril roots to damp the body contour rim at the attachment junction
     const activeRoots = [];
     if (renderer.__activeTendrilRoots && renderer.canvas) {
       const cr = renderer.canvas.getBoundingClientRect();
@@ -322,7 +369,6 @@
         const inner = gauss(dd, width * 1.9, Math.max(1.6, width * .45));
         const rimIntensity = (.48 + p.rim * .65);
 
-        // Seamless junction: damp body outline rim where tendril connects
         let tendrilDamp = 1.0;
         if (activeRoots.length > 0) {
           for (let rIdx = 0; rIdx < activeRoots.length; rIdx++) {
@@ -355,9 +401,11 @@
         pix[pIdx + 1] = Math.min(255, Math.max(0, pix[pIdx + 1] * (1 - depthCavity) + addG));
         pix[pIdx + 2] = Math.min(255, Math.max(0, pix[pIdx + 2] * (1 - depthCavity) + addB));
 
-        // Genuine optical glass transparency: central transmission + refractive rim + specular glints
         const grazing = clamp(1.0 - dd / (width * 1.8), 0.0, 1.0) * tendrilDamp;
-        const baseAlpha = (0.05 + 0.12 * p.thickness + 0.20 * (1.0 - p.transmission)) + (0.35 + 0.25 * p.thickness) * Math.pow(grazing, 0.70);
+        const isEthereal = (p.mode === 'ethereal');
+        const baseAlpha = isEthereal
+          ? (0.05 + 0.12 * p.thickness + 0.20 * (1.0 - p.transmission)) + (0.35 + 0.25 * p.thickness) * Math.pow(grazing, 0.70)
+          : (0.75 + 0.15 * (1.0 - p.transmission)) + (0.25 + 0.20 * p.thickness) * Math.pow(grazing, 0.70);
         const specAlpha = clamp(white * 1.15 + (blueGlint + pinkGlint + goldGlint) * 0.75 + (blueBloom + pinkBloom + warmBloom) * 0.65);
         const totAlpha = clamp(baseAlpha + specAlpha * (1.0 - baseAlpha), 0.05, 1.0);
         pix[pIdx + 3] = Math.round(255 * totAlpha * cover);
@@ -375,7 +423,7 @@
     }
   };
 
-  // --- 3. SEAMLESS ORGANIC TENDRIL INTEGRATION (Root Flare, Dissolve, & Glass Translucency) ---
+  // --- 3. SEAMLESS ORGANIC TENDRIL INTEGRATION ---
   if (A.OrganicTendrils) {
     const origTendrilDraw = A.OrganicTendrils.prototype.draw;
     if (origTendrilDraw) {
@@ -449,144 +497,155 @@
           return origTube.call(this, link, phase, lut, view);
         }
 
-      const pVal = Math.max(0, Math.min(1, link.progress)), route = document.body.classList.contains('a11-action-mode');
-      const point = (t) => {
-        const q = A.organicCurve(link.a, link.b, t, phase);
-        if (route) q.x += A.actionArmOffset(link.a, link.b, t, this.width);
-        return q;
-      };
-      const end = point(pVal);
-      const dx = link.b.x - link.a.x, dy = link.b.y - link.a.y, fullLength = Math.hypot(dx, dy);
-      if (!Number.isFinite(fullLength) || fullLength < 1) return;
-      const ux = dx / fullLength, uy = dy / fullLength;
-      const totalDist = Math.hypot(end.x - link.a.x, end.y - link.a.y);
-      const rootRadius = Math.min(link.rootRadius, 24 * A.OrganicTendrils.thickness, Math.max(1, totalDist * .2));
-      const radius = t => A.flowArmRadius(t, totalDist) * rootRadius / 24 * Math.sqrt(pVal);
+        const pVal = Math.max(0, Math.min(1, link.progress)), route = document.body.classList.contains('a11-action-mode');
+        const point = (t) => {
+          const q = A.organicCurve(link.a, link.b, t, phase);
+          if (route) q.x += A.actionArmOffset(link.a, link.b, t, this.width);
+          return q;
+        };
+        const end = point(pVal);
+        const dx = link.b.x - link.a.x, dy = link.b.y - link.a.y, fullLength = Math.hypot(dx, dy);
+        if (!Number.isFinite(fullLength) || fullLength < 1) return;
+        const ux = dx / fullLength, uy = dy / fullLength;
+        const totalDist = Math.hypot(end.x - link.a.x, end.y - link.a.y);
+        const rootRadius = Math.min(link.rootRadius, 24 * A.OrganicTendrils.thickness, Math.max(1, totalDist * .2));
+        const radius = t => A.flowArmRadius(t, totalDist) * rootRadius / 24 * Math.sqrt(pVal);
 
-      const segments = Math.min(1024, Math.max(64, Math.ceil(totalDist / 2)));
-      const centers = new Float32Array((segments + 1) * 5);
-      let minY = 0, maxY = 0;
-      for (let j = 0; j <= segments; j++) {
-        const t = j / segments, q = point(t * pVal), x = q.x - link.a.x, y = q.y - link.a.y;
-        const k = j * 5;
-        centers[k] = x * ux + y * uy;
-        centers[k + 1] = -x * uy + y * ux;
-        centers[k + 2] = radius(t);
-        minY = Math.min(minY, centers[k + 1]); maxY = Math.max(maxY, centers[k + 1]);
-      }
-      for (let j = 0; j <= segments; j++) {
-        const k = j * 5, before = Math.max(0, j - 1) * 5, after = Math.min(segments, j + 1) * 5;
-        const span = Math.max(.0001, centers[after] - centers[before]);
-        centers[k + 3] = (centers[after + 1] - centers[before + 1]) / span;
-        centers[k + 4] = (centers[after + 2] - centers[before + 2]) / span;
-        const projectedRadius = centers[k + 2] * Math.sqrt(1 + centers[k + 3] * centers[k + 3]);
-        minY = Math.min(minY, centers[k + 1] - projectedRadius);
-        maxY = Math.max(maxY, centers[k + 1] + projectedRadius);
-      }
-
-      const pad = Math.ceil(rootRadius * 1.6 + 6), left = -pad, top = Math.floor(minY - 4);
-      const width = Math.ceil(fullLength + pad * 2), height = Math.ceil(maxY - minY + 8);
-      const scale = Math.min(Math.max(2.5, this.dpr * 1.5), 8192 / width, Math.sqrt(2600000 / (width * height)));
-      const w = Math.max(32, Math.ceil(width * scale / 32) * 32), h = Math.max(16, Math.ceil(height * scale / 16) * 16);
-      let buffer = this.buffers.get(link.id);
-      if (!buffer || buffer.width !== w || buffer.height !== h) {
-        const c = document.createElement('canvas');
-        c.width = w; c.height = h;
-        const ctx = c.getContext('2d', { alpha: true });
-        if (!ctx) return;
-        const image = ctx.createImageData(w, h);
-        buffer = { canvas: c, ctx, image, raster: { width: w, height: h, pixels: image.data }, width: w, height: h };
-        this.buffers.set(link.id, buffer);
-      }
-      const r = buffer.raster, pixels = r.pixels, sampling = scale, color = this.color;
-      const lutSize = Math.round(Math.sqrt(lut.length / 4));
-      pixels.fill(0);
-      let segment = 0;
-
-      const rootTransition = Math.max(10, rootRadius * 1.8);
-      const glassTransmission = p.transmission;
-      const glassThickness = p.thickness;
-      const glassRim = p.rim;
-
-      const accents = getPaletteAccents(renderer.settings?.palette ?? 0, color);
-      const accentCool = accents.cool, accentWarm = accents.warm, accentMagenta = accents.magenta;
-
-      for (let x = Math.max(0, Math.floor(-left * sampling)); x < r.width; x++) {
-        const along = left + (x + .5) / sampling;
-        if (along > centers[segments * 5]) break;
-        while (segment < segments - 1 && centers[(segment + 1) * 5] < along) segment++;
-        const k = segment * 5, span = centers[k + 5] - centers[k];
-        if (span <= .0001) continue;
-        const f = Math.max(0, Math.min(1, (along - centers[k]) / span));
-        const cy = centers[k + 1] * (1 - f) + centers[k + 6] * f;
-        let rad = centers[k + 2] * (1 - f) + centers[k + 7] * f;
-        if (rad < .0001) continue;
-
-        // Smooth trumpet flare at the base merging seamlessly into the body volume
-        const rootT = clamp(along / rootTransition, 0, 1);
-        const flare = 1.0 + 0.42 * Math.pow(1.0 - rootT, 2.0);
-        rad *= flare;
-
-        // Smooth dissolve inside the body volume: zero hard truncated cylinder edge
-        const smoothFade = rootT * rootT * (3.0 - 2.0 * rootT);
-
-        const tangent = centers[k + 3] * (1 - f) + centers[k + 8] * f;
-        const inv = 1 / Math.sqrt(1 + tangent * tangent), tx = inv, ty = tangent * inv;
-        const slope = (centers[k + 4] * (1 - f) + centers[k + 9] * f) * inv;
-        const normalLength = Math.sqrt(1 + slope * slope);
-        const half = rad / tx, first = Math.max(0, Math.floor((cy - half - top) * sampling - 1));
-        const last = Math.min(r.height - 1, Math.ceil((cy + half - top) * sampling + 1));
-
-        for (let y = first; y <= last; y++) {
-          const transverse = (top + (y + .5) / sampling - cy) * tx;
-          const coverage = Math.max(0, Math.min(1, (rad - Math.abs(transverse)) * sampling + .5));
-          if (!coverage) continue;
-          const q = Math.max(-1, Math.min(1, transverse / rad));
-          const nAlong = (-ty * q - tx * slope) / normalLength, nAcross = (tx * q - ty * slope) / normalLength;
-          const nx = ux * nAlong - uy * nAcross, ny = -(uy * nAlong + ux * nAcross);
-          const nz = Math.sqrt(Math.max(0, 1 - q * q)) / normalLength;
-          const o = (y * r.width + x) * 4;
-
-          A.sampleMaterial(lut, lutSize, nx, ny, color);
-
-          const grazing = clamp(1.0 - nz, 0.0, 1.0);
-          const toplight = Math.max(0.0, -ny);
-          const side = Math.abs(nx);
-
-          // Studio specular highlights on the cylindrical glass rod
-          const whiteGlint = Math.pow(grazing, 2.4) * (0.60 + 0.40 * toplight) * glassRim;
-          const blueGlint = Math.pow(grazing, 3.2) * (0.45 + 0.55 * Math.max(0.0, ny)) * p.iridescence * p.saturation;
-          const pinkGlint = Math.pow(grazing, 3.6) * (0.35 + 0.65 * side) * p.iridescence * p.saturation;
-          const goldGlint = Math.pow(grazing, 2.8) * (0.40 + 0.60 * toplight) * p.iridescence * p.saturation;
-
-          const addR = whiteGlint * 235 + blueGlint * accentCool[0] * 0.70 + pinkGlint * accentMagenta[0] * 0.85 + goldGlint * accentWarm[0] * 0.60;
-          const addG = whiteGlint * 244 + blueGlint * accentCool[1] * 0.70 + pinkGlint * accentMagenta[1] * 0.85 + goldGlint * accentWarm[1] * 0.60;
-          const addB = whiteGlint * 253 + blueGlint * accentCool[2] * 0.70 + pinkGlint * accentMagenta[2] * 0.85 + goldGlint * accentWarm[2] * 0.60;
-
-          // Pure optical glass transmission & volumetric Fresnel
-          const baseAlpha = (0.05 + 0.10 * glassThickness + 0.16 * (1.0 - glassTransmission)) + (0.35 + 0.25 * glassThickness) * Math.pow(grazing, 0.75);
-          const specAlpha = clamp(whiteGlint * 1.15 + (blueGlint + pinkGlint + goldGlint) * 0.75, 0.0, 1.0);
-          const totAlpha = clamp(baseAlpha + specAlpha * (1.0 - baseAlpha), 0.05, 1.0);
-
-          // Translucent transmission: dampen dark cavity in the center so the background shines through
-          const cavityDamp = (1.0 - 0.75 * glassTransmission);
-          pixels[o]     = Math.min(255, Math.max(0, color[0] * cavityDamp + addR));
-          pixels[o + 1] = Math.min(255, Math.max(0, color[1] * cavityDamp + addG));
-          pixels[o + 2] = Math.min(255, Math.max(0, color[2] * cavityDamp + addB));
-          pixels[o + 3] = Math.round(coverage * smoothFade * 255 * totAlpha);
+        const segments = Math.min(1024, Math.max(64, Math.ceil(totalDist / 2)));
+        const centers = new Float32Array((segments + 1) * 5);
+        let minY = 0, maxY = 0;
+        for (let j = 0; j <= segments; j++) {
+          const t = j / segments, q = point(t * pVal), x = q.x - link.a.x, y = q.y - link.a.y;
+          const k = j * 5;
+          centers[k] = x * ux + y * uy;
+          centers[k + 1] = -x * uy + y * ux;
+          centers[k + 2] = radius(t);
+          minY = Math.min(minY, centers[k + 1]); maxY = Math.max(maxY, centers[k + 1]);
         }
-      }
-      buffer.ctx.putImageData(buffer.image, 0, 0);
-      this.ctx.imageSmoothingEnabled = true;
-      this.ctx.imageSmoothingQuality = 'high';
-      this.ctx.globalAlpha = Math.min(1, pVal / .08);
-      this.ctx.save();
-      this.ctx.translate(link.a.x, link.a.y);
-      this.ctx.transform(ux, uy, -uy, ux, 0, 0);
-      this.ctx.drawImage(buffer.canvas, left, top, w / scale, h / scale);
-      this.ctx.restore();
-      this.ctx.globalAlpha = 1;
-    };
+        for (let j = 0; j <= segments; j++) {
+          const k = j * 5, before = Math.max(0, j - 1) * 5, after = Math.min(segments, j + 1) * 5;
+          const span = Math.max(.0001, centers[after] - centers[before]);
+          centers[k + 3] = (centers[after + 1] - centers[before + 1]) / span;
+          centers[k + 4] = (centers[after + 2] - centers[before + 2]) / span;
+          const projectedRadius = centers[k + 2] * Math.sqrt(1 + centers[k + 3] * centers[k + 3]);
+          minY = Math.min(minY, centers[k + 1] - projectedRadius);
+          maxY = Math.max(maxY, centers[k + 1] + projectedRadius);
+        }
+
+        const pad = Math.ceil(rootRadius * 1.6 + 6), left = -pad, top = Math.floor(minY - 4);
+        const width = Math.ceil(fullLength + pad * 2), height = Math.ceil(maxY - minY + 8);
+        const scale = Math.min(Math.max(2.5, this.dpr * 1.5), 8192 / width, Math.sqrt(2600000 / (width * height)));
+        const w = Math.max(32, Math.ceil(width * scale / 32) * 32), h = Math.max(16, Math.ceil(height * scale / 16) * 16);
+        let buffer = this.buffers.get(link.id);
+        if (!buffer || buffer.width !== w || buffer.height !== h) {
+          const c = document.createElement('canvas');
+          c.width = w; c.height = h;
+          const ctx = c.getContext('2d', { alpha: true });
+          if (!ctx) return;
+          const image = ctx.createImageData(w, h);
+          buffer = { canvas: c, ctx, image, raster: { width: w, height: h, pixels: image.data }, width: w, height: h };
+          this.buffers.set(link.id, buffer);
+        }
+        const r = buffer.raster, pixels = r.pixels, sampling = scale, color = this.color;
+        const lutSize = Math.round(Math.sqrt(lut.length / 4));
+        pixels.fill(0);
+        let segment = 0;
+
+        const rootTransition = Math.max(10, rootRadius * 1.8);
+        const glassTransmission = p.transmission;
+        const glassThickness = p.thickness;
+        const glassRim = p.rim;
+
+        const accents = getPaletteAccents(renderer.settings?.palette ?? 0, color);
+        const accentCool = accents.cool, accentWarm = accents.warm, accentMagenta = accents.magenta;
+        const isEthereal = (p.mode === 'ethereal');
+
+        for (let x = Math.max(0, Math.floor(-left * sampling)); x < r.width; x++) {
+          const along = left + (x + .5) / sampling;
+          if (along > centers[segments * 5]) break;
+          while (segment < segments - 1 && centers[(segment + 1) * 5] < along) segment++;
+          const k = segment * 5, span = centers[k + 5] - centers[k];
+          if (span <= .0001) continue;
+          const f = Math.max(0, Math.min(1, (along - centers[k]) / span));
+          const cy = centers[k + 1] * (1 - f) + centers[k + 6] * f;
+          let rad = centers[k + 2] * (1 - f) + centers[k + 7] * f;
+          if (rad < .0001) continue;
+
+          // Smooth trumpet flare at the base merging seamlessly into the body volume
+          const rootT = clamp(along / rootTransition, 0, 1);
+          const flare = 1.0 + 0.42 * Math.pow(1.0 - rootT, 2.0);
+          rad *= flare;
+
+          // Smooth dissolve inside the body volume: zero hard truncated cylinder edge
+          const smoothFade = rootT * rootT * (3.0 - 2.0 * rootT);
+
+          const tangent = centers[k + 3] * (1 - f) + centers[k + 8] * f;
+          const inv = 1 / Math.sqrt(1 + tangent * tangent), tx = inv, ty = tangent * inv;
+          const slope = (centers[k + 4] * (1 - f) + centers[k + 9] * f) * inv;
+          const normalLength = Math.sqrt(1 + slope * slope);
+          const half = rad / tx, first = Math.max(0, Math.floor((cy - half - top) * sampling - 1));
+          const last = Math.min(r.height - 1, Math.ceil((cy + half - top) * sampling + 1));
+
+          for (let y = first; y <= last; y++) {
+            const transverse = (top + (y + .5) / sampling - cy) * tx;
+            const coverage = Math.max(0, Math.min(1, (rad - Math.abs(transverse)) * sampling + .5));
+            if (!coverage) continue;
+            const q = Math.max(-1, Math.min(1, transverse / rad));
+            const nAlong = (-ty * q - tx * slope) / normalLength, nAcross = (tx * q - ty * slope) / normalLength;
+            const nx = ux * nAlong - uy * nAcross, ny = -(uy * nAlong + ux * nAcross);
+            const nz = Math.sqrt(Math.max(0, 1 - q * q)) / normalLength;
+            const o = (y * r.width + x) * 4;
+
+            A.sampleMaterial(lut, lutSize, nx, ny, color);
+
+            const grazing = clamp(1.0 - nz, 0.0, 1.0);
+            const toplight = Math.max(0.0, -ny);
+            const side = Math.abs(nx);
+
+            const whiteGlint = Math.pow(grazing, 2.4) * (0.60 + 0.40 * toplight) * glassRim;
+            const blueGlint = Math.pow(grazing, 3.2) * (0.45 + 0.55 * Math.max(0.0, ny)) * p.iridescence * p.saturation;
+            const pinkGlint = Math.pow(grazing, 3.6) * (0.35 + 0.65 * side) * p.iridescence * p.saturation;
+            const goldGlint = Math.pow(grazing, 2.8) * (0.40 + 0.60 * toplight) * p.iridescence * p.saturation;
+
+            const addR = whiteGlint * 235 + blueGlint * accentCool[0] * 0.70 + pinkGlint * accentMagenta[0] * 0.85 + goldGlint * accentWarm[0] * 0.60;
+            const addG = whiteGlint * 244 + blueGlint * accentCool[1] * 0.70 + pinkGlint * accentMagenta[1] * 0.85 + goldGlint * accentWarm[1] * 0.60;
+            const addB = whiteGlint * 253 + blueGlint * accentCool[2] * 0.70 + pinkGlint * accentMagenta[2] * 0.85 + goldGlint * accentWarm[2] * 0.60;
+
+            if (isEthereal) {
+              // Ethereal Glass: sheer floating outline look with transparent center void (Extra preset requested by user)
+              const baseAlpha = (0.05 + 0.10 * glassThickness + 0.16 * (1.0 - glassTransmission)) + (0.35 + 0.25 * glassThickness) * Math.pow(grazing, 0.75);
+              const specAlpha = clamp(whiteGlint * 1.15 + (blueGlint + pinkGlint + goldGlint) * 0.75, 0.0, 1.0);
+              const totAlpha = clamp(baseAlpha + specAlpha * (1.0 - baseAlpha), 0.05, 1.0);
+              const cavityDamp = (1.0 - 0.75 * glassTransmission);
+
+              pixels[o]     = Math.min(255, Math.max(0, color[0] * cavityDamp + addR));
+              pixels[o + 1] = Math.min(255, Math.max(0, color[1] * cavityDamp + addG));
+              pixels[o + 2] = Math.min(255, Math.max(0, color[2] * cavityDamp + addB));
+              pixels[o + 3] = Math.round(coverage * smoothFade * 255 * totAlpha);
+            } else {
+              // Full V7 Optical Glass: authentic continuous volumetric glass substance matching the body
+              const baseAlpha = (0.75 + 0.14 * (1.0 - glassTransmission)) + (0.25 + 0.20 * glassThickness) * Math.pow(grazing, 0.70);
+              const specAlpha = clamp(whiteGlint * 0.95 + (blueGlint + pinkGlint + goldGlint) * 0.60, 0.0, 1.0);
+              const totAlpha = clamp(baseAlpha + specAlpha * (1.0 - baseAlpha), 0.70, 1.0);
+
+              pixels[o]     = Math.min(255, Math.max(0, color[0] + addR * 0.55));
+              pixels[o + 1] = Math.min(255, Math.max(0, color[1] + addG * 0.55));
+              pixels[o + 2] = Math.min(255, Math.max(0, color[2] + addB * 0.55));
+              pixels[o + 3] = Math.round(coverage * smoothFade * 255 * totAlpha);
+            }
+          }
+        }
+        buffer.ctx.putImageData(buffer.image, 0, 0);
+        this.ctx.imageSmoothingEnabled = true;
+        this.ctx.imageSmoothingQuality = 'high';
+        this.ctx.globalAlpha = Math.min(1, pVal / .08);
+        this.ctx.save();
+        this.ctx.translate(link.a.x, link.a.y);
+        this.ctx.transform(ux, uy, -uy, ux, 0, 0);
+        this.ctx.drawImage(buffer.canvas, left, top, w / scale, h / scale);
+        this.ctx.restore();
+        this.ctx.globalAlpha = 1;
+      };
     }
   }
 
@@ -631,6 +690,7 @@
         <button type="button" class="tool-btn" data-preset="liquid">Liquid Gel</button>
         <button type="button" class="tool-btn" data-preset="silica">Pure Silica</button>
         <button type="button" class="tool-btn" data-preset="aura">Prismatic Aura</button>
+        <button type="button" class="tool-btn" data-preset="ethereal" style="border-color:rgba(120,200,255,0.4);">Ethereal Glass</button>
       </div>
       <div id="axx-optical-sliders" style="display:grid;grid-template-columns:1fr;gap:10px;"></div>
       <div style="display:flex;align-items:center;justify-content:space-between;margin-top:12px;">
@@ -674,10 +734,12 @@
   }
 
   const origSetFinish = proto.setFinish;
-  proto.setFinish = function patchedSetFinish(f) {
-    origSetFinish.call(this, f);
-    sync();
-  };
+  if (origSetFinish) {
+    proto.setFinish = function patchedSetFinish(f) {
+      origSetFinish.call(this, f);
+      sync();
+    };
+  }
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', mount, { once: true });

@@ -113,8 +113,8 @@ assert.equal(tendrils.materialKey, instance.lutKey);
 instance.shadeTable();
 assert.deepEqual(Array.from(instance.lut.slice(0, 8)), sample);
 
-// 5. Presets validation (all 5 required presets)
-const expectedPresets = ['reference', 'crystal', 'liquid', 'silica', 'aura'];
+// 5. Presets validation (all required presets + ethereal extra)
+const expectedPresets = ['reference', 'crystal', 'liquid', 'silica', 'aura', 'ethereal'];
 assert.deepEqual(win.AxxOpticalGlass.presets, expectedPresets);
 
 for (const presetName of expectedPresets) {
