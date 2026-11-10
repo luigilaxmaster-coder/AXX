@@ -1,12 +1,11 @@
 /** Real DOM and pointer gestures. Native capture/inference are explicit fixtures;
  * this suite does not certify Windows screenshots, physical pointer latency or AI quality. */
 const fs=require('node:fs'),path=require('node:path'),http=require('node:http'),assert=require('node:assert/strict');
-const {createRequire}=require('node:module');
-const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/package.json'))('playwright');
+const {chromium} = require('playwright');
 (async()=>{
  const out=path.resolve(__dirname,'../../build/magic-pen-desktop');fs.mkdirSync(out,{recursive:true});
  const server=http.createServer((req,res)=>{const f=req.url.startsWith('/scripts/')?path.join(__dirname,path.basename(req.url)):path.join(__dirname,'../Axx.html');res.setHeader('Content-Type',f.endsWith('.js')?'application/javascript':f.endsWith('.css')?'text/css':'text/html');res.end(fs.readFileSync(f));});await new Promise(r=>server.listen(0,'127.0.0.1',r));
- const browser=await chromium.launch({headless:true,executablePath:process.env.AXX_TEST_CHROMIUM||path.join(process.env.LOCALAPPDATA,'ms-playwright/chromium_headless_shell-1248/chrome-headless-shell-win64/chrome-headless-shell.exe')});
+ const browser=await chromium.launch({headless:true,executablePath:process.env.AXX_TEST_CHROMIUM});
  const passed=[];
  try{
   const page=await browser.newPage({viewport:{width:1440,height:1000},reducedMotion:'no-preference'}),errors=[];page.setDefaultTimeout(8000);page.on('pageerror',e=>errors.push(e.stack||e.message));

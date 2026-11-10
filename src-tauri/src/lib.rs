@@ -876,6 +876,49 @@ fn resume_owned_child(pid: u32) -> Result<(), String> {
     }
 }
 
+fn backend_child_running(state: &HostState) -> bool {
+    state.backend_child.lock().unwrap().as_mut()
+        .is_some_and(|child| matches!(child.try_wait(), Ok(None)))
+}
+
+fn supervise_backend(app: &AppHandle) {
+    let state = app.state::<HostState>();
+    let mut recovery_attempted = false;
+    while !state.stopping.load(Ordering::Relaxed) {
+        match spawn_backend(app) {
+            Ok(()) => {
+                *state.backend_error.lock().unwrap() = None;
+                let _ = app.emit("axx-backend-ready", ());
+                write_runtime_snapshot(app);
+                let ready_at = Instant::now();
+                while !state.stopping.load(Ordering::Relaxed) && backend_child_running(&state) {
+                    std::thread::sleep(Duration::from_millis(400));
+                }
+                if state.stopping.load(Ordering::Relaxed) { break; }
+                terminate_backend(&state);
+                if ready_at.elapsed() >= Duration::from_secs(30) {
+                    recovery_attempted = false;
+                }
+                let error = "El backend se detuvo. Revisa las operaciones pendientes antes de repetirlas.";
+                *state.backend_error.lock().unwrap() = Some(error.into());
+                let _ = app.emit("axx-backend-lost", json!({ "message": error }));
+                write_runtime_snapshot(app);
+                if recovery_attempted { break; }
+                recovery_attempted = true;
+            }
+            Err(error) => {
+                if !state.stopping.load(Ordering::Relaxed) {
+                    log::error!("{error}");
+                    *state.backend_error.lock().unwrap() = Some(error.clone());
+                    let _ = app.emit("axx-backend-lost", json!({ "message": error }));
+                    write_runtime_snapshot(app);
+                }
+                break;
+            }
+        }
+    }
+}
+
 fn terminate_backend(state: &HostState) {
     *state.backend.lock().unwrap() = None;
     #[cfg(windows)]
@@ -1231,18 +1274,7 @@ pub fn run() {
             restore_window(&handle);
             resident::install_tray(&handle)?;
             let backend_handle = handle.clone();
-            std::thread::spawn(move || {
-                if let Err(error) = spawn_backend(&backend_handle) {
-                    log::error!("{error}");
-                    *backend_handle
-                        .state::<HostState>()
-                        .backend_error
-                        .lock()
-                        .unwrap() = Some(error);
-                }
-                let _ = backend_handle.emit("axx-backend-ready", ());
-                write_runtime_snapshot(&backend_handle);
-            });
+            std::thread::spawn(move || supervise_backend(&backend_handle));
             #[cfg(windows)]
             {
                 start_instance_listener(handle.clone()).map_err(std::io::Error::other)?;
@@ -1457,6 +1489,34 @@ mod tests {
         assert!(error.contains("403"));
         assert!(error.contains("Private session rejected"));
         server.join().unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn backend_monitor_recognizes_owned_child_exit() {
+        use std::os::windows::process::CommandExt;
+        let state = HostState::default();
+        assert!(!backend_child_running(&state));
+        let child = Command::new("cmd.exe")
+            .args(["/D", "/C", "ping -n 30 127.0.0.1 > NUL"])
+            .creation_flags(0x08000000 | 0x00000004)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let job = bind_child_to_job(&child).unwrap();
+        resume_owned_child(child.id()).unwrap();
+        *state.job.lock().unwrap() = Some(job);
+        *state.backend_child.lock().unwrap() = Some(child);
+        assert!(backend_child_running(&state));
+        {
+            let mut slot = state.backend_child.lock().unwrap();
+            let child = slot.as_mut().unwrap();
+            child.kill().unwrap();
+            child.wait().unwrap();
+        }
+        assert!(!backend_child_running(&state));
+        terminate_backend(&state);
     }
 
     #[cfg(windows)]

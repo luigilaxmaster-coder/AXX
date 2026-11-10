@@ -205,6 +205,10 @@ def http_transport(provider: dict, body: dict, timeout: float, *, response_obser
             # One explicit breakpoint at the end of the stable system prompt (contract + catalog), never on the image or the question.
             body['system'] = [{'type': 'text', 'text': body['system'], 'cache_control': control}]
         body['messages'] = converted
+        if body.get('tools'):
+            body['tools'] = [{'name': tool['function']['name'], 'description': tool['function'].get('description', ''),
+                              'input_schema': tool['function'].get('parameters', {'type': 'object'})}
+                             for tool in body['tools']]
         body.setdefault('max_tokens', provider.get('max_output_tokens', 2048))
         if re.match(r'claude-[a-z]+-[5-9]', str(body.get('model', provider.get('model', '')))):
             body.pop('temperature', None)  # Claude 5+ rejects `temperature` with HTTP 400 (verified against the live API)
@@ -256,10 +260,19 @@ def http_transport(provider: dict, body: dict, timeout: float, *, response_obser
                             and platform not in ('cache', 'idempotency', 'auto', 'fusion')):
                         data['provider'], data['model'] = platform, model
                 if anthropic:
-                    content = ''.join(part.get('text', '') for part in data.get('content', []) if part.get('type') == 'text')
+                    blocks = data.get('content', [])
+                    if not isinstance(blocks, list) or any(not isinstance(part, dict) for part in blocks):
+                        raise UpstreamError(502, message='Invalid Anthropic response blocks')
+                    message = {'role': 'assistant', 'content': ''.join(part.get('text', '') for part in blocks
+                                                                        if part.get('type') == 'text' and isinstance(part.get('text'), str))}
+                    calls = [{'type': 'function', 'id': part.get('id'),
+                              'function': {'name': part.get('name'), 'arguments': json.dumps(part.get('input'), allow_nan=False)}}
+                             for part in blocks if part.get('type') == 'tool_use']
+                    if calls:
+                        message['tool_calls'] = calls
                     usage = data.get('usage') if isinstance(data.get('usage'), dict) else {}
-                    return {'model': data.get('model'), 'choices': [{'message': {'role': 'assistant', 'content': content},
-                                         'finish_reason': 'length' if data.get('stop_reason') == 'max_tokens' else 'stop'}],
+                    return {'model': data.get('model'), 'choices': [{'message': message,
+                                         'finish_reason': 'tool_calls' if calls else 'length' if data.get('stop_reason') == 'max_tokens' else 'stop'}],
                             'usage': {k: usage[k] for k in ('input_tokens', 'output_tokens', 'cache_read_input_tokens', 'cache_creation_input_tokens')
                                       if type(usage.get(k)) is int}}
                 return data
@@ -644,8 +657,10 @@ class Router:
                 if not isinstance(tools, list):
                     raise RequestError("'tools' must be a list")
                 for t in tools:
-                    if not isinstance(t, dict) or t.get('type') != 'function' or 'function' not in t:
-                        raise RequestError("Each tool must have type='function' with a function object")
+                    function = t.get('function') if isinstance(t, dict) else None
+                    if (not isinstance(function, dict) or t.get('type') != 'function'
+                            or not isinstance(function.get('name'), str) or not function['name']):
+                        raise RequestError("Each tool must have type='function' and a named function object")
 
     def _validate_response_message(self, response: dict) -> dict:
         """Validates upstream response structure (H05)."""

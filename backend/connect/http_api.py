@@ -11,21 +11,21 @@ import urllib.parse
 from backend.auth.chatgpt_auth import _dpapi_encrypt, _dpapi_decrypt
 
 
-def publish_endpoint(state_dir, server):
+def publish_endpoint(state_dir, server, *, telegram=False):
     if os.name != 'nt':
         return  # This installation's local discovery requires Windows DPAPI.
-    directory = Path(state_dir) / 'connect'
+    directory = Path(state_dir) / ('telegram' if telegram else 'connect')
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / 'endpoint.dpapi'
-    payload = {'port': server.server_port, 'token': server.host_token,
+    payload = {'port': server.server_port, 'token': server.telegram_token if telegram else server.host_token,
                'instance_id': server.instance_id, 'pid': os.getpid()}
     temporary = path.with_suffix('.tmp')
     temporary.write_bytes(_dpapi_encrypt(json.dumps(payload).encode('utf-8')))
     os.replace(temporary, path)
 
 
-def remove_endpoint(state_dir, instance_id):
-    path = Path(state_dir) / 'connect' / 'endpoint.dpapi'
+def remove_endpoint(state_dir, instance_id, *, telegram=False):
+    path = Path(state_dir) / ('telegram' if telegram else 'connect') / 'endpoint.dpapi'
     try:
         value = json.loads(_dpapi_decrypt(path.read_bytes()))
         if value.get('instance_id') == instance_id:

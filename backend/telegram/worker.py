@@ -286,7 +286,7 @@ async def run(data_dir=None, endpoint_file=None):
     from telethon.tl.types import UpdatePhoneCall
     from telethon.sessions import StringSession
 
-    endpoint_file = Path(endpoint_file) if endpoint_file else account_path(data_dir).parent.parent / 'connect' / 'endpoint.dpapi'
+    endpoint_file = Path(endpoint_file) if endpoint_file else account_path(data_dir).parent / 'endpoint.dpapi'
     with account_lease(data_dir):
         client = TelegramClient(StringSession(account['session']), account['api_id'], account['api_hash'], catch_up=True)
         try:

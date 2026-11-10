@@ -42,6 +42,17 @@ class CommandLibraryTests(unittest.TestCase):
         resolved = self.service.resolve('/comando axx.process.inspect {"pid":123}', 'text')
         self.assertEqual(resolved['inputs'], {'pid': 123})
 
+    def test_pending_review_is_scoped_to_conversation_and_authenticated_channel(self):
+        first = self.prepare(conversation_id='desktop-chat', command_mode='ask')
+        with self.assertRaisesRegex(ValueError, 'pendiente'):
+            self.prepare(conversation_id='desktop-chat', command_mode='ask')
+        other = self.prepare(conversation_id='other-chat', command_mode='auto_safe')
+        phone = self.prepare(conversation_id='desktop-chat', command_mode='auto_safe', channel='mobile')
+        self.assertEqual(self.service.execute(other['operation_id'])['state'], 'succeeded')
+        self.assertEqual(self.service.execute(phone['operation_id'])['state'], 'succeeded')
+        self.assertEqual(self.service.get(first['operation_id'])['state'], 'awaiting_approval')
+        self.assertEqual(self.service.cancel(first['operation_id'])['state'], 'cancelled')
+
     def test_strict_types_unknown_fields_and_malformed_json_fail_before_effect(self):
         for inputs in ({'pid': True}, {'pid': '1'}, {'pid': -1}, {'pid': 2**40}, {'pid': 1, 'shell': 'calc'}):
             with self.assertRaises(ValueError):

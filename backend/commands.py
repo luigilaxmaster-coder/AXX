@@ -34,6 +34,10 @@ from .memory import task_memory
 TERMINAL = {'succeeded', 'failed', 'blocked', 'cancelled', 'expired', 'unknown'}
 
 
+class CommandPending(ValueError):
+    pass
+
+
 class ApprovalRequired(ValueError):
     pass
 ADAPTERS = {
@@ -232,6 +236,7 @@ class CommandService:
         self.adapters = dict(ADAPTERS)
         self.learning = None
         self.dispatch_guard = None
+        self.channel_guard = None
         self.mission_guard = None
         self.change_revision = 0
         self.lock = threading.RLock()
@@ -497,7 +502,8 @@ class CommandService:
             return understood(desktop)
         application = resolve_application_command(canonical)
         if application:
-            application['parameters'] = self.commands[application['command_id']]['parameters']
+            if application.get('match') == 'exact':
+                application['parameters'] = self.commands[application['command_id']]['parameters']
             return understood(application)
         if self.learning:
             learned = self.learning.find(text, project_id)
@@ -729,8 +735,23 @@ class CommandService:
             result['document_references'] = self.procedures.resolve_references(document_references)
         return ref
 
-    def prepare(self, command_id, inputs, source='text', operation_id=None, *, conversation_id=None, command_mode=None, delivery_mode=None, memory_scope=None, memory_context_id=None, _memory_dependencies=(), _document_references=()):
-        if command_mode not in (None, 'ask', 'auto_safe'):
+    def _local_autonomy(self, command_id, conversation_id):
+        command = self.commands.get(command_id, {})
+        if not conversation_id or (command_id != 'axx.artifact.write'
+                and command.get('risk') not in ('read', 'local_state', 'desktop_open')):
+            return False
+        if not self.db.execute("SELECT 1 FROM sqlite_master WHERE name='chat_conversations'").fetchone():
+            return False
+        return bool(self.db.execute(
+            "SELECT 1 FROM chat_conversations WHERE id=? AND mode='unrestricted' AND archived=0",
+            (conversation_id,)).fetchone())
+
+    def prepare(self, command_id, inputs, source='text', operation_id=None, *, conversation_id=None, command_mode=None, delivery_mode=None, memory_scope=None, memory_context_id=None, _memory_dependencies=(), _document_references=(), channel='desktop'):
+        if channel not in ('desktop', 'model', 'telegram', 'mobile'):
+            raise ValueError('Canal de comandos inválido')
+        if command_mode == 'unrestricted' and channel != 'desktop':
+            command_mode = 'ask' if channel in ('telegram', 'mobile') else 'auto_safe'
+        if command_mode not in (None, 'ask', 'auto_safe', 'unrestricted'):
             raise ValueError('Modo de comandos inválido')
         if conversation_id is not None:
             from .chat_store import ident
@@ -742,7 +763,7 @@ class CommandService:
         mode = resolve_mode(self.adapters[command_id]['tool'], delivery_mode) if command_id in self.adapters else None
         if command_id not in self.adapters and delivery_mode is not None:
             raise ValueError('El comando documental no tiene modo ejecutable.')
-        if command_id == 'axx.shell.powershell' and source != 'text':
+        if command_id.startswith('axx.shell.') and source != 'text':
             raise ValueError('Escribe el script PowerShell y revisa su aprobación.')
         op_id = str(uuid.uuid4()) if operation_id is None else operation_id
         if not isinstance(op_id, str) or not re.fullmatch(r'[A-Za-z0-9_.-]{1,128}', op_id):
@@ -761,7 +782,7 @@ class CommandService:
                     return existing | {'replayed': True}
                 existing_inputs = existing['inputs']
                 candidate = self._validate_inputs(command_id, inputs, require_new=False) if command_id in self.adapters else inputs
-                if existing['command_id'] != command_id or existing_inputs != candidate or existing['source'] != source or existing.get('conversation_id') != conversation_id or existing.get('command_mode') != command_mode or existing.get('delivery_mode', mode) != mode:
+                if existing['command_id'] != command_id or existing_inputs != candidate or existing['source'] != source or existing.get('conversation_id') != conversation_id or existing.get('command_mode') != command_mode or existing.get('delivery_mode', mode) != mode or existing.get('channel', 'desktop') != channel:
                     raise ValueError('operation_id ya está vinculado a otros parámetros')
                 if _document_references and list(_document_references) != existing.get('document_references', []):
                     raise ValueError('operation_id ya está vinculado a otra fuente documental')
@@ -773,9 +794,13 @@ class CommandService:
             if command_mode is not None:
                 # Unknown effects are guarded by target below; they must not prevent
                 # the independent observations needed to reconcile them.
-                pending = self.db.execute("SELECT operation_id FROM command_runs WHERE state IN ('prepared','awaiting_approval','running') AND expires_at>? LIMIT 1", (time.time(),)).fetchone()
+                pending = self.db.execute('''SELECT operation_id FROM command_runs
+                    WHERE state IN ('prepared','awaiting_approval','running') AND expires_at>?
+                    AND coalesce(json_extract(result_json,'$.channel'),'desktop')=?
+                    AND json_extract(result_json,'$.conversation_id') IS ? LIMIT 1''',
+                    (time.time(), channel, conversation_id)).fetchone()
                 if pending:
-                    raise ValueError('Hay un comando pendiente. Revisa o cancela la operación antes de preparar otra.')
+                    raise CommandPending('Hay un comando pendiente en esta conversación. Revísalo antes de preparar otra.')
             command = self.commands[command_id]
             enabled = command['execution_enabled']
             if enabled:
@@ -800,10 +825,14 @@ class CommandService:
                             raise ValueError('Hay una escritura incierta en ese destino. Usa Revisar efecto antes de preparar otra.')
             elif inputs != {}:
                 raise ValueError('El comando documental no admite parámetros ejecutables')
-            approval = enabled and (command.get('requires_approval', False) or command_mode == 'ask')
+            autonomy = command_mode == 'unrestricted' and self._local_autonomy(command_id, conversation_id)
+            explicit_review = channel in ('mobile', 'telegram', 'model') and command['risk'] not in ('read', 'desktop_open')
+            approval = enabled and (explicit_review or command_mode == 'ask'
+                or (command_mode == 'unrestricted' and not autonomy)
+                or (command.get('requires_approval', False) and not autonomy))
             state = ('awaiting_approval' if approval else 'prepared') if enabled else 'blocked'
             result = {'operation_id': op_id, 'command_id': command_id, 'inputs': inputs, 'source': source,
-                      'conversation_id': conversation_id, 'command_mode': command_mode,
+                      'conversation_id': conversation_id, 'command_mode': command_mode, 'channel': channel,
                       'delivery_mode': mode, 'context_id': 'host',
                       'state': state, 'requires_approval': approval, 'postconditions_passed': False,
                       'evidence': {}, 'output': None, 'cancel_requested': False,
@@ -950,6 +979,9 @@ class CommandService:
                 expiry = self.db.execute('SELECT expires_at FROM command_runs WHERE operation_id=?', (operation_id,)).fetchone()[0]
                 if time.time() > expiry:
                     return self._save(result | {'state': 'expired', 'error': {'code': 'EXPIRED', 'message': 'La preparación caducó; revisa y prepara otra vez.'}})
+                if (result.get('command_mode') == 'unrestricted' and not result['requires_approval']
+                        and not self._local_autonomy(result['command_id'], result.get('conversation_id'))):
+                    result = self._save(result | {'state': 'awaiting_approval', 'requires_approval': True})
                 if result['requires_approval'] and approved is not True:
                     raise ApprovalRequired('Confirma los parámetros en la aplicación')
                 # Recheck filesystem and typed preconditions after the user reviewed the request.
@@ -977,6 +1009,9 @@ class CommandService:
                             self._guard_learning_command(current)
                         except ValueError as exc:
                             raise ActionExecutionError(str(exc)) from exc
+                        if self.channel_guard and not self.channel_guard(current):
+                            return self._save(current | {'state': 'blocked', 'postconditions_passed': False,
+                                'error': {'code': 'REMOTE_PERMISSION_REQUIRED', 'message': 'El permiso del canal ya no está vigente.'}})
                         if self.dispatch_guard:
                             try:
                                 self.dispatch_guard(operation_id)

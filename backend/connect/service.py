@@ -226,7 +226,9 @@ class ConnectService:
                             dependencies.extend(recipe.memory_dependencies)
                             unique = [reference for i,reference in enumerate(dependencies) if reference not in dependencies[:i]]
                             chat_policy['_memory_dependencies'] = task_memory.assert_dependencies(self.db,unique)
-                prepared = self.commands.prepare(key, inputs, 'text', operation_id, **(chat_policy or {}))
+                if origin == 'axx-provider':
+                    chat_policy['channel'] = 'model'
+                prepared = self.commands.prepare(key, inputs, 'text', operation_id, **chat_policy)
                 result = prepared | {'inputs': inputs, 'procedure_reused': reused is not None}
                 if reused:
                     result['procedure_id'] = reused['id']

@@ -13,6 +13,10 @@ Push-Location $projectRoot
 try {
     & $PythonExecutable (Join-Path $PSScriptRoot 'release.py') check
     if ($LASTEXITCODE -ne 0) { throw 'Desktop version or README is inconsistent; run scripts/release.py sync' }
+    $sourceCommit = git rev-parse HEAD
+    if ($LASTEXITCODE -or $sourceCommit -notmatch '^[0-9a-f]{40}$') { throw 'Cannot identify build source commit' }
+    $sourceTreeClean = -not (git status --porcelain --untracked-files=normal)
+    if ($LASTEXITCODE) { throw 'Cannot identify build source status' }
     $dependency = Get-Content -LiteralPath 'resources\dependency-manifest.json' -Raw | ConvertFrom-Json
     & $PythonExecutable -c 'import PIL, pypdf'
     if ($LASTEXITCODE -ne 0) { throw 'Install requirements-converter.txt before building the Axx backend' }
@@ -129,7 +133,8 @@ try {
         $item=Get-Item -LiteralPath $_
         @{path=$item.FullName; bytes=$item.Length; sha256=(Get-FileHash -LiteralPath $item.FullName -Algorithm SHA256).Hash; architecture='x86_64'; version=$version}
     }
-    @{started=$started.ToString('o'); completed=[DateTimeOffset]::Now.ToString('o'); steps=$steps; artifacts=$artifacts; backend_bundle=$backendBundle; source_hashes=$before} | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $evidencePath 'build-result.json') -Encoding UTF8
+    if ((git rev-parse HEAD) -ne $sourceCommit) { throw 'Build source commit changed during packaging' }
+    @{source_commit=$sourceCommit; source_tree_clean=$sourceTreeClean; started=$started.ToString('o'); completed=[DateTimeOffset]::Now.ToString('o'); steps=$steps; artifacts=$artifacts; backend_bundle=$backendBundle; source_hashes=$before} | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $evidencePath 'build-result.json') -Encoding UTF8
     $artifacts | ConvertTo-Json -Depth 4
 } finally {
     Pop-Location

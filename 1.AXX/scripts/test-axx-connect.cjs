@@ -4,9 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const http = require('node:http');
 const {createHash} = require('node:crypto');
-const {createRequire} = require('node:module');
-const bundledRequire = createRequire(path.join(process.env.USERPROFILE, '.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/package.json'));
-const {chromium} = bundledRequire('playwright');
+const {chromium} = require('playwright');
 const root = path.resolve(__dirname, '..');
 
 (async () => {
@@ -20,7 +18,7 @@ const root = path.resolve(__dirname, '..');
     res.end(fs.readFileSync(file));
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-  const browser = await chromium.launch({headless:true, executablePath:process.env.AXX_TEST_CHROMIUM || path.join(process.env.LOCALAPPDATA, 'ms-playwright/chromium_headless_shell-1248/chrome-headless-shell-win64/chrome-headless-shell.exe')});
+  const browser = await chromium.launch({headless:true, executablePath:process.env.AXX_TEST_CHROMIUM});
   const checks = [], errors = [];
   try {
     const page = await browser.newPage({viewport:{width:1440,height:960}});

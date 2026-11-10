@@ -161,6 +161,26 @@ class GatewayTests(unittest.TestCase):
                 self.assertEqual(json.loads(response.read())['error']['code'],'GATEWAY_DISABLED')
             finally:conn.close();gateway.stop()
 
+    def test_work_terminal_receipt_is_private_to_its_device(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            def backend(method, path, body):
+                if path.endswith('/executable'):
+                    return {'commands':[{'id':'axx.system.telemetry','pc_approval_required':False}]}
+                self.assertTrue(path.endswith('/prepare'))
+                return {'state':'succeeded','postconditions_passed':True,'output':{'os':'fixture'}}
+            gateway = MobileGateway(Path(tmp)/'state.db', tmp, backend)
+            try:
+                owner = gateway.store.consume_pairing(gateway.store.create_pairing(), 'Owner')
+                other = gateway.store.consume_pairing(gateway.store.create_pairing(), 'Other')
+                operation = str(uuid.uuid4())
+                gateway.store.record_work(operation, owner['device_id'], 'axx.system.telemetry', {})
+                body = {'command_id':'axx.system.telemetry','inputs':{},'operation_id':operation,'approved':False}
+                self.assertTrue(gateway.work_execute(owner['device_id'], body)['postconditions_passed'])
+                with self.assertRaises(ValueError):
+                    gateway.work_execute(other['device_id'], body)
+            finally:
+                gateway.close()
+
     def test_work_requires_pc_grant_and_runs_only_supported_command(self):
         calls=[]
         def backend(method,path,body):

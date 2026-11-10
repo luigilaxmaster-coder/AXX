@@ -39,7 +39,7 @@ jobs:
         run: |
           python -m unittest backend.tests.test_presentation_plan backend.tests.test_spatial_pipeline -q
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          foreach ($test in @('internal-actions','spatial-shapes','technical-shapes','explode')) {
+          foreach ($test in @('internal-actions','spatial-shapes','technical-shapes','explode','magic-pen')) {
             node "1.AXX/scripts/test-$test.cjs"
             if ($LASTEXITCODE) { exit $LASTEXITCODE }
           }
@@ -85,6 +85,8 @@ jobs:
         run: python -m unittest backend.tests.test_application_versions -v
       - name: Connect memory and compatibility regressions
         run: python -m unittest discover -s backend/connect/tests -q
+      - name: Authenticated command channels and configured chat tools
+        run: python -m unittest backend.tests.test_commands_http backend.tests.test_chat_store backend.mobile.tests.test_gateway -q
       - name: Telegram and desktop command regressions
         run: python -m unittest backend.tests.test_commands_remote_confirmation backend.tests.test_telegram_confirmation backend.tests.test_telegram_confirmation_integration backend.tests.test_telegram_bot backend.tests.test_telegram_bot_setup backend.tests.test_telegram_catalog backend.tests.test_telegram_service backend.tests.test_telegram_daemon backend.tests.test_telegram_miniapp backend.tests.test_telegram_http backend.tests.test_window_title_scope backend.tests.test_desktop_commands -q
       - name: Prompt browser contracts

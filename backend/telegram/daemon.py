@@ -9,6 +9,7 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlencode
+import urllib.error
 import urllib.request
 
 from backend.auth.chatgpt_auth import _dpapi_decrypt, _dpapi_encrypt
@@ -86,11 +87,17 @@ class CommandProxy:
     def executable_catalog(self):
         return self.core.request('GET', '/axx-api/commands/executable')
 
-    def prepare(self, command_id, inputs, *, source, operation_id, conversation_id, command_mode,memory_scope=None,memory_context_id=None):
-        return self.core.request('POST', '/axx-api/commands/prepare', {'command_id': command_id, 'inputs': inputs,
-            'source': source, 'operation_id': operation_id, 'conversation_id': conversation_id, 'command_mode': command_mode,
-            **({'memory_scope':memory_scope} if memory_scope is not None else {}),
-            **({'memory_context_id':memory_context_id} if memory_context_id is not None else {})})
+    def prepare(self, command_id, inputs, *, source, operation_id, conversation_id, command_mode,memory_scope=None,memory_context_id=None,channel='telegram'):
+        try:
+            return self.core.request('POST', '/axx-api/commands/prepare', {'command_id': command_id, 'inputs': inputs,
+                'source': source, 'operation_id': operation_id, 'conversation_id': conversation_id, 'command_mode': command_mode,
+                **({'memory_scope':memory_scope} if memory_scope is not None else {}),
+                **({'memory_context_id':memory_context_id} if memory_context_id is not None else {})})
+        except urllib.error.HTTPError as exc:
+            if exc.code in (400, 401, 403, 409):
+                exc.close()
+                raise ValueError('El núcleo rechazó la preparación.') from None
+            raise
 
     def get(self, operation_id):
         try:
@@ -273,7 +280,7 @@ def main(argv=None):
     data_dir = args.data_dir
     local_dir = data_dir / 'telegram' / 'local-channel'
     with _file_lease(local_dir / 'daemon.lock', 'TELEGRAM_DAEMON_IN_USE'):
-        core = CoreClient(data_dir / 'connect' / 'endpoint.dpapi')
+        core = CoreClient(data_dir / 'telegram' / 'endpoint.dpapi')
         core.verify()
         from backend.telegram.service import TelegramService
         from backend.telegram.miniapp import MiniAppFacade

@@ -11,7 +11,7 @@ from contextlib import contextmanager
 from .memory import task_memory
 
 TTL = 90 * 86400 * 1000
-MODES = {'ask', 'auto_safe'}
+MODES = {'ask', 'auto_safe', 'unrestricted'}
 
 def ident(value):
     if not isinstance(value, str) or not re.fullmatch(r'[A-Za-z0-9_.:-]{1,160}', value):
@@ -90,7 +90,10 @@ class ChatStore:
             if 'draft_at' not in {r[1] for r in db.execute('PRAGMA table_info(chat_conversations)')}:
                 db.execute('ALTER TABLE chat_conversations ADD COLUMN draft_at REAL NOT NULL DEFAULT 0')
                 db.execute('UPDATE chat_conversations SET draft_at=updated')
-            db.execute("UPDATE chat_conversations SET mode='ask' WHERE mode NOT IN ('ask','auto_safe')")
+            if not db.execute("SELECT 1 FROM chat_settings WHERE key='unrestricted_policy'").fetchone():
+                db.execute("UPDATE chat_conversations SET mode='ask' WHERE mode='unrestricted'")
+                db.execute("INSERT INTO chat_settings VALUES('unrestricted_policy','1')")
+            db.execute("UPDATE chat_conversations SET mode='ask' WHERE mode NOT IN ('ask','auto_safe','unrestricted')")
             db.execute("UPDATE chat_settings SET value='ask' WHERE key='default_mode' AND value NOT IN ('ask','auto_safe')")
         self.purge()
         self.worker = threading.Thread(target=self._maintenance, daemon=True)
@@ -155,7 +158,7 @@ class ChatStore:
             raise ValueError('Grupo desconocido')
         default_mode = (db.execute("SELECT value FROM chat_settings WHERE key='default_mode'").fetchone() or ['ask'])[0]
         mode = body.get('command_mode', default_mode)
-        if mode not in MODES:
+        if mode not in ('ask', 'auto_safe'):
             raise ValueError('Modo de comandos inválido')
         now = self.clock()
         db.execute('INSERT INTO chat_conversations(id,title,group_id,mode,created,updated,archived,draft,connect_id,shared_id,draft_at) VALUES(?,?,?,?,?,?,0,?,?,?,?)',
@@ -544,8 +547,9 @@ class ChatStore:
                     if group and not db.execute('SELECT id FROM chat_groups WHERE id=?',(ident(group),)).fetchone():
                         raise ValueError('Grupo desconocido')
                     mode = body.get('command_mode', row['mode'])
-                    if mode not in MODES:
-                        raise ValueError('Modo inválido')
+                    if mode not in MODES or (mode == 'unrestricted' and row['mode'] != mode
+                            and body.get('confirm_unrestricted') is not True):
+                        raise ValueError('El modo Unrestricted requiere confirmación explícita')
                     db.execute('UPDATE chat_conversations SET title=?,group_id=?,mode=?,archived=?,connect_id=? WHERE id=?',
                                (text(body.get('title',row['title']),120),group,mode,int(bool(body.get('archived',row['archived']))),str(uuid.uuid4()) if group!=row['group_id'] else row['connect_id'],cid))
             elif action == 'group':
@@ -617,7 +621,7 @@ class ChatStore:
                     db.execute('UPDATE chat_conversations SET connect_id=? WHERE id=?',(str(uuid.uuid4()),row[0]))
             elif action == 'default':
                 mode = body.get('command_mode')
-                if mode not in MODES:
+                if mode not in ('ask', 'auto_safe'):
                     raise ValueError('Modo inválido')
                 db.execute("INSERT OR REPLACE INTO chat_settings VALUES('default_mode',?)",(mode,))
             elif action in ('link','unlink'):

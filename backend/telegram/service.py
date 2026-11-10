@@ -442,6 +442,28 @@ class TelegramService:
             raise ValueError('Telegram identity is not authorized')
         return account
 
+    def owns_chat(self, conversation_id):
+        try:
+            account = load_account(self.data_dir)
+            if not account['enabled']:
+                return False
+        except (OSError, ValueError, RuntimeError):
+            return False
+        with self._db() as db:
+            return bool(db.execute('SELECT 1 FROM bindings WHERE conversation=? AND account=? AND peer=?',
+                                   (conversation_id, account['account_id'], account['owner_id'])).fetchone())
+
+    def can_execute(self, operation_id, conversation_id=None):
+        with self._db() as db:
+            row = db.execute('SELECT account,peer,task_id FROM inbox WHERE operation_id=?', (operation_id,)).fetchone()
+        if not row or (conversation_id is not None and row[2] != conversation_id):
+            return False
+        try:
+            account = self._authorize({'account_id': row[0], 'peer_id': row[1]})
+            return bool(account['grants'].get('pc_commands'))
+        except (OSError, ValueError, RuntimeError):
+            return False
+
     def _thread(self, account):
         with self._db() as db:
             row = db.execute('SELECT conversation FROM bindings WHERE account=? AND peer=?',
@@ -451,7 +473,7 @@ class TelegramService:
             chat = self.chats.mutate('create', {'title': 'Telegram'})
             db.execute('INSERT INTO bindings VALUES(?,?,?)',
                        (account['account_id'], account['owner_id'], chat['id']))
-            return self.chats.get(chat['id'])
+        return self.chats.get(chat['id'])
 
     @staticmethod
     def _capture_chat(chat):
@@ -700,10 +722,13 @@ class TelegramService:
                 return {'state':'blocked', 'text':'Activa el permiso de acciones en la PC para esta cuenta en los ajustes locales de Telegram.'}
             if require_remote_review and not confirmation_policy(self.data_dir)['enabled']:
                 return {'state': 'blocked', 'text': 'El permiso de confirmación remota fue retirado. La orden no se ejecutó.'}
-            prepared = self.commands.prepare(resolved['command_id'], resolved.get('inputs', {}),
-                source='text', operation_id=key, conversation_id=chat['id'],
-                command_mode='ask' if require_remote_review else chat['mode'],memory_scope=copy.deepcopy(captured['memory_scope']),
-                memory_context_id=captured['memory_context_id'])
+            try:
+                prepared = self.commands.prepare(resolved['command_id'], resolved.get('inputs', {}),
+                    source='text', operation_id=key, conversation_id=chat['id'], channel='telegram',
+                    command_mode='ask' if require_remote_review else chat['mode'],memory_scope=copy.deepcopy(captured['memory_scope']),
+                    memory_context_id=captured['memory_context_id'])
+            except ValueError:
+                return {'state':'blocked','text':'La preparación fue rechazada. No se ejecutó ninguna acción.'}
             if prepared['state'] == 'awaiting_approval':
                 return {'state':'awaiting_approval', 'operation_id':key,
                         'text':'Orden preparada. Revisa su tarjeta para confirmar desde Telegram si está permitido, o apruébala en la PC. Operación: '+key}

@@ -163,7 +163,7 @@ class SceneContractTests(unittest.TestCase):
             'out of range': lambda p: p['scene']['objects'][0].update(position=[0, 0, 99]),
             'zero size': lambda p: p['scene']['objects'][0].update(size=[0, 1, 1]),
             'bool vector': lambda p: p['scene']['objects'][0].update(size=[True, 1, 1]),
-            'too many': lambda p: p['scene'].update(objects=[dict(p['scene']['objects'][0], id=f'o{i}') for i in range(MAX_OBJECTS + 1)]),
+            'too many': lambda p: p['scene'].update(objects=[dict(p['scene']['objects'][0], id=f'o{i}') for i in range(49)]),
             'duplicate id': lambda p: p['scene']['objects'][1].update(id='o1'),
             'arrow unknown': lambda p: p['scene']['arrows'][0].update(to='o9'),
             'arrow self': lambda p: p['scene']['arrows'][0].update(to='o2'),
@@ -171,9 +171,10 @@ class SceneContractTests(unittest.TestCase):
             'unknown focus': lambda p: p['steps'][1].update(focus=['o7']),
             'focus without scene': lambda p: p.pop('scene'),
         }
+        self.assertEqual(MAX_OBJECTS, 48)
         at_limit = variant(lambda p: p['scene'].update(
-            objects=[dict(p['scene']['objects'][0], id=f'o{i}') for i in range(MAX_OBJECTS)]))
-        self.assertEqual(len(validate_plan(at_limit)['scene']['objects']), MAX_OBJECTS)
+            objects=[dict(p['scene']['objects'][0], id=f'o{i}') for i in range(48)]))
+        self.assertEqual(len(validate_plan(at_limit)['scene']['objects']), 48)
         for name, change in cases.items():
             with self.subTest(name), self.assertRaises(PlanError):
                 validate_plan(variant(change))

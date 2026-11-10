@@ -1766,6 +1766,7 @@ body.axx-resident :is(.panel-head,.flow-library-head,.organic-satellite-head,.v1
 <label class="setting" style="margin-top: 14px;">Modelo activo
   <select disabled="" id="ai-model"><option value="">Primero detecta los modelos</option></select>
 </label>
+<label class="setting"><span>Herramientas de Axx en el chat local</span><input type="checkbox" id="ai-chat-tools"></label>
 <div class="connection-message" id="ai-status" role="status">No hay IA conectada. Notas, tareas y temporizadores siguen disponibles.</div>
 <label class="toggle"><span>Conservar conversación en este navegador</span><input checked="" id="keep-history" type="checkbox"/></label>
 <label class="toggle"><span>Enviar el dictado al terminar</span><input id="voice-autosend" type="checkbox"/></label>
@@ -6754,7 +6755,7 @@ var Axx;
             const ctrl = new AbortController(), cancel = () => ctrl.abort(), timeout = setTimeout(() => ctrl.abort(), 180000);
             signal.addEventListener('abort', cancel, { once: true });
             try {
-                if (p.selection_mode !== 'automatic_free' && p.provider === 'bridge' && Axx.isNative() && this.localRealtimeModels.has(p.model)
+                if (!p.axx_tools && p.selection_mode !== 'automatic_free' && p.provider === 'bridge' && Axx.isNative() && this.localRealtimeModels.has(p.model)
                     && (!p.apiConnection || p.apiConnection === 'ollama-local') && window.__TAURI__?.event?.listen) {
                     const realtime = await this.localRealtimeChat(p.model, messages, ctrl.signal, onDelta);
                     if (realtime) return realtime;
@@ -6765,7 +6766,7 @@ var Axx;
                     const cancelNative = () => {
                         if (cancelled) return;
                         cancelled = true;
-                        void Axx.backendRequest('POST', '/axx-api/chat/cancel', { request_id: requestId }).catch(() => {});
+                        void Axx.backendRequest('POST', '/axx-api/chat/cancel', { request_id: requestId, ...(p.axx_tools ? { axx_tools: true } : {}) }).catch(() => {});
                     };
                     ctrl.signal.addEventListener('abort', cancelNative, { once: true });
                     try {
@@ -6780,7 +6781,8 @@ var Axx;
                             selection_mode: p.selection_mode || 'manual',
                             ...(p.max_tokens ? { max_tokens: p.max_tokens } : {}),
                             ...(p.provider === 'bridge' && p.apiConnection ? { provider_name: p.apiConnection } : {}),
-                            allow_fallback: p.allow_fallback !== false
+                            allow_fallback: p.allow_fallback !== false,
+                            ...(p.axx_tools ? { axx_tools: true } : {})
                         };
                         const data = await Axx.backendRequest('POST', '/axx-api/chat', payload, ctrl.signal);
                         if (ctrl.signal.aborted)
@@ -6788,9 +6790,16 @@ var Axx;
                         const msgObj = data.choices?.[0]?.message;
                         const toolCalls = Array.isArray(msgObj?.tool_calls) ? msgObj.tool_calls : null;
                         let text = msgObj?.content;
-                        if ((typeof text !== 'string' || !text.trim()) && toolCalls?.length) {
-                            text = toolCalls.map(tc => `[Herramienta solicitada: ${tc.function?.name || 'acción'}(${tc.function?.arguments || '{}'})]`).join('\n');
+                        if (toolCalls?.length) {
+                            const receipt = data.axx_tool_receipt;
+                            const operation = receipt?.operation_id ? ' Operación ' + receipt.operation_id + '.' : '';
+                            if (!receipt) text = 'La solicitud de herramienta no fue ejecutada.';
+                            else if (receipt.state === 'awaiting_approval') text = 'La herramienta requiere revisión en Axx.' + operation;
+                            else if (receipt.state === 'succeeded' && receipt.postconditions_passed === true)
+                                text = 'Acción verificada en Axx.' + operation + '\n' + JSON.stringify(receipt.output ?? null).slice(0, 4000);
+                            else text = 'Resultado de herramienta sin confirmar. Estado ' + receipt.state + '.' + operation;
                         }
+                        if (data.axx_tools_status === 'unsupported') text = (text || '') + '\nHerramientas no disponibles para este modelo o modo de conexión.';
                         const reason = data.choices?.[0]?.finish_reason || (toolCalls?.length ? 'tool_calls' : '');
                         if (typeof text !== 'string' || !text.trim() || typeof reason !== 'string' || !reason)
                             throw new Error('El proveedor no confirmó una respuesta de texto válida.');
@@ -6801,7 +6810,7 @@ var Axx;
                         }
                         onDelta(finalText);
                         this.inferenceVerified = true;
-                        return { text: finalText, reason, route: this.lastRoute };
+                        return { text: finalText, reason, route: this.lastRoute, toolReceipt: data.axx_tool_receipt };
                     }
                     finally { ctrl.signal.removeEventListener('abort', cancelNative); }
                 }
@@ -8165,6 +8174,10 @@ var Axx;
             click('ai-disconnect', () => { this.connecting?.abort(); this.cancelRequest(); this.brain.reset(); this.data.prefs.provider = 'none'; this.data.prefs.selection_mode = 'manual'; this.syncPreferences(); this.save(); node('ai-status').textContent = 'Desconectado. No se enviarán nuevas preguntas al proveedor.'; });
             click('api-test-btn', () => { void this.connect(); });
             click('api-disconnect-btn', () => { this.connecting?.abort(); this.cancelRequest(); this.brain.reset(); this.data.prefs.provider = 'none'; this.data.prefs.selection_mode = 'manual'; this.syncPreferences(); this.save(); node('ai-status').textContent = 'Desconectado.'; });
+            const toolsPreference = node('ai-chat-tools');
+            toolsPreference.checked = localStorage.getItem('axx.chat.tools.enabled') === 'true';
+            toolsPreference.disabled = !Axx.isNative();
+            toolsPreference.onchange = () => localStorage.setItem('axx.chat.tools.enabled', String(toolsPreference.checked));
             click('direct-api-save-btn', async () => {
                 const btn = node('direct-api-save-btn');
                 const provider = node('direct-api-provider')?.value || 'openrouter';
@@ -9152,12 +9165,19 @@ var Axx;
                 }, 1200) : null;
             try {
                 const chatPrefs = { ...this.data.prefs, prompt_mode: isVoiceTurn ? 'voice' : 'conversation', model: effectiveModel, ...(memoryToken ? { memoryToken, memory_scope:{...memoryToken.memory_scope}, memory_context_id:memoryToken.memory_context_id } : {}), ...(effectiveApiConn ? { apiConnection: effectiveApiConn } : {}), ...(isVoiceTurn ? { max_tokens: 384, voice_turn: true } : {}) };
+                if (Axx.isNative() && memoryToken && chatPrefs.provider === 'bridge'
+                        && node('ai-chat-tools')?.checked) chatPrefs.axx_tools = true;
                 const result = await this.brain.chat(chatPrefs, context, ctrl.signal, text => { if (this.pending !== ctrl)
                     return; if (text) clearTimeout(leadTimer); response.text = text; if (this.streamElement)
                     this.streamElement.textContent = response.text; receiveSpeech(text); this.sayStatus('Recibiendo respuesta de ' + effectiveModel + '…'); this.scrollChat(); });
                 if (ctrl.signal.aborted)
                     throw new DOMException('Solicitud cancelada', 'AbortError');
                 response.text = result.text;
+                if (result.toolReceipt?.state === 'awaiting_approval' && Axx.commandLibrary
+                        && result.toolReceipt.conversation_id === Axx.chatWorkspace?.active?.id) {
+                    Axx.commandLibrary.operation = Axx.commandLibrary.lastOperation = result.toolReceipt;
+                    Axx.commandLibrary.renderOperation(result.toolReceipt);
+                }
                 if (result.route?.model)
                     response.model = String(result.route.model).slice(0, 200);
                 response.status = result.reason === 'length' ? 'interrupted' : 'complete';
@@ -19814,6 +19834,10 @@ var Axx;
                 this.initialize().catch(e => this.status('Backend no disponible: ' + this.error(e)));
                 window.setInterval(() => this.scheduleIdentity(), 4000);
                 window.addEventListener('pagehide', () => this.scheduleIdentity(true));
+                void Axx.app.bridge.listen('axx-backend-lost', payload => {
+                    this.ready = false;
+                    this.status(payload?.message || 'Backend desconectado');
+                });
                 void Axx.app.bridge.listen('axx-backend-ready', () => { if (!this.ready) void this.initialize().catch(e => this.status(this.error(e))); });
                 void Axx.app.bridge.listen('axx-show', payload => Axx.resident ? Axx.resident.summon(payload?.follow !== false) : Axx.home18?.call());
                 void Axx.app.bridge.listen('axx-recenter', () => Axx.resident ? Axx.resident.home(false) : Axx.home18?.home());

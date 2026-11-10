@@ -7,7 +7,7 @@
     const TTL = 90 * 86400000;
     const ui = document.createElement('section'); ui.id = 'chat-workspace';
     ui.innerHTML = `<div class="cw-heading"><button id="cw-browse" type="button">Chats y grupos</button><button id="cw-new" type="button">Nuevo chat</button></div>
-      <div class="cw-current"><strong id="cw-title">Cargando conversaciones…</strong><label>Comandos <select id="cw-mode"><option value="ask">Preguntar</option><option value="auto_safe">Auto seguro</option></select></label></div>
+      <div class="cw-current"><strong id="cw-title">Cargando conversaciones…</strong><label>Comandos <select id="cw-mode"><option value="ask">Preguntar</option><option value="auto_safe">Auto seguro</option><option value="unrestricted">Sin restricciones</option></select></label></div>
       <button id="cw-context-open" class="cw-context-link" type="button">Sin contexto de grupo</button>
       <div id="cw-operation" hidden role="status" aria-live="polite"></div>
       <p id="cw-error" role="alert" hidden></p><button id="cw-retry" type="button" hidden>Volver a cargar chats</button>
@@ -209,7 +209,20 @@
     $('cw-link-add').onclick=run(async token=>{const source=$('cw-link-source').value;if(!source)return;await api('link',{id:token.memory_scope.task_id,source_id:source},token);if(!isMemoryTokenCurrent(token))return;await refreshActiveContext();showContext();});
     $('cw-continue').onclick=run(async token=>{const source=token.memory_scope.task_id;await flush();if(!isMemoryTokenCurrent(token))return;await create();const next=captureMemoryToken();await api('link',{id:next.memory_scope.task_id,source_id:source,source_memory_scope:token.memory_scope},next);await refreshActiveContext();showContext();});
     $('cw-search').oninput=renderList;$('cw-filter').onchange=renderList;$('cw-archived').onchange=renderList;
-    $('cw-mode').onchange=run(async token=>{const mode=$('cw-mode').value;await api('update',{id:token.memory_scope.task_id,command_mode:mode},token);if(isMemoryTokenCurrent(token))active.mode=mode;});
+    $('cw-mode').onchange=run(async token=>{
+        const select=$('cw-mode'), mode=select.value, previous=active.mode;
+        const confirm_unrestricted=mode==='unrestricted' && previous!==mode;
+        if(confirm_unrestricted && !window.confirm('¿Permitir acciones locales tipadas sin revisión individual? Shell, procesos y descargas conservan aprobación.')){
+            select.value=previous;
+            return;
+        }
+        try {
+            await api('update',{id:token.memory_scope.task_id,command_mode:mode,...(confirm_unrestricted?{confirm_unrestricted:true}:{})},token);
+            if(isMemoryTokenCurrent(token))active.mode=mode;
+        } finally {
+            if(isMemoryTokenCurrent(token))select.value=active.mode;
+        }
+    });
     $('cw-default').onchange=run(async()=>{const mode=$('cw-default').value;await api('default',{command_mode:mode});listing.default_mode=mode;});
     $('cw-rename-save').onclick=run(async token=>{const title=$('cw-rename').value.trim()||'Conversación';await api('update',{id:token.memory_scope.task_id,title},token);if(!isMemoryTokenCurrent(token))return;active.title=title;header();await refresh();});
     $('cw-group').onchange=run(async token=>{await api('update',{id:token.memory_scope.task_id,group_id:$('cw-group').value},token);if(isMemoryTokenCurrent(token))await select(token.memory_scope.task_id);});

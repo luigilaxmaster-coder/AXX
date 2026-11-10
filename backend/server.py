@@ -51,6 +51,7 @@ from backend.auth.chatgpt_auth import ChatGPTAuthManager
 from backend.inference.chatgpt_adapter import ChatGPTSubscriptionAdapter
 from backend.auth.callback_page import get_callback_html
 from backend.connect.http_api import ConnectHTTP, publish_endpoint, remove_endpoint
+from backend.connect import chat_tools
 from backend.mcp_host.http_api import McpHTTP
 from backend.connect.service import ConnectService
 from backend.connect.provider import CodexProvider, ProviderError
@@ -79,6 +80,21 @@ def local_realtime_models(config, inference_status):
             if provider.get('name') == 'ollama-local' and provider.get('state') == 'ready_locally'
             and provider.get('model') in configured]
 
+SCOPED_ROUTES = {
+    ('telegram', 'GET'): {'/axx-api/status', '/axx-api/telegram/status', '/axx-api/telegram/commands',
+        '/axx-api/commands/executable', '/axx-api/commands/operations', '/axx-api/chat/conversations'},
+    ('telegram', 'POST'): {'/axx-api/telegram/input', '/axx-api/telegram/bot-input',
+        '/axx-api/telegram/review', '/axx-api/telegram/decision', '/axx-api/chat/create', '/axx-api/chat/save',
+        '/axx-api/commands/resolve', '/axx-api/commands/prepare', '/axx-api/commands/execute', '/axx-api/commands/cancel'},
+    ('mobile', 'GET'): {'/axx-api/status', '/axx-api/actions', '/axx-api/providers', '/axx-api/commands/operations',
+        '/axx-api/commands/executable', '/axx-api/chat/conversations', '/axx-api/learning/plan',
+        '/axx-api/learning/plans', '/axx-api/connect/task'},
+    ('mobile', 'POST'): {'/axx-api/chat', '/axx-api/commands/resolve', '/axx-api/commands/prepare',
+        '/axx-api/commands/execute', '/axx-api/commands/cancel', '/axx-api/connect/execute',
+        '/axx-api/learning/repair', '/axx-api/speech/transcribe'},
+}
+
+
 class ThreadedHTTPServer(socketserver.ThreadingMixIn, HTTPServer):
     daemon_threads = True
     allow_reuse_address = False
@@ -88,6 +104,8 @@ class ThreadedHTTPServer(socketserver.ThreadingMixIn, HTTPServer):
         self.serving = threading.Event()
         super().__init__(*args, **kwargs)
         self.host_token = os.environ.get('AXX_HOST_TOKEN') or secrets.token_hex(32)
+        self.telegram_token = secrets.token_hex(32)
+        self.mobile_token = secrets.token_hex(32)
         self.instance_id = os.environ.get('AXX_HOST_INSTANCE') or str(uuid.uuid4())
         self.host_owned = bool(os.environ.get('AXX_HOST_TOKEN'))
         self.action_lock = threading.RLock()
@@ -109,6 +127,16 @@ class ThreadedHTTPServer(socketserver.ThreadingMixIn, HTTPServer):
 
     def core_bound(self):
         return self.host_owned and self.serving.is_set() and self.fileno() >= 0
+
+    def commands_authorized(self, operation):
+        channel = operation.get('channel')
+        if channel == 'telegram':
+            telegram = self.RequestHandlerClass.telegram
+            return bool(telegram and telegram.can_execute(operation['operation_id'], operation.get('conversation_id')))
+        if channel == 'mobile':
+            mobile = getattr(self, 'mobile', None)
+            return bool(mobile and mobile.work_permitted(operation['operation_id']))
+        return True
 
 class AxxBridgeHandler(BaseHTTPRequestHandler):
     adapter = executor = memory = identity = speech = transcription = None
@@ -237,10 +265,20 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
             self._send_json(403, {'error': {'code': 'FORBIDDEN', 'message': 'Use the native host bridge'}})
             return False
         value = self.headers.get('Authorization', '')
-        if not secrets.compare_digest(value, 'Bearer ' + self.server.host_token):
+        credentials = {'desktop': self.server.host_token, 'telegram': self.server.telegram_token,
+                       'mobile': self.server.mobile_token}
+        self.request_channel = next((key for key, token in credentials.items()
+                                     if secrets.compare_digest(value, 'Bearer ' + token)), None)
+        if self.request_channel is None:
             self._discard_rejected_body()
             self._send_json(401, {'error': {'code': 'UNAUTHORIZED', 'message': 'Native host authentication required'}})
             return False
+        if self.request_channel != 'desktop':
+            path = urllib.parse.urlsplit(self.path).path
+            if path not in SCOPED_ROUTES.get((self.request_channel, self.command), ()):
+                self._discard_rejected_body()
+                self._send_json(403, {'error': {'code': 'CHANNEL_FORBIDDEN', 'message': 'Ruta no autorizada para este canal.'}})
+                return False
         return True
 
     def do_OPTIONS(self):
@@ -335,6 +373,11 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                 if (set(query) - {'id', 'shared_id', 'include_history'} or {'id','shared_id'} <= set(query)
                         or any(len(v) != 1 for v in query.values()) or 'include_history' in query and not ({'id','shared_id'} & set(query))):
                     raise ValueError('Invalid conversation query')
+                if self.request_channel == 'telegram' and (set(query) != {'id'}
+                        or not self.telegram or not self.telegram.owns_chat(query['id'][0])):
+                    raise ValueError('Conversación ajena al canal Telegram')
+                if self.request_channel == 'mobile' and set(query) != {'shared_id'}:
+                    raise ValueError('La consulta móvil requiere un chat compartido')
                 include_history = query.get('include_history', ['false'])[0]
                 if include_history not in ('true', 'false'): raise ValueError('Invalid history flag')
                 result = self.chats.by_shared_id(query['shared_id'][0]) if 'shared_id' in query else self.chats.get(query['id'][0]) if 'id' in query else self.chats.list()
@@ -501,9 +544,16 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                     self._send_json(200, self.commands.details(query.get('id', [''])[0]))
                 elif 'operation_id' in query:
                     operation = self.commands.get(query['operation_id'][0])
+                    if self.request_channel != 'desktop' and (not operation
+                            or operation.get('channel') != self.request_channel
+                            or (self.request_channel == 'telegram' and (not self.telegram
+                                or not self.telegram.can_execute(operation['operation_id'])))):
+                        operation = None
                     self._send_json(200 if operation else 404, {'operation': operation})
                 else:
-                    self._send_json(200, {'operations': self.commands.operations()})
+                    operations = self.commands.operations() if self.request_channel != 'telegram' else []
+                    self._send_json(200, {'operations': [op for op in operations
+                        if self.request_channel == 'desktop' or op.get('channel') == self.request_channel]})
             elif path == '/axx-api/actions/operations':
                 with self.server.action_lock:
                     self._send_json(200, {'operations': self.executor.list_operations()})
@@ -599,6 +649,20 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
             return
         path = urllib.parse.urlsplit(self.path).path
         try:
+            if self.request_channel == 'telegram' and path == '/axx-api/chat/create':
+                if body != {'title': 'Telegram'}:
+                    raise ValueError('Telegram solo puede crear su conversación')
+                body = {'title': 'Telegram', 'command_mode': 'ask'}
+            elif self.request_channel == 'telegram' and path == '/axx-api/chat/save':
+                if (set(body) - {'id','memory_scope','memory_context_id','messages'} or not self.telegram
+                        or not self.telegram.owns_chat(body.get('id'))):
+                    raise ValueError('Conversación ajena al canal Telegram')
+            elif self.request_channel == 'mobile' and path == '/axx-api/connect/execute':
+                inputs = body.get('inputs')
+                if (body.get('command_id') != 'axx.ui.identity' or body.get('origin') != 'mobile'
+                        or not isinstance(inputs, dict) or inputs.get('action') not in ('settings', 'finish')
+                        or set(inputs) - {'action','form','palette','finish'}):
+                    raise ValueError('Connect móvil solo admite personalizar el avatar')
             if path.startswith('/axx-api/anticipation/'):
                 if not self.anticipation:
                     raise ValueError('Anticipación no disponible en este runtime')
@@ -742,49 +806,35 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                     return
                 if set(body) - {'model', 'stream', 'axx_task', 'messages', 'temperature', 'max_tokens', 'tools',
                                 'request_id', 'conversation_id', 'deadline_ms', 'sensitivity',
-                                'provider', 'allow_fallback', 'mode', 'provider_name', 'selection_mode', 'memory_scope', 'memory_context_id'}:
+                                'provider', 'allow_fallback', 'mode', 'provider_name', 'selection_mode', 'memory_scope', 'memory_context_id', 'axx_tools'}:
                     raise ValueError('Unsupported chat fields')
 
                 captured_memory = self._capture_memory(body, chat=True)
-
-                model = body.get('model', '')
-                is_chatgpt = body.get('provider') == 'chatgpt' or body.get('mode') == 'auth'
-
-                if is_chatgpt and self.chatgpt_adapter and self.chatgpt_adapter.is_available():
-                    try:
-                        res = self.chatgpt_adapter.chat(
-                            model=model or 'gpt-4o',
-                            messages=body.get('messages', []),
-                            allow_fallback=body.get('allow_fallback', True)
-                        )
-                        message = res['choices'][0]['message']
-                        if body.get('stream') is True:
-                            payload = ('data: ' + json.dumps({'delta': message.get('content', ''), 'done': True,
-                                       'choices': [{'delta': message, 'finish_reason': 'stop'}]}) + '\n\ndata: [DONE]\n\n').encode('utf-8')
-                            self.send_response(200)
-                            self.send_header('Content-Type', 'text/event-stream; charset=utf-8')
-                            self.send_header('Content-Length', str(len(payload)))
-                            self.send_header('Connection', 'close')
-                            self.end_headers()
-                            self.wfile.write(payload)
-                            self.close_connection = True
-                        else:
-                            self._send_json(200, {
-                                'request_id': body.get('request_id') or str(uuid.uuid4()),
-                                'choices': [{'message': message, 'finish_reason': 'stop'}],
-                                'axx_router': res.get('axx_router')
-                            })
-                        return
-                    except Exception as exc:
-                        LOG.error('ChatGPT inference execution error: %s', exc)
-                        self._send_json(502, {'ok': False, 'error': {'code': 'CHATGPT_ERROR', 'message': str(exc), 'retryable': True}})
-                        return
 
                 envelope = {'provider_name': body.get('provider_name', ''), 'model': body.get('model', ''), 'task': body.get('axx_task', 'chat'), 'messages': body.get('messages', []),
                     'generation': {key: body[key] for key in ('temperature', 'max_tokens', 'tools') if key in body}}
                 for key in ('request_id', 'conversation_id', 'deadline_ms', 'sensitivity', 'selection_mode'):
                     if key in body:
                         envelope[key] = body[key]
+                tool_catalog = {}
+                tool_status = None
+                tool_chat = None
+                if 'axx_tools' in body:
+                    if (body['axx_tools'] is not True or self.request_channel != 'desktop' or 'tools' in body
+                            or not self.connect or not self.chats or not captured_memory['task_id']
+                            or not captured_memory['memory_scope'] or envelope['task'] != 'chat' or body.get('stream') is True):
+                        raise ValueError('Las herramientas requieren una conversación local vigente y su catálogo.')
+                    chat_tools.operation_id(body.get('request_id'))
+                    tool_chat = self.chats.get(captured_memory['task_id'])
+                    provider_name, tool_catalog = chat_tools.catalog(self.commands, self.adapter.config, envelope)
+                    if tool_catalog and not tool_chat['archived']:
+                        envelope['provider_name'] = provider_name
+                        envelope['generation']['tools'] = [{'type': 'function', 'function': tool}
+                                                            for _, tool in tool_catalog.values()]
+                        tool_status = 'available'
+                    else:
+                        tool_catalog = {}
+                        tool_status = 'unsupported'
                 result = self.adapter.route(envelope)
                 self._check_memory(captured_memory)
                 if not result.get('ok'):
@@ -793,6 +843,18 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                     self._send_json(status, result)
                     return
                 message = result['message']
+                tool_receipt = None
+                if tool_catalog and message.get('tool_calls'):
+                    current = self.chats.get(tool_chat['id'])
+                    if current['archived'] or current['mode'] != tool_chat['mode']:
+                        tool_receipt = {'state': 'blocked', 'postconditions_passed': False, 'error': {
+                            'code': 'MODE_CHANGED', 'message': 'Cambió la autorización de la conversación.'}}
+                    else:
+                        tool_receipt = chat_tools.dispatch(
+                            self.connect, message['tool_calls'], tool_catalog, body['request_id'],
+                            {'conversation_id': tool_chat['id'], 'command_mode': current['mode'],
+                             'memory_scope': captured_memory['memory_scope'],
+                             'memory_context_id': captured_memory['memory_context_id']})
                 # Compatibility SSE carries one complete response; providers always stream=false.
                 if body.get('stream') is True:
                     payload = ('data: ' + json.dumps({'delta': message.get('content', ''), 'done': True,
@@ -808,14 +870,20 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                 else:
                     self._check_memory(captured_memory)
                     self._send_json(200, {'request_id': result['request_id'], 'choices': [{'message': message, 'finish_reason': 'stop'}],
-                                         'axx_router': result.get('route')})
+                                         'axx_router': result.get('route'),
+                                         **({'axx_tools_status': tool_status} if tool_status else {}),
+                                         **({'axx_tool_receipt': tool_receipt} if tool_receipt is not None else {})})
             elif path == '/axx-api/chat/cancel':
                 request_id = body.get('request_id')
                 if not isinstance(request_id, str):
                     raise ValueError('request_id is required')
                 if self.provider:
                     self.provider.cancel(request_id)
-                self._send_json(200, {'request_id': request_id, 'cancelled': self.adapter.cancel(request_id)})
+                cancelled = self.adapter.cancel(request_id)
+                if body.get('axx_tools') is True and self.connect:
+                    receipt = self.connect.cancel_task(chat_tools.operation_id(request_id))
+                    cancelled = cancelled or receipt.get('cancel_requested') is True
+                self._send_json(200, {'request_id': request_id, 'cancelled': cancelled})
             elif path == '/axx-api/providers/probe':
                 # Fixed internal request: no client text, tools, tasks or memory, so it never touches user memory or chats.
                 if set(body) != {'provider_name', 'model'} or any(not isinstance(v, str) or not v.strip() or len(v) > 200 for v in body.values()):
@@ -1064,6 +1132,18 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                 if action not in fields or set(body) - fields[action]:
                     raise ValueError('Unsupported command request fields')
                 compensation=action in ('compensation-preview','compensation-prepare','reconcile','review')
+                if self.request_channel != 'desktop':
+                    operation_id = body.get('operation_id')
+                    if action == 'prepare' and self.request_channel == 'telegram' and (
+                            not self.telegram or not body.get('conversation_id')
+                            or not self.telegram.can_execute(operation_id, body['conversation_id'])):
+                        raise ValueError('La orden no pertenece a Telegram o su permiso fue revocado')
+                    if action in ('execute', 'cancel'):
+                        operation = self.commands.get(operation_id)
+                        if not operation or operation.get('channel') != self.request_channel:
+                            raise ValueError('La operación no pertenece a este canal')
+                        if action == 'execute' and body.get('approved', False) is not False:
+                            raise ValueError('La aprobación requiere el canal de escritorio')
                 if action=='execute':
                     operation=self.commands.get(body.get('operation_id'))
                     compensation=bool(operation and operation.get('command_id') in ('axx.artifact.quarantine','axx.artifact.restore'))
@@ -1081,9 +1161,16 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                         body['expected_revision'], body.get('action', 'quarantine'), body.get('operation_id'))
                 elif action == 'prepare':
                     if body.get('conversation_id') and self.chats:
-                        body['command_mode'] = self.chats.get(body['conversation_id'])['mode']
+                        stored_mode = self.chats.get(body['conversation_id'])['mode']
+                        if self.request_channel == 'telegram':
+                            body['command_mode'] = 'ask' if stored_mode == 'unrestricted' or body.get('command_mode') == 'ask' else stored_mode
+                        elif stored_mode == 'unrestricted' and self.telegram and self.telegram.owns_chat(body['conversation_id']):
+                            body['command_mode'] = 'ask'
+                        else:
+                            body['command_mode'] = stored_mode
                     result = self.commands.prepare(body.get('command_id'), body.get('inputs', {}),
                         body.get('source', 'text'), body.get('operation_id'), conversation_id=body.get('conversation_id'), command_mode=body.get('command_mode'), delivery_mode=body.get('delivery_mode'),
+                        channel=self.request_channel,
                         **{key:copy.deepcopy(body[key]) for key in ('memory_scope','memory_context_id') if key in body})
                 elif action == 'execute':
                     result = self.commands.execute(body.get('operation_id'), body.get('approved', False))
@@ -1594,10 +1681,13 @@ def run_server(host='127.0.0.1', port=4173, config_path='providers.json', state_
         services.append(server.mobile)
         server.mobile.resume()
         publish_endpoint(state_dir, server)
+        publish_endpoint(state_dir, server, telegram=True)
         from backend.telegram.service import TelegramService
         handler.telegram = TelegramService(state_dir, chats, commands, adapter, lambda: server.mobile.preferences,
                                            appearance=lambda: server.mobile.appearance, speech=speech)
         handler.telegram.connection = server.core_bound
+
+        commands.channel_guard = server.commands_authorized
         services.append(handler.telegram)
         try:
             session_memory.retry_pending(learning,chats=chats,provider=provider,memory=memory,telegram=handler.telegram)
@@ -1630,6 +1720,7 @@ def run_server(host='127.0.0.1', port=4173, config_path='providers.json', state_
         if server:
             server.server_close()
             remove_endpoint(state_dir, server.instance_id)
+            remove_endpoint(state_dir, server.instance_id, telegram=True)
         for service in reversed(services):
             service.close()
         if ready_path:

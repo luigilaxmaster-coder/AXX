@@ -403,7 +403,7 @@ def main():
     parser.add_argument('--data-dir')
     parser.add_argument('--endpoint-file')
     args = parser.parse_args()
-    endpoint = Path(args.endpoint_file) if args.endpoint_file else account_path(args.data_dir).parent.parent / 'connect' / 'endpoint.dpapi'
+    endpoint = Path(args.endpoint_file) if args.endpoint_file else account_path(args.data_dir).parent / 'endpoint.dpapi'
     try:
         with _file_lease(account_path(args.data_dir).parent / 'bot-session.lock', 'TELEGRAM_BOT_IN_USE'):
             worker = BotWorker(args.data_dir, endpoint)

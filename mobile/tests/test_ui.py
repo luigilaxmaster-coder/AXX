@@ -58,8 +58,19 @@ class MobileUI(unittest.TestCase):
             page.locator('.avatar-controls summary').click()
             page.locator('#avatar-interact').click()
             self.assertEqual(page.locator('#avatar-interact').get_attribute('aria-pressed'),'true')
+            page.evaluate("""() => {
+                const state = document.querySelector('#avatar-state');
+                window.testTouchObserved = false;
+                new MutationObserver((records, observer) => {
+                    if (state.textContent.includes('toque') || records.some(record =>
+                        Array.from(record.addedNodes).some(node => node.textContent.includes('toque')))) {
+                        window.testTouchObserved = true;
+                        observer.disconnect();
+                    }
+                }).observe(state, {childList: true});
+            }""")
             page.locator('#axx-avatar-canvas').press('Enter')
-            self.assertIn('toque',page.locator('#avatar-state').inner_text())
+            page.wait_for_function('window.testTouchObserved')
             page.locator('[data-pane=pc]').click()
             page.locator('#pin-shortcut').click()
             png=base64.b64decode(page.evaluate('testIcon').split(',')[1])

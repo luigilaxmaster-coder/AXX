@@ -123,6 +123,7 @@ class MobileGateway:
         from .dictation import MobileDictation
         self.dictation = MobileDictation(self.store, backend_call)
         self.backend_call = backend_call
+        self.desktop_call = backend_call
         self.pc_name = pc_name or socket.gethostname()
         self.host_resolver = host_resolver
         from .network import MobileNetwork, tailscale_status
@@ -227,22 +228,28 @@ class MobileGateway:
             raise ValueError('Invalid Work operation ID') from exc
         if operation_id != body['operation_id']:
             raise ValueError('Invalid Work operation ID')
+        record = self.store.work_request(operation_id)
+        if record and record['device_id'] != device_id:
+            raise ValueError('Work operation does not belong to this phone')
         prepared = self.backend_call('POST', '/axx-api/commands/prepare',
                                      {'command_id': body['command_id'], 'inputs': body['inputs'],
                                       'source': 'text', 'operation_id': operation_id})
         if prepared.get('ok') is False:
             raise ValueError(prepared.get('error', {}).get('message', 'Work preparation failed'))
         if prepared.get('state') in TERMINAL:
+            record = self.store.work_request(operation_id)
+            if not record or record['device_id'] != device_id:
+                raise ValueError('Work operation does not belong to this phone')
             return prepared
         self.store.record_work(operation_id, device_id, body['command_id'], prepared['inputs'])
-        if allowed[body['command_id']]['pc_approval_required']:
+        if allowed[body['command_id']]['pc_approval_required'] or prepared.get('requires_approval'):
             return {**prepared, 'state': 'awaiting_pc_approval', 'pc_approval_required': True}
         if not any(d['device_id'] == device_id and not d['revoked'] and 'tools.control' in d['scopes']
                    for d in self.store.devices()):
             self.backend_call('POST', '/axx-api/commands/cancel', {'operation_id': operation_id})
             raise ValueError('El permiso Work fue revocado antes de ejecutar')
         result = self.backend_call('POST', '/axx-api/commands/execute',
-                                   {'operation_id': operation_id, 'approved': True})
+                                   {'operation_id': operation_id, 'approved': False})
         if result.get('ok') is False:
             raise ValueError(result.get('error', {}).get('message', 'Work execution failed'))
         return result
@@ -456,6 +463,11 @@ class MobileGateway:
                 pending.append(record)
         return {'operations': pending}
 
+    def work_permitted(self, operation_id):
+        record = self.store.work_request(operation_id)
+        return bool(record and any(d['device_id'] == record['device_id'] and not d['revoked']
+                                   and 'tools.control' in d['scopes'] for d in self.store.devices()))
+
     def approve_work(self, body):
         if not isinstance(body, dict) or set(body) != {'operation_id', 'approved'} or type(body['approved']) is not bool:
             raise ValueError('Invalid Work approval')
@@ -471,7 +483,7 @@ class MobileGateway:
             raise ValueError('Work request changed before approval')
         if not body['approved']:
             return self.backend_call('POST', '/axx-api/commands/cancel', {'operation_id': operation_id})
-        return self.backend_call('POST', '/axx-api/commands/execute', {'operation_id': operation_id, 'approved': True})
+        return self.desktop_call('POST', '/axx-api/commands/execute', {'operation_id': operation_id, 'approved': True})
 
     def _execute_pc_command(self, device_id, user_text, conversation_id, task_id, *, memory=None):
         """Only exact registered commands; the persisted chat mode stays authoritative."""
@@ -481,6 +493,8 @@ class MobileGateway:
         if resolved.get('match') != 'exact' or not resolved.get('command_id'):
             # A conversational imperative ("escribe un poema") is not authority
             # to run a PC action. Explicit slash commands remain fail-closed.
+            if resolved.get('match') in ('sequence', 'sequence_request', 'learned', 'needs_input', 'ambiguous', 'unsupported'):
+                return 'No se ejecutó ningún paso. Aclara la orden o revisa el plan en Comandos de Axx en la PC.'
             if user_text.startswith('/'):
                 return 'No hay un comando exacto registrado para esa orden. Revisa el catálogo de Comandos en la PC.'
             return None
@@ -612,11 +626,12 @@ class MobileGateway:
 
     @classmethod
     def for_backend(cls, server, state_path, data_dir):
-        def call(method, path, body):
+        def call(method, path, body, *, desktop=False):
+            token = server.host_token if desktop else server.mobile_token
             connection = http.client.HTTPConnection('127.0.0.1', server.server_port, timeout=75)
             try:
                 connection.request(method, path, body=json.dumps(body) if body is not None else None,
-                                   headers={'Authorization':'Bearer '+server.host_token, 'Content-Type':'application/json'})
+                                   headers={'Authorization':'Bearer '+token, 'Content-Type':'application/json'})
                 response = connection.getresponse()
                 raw = response.read(8*1024*1024+1)
                 if len(raw) > 8*1024*1024:
@@ -627,7 +642,9 @@ class MobileGateway:
                 return result
             finally:
                 connection.close()
-        return cls(state_path, data_dir, call)
+        gateway = cls(state_path, data_dir, call)
+        gateway.desktop_call = lambda method, path, body: call(method, path, body, desktop=True)
+        return gateway
 
     def status(self):
         with self._lock:
@@ -809,6 +826,10 @@ class MobileGateway:
                         data = gateway.backend_call("GET", backend_path, None)
                         if path == "/v1/catalog":
                             data = {"tools": data.get("tools", [])} if isinstance(data, dict) else {"tools": []}
+                        elif path == "/v1/tasks":
+                            operations = data.get('operations', [])
+                            data = {'operations': [op for op in operations
+                                if (gateway.store.work_request(op['operation_id']) or {}).get('device_id') == self.device_id]}
                         self._send(200, {"ok": True, "data": data})
                     except PairingError:
                         self._send(403, {'ok': False, 'error': {'code': 'SCOPE_DENIED', 'message': 'This device is no longer authorized.'}})

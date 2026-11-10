@@ -105,11 +105,14 @@ class CommandsHttpTests(unittest.TestCase):
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
         self.executor = ActionExecutor(Path(self.tmp.name) / 'state.db', Path(self.tmp.name) / 'artifacts')
         self.commands = CommandService(self.executor)
         self.memory = ProceduralMemory(self.executor.db_path)
         handler = type('CommandsHandler', (AxxBridgeHandler,), {'executor': self.executor, 'commands': self.commands, 'memory': self.memory})
+        self.handler = handler
         self.server = ThreadedHTTPServer(('127.0.0.1', 0), handler)
+        self.commands.channel_guard = self.server.commands_authorized
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
 
@@ -120,10 +123,11 @@ class CommandsHttpTests(unittest.TestCase):
         self.commands.close()
         self.memory.close()
         self.executor.close()
-        self.tmp.cleanup()
 
-    def request(self, path, body=None, auth=True, origin=None, raw=None):
-        headers = {'Authorization': 'Bearer ' + self.server.host_token} if auth else {}
+    def request(self, path, body=None, auth=True, origin=None, raw=None, token=None, channel_header=None):
+        headers = {'Authorization': 'Bearer ' + (token or self.server.host_token)} if auth else {}
+        if channel_header:
+            headers['X-Axx-Command-Channel'] = channel_header
         if origin:
             headers['Origin'] = origin
         if body is not None or raw is not None:
@@ -138,6 +142,86 @@ class CommandsHttpTests(unittest.TestCase):
                 return response.code, json.loads(response.read())
             finally:
                 response.close()
+
+    def test_telegram_daemon_uses_scoped_token_and_live_command_policy(self):
+        import time
+        from unittest.mock import patch
+        from backend.chat_store import ChatStore
+        from backend.telegram.daemon import CoreClient, ChatProxy, CommandProxy, DisabledInference
+        from backend.telegram.service import TelegramService
+        self.handler.chats = chats = ChatStore(self.executor.db_path)
+        self.addCleanup(chats.close)
+        root = Path(self.tmp.name)
+        account = {'enabled':True,'account_id':41,'owner_id':52,'grants':{'pc_commands':True,'conversation':True}}
+        self.handler.telegram = TelegramService(root, chats, self.commands, DisabledInference(), lambda: {})
+        descriptor = root/'test-endpoint.json'
+        descriptor.write_text(json.dumps({'port':self.server.server_port,'token':self.server.telegram_token,
+                                          'instance_id':self.server.instance_id}),encoding='utf-8')
+        with patch('backend.telegram.daemon._dpapi_decrypt',side_effect=lambda raw:raw), \
+             patch('backend.telegram.service.load_account',return_value=account), \
+             patch('backend.telegram.service.confirmation_policy',return_value={'enabled':False}):
+            core = CoreClient(descriptor)
+            daemon = TelegramService(root, ChatProxy(core), CommandProxy(core), DisabledInference(), lambda: {})
+            chat = daemon._thread(account)
+            chats.mutate('update',{'id':chat['id'],'command_mode':'unrestricted','confirm_unrestricted':True})
+            response = daemon.admit({'account_id':41,'peer_id':52,'message_id':1,'sent_at':time.time(),
+                                     'kind':'text','text':'/powershell Get-Date'})
+            self.assertEqual(response['state'],'awaiting_approval',response)
+            operation = self.commands.get(response['operation_id'])
+            self.assertEqual((operation['channel'],operation['command_mode']),('telegram','ask'))
+            self.assertEqual(self.request('commands/execute',{'operation_id':operation['operation_id'],'approved':True},
+                                         token=self.server.telegram_token,channel_header='desktop')[0],400)
+            self.assertEqual(self.request('chat/update',{'id':chat['id'],'command_mode':'auto_safe'},
+                                         token=self.server.telegram_token)[0],403)
+            self.assertEqual(self.request('commands/operations?operation_id='+operation['operation_id'],
+                                         token=self.server.mobile_token)[0],404)
+            self.assertEqual(self.request('commands/prepare',{'command_id':'axx.system.telemetry','inputs':{},
+                                         'channel':'desktop'},token=self.server.telegram_token)[0],400)
+            account['grants']['pc_commands'] = False
+            _, denied = self.request('commands/execute',{'operation_id':operation['operation_id'],'approved':True})
+            self.assertEqual(denied['state'],'blocked',denied)
+            self.assertEqual(denied['error']['code'],'REMOTE_PERMISSION_REQUIRED')
+            self.assertEqual(self.executor.list_operations(), [])
+
+    def test_selected_chat_model_uses_connect_and_cannot_approve_a_write(self):
+        from unittest.mock import Mock
+        from backend.chat_store import ChatStore
+        from backend.connect.service import ConnectService
+        self.handler.chats = chats = ChatStore(self.executor.db_path)
+        self.addCleanup(chats.close)
+        self.handler.connect = connect = ConnectService(self.commands, self.memory)
+        self.addCleanup(connect.close)
+        self.handler.adapter = adapter = Mock()
+        adapter.cancel.return_value = False
+        adapter.config = {'providers':[{'name':'ollama-local','model':'test','enabled':True,'capabilities':['text','tools']}]}
+        cid=chats.mutate('create',{'command_mode':'auto_safe'})['id']
+        chat=chats.get(cid)
+        body={'axx_tools':True,'model':'test','provider_name':'ollama-local','conversation_id':chat['connect_id'],
+              'memory_scope':chat['memory_scope'],'messages':[{'role':'user','content':'test'}]}
+        def request_tool(request_id, name, arguments):
+            adapter.route.return_value={'ok':True,'request_id':request_id,'message':{'content':'',
+                'tool_calls':[{'type':'function','id':'c','function':{'name':name,'arguments':arguments}}]}}
+            status,result=self.request('chat',body|{'request_id':request_id})
+            self.assertEqual(status,200,result)
+            return result
+        result=request_tool('read-1','axx_system_telemetry','{}')
+        receipt=result['axx_tool_receipt']
+        self.assertEqual(receipt['state'],'succeeded',receipt)
+        self.assertTrue(receipt['postconditions_passed'])
+        self.assertEqual(self.commands.get(receipt['operation_id'])['channel'],'model')
+        self.assertEqual(request_tool('unknown','axx_shell_powershell','{}')['axx_tool_receipt']['state'],'blocked')
+        self.assertEqual(request_tool('duplicate','axx_artifact_write','{"path":"a.txt","path":"b.txt","content":"x"}')
+                         ['axx_tool_receipt']['state'],'blocked')
+        chats.mutate('update',{'id':cid,'command_mode':'unrestricted','confirm_unrestricted':True})
+        receipt=request_tool('write','axx_artifact_write','{"path":"owned.txt","content":"x"}')['axx_tool_receipt']
+        self.assertEqual(receipt['state'],'awaiting_approval')
+        self.assertFalse((self.executor.workspace_root/'owned.txt').exists())
+        status, result=self.request('chat/cancel',{'request_id':'write','axx_tools':True})
+        self.assertEqual(status,200)
+        self.assertTrue(result['cancelled'])
+        self.assertEqual(connect.get_task(receipt['operation_id'])['state'],'cancelled')
+        adapter.config['providers'][0]['capabilities']=['text']
+        self.assertEqual(request_tool('unsupported','axx_system_telemetry','{}')['axx_tools_status'],'unsupported')
 
     def test_stopping_speech_does_not_cancel_a_pending_command(self):
         pending = self.commands.prepare('axx.shell.powershell', {'script': 'Get-Date'})

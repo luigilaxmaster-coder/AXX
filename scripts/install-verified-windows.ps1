@@ -24,6 +24,8 @@ $registry = Get-ItemProperty -LiteralPath 'HKCU:\Software\Microsoft\Windows\Curr
 if ($registry.DisplayVersion -ne $build.artifacts[0].version -or $registry.InstallLocation.Trim('"') -ne $appDirectory) {
     throw 'Installed application registry does not match the delivery'
 }
+$exeVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo($appExecutable).ProductVersion
+if ($exeVersion -ne $registry.DisplayVersion) { throw 'Installed EXE version differs from the registered uninstall version' }
 $desktopLink = Join-Path ([Environment]::GetFolderPath('Desktop')) 'Axx.lnk'
 $startMenuLink = Join-Path ([Environment]::GetFolderPath('StartMenu')) 'Programs\Axx.lnk'
 $shortcutReader = New-Object -ComObject WScript.Shell
@@ -92,7 +94,9 @@ try {
     if ($httpStatus -ne 401) { throw }
 }
 $runtime = [ordered]@{
-    result='INSTALLED_RUNTIME_STARTED';version=$build.artifacts[0].version;
+    result='INSTALLED_RUNTIME_STARTED';version=$build.artifacts[0].version;exe_version=$exeVersion;
+    source_commit=$build.source_commit;source_tree_clean=$build.source_tree_clean;
+    executable_sha256=(Get-FileHash -LiteralPath $appExecutable -Algorithm SHA256).Hash;
     started=$started.ToString('o');completed=[DateTimeOffset]::Now.ToString('o');
     installer=$installer.FullName;installer_sha256=$build.artifacts[0].sha256;installer_exit=$installProcess.ExitCode;
     executable=$appExecutable;pid=$nativeProcess.ProcessId;launch='Installed EXE; UseShellExecute=false; closed launcher streams; PATH limited to Windows; Python environment overrides removed';

@@ -1,6 +1,7 @@
 """Exact application routes over existing Windows primitives and input ownership."""
 from pathlib import PureWindowsPath
 import re
+import subprocess
 import threading
 from urllib.parse import urlsplit
 
@@ -375,6 +376,8 @@ def resolve_application_command(text):
         else:
             try:
                 application = catalog.resolve_application(query)['app']['app_id']
+            except subprocess.TimeoutExpired:
+                return {'match': 'needs_input', 'message': 'El inventario de Windows no respondió a tiempo. No se ejecutó ninguna acción.'}
             except (ValueError, OSError):
                 return None
         return {'match': 'exact', 'command_id': 'axx.app.' + kind, 'inputs': {'application': application}}
