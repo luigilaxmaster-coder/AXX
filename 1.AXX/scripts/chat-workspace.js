@@ -337,7 +337,9 @@
         const pending=operations.find(o=>['awaiting_approval','prepared','running','pausing','paused','interrupted','waiting_capacity'].includes(o.state));
         const uncertain=operations.find(o=>o.state==='unknown'&&!o.evidence?.manual_reviewed);
         const op=pending||uncertain||operations.find(o=>o.conversation_id===active?.id);
-        if(pending||uncertain){lib.lastOperation=op;lib.operation=pending||null;lib.renderOperation(op);}else operationCard(op);
+        lib.lastOperation=op||null;
+        lib.operation=pending||null;
+        lib.renderOperation(op);
     }
     let initializing=false;
     async function initialize() {
@@ -351,7 +353,10 @@
         finally{initializing=false;}
     }
     $('cw-retry').onclick=initialize;
-    if(Axx.app?.bridge)void Axx.app.bridge.listen('axx-backend-ready',()=>{if(!ready)void initialize();});
+    if(Axx.app?.bridge)void Axx.app.bridge.listen('axx-backend-ready',()=>{
+        if(!ready)void initialize();
+        else void recoverOperations().catch(error);
+    });
     void initialize();
     setInterval(()=>{if(ready&&!c.pending){expireLocal();void refreshActiveContext().catch(error);}},60000);
 })(window.Axx);

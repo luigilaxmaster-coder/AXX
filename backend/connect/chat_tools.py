@@ -23,8 +23,9 @@ def catalog(commands, config, envelope):
     if len(selected) != 1 or 'tools' not in selected[0].get('capabilities', []):
         return None, {}
     tools = {}
-    for key, adapter in ADAPTERS.items():
-        if (adapter['risk'] == 'read' or key == 'axx.artifact.write') and commands.commands[key]['execution_enabled']:
+    for key in ('axx.system.telemetry', 'axx.architecture.status', 'axx.artifact.write'):
+        if commands.commands[key]['execution_enabled']:
+            adapter = ADAPTERS[key]
             name = key.replace('.', '_')
             tools[name] = (key, {'name': name, 'description': adapter['title'],
                                  'parameters': legacy_schema(adapter['parameters'])})

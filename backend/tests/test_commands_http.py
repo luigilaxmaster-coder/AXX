@@ -169,6 +169,21 @@ class CommandsHttpTests(unittest.TestCase):
             self.assertEqual(response['state'],'awaiting_approval',response)
             operation = self.commands.get(response['operation_id'])
             self.assertEqual((operation['channel'],operation['command_mode']),('telegram','ask'))
+            self.assertEqual(self.request('commands/operations?operation_id='+operation['operation_id'],
+                                         token=self.server.telegram_token)[0],200)
+            with ThreadedHTTPServer(('127.0.0.1', 0), self.handler) as successor:
+                thread = threading.Thread(target=successor.serve_forever, daemon=True)
+                thread.start()
+                try:
+                    stale = urllib.request.Request(f'http://127.0.0.1:{successor.server_port}/axx-api/status',
+                        headers={'Authorization':'Bearer '+self.server.telegram_token})
+                    with self.assertRaises(urllib.error.HTTPError) as caught:
+                        urllib.request.urlopen(stale,timeout=5)
+                    with caught.exception as response:
+                        self.assertEqual(response.code,401)
+                finally:
+                    successor.shutdown()
+                    thread.join(2)
             self.assertEqual(self.request('commands/execute',{'operation_id':operation['operation_id'],'approved':True},
                                          token=self.server.telegram_token,channel_header='desktop')[0],400)
             self.assertEqual(self.request('chat/update',{'id':chat['id'],'command_mode':'auto_safe'},
@@ -177,6 +192,12 @@ class CommandsHttpTests(unittest.TestCase):
                                          token=self.server.mobile_token)[0],404)
             self.assertEqual(self.request('commands/prepare',{'command_id':'axx.system.telemetry','inputs':{},
                                          'channel':'desktop'},token=self.server.telegram_token)[0],400)
+            account['owner_id'] = 53
+            self.assertEqual(self.request('commands/operations?operation_id='+operation['operation_id'],
+                                         token=self.server.telegram_token)[0],404)
+            self.assertEqual(self.request('commands/cancel',{'operation_id':operation['operation_id']},
+                                         token=self.server.telegram_token)[0],400)
+            account['owner_id'] = 52
             account['grants']['pc_commands'] = False
             _, denied = self.request('commands/execute',{'operation_id':operation['operation_id'],'approved':True})
             self.assertEqual(denied['state'],'blocked',denied)
@@ -210,6 +231,12 @@ class CommandsHttpTests(unittest.TestCase):
         self.assertTrue(receipt['postconditions_passed'])
         self.assertEqual(self.commands.get(receipt['operation_id'])['channel'],'model')
         self.assertEqual(request_tool('unknown','axx_shell_powershell','{}')['axx_tool_receipt']['state'],'blocked')
+        self.assertEqual(request_tool('origin-in-args','axx_system_telemetry','{"channel":"desktop","approved":true}')
+                         ['axx_tool_receipt']['state'],'blocked')
+        self.assertEqual(request_tool('private-file','axx_file_sha256','{"path":"private.txt"}')
+                         ['axx_tool_receipt']['state'],'blocked')
+        self.assertEqual(request_tool('path-escape','axx_artifact_write','{"path":"../escape.txt","content":"x"}')
+                         ['axx_tool_receipt']['state'],'blocked')
         self.assertEqual(request_tool('duplicate','axx_artifact_write','{"path":"a.txt","path":"b.txt","content":"x"}')
                          ['axx_tool_receipt']['state'],'blocked')
         chats.mutate('update',{'id':cid,'command_mode':'unrestricted','confirm_unrestricted':True})

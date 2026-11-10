@@ -6792,12 +6792,13 @@ var Axx;
                         let text = msgObj?.content;
                         if (toolCalls?.length) {
                             const receipt = data.axx_tool_receipt;
-                            const operation = receipt?.operation_id ? ' Operación ' + receipt.operation_id + '.' : '';
-                            if (!receipt) text = 'La solicitud de herramienta no fue ejecutada.';
-                            else if (receipt.state === 'awaiting_approval') text = 'La herramienta requiere revisión en Axx.' + operation;
+                            let status;
+                            if (!receipt) status = 'La solicitud de herramienta no fue ejecutada.';
+                            else if (receipt.state === 'awaiting_approval') status = 'La herramienta requiere revisión en Axx.';
                             else if (receipt.state === 'succeeded' && receipt.postconditions_passed === true)
-                                text = 'Acción verificada en Axx.' + operation + '\n' + JSON.stringify(receipt.output ?? null).slice(0, 4000);
-                            else text = 'Resultado de herramienta sin confirmar. Estado ' + receipt.state + '.' + operation;
+                                status = 'Acción verificada en Axx. Consulta sus detalles en Comandos.';
+                            else status = 'Resultado de herramienta sin confirmar. Estado ' + receipt.state + '.';
+                            text = [text, status].filter(Boolean).join('\n\n');
                         }
                         if (data.axx_tools_status === 'unsupported') text = (text || '') + '\nHerramientas no disponibles para este modelo o modo de conexión.';
                         const reason = data.choices?.[0]?.finish_reason || (toolCalls?.length ? 'tool_calls' : '');
@@ -9173,9 +9174,11 @@ var Axx;
                 if (ctrl.signal.aborted)
                     throw new DOMException('Solicitud cancelada', 'AbortError');
                 response.text = result.text;
-                if (result.toolReceipt?.state === 'awaiting_approval' && Axx.commandLibrary
+                if (result.toolReceipt?.operation_id && Axx.commandLibrary
                         && result.toolReceipt.conversation_id === Axx.chatWorkspace?.active?.id) {
-                    Axx.commandLibrary.operation = Axx.commandLibrary.lastOperation = result.toolReceipt;
+                    Axx.commandLibrary.lastOperation = result.toolReceipt;
+                    if (['awaiting_approval', 'prepared', 'running'].includes(result.toolReceipt.state))
+                        Axx.commandLibrary.operation = result.toolReceipt;
                     Axx.commandLibrary.renderOperation(result.toolReceipt);
                 }
                 if (result.route?.model)
@@ -9197,7 +9200,7 @@ var Axx;
                 if (liveSpeech.started) this.stopSpeech();
                 response.status = ctrl.signal.aborted ? 'interrupted' : 'error';
                 if (!response.text)
-                    response.text = ctrl.signal.aborted ? 'Solicitud interrumpida. No se han ejecutado acciones.' : 'No se pudo obtener una respuesta. ' + this.error(e);
+                    response.text = ctrl.signal.aborted ? 'Solicitud interrumpida. Consulta Comandos para comprobar si hubo algún efecto.' : 'No se pudo obtener una respuesta. ' + this.error(e);
                 this.sayStatus(ctrl.signal.aborted ? 'Solicitud detenida. El texto parcial se conserva.' : this.error(e), !ctrl.signal.aborted);
                 if (!ctrl.signal.aborted)
                     this.action('error');

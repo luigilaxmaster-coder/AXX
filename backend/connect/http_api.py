@@ -86,7 +86,12 @@ class ConnectHTTP:
         elif path == '/axx-api/connect/capabilities':
             result = self.service.capabilities(one('q', ''), int(one('limit', 100)), int(one('offset', 0)))
         elif path == '/axx-api/connect/task':
-            result = self.service._task_projection(self.service.get_task(one('operation_id')))
+            task = self.service.get_task(one('operation_id'))
+            if getattr(self.h, 'request_channel', 'desktop') == 'mobile' and (not task or task.get('origin') != 'mobile'
+                    or task.get('command_id') != 'axx.ui.identity'):
+                self.h._send_json(404, {'error': {'code': 'NOT_FOUND', 'message': 'Unknown mobile appearance operation'}})
+                return True
+            result = self.service._task_projection(task)
         elif path == '/axx-api/connect/run':
             result = self.provider.get(one('request_id'), after=int(one('after', 0)))
         elif path == '/axx-api/connect/ui/claim':

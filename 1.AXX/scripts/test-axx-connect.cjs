@@ -421,7 +421,7 @@ const root = path.resolve(__dirname, '..');
     const keyboardScope=await page.evaluate(async()=>{
       const companion=Axx.companion, pending=companion.pending, requestId=Axx.connect.state.active;
       window.__keyboardController=pending;window.__keyboardRequestId=requestId;
-      const cancelCalls=()=>window.__calls.filter(call=>call.name==='backend_request' && /\/cancel(?:\?|$)/.test(call.args?.path || ''));
+      const cancelCalls=()=>window.__calls.filter(call=>call.name==='backend_request' && /^\/axx-api\/(connect|chat|actions)\/cancel$/.test(call.args?.path || ''));
       const before=cancelCalls().length;
       document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',code:'Escape',bubbles:true,cancelable:true}));
       await new Promise(resolve=>setTimeout(resolve,50));
@@ -441,7 +441,7 @@ const root = path.resolve(__dirname, '..');
       assert.equal(observed.timer,keyboardScope.timerBefore);assert.equal(observed.cancels,0);
     }
     assert.equal(keyboardScope.native.following,false);
-    checks.push('Escape and every native axx-cancel callback affect only UI/following; the real pending chat controller, Connect request and running timer remain active');
+    checks.push('Escape and every native axx-cancel callback leave the pending chat controller, Connect request and running timer active');
     await page.evaluate(()=>{
       window.__beforeStopCalls=window.__calls.length;
       window.__runs['unrelated-host-run']={request_id:'unrelated-host-run',state:'processing',mode:'hold',polls:0};

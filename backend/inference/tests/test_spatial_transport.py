@@ -40,6 +40,25 @@ class SpatialTransportTests(unittest.TestCase):
         self.assertIn('maxItems', json.dumps(schema))  # the shared schema itself is unchanged
         self.assertEqual(result['choices'][0]['message']['content'], '{}')
 
+    def test_anthropic_adapts_structured_tools_in_both_directions(self):
+        provider = {'protocol': 'anthropic', 'base_url': 'https://api.anthropic.com/v1',
+                    'model': 'claude-sonnet-4-6', 'api_key_env': 'AXX_TEST_SPATIAL_KEY'}
+        tool = {'name': 'axx_system_telemetry', 'parameters': {'type': 'object', 'additionalProperties': False}}
+        request = {'model': provider['model'], 'messages': [{'role': 'user', 'content': 'estado'}],
+                   'tools': [{'type': 'function', 'function': tool}]}
+        result = {'content': [{'type': 'text', 'text': 'Voy a consultarlo.'},
+                              {'type': 'tool_use', 'id': 't', 'name': tool['name'], 'input': {}}]}
+        with patch('backend.inference.router.urllib.request.build_opener') as opener:
+            response = opener.return_value.open.return_value.__enter__.return_value
+            response.read.return_value = json.dumps(result).encode()
+            data = http_transport(provider, request, 2)
+        sent = json.loads(opener.return_value.open.call_args.args[0].data)
+        self.assertEqual(sent['tools'][0]['input_schema'], tool['parameters'])
+        choice = data['choices'][0]
+        self.assertEqual(choice['finish_reason'], 'tool_calls')
+        self.assertEqual(choice['message']['content'], 'Voy a consultarlo.')
+        self.assertEqual(choice['message']['tool_calls'][0]['function'], {'name': tool['name'], 'arguments': '{}'})
+
     def test_claude_5_drops_deprecated_temperature_but_older_models_keep_it(self):
         for model, expected in (('claude-sonnet-5-5', False), ('claude-opus-5-5', False), ('claude-sonnet-4-6', True)):
             provider = {'protocol': 'anthropic', 'base_url': 'https://api.anthropic.com/v1', 'model': model, 'api_key_env': 'AXX_TEST_SPATIAL_KEY'}

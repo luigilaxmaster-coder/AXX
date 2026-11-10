@@ -57,6 +57,9 @@ assert.deepEqual(reviewResolution.steps,[{command_id:'axx.desktop.list_windows',
       window.__contractCommands = {};
       window.__contractEvents = {};
       window.__contractConversation = { id: 'contract-chat', title: 'Contract conversation', messages: [], draft: '', draft_at: Date.now(), updated: Date.now(), mode: 'ask', context: [], links: [], connect_id: 'contract-connect', shared_id: 'contract-shared',memory_scope:{task_id:'contract-chat',generation:0} };
+      const otherChat = {...structuredClone(window.__contractConversation), id:'another-chat',
+        connect_id:'another-connect', shared_id:'another-shared', memory_scope:{task_id:'another-chat',generation:0}};
+      const chats = {'contract-chat':window.__contractConversation, 'another-chat':otherChat};
       const pcm = new Uint8Array(44 + 3200), view = new DataView(pcm.buffer);
       const str = (at, text) => [...text].forEach((c, i) => pcm[at + i] = c.charCodeAt(0));
       str(0, 'RIFF'); view.setUint32(4, pcm.length - 8, true); str(8, 'WAVE'); str(12, 'fmt '); view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true); view.setUint32(24, 16000, true); view.setUint32(28, 32000, true); view.setUint16(32, 2, true); view.setUint16(34, 16, true); str(36, 'data'); view.setUint32(40, 3200, true);
@@ -71,10 +74,10 @@ assert.deepEqual(reviewResolution.steps,[{command_id:'axx.desktop.list_windows',
         const { method, path, body } = args;
         if (path === '/axx-api/prompts/compose') return {version:'contract-fixture',mode:body.mode,text:'Controlled prompt contract: '+body.mode};
         if (path === '/axx-api/chat/migrate') return { id: window.__contractConversation.id };
-        if (path === '/axx-api/chat/conversations') return { conversations: [window.__contractConversation], groups: [], default_mode: 'ask' };
-        if (path.startsWith('/axx-api/chat/conversations?id=')) return structuredClone(window.__contractConversation);
+        if (path === '/axx-api/chat/conversations') return { conversations: Object.values(chats), groups: [], default_mode: 'ask' };
+        if (path.startsWith('/axx-api/chat/conversations?id=')) return structuredClone(chats[new URLSearchParams(path.split('?')[1]).get('id')]);
         if (path === '/axx-api/chat/save') {
-          const row=window.__contractConversation, messages=new Map(row.messages.map(message=>[message.id,message]));
+          const row=chats[body.id], messages=new Map(row.messages.map(message=>[message.id,message]));
           for(const message of body.messages||[])messages.set(message.id,message);
           Object.assign(row,{draft:body.draft,attachment:body.attachment,messages:[...messages.values()]});return {saved:true};
         }
@@ -135,6 +138,10 @@ assert.deepEqual(reviewResolution.steps,[{command_id:'axx.desktop.list_windows',
         if (path === '/axx-api/memory/read') return { page: { body: 'Contract full recipe record' }, memory: { backend: 'ai-memory' }, execution_allowed: false };
         if (path === '/axx-api/chat') {
           if (window.__contractHoldChat) await new Promise(resolve => setTimeout(resolve, 500));
+          if (body.axx_tools && window.__toolFixture) {
+            return {request_id:body.request_id,choices:[{message:{content:'Texto del proveedor.',tool_calls:[{id:'t',type:'function',function:{name:'axx_system_telemetry',arguments:'{}'}}]},finish_reason:'tool_calls'}],
+              axx_tools_status:'available',axx_tool_receipt:{operation_id:'fixture-tool',conversation_id:body.memory_scope.task_id,command_id:'axx.system.telemetry',state:'succeeded',postconditions_passed:true,output:{os:'LOCAL_ONLY_MARKER'}}};
+          }
           return { request_id: body.request_id, choices: [{ message: { content: 'Contract fixture response' }, finish_reason: 'stop' }], axx_router: { provider: 'contract-fixture', model: body.model, elapsed_ms: 17 } };
         }
         throw new Error('Unsupported contract fixture route: ' + path);
@@ -183,22 +190,22 @@ assert.deepEqual(reviewResolution.steps,[{command_id:'axx.desktop.list_windows',
         await companion.send('ese archivo no');
         library.operation={...plan};delete library.operation.conversation_id;
         await companion.send('ese archivo no');
-        library.learningQuestion={...question};Axx.chatWorkspace.active.id='another-chat';
+        library.learningQuestion={...question};await Axx.chatWorkspace.select('another-chat');
         await companion.send('hola');
         const isolatedQuestion=library.learningQuestion===null;
-        Axx.chatWorkspace.active.id=origin;library.operation=library.lastOperation={...plan,state:'running'};library.busy=true;
+        await Axx.chatWorkspace.select(origin);library.operation=library.lastOperation={...plan,state:'running'};library.busy=true;
         window.__releaseNaturalPause=true;const delayed=companion.send('ese archivo no');
         while(!window.__finishNaturalPause)await new Promise(resolve=>setTimeout(resolve,0));
-        Axx.chatWorkspace.active.id='another-chat';const other={...plan,operation_id:'other-task',conversation_id:'another-chat'};library.operation=library.lastOperation=other;
+        await Axx.chatWorkspace.select('another-chat');const other={...plan,operation_id:'other-task',conversation_id:'another-chat'};library.operation=library.lastOperation=other;
         window.__finishNaturalPause();await delayed;
         const isolatedResponse=library.lastOperation===other&&library.learningQuestion===null;
-        Axx.chatWorkspace.active.id=origin;library.operation=library.lastOperation={...plan,state:'running'};library.busy=true;window.__finishNaturalPause=null;
+        await Axx.chatWorkspace.select(origin);library.operation=library.lastOperation={...plan,state:'running'};library.busy=true;window.__finishNaturalPause=null;
         const cancelledPause=companion.send('ese archivo no');while(!window.__finishNaturalPause)await new Promise(resolve=>setTimeout(resolve,0));
         await library.cancel();window.__finishNaturalPause();await cancelledPause;
         const cancellationRace=library.lastOperation.state==='cancelled'&&library.learningQuestion===null;
         return {calls,question,deferred,releasedApproval,isolatedQuestion,isolatedResponse,cancellationRace,steps:plan.step_records,local:library.hasLocalIntent('no, ese archivo no'),speechOnly,correctionForMute:library.taskCorrection('silencio')};
       } finally {
-        delete window.__releaseNaturalPause;delete window.__finishNaturalPause;Axx.chatWorkspace.active.id=saved.chat;
+        delete window.__releaseNaturalPause;delete window.__finishNaturalPause;await Axx.chatWorkspace.select(saved.chat);
         Object.assign(library,{operation:saved.operation,lastOperation:saved.lastOperation,busy:saved.busy,generation:saved.generation,observationRevision:saved.observation,cancellingGeneration:saved.cancelling,learningQuestion:saved.question,request:saved.request,renderOperation:saved.render,status:saved.status,notice:saved.notice});companion.message=saved.message;companion.stopSpeech=saved.stopSpeech;companion.data.prefs.voiceRead=saved.voiceRead;companion.syncPreferences();if(saved.voiceExplicit===null)localStorage.removeItem('axx.voice.read.explicit');else localStorage.setItem('axx.voice.read.explicit',saved.voiceExplicit);Axx.skillLibrary.continueTask=saved.continueTask;
       }
     });
@@ -308,13 +315,36 @@ assert.deepEqual(reviewResolution.steps,[{command_id:'axx.desktop.list_windows',
     assert.equal(inference.calls[0].args.body.stream, false);
     assert.equal(inference.result.route.elapsed_ms, 17);
     results.push('Chat sends exactly one native JSON request and preserves actual route metadata');
+    const localTool=await page.evaluate(async()=>{
+      const {companion}=Axx;
+      const checkbox=document.getElementById('ai-chat-tools');
+      window.__toolFixture=true;
+      try{
+        checkbox.checked=true;
+        checkbox.dispatchEvent(new Event('change'));
+        await companion.send('Consulta el estado del sistema con la herramienta.');
+        const req=window.__contractCalls.filter(call=>call.args?.path==='/axx-api/chat').at(-1).args.body;
+        return {enabled:req.axx_tools,text:companion.data.messages.filter(m=>m.role==='assistant').at(-1)?.text,
+          receipt:Axx.commandLibrary.lastOperation};
+      } finally {
+        checkbox.checked=false;
+        checkbox.dispatchEvent(new Event('change'));
+        window.__toolFixture=false;
+      }
+    });
+    assert.equal(localTool.enabled,true);
+    assert.match(localTool.text,/Texto del proveedor[\s\S]*Acción verificada en Axx/);
+    assert.doesNotMatch(localTool.text,/LOCAL_ONLY_MARKER/);
+    assert.equal(localTool.receipt.output.os,'LOCAL_ONLY_MARKER');
+    results.push('Explicit local tool opt-in displays the verified receipt without copying tool output into chat history');
     const cancelled = await page.evaluate(async () => {
+      const offset=window.__contractCalls.length;
       window.__contractHoldChat = true;
       const ctrl = new AbortController();
       const pending = Axx.companion.brain.chat(Axx.companion.data.prefs, [{ role: 'user', content: 'cancel contract only' }], ctrl.signal, () => {});
       setTimeout(() => ctrl.abort(), 20);
       try { await pending; return { error: 'not cancelled' }; }
-      catch (e) { return { error: e.name, calls: window.__contractCalls.filter(c => c.args?.path === '/axx-api/chat/cancel') }; }
+      catch (e) { return { error: e.name, calls: window.__contractCalls.slice(offset).filter(c => c.args?.path === '/axx-api/chat/cancel') }; }
     });
     assert.equal(cancelled.error, 'AbortError'); assert.equal(cancelled.calls.length, 1);
     results.push('Cancellation emits one correlated cancellation request and rejects late response');
@@ -658,7 +688,7 @@ assert.deepEqual(reviewResolution.steps,[{command_id:'axx.desktop.list_windows',
         return {card,desktopCurrent,status,history,approval:document.getElementById('command-library-approval-summary').textContent,note:document.getElementById('command-library-preview').textContent,approve:document.getElementById('command-library-approve').textContent};
       }finally{Object.assign(lib,saved);lib.renderOperation(saved.lastOperation);await Axx.skillLibrary.tasks();}
     });
-    assert.equal(compensatedMission.card,'Entrega pendiente');assert.equal(compensatedMission.desktopCurrent,null);assert.match(compensatedMission.status,/entrega pendiente/);assert.match(compensatedMission.history,/Entrega pendiente · 0\/1 pasos/);assert.match(compensatedMission.approval,/1 paso pendiente/);assert.match(compensatedMission.note,/archivo está apartado[\s\S]*Este paso no se repetirá/);assert.equal(compensatedMission.approve,'Aprobar y ejecutar 1 paso');
+    assert.equal(compensatedMission.card,'Entrega pendiente');assert.equal(compensatedMission.desktopCurrent,null);assert.match(compensatedMission.status,/objetivo pendiente/);assert.match(compensatedMission.history,/Objetivo pendiente de verificación · 0\/1 pasos/);assert.match(compensatedMission.approval,/1 paso pendiente/);assert.match(compensatedMission.note,/archivo está apartado[\s\S]*Este paso no se repetirá/);assert.equal(compensatedMission.approve,'Aprobar y ejecutar 1 paso');
     results.push('Compensated missions show pending delivery in chat/history/recovery while approval preserves executed receipts without promising a repeat');
     await page.evaluate(() => { Axx.companion.openFeature('settings'); Axx.companion.openChat(false); });
     await page.waitForFunction(() => Axx.app.panelFocusTimer === null && document.activeElement === document.getElementById('chat-input'));

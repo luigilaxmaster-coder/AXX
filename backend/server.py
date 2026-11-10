@@ -1140,7 +1140,9 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                         raise ValueError('La orden no pertenece a Telegram o su permiso fue revocado')
                     if action in ('execute', 'cancel'):
                         operation = self.commands.get(operation_id)
-                        if not operation or operation.get('channel') != self.request_channel:
+                        if (not operation or operation.get('channel') != self.request_channel
+                                or (self.request_channel == 'telegram' and (not self.telegram
+                                    or not self.telegram.can_execute(operation_id, operation.get('conversation_id'))))):
                             raise ValueError('La operación no pertenece a este canal')
                         if action == 'execute' and body.get('approved', False) is not False:
                             raise ValueError('La aprobación requiere el canal de escritorio')
