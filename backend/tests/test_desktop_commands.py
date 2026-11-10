@@ -1,6 +1,7 @@
 """Desktop dispatch regression: user commands reach tools, not inference."""
 import os
 from pathlib import Path
+import subprocess
 import tempfile
 import threading
 import time
@@ -39,8 +40,19 @@ class DesktopCommandTests(unittest.TestCase):
                 result = self.service.resolve(text)
                 self.assertEqual(result.get('command_id'), command)
                 self.assertEqual(result['inputs'], inputs)
-        for text in ('cómo abrir YouTube', 'no abras YouTube', 'resume: abre YouTube', 'abre calculadora && whoami'):
-            self.assertNotEqual(self.service.resolve(text).get('match'), 'exact')
+        # Grammar rejection must not depend on the host's Start menu inventory.
+        with patch('backend.actions.windows_apps.installed_apps', return_value=[]), \
+             patch('backend.application_catalog.installed_apps', return_value=[]):
+            for text in ('cómo abrir YouTube', 'no abras YouTube', 'resume: abre YouTube', 'abre calculadora && whoami'):
+                self.assertNotEqual(self.service.resolve(text).get('match'), 'exact')
+
+    def test_inventory_timeout_does_not_resolve_an_unobserved_application(self):
+        with patch('backend.actions.windows_apps.installed_apps', return_value=[]), \
+             patch('backend.application_catalog.installed_apps',
+                   side_effect=subprocess.TimeoutExpired('Get-StartApps', 12)) as inventory:
+            self.assertEqual(self.service.resolve('abre aplicacion-no-observada')['match'], 'unsupported')
+        inventory.assert_called_once_with()
+        self.assertEqual(self.executor.list_operations(), [])
 
     def test_telegram_video_link_and_compound_request(self):
         url = 'https://youtu.be/okRRbArQJZY?si=H9DhZsYy4Mb64AJL'

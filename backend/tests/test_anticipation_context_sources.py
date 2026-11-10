@@ -521,6 +521,7 @@ class ContextSourceTests(unittest.TestCase):
             self.configure(retain=True, provider=True)
             self.service.tick()
             context = self.service.provider_context_for_task('source-task')
+            self.assertEqual(len(context['refs']), 1)
             lease = self.service.acquire_provider_context('source-task', context['refs'])
             self.assertFalse(lease.is_set())
             monotonic[0] += .06
