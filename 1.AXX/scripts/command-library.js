@@ -350,9 +350,11 @@
                 traduccion:'translation', traducir:'translation', imagenes:'images', 'editor de imagenes':'images',
                 'taller de texto':'textstudio', concentracion:'focus', alcance:'reach'
             };
+            const normalizeFeature = value => plain(value).replace(/^(?:el|la|los|las|un|una)\s+/, '').replace(/ de axx$/, '');
             const featureId = value => {
-                const name = value.replace(/^(?:el|la|los|las|un|una)\s+/, '').replace(/^(?:apartado|panel|funcion) (?:de )?/, '').replace(/ de axx$/, '');
-                return aliases[name] || Axx.FEATURES?.find(f => plain(f.title).replace(/^(?:el|la|los|las|un|una)\s+/, '') === name || plain(f.id) === name)?.id;
+                const name = normalizeFeature(normalizeFeature(value).replace(/^(?:apartado|panel|funcion) (?:de )?/, ''));
+                const feature = Axx.FEATURES?.find(f => normalizeFeature(f.title) === name || plain(f.id) === name);
+                return feature?.id || aliases[name];
             };
             let match = text.match(/^(?:abre|abrir|abrirme|abreme|abras|muestra|muestrame|mostrar|ver|ve a|entra en) (.+)$/);
             if (match) { const id = featureId(match[1]); return id ? { id, verb:'open' } : null; }

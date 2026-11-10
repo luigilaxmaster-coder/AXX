@@ -1,7 +1,6 @@
 /** Full UI and real controllers; simulated Windows IPC and microphone boundaries. */
 const fs = require('node:fs'), path = require('node:path'), http = require('node:http'), assert = require('node:assert/strict');
-const {createRequire} = require('node:module');
-const {chromium} = createRequire(path.join(process.env.USERPROFILE, '.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/package.json'))('playwright');
+const {chromium} = require('playwright');
 (async () => {
     const server = http.createServer((req, res) => {
         const file = req.url.startsWith('/scripts/') ? path.join(__dirname, path.basename(req.url)) : path.join(__dirname, '../Axx.html');
@@ -25,6 +24,7 @@ const {chromium} = createRequire(path.join(process.env.USERPROFILE, '.cache/code
                 if (name === 'system_media_status') return {audioAvailable:true,updatedAt:Date.now(),sessions:[{id:'player',playing:mediaPlaying,canPlay:true,canPause:true,title:'Prueba',app:'Player'}]};
                 if (name === 'system_media_control') { mediaPlaying = args.command === 'play'; return true; }
                 if (name === 'backend_request') {
+                    if (args.path === '/axx-api/speech/status') return {asr:{available:true}};
                     if (args.path === '/axx-api/chat/migrate') return {id:testConversation.id};
                     if (args.path === '/axx-api/chat/conversations') return {conversations:[testConversation],groups:[],default_mode:'ask'};
                     if (args.path.startsWith('/axx-api/chat/conversations?id=')) return structuredClone(testConversation);

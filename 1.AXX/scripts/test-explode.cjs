@@ -1,15 +1,14 @@
 // Exploded view contract: without model vectors the pieces really separate (sub-assemblies move apart), explicit vectors win, and the
 // camera keeps the exploded assembly in frame and returns when it is put back together.
 const assert = require('node:assert/strict'), fs = require('node:fs'), http = require('node:http'), path = require('node:path');
-const { createRequire } = require('node:module');
-const { chromium } = createRequire(path.join(process.env.USERPROFILE, '.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/package.json'))('playwright');
+const { chromium } = require('playwright');
 (async () => {
   const server = http.createServer((req, res) => {
     if (!req.url.startsWith('/scripts/')) { res.setHeader('Content-Type', 'text/html'); return res.end('<!doctype html><body style="margin:0;background:#1b2230"></body>'); }
     res.setHeader('Content-Type', 'application/javascript'); res.end(fs.readFileSync(path.join(__dirname, path.basename(req.url))));
   });
   await new Promise(r => server.listen(0, '127.0.0.1', r));
-  const browser = await chromium.launch({ headless: true, executablePath: process.env.AXX_TEST_CHROMIUM || path.join(process.env.LOCALAPPDATA, 'ms-playwright/chromium_headless_shell-1248/chrome-headless-shell-win64/chrome-headless-shell.exe') });
+  const browser = await chromium.launch({ headless: true, executablePath: process.env.AXX_TEST_CHROMIUM });
   try {
     const page = await browser.newPage({ viewport: { width: 900, height: 700 } }), errors = [];
     page.on('pageerror', e => errors.push(e.stack || e.message)); page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
