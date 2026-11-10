@@ -1,4 +1,3 @@
-
 """Expose a bounded subset of the existing registry to the selected chat connection."""
 import hashlib
 import time
@@ -55,4 +54,3 @@ def dispatch(connect, calls, tools, request_id, policy):
     except (ValueError, KeyError, AttributeError, TypeError, RecursionError):
         return {'state': 'blocked', 'postconditions_passed': False, 'error': {
             'code': 'TOOL_REJECTED', 'message': 'La herramienta no se admitió. Revisa esquema, alcance o estado de la conversación.'}}
-
