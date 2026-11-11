@@ -29,7 +29,8 @@ body.native.axx-resident[data-ui-theme] #panel:not([data-view=chat]) :is(.p7-mor
 /* The card keeps its own content; the fold already provides the frame and the title. */
 body.native.axx-resident[data-ui-theme] #panel:not([data-view=chat]) .p7-fold>:is(.setup-card,section){border:0!important;background:transparent!important;padding:0!important;margin:0!important}
 body.native.axx-resident[data-ui-theme] #panel:not([data-view=chat]) .p7-row.p7-stack{flex-direction:column;align-items:stretch;gap:10px}body.native.axx-resident[data-ui-theme] #panel:not([data-view=chat]) .p7-row.p7-stack .p7-actions{max-width:none;justify-content:flex-start}
-@media(max-width:520px){body.native.axx-resident[data-ui-theme] #panel:not([data-view=chat]) .p7-row{flex-direction:column;align-items:stretch}body.native.axx-resident[data-ui-theme] #panel:not([data-view=chat]) .p7-actions{max-width:none;justify-content:flex-start}}
+/* The panel is resizable: rows wrap by their own width, not by the screen. */
+body.native.axx-resident[data-ui-theme] #panel:not([data-view=chat]) .p7-row{flex-wrap:wrap}body.native.axx-resident[data-ui-theme] #panel:not([data-view=chat]) .p7-copy{flex:1 1 200px}body.native.axx-resident[data-ui-theme] #panel:not([data-view=chat]) .p7-actions{flex:0 1 auto}
 
 /* ── IA y proveedores ──────────────────────────────────────────────────────────────── */
 /* One status card replaces the per-tab «Modelo en uso» strip; its text is mirrored there. */
