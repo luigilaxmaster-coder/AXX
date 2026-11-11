@@ -187,7 +187,7 @@
             if (id !== generation) { acquired.getTracks().forEach(t => t.stop()); return; }
             stream = acquired; phase = 'CAPTURING'; render(); ctx = new AudioContext({ sampleRate: 16000 });
             const currentFocus = await native({ action: 'probe', session });
-            if (id !== generation || speechBusy() || !currentFocus.editable || currentFocus.target !== target) { release(); return; }
+            if (id !== generation || speechBusy() || !currentFocus.editable || currentFocus.target !== target) { release(); if (id === generation) { phase = 'ARMED'; render(); } return; }
             if (ctx.sampleRate > 48000) throw Error('Frecuencia de micrófono no compatible.');
             let resumeTimeout;
             try { await Promise.race([ctx.resume(), new Promise((_, reject) => { resumeTimeout = setTimeout(() => reject(Error('Audio suspendido.')), 2500); }), new Promise(resolve => { cancelResume = resolve; })]); }
@@ -206,7 +206,7 @@
             source.connect(processor); const muted = ctx.createGain(); muted.gain.value = 0; processor.connect(muted); muted.connect(ctx.destination);
             for (const track of stream.getTracks()) track.addEventListener('ended', () => { if (id === generation) { pause(); lastError = 'Micrófono desconectado.'; render(); } }, { once: true });
             phase = 'CAPTURING'; render();
-        } catch (error) { if (id === generation) { cancelAudio(); phase = 'ERROR'; lastError = 'No se pudo abrir el micrófono seleccionado.'; render(); } }
+        } catch (error) { if (id === generation) { cancelAudio(); phase = 'ERROR'; lastError = 'No se pudo iniciar el audio local. Active AXX y revise el permiso o micrófono.'; render(); } }
         finally { starting = false; }
     }
     async function tick() {
