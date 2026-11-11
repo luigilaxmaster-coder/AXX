@@ -29,7 +29,8 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
           if(args.path==='/axx-api/model-candidates/apply'){window.candidateCalls.push({apply:args.body});return {applied:true};}
           if(args.path==='/axx-api/providers')return {providers:window.testProviders};
           if(args.path==='/axx-api/providers/discover'){window.discoverCalls.push(args.body);return {models:window.testModels || ['fixture-model','second-model']};}
-          if(args.path==='/axx-api/chat'){window.probeCalls.push(args.body);return {choices:[{message:{content:'AXX_API_OK'}}],axx_router:{provider:window.wrongProbeRoute?'other':args.body.provider_name,configured_model:args.body.model}};}
+          // The probe is an isolated backend route (commit cd0f681): the frontend sends only {model, provider_name}; the fixed prompt lives in the backend (backend/tests/test_memory_http.py asserts it).
+          if(args.path==='/axx-api/providers/probe'){window.probeCalls.push(args.body);return {text:'AXX_API_OK',axx_router:{provider:window.wrongProbeRoute?'other':args.body.provider_name,configured_model:args.body.model}};}
           if(args.path==='/axx-api/providers/save'){
             window.savedCalls.push(args.body);
             window.testProviders=[{...args.body,kind:args.body.provider,has_key:!!args.body.api_key}];
@@ -137,7 +138,7 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
     await page.locator('#provider-probe').click();
     await page.waitForFunction(()=>document.getElementById('provider-probe-result').textContent.includes('Respuesta recibida'));
     assert.equal(await page.locator('#provider-active-state').textContent(),'Respuesta comprobada');
-    assert.deepEqual(await page.evaluate(()=>probeCalls.at(-1).messages),[{role:'user',content:'Responde exactamente AXX_API_OK.'}]);
+    assert.deepEqual(await page.evaluate(()=>Object.keys(probeCalls.at(-1)).sort()),['model','provider_name'],'the frontend sends no prompt: the backend owns it');
     assert.equal(await page.evaluate(()=>probeCalls.at(-1).provider_name),'My Groq');
     await page.evaluate(()=>{window.wrongProbeRoute=true;});
     await page.locator('#provider-probe').click();
