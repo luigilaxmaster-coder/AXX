@@ -19,15 +19,18 @@ idiomas y licencia en backend/speech/dictation-models.json; aviso MIT en license
 Worker separado: workers/dictation-asr. API comprobada en la fuente de la crate:
 Model::load_with, Backend::Cpu, ModelOptions, session_with, SessionOptions,
 RunOptions, Task y Session::run (16 kHz mono f32). Wrapper fijado =0.4.0;
-Cargo.lock fija transcribe-cpp-sys 0.4.1. Compilación y self-test reales aprobados.
-La ABI nativa resuelta es 0.4.1; no confundirla con el wrapper 0.4.0.
+Wrapper y transcribe-cpp-sys fijados explícitamente a =0.4.0. El primer lock
+resolvió sys 0.4.1: compilaba, pero la carga real rechazó la ABI. Se corrigió la
+resolución y se añadió un test del ABI enlazado. No se desactivó el control nativo.
 https://crates.io/crates/transcribe-cpp/0.4.0
-https://crates.io/crates/transcribe-cpp-sys/0.4.1
+https://crates.io/crates/transcribe-cpp-sys/0.4.0
 
 Licencias nativas MIT: transcribe.cpp, ggml, Silero VAD y miniz; textos originales
 incluidos en licenses/transcribe.cpp-*. Los pesos tienen licencias independientes:
 Parakeet/Canary CC-BY-4.0, Whisper GGUF apache-2.0 según este catálogo. No se han
-redistribuido ni descargado pesos. El catálogo es evidencia de metadatos, no de
+redistribuido pesos. Tras autorización expresa del usuario se descargaron
+Parakeet V3 y Whisper Small en el perfil privado de candidata; revisión, tamaño
+y SHA256 coinciden. El catálogo es evidencia de metadatos, no de
 calidad o funcionamiento del modelo en AXX.
 
 Compilación en este host: el build automático de cmake falló al usar su junction

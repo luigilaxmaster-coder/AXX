@@ -37,4 +37,9 @@ se reporta incertidumbre y se exige aceptación física antes de distribución.
 
 El fixture espera hasta 30 s a que Windows conceda foreground y comprueba HWND/PID propios antes de escribir. Cuando foreground no se concede, falla; no se relaja TargetGuard. La prueba final se activó mediante sky.activate_window y pasó dos ejecuciones controladas. Los intentos que aún observaban la ventana subyacente no se cuentan como PASS.
 
-Límite conocido: la revocación del permiso de inserción es nativa; el stream PCM aún pertenece al renderer. Su congelación requiere un cierre físico independiente antes de producción. Esto no se presenta como protección de micrófono certificada.
+La captura PCM global ahora pertenece a WASAPI en un hilo nativo separado. Un
+epoch nuevo deja de emitir audio hasta revalidación; campo protegido cierra la
+captura y 3 s sin latido cierran aunque no responda el renderer. Escape incrementa
+cancelación atómica desde el hook. No certifica el driver ni bloqueo/suspensión
+reales: esas pruebas siguen pendientes. El fixture se repitió tras este cambio y
+pasó sin activación asistida (1.41 s); no abrió micrófono.

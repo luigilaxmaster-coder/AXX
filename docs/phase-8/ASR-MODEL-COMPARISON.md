@@ -9,8 +9,9 @@ sin cambiar su proveedor ni sus permisos. Modelos disponibles no se descargan.
 | --- | --- | --- |
 | faster-whisper base existente | Supervisor actual CPU int8 y respaldo por defecto | Sí, 3 clips SAPI ingleses sintéticos |
 | faster-whisper tiny/small/medium | Selección local por ID | No, pesos seleccionables no presentes en raíz local |
-| Parakeet V3 Q8_0 | Sidecar CPU compilado, catálogo con hash | BLOQUEADO: pesos no instalados |
-| Whisper Small/Medium GGUF | Mismo sidecar y validación | BLOQUEADO: pesos no instalados |
+| Parakeet V3 Q8_0 | Sidecar CPU y SHA256 comprobados | Sí, mismos 3 clips; backend empaquetado también |
+| Whisper Small GGUF | Mismo sidecar y validación | Sí, mismos 3 clips; backend empaquetado también |
+| Whisper Medium GGUF | Catálogo y selección | No, no descargado |
 | Canary 180M Q8_0 | Catálogo, traducción explícita a inglés | BLOQUEADO: pesos no instalados |
 
 Parakeet declara ES/EN/FR en la fuente de Handy. Su soporte de idioma no demuestra
@@ -20,9 +21,24 @@ No hay ganador de calidad en esta fase.
 
 Smoke real disponible, no aceptación: 3 clips SAPI Zira en inglés, referencia
 con puntuación y números en palabras, normalización NFC/casefold/espacios.
-WER 0.39394, CER 0.41398 para base. No extrapolar a personas, acento dominicano,
-Spanglish ni cifras digitadas. Parakeet reportó NOT_SUPPORTED, no PASS simulado.
-Recibo privado: build/phase8/asr-synthetic-smoke.json.
+WER/CER: base 0.39394/0.41398, Parakeet 0.42424/0.44086, Whisper Small
+0.45455/0.48387. Referencias con números en palabras: convertirlos a dígitos
+también cuenta como error con esta normalización. No usarlo como ranking de
+comprensión ni extrapolar a personas, español dominicano o Spanglish.
+Recibo: build/phase8/asr-approved-models-comparison.json, acceptance_corpus=false.
+
+Observación concreta del mismo clip: Parakeet produjo «12.5 milligrams every 8
+hours»; Whisper Small «12.5 mg every 8 hours». Ambos dieron cifras en ese caso;
+Whisper abrevió la unidad. No demuestra que uno siempre numere mejor ni autoriza
+reescrituras médicas. Se conserva selección explícita, perfil literal y ningún
+postproceso semántico automático. Detalle sintético: numeric-observation.log.
+
+Descargas autorizadas en este chat: 739508576 y 269751136 bytes, respectivamente;
+revisiones/tamaños/SHA256 exactos del catálogo, solo perfil privado de candidata.
+Sin pesos nuevos en instalador/Git. La primera carga detectó wrapper 0.4.0/sys
+0.4.1 incompatibles; ambos están fijados a 0.4.0 y tienen test de ABI enlazada.
+Preparar/transcribir/liberar ambos mediante el backend empaquetado pasó sin
+llamadas externas ni acciones automáticas: build/phase8/packaged-models.json.
 
 Comparación reproducible de los mismos archivos:
 python scripts/benchmark_dictation.py --corpus corpus.json --models default parakeet-tdt-0.6b-v3 whisper-small --output build/phase8/asr.json
