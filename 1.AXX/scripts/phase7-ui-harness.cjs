@@ -7,7 +7,7 @@ const { createRequire } = require('node:module');
 const bundled = createRequire(path.join(process.env.USERPROFILE, '.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/package.json'));
 const { chromium } = bundled('playwright');
 const root = path.join(__dirname, '..'), [mode = 'test', outDir = 'phase7-shots', tag = 'after'] = process.argv.slice(2);
-const VIEWS = ['settings', 'ai', 'appearance', 'agent', 'sound', 'lab', 'personalize'];
+const VIEWS = ['settings', 'ai', 'appearance', 'agent', 'sound', 'lab', 'personalize', ...(process.env.P7_EXTRA || '').split(',').filter(Boolean)];
 
 const fakeNative = () => {
   localStorage.setItem('axx.companion.v4', JSON.stringify({ version: 4, prefs: { provider: 'bridge', selection_mode: 'manual', apiConnection: 'Ollama local', model: 'qwen3:4b' } }));
@@ -77,6 +77,29 @@ const inventory = () => {
     await page.waitForTimeout(600);
     const open = async id => { await page.evaluate(id => Axx.companion.openFeature(id), id); await page.waitForTimeout(450); };
     const theme = t => page.evaluate(t => Axx.interfaceTheme.apply(t), t);
+
+    if (mode === 'contrast') {
+      // WCAG: text 4.5:1 (3:1 when large), field boundaries 3:1; labelled buttons 1.5:1 (their text identifies them). Colours are composited over the real ancestors.
+      const audit = () => { const parse = c => { const f = c.startsWith('color(') ? 255 : 1, m = c.replace('color(srgb', '').match(/[\d.]+(e-?\d+)?/g).map(Number); return [m[0] * f, m[1] * f, m[2] * f, m.length < 4 ? 1 : m[3]]; }; // color-mix() computes to color(srgb 0..1)
+        const over = (f, b) => [0, 1, 2].map(i => f[i] * f[3] + b[i] * (1 - f[3])).concat(1);
+        const bgOf = n => { const stack = []; for (; n; n = n.parentElement) { const c = parse(getComputedStyle(n).backgroundColor); if (c[3] > 0) { stack.push(c); if (c[3] === 1) break; } } let b = [18, 18, 18, 1]; for (const c of stack.reverse()) b = over(c, b); return b; };
+        const lum = c => c.slice(0, 3).map(v => { v /= 255; return v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4; }).reduce((s, v, i) => s + v * [.2126, .7152, .0722][i], 0);
+        const ratio = (a, b) => { const x = lum(a), y = lum(b); return (Math.max(x, y) + .05) / (Math.min(x, y) + .05); };
+        const view = [...document.querySelectorAll('#panel>.panel-view')].find(v => !v.hidden) || document.getElementById('panel'), out = [];
+        const name = n => (n.id ? '#' + n.id : n.tagName.toLowerCase() + (typeof n.className === 'string' && n.className ? '.' + n.className.trim().split(/\s+/)[0] : '')) + ' "' + (n.textContent || n.value || '').trim().replace(/\s+/g, ' ').slice(0, 24) + '"';
+        for (const n of document.getElementById('panel').querySelectorAll('*')) { if (!n.getClientRects().length || n.closest('[data-palette],.axx-theme-sample,canvas,svg')) continue; const s = getComputedStyle(n);
+          if (s.visibility === 'hidden' || +s.opacity < .5) continue; const bg = bgOf(n);
+          if ([...n.childNodes].some(c => c.nodeType === 3 && c.textContent.trim()) && !n.disabled) { const r = ratio(over(parse(s.color), bg), bg), big = parseFloat(s.fontSize) >= 18.66; if (r < (big ? 3 : 4.5)) out.push(['text', r.toFixed(2), name(n)]); }
+          if (n.matches('button,select,textarea,input:not([type=range]):not([type=checkbox]):not([type=radio]):not([type=color]):not([type=file])') && !n.disabled) { const outer = bgOf(n.parentElement), edge = parseFloat(s.borderTopWidth) ? over(parse(s.borderTopColor), outer) : bg;
+            const r = Math.max(ratio(edge, outer), ratio(bg, outer)); if (r < (n.tagName === 'BUTTON' ? 1.5 : 3) && !n.closest('[role=tablist]') && s.backgroundColor !== 'rgba(0, 0, 0, 0)') out.push(['edge', r.toFixed(2), name(n)]); } }
+        return out; };
+      let total = 0; for (const t of ['light', 'dark']) { await theme(t); for (const v of [...VIEWS, 'chat', 'voices']) {
+        if (!await page.evaluate(v => Axx.FEATURES.some(f => f.id === v), v)) continue; await open(v);
+        if (v === 'settings') await page.evaluate(() => { for (const d of document.querySelectorAll('#view-settings details')) d.open = true; }); await page.waitForTimeout(200);
+        const bad = await page.evaluate(audit), kinds = k => bad.filter(b => b[0] === k).length; total += bad.length;
+        console.log(`${t.padEnd(5)} ${v.padEnd(12)} text:${String(kinds('text')).padStart(3)} edge:${String(kinds('edge')).padStart(3)}  ${process.env.P7_VERBOSE ? '\n   ' + bad.map(b => b.join(' ')).join('\n   ') : bad.slice(0, 3).map(b => b[1] + ' ' + b[2]).join(' | ')}`); } }
+      console.log('total below threshold:', total); return;
+    }
 
     if (mode === 'inventory') { process.stdout.write(JSON.stringify({ errors, views: await page.evaluate(inventory) }, null, 1)); return; }
 

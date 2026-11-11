@@ -64,3 +64,32 @@ body.native.axx-resident[data-ui-theme] #panel:not([data-view=chat]) .p7-tabs bu
 body.native.axx-resident[data-ui-theme] #panel:not([data-view=chat]) #view-personalize [data-p7-section][hidden]{display:none}
 body.native.axx-resident[data-ui-theme] #panel:not([data-view=chat]) #view-personalize #axx-interface-theme{border:0!important;background:transparent!important;padding:0!important;margin:0!important}
 body.native.axx-resident[data-ui-theme] #panel:not([data-view=chat]) #view-personalize #id20-motion :is(.id20-lead,.id20-section){border-color:var(--line)!important}
+
+/* ── Themes: control visibility (both) and dark hierarchy ──────────────────────────── */
+/* Measured with `phase7-ui-harness.cjs contrast`: control edges were ≈1.2:1 in both themes. */
+body.native.axx-resident[data-ui-theme]{--p7-field-line:color-mix(in srgb,var(--ink) 56%,var(--surface));--p7-button-line:color-mix(in srgb,var(--ink) 26%,var(--surface));--p7-selected:color-mix(in srgb,var(--accent) 13%,var(--surface))}
+/* Dark: wider steps between surfaces, readable secondary text, visible separators. Background and ink are unchanged. */
+body.native.axx-resident[data-ui-theme=dark]{--surface-subtle:#2a2a2f;--surface-raised:#35353b;--field:#19191c;--line:#ffffff26;--secondary:#c3c3cc;--quiet:#a6a6b0;--button:#38383e;--button-hover:#46464d;--p7-field-line:color-mix(in srgb,var(--ink) 42%,var(--surface));--p7-button-line:color-mix(in srgb,var(--ink) 30%,var(--surface));--p7-selected:color-mix(in srgb,var(--accent) 24%,var(--surface))}
+body.native.axx-resident[data-ui-theme=dark] :is(#panel,#flow-library,#context-menu){color-scheme:dark}
+body.native.axx-resident[data-ui-theme=dark] #panel .panel-view{scrollbar-color:#ffffff47 transparent}
+/* Outlines */
+body.native.axx-resident[data-ui-theme] :is(#panel:not([data-view=chat]),#flow-library,#v13-settings,.organic-satellite,#reach-tray) button:not([data-palette]){border-color:var(--p7-button-line)!important}
+body.native.axx-resident[data-ui-theme] :is(#panel:not([data-view=chat]),#v13-settings,#v13-pad,.organic-satellite,#ink-review,#reach-tray) :is(input,textarea,select):not([type=range]):not([type=checkbox]):not([type=radio]):not([type=color]):not([type=file]){border-color:var(--p7-field-line)!important}
+/* Selected, pressed, disabled */
+body.native.axx-resident[data-ui-theme] #panel:not([data-view=chat]) :is([aria-selected=true],button.active,button[aria-pressed=true],.form-option[aria-checked=true]){background:var(--p7-selected)!important;border-color:color-mix(in srgb,var(--accent) 75%,transparent)!important;font-weight:600}
+body.native.axx-resident[data-ui-theme] #panel:not([data-view=chat]) button:not([data-palette]):active:not(:disabled){background:color-mix(in srgb,var(--ink) 12%,var(--button))!important}
+body.native.axx-resident[data-ui-theme] #panel:not([data-view=chat]) :is(.primary,button.p7-main):active:not(:disabled){filter:brightness(.9)}
+body.native.axx-resident[data-ui-theme] #panel:not([data-view=chat]) :is(button,select,input,textarea):disabled{opacity:.55!important;cursor:not-allowed}
+/* Focus, checkboxes, radios, sliders */
+body.native.axx-resident[data-ui-theme] :is(#panel,#flow-library,#v13-settings,.organic-satellite) :is(button,input,textarea,select,summary,[role=tab]):focus-visible{outline:2px solid var(--accent)!important;outline-offset:2px!important}
+body.native.axx-resident[data-ui-theme] #panel:not([data-view=chat]) input:is([type=checkbox],[type=radio]){width:18px;height:18px;flex:none;accent-color:var(--accent-fill)}
+body.native.axx-resident[data-ui-theme] #panel:not([data-view=chat]) input[type=range]{accent-color:var(--accent-fill)}
+/* Known defects from phase 6: light text left on a light surface (Voces) and dim labels in the dark chat. Colour only. */
+/* Voces keeps its dark cards in both themes, so their text must stay light instead of taking the light theme's ink. */
+body.native.axx-resident[data-ui-theme] #panel #view-voices :is(.voice-studio-intro,.voice-studio-now,.voice-studio-choice,.voice-studio-controls,.chat20-voice-card,#voice-audio-controls) :is(h3,h4,strong,b){color:#eef6fb!important}
+body.native.axx-resident[data-ui-theme] #panel #view-voices :is(.voice-studio-intro,.voice-studio-now,.voice-studio-choice,.voice-studio-controls,.chat20-voice-card,#voice-audio-controls) :is(p,small,span,label){color:#c9d9e4!important}
+body.native.axx-resident[data-ui-theme=dark] #panel[data-view=chat] :is(.cw-mode-label,.cw-mode-label *,#cu-chat-status,abbr){color:var(--secondary)!important}
+body.native.axx-resident[data-ui-theme=dark] #panel[data-view=chat] #cu-open{color:var(--ink)!important;background:var(--button)!important;border-color:var(--p7-button-line)!important}
+body.native.axx-resident[data-ui-theme=dark] #panel[data-view=chat] .cw-thread[aria-current=true]{background:#005fc7!important}
+body.native.axx-resident[data-ui-theme=dark] #panel[data-view=chat] #cw-browser :is(input,select){border-color:var(--p7-field-line)!important}
+body.native.axx-resident[data-ui-theme] #panel #view-voices .voice-studio-heading span{color:var(--secondary)!important}
