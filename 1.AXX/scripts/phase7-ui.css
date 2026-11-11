@@ -56,3 +56,11 @@ body.native.axx-resident[data-ui-theme] #panel:not([data-view=chat]) #subpanel-a
 body.native.axx-resident[data-ui-theme] #panel:not([data-view=chat]) #subpanel-api .provider-overview{grid-template-columns:minmax(0,1fr);border:0;background:transparent;padding:0}
 body.native.axx-resident[data-ui-theme] #panel:not([data-view=chat]) #subpanel-api .provider-overview>.quick-row{justify-self:start;margin:0}
 body.native.axx-resident[data-ui-theme] #panel:not([data-view=chat]) #p7-ai-choose .ai-subpanel{margin-top:12px}
+
+/* ── Personalizar AXX ──────────────────────────────────────────────────────────────── */
+body.native.axx-resident[data-ui-theme] #panel:not([data-view=chat]) .p7-tabs{position:sticky;top:-20px;z-index:3;display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);margin:-6px 0 18px}
+body.native.axx-resident[data-ui-theme] #panel:not([data-view=chat]) .p7-tabs button:not([data-palette]){min-height:36px;padding:6px 4px!important;border:0!important;background:transparent!important;color:var(--secondary)!important;font-size:12.5px!important;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+body.native.axx-resident[data-ui-theme] #panel:not([data-view=chat]) .p7-tabs button[aria-selected=true]:not([data-palette]){background:var(--surface)!important;color:var(--ink)!important;font-weight:600!important;box-shadow:0 1px 3px #0002!important}
+body.native.axx-resident[data-ui-theme] #panel:not([data-view=chat]) #view-personalize [data-p7-section][hidden]{display:none}
+body.native.axx-resident[data-ui-theme] #panel:not([data-view=chat]) #view-personalize #axx-interface-theme{border:0!important;background:transparent!important;padding:0!important;margin:0!important}
+body.native.axx-resident[data-ui-theme] #panel:not([data-view=chat]) #view-personalize #id20-motion :is(.id20-lead,.id20-section){border-color:var(--line)!important}
