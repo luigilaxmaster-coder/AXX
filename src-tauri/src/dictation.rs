@@ -513,12 +513,40 @@ mod tests {
         fn wide(s: &str) -> Vec<u16> {
             s.encode_utf16().chain(Some(0)).collect()
         }
+        unsafe extern "system" fn fixture_proc(
+            hwnd: windows_sys::Win32::Foundation::HWND,
+            msg: u32,
+            wp: usize,
+            lp: isize,
+        ) -> isize {
+            if msg == WM_SETFOCUS || msg == WM_ACTIVATE && wp as u16 != WA_INACTIVE as u16 {
+                let child = unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) }
+                    as windows_sys::Win32::Foundation::HWND;
+                if !child.is_null() {
+                    unsafe {
+                        SetFocus(child);
+                    }
+                }
+                return 0;
+            }
+            unsafe { DefWindowProcW(hwnd, msg, wp, lp) }
+        }
         let (tx, rx) = mpsc::sync_channel(1);
         let fixture = std::thread::spawn(move || unsafe {
             let previous = GetForegroundWindow();
+            let name = wide("AxxDictationNativeFixture");
+            let instance =
+                windows_sys::Win32::System::LibraryLoader::GetModuleHandleW(std::ptr::null());
+            let class = WNDCLASSW {
+                lpfnWndProc: Some(fixture_proc),
+                hInstance: instance,
+                lpszClassName: name.as_ptr(),
+                ..std::mem::zeroed()
+            };
+            assert_ne!(RegisterClassW(&class), 0);
             let root = CreateWindowExW(
                 0,
-                wide("STATIC").as_ptr(),
+                name.as_ptr(),
                 wide("AXX · isolated dictation test").as_ptr(),
                 WS_OVERLAPPEDWINDOW | WS_VISIBLE,
                 100,
@@ -527,7 +555,7 @@ mod tests {
                 400,
                 std::ptr::null_mut(),
                 std::ptr::null_mut(),
-                std::ptr::null_mut(),
+                instance,
                 std::ptr::null(),
             );
             assert!(!root.is_null());
@@ -551,6 +579,7 @@ mod tests {
                     )
                 })
                 .collect();
+            SetWindowLongPtrW(root, GWLP_USERDATA, controls[0] as isize);
             SetForegroundWindow(root);
             SetFocus(controls[0]);
             tx.send((
@@ -562,6 +591,7 @@ mod tests {
             let mut message: MSG = std::mem::zeroed();
             while GetMessageW(&mut message, std::ptr::null_mut(), 0, 0) > 0 {
                 if message.message == WM_APP {
+                    SetWindowLongPtrW(root, GWLP_USERDATA, controls[message.wParam] as isize);
                     SetForegroundWindow(root);
                     SetFocus(controls[message.wParam]);
                 } else {
@@ -584,6 +614,18 @@ mod tests {
             }
         }
         let cleanup = Cleanup(thread);
+        eprintln!("Waiting for foreground: AXX · isolated dictation test");
+        for _ in 0..300 {
+            if unsafe { GetForegroundWindow() } as isize == root {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        assert_eq!(
+            unsafe { GetForegroundWindow() } as isize,
+            root,
+            "Windows did not grant foreground to the isolated fixture"
+        );
         unsafe {
             PostThreadMessageW(thread, WM_APP, 0, 0);
         }

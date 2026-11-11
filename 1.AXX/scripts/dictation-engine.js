@@ -71,6 +71,7 @@
     let config; try { config = settings(JSON.parse(localStorage.getItem('axx.dictation.v1') || '{}')); } catch { config = settings(); }
     let mode = 'off', phase = 'OFF', session = null, target = null, generation = 0, sequence = 0;
     let stream = null, ctx = null, processor = null, segmenter = null, starting = false, decoding = false, probing = false;
+    let cancelResume = null;
     let queue = [], pending = [], currentRequest = null, lastError = '', panel;
     let held = false, holdReleased = null;
     let manualFinishing = false;
@@ -98,6 +99,7 @@
         }
     }
     function release() {
+        cancelResume?.(); cancelResume = null;
         if (processor) { processor.onaudioprocess = null; processor.disconnect(); processor = null; }
         stream?.getTracks().forEach(t => t.stop()); stream = null;
         if (ctx) { void ctx.close().catch(() => {}); ctx = null; }
@@ -178,11 +180,15 @@
             if (id !== generation) return;
             const acquired = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, sampleRate: 16000, echoCancellation: true, noiseSuppression: true, ...(config.microphone ? { deviceId: { exact: config.microphone } } : {}) }, video: false });
             if (id !== generation) { acquired.getTracks().forEach(t => t.stop()); return; }
-            stream = acquired; ctx = new AudioContext({ sampleRate: 16000 });
+            stream = acquired; phase = 'CAPTURING'; render(); ctx = new AudioContext({ sampleRate: 16000 });
             const currentFocus = await native({ action: 'probe', session });
             if (id !== generation || speechBusy() || !currentFocus.editable || currentFocus.target !== target) { release(); return; }
             if (ctx.sampleRate > 48000) throw Error('Frecuencia de micrófono no compatible.');
-            await ctx.resume(); if (id !== generation) return;
+            let resumeTimeout;
+            try { await Promise.race([ctx.resume(), new Promise((_, reject) => { resumeTimeout = setTimeout(() => reject(Error('Audio suspendido.')), 2500); }), new Promise(resolve => { cancelResume = resolve; })]); }
+            finally { clearTimeout(resumeTimeout); cancelResume = null; }
+            if (id !== generation) return;
+            if (ctx.state && ctx.state !== 'running') throw Error('Audio suspendido.');
             const rate = ctx.sampleRate;
             segmenter = new Segmenter(rate, (pcm, sampleRate, destination) => {
                 if (queue.length >= 2) { pause(); lastError = 'El reconocimiento va retrasado. Reanude cuando termine.'; render(); return; }
