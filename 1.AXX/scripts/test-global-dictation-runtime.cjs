@@ -1,11 +1,11 @@
 const assert = require('node:assert/strict'), fs = require('node:fs'), vm = require('node:vm'), { webcrypto } = require('node:crypto');
 (async () => {
-    let processor, interval, activeStream = false, resolveTranscript, focus = 'a', commits = [], calls = [], listeners = {}, micRequests = 0;
+    let processor, interval, activeStream = false, resolveTranscript, focus = 'a', commits = [], calls = [], listeners = {}, micRequests = 0, resumeBlocked=false;
     const track = { stop() { activeStream = false; }, addEventListener() {} };
     const voice = { activeCapture: null, requireTranscription: async () => {}, acquireCapture(owner, preempt) { if (this.activeCapture && this.activeCapture !== owner) return false; this.activeCapture = owner; return true; } };
     class Context {
         sampleRate = 16000;
-        resume() { return Promise.resolve(); } close() { return Promise.resolve(); }
+        resume() { return resumeBlocked ? new Promise(()=>{}) : Promise.resolve(); } close() { return Promise.resolve(); }
         createMediaStreamSource() { return { connect() {} }; }
         createGain() { return { gain: {}, connect() {} }; }
         createScriptProcessor() { return processor = { connect() {}, disconnect() {} }; }
@@ -25,7 +25,7 @@ const assert = require('node:assert/strict'), fs = require('node:fs'), vm = requ
     const sandbox = { window, navigator: { mediaDevices: { getUserMedia: async () => { micRequests++; activeStream = true; return { getTracks: () => [track] }; } } },
         document: { getElementById: () => null, body: {} }, localStorage: { getItem: () => null, setItem() {} },
         AudioContext: Context, MutationObserver: class { observe() {} }, CustomEvent: class {},
-        setInterval: fn => { interval = fn; }, Float32Array, ArrayBuffer, DataView, crypto: webcrypto, btoa: s => Buffer.from(s, 'binary').toString('base64'), structuredClone, console };
+        setInterval: fn => { interval = fn; }, setTimeout:(fn,ms)=>setTimeout(fn,Math.min(ms,10)), clearTimeout, Float32Array, ArrayBuffer, DataView, crypto: webcrypto, btoa: s => Buffer.from(s, 'binary').toString('base64'), structuredClone, console };
     vm.runInNewContext(fs.readFileSync(require.resolve('./dictation-engine.js'), 'utf8'), sandbox);
     const api = window.Axx.dictation, settle = () => new Promise(resolve => setImmediate(resolve));
     assert.equal(api.status().state, 'OFF'); assert.equal(micRequests, 0, 'Never open a mic on startup');
@@ -70,5 +70,11 @@ const assert = require('node:assert/strict'), fs = require('node:fs'), vm = requ
     window.Axx.liveConversation.active=false;await interval();await settle();assert.equal(activeStream,true);
     window.Axx.companion={speaking:true};await interval();await settle();assert.equal(activeStream,false);assert.equal(api.status().state,'PAUSED');
     api.stop();
+    window.Axx.companion.speaking=false;resumeBlocked=true;
+    await api.start('focus');assert.equal(api.status().state,'ERROR');assert.equal(activeStream,false,'A suspended AudioContext cannot retain the microphone');
+    api.stop();resumeBlocked=false;
+    assert.equal(api.conflictsWithShortcut('Ctrl+Alt+Shift+D'),true);
+    voice.wake={hotkey:'Ctrl+Alt+Q'};
+    await assert.rejects(api.configureShortcut({key:81,modifiers:3,activation:'toggle'}),/comandos de voz/);
     console.log('PASS: global opt-in, one stream, sustained decoding, old-focus pending, no auto-submit, priority, pause/resume, Escape and OFF cleanup');
 })().catch(error => { console.error(error); process.exitCode = 1; });
