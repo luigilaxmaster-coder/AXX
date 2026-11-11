@@ -21,6 +21,7 @@ import uuid
 
 from backend.inference.process_manager import spawn_managed_process, terminate_process_tree
 from .windows_tts import SpeechError
+from . import dictation_models
 
 SNAPSHOT = 'd90ca5fe260221311c53c58e660288d3deb8d356'
 MAX_AUDIO = 1400 * 1024
@@ -111,7 +112,10 @@ def model_path():
 def _load_worker_model(requested_model):
     global _WORKER_MODEL, _WORKER_MODEL_PATH
     from faster_whisper import WhisperModel
+    from .transcribe_cpp import unload
+    unload()
     if _WORKER_MODEL is None or _WORKER_MODEL_PATH != requested_model:
+        _WORKER_MODEL = None
         _WORKER_MODEL = WhisperModel(requested_model,device='cpu',compute_type='int8',cpu_threads=2,num_workers=1,local_files_only=True)
         _WORKER_MODEL_PATH = requested_model
     return _WORKER_MODEL
@@ -133,7 +137,12 @@ def worker_main(raw=None):
         imported=time.monotonic()
         requested_model = request['model_path']
         if request.get('warmup'):
-            _load_worker_model(requested_model)
+            if request.get('engine') == 'transcribe-cpp':
+                global _WORKER_MODEL, _WORKER_MODEL_PATH
+                _WORKER_MODEL = _WORKER_MODEL_PATH = None
+                from .transcribe_cpp import transcribe
+                transcribe(None, request)
+            else: _load_worker_model(requested_model)
             sys.stdout.buffer.write(json.dumps({'ok':True,'result':{'ready':True,'model':Path(requested_model).name}}).encode('utf-8')+b'\n')
             sys.stdout.buffer.flush()
             return 0
@@ -173,6 +182,13 @@ def worker_main(raw=None):
         if float(np.sqrt(np.mean(np.square(audio))))<.0001:
             result={'text':'','segments':[],'language':request.get('language'),'language_probability':None,
                     'audio_duration_seconds':round(samples/16000,3),'silence_detected':True}
+        elif request.get('engine') == 'transcribe-cpp':
+            _WORKER_MODEL = _WORKER_MODEL_PATH = None
+            from .transcribe_cpp import transcribe
+            native = transcribe(audio, request)
+            result = {'text':native['text'], 'segments':[], 'language':native.get('language'),
+                      'language_probability':None, 'audio_duration_seconds':round(samples/16000,3), 'silence_detected':False}
+            inference_ms=round((time.monotonic()-decoded)*1000)
         else:
             # Reject silence and invalid audio before spending memory/time on a cold model.
             model=_load_worker_model(requested_model)
@@ -191,7 +207,7 @@ def worker_main(raw=None):
             if excessive_repetition(result['text']):
                 raise SpeechError('INVALID_RESPONSE','El dictado repitió palabras varias veces. Repite la orden antes de ejecutar una acción.')
             inference_ms=round((time.monotonic()-loaded)*1000)
-        result.update({'engine':'faster-whisper','model':Path(request['model_path']).name.removeprefix('faster-whisper-'),'device':'cpu','compute_type':'int8',
+        result.update({'engine':request.get('engine','faster-whisper'),'model':Path(request['model_path']).name.removeprefix('faster-whisper-'),'device':'cpu','compute_type':'int8' if request.get('engine','faster-whisper')=='faster-whisper' else 'Q8_0',
                        'task':request['task'],'translation_target':'en' if request['task']=='translate' else None,
                        'external_calls':0,'automatic_actions':False})
         result['timings_ms']={'imports':round((imported-started)*1000), 'decode':round((decoded-imported)*1000),
@@ -244,6 +260,18 @@ class OfflineTranscriptionService:
         with self._io_lock:
             self._stop_worker()
 
+    def prepare_model(self, body):
+        if not isinstance(body, dict) or set(body) != {'model'}: raise SpeechError('INVALID_REQUEST', 'Model preparation requires one model ID')
+        engine, path = dictation_models.resolve(body['model'], self.model_path, None, 'transcribe')
+        if not self._busy.acquire(False): raise SpeechError('BUSY', 'Local transcription is busy')
+        try: return self._execute({'model_path':str(path), 'engine':engine, 'warmup':True})
+        finally: self._busy.release()
+
+    def unload_model(self):
+        self.cancel_active()
+        with self._io_lock: self._stop_worker()
+        return {'unloaded':True, 'api_version':1}
+
     @staticmethod
     def _cancel_locked(request):
         if request.completed or request.cancelled.is_set():return 0
@@ -273,7 +301,7 @@ class OfflineTranscriptionService:
     def transcribe(self,body,*,context_owner=None,deadline_mono=None,cancel_event=None):
         """Use RAM/pipe only; internal callers must derive ownership from a valid lease."""
         started=time.monotonic()
-        if not isinstance(body,dict) or set(body)-{'audio_base64','mime','language','task','request_id'}: raise SpeechError('INVALID_REQUEST','Unsupported transcription fields')
+        if not isinstance(body,dict) or set(body)-{'audio_base64','mime','language','task','request_id','model'}: raise SpeechError('INVALID_REQUEST','Unsupported transcription fields')
         if cancel_event is not None and not isinstance(cancel_event,threading.Event):
             raise SpeechError('INVALID_REQUEST','Invalid internal transcription cancellation event')
         if cancel_event is not None and cancel_event.is_set():raise SpeechError('CANCELLED','Local transcription lease was cancelled')
@@ -299,7 +327,8 @@ class OfflineTranscriptionService:
                  or (mime.startswith('audio/ogg') and raw.startswith(b'OggS'))
                  or (mime.startswith('audio/mp4') and raw[4:8]==b'ftyp'))
         if not valid:raise SpeechError('INVALID_REQUEST','Audio signature does not match its MIME type')
-        if not self.status()['available']:raise SpeechError('NOT_SUPPORTED','El modelo local de transcripción o su motor no está disponible.')
+        engine, selected_model = dictation_models.resolve(body['model'], self.model_path, language, task) if 'model' in body else ('faster-whisper', self.model_path)
+        if engine == 'faster-whisper' and not ('model' in body and importlib.util.find_spec('faster_whisper') or 'model' not in body and self.status()['available']):raise SpeechError('NOT_SUPPORTED','El modelo local de transcripción o su motor no está disponible.')
         if not self._busy.acquire(False):raise SpeechError('BUSY','Local transcription is busy')
         context=None
         try:
@@ -313,7 +342,7 @@ class OfflineTranscriptionService:
                     self._used_request_ids.add(identity)
                 context=_ASRRequest(request_id,context_owner,deadline_mono,cancel_event=cancel_event)
                 self._requests[request_id]=context
-            request={'audio_base64':encoded,'model_path':str(self.model_path),'language':language,'task':task}
+            request={'audio_base64':encoded,'model_path':str(selected_model),'language':language,'task':task,'engine':engine}
             result=self._execute(request,_context=context,wait_for_io=deadline_mono is None and cancel_event is None)
             if context.is_cancelled():raise SpeechError('CANCELLED','Local transcription was cancelled')
             result=dict(result)
