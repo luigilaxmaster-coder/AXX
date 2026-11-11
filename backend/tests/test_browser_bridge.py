@@ -11,6 +11,7 @@ import unittest
 from unittest.mock import patch
 
 from backend.actions import browser_bridge as bridge
+from backend.inference.process_manager import spawn_managed_process, terminate_process_tree
 
 
 class BrowserBridgeContracts(unittest.TestCase):
@@ -117,13 +118,13 @@ class PreparedBrowserNativeTests(unittest.TestCase):
         worker = threading.Thread(target=server.serve_forever, daemon=True)
         worker.start()
         profile = tempfile.TemporaryDirectory(prefix='axx-browser-fixture-')
-        process = None
+        process = job = None
         try:
             base = 'http://127.0.0.1:' + str(server.server_port)
-            process = subprocess.Popen([str(executable), '--headless=new', '--remote-debugging-address=127.0.0.1',
+            process, job = spawn_managed_process([str(executable), '--headless=new', '--remote-debugging-address=127.0.0.1',
                                         '--remote-debugging-port=0', '--user-data-dir=' + profile.name,
                                         '--no-first-run', '--no-default-browser-check', base + '/first'],
-                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=subprocess.CREATE_NO_WINDOW)
+                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             active = Path(profile.name) / 'DevToolsActivePort'
             deadline = time.monotonic() + 15
             while not active.exists() and time.monotonic() < deadline:
@@ -157,9 +158,8 @@ class PreparedBrowserNativeTests(unittest.TestCase):
                 self.assertTrue(redirected.evidence['effect_uncertain'])
                 self.assertIn('redirected', redirected.error)
         finally:
-            if process and process.poll() is None:
-                subprocess.run(['taskkill', '/PID', str(process.pid), '/T', '/F'], capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
-                process.wait(timeout=10)
+            if process:
+                terminate_process_tree(process, job)
             server.shutdown()
             server.server_close()
             for attempt in range(20):

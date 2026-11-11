@@ -51,11 +51,13 @@
   const reference = r => ({id:r.id, revision:r.revision, digest:r.digest});
   const button = (text, action, primary = false) => { const n = el('button', text, primary ? 'primary' : ''); n.type = 'button'; n.onclick = () => void run(action); return n; };
   function lock(value) { busy = value; section.setAttribute('aria-busy', String(value)); for (const n of section.querySelectorAll('button,input,select,textarea')) n.disabled = value; }
-  async function run(action, memory = commands.captureMemory()) {
+  async function run(action, memory) {
     if (busy) return;
-    requestMemory = memory;
     lock(true);
-    try { commands.checkMemory(requestMemory, true); await action(); }
+    try {
+      requestMemory = memory === undefined ? commands.captureMemory() : memory;
+      commands.checkMemory(requestMemory, true); await action();
+    }
     catch (error) { status(error.message || String(error)); }
     finally { requestMemory = null; lock(false); Axx.resident?.schedule(); }
   }

@@ -91,6 +91,8 @@ class CapabilityWorkshopUiTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[2]
         page = browser.new_page(viewport={'width': 1440, 'height': 1100})
         page.set_default_timeout(20000)
+        self.page_errors = []
+        page.on('pageerror', lambda error: self.page_errors.append(str(error)))
         page.expose_function('nativeWorkshopRequest', self.native_request)
         page.add_init_script('''window.__TAURI__={core:{invoke:async(name,args)=>{
             const desktop={workWidth:1920,workHeight:1080,spaceLeft:960,spaceRight:960,spaceAbove:540,spaceBelow:540};
@@ -100,17 +102,21 @@ class CapabilityWorkshopUiTests(unittest.TestCase):
             return null;
         }},event:{listen:async()=>()=>{}}};''')
         page.goto((root / '1.AXX/Axx.html').as_uri())
-        page.wait_for_function('() => Boolean(window.Axx?.capabilityWorkshop && Axx.resident?.firstFrame)')
+        page.wait_for_function('() => Boolean(window.Axx?.capabilityWorkshop && Axx.resident?.firstFrame && Axx.chatWorkspace?.ready)')
+        page.wait_for_function('() => document.getElementById("capability-workshop").getAttribute("aria-busy") === "false"')
         return page
 
     def test_open_commands_retries_startup_failure_and_propose_still_generates_once(self):
         from playwright.sync_api import sync_playwright, expect
-        self.reject_first_list = True
         edge = Path(os.environ.get('PROGRAMFILES(X86)', r'C:\Program Files (x86)')) / 'Microsoft/Edge/Application/msedge.exe'
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(executable_path=str(edge), headless=True)
             try:
                 page = self.new_page(browser)
+                self.assertEqual(self.page_errors, [])
+                self.list_requests = 0
+                self.reject_first_list = True
+                page.evaluate('() => Axx.companion.openFeature("commands")')
                 expect(page.locator('#cap-status')).to_contain_text('Backend is starting')
                 expect(page.locator('#capability-workshop')).to_have_attribute('aria-busy', 'false')
                 self.assertEqual(self.list_requests, 1)

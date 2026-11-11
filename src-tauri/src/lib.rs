@@ -1154,7 +1154,7 @@ fn start_global_hotkey_thread(app: AppHandle) {
 }
 
 fn instance_object_name(kind: &str, identifier: &str) -> String {
-    format!("Local\\\\{kind}-{identifier}")
+    format!(r"Local\{kind}-{identifier}")
 }
 
 #[cfg(windows)]
@@ -1358,10 +1358,18 @@ mod tests {
     use super::*;
     #[test]
     fn instance_objects_preserve_production_identity_and_separate_candidates() {
-        assert_eq!(instance_object_name("AxxDesktop", "com.axx.desktop"), "Local\\\\AxxDesktop-com.axx.desktop");
-        assert_eq!(instance_object_name("AxxResidentSummon", "com.axx.desktop"), "Local\\\\AxxResidentSummon-com.axx.desktop");
+        assert_eq!(instance_object_name("AxxDesktop", "com.axx.desktop"), r"Local\AxxDesktop-com.axx.desktop");
+        assert_eq!(instance_object_name("AxxResidentSummon", "com.axx.desktop"), r"Local\AxxResidentSummon-com.axx.desktop");
         assert_ne!(instance_object_name("AxxDesktop", "com.axx.desktop"),
                    instance_object_name("AxxDesktop", "com.axx.phase5"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn candidate_instance_identity_creates_a_real_named_mutex() {
+        let identifier = format!("com.axx.phase5-test.{}", uuid::Uuid::new_v4().simple());
+        let guard = acquire_instance(&identifier).expect("valid Windows object namespace");
+        assert!(guard.is_some());
     }
 
     #[test]
