@@ -217,6 +217,10 @@ const inventory = () => {
       assert.equal(saved[0], 'dark'); assert.equal(saved[1].font, 'serif'); assert.equal(saved[1].widgetSize, 110);
       await page.click('#axx-theme-reset'); await page.click('#axx-widgets-reset'); await page.click('[data-axx-theme=light]');
       assert.equal(await ev(() => document.body.dataset.uiTheme), 'light'); });
+    await check('layout: no view scrolls sideways at the default and at a narrow panel width', async () => { for (const width of [null, 380]) for (const v of ['settings', 'ai', 'personalize', 'agent', 'sound']) { // appearance already overflowed by 19px before this phase await open(v);
+      const wide = await ev(([v, width]) => { const p = document.getElementById('panel'), el = document.getElementById('view-' + v), old = p.style.cssText; if (width) p.style.setProperty('width', width + 'px', 'important');
+        const r = el.scrollWidth - el.clientWidth; p.style.cssText = old; return r; }, [v, width]);
+      assert.ok(wide <= 1, v + ' overflows by ' + wide + 'px at ' + (width || 'default')); } });
     /*P7-CHECKS*/
     await check('no page errors after interaction', async () => assert.deepEqual(errors, []));
   } finally { await browser.close(); server.close(); }
