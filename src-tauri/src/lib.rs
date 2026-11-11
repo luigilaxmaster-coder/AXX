@@ -18,6 +18,8 @@ mod system_media;
 mod capture;
 mod magic_pen;
 mod realtime_chat;
+mod dictation;
+mod dictation_shortcut;
 
 const MAX_MESSAGE: usize = 8 * 1024 * 1024;
 
@@ -274,7 +276,7 @@ fn validate_route(method: &str, path: &str) -> Result<(), String> {
 fn backend_timeout_seconds(path: &str) -> u64 {
     if path == "/axx-api/speech/synthesize" {
         230
-    } else if path == "/axx-api/speech/transcribe" {
+    } else if matches!(path, "/axx-api/speech/transcribe" | "/axx-api/speech/models/prepare") {
         95
     } else if path == "/axx-api/status"
         || path == "/axx-api/chat/cancel"
@@ -638,16 +640,22 @@ fn hit_map(map: Value, state: State<HostState>) -> Result<(), String> {
     Ok(())
 }
 
+fn application_data_path(base: PathBuf, identifier: &str) -> PathBuf {
+    if identifier != "com.axx.desktop" {
+        base.join(identifier).join("Axx")
+    } else if base.ends_with("com.axx.desktop") {
+        base
+    } else {
+        base.join("Axx")
+    }
+}
+
 fn data_directory(app: &AppHandle) -> Result<PathBuf, String> {
     let base = std::env::var_os("LOCALAPPDATA")
         .map(PathBuf::from)
         .or_else(|| app.path().app_local_data_dir().ok())
         .ok_or("No local application data directory")?;
-    let path = if base.ends_with("com.axx.desktop") {
-        base
-    } else {
-        base.join("Axx")
-    };
+    let path = application_data_path(base, &app.config().identifier);
     fs::create_dir_all(&path).map_err(|e| format!("Cannot create Axx data directory: {e}"))?;
     Ok(path)
 }
@@ -1063,10 +1071,16 @@ unsafe extern "system" fn mouse_hook(code: i32, wparam: usize, lparam: isize) ->
 #[cfg(windows)]
 unsafe extern "system" fn keyboard_hook(code: i32, wparam: usize, lparam: isize) -> isize {
     use windows_sys::Win32::UI::WindowsAndMessaging::*;
-    if code >= 0 && wparam == WM_KEYDOWN as usize {
+    if code >= 0 && matches!(wparam as u32, WM_KEYUP | WM_SYSKEYUP) {
+        let event = unsafe { &*(lparam as *const KBDLLHOOKSTRUCT) };
+        if let Some(app) = KEYBOARD_APP.get() { dictation_shortcut::released(app, event.vkCode); }
+    }
+    if code >= 0 && matches!(wparam as u32, WM_KEYDOWN | WM_SYSKEYDOWN) {
         let event = unsafe { &*(lparam as *const KBDLLHOOKSTRUCT) };
         if event.vkCode == 0x1b {
+            dictation::cancel();
             if let Some(app) = KEYBOARD_APP.get() {
+                let _ = app.emit("axx-dictation-cancel", ());
                 if magic_pen::ACTIVE.load(Ordering::Acquire) {
                     let _ = app.emit("axx-pen-escape", ());
                     return unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) };
@@ -1123,8 +1137,10 @@ fn start_global_hotkey_thread(app: AppHandle) {
                 *app.state::<HostState>().remote_voice_shortcut_error.lock().unwrap() = Some(format!("Ctrl+Alt+Shift+V unavailable: {}", std::io::Error::last_os_error()));
             }
             let mut last = Instant::now() - Duration::from_secs(10);
+            dictation_shortcut::initialize();
             let mut msg: MSG = std::mem::zeroed();
             while GetMessageW(&mut msg, std::ptr::null_mut(), 0, 0) > 0 {
+                dictation_shortcut::message(&app, &msg);
                 if msg.message == WM_HOTKEY && msg.wParam == 1003 {
                     let _ = resident::summon(&app, false);
                 }
@@ -1249,6 +1265,8 @@ pub fn run() {
                 .build(),
         )
         .invoke_handler(tauri::generate_handler![
+            dictation::dictation_control,
+            dictation_shortcut::dictation_shortcut,
             native_status,
             system_media::system_media_status,
             system_media::system_media_control,
@@ -1356,6 +1374,14 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn candidate_data_is_separate_and_production_paths_stay_compatible() {
+        let base = PathBuf::from("local");
+        assert_eq!(application_data_path(base.clone(), "com.axx.desktop"), base.join("Axx"));
+        assert_eq!(application_data_path(base.clone(), "com.axx.phase8"), base.join("com.axx.phase8").join("Axx"));
+        let existing = base.join("com.axx.desktop");
+        assert_eq!(application_data_path(existing.clone(), "com.axx.desktop"), existing);
+    }
     #[test]
     fn instance_objects_preserve_production_identity_and_separate_candidates() {
         assert_eq!(instance_object_name("AxxDesktop", "com.axx.desktop"), r"Local\AxxDesktop-com.axx.desktop");
