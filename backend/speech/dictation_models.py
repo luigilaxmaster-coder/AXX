@@ -45,6 +45,8 @@ def resolve(model_id, default_path, language, task):
         return 'faster-whisper', path
     item = next((m for m in CATALOG['models'] if m['id'] == model_id), None)
     if item is None: raise SpeechError('INVALID_REQUEST', 'Unknown local model ID')
+    if task != 'prepare' and language is None and not item['capabilities']['languageDetection']:
+        raise SpeechError('NOT_SUPPORTED', 'Selected model requires an explicit source language')
     if language is not None and language not in item['languages']: raise SpeechError('NOT_SUPPORTED', 'Language unavailable in selected model')
     if task == 'translate' and not item['capabilities']['translate']: raise SpeechError('NOT_SUPPORTED', 'Selected model cannot translate')
     path = model_root() / 'dictation' / item['filename']
