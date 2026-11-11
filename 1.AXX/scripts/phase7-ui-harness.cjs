@@ -7,7 +7,7 @@ const { createRequire } = require('node:module');
 const bundled = createRequire(path.join(process.env.USERPROFILE, '.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/package.json'));
 const { chromium } = bundled('playwright');
 const root = path.join(__dirname, '..'), [mode = 'test', outDir = 'phase7-shots', tag = 'after'] = process.argv.slice(2);
-const VIEWS = ['settings', 'ai', 'appearance', 'agent', 'sound', 'lab'];
+const VIEWS = ['settings', 'ai', 'appearance', 'agent', 'sound', 'lab', 'personalize'];
 
 const fakeNative = () => {
   localStorage.setItem('axx.companion.v4', JSON.stringify({ version: 4, prefs: { provider: 'bridge', selection_mode: 'manual', apiConnection: 'Ollama local', model: 'qwen3:4b' } }));
@@ -55,7 +55,7 @@ const inventory = () => {
     const controls = [...el.querySelectorAll('button,input,select,textarea,summary,a[href]')].map(c => (c.id || '') + '|' + c.tagName.toLowerCase() + (c.type ? ':' + c.type : '') + '|' + (c.getAttribute('aria-label') || c.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 50));
     return { outline, controls, ids: [...el.querySelectorAll('[id]')].map(c => c.id) };
   };
-  return Object.fromEntries(['settings', 'ai', 'appearance', 'agent', 'sound', 'lab'].map(v => [v, describe(v)]));
+  return Object.fromEntries(['settings', 'ai', 'appearance', 'agent', 'sound', 'lab', 'personalize'].map(v => [v, describe(v)]));
 };
 
 (async () => {
@@ -103,6 +103,8 @@ const inventory = () => {
         await page.evaluate(([v, old]) => { document.getElementById('panel').style.cssText = old[0]; document.getElementById('view-' + v).style.cssText = old[1]; }, [v, saved]);
         await page.setViewportSize({ width: 1920, height: 1040 }); await page.waitForTimeout(150);
       } }
+      await theme('light'); await page.evaluate(() => Axx.phase7?.personalize('motion')); await page.waitForTimeout(400);
+      if (await page.$('.p7-tabs')) await (await page.$('#panel')).screenshot({ path: path.join(outDir, tag + '-personalize-motion-light-fold.png') });
       console.log('shots ->', outDir, errors.length ? 'pageerrors: ' + errors.join(' | ') : ''); return;
     }
 
@@ -171,6 +173,27 @@ const inventory = () => {
       await ev(() => document.getElementById('always-top').focus()); await page.keyboard.press('Tab'); await page.keyboard.press('Shift+Tab');
       const ring = await ev(() => { const s = getComputedStyle(document.activeElement); return [document.activeElement.id, s.outlineStyle, parseFloat(s.outlineWidth)]; });
       assert.equal(ring[0], 'always-top'); assert.notEqual(ring[1], 'none'); assert.ok(ring[2] >= 2); } await theme('light'); });
+    await check('personalize: one entry with five tabs, each showing its owner controls', async () => { await open('personalize');
+      assert.equal(await ev(() => document.querySelectorAll('.p7-tabs [role=tab]').length), 5);
+      for (const [key, view, id] of [['shape', 'appearance', 'forms'], ['sound', 'sound', 'sound-restore'], ['agent', 'agent', 'agent-name'], ['motion', 'personalize', 'id20-motion-grid'], ['interface', 'personalize', 'axx-interface-font']]) {
+        await ev(key => Axx.phase7.personalize(key), key); await page.waitForTimeout(350);
+        assert.equal(await ev(view => !document.getElementById('view-' + view).hidden && !!document.querySelector('#view-' + view + ' .p7-tabs [aria-selected=true]'), view), true, key);
+        assert.equal(await page.locator('#' + id).isVisible(), true, id); assert.equal(await ev(() => document.getElementById('panel-title').textContent), 'Personalizar AXX'); } });
+    await check('personalize: arrow keys move between tabs', async () => { await ev(() => Axx.phase7.personalize('interface')); await page.waitForTimeout(300);
+      await page.focus('.p7-tabs [aria-selected=true]'); await page.keyboard.press('ArrowRight'); await page.waitForTimeout(300);
+      assert.equal(await ev(() => document.querySelector('.p7-tabs [aria-selected=true]').dataset.p7Tab), 'motion'); });
+    await check('personalize: shared controls are one node, shown in whichever entry is open', async () => {
+      for (const [view, sel] of [['personalize', '#view-personalize'], ['settings', '#view-settings'], ['personalize', '#view-personalize'], ['settings', '#view-settings']]) { if (view === 'settings') await open(view); else { await ev(() => Axx.phase7.personalize('interface')); await page.waitForTimeout(350); }
+        assert.equal(await ev(sel => !!document.querySelector(sel + ' #axx-interface-theme') && document.querySelectorAll('#axx-interface-theme').length === 1, sel), true, view);
+        assert.equal(await page.locator('[data-axx-theme=dark]').isVisible(), true); }
+      assert.equal(await ev(() => document.getElementById('reduced-motion').closest('.p7-group').id), 'p7-performance'); });
+    await check('personalize: theme, font and widget size still persist through their owner', async () => { await ev(() => Axx.phase7.personalize('interface')); await page.waitForTimeout(350);
+      await page.click('[data-axx-theme=dark]'); await page.selectOption('#axx-interface-font', 'serif');
+      await ev(() => { const n = document.getElementById('axx-widget-size'); n.value = '110'; n.dispatchEvent(new Event('input', { bubbles: true })); });
+      const saved = await ev(() => [localStorage.getItem('axx.interface.theme'), JSON.parse(localStorage.getItem('axx.interface.customization'))]);
+      assert.equal(saved[0], 'dark'); assert.equal(saved[1].font, 'serif'); assert.equal(saved[1].widgetSize, 110);
+      await page.click('#axx-theme-reset'); await page.click('#axx-widgets-reset'); await page.click('[data-axx-theme=light]');
+      assert.equal(await ev(() => document.body.dataset.uiTheme), 'light'); });
     /*P7-CHECKS*/
     await check('no page errors after interaction', async () => assert.deepEqual(errors, []));
   } finally { await browser.close(); server.close(); }

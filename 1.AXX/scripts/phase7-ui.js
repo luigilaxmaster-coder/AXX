@@ -23,6 +23,7 @@
   /** Collapsed home for a card owned by another module. Opens itself whenever that module scrolls to its card. */
   function fold(target, card, fallback) {
     if (!card || card.closest('.p7-fold')) return;
+    if (card.querySelectorAll('button,input,select,textarea').length < 2) return void target.append(card); // a one-button shortcut is already minimal
     const d = make('details', 'p7-fold'), title = card.querySelector(':scope>strong,:scope>h3,:scope>legend,:scope>div>strong')?.textContent || card.textContent.trim() || fallback;
     d.append(make('summary', '', title.trim().slice(0, 60))); d.ontoggle = relayout; target.append(d); d.append(card);
     card.scrollIntoView = function (options) { d.open = true; const g = d.closest('details.p7-more'); if (g) g.open = true; return Element.prototype.scrollIntoView.call(this, options); };
@@ -155,11 +156,61 @@
     Axx.backendRequest('GET', '/axx-api/providers').then(r => { saved = r.providers || []; aiRender(); }).catch(() => {});
   }
 
+  /* ── Personalizar AXX ────────────────────────────────────────────────────────────── */
+  // One entry, five tabs. Each tab shows the controls where their owner keeps them; nothing is duplicated.
+  const TABS = [['shape', 'Forma', 'Forma y materiales', 'appearance'], ['interface', 'Interfaz', 'Interfaz y colores', 'personalize'],
+    ['motion', 'Movimiento', 'Movimiento y presencia', 'personalize'], ['sound', 'Sonidos', 'Sonidos y respuesta', 'sound'], ['agent', 'Personalidad', 'Personalidad e instrucciones del agente', 'agent']];
+  const P = make('section', 'panel-view'); P.id = 'view-personalize'; P.hidden = true; $('panel').append(P);
+  const tabs = make('nav', 'p7-tabs'); tabs.setAttribute('role', 'tablist'); tabs.setAttribute('aria-label', 'Personalizar AXX');
+  let tab = 'interface', personalBuilt = false; const loans = [];
+  const go = key => { const t = TABS.find(t => t[0] === key); if (t[3] === 'personalize') tab = key; Axx.companion.openFeature(t[3]); tabs.querySelector('[aria-selected=true]')?.focus(); };
+  for (const [key, label, full] of TABS) { const b = make('button', '', label); b.type = 'button'; b.setAttribute('role', 'tab'); b.title = full; b.setAttribute('aria-label', full); b.dataset.p7Tab = key; b.onclick = () => go(key); tabs.append(b); }
+  tabs.onkeydown = event => { const step = { ArrowRight: 1, ArrowLeft: -1 }[event.key]; if (!step) return; event.preventDefault();
+    const i = TABS.findIndex(t => t[0] === tabs.querySelector('[aria-selected=true]')?.dataset.p7Tab); go(TABS[(i + step + TABS.length) % TABS.length][0]); };
+  const link = (label, run) => { const b = make('button', '', label); b.type = 'button'; b.onclick = run; return b; };
+  /** A control shown in two entries lives in whichever one is open; a placeholder keeps its place at home. */
+  const lend = (node, slot) => { if (!node) return; const home = document.createComment('p7-home'); node.before(home); loans.push({ node, home, slot }); };
+  function personal(view) {
+    if (!personalBuilt) {
+      const face = make('div'); face.dataset.p7Section = 'interface';
+      const theme = group(face, 'theme', 'Tema y colores', 'Claro u oscuro, colores, tipografía y widgets. Cada tema guarda su combinación.');
+      const layout = group(face, 'layout', 'Paneles y dock', 'Dónde aparecen el dock y las ventanas, y cómo recuperarlos.');
+      const dock = labelOf('dock-placement'), help = dock?.nextElementSibling?.matches('details') ? dock.nextElementSibling : null;
+      layout.body.append(...[dock, help].filter(Boolean));
+      row(layout.body, 'Recuperar posiciones', 'Devuelve el dock, las ventanas y las medidas de los paneles a su sitio.', [$('dock-position-reset'), $('reset-desktop-layout'), $('reset-layout')]);
+      const move = make('div'); move.dataset.p7Section = 'motion';
+      const motion = group(move, 'motion', 'Movimiento', 'Carácter y expresividad del cuerpo. No cambia la forma.');
+      if ($('id20-motion')) motion.body.append($('id20-motion'));
+      const calm = group(move, 'calm', 'Menos movimiento', 'Para concentrarte o aligerar el equipo.');
+      const presence = group(move, 'presence', 'Presencia', 'Cómo y cuándo se hace notar AXX.');
+      row(presence.body, 'Presencia y autonomía', 'Discreto, Copiloto o Full. Se ajusta junto a sus permisos.', [link('Abrir', () => { Axx.companion.openFeature('settings'); $('anticipation-settings')?.scrollIntoView({ block: 'start' }); })]);
+      row(presence.body, 'Laboratorio de animaciones', 'Muestras de cada estado. No ejecuta tareas.', [link('Abrir', () => Axx.companion.openFeature('lab'))]);
+      P.append(face, move);
+      lend($('axx-interface-theme'), theme.body); lend(labelOf('reduced-motion'), calm.body); lend(labelOf('static-mode'), calm.body);
+      const more = settingsGroups?.win.more; if (more && more.children.length < 2) more.remove();
+      if (settingsGroups) row(settingsGroups.personal.body, 'Personalizar AXX', 'Forma, colores, movimiento, sonidos y personalidad en un solo lugar.', [link('Abrir', () => go('interface'))]).querySelector('button').classList.add('p7-main');
+      personalBuilt = true;
+    }
+    const here = TABS.some(t => t[3] === view);
+    for (const { node, home, slot } of loans) if (view === 'personalize') slot.append(node); else if (home.parentNode && node.previousSibling !== home) home.after(node);
+    if (!here) return;
+    const key = view === 'personalize' ? tab : TABS.find(t => t[3] === view)[0];
+    $('view-' + view).prepend(tabs);
+    for (const b of tabs.children) { const on = b.dataset.p7Tab === key; b.setAttribute('aria-selected', String(on)); b.tabIndex = on ? 0 : -1; }
+    for (const s of P.querySelectorAll(':scope>[data-p7-section]')) s.hidden = s.dataset.p7Section !== key;
+    if ($('panel-title')) $('panel-title').textContent = 'Personalizar AXX';
+  }
+  if (!Axx.FEATURES.some(f => f.id === 'personalize')) Axx.FEATURES.push({ id: 'personalize', family: 'settings', title: 'Personalizar AXX', description: 'Forma, interfaz, movimiento, sonidos y personalidad del agente.', view: 'personalize', availability: 'DISPONIBLE · LOCAL' });
+
   /* ── Wiring ──────────────────────────────────────────────────────────────────────── */
   const arrange = { settings, ai };
+  const show = view => { try { arrange[view]?.(); personal(view); } catch (error) { console.error('phase7-ui', error); } };
   const openFeature = Axx.companion.openFeature.bind(Axx.companion);
-  Axx.companion.openFeature = function (id) { const result = openFeature(id); try { arrange[Axx.FEATURES.find(f => f.id === id)?.view]?.(); } catch (error) { console.error('phase7-ui', error); } return result; };
-  Axx.phase7 = { arrange };
-  const all = () => { for (const run of Object.values(arrange)) try { run(); } catch (error) { console.error('phase7-ui', error); } };
+  Axx.companion.openFeature = function (id) { const result = openFeature(id), view = Axx.FEATURES.find(f => f.id === id)?.view; if (view) show(view); return result; };
+  // Views are also opened by the catalog and by other modules; follow whichever one becomes visible.
+  new MutationObserver(list => { for (const m of list) if (m.target.classList.contains('panel-view') && !m.target.hidden) show(m.target.id.slice(5)); })
+    .observe($('panel'), { attributes: true, attributeFilter: ['hidden'], subtree: true });
+  const all = () => { for (const view of Object.keys(arrange)) show(view); show([...$('panel').querySelectorAll(':scope>.panel-view')].find(v => !v.hidden)?.id.slice(5)); };
+  Axx.phase7 = { arrange, personalize: go };
   all(); setTimeout(all, 1500); // modules that add their cards after startup
 })(window.Axx);
