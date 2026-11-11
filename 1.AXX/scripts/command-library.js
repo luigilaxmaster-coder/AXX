@@ -604,6 +604,10 @@
                     }
                     if (resolved.match === 'none') {
                         if(!this.isActionRequest(raw))return previous(raw, metadata);
+                        // No exact deterministic command. With chat tools enabled the request goes to the selected model
+                        // with the typed tool catalog (same journal, permissions and approvals), not to the planner,
+                        // which needs its own model capacity and never reached the chat tools.
+                        if(Axx.companion.chatToolsEnabled?.())return previous(raw, metadata);
                         Axx.companion.message('user',raw,'local');
                         await plan(raw);
                         return;
