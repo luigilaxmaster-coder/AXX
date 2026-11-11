@@ -24,6 +24,7 @@ class DictationModelsTests(unittest.TestCase):
             with self.subTest(model_id=model_id), self.assertRaises(SpeechError): models.resolve(model_id, None, 'es', 'transcribe')
         with self.assertRaisesRegex(SpeechError, 'cannot translate'): models.resolve('parakeet-tdt-0.6b-v3', None, 'es', 'translate')
         with self.assertRaisesRegex(SpeechError, 'Language unavailable'): models.resolve('canary-180m-flash', None, 'ja', 'transcribe')
+        with self.assertRaisesRegex(SpeechError, 'explicit source language'): models.resolve('canary-180m-flash', None, None, 'transcribe')
 
     def test_installed_whisper_is_selected_per_request_without_changing_default(self):
         with tempfile.TemporaryDirectory() as directory:

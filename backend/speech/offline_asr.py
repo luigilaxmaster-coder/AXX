@@ -262,7 +262,7 @@ class OfflineTranscriptionService:
 
     def prepare_model(self, body):
         if not isinstance(body, dict) or set(body) != {'model'}: raise SpeechError('INVALID_REQUEST', 'Model preparation requires one model ID')
-        engine, path = dictation_models.resolve(body['model'], self.model_path, None, 'transcribe')
+        engine, path = dictation_models.resolve(body['model'], self.model_path, None, 'prepare')
         if not self._busy.acquire(False): raise SpeechError('BUSY', 'Local transcription is busy')
         try: return self._execute({'model_path':str(path), 'engine':engine, 'warmup':True})
         finally: self._busy.release()
