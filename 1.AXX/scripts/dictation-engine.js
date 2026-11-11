@@ -130,14 +130,19 @@
     async function start(next = 'focus', holding = false) {
         if (!['manual', 'focus'].includes(next)) throw Error('Modo de dictado inválido.');
         stop(); held = holding; const id = generation;
-        const report = await Axx.backendRequest('GET', '/axx-api/speech/models');
-        if (id !== generation) return;
-        if (config.model && !report.models?.some(m => m.id === config.model && m.available)) throw Error('El motor/modelo elegido no está preparado localmente.');
-        if (!config.model) await voice.requireTranscription();
-        if (id !== generation) return;
-        const result = await native({ action: 'start' });
-        if (id !== generation) { void native({ action: 'stop' }); return; }
-        session = result.session; sequence = 0; mode = next; phase = 'ARMED'; render(); await tick();
+        mode = next; phase = 'ARMED';
+        if (Axx.symbiosis?.use === 'command') Axx.symbiosis.dictation.stop();
+        render();
+        try {
+            const report = await Axx.backendRequest('GET', '/axx-api/speech/models');
+            if (id !== generation) return;
+            if (config.model && !report.models?.some(m => m.id === config.model && m.available)) throw Error('El motor/modelo elegido no está preparado localmente.');
+            if (!config.model) await voice.requireTranscription();
+            if (id !== generation) return;
+            const result = await native({ action: 'start' });
+            if (id !== generation) { void native({ action: 'stop' }); return; }
+            session = result.session; sequence = 0; render(); await tick();
+        } catch (error) { if (id === generation) stop(); throw error; }
     }
     function retain(text, status) {
         if (pending.length >= 10) { pause(); lastError = 'Buffer pendiente lleno; revise o descarte el texto antes de continuar.'; }

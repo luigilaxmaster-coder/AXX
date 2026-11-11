@@ -76,5 +76,7 @@ const assert = require('node:assert/strict'), fs = require('node:fs'), vm = requ
     assert.equal(api.conflictsWithShortcut('Ctrl+Alt+Shift+D'),true);
     voice.wake={hotkey:'Ctrl+Alt+Q'};
     await assert.rejects(api.configureShortcut({key:81,modifiers:3,activation:'toggle'}),/comandos de voz/);
+    let stoppedCommands=0;window.Axx.symbiosis={use:'command',dictation:{stop(){stoppedCommands++;}}};
+    await api.start('focus');assert.equal(stoppedCommands,1,'Switching to dictation cancels the old command capture before new speech');api.stop();
     console.log('PASS: global opt-in, one stream, sustained decoding, old-focus pending, no auto-submit, priority, pause/resume, Escape and OFF cleanup');
 })().catch(error => { console.error(error); process.exitCode = 1; });
