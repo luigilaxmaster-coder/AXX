@@ -19,6 +19,8 @@ mod capture;
 mod magic_pen;
 mod realtime_chat;
 mod dictation;
+#[cfg(windows)]
+mod dictation_audio;
 mod dictation_shortcut;
 
 const MAX_MESSAGE: usize = 8 * 1024 * 1024;
@@ -1291,6 +1293,8 @@ pub fn run() {
         ])
         .setup(|app| {
             let handle = app.handle().clone();
+            #[cfg(windows)]
+            dictation_audio::init(handle.clone());
             let state = app.state::<HostState>();
             *state.data_dir.lock().unwrap() =
                 data_directory(&handle).map_err(std::io::Error::other)?;
@@ -1354,6 +1358,7 @@ pub fn run() {
                     }
                 }
                 tauri::WindowEvent::Destroyed => {
+                    dictation::cancel();
                     state.stopping.store(true, Ordering::Relaxed);
                     terminate_backend(&state);
                 }
@@ -1364,6 +1369,7 @@ pub fn run() {
         .expect("Cannot build Axx application");
     app.run(|app, event| {
         if let tauri::RunEvent::Exit = event {
+            dictation::cancel();
             let state = app.state::<HostState>();
             state.stopping.store(true, Ordering::Relaxed);
             terminate_backend(&state);

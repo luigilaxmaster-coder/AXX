@@ -13,6 +13,12 @@ pub fn cancel() {
 pub enum Request {
     Start {},
     Stop {},
+    AudioStart {
+        session: String,
+        device: String,
+    },
+    AudioStop {},
+    AudioDevices {},
     Probe {
         session: String,
     },
@@ -48,19 +54,29 @@ fn confirmed(before: &str, after: &str, text: &str) -> bool {
 pub async fn dictation_control(request: Request) -> Result<Value, String> {
     if matches!(request, Request::Stop {}) {
         cancel();
-        return Ok(json!({"state":"OFF"}));
     }
     #[cfg(windows)]
     {
-        tauri::async_runtime::spawn_blocking(move || native::send(request))
-            .await
-            .map_err(|_| "Dictation worker failed".to_string())?
+        tauri::async_runtime::spawn_blocking(move || match request {
+            Request::Stop {} => super::dictation_audio::stop()
+                .map(|_| json!({"state":"OFF","microphone_open":false})),
+            Request::AudioStop {} => super::dictation_audio::stop(),
+            Request::AudioDevices {} => super::dictation_audio::devices(),
+            request => native::send(request),
+        })
+        .await
+        .map_err(|_| "Dictation worker failed".to_string())?
     }
     #[cfg(not(windows))]
     {
         let _ = request;
         Err("Windows UI Automation required".into())
     }
+}
+
+#[cfg(windows)]
+pub fn desktop_available() -> bool {
+    native::desktop_available()
 }
 
 #[cfg(windows)]
@@ -122,6 +138,7 @@ mod native {
         last_status: &'static str,
         target: Option<Target>,
         heartbeat: Instant,
+        destination: super::super::dictation_audio::Destination,
     }
     type Reply = mpsc::SyncSender<Result<Value, String>>;
     static WORKER: OnceLock<mpsc::SyncSender<(Request, Reply)>> = OnceLock::new();
@@ -142,7 +159,7 @@ mod native {
         })?
     }
 
-    fn desktop_available() -> bool {
+    pub(super) fn desktop_available() -> bool {
         unsafe {
             let Ok(desktop) =
                 OpenInputDesktop(DESKTOP_CONTROL_FLAGS(0), false, DESKTOP_READOBJECTS)
@@ -382,6 +399,11 @@ mod native {
                     active = None;
                     cancel();
                 }
+                if let Some(session) = active.as_mut() {
+                    if super::super::dictation_audio::active() {
+                        refresh(&uia, &epoch, session);
+                    }
+                }
                 let (request, reply) = match rx.recv_timeout(Duration::from_millis(100)) {
                     Ok(value) => value,
                     Err(mpsc::RecvTimeoutError::Timeout) => continue,
@@ -400,7 +422,7 @@ mod native {
     }
     fn handle(
         uia: &IUIAutomation,
-        epoch: &AtomicU64,
+        epoch: &Arc<AtomicU64>,
         active: &mut Option<Session>,
         request: Request,
     ) -> Result<Value, String> {
@@ -414,6 +436,7 @@ mod native {
                 last_status: "blocked",
                 target: None,
                 heartbeat: Instant::now(),
+                destination: Arc::new(std::sync::Mutex::new(None)),
             });
             return Ok(json!({"session":id,"state":"ARMED","api_version":1}));
         }
@@ -424,24 +447,24 @@ mod native {
         match request {
             Request::Probe { session: id } if id == session.id => {
                 session.heartbeat = Instant::now();
-                match observe(uia, epoch.load(Ordering::SeqCst)) {
-                    Ok(mut target) => {
-                        if let Some(previous) =
-                            session.target.as_ref().filter(|p| same(uia, p, &target))
-                        {
-                            target.token = previous.token.clone();
-                        }
-                        let token = target.token.clone();
-                        let hwnd = target.hwnd;
-                        let pid = target.pid;
-                        session.target = Some(target);
-                        Ok(json!({"editable":true,"target":token,"hwnd":hwnd,"process_id":pid}))
-                    }
-                    Err(reason) => {
-                        session.target = None;
-                        Ok(json!({"editable":false,"reason":reason}))
-                    }
+                super::super::dictation_audio::beat();
+                Ok(refresh(uia, epoch, session))
+            }
+            Request::AudioStart {
+                session: id,
+                device,
+            } if id == session.id => {
+                refresh(uia, epoch, session);
+                if session.target.is_none() {
+                    return Err("No editable target".into());
                 }
+                super::super::dictation_audio::start(
+                    id,
+                    device,
+                    session.destination.clone(),
+                    epoch.clone(),
+                    session.generation,
+                )
             }
             Request::Commit {
                 session: id,
@@ -466,6 +489,25 @@ mod native {
                 Ok(json!({"status":session.last_status,"sequence":sequence}))
             }
             _ => Err("Invalid dictation session".into()),
+        }
+    }
+
+    fn refresh(uia: &IUIAutomation, epoch: &AtomicU64, session: &mut Session) -> Value {
+        match observe(uia, epoch.load(Ordering::SeqCst)) {
+            Ok(mut target) => {
+                if let Some(previous) = session.target.as_ref().filter(|p| same(uia, p, &target)) {
+                    target.token = previous.token.clone();
+                }
+                *session.destination.lock().unwrap() = Some((target.token.clone(), target.epoch));
+                let result = json!({"editable":true,"target":target.token,"hwnd":target.hwnd,"process_id":target.pid,"microphone_open":super::super::dictation_audio::active()});
+                session.target = Some(target);
+                result
+            }
+            Err(reason) => {
+                *session.destination.lock().unwrap() = None;
+                session.target = None;
+                json!({"editable":false,"reason":reason,"microphone_open":super::super::dictation_audio::active()})
+            }
         }
     }
 }
