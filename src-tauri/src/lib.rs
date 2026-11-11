@@ -1153,13 +1153,17 @@ fn start_global_hotkey_thread(app: AppHandle) {
     });
 }
 
+fn instance_object_name(kind: &str, identifier: &str) -> String {
+    format!("Local\\\\{kind}-{identifier}")
+}
+
 #[cfg(windows)]
-fn acquire_instance() -> Result<Option<WinHandle>, String> {
+fn acquire_instance(identifier: &str) -> Result<Option<WinHandle>, String> {
     use windows_sys::Win32::{
         Foundation::{ERROR_ALREADY_EXISTS, GetLastError},
         System::Threading::{CreateMutexW, EVENT_MODIFY_STATE, OpenEventW, SetEvent},
     };
-    let name: Vec<u16> = "Local\\AxxDesktop-com.axx.desktop"
+    let name: Vec<u16> = instance_object_name("AxxDesktop", identifier)
         .encode_utf16()
         .chain(Some(0))
         .collect();
@@ -1171,7 +1175,7 @@ fn acquire_instance() -> Result<Option<WinHandle>, String> {
         let exists = GetLastError() == ERROR_ALREADY_EXISTS;
         let guard = WinHandle(handle as isize);
         if exists {
-            let name: Vec<u16> = "Local\\AxxResidentSummon-com.axx.desktop"
+            let name: Vec<u16> = instance_object_name("AxxResidentSummon", identifier)
                 .encode_utf16()
                 .chain(Some(0))
                 .collect();
@@ -1193,7 +1197,7 @@ fn acquire_instance() -> Result<Option<WinHandle>, String> {
 #[cfg(windows)]
 fn start_instance_listener(app: AppHandle) -> Result<(), String> {
     use windows_sys::Win32::System::Threading::{CreateEventW, WaitForSingleObject};
-    let name: Vec<u16> = "Local\\AxxResidentSummon-com.axx.desktop"
+    let name: Vec<u16> = instance_object_name("AxxResidentSummon", &app.config().identifier)
         .encode_utf16()
         .chain(Some(0))
         .collect();
@@ -1218,10 +1222,11 @@ fn start_instance_listener(app: AppHandle) -> Result<(), String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let context = tauri::generate_context!();
     let state = HostState::default();
     #[cfg(windows)]
     {
-        match acquire_instance() {
+        match acquire_instance(&context.config().identifier) {
             Ok(Some(handle)) => *state.instance.lock().unwrap() = Some(handle),
             Ok(None) => return,
             Err(error) => {
@@ -1337,7 +1342,7 @@ pub fn run() {
                 _ => {}
             }
         })
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("Cannot build Axx application");
     app.run(|app, event| {
         if let tauri::RunEvent::Exit = event {
@@ -1351,6 +1356,14 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn instance_objects_preserve_production_identity_and_separate_candidates() {
+        assert_eq!(instance_object_name("AxxDesktop", "com.axx.desktop"), "Local\\\\AxxDesktop-com.axx.desktop");
+        assert_eq!(instance_object_name("AxxResidentSummon", "com.axx.desktop"), "Local\\\\AxxResidentSummon-com.axx.desktop");
+        assert_ne!(instance_object_name("AxxDesktop", "com.axx.desktop"),
+                   instance_object_name("AxxDesktop", "com.axx.phase5"));
+    }
+
     #[test]
     fn long_actions_fit_worker_deadlines_without_delaying_stop() {
         assert!(backend_timeout_seconds("/axx-api/commands/execute") > 120);
