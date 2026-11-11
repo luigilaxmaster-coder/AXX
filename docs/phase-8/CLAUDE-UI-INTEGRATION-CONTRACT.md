@@ -16,7 +16,7 @@ await Axx.dictation.transcribeFile(file,{translate:false,targetLanguage:'en'});
 ```
 
 Ajustes: language auto/ISO 2-3 letras; model ID del catálogo o vacío (motor actual);
-microphone deviceId; profile literal/conversation/technical/code; output insert/copy;
+microphone ID nativo IMMDevice (vacío = predeterminado); profile literal/conversation/technical/code; output insert/copy;
 dictionary lista de hasta 100 pares [original,reemplazo]. Literal/código conservan
 texto y cifras; conversación/técnico aplican solo correcciones exactas y espacios.
 No se convierten números ambiguos ni se reescribe significado con un LLM.
@@ -39,3 +39,10 @@ El postproceso remoto no existe: no mostrar un interruptor que prometa enviarlo.
 El estado puede esperar una conversación aunque no haya stream activo entre turnos. No recuperar automáticamente el micrófono de una sesión que lo ha preemptado. El registro inicial de atajo espera la comprobación del chord de órdenes en el renderer; conflicto => deshabilitar solo el nuevo. La API de conflicto sirve al editor de atajos de voz para conservar ambos comportamientos separados.
 
 Literal/código evitan sustituciones semánticas; la inserción global aplana CR/LF/tab a espacios para no sintetizar Enter. Los archivos devuelven su transcripción como texto y no se insertan ni envían automáticamente. Canary requiere origen explícito; forced_language=false en Parakeet significa que el hint no garantiza forzado.
+
+IPC desktop `dictation_control`: audio_devices enumera sin abrir micrófono;
+audio_start {session,device} exige sesión/destino válidos, audio_stop confirma
+microphone_open=false. Eventos axx-dictation-pcm y axx-dictation-audio-stopped
+incluyen session/capture; ignorar generaciones antiguas. No mostrar esos eventos
+ni PCM en logs. microphone_open sigue true mientras falta confirmar el cierre.
+La selección del micrófono de conversación conserva su deviceId del navegador.

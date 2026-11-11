@@ -38,8 +38,10 @@ is discarded by the parent. Translations target English explicitly.
 
 Models are manually authorized local files under `%LOCALAPPDATA%/Axx/models/dictation/`.
 Use only catalog filenames/hashes; Python checks the full SHA256 before loading.
-Model licenses/attribution are independent of the engine license. No model has
-been tested just because this program compiles.
+Model licenses/attribution are independent of the engine license. Wrapper AND
+native sys are pinned to 0.4.0: the wrapper rejects a different patch ABI even
+when Cargo's semver resolver accepts it. The native-version test catches this
+without weights. Model quality still requires the same real corpus on each engine.
 
 Private Windows candidate after building/staging the backend with the official
 build script (`-BackendOnly`):

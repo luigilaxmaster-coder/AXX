@@ -23,4 +23,21 @@ No descargar pesos automáticamente. No prometer compatibilidad UIA universal.
 Implementación propia inspirada en Handy; catálogo con licencia y procedencia.
 Cualquier port literal debe conservar MIT. No incorporar auto-submit.
 
-Implementación concreta: captura PCM/lease en el único renderer existente; Rust conserva autorización, epoch/foco, inyección y atajo, no el dispositivo físico. Esto reduce cambios sobre la voz actual, pero no satisface todavía el cierre independiente del micrófono si se congela la UI. Ese punto bloquea producción y la aceptación de bloqueo de Windows.
+Captura global: WASAPI compartido en hilo nativo STA, PCM mono 16 kHz/16 bits;
+sin nueva dependencia. El renderer recibe bloques de 2048 muestras, hace VAD y
+consume la misma API ASR. El host conserva dispositivo, autorización, foco y atajo.
+Comprueba cancelación, escritorio y latido cada ~10 ms; 3 s sin latido detienen la
+captura aunque el renderer no ejecute JS. UIA refresca el destino cada ~100 ms;
+un epoch distinto descarta audio hasta revalidar, un campo protegido cierra audio.
+Las colas dejan de crecer al vencer el latido. No se guardan PCM ni transcripciones.
+
+La voz existente conserva sus adaptadores browser, coordinados por el mismo lease.
+Sus tres callers (grabador, medidor y micrófono visual) esperan confirmación nativa
+de liberación antes de abrir otro stream. Un fallo/timeout de cierre bloquea ese
+handoff. Escape y salida cancelan desde el host; errores/pérdidas de audio requieren
+reanudación explícita. El diseño ya no depende del renderer para liberar WASAPI;
+la aceptación con hardware, bloqueo y suspensión reales sigue pendiente.
+
+APIs verificadas contra windows 0.61.3 y documentación primaria de Microsoft:
+[Initialize](https://learn.microsoft.com/windows/win32/api/audioclient/nf-audioclient-iaudioclient-initialize),
+[GetBuffer](https://learn.microsoft.com/windows/win32/api/audioclient/nf-audioclient-iaudiocaptureclient-getbuffer).

@@ -17,9 +17,12 @@ Resultado de esta fase (exit 0 salvo los intentos fallidos documentados):
 - test-dictation-runtime: regresiones existentes y controles en la vista de voz;
   dictado del chat conserva borrador sin envío, leases y cancelación.
 - test-chat-groups (9), test-chat-workspace y test-tendril-geometry: PASS.
-- Rust lib: 26 OK/2 opt-in; una es el helper anterior y otra la prueba interactiva.
+- Rust lib final: 27 OK/2 opt-in; una es el helper anterior y otra la prueba interactiva.
   La prueba interactiva se ejecutó aparte: 1 OK en controles Win32 reales.
-- Sidecar release: 1 self-test y compilación real OK. No acredita modelos.
+- Sidecar release final: 2 self-tests (incluye ABI) y compilación real OK.
+- Parakeet/Whisper Small: descarga autorizada/hash PASS, inferencia sobre mismo
+  corpus sintético de 3 clips PASS; preparar/transcribir/liberar vía backend
+  empaquetado PASS. No acredita voces humanas/ES/FR ni corpus de aceptación.
 - Gate PC/móvil: PASS; contrato 15, servicio 112 (1 omitida previa), navegador 58,
   selector 8, renderer y diseño protegido. build/phase8/companion-validation-final.json.
 - Backend PyInstaller: PASS, QR empaquetado PASS, bundle verificado; sin pesos.
@@ -45,3 +48,20 @@ Cierre: gate final repetido PASS, protocolo sidecar ante modelo ausente PASS sin
 Diagnóstico definitivo del fixture: Windows no siempre cedía foreground al proceso lanzado en segundo plano. El fixture ahora lo exige y espera activación; la ejecución final se activó con Computer Use y pasó (28.12 s incluidos en espera). Esto sustituye la interpretación incompleta de los intentos iniciales como solo sincronización de mensajes. No certifica foco universal ni micrófono físico.
 
 WebView2 final por diagnóstico CDP de solo lectura: hash del módulo servido idéntico a fuente, OFF sin micrófono, atajo registrado, 8 modelos vía IPC del backend empaquetado. PASS. El harness esperó navegación, habilitó Page y esperó una respuesta GET válida del backend; los sondeos iniciales de arranque no se cuentan como fallos de producto ni como validación de voz. El clic nativo transparente continúa BLOCKED.
+
+Cambio final: PCM global nativo WASAPI, heartbeat nativo 3 s y stop confirmado.
+Global-runtime prueba que nunca llama getUserMedia, cede tras cierre confirmado,
+informa micrófono abierto durante cierre demorado, ignora eventos antiguos y
+detiene ante fallo de dispositivo. Regresión browser prueba que los tres callers
+existentes esperan ese cierre antes de getUserMedia. Ambas PASS. Rust añade la
+prueba de liveness/cancelación; fixture UIA final PASS (1.41 s). Logs finales:
+rust-native-audio-final.log, native-fixture-native-audio.log y
+dictation-runtime-final.log. Estos resultados no sustituyen audio físico.
+
+El primer ensayo con pesos fue BLOCKED PROCESS_FAILURE: resolución semver
+permitía sys 0.4.1 con wrapper 0.4.0, pero el guard de ABI exige patch exacto.
+Corregido con pin =0.4.0 y prueba nativa de versión. No se relajó la validación.
+Registro inicial conservado como asr-initial-abi-failure.json; final real con
+los tres motores PASS en asr-approved-models-comparison.json. La consola del
+helper diagnóstico falló al imprimir una flecha Unicode en cp1252; se corrigió
+el helper privado a salida ASCII JSON, sin cambiar la inferencia del producto.

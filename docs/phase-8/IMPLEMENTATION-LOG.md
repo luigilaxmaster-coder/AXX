@@ -40,6 +40,26 @@ Commits de cierre: df4cd37 (AudioContext acotado y foreground del fixture), b2b9
 
 Preflight remoto: main confirmado por git ls-remote en dfe3d5a27e2830eb7cf1cb3a2aa0707d4e117dc4. Búsqueda del conector para PR abiertas devuelve #1–5; incluye Optical Glass (#5) y cambios de Magic Pen (#3–4). Ninguna PR o rama externa se modificó.
 
-Entrega real: candidata privada compilada, sin firma, sin instalar, sin push ni publicación; gate final PASS y arranque aislado PASS. No READY: modelos/corpus físicos, compatibilidad de apps y cierre de micrófono independiente del renderer quedan abiertos. El propietario debe revisarlos antes de integrar/distribuir.
+Entrega real: candidata privada compilada, sin firma, sin instalar, sin push ni publicación; gate final PASS y arranque aislado PASS. No READY: modelos/corpus físicos, compatibilidad de apps y aceptación de micrófono/Windows quedan abiertos. El propietario debe revisarlos antes de integrar/distribuir.
 
 Verificación de cierre: módulo exacto en WebView2 real + IPC de lectura PASS; método complementario de diagnóstico, no sustituto de interacción física. Fuentes y resultados indexados en build/phase8/validation.json; firma NotSigned y estado final PARTIAL/NOT_READY.
+
+Cierre de arquitectura: captura global movida del renderer a WASAPI en host Rust.
+Sin dependencia adicional; mono 16 kHz, latido 3 s, guard nativo de escritorio/foco,
+cancelación independiente y stop confirmado antes de los tres capturadores actuales.
+El JS conserva segmentación/ASR e ignora eventos antiguos. Pruebas cubren release
+demorado, error nativo, prioridad, no getUserMedia global y barrera de los callers;
+27 Rust PASS/2 opt-in. Fixture Win32 repetido PASS (1.41 s) sin intervención esta vez.
+No convertir estas pruebas sintéticas/de control en aceptación física del driver.
+
+Autorización posterior del usuario: descargar Parakeet V3 y Whisper Small para
+compararlos. Se descargaron 1009259712 bytes en perfil de candidata, revisión/
+tamaño/hash exactos; se copió solo el modelo base existente para comparar.
+La carga real descubrió ABI wrapper 0.4.0/sys 0.4.1 incompatible aunque compilaba.
+b5bbaca fija ambos a 0.4.0 y comprueba ABI enlazada en test; nueva compilación
+MSVC/Ninja fuera de junction. Inferencia sobre los mismos 3 clips sintéticos PASS
+en base/Parakeet/Small; backend empaquetado preparó/transcribió/liberó ambos PASS.
+Parakeet y Small dieron dígitos en la frase de dosis; Small abrevió la unidad.
+No se usó esa muestra para decidir ganador ni simular 50 frases humanas.
+Instalador privado reconstruido con sidecar corregido; sin nuevos pesos, firma,
+instalación personal, push o publicación. Recibos y límites en RELEASE-READINESS.
