@@ -102,6 +102,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 mod tests {
     use super::*;
     #[test]
+    fn native_abi_version_matches_wrapper() {
+        assert_eq!(transcribe_cpp::compiled_version(), transcribe_cpp::version());
+    }
+    #[test]
     fn bounds_pcm_and_tasks() {
         let mut r = Request {
             model_path: "model.gguf".into(),
