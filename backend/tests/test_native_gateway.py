@@ -304,6 +304,8 @@ class NativeGatewayTests(unittest.TestCase):
 
     def test_cancel_during_native_body_blocks_another_body_until_finished(self):
         with configured_bridge() as (bridge, gateway), ThreadPoolExecutor(max_workers=1) as pool:
+            bridge._start(threading.Event())
+            self.assertIsNone(bridge.active)
             entered, release, cancelled = threading.Event(), threading.Event(), threading.Event()
             calls = []
             def primitive():

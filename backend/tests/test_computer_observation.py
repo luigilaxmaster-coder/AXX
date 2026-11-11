@@ -72,6 +72,22 @@ class ObservationOnlyTests(unittest.TestCase):
         self.assertNotIn(captured['jpeg'], json.dumps(self.commands.operations()))
         self.assertEqual(self.service.status('chat-one')['actions'], 0)
 
+    def test_model_cannot_observe_with_an_invented_or_revoked_ticket(self):
+        self.readonly()
+        prepared = self.admit('observe')
+        self.service.end('chat-one')
+        with patch.object(cu.vision, 'observe') as capture, patch.object(cu, 'execute_action') as action:
+            revoked = self.connect.dispatch('axx_execute_action', prepared, 'run-one', 'revoked-ticket')
+            self.assertEqual(revoked['state'], 'failed', revoked)
+            invented = self.connect.dispatch('axx_execute_action', {
+                'command_id':'axx.computer.observe', 'inputs':{'ticket':'0'*32},
+                'operation_id':'invented-observation'}, 'run-one', 'invented-ticket')
+            self.assertEqual(invented['state'], 'failed', invented)
+            self.assertFalse(revoked['postconditions_passed'])
+            self.assertFalse(invented['postconditions_passed'])
+            capture.assert_not_called()
+            action.assert_not_called()
+
     def test_act_is_rejected_at_admission_claim_and_runtime_even_with_changed_ticket_state(self):
         self.readonly()
         with self.assertRaisesRegex(ValueError, 'solo permite observar'): self.admit()

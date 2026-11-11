@@ -180,6 +180,10 @@ class CallbackHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         if not self.authorized():
+            length = self.headers.get('Content-Length', '')
+            # Drain bounded bodies so Windows can deliver the denial before closing TCP.
+            if not self.headers.get('Transfer-Encoding') and len(length) <= 5 and length.isdecimal() and 0 < int(length) <= 16384:
+                self.rfile.read(int(length))
             self.send_json(403, {'error': 'forbidden'})
             return
         try:

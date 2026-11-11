@@ -763,7 +763,7 @@ class CommandService:
         mode = resolve_mode(self.adapters[command_id]['tool'], delivery_mode) if command_id in self.adapters else None
         if command_id not in self.adapters and delivery_mode is not None:
             raise ValueError('El comando documental no tiene modo ejecutable.')
-        if command_id.startswith('axx.shell.') and source != 'text':
+        if command_id == 'axx.shell.powershell' and source != 'text':
             raise ValueError('Escribe el script PowerShell y revisa su aprobación.')
         op_id = str(uuid.uuid4()) if operation_id is None else operation_id
         if not isinstance(op_id, str) or not re.fullmatch(r'[A-Za-z0-9_.-]{1,128}', op_id):
@@ -826,7 +826,10 @@ class CommandService:
             elif inputs != {}:
                 raise ValueError('El comando documental no admite parámetros ejecutables')
             autonomy = command_mode == 'unrestricted' and self._local_autonomy(command_id, conversation_id)
-            explicit_review = channel in ('mobile', 'telegram', 'model') and command['risk'] not in ('read', 'desktop_open')
+            # Computer Use verifies its separate owner grant and single-use ticket at dispatch.
+            computer_use = channel == 'model' and command_id in COMPUTER_USE_ADAPTERS
+            explicit_review = (channel in ('mobile', 'telegram', 'model')
+                and command['risk'] not in ('read', 'desktop_open') and not computer_use)
             approval = enabled and (explicit_review or command_mode == 'ask'
                 or (command_mode == 'unrestricted' and not autonomy)
                 or (command.get('requires_approval', False) and not autonomy))
