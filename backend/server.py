@@ -831,6 +831,7 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                         envelope['provider_name'] = provider_name
                         envelope['generation']['tools'] = [{'type': 'function', 'function': tool}
                                                             for _, tool in tool_catalog.values()]
+                        envelope['messages'] = [{'role': 'system', 'content': chat_tools.GUIDANCE}, *envelope['messages']]
                         tool_status = 'available'
                     else:
                         tool_catalog = {}

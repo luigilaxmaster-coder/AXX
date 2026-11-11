@@ -208,6 +208,32 @@ class FileArtifactTool(BaseTool):
 
         return True, "Postconditions verified: File exists, size and SHA256 match perfectly"
 
+def _cpu_percent(interval: float = 0.25):
+    """Real CPU load from two GetSystemTimes samples; None (never a made-up 0) when it cannot be measured."""
+    if os.name != 'nt':
+        return None
+    try:
+        import ctypes
+
+        class FILETIME(ctypes.Structure):
+            _fields_ = [('lo', ctypes.c_ulong), ('hi', ctypes.c_ulong)]
+
+        def sample():
+            idle, kernel, user = FILETIME(), FILETIME(), FILETIME()
+            if not ctypes.windll.kernel32.GetSystemTimes(ctypes.byref(idle), ctypes.byref(kernel), ctypes.byref(user)):
+                raise OSError('GetSystemTimes failed')
+            value = lambda f: (f.hi << 32) | f.lo
+            return value(idle), value(kernel) + value(user)  # kernel time already includes idle time
+
+        idle_a, total_a = sample()
+        time.sleep(interval)
+        idle_b, total_b = sample()
+        total = total_b - total_a
+        return round(100.0 * (total - (idle_b - idle_a)) / total, 1) if total > 0 else None
+    except Exception:
+        return None
+
+
 class SystemTelemetryTool(BaseTool):
     """Collects real system telemetry without external dependencies.
     Verifies that system info can be accessed, executes checks,
@@ -267,6 +293,9 @@ class SystemTelemetryTool(BaseTool):
                 'disk_free_gb': round(disk_usage.free / (1024**3), 2),
                 'memory_total_mb': mem_total_mb,
                 'memory_used_mb': mem_used_mb,
+                'memory_percent': round(100.0 * mem_used_mb / mem_total_mb, 1) if mem_total_mb else None,
+                'cpu_percent': _cpu_percent(),
+                'cpu_count': os.cpu_count(),
                 'pid': os.getpid()
             }
             return ToolResult(
@@ -292,6 +321,11 @@ class SystemTelemetryTool(BaseTool):
             return False, "Postcondition failed: Incomplete telemetry payload"
         if out['disk_free_gb'] <= 0:
             return False, "Postcondition failed: Free disk space must be greater than zero"
+        cpu = out.get('cpu_percent')
+        if cpu is not None and not 0 <= cpu <= 100:
+            return False, "Postcondition failed: CPU load outside 0-100"
+        if out.get('memory_total_mb') and not 0 < out.get('memory_used_mb', 0) <= out['memory_total_mb']:
+            return False, "Postcondition failed: memory reading is inconsistent"
         return True, "Postconditions verified: Telemetry is valid and non-zero"
 
 class ProcessStateTool(BaseTool):

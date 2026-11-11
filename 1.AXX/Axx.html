@@ -2107,6 +2107,19 @@ var Axx;
         return null;
     }
     Axx.parseIntent = parseIntent;
+    /** Shows the VERIFIED receipt output (never model text) in the chat; telemetry gets a readable summary. */
+    Axx.describeToolOutput = receipt => {
+        const out = receipt?.output;
+        if (out && typeof out === 'object' && receipt.command_id === 'axx.system.telemetry' && typeof out.memory_total_mb === 'number') {
+            const gb = mb => (mb / 1024).toFixed(1) + ' GB';
+            return [
+                'CPU: ' + (typeof out.cpu_percent === 'number' ? out.cpu_percent + ' %' : 'no disponible') + (out.cpu_count ? ' (' + out.cpu_count + ' núcleos lógicos)' : ''),
+                'RAM: ' + gb(out.memory_used_mb) + ' en uso de ' + gb(out.memory_total_mb) + (typeof out.memory_percent === 'number' ? ' (' + out.memory_percent + ' %)' : ''),
+                'Disco libre: ' + out.disk_free_gb + ' GB de ' + out.disk_total_gb + ' GB'
+            ].join('\n');
+        }
+        return JSON.stringify(out ?? null).slice(0, 1200);
+    };
     /** Recursive descent with strict token grammar: no eval/Function/property access. */
     function safeCalculate(input) {
         if (input.length > 512)
@@ -6796,7 +6809,7 @@ var Axx;
                             if (!receipt) status = 'La solicitud de herramienta no fue ejecutada.';
                             else if (receipt.state === 'awaiting_approval') status = 'La herramienta requiere revisión en Axx.';
                             else if (receipt.state === 'succeeded' && receipt.postconditions_passed === true)
-                                status = 'Acción verificada en Axx. Consulta sus detalles en Comandos.';
+                                status = 'Acción verificada en Axx. Consulta sus detalles en Comandos.'; // output is shown in the receipt card, never copied into chat history
                             else status = 'Resultado de herramienta sin confirmar. Estado ' + receipt.state + '.';
                             text = [text, status].filter(Boolean).join('\n\n');
                         }
@@ -9166,8 +9179,7 @@ var Axx;
                 }, 1200) : null;
             try {
                 const chatPrefs = { ...this.data.prefs, prompt_mode: isVoiceTurn ? 'voice' : 'conversation', model: effectiveModel, ...(memoryToken ? { memoryToken, memory_scope:{...memoryToken.memory_scope}, memory_context_id:memoryToken.memory_context_id } : {}), ...(effectiveApiConn ? { apiConnection: effectiveApiConn } : {}), ...(isVoiceTurn ? { max_tokens: 384, voice_turn: true } : {}) };
-                if (Axx.isNative() && memoryToken && chatPrefs.provider === 'bridge'
-                        && node('ai-chat-tools')?.checked) chatPrefs.axx_tools = true;
+                if (memoryToken && this.chatToolsEnabled()) chatPrefs.axx_tools = true;
                 const result = await this.brain.chat(chatPrefs, context, ctrl.signal, text => { if (this.pending !== ctrl)
                     return; if (text) clearTimeout(leadTimer); response.text = text; if (this.streamElement)
                     this.streamElement.textContent = response.text; receiveSpeech(text); this.sayStatus('Recibiendo respuesta de ' + effectiveModel + '…'); this.scrollChat(); });
@@ -9448,6 +9460,11 @@ var Axx;
                     void this.connect();
                 }
             }, 1500);
+        }
+        // Single predicate for "this composer turn may use Axx's typed tools": native host, the Axx bridge provider
+        // and the user's explicit opt-in. The backend still decides per provider/model and per permission mode.
+        chatToolsEnabled() {
+            return Axx.isNative() && this.data.prefs.provider === 'bridge' && !!node('ai-chat-tools')?.checked;
         }
         syncProvider() {
             const p = this.data.prefs, connected = this.brain.connected;
@@ -10017,7 +10034,14 @@ var Axx;
             this.load();
             this.bind();
             this.render();
-            companion.externalCommand = raw => { const c = Axx.parseReachCommand(raw); return c ? () => this.execute(c) : null; };
+            companion.externalCommand = raw => {
+                const c = Axx.parseReachCommand(raw);
+                if (!c) return null;
+                // "muéstrame / busca / abre <algo>" that names no tray object and no explicit file/app scope is an ordinary
+                // request: with Axx's chat tools on it belongs to the chat, not to a tray lookup that would answer "no encontré".
+                if (c.scope === 'any' && c.query && companion.chatToolsEnabled?.() && Axx.matchResources(c.query, this.resources).length === 0) return null;
+                return () => this.execute(c);
+            };
             companion.onReachOpen = () => this.show();
             companion.exportExtra = () => this.metadata();
             companion.importExtra = data => { this.clearLocal(); this.restoreMetadata(data); this.save(); this.render(); };

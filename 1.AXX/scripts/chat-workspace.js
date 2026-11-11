@@ -39,7 +39,7 @@
       </section>`;
     view.prepend(ui);
     let active = null, listing = {conversations:[],groups:[],default_mode:'ask'}, ready = false;
-    let chain = Promise.resolve(), timer, busy = false, operations=[], contextRevision=0;
+    let chain = Promise.resolve(), timer, busy = false, operations=[], contextRevision=0, rotating=null;
     const memoryScopes=new Map(),memoryContexts=new Map(),memoryEpochs=new Map(),memoryMinimum=new Map(),memoryBlocked=new Set(),memoryRuns=new Set();
     const abortMemory=()=>new DOMException('La memoria de esta conversación cambió.','AbortError');
     function validScope(ref,id){return ref&&ref.task_id===id&&Number.isSafeInteger(ref.generation)&&ref.generation>=0;}
@@ -87,10 +87,11 @@
         if(active?.draft_at<=Date.now()-TTL){$('chat-input').value='';c.data.draft='';}
     }
     $('chat-input').addEventListener('input',()=>{if(active)active.draft_at=Date.now();});
-    function snapshot() { expireLocal();if(!active||memoryBlocked.has(active.id))return null;const token=captureMemoryToken();return structuredClone({id:active.id,memory_scope:token.memory_scope,memory_context_id:token.memory_context_id,messages:c.data.prefs.keepHistory ? c.data.messages : [],attachment:c.data.prefs.keepHistory?c.attachment:null,draft:c.data.prefs.keepHistory ? $('chat-input').value : ''}); }
+    function snapshot() { expireLocal();if(!active||memoryBlocked.has(active.id)||rotating===active.id)return null;const token=captureMemoryToken();return structuredClone({id:active.id,memory_scope:token.memory_scope,memory_context_id:token.memory_context_id,messages:c.data.prefs.keepHistory ? c.data.messages : [],attachment:c.data.prefs.keepHistory?c.attachment:null,draft:c.data.prefs.keepHistory ? $('chat-input').value : ''}); }
     async function flush(body=snapshot()) {
         clearTimeout(timer);
-        if (!ready || !body) return chain;
+        // While the server rotates this chat's context a snapshot of the old context must not be written.
+        if (!ready || !body || rotating===body.id) return chain;
         const task=chain.catch(()=>{}).then(async()=>{ for(let i=0;i<Math.max(body.messages.length,1);i+=10){const current=memoryScopes.get(body.id);if(memoryBlocked.has(body.id)||current?.generation!==body.memory_scope.generation||memoryContexts.get(body.id)!==body.memory_context_id)return;await api('save',{...body,messages:body.messages.slice(i,i+10)});} }); chain=task;
         await task;
         if(active?.id===body.id&&memoryContexts.get(body.id)===body.memory_context_id&&active.title==='Nueva conversación'&&body.messages.some(m=>m.role==='user')){const row=await api('conversations?id='+encodeURIComponent(body.id));if(active?.id===body.id&&memoryContexts.get(body.id)===body.memory_context_id&&row.memory_scope?.generation===body.memory_scope.generation&&contextId(row)===body.memory_context_id){active.title=row.title;header();await refresh();}}
@@ -151,7 +152,7 @@
     async function select(id) {
         if(busy)return; busy=true;
         try {
-            Axx.liveConversation?.stop(); c.cancelRequest(); c.stopDictation(); c.stopSpeech(); await flush();
+            Axx.liveConversation?.stop(); c.cancelRequest(); c.stopDictation(); c.stopSpeech(); await syncContext(); await flush();
             ++contextRevision;const row=await api('conversations?id='+encodeURIComponent(id));if(row.id!==id)throw Error('El servidor devolvió otro chat.');applyRow(row);
             localStorage.setItem('axx.chat.active',active.id);
             header();c.renderChat();showBrowser(false);$('cw-context').hidden=true; c.sayStatus('');
@@ -199,6 +200,26 @@
         else {active.context=row.context;active.links=row.links||[];active.agent_profile=row.agent_profile;active.connect_id=row.connect_id;active.memory_scope={...row.memory_scope};c.data.connectConversationId=row.connect_id;memoryBlocked.delete(id);}
         header();return row;
     }
+    // The server rotates a chat's context id when its group is created, assigned or deleted (or when memory is
+    // purged elsewhere). Adopt the new identity BEFORE any save: the pending snapshot belongs to the old context,
+    // whose results the server rejects by design. Typed drafts survive; in-flight requests are cancelled.
+    async function syncContext() {
+        if(!active)return false;
+        const id=active.id,row=await api('conversations?id='+encodeURIComponent(id));
+        if(active?.id!==id)return false;
+        if(row.id!==id||!validScope(row.memory_scope,id))throw Error('El chat no confirmó su generación de memoria.');
+        if(memoryContexts.get(id)===contextId(row)&&memoryScopes.get(id)?.generation===row.memory_scope.generation)return false;
+        clearTimeout(timer);++contextRevision;applyRow(row,true);c.renderChat();return true;
+    }
+    // Mutations that rotate the context: persist pending state under the current context, mutate, adopt the new one.
+    // Failures propagate (no retry); nothing is adopted if the server rejected the mutation.
+    async function rotate(mutate) {
+        const id=active.id;await flush();rotating=id;
+        try{await mutate();await syncContext();}
+        finally{rotating=null;}
+        if(active?.id===id){header();c.save();}
+        await refresh();
+    }
     async function refreshMemory(id,expected){
         if(expected){if(!validScope(expected,id))throw Error('El cambio no confirmó su generación de memoria.');const current=memoryScopes.get(id);if(current&&expected.generation<current.generation)throw abortMemory();memoryMinimum.set(id,expected.generation);}
         if(active)return refreshActiveContext(active.id===id);
@@ -225,7 +246,7 @@
     });
     $('cw-default').onchange=run(async()=>{const mode=$('cw-default').value;await api('default',{command_mode:mode});listing.default_mode=mode;});
     $('cw-rename-save').onclick=run(async token=>{const title=$('cw-rename').value.trim()||'Conversación';await api('update',{id:token.memory_scope.task_id,title},token);if(!isMemoryTokenCurrent(token))return;active.title=title;header();await refresh();});
-    $('cw-group').onchange=run(async token=>{await api('update',{id:token.memory_scope.task_id,group_id:$('cw-group').value},token);if(isMemoryTokenCurrent(token))await select(token.memory_scope.task_id);});
+    $('cw-group').onchange=run(async token=>{await rotate(()=>api('update',{id:token.memory_scope.task_id,group_id:$('cw-group').value},token));});
     $('cw-archive').onclick=run(async token=>{const archived=!active.archived;await api('update',{id:token.memory_scope.task_id,archived},token);if(!isMemoryTokenCurrent(token))return;active.archived=archived;header();await refresh();});
     $('cw-delete').onclick=run(async()=>{
         const op=Axx.commandLibrary?.operation;
@@ -233,9 +254,9 @@
         if(!confirm('¿Eliminar esta conversación y su borrador? Esta acción no se puede deshacer.'))return;
         await flush();const id=active.id;active=null;await api('delete',{id});await create();
     });
-    $('cw-create-group').onclick=run(async token=>{const title=$('cw-group-name').value.trim();if(!title)return;const g=await api('group',{title});if(!isMemoryTokenCurrent(token))return;await api('update',{id:token.memory_scope.task_id,group_id:g.id},token);$('cw-group-name').value='';await select(token.memory_scope.task_id);});
+    $('cw-create-group').onclick=run(async token=>{const title=$('cw-group-name').value.trim();if(!title)return;const g=await api('group',{title});if(!isMemoryTokenCurrent(token))return;await rotate(()=>api('update',{id:token.memory_scope.task_id,group_id:g.id},token));$('cw-group-name').value='';});
     $('cw-group-rename').onclick=run(async()=>{await api('group_update',{id:active.group_id,title:$('cw-group-title').value.trim()});await refresh();header();});
-    $('cw-group-delete').onclick=run(async()=>{if(!confirm('¿Eliminar el grupo y su contexto? Sus chats pasarán a Sin grupo.'))return;await api('group_delete',{id:active.group_id});await select(active.id);});
+    $('cw-group-delete').onclick=run(async()=>{if(!confirm('¿Eliminar el grupo y su contexto? Sus chats pasarán a Sin grupo.'))return;await rotate(()=>api('group_delete',{id:active.group_id}));});
     $('cw-context-open').onclick=showContext;$('cw-context-close').onclick=()=>{$('cw-context').hidden=true;view.classList.remove('cw-browsing','cw-contexting');$('cw-context-open').focus();};
     $('cw-add-note').onclick=run(async token=>{const value=$('cw-note').value.trim();if(!value)return;await api('context',{group_id:active.group_id,text:value},token);if(!isMemoryTokenCurrent(token))return;$('cw-note').value='';await refreshActiveContext();showContext();});
     const keep=$('keep-history'), keepChange=keep.onchange;
@@ -243,6 +264,8 @@
     // Refresh context before every inference, including persistent Connect threads.
     const brainChat=c.brain.chat.bind(c.brain);
     c.brain.chat=async function(p,messages,signal,onDelta) {
+        // A new request starts from the server's current context; only a rotation DURING the request aborts it.
+        if(!p.memoryToken)await syncContext();
         const token=p.memoryToken||captureMemoryToken(),controller=new AbortController(),cancel=()=>controller.abort(),run={task_id:token.memory_scope.task_id,controller};
         const current=()=>!signal?.aborted&&!controller.signal.aborted&&isMemoryTokenCurrent(token),check=()=>{if(!current())throw abortMemory();};
         signal?.addEventListener('abort',cancel,{once:true});memoryRuns.add(run);
@@ -258,7 +281,7 @@
     };
     Axx.promptContracts?.instrument();
     const originalSend=c.send.bind(c);
-    c.send=async function(raw,options={}){ if(!ready){error(Error('El historial todavía se está cargando.'));return;} expireLocal();const memoryToken=options.memoryToken||captureMemoryToken();return originalSend(raw,{...options,memoryToken}); };
+    c.send=async function(raw,options={}){ if(!ready){error(Error('El historial todavía se está cargando.'));return;} expireLocal();if(!options.memoryToken)await syncContext();const memoryToken=options.memoryToken||captureMemoryToken();return originalSend(raw,{...options,memoryToken}); };
     const lib=Axx.commandLibrary;
     let dismissedResult=null;
     function operationCard(op) {
@@ -276,7 +299,10 @@
             const title=document.createElement('span');title.className='cw-result-title';title.textContent=compensation?.title||op.title||lib.commands?.find(c=>c.id===op.command_id)?.title||'Acción';title.title=title.textContent;
             const details=button('Ver detalles',()=>{lib.open();lib.renderOperation(op);});
             const dismiss=button('×',()=>{dismissedResult=op.operation_id;box.hidden=true;});dismiss.setAttribute('aria-label','Ocultar resultado');
-            box.append(status,title,details,dismiss);return;
+            box.append(status,title,details,dismiss);
+            // Real data of a verified model-requested tool, shown in the card only (not in the chat history sent to providers).
+            if(op.origin==='axx-provider'&&op.state==='succeeded'&&op.postconditions_passed===true&&op.output&&Axx.describeToolOutput){const out=document.createElement('pre');out.className='cw-result-output';out.style.cssText='margin:4px 0 0;white-space:pre-wrap;font:inherit;font-size:12px;flex-basis:100%';out.textContent=Axx.describeToolOutput(op);box.append(out);}
+            return;
         }
         const label=document.createElement('strong');label.textContent=({awaiting_approval:'TU APROBACIÓN',prepared:'ACCIÓN PREPARADA',running:'EN CURSO',paused:'PAUSADO',pausing:'PAUSA SOLICITADA',interrupted:'INTERRUMPIDO',unknown:'RESULTADO POR COMPROBAR',preparing:'PREPARANDO',succeeded:'COMPLETADO Y VERIFICADO',failed:'NO SE COMPLETÓ',blocked:'ACCIÓN BLOQUEADA',cancelled:'CANCELADO',expired:'APROBACIÓN VENCIDA'})[op.state]||op.state;if(op.state==='succeeded'&&!op.postconditions_passed)label.textContent='RESULTADO RECIBIDO';box.append(label);
         const detail=document.createElement('p');detail.textContent=(compensation?.description||op.title||lib.commands?.find(c=>c.id===op.command_id)?.title||op.command_id||'Comando')+(op.conversation_id&&op.conversation_id!==active?.id?' · de otro chat':'');if(compensation)detail.style.whiteSpace='pre-line';box.append(detail);
