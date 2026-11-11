@@ -1,6 +1,6 @@
 # Matriz final de capacidades y canales
 
-Inventario del commit 706c1929f5e61d51fea3d1f0404badedc4b4e106. Se registraron 7685 entradas únicas.
+Inventario del commit b99d8bd4855e3d516bdcdc4653a4eba314b0dd63. Se registraron 7685 entradas únicas.
 
 Hay 69 adaptadores de comandos, 10 capacidades UI y 7606 entradas restantes bloqueadas. Las entradas documentales no adquieren ejecución por aparecer en el catálogo.
 
@@ -7716,3 +7716,89 @@ Cada fila siguiente tiene BLOCKED en chat, voz, Connect, MCP, Telegram y Android
 | axx.ui.screen.start | Iniciar grabación | Requiere selector de pantalla y permiso del usuario en la UI; despacho no verifica captura. |
 | axx.ui.translation | Traducción | El motor de proveedor llama al chat y no se expone por riesgo de recursión. Usa el panel; el motor de navegador requiere su disponibilidad real. |
 | axx.ui.workspace | Disposición de paneles | Los métodos existen; el adaptador de mutación/readback de disposición aún no está validado. |
+
+## Aceptación observada por ID y canal (Fase 5)
+
+Estados de aceptación del código candidato b99d8bd. Windows incluye IPC nativo/API local; Chat UI exige entrada por el compositor. Modelo API es la ruta estructurada empaquetada. NOT_TESTED no niega que exista el controlador; indica que no se ejecutó ese recorrido. Telegram/Android requieren su aceptación externa. Para las 7606 entradas bloqueadas del inventario, el resultado de disponibilidad permanece BLOCKED en todos los canales.
+
+| ID | Windows | Chat UI | Modelo API | Voz | Connect | MCP | Telegram | Android | Evidencia |
+|---|---|---|---|---|---|---|---|---|---|
+| axx.app.browse | NOT_TESTED | NOT_TESTED | BLOCKED | NOT_TESTED | NOT_TESTED | NOT_TESTED | MANUAL_REQUIRED | MANUAL_REQUIRED | Ruta inventariada; sin aceptación nativa de este ID |
+| axx.app.catalog | NOT_TESTED | NOT_TESTED | BLOCKED | NOT_TESTED | NOT_TESTED | NOT_TESTED | MANUAL_REQUIRED | MANUAL_REQUIRED | Ruta inventariada; sin aceptación nativa de este ID |
+| axx.app.close | NOT_TESTED | NOT_TESTED | BLOCKED | NOT_TESTED | NOT_TESTED | NOT_TESTED | MANUAL_REQUIRED | MANUAL_REQUIRED | Ruta inventariada; sin aceptación nativa de este ID |
+| axx.app.focus | NOT_TESTED | NOT_TESTED | BLOCKED | NOT_TESTED | NOT_TESTED | NOT_TESTED | MANUAL_REQUIRED | MANUAL_REQUIRED | Ruta inventariada; sin aceptación nativa de este ID |
+| axx.app.hover | NOT_TESTED | NOT_TESTED | BLOCKED | NOT_TESTED | NOT_TESTED | NOT_TESTED | MANUAL_REQUIRED | MANUAL_REQUIRED | Ruta inventariada; sin aceptación nativa de este ID |
+| axx.app.inspect | NOT_TESTED | NOT_TESTED | BLOCKED | NOT_TESTED | NOT_TESTED | NOT_TESTED | MANUAL_REQUIRED | MANUAL_REQUIRED | Ruta inventariada; sin aceptación nativa de este ID |
+| axx.app.navigate | NOT_TESTED | NOT_TESTED | BLOCKED | NOT_TESTED | NOT_TESTED | NOT_TESTED | MANUAL_REQUIRED | MANUAL_REQUIRED | Ruta inventariada; sin aceptación nativa de este ID |
+| axx.app.open | NOT_TESTED | NOT_TESTED | BLOCKED | NOT_TESTED | NOT_TESTED | NOT_TESTED | MANUAL_REQUIRED | MANUAL_REQUIRED | Ruta inventariada; sin aceptación nativa de este ID |
+| axx.app.windows | NOT_TESTED | NOT_TESTED | BLOCKED | NOT_TESTED | NOT_TESTED | NOT_TESTED | MANUAL_REQUIRED | MANUAL_REQUIRED | Ruta inventariada; sin aceptación nativa de este ID |
+| axx.app.youtube | NOT_TESTED | NOT_TESTED | BLOCKED | NOT_TESTED | NOT_TESTED | NOT_TESTED | MANUAL_REQUIRED | MANUAL_REQUIRED | Ruta inventariada; sin aceptación nativa de este ID |
+| axx.architecture.status | PASS | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | MANUAL_REQUIRED | MANUAL_REQUIRED | unified/installed-unified.json |
+| axx.artifact.media | NOT_TESTED | NOT_TESTED | BLOCKED | NOT_TESTED | NOT_TESTED | NOT_TESTED | MANUAL_REQUIRED | MANUAL_REQUIRED | Ruta inventariada; sin aceptación nativa de este ID |
+| axx.artifact.ocr | NOT_TESTED | NOT_TESTED | BLOCKED | NOT_TESTED | NOT_TESTED | NOT_TESTED | MANUAL_REQUIRED | MANUAL_REQUIRED | Ruta inventariada; sin aceptación nativa de este ID |
+| axx.artifact.pdf | NOT_TESTED | NOT_TESTED | BLOCKED | NOT_TESTED | NOT_TESTED | NOT_TESTED | MANUAL_REQUIRED | MANUAL_REQUIRED | Ruta inventariada; sin aceptación nativa de este ID |
+| axx.artifact.quarantine | NOT_TESTED | NOT_TESTED | BLOCKED | NOT_TESTED | NOT_TESTED | NOT_TESTED | MANUAL_REQUIRED | MANUAL_REQUIRED | Ruta inventariada; sin aceptación nativa de este ID |
+| axx.artifact.restore | NOT_TESTED | NOT_TESTED | BLOCKED | NOT_TESTED | NOT_TESTED | NOT_TESTED | MANUAL_REQUIRED | MANUAL_REQUIRED | Ruta inventariada; sin aceptación nativa de este ID |
+| axx.artifact.write | PASS | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | MANUAL_REQUIRED | MANUAL_REQUIRED | unified/installed-unified.json |
+| axx.blender.scene.render | NOT_TESTED | NOT_TESTED | BLOCKED | NOT_TESTED | NOT_TESTED | NOT_TESTED | MANUAL_REQUIRED | MANUAL_REQUIRED | Ruta inventariada; sin aceptación nativa de este ID |
+| axx.browser.download_pdf | NOT_TESTED | NOT_TESTED | BLOCKED | NOT_TESTED | NOT_TESTED | NOT_TESTED | MANUAL_REQUIRED | MANUAL_REQUIRED | Ruta inventariada; sin aceptación nativa de este ID |
+| axx.browser.inspect | NOT_TESTED | NOT_TESTED | BLOCKED | NOT_TESTED | NOT_TESTED | NOT_TESTED | MANUAL_REQUIRED | MANUAL_REQUIRED | Ruta inventariada; sin aceptación nativa de este ID |
+| axx.browser.navigate | NOT_TESTED | NOT_TESTED | BLOCKED | NOT_TESTED | NOT_TESTED | NOT_TESTED | MANUAL_REQUIRED | MANUAL_REQUIRED | Ruta inventariada; sin aceptación nativa de este ID |
+| axx.browser.open_pdf | NOT_TESTED | NOT_TESTED | BLOCKED | NOT_TESTED | NOT_TESTED | NOT_TESTED | MANUAL_REQUIRED | MANUAL_REQUIRED | Ruta inventariada; sin aceptación nativa de este ID |
+| axx.browser.tabs | NOT_TESTED | NOT_TESTED | BLOCKED | NOT_TESTED | NOT_TESTED | NOT_TESTED | MANUAL_REQUIRED | MANUAL_REQUIRED | Ruta inventariada; sin aceptación nativa de este ID |
+| axx.computer.act | NOT_TESTED | NOT_TESTED | BLOCKED | NOT_TESTED | NOT_TESTED | NOT_TESTED | MANUAL_REQUIRED | MANUAL_REQUIRED | Ruta inventariada; sin aceptación nativa de este ID |
+| axx.computer.observe | NOT_TESTED | NOT_TESTED | BLOCKED | NOT_TESTED | NOT_TESTED | NOT_TESTED | MANUAL_REQUIRED | MANUAL_REQUIRED | Ruta inventariada; sin aceptación nativa de este ID |
+| axx.desktop.cli_anything.scan | NOT_TESTED | NOT_TESTED | BLOCKED | NOT_TESTED | NOT_TESTED | NOT_TESTED | MANUAL_REQUIRED | MANUAL_REQUIRED | Ruta inventariada; sin aceptación nativa de este ID |
+| axx.desktop.control.find | NOT_TESTED | NOT_TESTED | BLOCKED | NOT_TESTED | NOT_TESTED | NOT_TESTED | MANUAL_REQUIRED | MANUAL_REQUIRED | Ruta inventariada; sin aceptación nativa de este ID |
+| axx.desktop.explorer.folder | NOT_TESTED | NOT_TESTED | BLOCKED | NOT_TESTED | NOT_TESTED | NOT_TESTED | MANUAL_REQUIRED | MANUAL_REQUIRED | Ruta inventariada; sin aceptación nativa de este ID |
+| axx.desktop.grid.read | NOT_TESTED | NOT_TESTED | BLOCKED | NOT_TESTED | NOT_TESTED | NOT_TESTED | MANUAL_REQUIRED | MANUAL_REQUIRED | Ruta inventariada; sin aceptación nativa de este ID |
+| axx.desktop.ground | NOT_TESTED | NOT_TESTED | BLOCKED | NOT_TESTED | NOT_TESTED | NOT_TESTED | MANUAL_REQUIRED | MANUAL_REQUIRED | Ruta inventariada; sin aceptación nativa de este ID |
+| axx.desktop.input | NOT_TESTED | NOT_TESTED | BLOCKED | NOT_TESTED | NOT_TESTED | NOT_TESTED | MANUAL_REQUIRED | MANUAL_REQUIRED | Ruta inventariada; sin aceptación nativa de este ID |
+| axx.desktop.installed_app | NOT_TESTED | NOT_TESTED | BLOCKED | NOT_TESTED | NOT_TESTED | NOT_TESTED | MANUAL_REQUIRED | MANUAL_REQUIRED | Ruta inventariada; sin aceptación nativa de este ID |
+| axx.desktop.list_apps | NOT_TESTED | NOT_TESTED | BLOCKED | NOT_TESTED | NOT_TESTED | NOT_TESTED | MANUAL_REQUIRED | MANUAL_REQUIRED | Ruta inventariada; sin aceptación nativa de este ID |
+| axx.desktop.list_windows | PASS | NOT_TESTED | BLOCKED | NOT_TESTED | NOT_TESTED | NOT_TESTED | MANUAL_REQUIRED | MANUAL_REQUIRED | unified/installed-unified.json |
+| axx.desktop.notepad.text | NOT_TESTED | NOT_TESTED | BLOCKED | NOT_TESTED | NOT_TESTED | NOT_TESTED | MANUAL_REQUIRED | MANUAL_REQUIRED | Ruta inventariada; sin aceptación nativa de este ID |
+| axx.desktop.observe | NOT_TESTED | NOT_TESTED | BLOCKED | NOT_TESTED | NOT_TESTED | NOT_TESTED | MANUAL_REQUIRED | MANUAL_REQUIRED | Ruta inventariada; sin aceptación nativa de este ID |
+| axx.desktop.ocr | NOT_TESTED | NOT_TESTED | BLOCKED | NOT_TESTED | NOT_TESTED | NOT_TESTED | MANUAL_REQUIRED | MANUAL_REQUIRED | Ruta inventariada; sin aceptación nativa de este ID |
+| axx.desktop.open_app | NOT_TESTED | NOT_TESTED | BLOCKED | NOT_TESTED | NOT_TESTED | NOT_TESTED | MANUAL_REQUIRED | MANUAL_REQUIRED | Ruta inventariada; sin aceptación nativa de este ID |
+| axx.desktop.open_url | NOT_TESTED | NOT_TESTED | BLOCKED | NOT_TESTED | NOT_TESTED | NOT_TESTED | MANUAL_REQUIRED | MANUAL_REQUIRED | Ruta inventariada; sin aceptación nativa de este ID |
+| axx.desktop.pointer.first_video | NOT_TESTED | NOT_TESTED | BLOCKED | NOT_TESTED | NOT_TESTED | NOT_TESTED | MANUAL_REQUIRED | MANUAL_REQUIRED | Ruta inventariada; sin aceptación nativa de este ID |
+| axx.desktop.pointer.move | NOT_TESTED | NOT_TESTED | BLOCKED | NOT_TESTED | NOT_TESTED | NOT_TESTED | MANUAL_REQUIRED | MANUAL_REQUIRED | Ruta inventariada; sin aceptación nativa de este ID |
+| axx.desktop.search | NOT_TESTED | NOT_TESTED | BLOCKED | NOT_TESTED | NOT_TESTED | NOT_TESTED | MANUAL_REQUIRED | MANUAL_REQUIRED | Ruta inventariada; sin aceptación nativa de este ID |
+| axx.desktop.spotify.play | NOT_TESTED | NOT_TESTED | BLOCKED | NOT_TESTED | NOT_TESTED | NOT_TESTED | MANUAL_REQUIRED | MANUAL_REQUIRED | Ruta inventariada; sin aceptación nativa de este ID |
+| axx.desktop.state | NOT_TESTED | NOT_TESTED | BLOCKED | NOT_TESTED | NOT_TESTED | NOT_TESTED | MANUAL_REQUIRED | MANUAL_REQUIRED | Ruta inventariada; sin aceptación nativa de este ID |
+| axx.desktop.window.close | NOT_TESTED | NOT_TESTED | BLOCKED | NOT_TESTED | NOT_TESTED | NOT_TESTED | MANUAL_REQUIRED | MANUAL_REQUIRED | Ruta inventariada; sin aceptación nativa de este ID |
+| axx.desktop.window.find | PASS | NOT_TESTED | BLOCKED | NOT_TESTED | NOT_TESTED | NOT_TESTED | MANUAL_REQUIRED | MANUAL_REQUIRED | unified/installed-unified.json |
+| axx.desktop.window.focus | NOT_TESTED | NOT_TESTED | BLOCKED | NOT_TESTED | NOT_TESTED | NOT_TESTED | MANUAL_REQUIRED | MANUAL_REQUIRED | Ruta inventariada; sin aceptación nativa de este ID |
+| axx.desktop.window.inspect | NOT_TESTED | NOT_TESTED | BLOCKED | NOT_TESTED | NOT_TESTED | NOT_TESTED | MANUAL_REQUIRED | MANUAL_REQUIRED | Ruta inventariada; sin aceptación nativa de este ID |
+| axx.desktop.window.invoke | MANUAL_REQUIRED | NOT_TESTED | BLOCKED | NOT_TESTED | NOT_TESTED | NOT_TESTED | MANUAL_REQUIRED | MANUAL_REQUIRED | unified/installed-unified.json: efecto observado, recibo genérico unknown |
+| axx.desktop.window.observe | NOT_TESTED | NOT_TESTED | BLOCKED | NOT_TESTED | NOT_TESTED | NOT_TESTED | MANUAL_REQUIRED | MANUAL_REQUIRED | Ruta inventariada; sin aceptación nativa de este ID |
+| axx.desktop.window.read | PASS | NOT_TESTED | BLOCKED | NOT_TESTED | NOT_TESTED | NOT_TESTED | MANUAL_REQUIRED | MANUAL_REQUIRED | unified/installed-unified.json |
+| axx.desktop.window.select | NOT_TESTED | NOT_TESTED | BLOCKED | NOT_TESTED | NOT_TESTED | NOT_TESTED | MANUAL_REQUIRED | MANUAL_REQUIRED | Ruta inventariada; sin aceptación nativa de este ID |
+| axx.desktop.window.set_value | NOT_TESTED | NOT_TESTED | BLOCKED | NOT_TESTED | NOT_TESTED | NOT_TESTED | MANUAL_REQUIRED | MANUAL_REQUIRED | Ruta inventariada; sin aceptación nativa de este ID |
+| axx.desktop.window.state | NOT_TESTED | NOT_TESTED | BLOCKED | NOT_TESTED | NOT_TESTED | NOT_TESTED | MANUAL_REQUIRED | MANUAL_REQUIRED | Ruta inventariada; sin aceptación nativa de este ID |
+| axx.file.bundle | NOT_TESTED | NOT_TESTED | BLOCKED | NOT_TESTED | NOT_TESTED | NOT_TESTED | MANUAL_REQUIRED | MANUAL_REQUIRED | Ruta inventariada; sin aceptación nativa de este ID |
+| axx.file.compare | NOT_TESTED | NOT_TESTED | BLOCKED | NOT_TESTED | NOT_TESTED | NOT_TESTED | MANUAL_REQUIRED | MANUAL_REQUIRED | Ruta inventariada; sin aceptación nativa de este ID |
+| axx.file.find | NOT_TESTED | NOT_TESTED | BLOCKED | NOT_TESTED | NOT_TESTED | NOT_TESTED | MANUAL_REQUIRED | MANUAL_REQUIRED | Ruta inventariada; sin aceptación nativa de este ID |
+| axx.file.sha256 | NOT_TESTED | NOT_TESTED | BLOCKED | NOT_TESTED | NOT_TESTED | NOT_TESTED | MANUAL_REQUIRED | MANUAL_REQUIRED | Ruta inventariada; sin aceptación nativa de este ID |
+| axx.ifc.inventory.csv | NOT_TESTED | NOT_TESTED | BLOCKED | NOT_TESTED | NOT_TESTED | NOT_TESTED | MANUAL_REQUIRED | MANUAL_REQUIRED | Ruta inventariada; sin aceptación nativa de este ID |
+| axx.obs.control | NOT_TESTED | NOT_TESTED | BLOCKED | NOT_TESTED | NOT_TESTED | NOT_TESTED | MANUAL_REQUIRED | MANUAL_REQUIRED | Ruta inventariada; sin aceptación nativa de este ID |
+| axx.obs.observe | NOT_TESTED | NOT_TESTED | BLOCKED | NOT_TESTED | NOT_TESTED | NOT_TESTED | MANUAL_REQUIRED | MANUAL_REQUIRED | Ruta inventariada; sin aceptación nativa de este ID |
+| axx.office.excel.csv | NOT_TESTED | NOT_TESTED | BLOCKED | NOT_TESTED | NOT_TESTED | NOT_TESTED | MANUAL_REQUIRED | MANUAL_REQUIRED | Ruta inventariada; sin aceptación nativa de este ID |
+| axx.office.powerpoint.pdf | NOT_TESTED | NOT_TESTED | BLOCKED | NOT_TESTED | NOT_TESTED | NOT_TESTED | MANUAL_REQUIRED | MANUAL_REQUIRED | Ruta inventariada; sin aceptación nativa de este ID |
+| axx.office.word.pdf | NOT_TESTED | NOT_TESTED | BLOCKED | NOT_TESTED | NOT_TESTED | NOT_TESTED | MANUAL_REQUIRED | MANUAL_REQUIRED | Ruta inventariada; sin aceptación nativa de este ID |
+| axx.process.inspect | PASS | NOT_TESTED | BLOCKED | NOT_TESTED | NOT_TESTED | NOT_TESTED | MANUAL_REQUIRED | MANUAL_REQUIRED | unified/installed-unified.json |
+| axx.process.run | NOT_TESTED | NOT_TESTED | BLOCKED | NOT_TESTED | NOT_TESTED | NOT_TESTED | MANUAL_REQUIRED | MANUAL_REQUIRED | Ruta inventariada; sin aceptación nativa de este ID |
+| axx.shell.cmd | NOT_TESTED | NOT_TESTED | BLOCKED | NOT_TESTED | NOT_TESTED | NOT_TESTED | MANUAL_REQUIRED | MANUAL_REQUIRED | Ruta inventariada; sin aceptación nativa de este ID |
+| axx.shell.powershell | PASS | NOT_TESTED | BLOCKED | BLOCKED | NOT_TESTED | NOT_TESTED | MANUAL_REQUIRED | MANUAL_REQUIRED | native-recovery.json: Get-Date preparado, Start-Sleep real aprobado/interrumpido; no shell arbitrario |
+| axx.system.telemetry | PASS | FAIL | PASS | NOT_TESTED | NOT_TESTED | PASS | MANUAL_REQUIRED | MANUAL_REQUIRED | real-model-native.json; mcp-native.json; fallo compositor separado |
+| axx.ui.dictation | NOT_TESTED | NOT_TESTED | BLOCKED | NOT_TESTED | NOT_TESTED | NOT_TESTED | BLOCKED | BLOCKED | Ruta inventariada; sin aceptación nativa de este ID |
+| axx.ui.identity | PASS | NOT_TESTED | BLOCKED | NOT_TESTED | PASS | NOT_TESTED | BLOCKED | MANUAL_REQUIRED | windows-native.json |
+| axx.ui.local | PASS | NOT_TESTED | BLOCKED | NOT_TESTED | PASS | NOT_TESTED | BLOCKED | BLOCKED | windows-native.json |
+| axx.ui.music | NOT_TESTED | NOT_TESTED | BLOCKED | NOT_TESTED | NOT_TESTED | NOT_TESTED | BLOCKED | BLOCKED | Ruta inventariada; sin aceptación nativa de este ID |
+| axx.ui.panel | PASS | NOT_TESTED | BLOCKED | NOT_TESTED | PASS | NOT_TESTED | BLOCKED | BLOCKED | windows-native.json |
+| axx.ui.reader | NOT_TESTED | NOT_TESTED | BLOCKED | NOT_TESTED | NOT_TESTED | NOT_TESTED | BLOCKED | BLOCKED | Ruta inventariada; sin aceptación nativa de este ID |
+| axx.ui.screen | PASS | NOT_TESTED | BLOCKED | NOT_TESTED | NOT_TESTED | NOT_TESTED | BLOCKED | BLOCKED | capture-native.json (backend real; canal Connect UI pendiente) |
+| axx.ui.stopwatch | NOT_TESTED | NOT_TESTED | BLOCKED | NOT_TESTED | NOT_TESTED | NOT_TESTED | BLOCKED | BLOCKED | Ruta inventariada; sin aceptación nativa de este ID |
+| axx.ui.system_media | NOT_TESTED | NOT_TESTED | BLOCKED | NOT_TESTED | NOT_TESTED | NOT_TESTED | BLOCKED | BLOCKED | Ruta inventariada; sin aceptación nativa de este ID |
+| axx.ui.text_transform | NOT_TESTED | NOT_TESTED | BLOCKED | NOT_TESTED | NOT_TESTED | NOT_TESTED | BLOCKED | BLOCKED | Ruta inventariada; sin aceptación nativa de este ID |
