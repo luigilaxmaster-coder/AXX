@@ -36,6 +36,7 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
       };
       window.__TAURI__={core:{invoke:async(name,args)=>{
         if(name==='dictation_shortcut')return {shortcut:{key:68,modifiers:7,activation:'toggle'},registered:true};
+        if(name==='dictation_control')return args.request.action==='audio_devices'?{devices:[]}:{microphone_open:false};
         const desktop={workWidth:1920,workHeight:1080,spaceLeft:1000,spaceRight:920,spaceAbove:540,spaceBelow:540};
         if(name==='native_status')return {native:true,backendReady:false,shortcut:'Alt+Shift+A',desktop};
         if(name==='desktop_layout')return {...desktop,...args};
@@ -552,6 +553,19 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
       owner.stop();return{owned,stopped,transferred};
     });
     assert.deepEqual(visualLease,{owned:true,stopped:true,transferred:true},'Visual microphone and ASR must share ownership and release the previous stream');
+    const nativeReleaseBarrier=await page.evaluate(async()=>{
+      const native=Axx.nativeVoice,previous=native.waitForNativeCaptureRelease,results=[];
+      const owner={state:'idle'};native.attach(owner);
+      try {
+        for(const [begin,end] of [[()=>owner.start('es'),()=>owner.stop()],[()=>Axx.app.startMicrophone(),()=>Axx.app.stopAudio()],[()=>Axx.voice13.meter.start(),()=>Axx.voice13.meter.stop()]]){
+          let release;native.waitForNativeCaptureRelease=()=>new Promise(resolve=>{release=resolve;});
+          const before=micRequests,pending=begin();await new Promise(r=>setTimeout(r,25));
+          const guarded=micRequests===before;release();await pending;const opened=micRequests>before;end();results.push({guarded,opened});
+        }
+      }finally{owner.stop();Axx.app.stopAudio();Axx.voice13.meter.stop();native.waitForNativeCaptureRelease=previous;}
+      return results;
+    });
+    assert.deepEqual(nativeReleaseBarrier,[{guarded:true,opened:true},{guarded:true,opened:true},{guarded:true,opened:true}],'Every legacy capture caller waits for physical native microphone release');
     const wakeIsolation=await page.evaluate(async()=>{
       const wake=Axx.nativeVoice.wake,mode=wake.mode,listen=wake.listenOnce,status=Axx.dictation.status,c=Axx.companion;
       const previous={muted:c.data.prefs.mutedAll,pending:c.pending,speaking:c.speaking,reader:Axx.symbiosis.reader.state};

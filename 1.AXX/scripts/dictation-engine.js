@@ -43,7 +43,7 @@
         if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some(k => !['language', 'model', 'microphone', 'profile', 'dictionary', 'output'].includes(k))) throw Error('Ajustes de dictado inválidos.');
         const result = { language: 'auto', model: '', microphone: '', profile: 'literal', dictionary: [], output: 'insert', ...value };
         if (!/^(auto|[a-z]{2,3})$/.test(result.language) || typeof result.model !== 'string' || !/^[a-z0-9.-]{0,100}$/.test(result.model)
-            || typeof result.microphone !== 'string' || result.microphone.length > 256 || !['literal', 'conversation', 'technical', 'code'].includes(result.profile)
+            || typeof result.microphone !== 'string' || result.microphone.length > 1024 || !['literal', 'conversation', 'technical', 'code'].includes(result.profile)
             || !['insert', 'copy'].includes(result.output) || !Array.isArray(result.dictionary) || result.dictionary.length > 100) throw Error('Ajustes de dictado inválidos.');
         for (const pair of result.dictionary) if (!Array.isArray(pair) || pair.length !== 2 || pair.some(t => typeof t !== 'string' || !t.trim() || t.length > 120 || /[\x00-\x1f\x7f]/.test(t))) throw Error('El diccionario admite hasta 100 pares de texto.');
         return result;
@@ -70,8 +70,7 @@
     const voice = Axx.nativeVoice;
     let config; try { config = settings(JSON.parse(localStorage.getItem('axx.dictation.v1') || '{}')); } catch { config = settings(); }
     let mode = 'off', phase = 'OFF', session = null, target = null, generation = 0, sequence = 0;
-    let stream = null, ctx = null, processor = null, segmenter = null, starting = false, decoding = false, probing = false;
-    let cancelResume = null;
+    let stream = null, segmenter = null, starting = false, decoding = false, probing = false;
     let queue = [], pending = [], currentRequest = null, lastError = '', panel;
     let held = false, holdReleased = null;
     let manualFinishing = false;
@@ -81,28 +80,40 @@
         catch { return false; }
     }
     const capture = { stop: () => { pause(); } };
+    let releasePromise = Promise.resolve(), nativeReleasing = false;
+    function releaseNative(action = 'audio_stop') {
+        if (stream || starting) nativeReleasing = true;
+        const release = releasePromise.catch(() => {}).then(() => native({ action })).then(report => {
+            if (report?.microphone_open !== false) throw Error('No se confirmó el cierre del micrófono nativo.');
+            if (releasePromise === release) { nativeReleasing = false; render(); }
+        });
+        releasePromise = release;
+        void releasePromise.catch(() => { if (releasePromise === release) { nativeReleasing = true; phase = 'ERROR'; lastError = 'No se confirmó el cierre del micrófono; la captura queda bloqueada.'; render(); } });
+        return releasePromise;
+    }
+    voice.waitForNativeCaptureRelease = () => releasePromise;
     const labels = { OFF: 'apagado', ARMED: 'esperando un campo editable', CAPTURING: 'escuchando', DECODING: 'transcribiendo', PAUSED: 'en pausa', ERROR: 'detenido por error' };
     const speechBusy = () => !!(Axx.liveConversation?.active || Axx.symbiosis?.liveActive || Axx.companion?.speaking || [Axx.symbiosis?.reader, Axx.voice13?.reader].some(r => ['starting', 'speaking'].includes(r?.state)));
-    const snapshot = () => ({ api_version: 1, mode, state: phase, microphone_open: !!stream, decoding, waiting_for_voice: mode !== 'off' && speechBusy(), pending_count: pending.length, queue_length: queue.length, error: lastError });
+    const snapshot = () => ({ api_version: 1, mode, state: phase, microphone_open: !!stream || nativeReleasing, decoding, waiting_for_voice: mode !== 'off' && speechBusy(), pending_count: pending.length, queue_length: queue.length, error: lastError });
     function render() {
         window.dispatchEvent(new CustomEvent('axx-dictation-state', { detail: snapshot() }));
         if (panel) {
-            panel.querySelector('[data-status]').textContent = `Dictado: ${snapshot().waiting_for_voice ? 'esperando que termine la voz' : labels[phase]}${stream ? ' · micrófono abierto' : ''}${decoding ? ' · reconociendo' : ''}${lastError ? ' · ' + lastError : ''}`;
+            panel.querySelector('[data-status]').textContent = `Dictado: ${snapshot().waiting_for_voice ? 'esperando que termine la voz' : labels[phase]}${nativeReleasing ? ' · cerrando micrófono' : stream ? ' · micrófono abierto' : ''}${decoding ? ' · reconociendo' : ''}${lastError ? ' · ' + lastError : ''}`;
             panel.querySelector('[data-mode]').value = mode;
             panel.querySelector('[data-pending]').textContent = pending.map(p => `${p.status}: ${p.text}`).join('\n');
             for (const el of panel.querySelectorAll('[data-config]')) el.disabled = mode !== 'off';
         }
-        if (mode !== 'off' && !speechBusy() && (!voice.activeCapture || voice.activeCapture === capture)) {
+        if ((mode !== 'off' || nativeReleasing) && !speechBusy() && (!voice.activeCapture || voice.activeCapture === capture)) {
             const indicator = document.getElementById('speech-indicator'), label = document.getElementById('speech-status');
             if (indicator) indicator.hidden = false;
-            if (label) label.textContent = `Dictado ${labels[phase]} · ${stream ? 'micrófono abierto' : 'sin captura'} · Esc para cancelar`;
+            if (label) label.textContent = `Dictado ${labels[phase]} · ${nativeReleasing ? 'cerrando micrófono' : stream ? 'micrófono abierto' : 'sin captura'} · Esc para cancelar`;
+        } else if (mode === 'off' && !nativeReleasing && !voice.activeCapture && !Axx.companion?.speaking) {
+            const indicator = document.getElementById('speech-indicator'); if (indicator) indicator.hidden = true;
         }
     }
     function release() {
-        cancelResume?.(); cancelResume = null;
-        if (processor) { processor.onaudioprocess = null; processor.disconnect(); processor = null; }
-        stream?.getTracks().forEach(t => t.stop()); stream = null;
-        if (ctx) { void ctx.close().catch(() => {}); ctx = null; }
+        if (stream || starting) void releaseNative();
+        stream = null;
         segmenter?.reset(); segmenter = null;
         if (voice.activeCapture === capture) voice.activeCapture = null;
     }
@@ -116,15 +127,15 @@
     function stop() {
         held = manualFinishing = false;
         mode = 'off'; cancelAudio(); target = session = null; pending = []; phase = 'OFF'; lastError = '';
-        void native({ action: 'stop' }).catch(() => {});
-        const indicator = document.getElementById('speech-indicator'); if (indicator && !voice.activeCapture && !Axx.companion?.speaking) indicator.hidden = true;
+        void releaseNative('stop');
+        const indicator = document.getElementById('speech-indicator'); if (indicator && !nativeReleasing && !voice.activeCapture && !Axx.companion?.speaking) indicator.hidden = true;
         render();
     }
     function endManual() {
         if (!manualFinishing || decoding || queue.length) return;
         manualFinishing = false; mode = 'off'; phase = 'OFF'; target = session = null; generation++;
-        void native({ action: 'stop' }).catch(() => {});
-        const indicator = document.getElementById('speech-indicator'); if (indicator && !voice.activeCapture && !Axx.companion?.speaking) indicator.hidden = true;
+        void releaseNative('stop');
+        const indicator = document.getElementById('speech-indicator'); if (indicator && !nativeReleasing && !voice.activeCapture && !Axx.companion?.speaking) indicator.hidden = true;
         render();
     }
     async function start(next = 'focus', holding = false) {
@@ -134,13 +145,15 @@
         if (Axx.symbiosis?.use === 'command') Axx.symbiosis.dictation.stop();
         render();
         try {
+            await releasePromise;
+            if (id !== generation) return;
             const report = await Axx.backendRequest('GET', '/axx-api/speech/models');
             if (id !== generation) return;
             if (config.model && !report.models?.some(m => m.id === config.model && m.available)) throw Error('El motor/modelo elegido no está preparado localmente.');
             if (!config.model) await voice.requireTranscription();
             if (id !== generation) return;
             const result = await native({ action: 'start' });
-            if (id !== generation) { void native({ action: 'stop' }); return; }
+            if (id !== generation) return;
             session = result.session; sequence = 0; render(); await tick();
         } catch (error) { if (id === generation) stop(); throw error; }
     }
@@ -182,29 +195,19 @@
         starting = true; const id = generation;
         try {
             await voice.cancelPromise;
+            await releasePromise;
             if (id !== generation) return;
-            const acquired = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, sampleRate: 16000, echoCancellation: true, noiseSuppression: true, ...(config.microphone ? { deviceId: { exact: config.microphone } } : {}) }, video: false });
-            if (id !== generation) { acquired.getTracks().forEach(t => t.stop()); return; }
-            stream = acquired; phase = 'CAPTURING'; render(); ctx = new AudioContext({ sampleRate: 16000 });
             const currentFocus = await native({ action: 'probe', session });
-            if (id !== generation || speechBusy() || !currentFocus.editable || currentFocus.target !== target) { release(); if (id === generation) { phase = 'ARMED'; render(); } return; }
-            if (ctx.sampleRate > 48000) throw Error('Frecuencia de micrófono no compatible.');
-            let resumeTimeout;
-            try { await Promise.race([ctx.resume(), new Promise((_, reject) => { resumeTimeout = setTimeout(() => reject(Error('Audio suspendido.')), 2500); }), new Promise(resolve => { cancelResume = resolve; })]); }
-            finally { clearTimeout(resumeTimeout); cancelResume = null; }
-            if (id !== generation) return;
-            if (ctx.state && ctx.state !== 'running') throw Error('Audio suspendido.');
-            const rate = ctx.sampleRate;
-            segmenter = new Segmenter(rate, (pcm, sampleRate, destination) => {
+            if (id !== generation || speechBusy() || !currentFocus.editable || currentFocus.target !== target) { if (id === generation) { phase = 'ARMED'; render(); } return; }
+            const acquired = await native({ action: 'audio_start', session, device: config.microphone });
+            if (id !== generation) { await releaseNative(); return; }
+            if (!acquired?.capture || acquired.sample_rate !== 16000 || acquired.microphone_open !== true) throw Error('Captura nativa inválida.');
+            stream = acquired.capture;
+            segmenter = new Segmenter(16000, (pcm, sampleRate, destination) => {
                 if (queue.length >= 2) { pause(); lastError = 'El reconocimiento va retrasado. Reanude cuando termine.'; render(); return; }
                 queue.push({ pcm, rate: sampleRate, target: destination, sequence: ++sequence }); void drain();
             });
-            const source = ctx.createMediaStreamSource(stream);
-            // shortcut: ScriptProcessor works in current WebView2; move to AudioWorklet if measured UI stalls drop frames.
-            processor = ctx.createScriptProcessor(2048, 1, 1);
-            processor.onaudioprocess = e => segmenter?.feed(e.inputBuffer.getChannelData(0), target);
-            source.connect(processor); const muted = ctx.createGain(); muted.gain.value = 0; processor.connect(muted); muted.connect(ctx.destination);
-            for (const track of stream.getTracks()) track.addEventListener('ended', () => { if (id === generation) { pause(); lastError = 'Micrófono desconectado.'; render(); } }, { once: true });
+            if (id !== generation) return;
             phase = 'CAPTURING'; render();
         } catch (error) { if (id === generation) { cancelAudio(); phase = 'ERROR'; lastError = 'No se pudo iniciar el audio local. Active AXX y revise el permiso o micrófono.'; render(); } }
         finally { starting = false; }
@@ -216,6 +219,7 @@
             const focus = await native({ action: 'probe', session });
             if (id !== generation || mode === 'off') return;
             target = focus.editable ? focus.target : null;
+            if (stream && focus.microphone_open === false) { segmenter?.flush(); release(); phase = 'ARMED'; }
             if (speechBusy()) { if (stream || starting) pause(); render(); return; }
             if (!target) { if (stream) { segmenter?.flush(); release(); } if (!['PAUSED', 'ERROR'].includes(phase)) phase = 'ARMED'; render(); }
             else await beginCapture();
@@ -281,10 +285,22 @@
             const report = await Axx.backendRequest('GET', '/axx-api/speech/models');
             for (const model of report.models || []) { const option = new Option(model.id + (model.available ? '' : ' · no disponible'), model.id); option.disabled = !model.available; panel.querySelector('[data-config="model"]').append(option); }
             panel.querySelector('[data-config="model"]').value = config.model;
-            for (const device of await navigator.mediaDevices.enumerateDevices()) if (device.kind === 'audioinput') panel.querySelector('[data-config="microphone"]').append(new Option(device.label || 'Micrófono', device.deviceId));
+            for (const device of (await native({ action: 'audio_devices' })).devices || []) panel.querySelector('[data-config="microphone"]').append(new Option(device.label || 'Micrófono', device.id));
             panel.querySelector('[data-config="microphone"]').value = config.microphone;
         }); render();
     }
+    void window.__TAURI__.event.listen('axx-dictation-pcm', ({ payload }) => {
+        if (!stream || payload?.session !== session || payload.capture !== stream || !Array.isArray(payload.samples) || payload.samples.length > 2048 || typeof payload.target !== 'string') return;
+        if (payload.samples.some(v => !Number.isInteger(v) || v < -32768 || v > 32767)) return;
+        segmenter?.feed(Float32Array.from(payload.samples, value => value / 32768), payload.target);
+    });
+    void window.__TAURI__.event.listen('axx-dictation-audio-stopped', ({ payload }) => {
+        if (!stream || payload?.capture !== stream || payload.session !== session) return;
+        if (payload.error) cancelAudio(); else { segmenter?.flush(); release(); }
+        phase = payload.error ? 'ERROR' : 'ARMED';
+        if (payload.error) lastError = 'El micrófono nativo se interrumpió. Revise la entrada y reanude.';
+        render();
+    });
     void window.__TAURI__.event.listen('axx-dictation-cancel', stop);
     void window.__TAURI__.event.listen('axx-dictation-toggle', () => { if (mode === 'manual') api.finish(); else if (mode !== 'off') stop(); else void start('manual').catch(() => { lastError = 'No se pudo iniciar el dictado.'; render(); }); });
     void window.__TAURI__.event.listen('axx-dictation-hold-start', () => { if (mode === 'off') void start('manual', true).catch(() => { stop(); lastError = 'No se pudo iniciar el dictado.'; render(); }); });

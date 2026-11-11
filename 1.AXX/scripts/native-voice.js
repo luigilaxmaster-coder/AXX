@@ -21,6 +21,8 @@
         meter.start = async () => {
             if (!state.acquireCapture(meter)) return false;
             try {
+                await state.waitForNativeCaptureRelease?.();
+                if (state.activeCapture !== meter) return false;
                 const started = begin(); state.activeCapture = meter;
                 return await started;
             } finally { if (!meter.active && state.activeCapture === meter) state.activeCapture = null; }
@@ -32,7 +34,7 @@
         app.stopAudio = () => { end(); if (state.activeCapture === visualCapture) state.activeCapture = null; };
         app.startMicrophone = async () => {
             if (app.busySequence || !state.acquireCapture(visualCapture)) return;
-            try { const started = begin(); state.activeCapture = visualCapture; return await started; }
+            try { await state.waitForNativeCaptureRelease?.(); if (state.activeCapture !== visualCapture) return; const started = begin(); state.activeCapture = visualCapture; return await started; }
             finally { if (app.captureMode !== 'mic' && state.activeCapture === visualCapture) state.activeCapture = null; }
         };
     }
@@ -294,6 +296,8 @@
             state.activeCapture = this;
             this.change('starting');
             try {
+                await state.waitForNativeCaptureRelease?.();
+                if (id !== this.generation || state.activeCapture !== this) return 'unavailable';
                 if (!this.options.submitAudio) {
                     await state.cancelPromise;
                     if (id !== this.generation) return 'unavailable';
