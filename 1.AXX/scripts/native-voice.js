@@ -2,6 +2,40 @@
 (function installNativeVoice(Axx) {
     if (!Axx?.isNative?.() || Axx.nativeVoice) return;
     const state = Axx.nativeVoice = { activeCapture: null, voices: [], voicePromise: null, playback: null };
+    state.acquireCapture = (capture, preempt = true) => {
+        if (state.activeCapture === Axx.voice13?.meter && capture.owner === Axx.voice13?.capture) {
+            state.activeCapture = capture; return true;
+        }
+        if (state.activeCapture && state.activeCapture !== capture) {
+            if (!preempt) return false;
+            state.activeCapture.stop();
+        }
+        if (state.activeCapture && state.activeCapture !== capture) return false;
+        state.activeCapture = capture;
+        return true;
+    };
+    const meter = Axx.voice13?.meter;
+    if (meter) {
+        const begin = meter.start.bind(meter), end = meter.stop.bind(meter);
+        meter.stop = () => { end(); if (state.activeCapture === meter) state.activeCapture = null; };
+        meter.start = async () => {
+            if (!state.acquireCapture(meter)) return false;
+            try {
+                const started = begin(); state.activeCapture = meter;
+                return await started;
+            } finally { if (!meter.active && state.activeCapture === meter) state.activeCapture = null; }
+        };
+    }
+    if (Axx.app?.startMicrophone && Axx.app?.stopAudio) {
+        const app = Axx.app, begin = app.startMicrophone.bind(app), end = app.stopAudio.bind(app);
+        const visualCapture = { stop: () => app.stopAudio() };
+        app.stopAudio = () => { end(); if (state.activeCapture === visualCapture) state.activeCapture = null; };
+        app.startMicrophone = async () => {
+            if (app.busySequence || !state.acquireCapture(visualCapture)) return;
+            try { const started = begin(); state.activeCapture = visualCapture; return await started; }
+            finally { if (app.captureMode !== 'mic' && state.activeCapture === visualCapture) state.activeCapture = null; }
+        };
+    }
     try { state.liveDeviceId = localStorage.getItem('axx.live.microphone') || ''; } catch { state.liveDeviceId = ''; }
     // RMS envelope only: this state contains no audio or recognized text.
     state.inputLevel = null;
@@ -255,9 +289,7 @@
                 return 'unavailable';
             }
             this.stop(false); const id = this.generation; this.lang = lang; this.lastVoiceAt = 0;
-            if (state.activeCapture && state.activeCapture !== this) state.activeCapture.stop();
-            // A previous owner's callback may hand the microphone to a successor.
-            if (state.activeCapture && state.activeCapture !== this) return 'busy';
+            if (!state.acquireCapture(this, this.preempt)) return 'busy';
             this.binding = this.options.submitAudio ? Object.freeze({ capture_id: binding.capture_id }) : null;
             state.activeCapture = this;
             this.change('starting');
@@ -360,7 +392,8 @@
                 if (id !== this.generation) return;
                 clip.audio = await base64(clip); if (id !== this.generation) return;
                 if (!this.options.submitAudio) await state.cancelPromise; if(id!==this.generation)return;
-                const language = this.lang?.toLowerCase().startsWith('es') ? 'es' : this.lang?.toLowerCase().startsWith('en') ? 'en' : 'auto';
+                const languageCode = this.lang?.toLowerCase().split('-')[0];
+                const language = /^[a-z]{2,3}$/.test(languageCode || '') ? languageCode : 'auto';
                 const began=performance.now();
                 clip.payload = { audio_base64: clip.audio, mime: clip.blob.type, language, ...(this.options.submitAudio ? {} : { task: 'transcribe' }) };
                 const data = this.options.submitAudio ? await this.options.submitAudio(clip.payload, clip.binding) : await Axx.backendRequest('POST', '/axx-api/speech/transcribe', clip.payload);
@@ -655,6 +688,9 @@
 
         setHotkey(combo) {
             if (!combo || typeof combo !== 'string') combo = 'Alt+Shift+V';
+            if (Axx.dictation?.conflictsWithShortcut(combo)) {
+                this.statusText = 'Ese atajo ya pertenece al dictado. Elige otro para comandos de voz.'; this.syncUI(); return;
+            }
             this.hotkey = combo.trim();
             try { localStorage.setItem('axx.activation.hotkey', this.hotkey); } catch {}
             this.statusText = this.mode === 'always_active'
@@ -679,6 +715,10 @@
                 this.rearmTimer = null;
                 if (this.mode !== 'always_active' || this.paused || document.hidden || this.active || Axx.companion?.data?.prefs?.mutedAll) return;
                 const readerState = Axx.symbiosis?.reader?.state;
+                if (state.activeCapture && state.activeCapture.owner !== Axx.symbiosis?.dictation || Axx.dictation && Axx.dictation.status().mode !== 'off') {
+                    this.scheduleRearm(500);
+                    return;
+                }
                 if (Axx.companion?.pending || Axx.companion?.speaking || ['starting', 'speaking', 'paused'].includes(readerState)) {
                     this.scheduleRearm(500);
                     return;

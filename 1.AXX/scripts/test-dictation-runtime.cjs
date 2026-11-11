@@ -35,6 +35,7 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
         stop(){this.state='inactive';queueMicrotask(()=>{this.ondataavailable?.({data:new Blob(['fixture audio'],{type:'audio/webm'})});this.onstop?.();});}
       };
       window.__TAURI__={core:{invoke:async(name,args)=>{
+        if(name==='dictation_shortcut')return {shortcut:{key:68,modifiers:7,activation:'toggle'},registered:true};
         const desktop={workWidth:1920,workHeight:1080,spaceLeft:1000,spaceRight:920,spaceAbove:540,spaceBelow:540};
         if(name==='native_status')return {native:true,backendReady:false,shortcut:'Alt+Shift+A',desktop};
         if(name==='desktop_layout')return {...desktop,...args};
@@ -107,6 +108,9 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
     const voiceEvidence=path.resolve(__dirname,'../../build/voice-ui-'+require('../../package.json').version);fs.mkdirSync(voiceEvidence,{recursive:true});
     await page.locator('#chat-voice-settings').click();
     assert.equal(await page.locator('#view-voices').isVisible(),true,'The dedicated voice panel must open from chat');
+    await page.waitForSelector('#axx-dictation');
+    assert.equal(await page.locator('#axx-dictation').count(),1,'Global dictation must reuse the existing voice surface');
+    assert.equal(await page.evaluate(()=>Axx.dictation.status().state),'OFF','Global dictation must never arm on startup');
     assert.equal(await page.locator('#voice-panel-current').evaluate(el=>getComputedStyle(el).color),'rgb(241, 255, 253)','Active voice must remain readable on its dark card');
     assert.equal(await page.locator('#voice-panel-controls .micro-copy').first().evaluate(el=>getComputedStyle(el).color),'rgb(181, 202, 218)','Voice model help must remain readable on the dark controls');
     assert.equal(await page.locator('#chat-voice-speed-value').evaluate(el=>getComputedStyle(el).color),'rgb(180, 236, 225)','Voice speed must remain readable on the dark controls');
@@ -540,6 +544,26 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
     await page.waitForFunction(()=>document.getElementById('anticipation-microphone-status').textContent.includes('Caracteres: 0'));
     assert.deepEqual(await page.evaluate(()=>({clean:contextLocal.clip===null&&contextLocal.chunks.length===0&&contextLocal.bytes===0&&contextLocal.stream===null&&Axx.nativeVoice.activeCapture===null,legacyASR:requests.filter(path=>path==='/axx-api/speech/transcribe').length-contextLegacyASR,legacyCancel:requests.filter(path=>path==='/axx-api/speech/cancel').length-contextLegacyCancel,chatUnchanged:Axx.companion.data.messages.length===contextMessages&&document.getElementById('chat-input').value===contextDraft,onFinal:typeof contextLocal.owner.onFinal,stopped:window.contextStopped||null,bodyCleared:contextSubmit.audio_base64==='',captureId:contextSubmit.capture_id})),{clean:true,legacyASR:0,legacyCancel:0,chatUnchanged:true,onFinal:'undefined',stopped:null,bodyCleared:true,captureId:'full-context-clip'},'The real anticipation controller and native recorder consume a silent metadata receipt without chat, commands, legacy ASR or successful-result cancellation');
     await page.evaluate(()=>{microphoneContextData.sources.microphone=false;return Axx.anticipation.refresh();});
+    const visualLease=await page.evaluate(async()=>{
+      fixtureAsrAvailable=true;fixtureInput='silence';Axx.app.machine.visible=true;
+      await Axx.app.startMicrophone();const visual=Axx.app.stream,owned=!!Axx.nativeVoice.activeCapture;
+      const owner={state:'idle'};Axx.nativeVoice.attach(owner);await owner.start('es');
+      const stopped=visual?.getTracks().every(track=>track.readyState==='ended'),transferred=Axx.nativeVoice.activeCapture?.owner===owner;
+      owner.stop();return{owned,stopped,transferred};
+    });
+    assert.deepEqual(visualLease,{owned:true,stopped:true,transferred:true},'Visual microphone and ASR must share ownership and release the previous stream');
+    const wakeIsolation=await page.evaluate(async()=>{
+      const wake=Axx.nativeVoice.wake,mode=wake.mode,listen=wake.listenOnce,status=Axx.dictation.status,c=Axx.companion;
+      const previous={muted:c.data.prefs.mutedAll,pending:c.pending,speaking:c.speaking,reader:Axx.symbiosis.reader.state};
+      c.data.prefs.mutedAll=false;c.pending=false;c.speaking=false;Axx.symbiosis.reader.state='idle';
+      let calls=0;wake.mode='always_active';wake.active=false;wake.paused=false;wake.listenOnce=()=>{calls++;};
+      try {
+        Axx.dictation.status=()=>({mode:'focus'});wake.scheduleRearm(1);await new Promise(r=>setTimeout(r,40));
+        const guarded=calls===0;Axx.dictation.status=status;wake.scheduleRearm(1);await new Promise(r=>setTimeout(r,40));
+        return{guarded,resumed:calls===1};
+      } finally {clearTimeout(wake.rearmTimer);wake.rearmTimer=null;wake.mode=mode;wake.listenOnce=listen;Axx.dictation.status=status;c.data.prefs.mutedAll=previous.muted;c.pending=previous.pending;c.speaking=previous.speaking;Axx.symbiosis.reader.state=previous.reader;}
+    });
+    assert.deepEqual(wakeIsolation,{guarded:true,resumed:true},'Automatic voice-command rearm must not interpret an armed dictation as instructions');
     assert.deepEqual(errors,[]);
     const output=path.resolve(__dirname,'../../build/quick-reply-'+require('../../package.json').version);fs.mkdirSync(output,{recursive:true});
     await page.screenshot({path:path.join(output,'dictation.png')});
