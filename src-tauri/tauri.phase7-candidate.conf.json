@@ -1,0 +1,6 @@
+{
+  "productName": "Axx Phase7 Candidate",
+  "identifier": "com.axx.phase7",
+  "mainBinaryName": "AxxPhase7",
+  "bundle": { "windows": { "nsis": { "compression": "none" } } }
+}
