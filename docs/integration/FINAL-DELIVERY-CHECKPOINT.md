@@ -102,10 +102,36 @@ El worker y las licencias de dictado aparecen en `src-tauri/target/release/resou
 mismo hash. El contenido del instalador solo se comprobará al instalarlo
 (`verify-installed-files.py`); aún no se ha ejecutado.
 
-## Estado de la entrega: NO publicada, NO instalada
+## Etapa 3 · instalación, publicación y estado final (2026-11-12)
 
-Bloqueos de release (no se fuerza nada, el AXX personal no se ha tocado; la instalación
-personal registra 0.22.42 en el registro de Windows y 0.22.46 en `Axx.exe`, sin proceso Axx activo):
+Por indicación expresa del usuario ("instala y da push, haz todo"):
+
+- **Copia de seguridad previa** en `C:\Users\luigi\AxxBackups\pre-0.22.47-20261112-0656*`
+  (datos de `%LOCALAPPDATA%\Axx` sin `speech`, `backups` ni candidatas antiguas: 1121 MB; programa
+  anterior completo: 1563 MB; clave de registro exportada). `state.db` verificado byte a byte.
+  Los modelos de voz (`speech`, 10,6 GB) no se copiaron: el instalador no toca `%LOCALAPPDATA%\Axx`.
+- **Instalación** con `install-verified-windows.ps1`: `INSTALLED_RUNTIME_STARTED` v0.22.47,
+  registro y `Axx.exe` en 0.22.47 (antes registro 0.22.42 / exe 0.22.46), backend autenticado
+  (401 sin token), `installed-files.json` PASS con 36 avisos de licencia, worker ASR instalado con
+  el hash del build y 3 licencias de dictado. Datos del usuario intactos (25 carpetas, `state.db` en uso).
+- **`release.py publish --dry-run`** PASS; publicación real desde un clon limpio con `main` propio
+  (el `main` local vive en otro worktree con cambios sin confirmar de otra tarea que no se tocan).
+- **GitHub:** `origin/main` avanzó por fast-forward a `0ecd39fc`, release
+  [v0.22.47](https://github.com/luigilaxmaster-coder/AXX/releases/tag/v0.22.47) publicada como
+  **prerelease** con el commit `0ecd39fc3935cce910dbc738be782ed4a673e37b`. Digest de GitHub y descarga pública
+  coinciden: `6B8ABD2EC6990DE652963AE46534CC129C7234F90D85E28CB66B9D2ACB46F6C3`, 202564324 bytes.
+  `release.json` y README apuntan a 0.22.47 en `daf93f72f54cc520f36c297438ddf20143776caa`.
+- El comando de publicación falló una vez al confirmar el commit del README por falta de identidad git
+  en el clon; la release ya estaba publicada y verificada, se completó el commit y push a mano.
+
+**Sigue sin hacerse (no se declara aprobado):** pruebas físicas del dictado con voz humana, aceptación
+visual nativa WebView2 de la identidad productiva con interacción, y comprobación de rollback ejecutado
+(solo existe la copia de seguridad).
+
+## Bloqueos de release anteriores a la etapa 3 (histórico)
+
+Estado antes de instalar (no se fuerza nada; la instalación
+personal registraba 0.22.42 en el registro de Windows y 0.22.46 en `Axx.exe`, sin proceso Axx activo):
 
 1. **Pruebas físicas del dictado** (voz humana, Bloc de notas y navegador, sin envío automático,
    cambio de campo, pausa/reanudación/cancelación, cierre del micrófono, convivencia con chat y
