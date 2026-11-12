@@ -112,13 +112,19 @@ try {
     $workerExecutable = Join-Path $workerTarget 'release\axx-dictation-asr.exe'
     # CMake's native build under a long checkout path exceeds MAX_PATH; a short target is copied back and the receipt hashes the copied file.
     $workerBuildTarget = if ($WorkerTargetDirectory) { [IO.Path]::GetFullPath($WorkerTargetDirectory) } else { $workerTarget }
-    foreach ($workerCommand in @(@('test', '--release', '--locked', '--manifest-path', $workerManifest, '--target-dir', $workerBuildTarget), @('build', '--release', '--locked', '--manifest-path', $workerManifest, '--target-dir', $workerBuildTarget))) {
+    # transcribe-cpp-sys otherwise builds through a %LOCALAPPDATA%\tcs junction, which breaks CMake's compiler check with this MSBuild (MSB1009).
+    # Without LOCALAPPDATA/TEMP it builds in OUT_DIR, so the target path must stay short (see WorkerTargetDirectory).
+    $savedLocalAppData = $env:LOCALAPPDATA; $savedTemp = $env:TEMP
+    Remove-Item Env:LOCALAPPDATA -ErrorAction SilentlyContinue; Remove-Item Env:TEMP -ErrorAction SilentlyContinue
+    try {
+    foreach ($workerCommand in @(@('test','--release', '--locked', '--manifest-path', $workerManifest, '--target-dir', $workerBuildTarget), @('build', '--release', '--locked', '--manifest-path', $workerManifest, '--target-dir', $workerBuildTarget))) {
         $ErrorActionPreference = 'Continue'
         & cargo @workerCommand *>> (Join-Path $evidencePath 'dictation-worker-build.log')
         $ErrorActionPreference = 'Stop'
         $steps += @{command="cargo $($workerCommand -join ' ')"; exit_code=$LASTEXITCODE}
         if ($LASTEXITCODE -ne 0) { throw 'Dictation ASR worker build or test failed; see dictation-worker-build.log' }
     }
+    } finally { $env:LOCALAPPDATA = $savedLocalAppData; $env:TEMP = $savedTemp }
     if ($workerBuildTarget -ne $workerTarget) {
         New-Item -ItemType Directory -Path (Split-Path $workerExecutable) -Force | Out-Null
         Copy-Item -LiteralPath (Join-Path $workerBuildTarget 'release\axx-dictation-asr.exe') -Destination $workerExecutable -Force
