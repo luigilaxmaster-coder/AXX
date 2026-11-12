@@ -39,6 +39,7 @@ try {
     $sourceFiles = @(Get-ChildItem -LiteralPath '1.AXX' -File -Recurse | Where-Object { $_.Extension -in '.html','.js','.css','.json','.png','.ico','.svg','.woff','.woff2' } | ForEach-Object FullName) + @('axx-backend.spec', 'scripts\setup-freellmapi.ps1', 'src-tauri\tauri.conf.json', 'src-tauri\Cargo.toml', 'src-tauri\resources\ai-memory.exe') + $telegramAssets
     $sourceFiles += @(Get-ChildItem backend,src-tauri\src,resources,vendor -File -Recurse | Where-Object { $_.Extension -in '.ps1','.py','.rs','.json','.bin','.txt','.zip' -and $_.FullName -notmatch '\\(__pycache__|tests)\\' -and $_.Name -notlike 'test_*.py' } | ForEach-Object FullName)
     $sourceFiles += @(Get-ChildItem -LiteralPath 'src-tauri\resources\license-notices' -File -Recurse | ForEach-Object FullName)
+    $sourceFiles += @('workers\dictation-asr\Cargo.toml', 'workers\dictation-asr\Cargo.lock', 'workers\dictation-asr\src\main.rs') + @(Get-ChildItem -LiteralPath 'docs\phase-8\licenses' -File -Recurse | ForEach-Object FullName)
     $sourceFiles += @('LICENSE', 'scripts\configure-native-gateway.py', 'scripts\anythingmcp-local.py', 'scripts\backend_bundle.py', 'scripts\build-windows.ps1', 'src-tauri\windows\backend-bundle.nsh', 'requirements-telegram.txt', 'requirements-speech.txt')
     $before = @{}
     foreach ($file in $sourceFiles) { $before[$file] = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash }
@@ -106,6 +107,16 @@ try {
         Get-FileHash -LiteralPath $backendExecutable -Algorithm SHA256
         return
     }
+    $workerManifest = Join-Path $projectRoot 'workers\dictation-asr\Cargo.toml'
+    $workerTarget = Join-Path $projectRoot 'workers\dictation-asr\target'
+    $workerExecutable = Join-Path $workerTarget 'release\axx-dictation-asr.exe'
+    foreach ($workerCommand in @(@('test', '--release', '--locked', '--manifest-path', $workerManifest, '--target-dir', $workerTarget), @('build', '--release', '--locked', '--manifest-path', $workerManifest, '--target-dir', $workerTarget))) {
+        $ErrorActionPreference = 'Continue'
+        & cargo @workerCommand *>> (Join-Path $evidencePath 'dictation-worker-build.log')
+        $ErrorActionPreference = 'Stop'
+        $steps += @{command="cargo $($workerCommand -join ' ')"; exit_code=$LASTEXITCODE}
+        if ($LASTEXITCODE -ne 0) { throw 'Dictation ASR worker build or test failed; see dictation-worker-build.log' }
+    }
     $tauri = Join-Path $projectRoot 'node_modules\.bin\tauri.cmd'
     if (-not (Test-Path -LiteralPath $tauri)) { throw 'Tauri CLI missing; run npm ci before building Windows' }
     $targetRoot = Join-Path $projectRoot 'src-tauri\target'
@@ -129,7 +140,7 @@ try {
     & $PythonExecutable $bundleHelper verify $resourceRoot $bundleManifestPath
     if ($LASTEXITCODE -ne 0) { throw 'Staged backend bundle changed during Tauri packaging' }
     $version = (Get-Content 'src-tauri\tauri.conf.json' -Raw | ConvertFrom-Json).version
-    $artifacts = @((Join-Path $targetRoot "release\bundle\nsis\Axx_${version}_x64-setup.exe"), (Join-Path $targetRoot 'release\Axx.exe'), 'dist\axx-backend\axx-backend.exe') | ForEach-Object {
+    $artifacts = @((Join-Path $targetRoot "release\bundle\nsis\Axx_${version}_x64-setup.exe"), (Join-Path $targetRoot 'release\Axx.exe'), 'dist\axx-backend\axx-backend.exe', $workerExecutable) | ForEach-Object {
         $item=Get-Item -LiteralPath $_
         @{path=$item.FullName; bytes=$item.Length; sha256=(Get-FileHash -LiteralPath $item.FullName -Algorithm SHA256).Hash; architecture='x86_64'; version=$version}
     }

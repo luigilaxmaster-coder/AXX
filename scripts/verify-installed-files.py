@@ -45,6 +45,17 @@ def verify_installed_files(installed_directory: Path, build: dict) -> dict:
         verify_backend_bundle(resources, bundle)
     elif (resources / '_internal').exists() or Path(build['artifacts'][2]['path']).parent.name == 'axx-backend':
         raise RuntimeError('ONEDIR backend requires a complete bundle build receipt')
+    worker = [item for item in build['artifacts'] if Path(item['path']).name == 'axx-dictation-asr.exe']
+    # Builds that hash the worker sources must also ship and verify the worker; older receipts predate it.
+    declares_worker = any('workers/dictation-asr/' in name.replace(chr(92), '/') for name in build['source_hashes'])
+    if declares_worker and (len(worker) != 1 or digest((resources / 'axx-dictation-asr.exe').read_bytes()).lower() != worker[0]['sha256'].lower()):
+        raise RuntimeError('Dictation ASR worker differs from verified build')
+    for name, expected_hash in build['source_hashes'].items():
+        normalized = name.replace('\\', '/')
+        if 'docs/phase-8/licenses/' in normalized:
+            notice = resources / 'license-notices' / 'dictation' / normalized.split('docs/phase-8/licenses/', 1)[1]
+            if digest(notice.read_bytes()).lower() != expected_hash.lower():
+                raise RuntimeError(f'Installed dictation license differs: {notice.name}')
     memory_inputs = [value for name, value in build['source_hashes'].items()
                      if name.replace('\\', '/').lower().endswith('src-tauri/resources/ai-memory.exe')]
     if len(memory_inputs) != 1:
