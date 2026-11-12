@@ -280,7 +280,10 @@ const inventory = () => {
       await open('voices'); await page.locator('#axx-dictation-open').click();
       assert.equal(await page.locator('[data-p7-tab=sound]').getAttribute('aria-selected'),'true');
       assert.equal(await page.locator('#axx-dictation').getAttribute('open'),'');
-      for (const t of ['light','dark']) { await theme(t); assert.ok(await ev(() => { const n=document.querySelector('#view-sound'); return n.scrollWidth<=n.clientWidth+1; })); }
+      for (const t of ['light','dark']) { await theme(t); assert.ok(await ev(() => { const n=document.querySelector('#view-sound'); return n.scrollWidth<=n.clientWidth+1; }));
+        const ratio = await ev(() => { const s=getComputedStyle(document.querySelector('#axx-dictation [data-file]')); const lum=color=>color.match(/[\d.]+/g).slice(0,3).map(Number).map(v=>{v/=255;return v<=.04045?v/12.92:((v+.055)/1.055)**2.4;}).reduce((sum,v,i)=>sum+v*[.2126,.7152,.0722][i],0);const a=lum(s.color),b=lum(s.backgroundColor);return (Math.max(a,b)+.05)/(Math.min(a,b)+.05); });
+        assert.ok(ratio>=4.5,'File selection text contrast '+t+': '+ratio);
+      }
       await page.locator('#axx-dictation [data-engine]').selectOption('parakeet');
       assert.equal(await page.locator('#axx-dictation [data-config=model]').inputValue(),'parakeet-tdt-0.6b-v3');
       await page.locator('#axx-dictation [data-save]').click();

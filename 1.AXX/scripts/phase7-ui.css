@@ -99,6 +99,8 @@ body.native.axx-resident[data-ui-theme] #panel #view-voices .voice-studio-headin
 body.native.axx-resident[data-ui-theme] #panel #p7-dictation label{display:grid;gap:6px;margin:12px 0;min-width:0}
 body.native.axx-resident[data-ui-theme] #panel #p7-dictation :is(select,textarea,input:not([type=checkbox])){width:100%;min-width:0;max-width:100%;box-sizing:border-box}
 body.native.axx-resident[data-ui-theme] #panel #p7-dictation pre{white-space:pre-wrap;overflow-wrap:anywhere}
+body.native.axx-resident[data-ui-theme] #panel #p7-dictation input[type=file]{background:var(--surface-subtle)!important;color:var(--ink)!important}
+body.native.axx-resident[data-ui-theme] #panel #p7-dictation input[type=file]::file-selector-button{background:var(--button);color:var(--ink);border:1px solid var(--p7-button-line);border-radius:8px;padding:6px 10px}
 /* Light chat: the same controls, now with a visible edge. Outline, not border, so the approved geometry does not move. */
 body.native.axx-resident[data-ui-theme=light] #panel[data-view=chat] :is(#cu-launch,#tf-launch,#cw-rename-save,#cw-restart,#cw-archive,#cw-export,#cw-continue,#cw-create-group,#cu-open,#chat-live-toggle):not(:focus-visible){outline:1px solid color-mix(in srgb,var(--ink) 32%,var(--surface));outline-offset:-1px}
 body.native.axx-resident[data-ui-theme=light] #panel[data-view=chat] :is(#cu-launch,#tf-launch,#cw-rename-save,#cw-restart,#cw-archive,#cw-export,#cw-continue,#cw-create-group,#cu-open,#chat-live-toggle):hover:not(:disabled):not(:focus-visible){outline-color:var(--p7-field-line)}
