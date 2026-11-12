@@ -1,5 +1,5 @@
 param([string]$PythonExecutable = 'python', [switch]$SkipBackend, [switch]$BackendOnly,
-      [string]$CargoTargetDirectory = '',
+      [string]$CargoTargetDirectory = '', [string]$WorkerTargetDirectory = '',
       [string]$EvidenceDirectory = 'evidence\resident-20261019')
 $ErrorActionPreference = 'Stop'
 Import-Module Microsoft.PowerShell.Utility
@@ -110,12 +110,18 @@ try {
     $workerManifest = Join-Path $projectRoot 'workers\dictation-asr\Cargo.toml'
     $workerTarget = Join-Path $projectRoot 'workers\dictation-asr\target'
     $workerExecutable = Join-Path $workerTarget 'release\axx-dictation-asr.exe'
-    foreach ($workerCommand in @(@('test', '--release', '--locked', '--manifest-path', $workerManifest, '--target-dir', $workerTarget), @('build', '--release', '--locked', '--manifest-path', $workerManifest, '--target-dir', $workerTarget))) {
+    # CMake's native build under a long checkout path exceeds MAX_PATH; a short target is copied back and the receipt hashes the copied file.
+    $workerBuildTarget = if ($WorkerTargetDirectory) { [IO.Path]::GetFullPath($WorkerTargetDirectory) } else { $workerTarget }
+    foreach ($workerCommand in @(@('test', '--release', '--locked', '--manifest-path', $workerManifest, '--target-dir', $workerBuildTarget), @('build', '--release', '--locked', '--manifest-path', $workerManifest, '--target-dir', $workerBuildTarget))) {
         $ErrorActionPreference = 'Continue'
         & cargo @workerCommand *>> (Join-Path $evidencePath 'dictation-worker-build.log')
         $ErrorActionPreference = 'Stop'
         $steps += @{command="cargo $($workerCommand -join ' ')"; exit_code=$LASTEXITCODE}
         if ($LASTEXITCODE -ne 0) { throw 'Dictation ASR worker build or test failed; see dictation-worker-build.log' }
+    }
+    if ($workerBuildTarget -ne $workerTarget) {
+        New-Item -ItemType Directory -Path (Split-Path $workerExecutable) -Force | Out-Null
+        Copy-Item -LiteralPath (Join-Path $workerBuildTarget 'release\axx-dictation-asr.exe') -Destination $workerExecutable -Force
     }
     $tauri = Join-Path $projectRoot 'node_modules\.bin\tauri.cmd'
     if (-not (Test-Path -LiteralPath $tauri)) { throw 'Tauri CLI missing; run npm ci before building Windows' }
