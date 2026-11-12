@@ -16,7 +16,9 @@ const fakeNative = () => {
   const providers = [{ name: 'Ollama local', kind: 'ollama', model: 'qwen3:4b', base_url: 'http://127.0.0.1:11434/v1', enabled: true, has_key: false, free_confirmed: true, billing_allowed: false, capabilities: ['text'], tasks: ['chat'] }];
   const desktop = { workWidth: 1920, workHeight: 1040, spaceLeft: 1660, spaceRight: 260, spaceAbove: 800, spaceBelow: 240 };
   window.__TAURI__ = { core: { invoke: async (name, args) => {
-    window.__calls.push({ name, path: args?.path, method: args?.method, body: args?.body });
+    window.__calls.push({ name, path: args?.path, method: args?.method, body: args?.body, request: args?.request });
+    if (name === 'dictation_shortcut') return { registered: true, shortcut: args?.shortcut || { key: 68, modifiers: 7, activation: 'toggle' } };
+    if (name === 'dictation_control') { if (args.request.action === 'audio_devices') return { devices: [] }; throw Error('Unexpected capture or insertion in visual fixture'); }
     if (name === 'native_status') return { native: true, backendReady: true, backendError: null, shortcut: 'Alt+Shift+A', restoreShortcutAvailable: true, restoreShortcutError: null, alwaysOnTop: true, timer: null, dataDirectory: 'PHASE7_FIXTURE', desktop };
     if (name === 'desktop_layout') return { ...desktop, ...args };
     if (name !== 'backend_request') return null;
@@ -37,6 +39,7 @@ const fakeNative = () => {
     if (path === '/axx-api/model-candidates') return { candidates: [] };
     if (path.startsWith('/axx-api/keyless/')) return { state: 'idle', tasks: {} };
     if (path === '/axx-api/speech/status') return { asr: { available: true } };
+    if (path === '/axx-api/speech/models') return { models: [{ id: 'parakeet-tdt-0.6b-v3', family: 'parakeet', engine: 'transcribe-cpp', available: true }, { id: 'whisper-small', family: 'whisper', engine: 'transcribe-cpp', available: true }, { id: 'canary-180m-flash', family: 'canary', engine: 'transcribe-cpp', available: false }] };
     if (path === '/axx-api/speech/voices') return { available: true, engine: 'windows-sapi', voices: [{ name: 'Fixture voice', language: 'es-ES', enabled: true }] };
     if (path.startsWith('/axx-api/commands?')) return { commands: [], counts: { imported: 0, enabled: 0, blocked: 0, verified_operations: 0 } };
     if (path === '/axx-api/learning/actions') return { actions: [] };
@@ -268,6 +271,27 @@ const inventory = () => {
         assert.deepEqual(await ev(() => Axx.resident.panelPositions['panel:sound']),moved);
         await open('settings'); await open('appearance'); assert.equal(Math.round((await page.locator('#panel').boundingBox()).width),630);
       } finally { await ev(saved => { Axx.resident.panelPositions=saved;Axx.resident.savePanelPositions();Axx.resident.schedule(); },original); }
+    });
+    await check('integration: one dictation owner in Sound, quick access, model persistence and no implicit permissions', async () => {
+      await page.waitForFunction(() => document.querySelector('#axx-dictation [data-engine] option[value=parakeet]'));
+      assert.equal(await page.locator('#p7-dictation #axx-dictation').count(),1);
+      for (const key of ['shape','interface','motion','agent','sound']) await ev(key => Axx.phase7.personalize(key),key);
+      assert.equal(await page.locator('#axx-dictation').count(),1); assert.equal(await page.locator('#axx-dictation-open').count(),1);
+      await open('voices'); await page.locator('#axx-dictation-open').click();
+      assert.equal(await page.locator('[data-p7-tab=sound]').getAttribute('aria-selected'),'true');
+      assert.equal(await page.locator('#axx-dictation').getAttribute('open'),'');
+      for (const t of ['light','dark']) { await theme(t); assert.ok(await ev(() => { const n=document.querySelector('#view-sound'); return n.scrollWidth<=n.clientWidth+1; })); }
+      await page.locator('#axx-dictation [data-engine]').selectOption('parakeet');
+      assert.equal(await page.locator('#axx-dictation [data-config=model]').inputValue(),'parakeet-tdt-0.6b-v3');
+      await page.locator('#axx-dictation [data-save]').click();
+      assert.equal(await ev(() => Axx.dictation.settings().model),'parakeet-tdt-0.6b-v3');
+      await page.reload(); await page.waitForFunction(() => Axx.phase7 && document.querySelector('#axx-dictation [data-engine]')?.value==='parakeet');
+      assert.equal(await ev(() => Axx.dictation.settings().model),'parakeet-tdt-0.6b-v3');
+      assert.equal(await ev(() => Axx.dictation.status().state),'OFF');
+      assert.equal(await ev(() => Axx.dictation.status().microphone_open),false);
+      assert.equal(await ev(() => __calls.filter(c => c.request && c.request.action!=='audio_devices').length),0);
+      assert.equal(await ev(() => __calls.filter(c => /(?:computer-use\/configure|microphone\/begin)/.test(c.path || '')).length),0);
+      await ev(() => Axx.dictation.configure({model:''}));
     });
     /*P7-CHECKS*/
     await check('no page errors after interaction', async () => assert.deepEqual(errors, []));

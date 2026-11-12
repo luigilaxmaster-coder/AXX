@@ -101,7 +101,7 @@
             panel.querySelector('[data-status]').textContent = `Dictado: ${snapshot().waiting_for_voice ? 'esperando que termine la voz' : labels[phase]}${nativeReleasing ? ' · cerrando micrófono' : stream ? ' · micrófono abierto' : ''}${decoding ? ' · reconociendo' : ''}${lastError ? ' · ' + lastError : ''}`;
             panel.querySelector('[data-mode]').value = mode;
             panel.querySelector('[data-pending]').textContent = pending.map(p => `${p.status}: ${p.text}`).join('\n');
-            for (const el of panel.querySelectorAll('[data-config]')) el.disabled = mode !== 'off';
+            for (const el of panel.querySelectorAll('[data-config],[data-engine]')) el.disabled = mode !== 'off';
         }
         if ((mode !== 'off' || nativeReleasing) && !speechBusy() && (!voice.activeCapture || voice.activeCapture === capture)) {
             const indicator = document.getElementById('speech-indicator'), label = document.getElementById('speech-status');
@@ -258,22 +258,49 @@
         },
     };
     function mount() {
-        const host = document.getElementById('voice-panel-controls'); if (!host || host.querySelector('#axx-dictation')) return;
+        const host = document.getElementById('voice-panel-controls'); if (!host || document.getElementById('axx-dictation')) return;
         panel = document.createElement('details'); panel.id = 'axx-dictation';
         panel.innerHTML = '<summary>Dictar donde escriba</summary><p>Escucha local, escribe sin enviar. Ctrl+Alt+Mayús+D activa o termina; Esc cancela. Solo campos editables verificados.</p><label>Modo<select data-mode><option value="off">OFF</option><option value="manual">MANUAL</option><option value="focus">CONTINUO por enfoque</option></select></label><p data-status role="status" aria-live="polite"></p><button type="button" data-pause>Pausar</button><button type="button" data-resume>Reanudar</button><button type="button" data-finish>Terminar frase</button><label>Modelo por tarea<select data-config="model"><option value="">Motor actual de Axx</option></select></label><label>Idioma<input data-config="language" maxlength="3" aria-label="Código de idioma o auto"></label><label>Micrófono<select data-config="microphone"><option value="">Predeterminado</option></select></label><label>Perfil<select data-config="profile"><option value="literal">Literal</option><option value="conversation">Conversación</option><option value="technical">Técnico</option><option value="code">Código</option></select></label><label>Salida<select data-config="output"><option value="insert">Insertar sin enviar</option><option value="copy">Copiar</option></select></label><label>Diccionario: pares JSON<textarea data-config="dictionary" maxlength="25000" aria-label="Diccionario personal"></textarea></label><button type="button" data-save>Guardar ajustes</button><pre data-pending aria-label="Texto pendiente, solo en memoria"></pre><button type="button" data-copy>Copiar pendientes</button><button type="button" data-discard>Descartar pendientes</button><label>Transcribir audio local<input type="file" data-file accept="audio/wav,audio/webm,audio/ogg,audio/mp4"></label><label><input type="checkbox" data-translate>Traducir a inglés explícitamente</label><pre data-file-result></pre>';
         host.append(panel);
+        const quick = document.createElement('button'); quick.type = 'button'; quick.id = 'axx-dictation-open'; quick.textContent = 'Configurar dictado global'; quick.setAttribute('aria-controls', panel.id);
+        quick.onclick = () => { Axx.phase7?.personalize('sound'); panel.open = true; panel.scrollIntoView({ block: 'start' }); panel.querySelector('[data-mode]').focus(); };
+        host.append(quick);
+        const modelSelect = panel.querySelector('[data-config="model"]'), engine = document.createElement('select'), engineLabel = document.createElement('label');
+        engine.dataset.engine = ''; engineLabel.append('Motor de reconocimiento', engine); modelSelect.closest('label').before(engineLabel);
+        const engineOf = model => model.family || model.engine, names = { existing: 'Motor anterior de AXX', parakeet: 'Parakeet V3', whisper: 'Whisper · transcribe.cpp', 'faster-whisper': 'Whisper · faster-whisper', canary: 'Canary' };
+        let catalog = [];
+        const selectEngine = () => { const model = catalog.find(m => m.id === modelSelect.value); engine.value = model ? engineOf(model) : 'existing'; };
+        engine.onchange = () => { modelSelect.value = engine.value === 'existing' ? '' : catalog.find(m => m.available && engineOf(m) === engine.value)?.id || ''; };
+        modelSelect.onchange = selectEngine;
+        const privacy = document.createElement('p'); privacy.className = 'micro-copy'; privacy.textContent = 'Privacidad: audio local; no activa permisos de Controlar PC. Dictado escribe sin enviar; comandos y conversación tienen autorización y captura separadas. Los pendientes solo viven en memoria. Literal y Código conservan el texto; Conversación y Técnico aplican el diccionario exacto, sin reescritura con IA.'; panel.append(privacy);
+        const cancel = document.createElement('button'); cancel.type = 'button'; cancel.dataset.stop = ''; cancel.textContent = 'Cancelar dictado'; panel.append(cancel);
         const shortcuts = document.createElement('div');
         shortcuts.innerHTML = '<label>Atajo global<input data-shortcut maxlength="32" value="Ctrl+Alt+Shift+D" aria-label="Atajo de dictado"></label><label>Activación<select data-activation><option value="toggle">Pulsar para activar o terminar</option><option value="hold">Mantener pulsado</option></select></label><button type="button" data-save-shortcut>Guardar atajo</button><button type="button" data-prepare>Preparar modelo</button><button type="button" data-unload>Liberar modelo</button>';
         panel.append(shortcuts);
         const attempt = fn => void Promise.resolve().then(fn).catch(() => { lastError = 'No se pudo completar la operación. Revise el modelo, archivo o ajustes.'; render(); });
         panel.querySelector('[data-mode]').onchange = e => attempt(() => e.target.value === 'off' ? stop() : start(e.target.value));
-        for (const [name, fn] of Object.entries({ pause, resume: api.resume, finish: api.finish, copy: api.copyPending, discard: api.discardPending })) panel.querySelector(`[data-${name}]`).onclick = () => attempt(fn);
+        for (const [name, fn] of Object.entries({ pause, resume: api.resume, finish: api.finish, stop, copy: api.copyPending, discard: api.discardPending })) panel.querySelector(`[data-${name}]`).onclick = () => attempt(fn);
         for (const input of panel.querySelectorAll('[data-config]')) input.value = input.dataset.config === 'dictionary' ? JSON.stringify(config.dictionary) : config[input.dataset.config];
         panel.querySelector('[data-save]').onclick = () => attempt(() => { const value = {}; for (const input of panel.querySelectorAll('[data-config]')) value[input.dataset.config] = input.dataset.config === 'dictionary' ? JSON.parse(input.value) : input.value; api.configure(value); });
         panel.querySelector('[data-save-shortcut]').onclick = () => attempt(() => api.configureShortcut(shortcutChord(panel.querySelector('[data-shortcut]').value, panel.querySelector('[data-activation]').value)));
         panel.querySelector('[data-prepare]').onclick = () => attempt(() => { if (mode !== 'off' || !config.model) throw Error('Elija un modelo y apague el dictado.'); return Axx.backendRequest('POST', '/axx-api/speech/models/prepare', { model: config.model }); });
         panel.querySelector('[data-unload]').onclick = () => attempt(() => { if (mode !== 'off') throw Error('Apague el dictado.'); return Axx.backendRequest('POST', '/axx-api/speech/models/unload', {}); });
         panel.querySelector('[data-file]').onchange = e => attempt(async () => { const result = await api.transcribeFile(e.target.files[0], { translate: panel.querySelector('[data-translate]').checked }); panel.querySelector('[data-file-result]').textContent = result.text; e.target.value = ''; });
+        const refresh = document.createElement('button'); refresh.type = 'button'; refresh.textContent = 'Actualizar modelos y micrófonos'; refresh.dataset.refresh = ''; panel.append(refresh);
+        const refreshCatalog = async () => {
+            const selected = modelSelect.value || config.model, microphone = panel.querySelector('[data-config="microphone"]'), selectedMic = microphone.value || config.microphone;
+            const report = await Axx.backendRequest('GET', '/axx-api/speech/models'); catalog = report.models || [];
+            modelSelect.replaceChildren(new Option('Motor actual de Axx', '')); engine.replaceChildren(new Option(names.existing, 'existing'));
+            for (const key of new Set(catalog.map(engineOf))) { const option = new Option(names[key] || key, key); option.disabled = !catalog.some(m => engineOf(m) === key && m.available); engine.append(option); }
+            for (const model of catalog) { const option = new Option(model.id + (model.available ? '' : ' · no disponible'), model.id); option.disabled = !model.available; modelSelect.append(option); }
+            if (selected && !catalog.some(m => m.id === selected)) { const option = new Option(selected + ' · no disponible', selected); option.disabled = true; modelSelect.append(option); }
+            modelSelect.value = selected; selectEngine();
+            const devices = (await native({ action: 'audio_devices' })).devices || [];
+            microphone.replaceChildren(new Option('Predeterminado', '')); for (const device of devices) microphone.append(new Option(device.label || 'Micrófono', device.id));
+            if (selectedMic && !devices.some(d => d.id === selectedMic)) { const option = new Option('Micrófono guardado · no disponible', selectedMic); option.disabled = true; microphone.append(option); }
+            microphone.value = selectedMic;
+        };
+        refresh.onclick = () => attempt(refreshCatalog);
         attempt(async () => {
             const shortcut = await window.__TAURI__.core.invoke('dictation_shortcut', { shortcut: null });
             if (shortcut?.shortcut && shortcut.shortcut.key) {
@@ -282,11 +309,7 @@
                 panel.querySelector('[data-activation]').value = keys.activation;
                 panel.querySelector('summary + p').textContent = shortcut.registered ? 'Escucha local, escribe sin enviar. Atajo: ' + panel.querySelector('[data-shortcut]').value + '. Esc cancela. Solo campos editables verificados.' : 'Atajo ocupado o no registrado. Configure otro o active el modo desde aquí. Esc cancela.';
             }
-            const report = await Axx.backendRequest('GET', '/axx-api/speech/models');
-            for (const model of report.models || []) { const option = new Option(model.id + (model.available ? '' : ' · no disponible'), model.id); option.disabled = !model.available; panel.querySelector('[data-config="model"]').append(option); }
-            panel.querySelector('[data-config="model"]').value = config.model;
-            for (const device of (await native({ action: 'audio_devices' })).devices || []) panel.querySelector('[data-config="microphone"]').append(new Option(device.label || 'Micrófono', device.id));
-            panel.querySelector('[data-config="microphone"]').value = config.microphone;
+            await refreshCatalog();
         }); render();
     }
     void window.__TAURI__.event.listen('axx-dictation-pcm', ({ payload }) => {
