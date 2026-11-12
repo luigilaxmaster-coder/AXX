@@ -109,8 +109,9 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
     const voiceEvidence=path.resolve(__dirname,'../../build/voice-ui-'+require('../../package.json').version);fs.mkdirSync(voiceEvidence,{recursive:true});
     await page.locator('#chat-voice-settings').click();
     assert.equal(await page.locator('#view-voices').isVisible(),true,'The dedicated voice panel must open from chat');
-    await page.waitForSelector('#axx-dictation');
-    assert.equal(await page.locator('#axx-dictation').count(),1,'Global dictation must reuse the existing voice surface');
+    await page.waitForSelector('#axx-dictation',{state:'attached'});
+    assert.equal(await page.locator('#p7-dictation #axx-dictation').count(),1,'Global dictation settings must have one owner in Personalizar AXX');
+    assert.equal(await page.locator('#axx-dictation-open').isVisible(),true,'Existing voice controls must retain quick access');
     assert.equal(await page.evaluate(()=>Axx.dictation.status().state),'OFF','Global dictation must never arm on startup');
     assert.equal(await page.locator('#voice-panel-current').evaluate(el=>getComputedStyle(el).color),'rgb(241, 255, 253)','Active voice must remain readable on its dark card');
     assert.equal(await page.locator('#voice-panel-controls .micro-copy').first().evaluate(el=>getComputedStyle(el).color),'rgb(181, 202, 218)','Voice model help must remain readable on the dark controls');
