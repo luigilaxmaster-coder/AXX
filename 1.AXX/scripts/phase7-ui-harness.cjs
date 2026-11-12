@@ -286,7 +286,11 @@ const inventory = () => {
       }
       await page.locator('#axx-dictation [data-engine]').selectOption('parakeet');
       assert.equal(await page.locator('#axx-dictation [data-config=model]').inputValue(),'parakeet-tdt-0.6b-v3');
+      await page.locator('#axx-dictation [data-config=language]').fill('es');await page.locator('#axx-dictation [data-save]').click();
+      assert.equal(await ev(() => Axx.dictation.settings().language),'es');
+      await page.locator('#axx-dictation [data-config=language]').fill('auto');
       await page.locator('#axx-dictation [data-save]').click();
+      assert.equal(await ev(() => Axx.dictation.settings().language),'auto');
       assert.equal(await ev(() => Axx.dictation.settings().model),'parakeet-tdt-0.6b-v3');
       await page.reload(); await page.waitForFunction(() => Axx.phase7 && document.querySelector('#axx-dictation [data-engine]')?.value==='parakeet');
       assert.equal(await ev(() => Axx.dictation.settings().model),'parakeet-tdt-0.6b-v3');
