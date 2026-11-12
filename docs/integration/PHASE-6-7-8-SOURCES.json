@@ -1,0 +1,15 @@
+{
+  "state": "PLAN_ONLY",
+  "branch": "codex/axx-phase-6-7-8-integration",
+  "phase6": "a7503624cbefaa9a125331ef3bdcc3b3afdf0101",
+  "phase7_design_freeze": "9f87f7fcaa1ecb06ec87747c233308d1aa7b8c13",
+  "phase7_packaged_source": "a1eb51d76978c99185d0dfc43cda7e6f51930b9d",
+  "phase7_accepted_closure": "d18f8272112b2f3434491497da9add8d6221e539",
+  "phase8": "898df5f48f236b23148d203fc558f9ea0e80c0b1",
+  "phase7_verdict": "READY_WITH_LIMITATIONS",
+  "phase8_delivery_verdict": "NOT_READY",
+  "conflict_files": ["1.AXX/Axx.html", "src-tauri/src/lib.rs"],
+  "runtime_merge_performed": false,
+  "publication_authorized": false,
+  "personal_installation_authorized": false
+}
