@@ -1,5 +1,38 @@
 # Fase 7 · Checkpoint de sesión
 
+## Cierre de Codex · 2026-11-11
+
+`DESIGN_FROZEN_FOR_NATIVE_ACCEPTANCE` — declaración de Codex, basada en sus
+propias pruebas. Claude agotó su cuota y no emitió aprobación final.
+Fuente visual cerrada: `234ffa85743dbd16e6d0c5d0ab79d8460d4cd6e2`.
+El SHA completo del commit que registra esta declaración se conserva en
+`build/phase7/design-freeze.json` después de confirmarlo con `git rev-parse HEAD`.
+
+Worktree propio: `C:\Users\luigi\.codex\worktrees\axx-phase-7-finish\axx2`;
+rama `codex/axx-phase-7-finish`. Base de Claude comprobada:
+`8371e010d588509a1f15a2fcde872449e2eca35f`. Sus cambios sin commit se leyeron y
+se conservaron en patch/hash privado; no se modificaron su rama ni su worktree.
+Handy continúa en `898df5f48f236b23148d203fc558f9ea0e80c0b1`, sin integración.
+
+Cerrados: anchura/posición estables entre las cinco pestañas sin escrituras
+automáticas en tamaños guardados; cuatro grupos interiores de Forma y materiales;
+16 contornos débiles de chat claro corregidos sin cambiar su geometría/lógica.
+Renderizador, shaders, cámara, materiales y exterior del avatar sin cambios.
+
+Pruebas propias: 29 contratos PASS; 42 comprobaciones desktop PASS con Chromium
+headless 1248 en baseline y cierre; otras 12 suites UI PASS y Magic Pen PASS;
+gate PC/móvil PASS (15 / 112 con 1 omisión / 58 / 8). Los cinco fallos históricos
+se reprodujeron en ambos árboles; ver `CODEX-VALIDATION.md`. Contraste de los
+ámbitos modificados: 0 alertas; alertas de Voces fuera de alcance conservadas.
+Capturas antes/después de ambos temas en `build/phase7/screenshots/`.
+
+Siguiente operación: construir una candidata de identidad, registro y perfil
+independientes desde la congelación; validar WebView2 real y documentar las
+limitaciones nativas. La congelación del diseño no declara aceptación nativa.
+Sin push, publicación, merge a main ni instalación sobre el AXX personal.
+
+## Checkpoint histórico de Claude (8371e01)
+
 > Leer junto con `AGENTS.md` al reanudar. No resetear el árbol. No repetir lo ya verificado.
 
 ## Estado Git
@@ -42,7 +75,7 @@ Ver `REGRESSION-RESULTS.md` (fecha 2026-11-11).
 ## Dependencias de Codex
 Ninguna. Ver `CODEX-HANDOFF.md`.
 
-## Próxima operación concreta
+## Próxima operación histórica de Claude (sustituida por el cierre anterior)
 Revisión del usuario. Después, y solo si lo pide: construir un candidato aislado (como en Fase 6) y ejecutar la aceptación nativa.
 
 ## Comandos para retomar (desde la raíz del worktree, Git Bash)

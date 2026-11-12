@@ -1,5 +1,20 @@
 # Fase 7 · Handoff para Codex (dictado global / Handy)
 
+Actualización de cierre: `codex/axx-phase-7-finish`, fuente visual
+`234ffa85743dbd16e6d0c5d0ab79d8460d4cd6e2`. Codex recuperó el WIP de los tres
+ajustes sin modificar el árbol de Claude y lo verificó; consultar
+`SESSION-CHECKPOINT.md` y `CODEX-VALIDATION.md`. Handy sigue independiente en
+`898df5f48f236b23148d203fc558f9ea0e80c0b1`; su contrato permanece en
+`docs/phase-8/CLAUDE-UI-INTEGRATION-CONTRACT.md` de esa rama, no importado aquí.
+
+Además de las líneas históricas de Axx.html listadas abajo, el cierre cambia el
+selector de dimensiones por defecto del residente: usa la clave de layout
+efectiva. `phase7-ui.js` mantiene una clave de entrada mientras se navega por las
+cinco pestañas. No escribe panelPositions al navegar; solo el dueño existente de
+arrastre/redimensionamiento guarda las medidas cuando el usuario actúa.
+La agrupación interior de Forma mueve nodos existentes; barra Guardar/Descartar
+sigue fuera de la vista. No hay cambios del renderizador.
+
 Rama `claude/axx-phase-7-ui`, base `a750362`. Sin push, sin publicación, sin instalación. `main` intacto.
 
 ## Archivos compartidos modificados

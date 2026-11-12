@@ -40,9 +40,16 @@ Sin cambios de superficie, tinta, acento ni tipografía. Solo:
 - **Voces (claro)**: la vista conserva sus tarjetas oscuras en ambos temas, pero el tema claro les imponía tinta oscura (título «Tu voz, a tu manera.» a 1.05:1). Ahora el texto dentro de esas tarjetas es claro y los rótulos de sección usan `--secondary`.
 - **Chat (oscuro)**: etiqueta de modo (2.18:1), «Configurar control del PC» (1.32:1) e iconos de ayuda pasan a tokens legibles; el hilo actual usa `#005fc7` (blanco a 5.3:1, antes 4.32:1); borde de los campos del navegador de chats.
 
+## Cierre de contornos · Codex
+- Baseline 8371e01: 16 contornos débiles en chat claro y 1 en oscuro.
+- Cierre: 0 en ambos; outlines interiores no cambian medidas, fondo ni tipografía
+  del chat. Anillo de foco conserva 2 px. El medidor ahora considera el outline
+  efectivo, además del borde y fondo, sin ocultar controles ni bajar umbrales.
+- Los 18 avisos de texto que este navegador mide en Voces claro se reproducen
+  antes/después. El medidor compone colores planos y no resuelve sus gradientes;
+  no se presentan como contraste certificado ni se cambió Voces en este cierre.
+
 ## Fuera de alcance, sin tocar
-- Chat en claro: 16 contornos por debajo de 3:1 (lanzadores y campos del navegador de chats). No se cambió para no alterar el chat claro aprobado.
-- Chat en oscuro: el selector `#cw-mode` (1.14:1) no tiene borde propio.
 - Exterior del avatar, órbita, dock y materiales 3D: sin cambios.
 
 ## Capturas
