@@ -163,7 +163,13 @@
   const P = make('section', 'panel-view'); P.id = 'view-personalize'; P.hidden = true; $('panel').append(P);
   const tabs = make('nav', 'p7-tabs'); tabs.setAttribute('role', 'tablist'); tabs.setAttribute('aria-label', 'Personalizar AXX');
   let tab = 'interface', personalBuilt = false; const loans = [];
-  const go = key => { const t = TABS.find(t => t[0] === key); if (t[3] === 'personalize') tab = key; Axx.companion.openFeature(t[3]); tabs.querySelector('[aria-selected=true]')?.focus(); };
+  // While moving between tabs the panel keeps the size and place of the view the user entered through, so nothing jumps.
+  // Saved sizes of every view stay as they are; a resize made inside the tabs is saved for that entry view, as before.
+  let entry = null; const R = Axx.resident, inTabs = id => TABS.some(t => t[3] === Axx.FEATURES.find(f => f.id === id)?.view);
+  if (R?.panelPositionKey) { const keyOf = R.panelPositionKey.bind(R);
+    R.panelPositionKey = id => id === 'panel' && entry && inTabs(Axx.companion.dock.selected) ? 'panel:' + entry : keyOf(id); }
+  const go = key => { const t = TABS.find(t => t[0] === key); if (t[3] === 'personalize') tab = key;
+    Axx.companion.openFeature(t[3]); tabs.querySelector('[aria-selected=true]')?.focus(); };
   for (const [key, label, full] of TABS) { const b = make('button', '', label); b.type = 'button'; b.setAttribute('role', 'tab'); b.title = full; b.setAttribute('aria-label', full); b.dataset.p7Tab = key; b.onclick = () => go(key); tabs.append(b); }
   tabs.onkeydown = event => { const step = { ArrowRight: 1, ArrowLeft: -1 }[event.key]; if (!step) return; event.preventDefault();
     const i = TABS.findIndex(t => t[0] === tabs.querySelector('[aria-selected=true]')?.dataset.p7Tab); go(TABS[(i + step + TABS.length) % TABS.length][0]); };
@@ -192,6 +198,7 @@
       personalBuilt = true;
     }
     const here = TABS.some(t => t[3] === view);
+    if (!here) entry = null; else if (!entry) entry = Axx.companion.dock.selected;
     for (const { node, home, slot } of loans) if (view === 'personalize') slot.append(node); else if (home.parentNode && node.previousSibling !== home) home.after(node);
     if (!here) return;
     const key = view === 'personalize' ? tab : TABS.find(t => t[3] === view)[0];
@@ -202,8 +209,25 @@
   }
   if (!Axx.FEATURES.some(f => f.id === 'personalize')) Axx.FEATURES.push({ id: 'personalize', family: 'settings', title: 'Personalizar AXX', description: 'Forma, interfaz, movimiento, sonidos y personalidad del agente.', view: 'personalize', availability: 'DISPONIBLE · LOCAL' });
 
+  /* ── Forma y materiales ──────────────────────────────────────────────────────────── */
+  const F = $('view-appearance'); let shapeBuilt = false;
+  function appearance() {
+    if (!F || shapeBuilt || !$('forms') || !$('palettes')) return;
+    const loose = [...F.children].filter(n => n !== tabs), status = F.querySelector('.appearance-preview-status'); // the «Guardar cambios» bar lives on #panel, outside this view
+    for (const title of F.querySelectorAll(':scope>.section-title')) title.hidden = true;
+    const preview = group(F, 'shape-preview', 'Vista previa', 'Los cambios se prueban en el cuerpo de AXX. Nada se guarda hasta que pulses «Guardar cambios».');
+    const shape = group(F, 'shape-form', 'Forma', 'Elige la silueta y su tamaño.');
+    const material = group(F, 'shape-material', 'Materiales e iluminación', 'Paleta, luz y acabado de la superficie.');
+    const more = make('details', 'p7-more'); more.id = 'p7-shape-advanced'; more.append(make('summary', '', 'Opciones avanzadas')); more.ontoggle = relayout; F.append(more);
+    if (status) preview.body.append(status);
+    shape.body.append(...[F.querySelector('.id20-catalog-head'), $('forms'), labelOf('scale')].filter(Boolean));
+    material.body.append(...[$('palettes'), ...['material-exposure', 'material-roughness', 'material-light', 'material-fluidity', 'floor-toggle'].map(labelOf)].filter(Boolean));
+    for (const n of loose) if (n.parentNode === F && !n.hidden) more.append(n); // identity switches, saved styles, camera, capture, help
+    shapeBuilt = true;
+  }
+
   /* ── Wiring ──────────────────────────────────────────────────────────────────────── */
-  const arrange = { settings, ai };
+  const arrange = { settings, ai, appearance };
   const show = view => { try { arrange[view]?.(); personal(view); } catch (error) { console.error('phase7-ui', error); } };
   const openFeature = Axx.companion.openFeature.bind(Axx.companion);
   Axx.companion.openFeature = function (id) { const result = openFeature(id), view = Axx.FEATURES.find(f => f.id === id)?.view; if (view) show(view); return result; };
