@@ -638,16 +638,22 @@ fn hit_map(map: Value, state: State<HostState>) -> Result<(), String> {
     Ok(())
 }
 
+fn phase7_data_path(base: PathBuf, identifier: &str) -> PathBuf {
+    if identifier == "com.axx.phase7" {
+        base.join(identifier).join("Axx")
+    } else if base.ends_with("com.axx.desktop") {
+        base
+    } else {
+        base.join("Axx")
+    }
+}
+
 fn data_directory(app: &AppHandle) -> Result<PathBuf, String> {
     let base = std::env::var_os("LOCALAPPDATA")
         .map(PathBuf::from)
         .or_else(|| app.path().app_local_data_dir().ok())
         .ok_or("No local application data directory")?;
-    let path = if base.ends_with("com.axx.desktop") {
-        base
-    } else {
-        base.join("Axx")
-    };
+    let path = phase7_data_path(base, &app.config().identifier);
     fs::create_dir_all(&path).map_err(|e| format!("Cannot create Axx data directory: {e}"))?;
     Ok(path)
 }
@@ -1356,6 +1362,15 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn phase7_profile_is_separate_even_without_the_private_launcher() {
+        let base = PathBuf::from("local");
+        assert_eq!(phase7_data_path(base.clone(), "com.axx.desktop"), base.join("Axx"));
+        assert_eq!(phase7_data_path(base.clone(), "com.axx.phase7"), base.join("com.axx.phase7").join("Axx"));
+        let production = base.join("com.axx.desktop");
+        assert_eq!(phase7_data_path(production.clone(), "com.axx.desktop"), production);
+        assert_ne!(phase7_data_path(production.clone(), "com.axx.phase7"), production);
+    }
     #[test]
     fn instance_objects_preserve_production_identity_and_separate_candidates() {
         assert_eq!(instance_object_name("AxxDesktop", "com.axx.desktop"), r"Local\AxxDesktop-com.axx.desktop");
