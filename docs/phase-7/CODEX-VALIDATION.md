@@ -61,6 +61,8 @@ La prueba de layout anterior tenía await open(v) dentro de un comentario; se
 corrigió y se amplió a Forma. No se conserva ese falso positivo como validación.
 Voces mantiene 18 alertas del medidor plano sobre gradientes, fuera del cierre.
 
-Falta: candidata empaquetada aislada, WebView2 real, DPI disponible, conexiones
-reales, preferencias y apariencia persistidas en el proceso nativo. Hasta esa
-aceptación no se integra Handy, no se instala sobre AXX personal ni se publica.
+Aceptación nativa posterior: **READY_WITH_LIMITATIONS**, documentada en
+`WINDOWS-NATIVE-ACCEPTANCE.md`. Candidata empaquetada e instalada privadamente,
+WebView2 real, conexión local y preferencias persistidas verificadas. Permanecen
+los límites de entrada OS, GPU, otros DPI y hardware físico allí detallados.
+Handy todavía no está integrado; AXX personal y publicación permanecen intactos.
