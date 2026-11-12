@@ -68,5 +68,14 @@ class AttributedAsrHttpTests(unittest.TestCase):
         self.assertEqual(self.request('cancel',{'request_id':'clip'},authorized=False)[0],401)
         self.speech.cancel_active.assert_not_called()
 
+    def test_model_lifecycle_has_strict_bodies_and_keeps_tts_independent(self):
+        with patch.object(self.service, 'prepare_model', return_value={'ready':True}) as prepare:
+            self.assertEqual(self.request('models/prepare', {'model':'whisper-small'})[0], 200)
+            prepare.assert_called_once_with({'model':'whisper-small'})
+            self.assertEqual(self.request('models/prepare', {'model':'whisper-small'}, authorized=False)[0], 401)
+        self.assertEqual(self.request('models/unload', {'approved':True})[0], 400)
+        self.assertEqual(self.request('models/unload', {})[0], 200)
+        self.speech.cancel_active.assert_not_called()
+
 
 if __name__=='__main__':unittest.main()

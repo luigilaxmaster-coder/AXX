@@ -30,6 +30,7 @@ a = Analysis(
            ('backend/speech/moss_worker.py', 'speech'),
            ('resources/piper_worker.py', 'speech'),
            ('backend/speech/speech_text.py', 'speech'),
+           ('backend/speech/dictation-models.json', 'backend/speech'),
            ('backend/telegram/webapp.html', 'backend/telegram'),
            ('backend/telegram/webapp.js', 'backend/telegram'),
            ('backend/telegram/webapp.css', 'backend/telegram'),
