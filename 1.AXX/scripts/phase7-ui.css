@@ -94,3 +94,13 @@ body.native.axx-resident[data-ui-theme=dark] #panel[data-view=chat] #cu-open{col
 body.native.axx-resident[data-ui-theme=dark] #panel[data-view=chat] .cw-thread[aria-current=true]{background:#005fc7!important}
 body.native.axx-resident[data-ui-theme=dark] #panel[data-view=chat] #cw-browser :is(input,select){border-color:var(--p7-field-line)!important}
 body.native.axx-resident[data-ui-theme] #panel #view-voices .voice-studio-heading span{color:var(--secondary)!important}
+
+/* ── Final adjustments ─────────────────────────────────────────────────────────────── */
+/* Light chat: the same controls, now with a visible edge. Outline, not border, so the approved geometry does not move. */
+body.native.axx-resident[data-ui-theme=light] #panel[data-view=chat] :is(#cu-launch,#tf-launch,#cw-rename-save,#cw-restart,#cw-archive,#cw-export,#cw-continue,#cw-create-group,#cu-open,#chat-live-toggle):not(:focus-visible){outline:1px solid color-mix(in srgb,var(--ink) 32%,var(--surface));outline-offset:-1px}
+body.native.axx-resident[data-ui-theme=light] #panel[data-view=chat] :is(#cu-launch,#tf-launch,#cw-rename-save,#cw-restart,#cw-archive,#cw-export,#cw-continue,#cw-create-group,#cu-open,#chat-live-toggle):hover:not(:disabled):not(:focus-visible){outline-color:var(--p7-field-line)}
+body.native.axx-resident[data-ui-theme] #panel[data-view=chat] :is(#cw-search,#cw-rename,#cw-group,#cw-group-name,#cw-default,#cw-mode):not(:focus-visible){outline:1px solid var(--p7-field-line);outline-offset:-1px}
+body.native.axx-resident[data-ui-theme] #panel[data-view=chat] :is(button,input,select):disabled{outline-color:var(--p7-button-line)}
+/* Forma y materiales */
+body.native.axx-resident[data-ui-theme] #panel:not([data-view=chat]) #view-appearance .p7-body>.appearance-preview-status{margin:0;border:0;background:transparent;padding:6px 0}
+body.native.axx-resident[data-ui-theme] #panel:not([data-view=chat]) #view-appearance .p7-body>:is(#forms,#palettes){margin:10px 0}

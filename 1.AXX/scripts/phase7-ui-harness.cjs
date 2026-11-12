@@ -90,8 +90,8 @@ const inventory = () => {
         for (const n of document.getElementById('panel').querySelectorAll('*')) { if (!n.getClientRects().length || n.closest('[data-palette],.axx-theme-sample,canvas,svg')) continue; const s = getComputedStyle(n);
           if (s.visibility === 'hidden' || +s.opacity < .5) continue; const bg = bgOf(n);
           if ([...n.childNodes].some(c => c.nodeType === 3 && c.textContent.trim()) && !n.disabled) { const r = ratio(over(parse(s.color), bg), bg), big = parseFloat(s.fontSize) >= 18.66; if (r < (big ? 3 : 4.5)) out.push(['text', r.toFixed(2), name(n)]); }
-          if (n.matches('button,select,textarea,input:not([type=range]):not([type=checkbox]):not([type=radio]):not([type=color]):not([type=file])') && !n.disabled) { const outer = bgOf(n.parentElement), edge = parseFloat(s.borderTopWidth) ? over(parse(s.borderTopColor), outer) : bg;
-            const r = Math.max(ratio(edge, outer), ratio(bg, outer)); if (r < (n.tagName === 'BUTTON' ? 1.5 : 3) && !n.closest('[role=tablist]') && s.backgroundColor !== 'rgba(0, 0, 0, 0)') out.push(['edge', r.toFixed(2), name(n)]); } }
+          if (n.matches('button,select,textarea,input:not([type=range]):not([type=checkbox]):not([type=radio]):not([type=color]):not([type=file])') && !n.disabled) { const outer = bgOf(n.parentElement), edge = parseFloat(s.borderTopWidth) ? over(parse(s.borderTopColor), outer) : bg, line = s.outlineStyle !== 'none' && parseFloat(s.outlineWidth) ? over(parse(s.outlineColor), outer) : bg;
+            const r = Math.max(ratio(edge, outer), ratio(line, outer), ratio(bg, outer)); if (r < (n.tagName === 'BUTTON' ? 1.5 : 3) && !n.closest('[role=tablist]') && s.backgroundColor !== 'rgba(0, 0, 0, 0)') out.push(['edge', r.toFixed(2), name(n)]); } }
         return out; };
       let total = 0; for (const t of ['light', 'dark']) { await theme(t); for (const v of [...VIEWS, 'chat', 'voices']) {
         if (!await page.evaluate(v => Axx.FEATURES.some(f => f.id === v), v)) continue; await open(v);
@@ -101,6 +101,8 @@ const inventory = () => {
       console.log('total below threshold:', total); return;
     }
 
+    if (mode === 'outline') { await open(outDir); console.log(await page.evaluate(v => { const tag = n => n.tagName.toLowerCase() + (n.id ? '#' + n.id : '') + (typeof n.className === 'string' && n.className ? '.' + n.className.trim().split(/\s+/).join('.') : '') + (n.hidden ? ' [hidden]' : '');
+      const walk = (n, d) => d > 2 ? [] : [...n.children].flatMap(c => ['  '.repeat(d) + tag(c) + ' :: ' + c.textContent.trim().replace(/\s+/g, ' ').slice(0, 40), ...walk(c, d + 1)]); return walk(document.getElementById('view-' + v), 0).join('\n'); }, outDir)); return; }
     if (mode === 'inventory') { process.stdout.write(JSON.stringify({ errors, views: await page.evaluate(inventory) }, null, 1)); return; }
 
     if (mode === 'shots') {
@@ -126,8 +128,9 @@ const inventory = () => {
         await page.evaluate(([v, old]) => { document.getElementById('panel').style.cssText = old[0]; document.getElementById('view-' + v).style.cssText = old[1]; }, [v, saved]);
         await page.setViewportSize({ width: 1920, height: 1040 }); await page.waitForTimeout(150);
       } }
-      await theme('light'); await page.evaluate(() => Axx.phase7?.personalize('motion')); await page.waitForTimeout(400);
-      if (await page.$('.p7-tabs')) await (await page.$('#panel')).screenshot({ path: path.join(outDir, tag + '-personalize-motion-light-fold.png') });
+      for (const t of ['light', 'dark']) { await theme(t); await page.evaluate(() => Axx.phase7?.personalize('motion')); await page.waitForTimeout(400);
+        if (await page.$('.p7-tabs')) await (await page.$('#panel')).screenshot({ path: path.join(outDir, tag + '-personalize-motion-' + t + '-fold.png') }); }
+      await theme('light');
       console.log('shots ->', outDir, errors.length ? 'pageerrors: ' + errors.join(' | ') : ''); return;
     }
 
@@ -217,10 +220,55 @@ const inventory = () => {
       assert.equal(saved[0], 'dark'); assert.equal(saved[1].font, 'serif'); assert.equal(saved[1].widgetSize, 110);
       await page.click('#axx-theme-reset'); await page.click('#axx-widgets-reset'); await page.click('[data-axx-theme=light]');
       assert.equal(await ev(() => document.body.dataset.uiTheme), 'light'); });
-    await check('layout: no view scrolls sideways at the default and at a narrow panel width', async () => { for (const width of [null, 380]) for (const v of ['settings', 'ai', 'personalize', 'agent', 'sound']) { // appearance already overflowed by 19px before this phase await open(v);
+    await check('layout: no view scrolls sideways at the default and at a narrow panel width', async () => { for (const width of [null, 380]) for (const v of ['settings', 'ai', 'personalize', 'agent', 'sound', 'appearance']) {
+      await open(v);
       const wide = await ev(([v, width]) => { const p = document.getElementById('panel'), el = document.getElementById('view-' + v), old = p.style.cssText; if (width) p.style.setProperty('width', width + 'px', 'important');
         const r = el.scrollWidth - el.clientWidth; p.style.cssText = old; return r; }, [v, width]);
       assert.ok(wide <= 1, v + ' overflows by ' + wide + 'px at ' + (width || 'default')); } });
+    await check('personalize: the panel keeps its size and place across tabs and saved positions are not rewritten', async () => {
+      await open('settings'); await open('sound'); await page.waitForTimeout(500);
+      const box = () => ev(() => { const r = document.getElementById('panel').getBoundingClientRect(); return [r.x, r.y, r.width, r.height].map(Math.round).join(','); });
+      const first = await box(), stored = await ev(() => localStorage.getItem('axx.resident.panel-pos')), positions = await ev(() => JSON.stringify(Axx.resident.panelPositions));
+      for (const key of ['shape', 'interface', 'motion', 'agent', 'sound']) { await ev(key => Axx.phase7.personalize(key), key); await page.waitForTimeout(500); assert.equal(await box(), first, key); }
+      assert.equal(await ev(() => localStorage.getItem('axx.resident.panel-pos')), stored);
+      assert.equal(await ev(() => JSON.stringify(Axx.resident.panelPositions)), positions, 'navigation must not mutate saved sizes in RAM either');
+      await open('settings'); await page.waitForTimeout(500); await open('appearance'); await page.waitForTimeout(500);
+      assert.equal((await box()).split(',')[2], '680', 'a view entered on its own keeps its own default width'); });
+    await check('shape: four groups, renderer controls untouched and still driving the preview', async () => { await open('appearance'); await page.waitForTimeout(300);
+      assert.deepEqual(await ev(() => [...document.querySelectorAll('#view-appearance>.p7-group,#view-appearance>details.p7-more')].map(n => n.id)), ['p7-shape-preview', 'p7-shape-form', 'p7-shape-material', 'p7-shape-advanced']);
+      assert.equal(await ev(() => document.getElementById('forms').closest('.p7-group').id + '/' + document.getElementById('material-roughness').closest('.p7-group').id + '/' + document.getElementById('id20-profiles').closest('details').id), 'p7-shape-form/p7-shape-material/p7-shape-advanced');
+      const before = await ev(() => [document.getElementById('appearance-apply').disabled, document.getElementById('scale').value, document.getElementById('material-roughness').value]);
+      await page.locator('#forms .form-option:not(.active)').first().click(); await page.waitForTimeout(200);
+      assert.equal(await ev(() => document.getElementById('appearance-apply').disabled), false, 'choosing a form starts a preview');
+      await page.click('#appearance-restore'); await page.waitForTimeout(200);
+      assert.deepEqual(await ev(() => [document.getElementById('appearance-apply').disabled, document.getElementById('scale').value, document.getElementById('material-roughness').value]), before);
+      await page.click('#p7-shape-advanced>summary'); assert.equal(await page.locator('#export-png').isVisible(), true); await page.click('#p7-shape-advanced>summary'); });
+    await check('chat (light): controls show an edge and keep their geometry and focus ring', async () => { await theme('light'); await open('chat'); await page.waitForTimeout(300);
+      const o = await ev(() => { const s = getComputedStyle(document.getElementById('cw-search')); return [s.outlineStyle, s.outlineOffset, s.borderTopWidth]; });
+      assert.equal(o[0], 'solid'); assert.equal(o[1], '-1px');
+      await page.focus('#cw-search'); await page.keyboard.press('Tab'); await page.keyboard.press('Shift+Tab');
+      assert.equal(await ev(() => getComputedStyle(document.getElementById('cw-search')).outlineWidth), '2px'); });
+    await check('personalize: distinct saved layouts survive tabs; explicit resize and drag persist only for the entry view', async () => {
+      await open('settings');
+      const original = await ev(() => structuredClone(Axx.resident.panelPositions));
+      try {
+        await ev(() => { Object.assign(Axx.resident.panelPositions, { 'panel:sound': {width:440,height:600,relX:-700,relY:-500}, 'panel:appearance': {width:630,height:680}, 'panel:personalize': {width:510,height:640} }); Axx.resident.savePanelPositions(); });
+        await open('sound'); await page.waitForTimeout(300);
+        const saved = await ev(() => localStorage.getItem('axx.resident.panel-pos'));
+        for (const key of ['shape','interface','motion','agent','sound']) { await ev(key => Axx.phase7.personalize(key), key); await page.waitForTimeout(200); assert.equal(Math.round((await page.locator('#panel').boundingBox()).width),440); }
+        assert.equal(await ev(() => localStorage.getItem('axx.resident.panel-pos')),saved);
+        const handle = await page.locator('#panel .resident-resize-handle').boundingBox(); assert.ok(handle);
+        await page.mouse.move(handle.x+handle.width/2,handle.y+handle.height/2); await page.mouse.down(); await page.mouse.move(handle.x+handle.width/2+45,handle.y+handle.height/2+25,{steps:8}); await page.mouse.up(); await page.waitForTimeout(350);
+        const resized = await ev(() => structuredClone(Axx.resident.panelPositions['panel:sound'])); assert.ok(resized.width>470 && resized.height>610);
+        const head = await page.locator('#panel-title').boundingBox(); assert.ok(head);
+        await page.mouse.move(head.x+head.width/2,head.y+head.height/2); await page.mouse.down(); await page.mouse.move(head.x+head.width/2+30,head.y+head.height/2+20,{steps:8}); await page.mouse.up(); await page.waitForTimeout(350);
+        const moved = await ev(() => JSON.parse(localStorage.getItem('axx.resident.panel-pos'))['panel:sound']); assert.notEqual(moved.relX,resized.relX);
+        assert.deepEqual(await ev(() => Axx.resident.panelPositions['panel:appearance']),{width:630,height:680});
+        await page.reload(); await page.waitForFunction(() => Axx.desktop?.ready && Axx.chatWorkspace?.ready && !!Axx.phase7); await open('sound');
+        assert.deepEqual(await ev(() => Axx.resident.panelPositions['panel:sound']),moved);
+        await open('settings'); await open('appearance'); assert.equal(Math.round((await page.locator('#panel').boundingBox()).width),630);
+      } finally { await ev(saved => { Axx.resident.panelPositions=saved;Axx.resident.savePanelPositions();Axx.resident.schedule(); },original); }
+    });
     /*P7-CHECKS*/
     await check('no page errors after interaction', async () => assert.deepEqual(errors, []));
   } finally { await browser.close(); server.close(); }

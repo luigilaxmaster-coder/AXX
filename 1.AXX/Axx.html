@@ -19771,7 +19771,7 @@ var Axx;
                 }
                 if (step === 3) panelBox('flow-sheet', 520, 640);
                 if (panel) {
-                    const selected = Axx.companion.dock.selected;
+                    const selected = this.panelPositionKey('panel').slice('panel:'.length);
                     const dimensions = selected === 'chat' ? [940, 720] : ['ai','settings','files','appearance','magicpen','computeruse'].includes(selected) ? [680, 720] : ['music','timer','roadmap','screen'].includes(selected) ? [600, 680] : [540, 620];
                     panelBox('panel', ...dimensions);
                 }
