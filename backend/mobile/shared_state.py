@@ -219,7 +219,8 @@ class SharedState:
             if conversation_id is None:
                 conversation_id = db.execute('SELECT conversation_id FROM shared_active_conversation WHERE id=1').fetchone()[0]
             cursor = db.execute('SELECT COALESCE(MAX(cursor),0) FROM shared_events').fetchone()[0]
-            rows = db.execute('SELECT * FROM (SELECT * FROM shared_messages WHERE conversation_id=? ORDER BY at DESC,id DESC LIMIT 200) ORDER BY at,id', (conversation_id,)).fetchall()
+            # Equal clock ticks retain arrival order; lexical IDs can put an answer before its question.
+            rows = db.execute('SELECT * FROM (SELECT rowid AS arrival,* FROM shared_messages WHERE conversation_id=? ORDER BY at DESC,rowid DESC LIMIT 200) ORDER BY at,arrival', (conversation_id,)).fetchall()
             visible = [self._visible(db,row) for row in rows]
             fields = ('id','role','text','at','source','status','conversation_id')
             result = {'conversation_id':conversation_id, 'cursor':cursor,

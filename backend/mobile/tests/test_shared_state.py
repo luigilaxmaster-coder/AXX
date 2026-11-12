@@ -9,6 +9,14 @@ class SharedStateTests(unittest.TestCase):
     def setUp(self):
         self.now = int(time.time() * 1000)
 
+    def test_equal_clock_ticks_keep_request_before_response_and_cursor_order(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = SharedState(Path(tmp) / 'state.db')
+            store.merge_messages([{'id':'turn:user','role':'user','text':'request','at':self.now}], 'mobile')
+            store.merge_messages([{'id':'turn:assistant','role':'assistant','text':'response','at':self.now}], 'pc')
+            self.assertEqual([m['role'] for m in store.snapshot()['messages']], ['user','assistant'])
+            self.assertEqual([e['data']['role'] for e in store.events(0)], ['user','assistant'])
+
     def test_message_import_is_idempotent_and_snapshot_cursor_is_consistent(self):
         with tempfile.TemporaryDirectory() as tmp:
             store = SharedState(Path(tmp) / 'state.db')
