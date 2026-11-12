@@ -54,6 +54,23 @@ class InstalledFilesTests(unittest.TestCase):
         self.build['backend_bundle'] = inventory(resources)
         self.build['artifacts'][2]['path'] = str(self.root / 'dist/axx-backend/axx-backend.exe')
 
+    def declare_worker(self):
+        (self.app / 'resources/axx-dictation-asr.exe').write_bytes(b'worker')
+        self.build['artifacts'].append({'path': str(self.root / 'axx-dictation-asr.exe'), 'sha256': self.sha(b'worker')})
+        self.build['source_hashes']['workers/dictation-asr/Cargo.toml'] = self.sha(b'toml')
+
+    def test_declared_dictation_worker_must_match_the_build(self):
+        self.declare_worker()
+        self.assertEqual(verifier.verify_installed_files(self.app, self.build)['result'], 'PASS')
+        (self.app / 'resources/axx-dictation-asr.exe').write_bytes(b'tampered')
+        with self.assertRaisesRegex(RuntimeError, 'Dictation ASR worker differs'):
+            verifier.verify_installed_files(self.app, self.build)
+
+    def test_declared_dictation_worker_cannot_be_missing_from_artifacts(self):
+        self.build['source_hashes']['workers/dictation-asr/Cargo.toml'] = self.sha(b'toml')
+        with self.assertRaisesRegex(RuntimeError, 'Dictation ASR worker differs'):
+            verifier.verify_installed_files(self.app, self.build)
+
     def test_legacy_verifies_exact_nsis_marker_without_claiming_bundle(self):
         result = verifier.verify_installed_files(self.app, self.build)
         self.assertEqual(result['tauri_bundle_marker'], 'Tauri UNK -> NSS; exactly three bytes')

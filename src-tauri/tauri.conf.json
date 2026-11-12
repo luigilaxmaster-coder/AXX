@@ -42,14 +42,16 @@
     "targets": [
       "nsis"
     ],
-    "resources": [
-      "../LICENSE",
-      "resources/axx-backend.exe",
-      "resources/_internal/",
-      "resources/ai-memory.exe",
-      "resources/ai-memory-LICENSE",
-      "resources/license-notices/"
-    ],
+    "resources": {
+      "../LICENSE": "LICENSE",
+      "resources/axx-backend.exe": "resources/axx-backend.exe",
+      "resources/_internal/": "resources/_internal/",
+      "resources/ai-memory.exe": "resources/ai-memory.exe",
+      "resources/ai-memory-LICENSE": "resources/ai-memory-LICENSE",
+      "resources/license-notices/": "resources/license-notices/",
+      "../workers/dictation-asr/target/release/axx-dictation-asr.exe": "resources/axx-dictation-asr.exe",
+      "../docs/phase-8/licenses/": "resources/license-notices/dictation/"
+    },
     "windows": {
       "nsis": {
         "installMode": "currentUser",

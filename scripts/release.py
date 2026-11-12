@@ -158,6 +158,8 @@ def source_inventory(root: Path) -> set[Path]:
     paths.update(p for p in (root / "1.AXX").rglob("*") if p.is_file() and
                  p.suffix in (".html", ".js", ".css", ".json", ".png", ".ico", ".svg", ".woff", ".woff2"))
     paths.update(p for p in (root / "src-tauri/resources/license-notices").rglob("*") if p.is_file())
+    paths.update(p for p in (root / "workers/dictation-asr/Cargo.toml", root / "workers/dictation-asr/Cargo.lock", root / "workers/dictation-asr/src/main.rs") if p.is_file())
+    paths.update(p for p in (root / "docs/phase-8/licenses").rglob("*") if p.is_file())
     for folder in ("backend", "src-tauri/src", "resources", "vendor"):
         paths.update(p for p in (root / folder).rglob("*") if p.is_file() and
                      p.suffix in (".ps1", ".py", ".rs", ".json", ".bin", ".txt", ".zip") and
