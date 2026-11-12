@@ -227,7 +227,14 @@
   }
 
   /* ── Wiring ──────────────────────────────────────────────────────────────────────── */
-  const arrange = { settings, ai, appearance };
+  function sound() {
+    const voice = $('axx-dictation'), view = $('view-sound'); if (!voice || !view) return;
+    let home = $('p7-dictation');
+    if (!home) home = group(view, 'dictation', 'Voz y dictado', 'Dictado global local. Conversación y comandos mantienen sus permisos propios.');
+    voice.classList.add('p7-more');
+    if (voice.parentNode !== home.body) (home.body || home.querySelector('.p7-body')).append(voice);
+  }
+  const arrange = { settings, ai, appearance, sound };
   const show = view => { try { arrange[view]?.(); personal(view); } catch (error) { console.error('phase7-ui', error); } };
   const openFeature = Axx.companion.openFeature.bind(Axx.companion);
   Axx.companion.openFeature = function (id) { const result = openFeature(id), view = Axx.FEATURES.find(f => f.id === id)?.view; if (view) show(view); return result; };
