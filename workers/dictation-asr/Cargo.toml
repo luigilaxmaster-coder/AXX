@@ -1,0 +1,12 @@
+[package]
+name = "axx-dictation-asr"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+transcribe-cpp = { version = "=0.4.0", default-features = false }
+# The wrapper enforces an exact pre-1.0 native patch version at model load.
+transcribe-cpp-sys = { version = "=0.4.0", default-features = false }

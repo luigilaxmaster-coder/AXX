@@ -574,6 +574,9 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                                      'custom': self.speech.moss.status() if self.speech else {'available': False},
                                      'piper': self.speech.piper.status() if self.speech else {'available': False},
                                      'asr':self.transcription.status() if self.transcription else {'available':False}})
+            elif path == '/axx-api/speech/models':
+                from backend.speech.dictation_models import models
+                self._send_json(200, models(self.transcription.model_path if self.transcription else None))
             elif path == '/axx-api/identity':
                 with self.server.action_lock:
                     self._send_json(200, {'identity': self.identity.get_studio_identity()})
@@ -1238,6 +1241,12 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                     self._unsupported('Windows speech service is unavailable')
                 else:
                     self._send_json(200, self.speech.synthesize(body))
+            elif path in ('/axx-api/speech/models/prepare', '/axx-api/speech/models/unload'):
+                if not self.transcription: self._unsupported('Local transcription is unavailable')
+                elif path.endswith('/prepare'): self._send_json(200, self.transcription.prepare_model(body))
+                else:
+                    if body: raise ValueError('Model unload does not accept fields')
+                    self._send_json(200, self.transcription.unload_model())
             elif path == '/axx-api/speech/transcribe':
                 if not self.transcription:
                     self._unsupported('Local transcription is unavailable')
