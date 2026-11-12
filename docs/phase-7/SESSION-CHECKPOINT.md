@@ -26,9 +26,20 @@ se reprodujeron en ambos árboles; ver `CODEX-VALIDATION.md`. Contraste de los
 ámbitos modificados: 0 alertas; alertas de Voces fuera de alcance conservadas.
 Capturas antes/después de ambos temas en `build/phase7/screenshots/`.
 
-Siguiente operación: construir una candidata de identidad, registro y perfil
-independientes desde la congelación; validar WebView2 real y documentar las
-limitaciones nativas. La congelación del diseño no declara aceptación nativa.
+Congelación confirmada: `9f87f7fcaa1ecb06ec87747c233308d1aa7b8c13`.
+Fuente nativa empaquetada: `a1eb51d76978c99185d0dfc43cda7e6f51930b9d`, con la
+misma UI y aislamiento de candidata `com.axx.phase7`. Instalada exclusivamente
+en `build/phase7/installed`; aceptación **READY_WITH_LIMITATIONS**. Ver
+`WINDOWS-NATIVE-ACCEPTANCE.md`: WebView2/backend reales, ambos temas, catálogo y
+respuesta local, persistencia, chat y tentáculos. Pendientes: entrada OS,
+GPU/otros DPI y hardware físico; cinco fallos históricos diferenciados.
+El recibo agregado es `build/phase7/final-validation.json`; conserva los errores
+iniciales y las repeticiones justificadas. Procesos propios cerrados y AXX
+personal verificado intacto.
+
+Siguiente operación: preparar la rama separada y el plan de integración 6+7+8
+desde estos SHAs, sin introducir Handy en esta rama visual. Merge-tree detectó
+conflictos en Axx.html y src-tauri/src/lib.rs, sin modificar índice/worktree.
 Sin push, publicación, merge a main ni instalación sobre el AXX personal.
 
 ## Checkpoint histórico de Claude (8371e01)

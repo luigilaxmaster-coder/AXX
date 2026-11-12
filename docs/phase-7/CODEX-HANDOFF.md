@@ -7,6 +7,16 @@ ajustes sin modificar el árbol de Claude y lo verificó; consultar
 `898df5f48f236b23148d203fc558f9ea0e80c0b1`; su contrato permanece en
 `docs/phase-8/CLAUDE-UI-INTEGRATION-CONTRACT.md` de esa rama, no importado aquí.
 
+Aceptación nativa propia: **READY_WITH_LIMITATIONS**. Congelación
+`9f87f7fcaa1ecb06ec87747c233308d1aa7b8c13`; fuente de candidata
+`a1eb51d76978c99185d0dfc43cda7e6f51930b9d`. Ver
+`WINDOWS-NATIVE-ACCEPTANCE.md` para hashes y límites. Esta candidata añade solo
+`phase7_data_path` en lib.rs y una configuración de identidad separada; la lista
+histórica «No modificado» de abajo describe la UI de Claude, no ese aislamiento.
+El merge-tree de esta fuente y Handy detectó dos archivos con conflictos:
+la carga final de scripts en Axx.html y la función/tests de ruta de datos en
+lib.rs. Deben revisarse antes de integrar; no se resolvieron ni mezclaron aquí.
+
 Además de las líneas históricas de Axx.html listadas abajo, el cierre cambia el
 selector de dimensiones por defecto del residente: usa la clave de layout
 efectiva. `phase7-ui.js` mantiene una clave de entrada mientras se navega por las
