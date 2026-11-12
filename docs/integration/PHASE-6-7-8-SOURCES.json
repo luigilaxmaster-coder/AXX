@@ -1,5 +1,5 @@
 {
-  "state": "INTEGRATED_TESTING",
+  "state": "INTEGRATED_NOT_READY",
   "branch": "codex/axx-phase-6-7-8-integration",
   "phase6": "a7503624cbefaa9a125331ef3bdcc3b3afdf0101",
   "phase7_design_freeze": "9f87f7fcaa1ecb06ec87747c233308d1aa7b8c13",
@@ -16,5 +16,9 @@
   "publication_authorized": false,
   "personal_installation_authorized": false,
   "integration_merge": "4b20abaac2934b96f19ef1ce9320e7fb581bb189",
-  "candidate_identifier": "com.axx.integration678"
+  "candidate_identifier": "com.axx.integration678",
+  "packaged_source": "bb523221b68fc68cdf43caf37dea4051cd59525b",
+  "acceptance_report": "docs/integration/FINAL-INTEGRATION-ACCEPTANCE.md",
+  "delivery_verdict": "NOT_READY",
+  "reason": "Critical physical dictation acceptance remains unexecuted"
 }
