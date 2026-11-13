@@ -48,6 +48,7 @@ jobs:
       - name: Command review browser contracts
         run: node 1.AXX/scripts/test-command-library.cjs
       - name: Scoped memory browser contracts
+        timeout-minutes: 3
         run: node 1.AXX/scripts/test-task-memory.cjs
       - name: Document reference review browser contracts
         run: node 1.AXX/scripts/test-document-provenance.cjs
