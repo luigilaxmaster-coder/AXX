@@ -96,8 +96,8 @@ def create_runtime(model_root, cache_root):
                     temp = cache.with_suffix('.tmp')
                     temp.write_text(json.dumps(codes), encoding='utf-8')
                     temp.replace(cache)
-                # Cap reference prompt to 48 frames (~3.84s) for optimal KV-cache latency and prosodic stability
-                self.reference_codes[key] = codes[:48] if isinstance(codes, list) else codes
+                # Cap reference prompt to 72 frames (~5.76s) so complete 5-6s sentences stay intact without mid-word truncation
+                self.reference_codes[key] = codes[:72] if isinstance(codes, list) else codes
             return self.reference_codes[key]
 
         def synthesize_single_chunk(self, *, text, prompt_audio_codes, streaming):
@@ -135,7 +135,7 @@ def create_runtime(model_root, cache_root):
                         col = waveform[:, ch_idx]
                         if abs(mood_vol - 1.0) >= 0.02:
                             col = col * mood_vol
-                        waveform[:, ch_idx] = HumanizerDSP.apply_vocal_warmth_eq(col, rate, mood=chunk_mood)
+                        waveform[:, ch_idx] = HumanizerDSP.apply_vocal_warmth_eq(col, rate, mood=chunk_mood, engine='moss')
                 if force and len(waveform) > 64:
                     fade_len = min(int(0.025 * rate), len(waveform) // 3)
                     if fade_len > 0:
@@ -170,21 +170,21 @@ def create_runtime(model_root, cache_root):
             return {'text': text, 'text_token_ids': tokens, 'generated_frames': frames, 'waveform': waveform}
 
         def estimate_voice_clone_inter_chunk_pause_seconds(self, text_chunk):
-            # Context-aware inter-chunk breath pause so register shifts feel natural and unhurried
+            # Context-aware inter-chunk breath pause aligned with original human cadence
             stripped = str(text_chunk).rstrip()
             chunk_mood = ProsodyAnalyzer.detect_mood(stripped) if ProsodyAnalyzer is not None else 'neutral'
             if chunk_mood == 'serious':
-                seconds = .12
+                seconds = .22
             elif chunk_mood in ('affectionate', 'reflective'):
-                seconds = .10
+                seconds = .18
             elif chunk_mood == 'intro':
-                seconds = .05
+                seconds = .09
             elif stripped.endswith(('?', '¿', '!', '¡')):
-                seconds = .10
+                seconds = .16
             elif stripped.endswith((',', ';', ':')):
-                seconds = .05
+                seconds = .07
             else:
-                seconds = .08
+                seconds = .14
             if self.emit_pcm:
                 rate = int(self.codec_meta['codec_config']['sample_rate'])
                 channels = int(self.codec_meta['codec_config']['channels'])
@@ -257,9 +257,9 @@ def main():
             runtime.mood_reference_codes = {}
             if morcito:
                 for mood_names, style_file in (
-                    (('serious', 'analytical'), personal_samples / 'axx-morcito-atencion.wav'),
-                    (('affectionate', 'reflective'), personal_samples / 'axx-morcito-calma.wav'),
-                    (('excited', 'question'), personal_samples / 'axx-morcito-emocion.wav'),
+                    (('serious', 'analytical', 'affectionate', 'reflective'), personal_samples / 'axx-morcito-calma.wav'),
+                    (('question', 'intro'), personal_samples / 'axx-morcito-atencion.wav'),
+                    (('excited',), personal_samples / 'axx-morcito-emocion.wav'),
                 ):
                     if style_file.is_file() and (request.get('prepare') or (name == 'axx-morcito' and not is_english)):
                         try:

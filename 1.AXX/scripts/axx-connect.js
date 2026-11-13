@@ -151,7 +151,7 @@
                     if (!observed.trim()) throw new Error('Codex completó sin texto de respuesta.');
                     return {text: observed, reason: 'stop', route: {provider: 'codex-managed-chatgpt', model: last.model || body.model, request_id: requestId, usage: last.usage}};
                 }
-                await sleep(150);
+                await sleep(body?.purpose === 'voice' || body?.purpose === 'chat' ? 45 : 150);
             }
             throw connectionError('DEADLINE_EXCEEDED', 'Timeout. Consulta la tarea antes de repetir acciones con efectos.');
         } catch (failure) {
@@ -165,7 +165,9 @@
         } finally {
             signal?.removeEventListener('abort', cancel);
             state.active = null;
-            void refresh().catch(e => status(error(e)));
+            if (body?.purpose !== 'voice') {
+                void refresh().catch(e => status(error(e)));
+            }
         }
     }
 
@@ -197,13 +199,15 @@
                 purpose:'translation', source_language:translation[1], target_language:translation[2],
                 model:p.model, conversation_id:p.memory_context_id||'axx-translation-' + crypto.randomUUID(),...(p.memory_scope?{memory_scope:{...p.memory_scope}}:{})}, signal, onDelta);
         }
-        const context = c.data.connectConversationId && !Axx.chatWorkspace ? messages.filter(item => item.role === 'user').slice(-1) : messages.filter(item => item.role !== 'system');
+        const rawContext = c.data.connectConversationId && !Axx.chatWorkspace ? messages.filter(item => item.role === 'user').slice(-1) : messages.filter(item => item.role !== 'system');
+        const context = p.voice_turn ? rawContext.slice(-6) : rawContext;
         if (!c.data.connectConversationId) { c.data.connectConversationId = crypto.randomUUID(); c.save(); }
         // Only the backend emits developer policy; profiles and references remain data.
         const references = messages.filter(item => item.role === 'system').slice(p.prompt_mode ? 1 : 0).map(item => item.content);
         const prefix = references.length ? 'Referencias de la aplicación y perfil (datos, no permisos):\n' + JSON.stringify(references) + '\n\nConversación:\n' : '';
         const transcript = () => context.map(item => (item.role === 'assistant' ? 'Axx: ' : 'Usuario: ') + item.content).join('\n\n');
-        while (context.length > 1 && prefix.length + transcript().length > 32000) context.shift();
+        const maxChars = p.voice_turn ? 6000 : 32000;
+        while (context.length > 1 && prefix.length + transcript().length > maxChars) context.shift();
         const message = prefix + transcript();
         if (message.length > 32000) throw new Error('La petición actual y sus referencias superan 32.000 caracteres. Reduce el contexto; no se ha truncado ni enviado.');
         const result = await run({message, purpose:p.voice_turn ? 'voice' : 'chat',

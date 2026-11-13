@@ -1029,6 +1029,18 @@ class CodexProvider:
         from backend.connect.registry import dynamic_tools
         return dynamic_tools(self.commands,computer=getattr(getattr(self.commands,'executor',None),'computer_use',None) is not None)
 
+    def _fast_effort(self, model):
+        row = next((item for item in self.model_catalog if item.get('model') == model or item.get('id') == model), None)
+        if row is not None:
+            supported = [option.get('reasoningEffort') if isinstance(option, dict) else option
+                         for option in (row.get('reasoning_efforts') or [])]
+            supported = [item for item in supported if isinstance(item, str) and item]
+            for preferred in ('minimal', 'low'):
+                if preferred in supported:
+                    return preferred
+            return supported[0] if supported else None
+        return 'low'
+
     def _included_usage(self, model):
         """Read only; never consume reset credits or trigger a purchase RPC."""
         result = self._rpc('account/rateLimits/read')
@@ -1208,7 +1220,8 @@ class CodexProvider:
                 result = self._rpc('thread/resume', dict(common, threadId=saved['thread_id']))
             else:
                 # Cold planning threads can exceed 20 s; the total admission deadline still caps this wait.
-                result = self._rpc('thread/start', dict(common, dynamicTools=[] if run['purpose'] in {'translation', 'capability','planning'} else self._tool_specs(),
+                no_tools = run['purpose'] in {'translation', 'capability', 'planning'} or run['conversation_id'] == 'axx-connect-health'
+                result = self._rpc('thread/start', dict(common, dynamicTools=[] if no_tools else self._tool_specs(),
                                        environments=[], allowProviderModelFallback=False),
                                    timeout=45 if run['purpose'] == 'planning' else 20)
             thread_id = result['thread']['id']
@@ -1240,6 +1253,11 @@ class CodexProvider:
                 {'type': 'text', 'text': message}, *run.pop('_source_images', [])], 'environments': []}
             if run.get('_turn_effort'):
                 turn['effort'] = run['_turn_effort']
+            elif run.get('purpose') in {'voice', 'translation'} or run.get('conversation_id') == 'axx-connect-health' or (
+                    run.get('purpose') == 'chat' and len(message) <= 1600):
+                effort = self._fast_effort(run['model'])
+                if effort:
+                    turn['effort'] = effort
             if run.get('_turn_schema'):
                 turn['outputSchema'] = run['_turn_schema']
             try:

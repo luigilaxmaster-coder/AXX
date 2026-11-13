@@ -104,14 +104,29 @@ class ProsodyAnalyzer:
 
     MOOD_PROFILES = {
         # (pitch_cents, volume, length_factor, noise_scale, noise_w, base_pause_ms)
-        'serious':      (0.0, 0.84, 1.07, 0.38, 0.52, 85),
-        'analytical':   (0.0, 0.97, 0.99, 0.44, 0.58, 55),
-        'affectionate': (0.0, 0.89, 1.04, 0.44, 0.56, 65),
-        'reflective':   (0.0, 0.90, 1.03, 0.50, 0.62, 70),
-        'intro':        (0.0, 1.02, 0.93, 0.54, 0.66, 45),
-        'question':     (0.0, 1.01, 0.94, 0.57, 0.68, 60),
-        'excited':      (0.0, 1.05, 0.91, 0.58, 0.70, 50),
-        'neutral':      (0.0, 1.00, 0.96, 0.50, 0.65, 50),
+        # Calibrated to match the natural ~150 Hz chest timbre and unhurried cadence
+        # of the original speaker recordings (media_*.mp4 / axx-morcito.wav).
+        'serious':      (-115.0, 0.85, 1.11, 0.36, 0.50, 220),
+        'analytical':   (-70.0,  0.96, 1.04, 0.40, 0.54, 165),
+        'affectionate': (-60.0,  0.88, 1.08, 0.40, 0.52, 190),
+        'reflective':   (-85.0,  0.89, 1.09, 0.42, 0.56, 230),
+        'intro':        (-15.0,  1.02, 0.98, 0.46, 0.60, 115),
+        'question':     (-15.0,  1.01, 1.00, 0.48, 0.62, 185),
+        'excited':      (20.0,   1.06, 0.95, 0.50, 0.64, 155),
+        'neutral':      (-70.0,  1.00, 1.02, 0.42, 0.56, 175),
+    }
+
+    MOOD_CONTOURS = {
+        # Normalized clause positions (0..1) -> expressive delta cents layered over base pitch_cents.
+        # Reflects measured declarative declination (-6 to -20 Hz) and inquisitive tail rise.
+        'serious':      ((0.0, 0.25, 0.65, 1.0), (10.0, 0.0, -35.0, -60.0)),
+        'analytical':   ((0.0, 0.22, 0.70, 1.0), (18.0, 14.0, -18.0, -45.0)),
+        'affectionate': ((0.0, 0.28, 0.72, 1.0), (14.0, 18.0, -15.0, -42.0)),
+        'reflective':   ((0.0, 0.30, 0.75, 1.0), (8.0, -6.0, -30.0, -52.0)),
+        'intro':        ((0.0, 0.35, 0.80, 1.0), (15.0, 26.0, 16.0, -5.0)),
+        'question':     ((0.0, 0.25, 0.62, 0.92, 1.0), (12.0, -8.0, -10.0, 72.0, 62.0)),
+        'excited':      ((0.0, 0.26, 0.70, 1.0), (16.0, 40.0, 8.0, -18.0)),
+        'neutral':      ((0.0, 0.22, 0.68, 1.0), (16.0, 12.0, -16.0, -44.0)),
     }
 
     @classmethod
@@ -203,7 +218,7 @@ class ProsodyAnalyzer:
             pitch_cents, volume, length_factor, noise_scale, noise_w, base_pause = cls.MOOD_PROFILES.get(
                 mood, cls.MOOD_PROFILES['neutral']
             )
-            pause_ms = 35 if (mood == 'neutral' and punct == ',') else base_pause
+            pause_ms = 80 if (mood == 'neutral' and punct == ',') else (95 if punct == ',' else base_pause)
 
             # Merge consecutive clauses that share the exact same mood (unless separated by a dramatic pause)
             # so VITS/MOSS preserves long-form neural coarticulation within the same register.
@@ -241,50 +256,102 @@ class HumanizerDSP:
         return np.array([b0, b1, b2], dtype=np.float32) / a0, np.array([a0, a1, a2], dtype=np.float32) / a0
 
     @classmethod
-    def pitch_shift_wsola(cls, samples: np.ndarray, sample_rate: int, shift_cents: float) -> np.ndarray:
-        """Phase-coherent WSOLA time-pitch shift. Preserves duration while shifting pitch."""
-        if abs(shift_cents) < 5.0 or len(samples) < sample_rate * 0.08:
+    def pitch_shift_wsola(
+        cls,
+        samples: np.ndarray,
+        sample_rate: int,
+        shift_cents: float,
+        contour: tuple[tuple[float, ...], tuple[float, ...]] | None = None,
+    ) -> np.ndarray:
+        """Phase-coherent WSOLA time-pitch shift with optional intonation contour.
+
+        Preserves exact phrase duration while shifting fundamental pitch and
+        applying natural phrase-level intonation inflection.
+        """
+        if (abs(shift_cents) < 5.0 and contour is None) or len(samples) < int(sample_rate * 0.08):
             return samples
 
-        factor = 2.0 ** (shift_cents / 1200.0)
-        target_len = max(16, int(len(samples) / factor))
-        x_old = np.arange(len(samples), dtype=np.float32)
-        x_new = np.linspace(0.0, float(len(samples) - 1), target_len, dtype=np.float32)
-        resampled = np.interp(x_new, x_old, samples).astype(np.float32)
-
-        speed = len(resampled) / max(1, len(samples))
-        win_size = int(0.020 * sample_rate)
+        n = len(samples)
+        win_size = max(128, int(0.020 * sample_rate))
         hop_out = win_size // 2
-        hop_in = max(1, int(round(hop_out * speed)))
+        pad_tail = int(win_size * 1.6) + hop_out
+        padded = np.concatenate([samples, np.zeros(pad_tail, dtype=np.float32)])
+        n_pad = len(padded)
+
+        u = np.linspace(0.0, 1.0, n, dtype=np.float64)
+        if contour is not None:
+            pts_u, pts_dc = contour
+            delta_cents = np.interp(u, pts_u, pts_dc)
+        else:
+            delta_cents = np.zeros(n, dtype=np.float64)
+        curve_n = np.clip(shift_cents + delta_cents, -350.0, 350.0)
+        if pad_tail > 0:
+            curve = np.concatenate([curve_n, np.full(pad_tail, float(curve_n[-1]), dtype=np.float64)])
+        else:
+            curve = curve_n
+
+        inv_factor = 1.0 / (2.0 ** (curve / 1200.0))
+        t_of_x = np.empty(n_pad, dtype=np.float64)
+        t_of_x[0] = 0.0
+        t_of_x[1:] = np.cumsum(0.5 * (inv_factor[:-1] + inv_factor[1:]))
+        total_res = max(win_size + 16, int(round(t_of_x[-1])))
+        res_t = np.arange(total_res + 1, dtype=np.float64)
+        x_at_res_t = np.interp(res_t, t_of_x, np.arange(n_pad, dtype=np.float64))
+        # Catmull-Rom 4-point cubic spline interpolation preserves high-frequency vocal crispness
+        idx1 = np.clip(np.floor(x_at_res_t).astype(np.int64), 0, n_pad - 1)
+        t = (x_at_res_t - idx1).astype(np.float32)
+        idx0 = np.clip(idx1 - 1, 0, n_pad - 1)
+        idx2 = np.clip(idx1 + 1, 0, n_pad - 1)
+        idx3 = np.clip(idx1 + 2, 0, n_pad - 1)
+        p0, p1, p2, p3 = padded[idx0], padded[idx1], padded[idx2], padded[idx3]
+        t2 = t * t
+        t3 = t2 * t
+        resampled = (
+            0.5 * (
+                (2.0 * p1)
+                + (-p0 + p2) * t
+                + (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3) * t2
+                + (-p0 + 3.0 * p1 - 3.0 * p2 + p3) * t3
+            )
+        ).astype(np.float32)
 
         window = np.hanning(win_size).astype(np.float32)
-        output_len = len(samples)
-        output = np.zeros(output_len + win_size, dtype=np.float32)
-        weights = np.zeros(output_len + win_size, dtype=np.float32)
+        output = np.zeros(n + win_size, dtype=np.float32)
+        weights = np.zeros(n + win_size, dtype=np.float32)
 
-        in_pos = 0
+        search_range = int(0.005 * sample_rate)
+        sliding = getattr(np.lib.stride_tricks, 'sliding_window_view', None)
+        res_len = len(resampled)
         out_pos = 0
-        search_range = int(0.006 * sample_rate)
 
-        while out_pos < output_len and in_pos + win_size < len(resampled):
-            best_pos = in_pos
-            if out_pos > 0 and in_pos >= search_range and in_pos + win_size + search_range < len(resampled):
+        while out_pos < n:
+            nom_in = int(round(t_of_x[min(out_pos, n_pad - 1)]))
+            if nom_in + win_size > res_len:
+                break
+            best_pos = nom_in
+            low = max(0, nom_in - search_range)
+            high = min(res_len - win_size, nom_in + search_range)
+            if out_pos > 0 and high > low + 4:
                 ref = output[out_pos:out_pos + win_size]
-                best_corr = -1e9
-                for delta in range(-search_range, search_range + 1, 2):
-                    cand = resampled[in_pos + delta:in_pos + delta + win_size]
-                    corr = np.dot(ref, cand)
-                    if corr > best_corr:
-                        best_corr = corr
-                        best_pos = in_pos + delta
+                if sliding is not None:
+                    cands = sliding(resampled[low:high + win_size], win_size)[::2]
+                    if len(cands):
+                        corrs = cands @ ref
+                        best_pos = low + int(np.argmax(corrs)) * 2
+                else:
+                    best_corr = -1e9
+                    for pos in range(low, high + 1, 2):
+                        corr = float(np.dot(ref, resampled[pos:pos + win_size]))
+                        if corr > best_corr:
+                            best_corr = corr
+                            best_pos = pos
 
             output[out_pos:out_pos + win_size] += resampled[best_pos:best_pos + win_size] * window
             weights[out_pos:out_pos + win_size] += window
-            in_pos += hop_in
             out_pos += hop_out
 
-        weights = np.maximum(weights, 1e-4)
-        return (output[:output_len] / weights[:output_len]).astype(np.float32)
+        weights = np.maximum(weights[:n], 1e-4)
+        return (output[:n] / weights).astype(np.float32)
 
     @staticmethod
     def trim_silence(
@@ -311,54 +378,71 @@ class HumanizerDSP:
         return samples[start:end].copy()
 
     @classmethod
-    def apply_vocal_warmth_eq(cls, samples: np.ndarray, sample_rate: int, mood: str = 'neutral') -> np.ndarray:
-        """Cascaded Audio EQ Cookbook biquad filters evaluated in pure NumPy FFT: shapes chest warmth and upper-harmonic presence by mood with zero scipy dependency."""
+    def apply_vocal_warmth_eq(
+        cls,
+        samples: np.ndarray,
+        sample_rate: int,
+        mood: str = 'neutral',
+        engine: str = 'piper',
+    ) -> np.ndarray:
+        """Cascaded Audio EQ Cookbook biquad filters evaluated in pure NumPy FFT.
+
+        For Piper VITS (`engine='piper'`), reshapes chest fundamental (+3.3 dB @ 155 Hz),
+        tames boxy midrange (-2.2 dB @ 470 Hz) and metallic nasal peak (-3.3 dB @ 1850 Hz)
+        to align with the user's measured reference voice envelope.
+        For MOSS (`engine='moss'`), applies light mastering polish only.
+        """
         n = len(samples)
         if n < 128:
             return samples
 
         try:
-            if mood == 'serious':
-                # Grounded, authoritative chest depth + darker upper harmonics
-                stages = [
-                    cls.biquad_peaking(2.8, 195.0, 0.95, sample_rate),
-                    cls.biquad_peaking(0.9, 1650.0, 1.1, sample_rate),
-                    cls.biquad_peaking(-3.0, 3750.0, 1.25, sample_rate),
-                ]
-            elif mood == 'analytical':
-                # Articulate, clear midrange diction with balanced warmth
-                stages = [
-                    cls.biquad_peaking(1.4, 215.0, 1.05, sample_rate),
-                    cls.biquad_peaking(1.5, 2450.0, 1.1, sample_rate),
-                    cls.biquad_peaking(-1.8, 4400.0, 1.35, sample_rate),
-                ]
-            elif mood == 'affectionate':
-                # Close-mic intimate warmth, velvet high-frequency softness
-                stages = [
-                    cls.biquad_peaking(2.5, 210.0, 1.0, sample_rate),
-                    cls.biquad_peaking(-0.6, 2600.0, 1.2, sample_rate),
-                    cls.biquad_peaking(-2.8, 4050.0, 1.3, sample_rate),
-                ]
-            elif mood == 'reflective':
-                # Thoughtful, intimate storytelling midrange
-                stages = [
-                    cls.biquad_peaking(2.1, 205.0, 1.0, sample_rate),
-                    cls.biquad_peaking(0.8, 1900.0, 1.15, sample_rate),
-                    cls.biquad_peaking(-2.4, 4150.0, 1.35, sample_rate),
-                ]
-            elif mood in ('intro', 'question', 'excited'):
-                # Lively, open presence and conversational brightness
-                stages = [
-                    cls.biquad_peaking(1.4, 225.0, 1.1, sample_rate),
-                    cls.biquad_peaking(1.7, 2400.0, 1.1, sample_rate),
-                    cls.biquad_peaking(-1.5, 4600.0, 1.4, sample_rate),
-                ]
+            if engine == 'moss':
+                if mood == 'serious':
+                    stages = [
+                        cls.biquad_peaking(1.1, 165.0, 0.9, sample_rate),
+                        cls.biquad_peaking(-1.4, 4200.0, 1.2, sample_rate),
+                    ]
+                elif mood in ('affectionate', 'reflective'):
+                    stages = [
+                        cls.biquad_peaking(1.0, 185.0, 0.95, sample_rate),
+                        cls.biquad_peaking(-1.3, 4000.0, 1.2, sample_rate),
+                    ]
+                elif mood in ('analytical', 'excited', 'question', 'intro'):
+                    stages = [
+                        cls.biquad_peaking(0.7, 210.0, 1.0, sample_rate),
+                        cls.biquad_peaking(0.9, 2400.0, 1.1, sample_rate),
+                        cls.biquad_peaking(-0.8, 5200.0, 1.3, sample_rate),
+                    ]
+                else:
+                    stages = [
+                        cls.biquad_peaking(0.7, 175.0, 0.95, sample_rate),
+                        cls.biquad_peaking(-0.9, 4600.0, 1.3, sample_rate),
+                    ]
             else:
+                # Base spectral calibration matching measured user voice bands vs Piper ONNX
                 stages = [
-                    cls.biquad_peaking(1.8, 225.0, 1.05, sample_rate),
-                    cls.biquad_peaking(0.7, 2150.0, 1.1, sample_rate),
-                    cls.biquad_peaking(-2.1, 4350.0, 1.4, sample_rate),
+                    cls.biquad_peaking(2.6, 155.0, 0.80, sample_rate),
+                    cls.biquad_peaking(-2.2, 470.0, 1.05, sample_rate),
+                    cls.biquad_peaking(-2.0, 1850.0, 0.85, sample_rate),
+                    cls.biquad_peaking(-0.9, 4100.0, 1.15, sample_rate),
                 ]
+                if mood == 'serious':
+                    stages.extend([
+                        cls.biquad_peaking(1.1, 145.0, 0.90, sample_rate),
+                        cls.biquad_peaking(-1.4, 3600.0, 1.20, sample_rate),
+                    ])
+                elif mood == 'analytical':
+                    stages.append(cls.biquad_peaking(1.2, 2500.0, 1.20, sample_rate))
+                elif mood == 'affectionate':
+                    stages.extend([
+                        cls.biquad_peaking(0.9, 175.0, 0.95, sample_rate),
+                        cls.biquad_peaking(-1.5, 3400.0, 1.15, sample_rate),
+                    ])
+                elif mood == 'reflective':
+                    stages.append(cls.biquad_peaking(-1.1, 3600.0, 1.20, sample_rate))
+                elif mood in ('intro', 'question', 'excited'):
+                    stages.append(cls.biquad_peaking(1.4, 2450.0, 1.10, sample_rate))
 
             w = (2.0 * np.pi / float(sample_rate)) * np.fft.rfftfreq(n, d=1.0 / float(sample_rate))
             z1 = np.exp(-1j * w)
@@ -366,8 +450,11 @@ class HumanizerDSP:
             H = np.ones_like(z1, dtype=np.complex128)
             for b, a in stages:
                 H *= (b[0] + b[1] * z1 + b[2] * z2) / (a[0] + a[1] * z1 + a[2] * z2)
-            filtered = np.fft.irfft(np.fft.rfft(samples) * H, n=n)
-            return filtered.astype(np.float32)
+            filtered = np.fft.irfft(np.fft.rfft(samples) * H, n=n).astype(np.float32)
+            peak = float(np.max(np.abs(filtered))) if len(filtered) else 0.0
+            if peak > 0.92:
+                filtered = np.tanh(filtered * (0.90 / peak)).astype(np.float32) * (peak if peak < 0.98 else 0.95)
+            return filtered
         except Exception:
             return samples
 
@@ -382,21 +469,22 @@ class HumanizerDSP:
     @classmethod
     def process_clause_pcm(cls, samples: np.ndarray, sample_rate: int, clause: ProsodyClause) -> np.ndarray:
         # 1. Trim VITS boundary dead air so clauses flow together without hesitation gaps
-        samples = cls.trim_silence(samples, sample_rate, threshold=0.0045, head_ms=14, tail_ms=20)
+        samples = cls.trim_silence(samples, sample_rate, threshold=0.0045, head_ms=14, tail_ms=22)
 
-        # 2. Optional pitch shift only if explicitly requested (>= 15 cents)
-        if abs(clause.pitch_cents) >= 15.0:
-            samples = cls.pitch_shift_wsola(samples, sample_rate, clause.pitch_cents)
+        # 2. Pitch anchor + expressive human intonation contour
+        contour = ProsodyAnalyzer.MOOD_CONTOURS.get(clause.mood)
+        if abs(clause.pitch_cents) >= 5.0 or contour is not None:
+            samples = cls.pitch_shift_wsola(samples, sample_rate, clause.pitch_cents, contour=contour)
 
         # 3. Volume contour
         if abs(clause.volume - 1.0) >= 0.02:
             samples = samples * clause.volume
 
-        # 4. Mood-aware vocal warmth & presence EQ
-        samples = cls.apply_vocal_warmth_eq(samples, sample_rate, mood=clause.mood)
+        # 4. Mood-aware vocal warmth & spectral match EQ
+        samples = cls.apply_vocal_warmth_eq(samples, sample_rate, mood=clause.mood, engine='piper')
 
-        # 5. Anti-click smooth boundary fades (8 ms Hanning)
-        fade_len = min(len(samples) // 4, int(0.008 * sample_rate))
+        # 5. Anti-click smooth boundary fades (10 ms Hanning)
+        fade_len = min(len(samples) // 4, int(0.010 * sample_rate))
         if fade_len > 0:
             hanning_fade = 0.5 * (1.0 - np.cos(np.pi * np.arange(fade_len, dtype=np.float32) / fade_len))
             samples[:fade_len] *= hanning_fade

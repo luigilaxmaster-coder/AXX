@@ -1723,6 +1723,16 @@ def run_server(host='127.0.0.1', port=4173, config_path='providers.json', state_
             os.replace(temporary, ready_path)
         LOG.info('Private Axx backend ready on loopback port %s', server.server_port)
         learning.start_recovery()
+        if getattr(provider, 'local_enabled', False):
+            def _warm_connect():
+                try:
+                    result = provider.status()
+                    result['checked_at'] = time.time()
+                    with server.connect_engine_lock:
+                        server.connect_engine_status = result
+                except Exception:
+                    pass
+            threading.Thread(target=_warm_connect, daemon=True, name='axx-codex-warmup').start()
         server.serve_forever()
     except KeyboardInterrupt:
         pass
