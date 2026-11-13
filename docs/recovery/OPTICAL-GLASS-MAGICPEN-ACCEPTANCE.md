@@ -43,8 +43,8 @@ Las llamadas usan las conexiones existentes y sus autorizaciones; no se publican
 | Claude `axx1` / `claude-sonnet-5-5` | Catálogo y respuesta real PASS; imagen, JSON, explicación, 2D y 3D básicos verificados. |
 | Claude `axx44` | Respuesta real PASS; esta conexión solo declara texto, no se amplió su permiso a visión. |
 | ChatGPT/Codex 0.160.0 / `gpt-6.1-sol` | Cuenta autenticada y catálogo real. La primera prueba visual falló; una ejecución posterior produjo imagen + JSON + escena válidos. No se declara estabilidad prolongada. |
-| Gemini `axx55` / `gemini-3.6-flash` | Se observó respuesta real y también timeout; no se declara conexión visual estable. |
-| Ollama local / `qwen2.5:3b` | Endpoint local sin respuesta durante la auditoría. No se descargaron modelos ni se cambió el modelo guardado. |
+| Gemini `axx55` / `gemini-3.6-flash` | Se observó respuesta real y también timeout. Repetición final: modelo presente en catálogo, timeout de texto y prueba visual sin resultado válido. No se declara conexión visual estable. |
+| Ollama local / `qwen2.5:3b` | Endpoint local sin respuesta durante la auditoría; existen manifiestos locales Qwen y Llama. El intento de iniciar el servidor fue rechazado por la revisión automática de la herramienta (`blocked by policy`); no se ejecutó. No se descargaron modelos ni se cambió el modelo guardado. |
 | Ollama Cloud `axxx3` / `gemma4:31b` | Modelo en catálogo; la petición real recibió exigencia de pago. No se activó fallback de pago. |
 | OpenRouter gratis | Catálogo accesible; sin credencial disponible para una respuesta satisfactoria. La ausencia en una lista truncada no demuestra inexistencia del modelo. |
 | `gemini-free-tier` | Deshabilitada y sin autorización de gasto; no se activó. |
@@ -78,6 +78,8 @@ Evidencia privada bajo `build/recovery/`, excluida de Git. No publicar perfiles,
 | Gate PC/Android | PASS final: 15 contratos, 113 backend (1 omisión preexistente), 58 navegador y 8 selector. Recibo `companion-final.json` sobre la fuente final. El primer recibo quedó invalidado correctamente al cambiar la fuente durante su ejecución. |
 | Rust | 27 PASS, 2 pruebas optativas ignoradas; sin pruebas físicas de micrófono. |
 | Candidata WebView2 | PASS; motor real 157.0.4341.46, IPC y backend empaquetados. Perfil aislado `com.axx.recovery`, capturas de ambos temas, captura nativa de pantalla, 2D y 3D renderizados y modificación real desde el compositor. |
+| Release y manifiestos | 24 pruebas PASS; `release.py check` PASS. Se volvió a sincronizar el README tras crear las notas nuevas. |
+| CI remoto | El gate compañero del primer commit pasó. La comprobación de versión pasa tras sincronizar el índice. Se corrigió el Python 3.11 de CI, incompatible con el PyAV 19.0.2 ya fijado, usando 3.12 sin cambiar dependencias de voz. CI descubrió además una carrera de la fixture de grabación: su sondeo volvía a marcar listo un backend que la prueba había puesto en falso. Se estabilizó la disponibilidad simulada conservando la misma aserción; seis comprobaciones locales PASS. La batería remota completa posterior sigue pendiente; no se declara CI completamente verde. |
 
 ### Aceptación gráfica nativa
 
@@ -121,4 +123,4 @@ El host está en `C:\Users\luigi\.codex\builds\axx-recovery48-target\debug\AxxRe
 
 No se ha fusionado en `main`, instalado ni publicado 0.22.48. No se ha reemplazado un asset de 0.22.47. La instalación personal observada es 0.22.47; no se han borrado ajustes, enlaces, historial ni modelos. No se ha ejecutado rollback ni instalación sobre datos reales. El nuevo acabado no se acredita en el APK instalado ni en dispositivos físicos.
 
-Bloqueantes de entrega: reconciliar los endpoints/credenciales/cuotas de las conexiones que no responden y comprobar estabilidad de las rutas intermitentes. No se puede verificar una respuesta autenticada de una conexión sin su credencial ni eliminar un requisito de pago del proveedor modificando Axx. Después: backup comprobado, ensayo de rollback, build de producción, instalación y verificación oficial antes de publicar. No se hizo un backup nuevo ni un rollback de la instalación personal porque no se inició su actualización. No se actualizaron baselines para ocultar fallos. La rama conserva el trabajo verificable sin declarar una actualización completa.
+Bloqueantes de entrega: reconciliar los endpoints/credenciales/cuotas de las conexiones que no responden, comprobar estabilidad de las rutas intermitentes y cerrar la batería remota completa. No se puede verificar una respuesta autenticada de una conexión sin su credencial ni eliminar un requisito de pago del proveedor modificando Axx. Después: backup comprobado, ensayo de rollback, build de producción, instalación y verificación oficial antes de publicar. No se hizo un backup nuevo ni un rollback de la instalación personal porque no se inició su actualización. No se actualizaron baselines para ocultar fallos. La rama conserva el trabajo verificable sin declarar una actualización completa.

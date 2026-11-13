@@ -289,7 +289,7 @@ El [video de presentación anterior](docs/media/axx-presentation.mp4) utiliza ca
 
 ## Desarrollo
 
-El instalador es la opción directa para usar Axx. Para desarrollar se necesitan **Node.js 22+**, **Rust 1.90+ con herramientas MSVC**, **Python 3.11+** y las dependencias y recursos nativos del proyecto. El paquete actual de Windows se construyó con Python 3.12; Android conserva su propia cadena de compilación.
+El instalador es la opción directa para usar Axx. Para desarrollar se necesitan **Node.js 22+**, **Rust 1.90+ con herramientas MSVC**, **Python 3.12+** y las dependencias y recursos nativos del proyecto. El paquete actual de Windows se construyó con Python 3.12; Android conserva su propia cadena de compilación.
 
 ```powershell
 python -m venv .venv
