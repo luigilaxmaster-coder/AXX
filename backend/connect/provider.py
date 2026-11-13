@@ -579,7 +579,7 @@ class CodexProvider:
             return timeout
         remaining = deadline - time.monotonic()
         if remaining <= 0:
-            raise ProviderError('DEADLINE_EXCEEDED', 'Axx Connect alcanzó el límite total de 70 segundos.')
+            raise ProviderError('DEADLINE_EXCEEDED', 'Axx Connect alcanzó el plazo total de la solicitud.')
         return min(timeout, remaining)
 
     @contextmanager
@@ -1048,7 +1048,7 @@ class CodexProvider:
         return {'ordinary_usage_allowed': result.get('ordinaryUsageAllowed'),
                 'usage_status_available': result.get('ordinaryUsageAllowed') is not None}
 
-    def start(self, body, *, cancel_event=None, images=None, turn_input=None, turn_effort=None, turn_schema=None):
+    def start(self, body, *, cancel_event=None, images=None, turn_input=None, turn_effort=None, turn_schema=None, turn_timeout=None):
         if cancel_event is not None and not isinstance(cancel_event, threading.Event):
             raise ProviderError('INVALID_INPUT', 'Evento interno de cancelación inválido.')
         if cancel_event is not None and cancel_event.is_set():
@@ -1058,6 +1058,9 @@ class CodexProvider:
         purpose = body.get('purpose', 'chat')
         if not isinstance(purpose, str) or purpose not in {'chat', 'voice', 'translation', 'capability', 'planning'}:
             raise ProviderError('INVALID_INPUT', 'Propósito de inferencia no permitido.')
+        turn_timeout = TURN_TIMEOUT if turn_timeout is None else turn_timeout
+        if type(turn_timeout) not in (int, float) or not 0 < turn_timeout <= (SPATIAL_TIMEOUT if purpose == 'planning' else TURN_TIMEOUT):
+            raise ProviderError('INVALID_INPUT', 'Plazo interno de inferencia inválido.')
         images = self._planning_images(images, purpose)
         message = body.get('message', body.get('text'))
         message_limit = MAX_CAPABILITY_MESSAGE if purpose in {'capability','planning'} else 32000
@@ -1133,7 +1136,7 @@ class CodexProvider:
             active = [run for run in self.live.values() if run['state'] not in TERMINAL]
             if len(active) >= 2 or any(run['conversation_id'] == conversation_id for run in active):
                 raise ProviderError('BUSY', 'Ya hay una solicitud activa en esta conversación o dos globales.')
-            now, admission_deadline = time.time(), time.monotonic() + TURN_TIMEOUT
+            now, admission_deadline = time.time(), time.monotonic() + turn_timeout
             run = {'request_id': request_id, 'conversation_id': conversation_id, 'model': model,
                    'origin': 'axx', 'parent_execution_id': None, 'delegation_depth': 0,
                    'purpose': purpose, 'source_language': source_language, 'target_language': target_language,
@@ -1204,8 +1207,10 @@ class CodexProvider:
             if saved:
                 result = self._rpc('thread/resume', dict(common, threadId=saved['thread_id']))
             else:
+                # Cold planning threads can exceed 20 s; the total admission deadline still caps this wait.
                 result = self._rpc('thread/start', dict(common, dynamicTools=[] if run['purpose'] in {'translation', 'capability','planning'} else self._tool_specs(),
-                                       environments=[], allowProviderModelFallback=False))
+                                       environments=[], allowProviderModelFallback=False),
+                                   timeout=45 if run['purpose'] == 'planning' else 20)
             thread_id = result['thread']['id']
             if ephemeral and result['thread'].get('ephemeral') is not True:
                 raise ProviderError('EPHEMERAL_UNVERIFIED', 'El runtime no confirmó una sesión temporal; no se envió el contexto.')
@@ -1373,11 +1378,11 @@ class CodexProvider:
         text_prompt = messages[0]['content'] + '\n\n' + prompt['text']
         message = json.dumps({'system': messages[0]['content'], 'prompt': prompt['text'], 'image_sha256': digest,
                               'effort': effort, 'schema_sha256': hashlib.sha256(json.dumps(schema, sort_keys=True).encode()).hexdigest()}, ensure_ascii=False)
+        deadline = time.monotonic() + deadline_ms / 1000
         run = self.start({'request_id': request_id, 'model': model, 'message': message, 'purpose': 'planning'},
                          turn_input=[{'type': 'text', 'text': text_prompt},
                                       {'type': 'image', 'url': image_url}],
-                         turn_effort=effort, turn_schema=schema, cancel_event=cancel_event)
-        deadline = time.monotonic() + deadline_ms / 1000
+                         turn_effort=effort, turn_schema=schema, cancel_event=cancel_event, turn_timeout=deadline_ms / 1000)
         while run['state'] not in TERMINAL:
             if cancel_event is not None and cancel_event.is_set():
                 self.cancel(run['request_id'])

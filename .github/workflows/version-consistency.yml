@@ -105,7 +105,13 @@ jobs:
       - name: Reasoning contract evaluation
         run: python scripts/evaluate_reasoning.py --output build/reasoning-evaluation.json
       - name: MOSS worker contracts (no hardware)
-        run: python -m unittest backend.tests.test_moss_stream -q
+        run: python -m unittest backend.tests.test_moss_stream backend.tests.test_piper_tts scripts.test_provider_diagnostics -q
+      - name: Provider state and continuous speech playback contracts
+        run: |
+          node 1.AXX/scripts/test-providers.cjs
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          node 1.AXX/scripts/test-custom-speech.cjs
+        timeout-minutes: 4
       - name: Reasoning acceptance harness guards (no hardware)
         run: node scripts/test-installed-reasoning.cjs --self-test
       - name: Stale lesson acceptance harness guards (no hardware)

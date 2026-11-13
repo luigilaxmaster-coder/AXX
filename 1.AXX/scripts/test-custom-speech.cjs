@@ -1,8 +1,8 @@
 /** Real Web Audio clock checks with controlled PCM; native voice measured separately. */
 const assert = require('node:assert/strict');
 const path = require('node:path');
-const {createRequire} = require('node:module');
-const {chromium} = createRequire(path.join(process.env.USERPROFILE,'.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/package.json'))('playwright');
+const {requirePlaywright} = require('./test-browser-runtime.cjs');
+const {chromium} = requirePlaywright();
 (async () => {
     const browser = await chromium.launch({headless:true,executablePath:process.env.AXX_TEST_CHROMIUM,
         args:['--autoplay-policy=no-user-gesture-required']});
@@ -24,6 +24,19 @@ const {chromium} = createRequire(path.join(process.env.USERPROFILE,'.cache/codex
         });
         await page.addScriptTag({path:path.join(__dirname,'native-speech-stream.js')});
         await page.addScriptTag({path:path.join(__dirname,'voice-conversation.js')});
+        const continuity = await page.evaluate(async () => {
+            const pcm = new Axx.CustomSpeechStream(reader, {name:'moss:axx-morcito'}, 1);
+            pcm.context = new OfflineAudioContext(1, 24000, 24000);
+            const packet = {pcm_base64:btoa('\x00\x20'.repeat(2400)),sample_rate:24000,channels:1};
+            for (let i=0;i<3;i++) pcm.enqueue(packet, 0);
+            const end = pcm.nextTime;
+            const rendered = await pcm.context.startRendering();
+            await pcm.stop();
+            Axx.nativeVoice.playback = null;
+            return {end, boundary:rendered.getChannelData(0)[Math.round(.14*24000)]};
+        });
+        assert(Math.abs(continuity.end-.34)<1e-8,'Continuous PCM must retain every sample without overlapping packets');
+        assert(Math.abs(continuity.boundary-.25)<1e-5,'Packet boundaries must not fade a continuous waveform');
         await page.evaluate(()=>{window.stream=reader.nativeStream=new Axx.CustomSpeechStream(reader,{name:'moss:axx-alba'},1);window.task=stream.play();});
         await page.waitForFunction(()=>Axx.nativeVoice.playback?.playing_event);
         const timing = await page.evaluate(()=>({first:Axx.nativeVoice.playback.first_audio_ms,total:window.completedAt ? window.completedAt-stream.started : Infinity}));

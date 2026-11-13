@@ -90,10 +90,11 @@
   function aiFacts() {
     const c = Axx.companion, p = c.data.prefs, b = c.brain, automatic = p.selection_mode === 'automatic_free' && p.provider !== 'chatgpt';
     const entry = p.provider === 'bridge' && !automatic ? saved.find(s => s.name === p.apiConnection && s.model === p.model) : null;
-    const verified = b.connected && b.inferenceVerified === true;
+    const connected = b.connected && b.signature === b.signatureOf(p);
+    const verified = connected && b.inferenceVerified === true;
     const model = automatic ? 'Selección automática' : p.model || 'Sin modelo seleccionado';
-    const route = p.provider === 'chatgpt' ? 'Cuenta ChatGPT' : automatic ? 'Rutas gratuitas sin clave' : entry ? entry.name : b.connected ? b.providerName : p.model ? 'Conexión guardada' : 'Los comandos locales siguen disponibles';
-    const state = verified ? ['ok', 'Respuesta comprobada'] : b.connected ? ['pending', 'Conectado · respuesta sin comprobar'] : p.model || automatic ? ['off', 'Sin comprobar'] : ['off', 'Sin modelo'];
+    const route = p.provider === 'chatgpt' ? 'Cuenta ChatGPT' : automatic ? 'Rutas gratuitas sin clave' : entry ? entry.name : connected ? b.providerName : p.model ? 'Conexión guardada' : 'Los comandos locales siguen disponibles';
+    const state = verified ? ['ok', 'Respuesta comprobada'] : connected ? ['pending', 'Conectado · respuesta sin comprobar'] : p.model || automatic ? ['off', 'Sin comprobar'] : ['off', 'Sin modelo'];
     const cost = p.provider === 'chatgpt' ? 'Consume la cuota de tu suscripción de ChatGPT.'
       : automatic ? 'Rutas gratuitas de servicios públicos externos. No usa tu saldo.'
       : !entry ? (p.model ? 'Coste sin verificar. Una API externa puede cobrar por uso.' : '—')

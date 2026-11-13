@@ -9,6 +9,7 @@ import logging
 import os
 from pathlib import Path
 import queue
+import re
 import subprocess
 import sys
 import threading
@@ -17,6 +18,7 @@ import uuid
 import wave
 
 from backend.inference.process_manager import spawn_managed_process, terminate_process_tree
+from .speech_text import prepare_spoken_text
 from .windows_tts import SpeechError
 
 
@@ -26,6 +28,33 @@ MODELS = {
     'piper:es_MX-ald-medium': ('es_MX-ald-medium', 'Piper · México · Ald · media', 'es-MX'),
 }
 MAX_AUDIO = 12 * 1024 * 1024
+
+
+PRIVATE_VOICE = re.compile(r'axx-[a-z0-9]+(?:-[a-z0-9]+){0,4}')
+# Speaking styles for private voices: suffix -> (label, length factor, noise, noise_w).
+# Prosody presets only; true emotional timbre needs recordings in that emotion.
+STYLES = {
+    '': ('Natural', 0.98, 0.60, 0.80),
+    'calma': ('Tranquila', 1.08, 0.58, 0.75),
+    'emocion': ('Emocionada', 0.90, 0.65, 0.85),
+    'atencion': ('Atenta', 0.95, 0.60, 0.78),
+}
+
+def _private_meta(config_path: Path, name: str):
+    try:
+        config = json.loads(config_path.read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(config, dict):
+        return None
+    axx = config.get('axx') if isinstance(config.get('axx'), dict) else {}
+    label = axx.get('label') if isinstance(axx.get('label'), str) else name
+    language = axx.get('language')
+    if not isinstance(language, str):
+        code = config['language'].get('code') if isinstance(config.get('language'), dict) else None
+        espeak = config['espeak'].get('voice') if isinstance(config.get('espeak'), dict) else None
+        language = str(code or espeak or 'es').replace('_', '-')
+    return label[:80], language[:16]
 
 
 class PiperSpeechService:
@@ -46,9 +75,22 @@ class PiperSpeechService:
     def _models(self):
         if not self.python.is_file() or not self.script.is_file():
             return {}
-        return {uri: (name, label, language) for uri, (name, label, language) in MODELS.items()
-                if (self.models / (name + '.onnx')).is_file()
-                and (self.models / (name + '.onnx.json')).is_file()}
+        found = {uri: (name, label, language) for uri, (name, label, language) in MODELS.items()
+                 if (self.models / (name + '.onnx')).is_file()
+                 and (self.models / (name + '.onnx.json')).is_file()}
+        try:
+            private = sorted(self.models.glob('axx-*.onnx'), key=lambda m: (not m.stem.endswith('-es'), m.stem))
+        except OSError:
+            private = []
+        for model in private:
+            name = model.stem
+            meta = PRIVATE_VOICE.fullmatch(name) and _private_meta(model.with_suffix('.onnx.json'), name)
+            if not meta:
+                continue
+            for style, (style_label, *_unused) in STYLES.items():
+                uri = 'piper:' + name + ('@' + style if style else '')
+                found[uri] = (name, meta[0] + (' · ' + style_label if style else ''), meta[1])
+        return found
 
     @property
     def available(self):
@@ -88,7 +130,7 @@ class PiperSpeechService:
         self._stop()
         return 1
 
-    def _request(self, uri, text=None, rate=0, volume=100, timeout=30):
+    def _request(self, uri, text=None, rate=0, volume=100, timeout=90):
         name = self._models().get(uri, (None,))[0]
         if not name:
             raise SpeechError('NOT_SUPPORTED', 'La voz Piper seleccionada no está instalada')
@@ -128,7 +170,11 @@ class PiperSpeechService:
         process, _, responses = self._worker
         request_id = uuid.uuid4().hex
         request = {'id': request_id, 'voice': name, 'prepare': text is None}
-        if text is not None: request.update(text=text, rate=rate, volume=volume)
+        if text is not None:
+            request.update(text=text, rate=rate, volume=volume)
+            if '@' in uri:
+                _, length, noise, noise_w = STYLES[uri.partition('@')[2]]
+                request.update(length_factor=length, noise_scale=noise, noise_w=noise_w)
         try:
             process.stdin.write((json.dumps(request, ensure_ascii=True) + '\n').encode('ascii'))
             process.stdin.flush()
@@ -179,7 +225,8 @@ class PiperSpeechService:
             raise SpeechError('BUSY', 'Piper is preparing another voice')
         try:
             self._cancelled.clear()
-            raw = base64.b64decode(self._request(uri, text, body.get('rate', 0), body.get('volume', 100))['audio_base64'], validate=True)
+            spoken, _ = prepare_spoken_text(text, self._models()[uri][2])
+            raw = base64.b64decode(self._request(uri, spoken, body.get('rate', 0), body.get('volume', 100))['audio_base64'], validate=True)
             if not 44 < len(raw) <= MAX_AUDIO:
                 raise ValueError('Invalid Piper WAV size')
             with wave.open(io.BytesIO(raw), 'rb') as audio:
@@ -187,7 +234,7 @@ class PiperSpeechService:
                 if not 8000 <= rate <= 48000 or channels != 1 or audio.getsampwidth() != 2 or not 0 < frames / rate <= 90:
                     raise ValueError('Invalid Piper WAV format')
             return {'engine': 'piper-onnx', 'mime': 'audio/wav', 'audio_base64': base64.b64encode(raw).decode('ascii'),
-                    'voice': uri, 'language': MODELS[uri][2], 'duration_seconds': round(frames / rate, 3),
+                    'voice': uri, 'language': self._models()[uri][2], 'duration_seconds': round(frames / rate, 3),
                     'playback_verified': False, 'external_calls': 0,
                     'evidence': {'sha256': hashlib.sha256(raw).hexdigest(), 'size': len(raw),
                                  'frames': frames, 'sample_rate': rate}}

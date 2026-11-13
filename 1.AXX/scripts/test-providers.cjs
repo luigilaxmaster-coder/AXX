@@ -1,6 +1,6 @@
 const fs=require('node:fs'), path=require('node:path'), http=require('node:http'), assert=require('node:assert/strict');
-const {createRequire}=require('node:module');
-const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/package.json'))('playwright');
+const {requirePlaywright}=require('./test-browser-runtime.cjs');
+const {chromium}=requirePlaywright();
 (async()=>{
   const server=http.createServer((req,res)=>{
     const file=req.url.startsWith('/scripts/')?path.join(__dirname,path.basename(req.url)):path.join(__dirname,'../Axx.html');
@@ -19,6 +19,14 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
         if(name==='native_status')return {native:true,backendReady:false,shortcut:'Alt+Shift+A',desktop};
         if(name==='desktop_layout')return {...desktop,...args};
         if(name==='backend_request'){
+          const chat={id:'providers-fixture',title:'Provider reconnection',mode:'ask',group_id:null,
+            connect_id:'providers-fixture-context',memory_context_id:'providers-fixture-context',
+            memory_scope:{task_id:'providers-fixture',generation:0},messages:[],context:[],links:[],draft:''};
+          if(args.path.startsWith('/axx-api/chat/conversations'))return args.path.includes('?')?chat:{conversations:[chat],groups:[],default_mode:'ask'};
+          if(args.path==='/axx-api/chat/migrate')return {id:chat.id,created:false};
+          if(args.path==='/axx-api/chat/create')return chat;
+          if(args.path==='/axx-api/chat/save')return {ok:true};
+          if(args.path==='/axx-api/chat/operations')return {operations:[]};
           if(window.recordModelCommands)window.modelCommandRequests.push(args.path);
           if(args.path.startsWith('/axx-api/keyless/'))return {state:'waiting',tasks:{},message:'No anonymous fixture routes'};
           if(args.path==='/axx-api/model-candidates')return window.modelCatalog || {candidates:[
@@ -43,6 +51,7 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
     });
     await page.goto(`http://127.0.0.1:${server.address().port}`);
     await page.waitForFunction(()=>window.Axx?.resident?.firstFrame);
+    await page.waitForFunction(()=>Axx.chatWorkspace?.ready);
     assert.equal(await page.evaluate(()=>Axx.emptyCompanion().prefs.selection_mode),'automatic_free');
     assert.equal(await page.evaluate(()=>Axx.decodeCompanion(JSON.stringify({version:4,prefs:{provider:'chatgpt'}})).prefs.selection_mode),'manual');
     assert.equal(await page.evaluate(()=>Axx.decodeCompanion(JSON.stringify({version:4,prefs:{provider:'none',selection_mode:'manual'}})).prefs.provider),'none');
@@ -138,6 +147,10 @@ const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-r
     await page.locator('#provider-probe').click();
     await page.waitForFunction(()=>document.getElementById('provider-probe-result').textContent.includes('Respuesta recibida'));
     assert.equal(await page.locator('#provider-active-state').textContent(),'Respuesta comprobada');
+    const checkedModel=await page.evaluate(()=>Axx.companion.data.prefs.model);
+    await page.evaluate(()=>{Axx.companion.data.prefs.model='unverified-model';document.getElementById('view-ai').dispatchEvent(new Event('change'));});
+    assert.equal(await page.locator('#p7-ai-state').getAttribute('data-state'),'off','Connection evidence belongs only to the selected route signature');
+    await page.evaluate(model=>{Axx.companion.data.prefs.model=model;document.getElementById('view-ai').dispatchEvent(new Event('change'));},checkedModel);
     assert.deepEqual(await page.evaluate(()=>Object.keys(probeCalls.at(-1)).sort()),['model','provider_name'],'the frontend sends no prompt: the backend owns it');
     assert.equal(await page.evaluate(()=>probeCalls.at(-1).provider_name),'My Groq');
     await page.evaluate(()=>{window.wrongProbeRoute=true;});

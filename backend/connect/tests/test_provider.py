@@ -192,6 +192,33 @@ class ProviderTests(unittest.TestCase):
         self.assertFalse(status['inference_verified'])
         self.assertEqual(status['state'], 'authenticated')
 
+    def test_cold_planning_thread_has_startup_margin_with_a_total_deadline(self):
+        original = self.provider._request
+        def cold_start(method, params=None, timeout=20):
+            if method == 'thread/start' and timeout < 25:
+                raise ProviderError('RPC_TIMEOUT', 'Controlled cold thread needs 25 seconds')
+            return original(method, params, timeout)
+        self.provider._request = cold_start
+        self.start(purpose='planning')
+        run = self.wait_started()
+        self.assertEqual(run['state'], 'processing')
+        self.assertEqual(run['runtime_model'], run['model'])
+        self.complete()
+
+    def test_planning_budget_is_explicit_and_cannot_expand_other_turns(self):
+        with patch('backend.connect.provider.time', ControlledRunClock()) as clock:
+            self.provider.start_lock.acquire()
+            try:
+                self.provider.start({'request_id':'long-plan','purpose':'planning','message':'test'}, turn_timeout=150)
+                self.assertEqual(self.provider.live['long-plan']['_deadline'], clock.monotonic()+150)
+            finally:
+                self.provider.start_lock.release()
+        for timeout in (151, 0, True, float('nan')):
+            with self.assertRaises(ProviderError):
+                self.provider.start({'request_id':'invalid-plan','purpose':'planning','message':'test'}, turn_timeout=timeout)
+        with self.assertRaises(ProviderError):
+            self.provider.start({'request_id':'invalid-chat','message':'test'}, turn_timeout=150)
+
     def test_spatial_turn_sends_image_effort_and_strict_schema_without_persisting_image(self):
         self.provider.model_catalog = [{'model': 'gpt-6.1-sol', 'input_modalities': ['text', 'image'],
                                         'reasoning_efforts': [{'reasoningEffort': level} for level in ('low', 'medium', 'high')]}]
