@@ -6,7 +6,7 @@ Android keeps its own version and physical verification requirements.
 
 ## 1. Synchronize the version
 
-Use Python 3.11 or newer:
+Use Python 3.12 or newer for delivery; the pinned PyAV dependency requires 3.12:
 
 ```powershell
 python scripts/release.py sync --version 0.20.19
