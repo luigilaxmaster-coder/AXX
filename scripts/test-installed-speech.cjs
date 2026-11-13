@@ -9,7 +9,7 @@ const {chromium}=require(process.env.USERPROFILE+'/.cache/codex-runtimes/codex-p
   const voices=await p.evaluate(()=>Axx.nativeVoice.refreshVoices());
   saved=await p.evaluate(()=>{const r=Axx.symbiosis.reader;return {voiceURI:r.voiceURI,lang:r.lang,rate:r.rate,text:r.text};});
   const selected=process.env.AXX_SPEECH_VOICE||'moss:axx-sam';
-  assert(['moss:axx-morcito','moss:axx-sam','piper:es_ES-carlfm-x_low','piper:es_MX-ald-medium'].includes(selected),'Unsupported test voice');
+  assert(['moss:axx-morcito','moss:axx-sam','piper:es_ES-carlfm-x_low','piper:es_MX-ald-medium','piper:axx-morcito-es','piper:axx-morcito-en'].includes(selected),'Unsupported test voice');
   assert(voices.some(v=>v.name===selected),'Selected voice is missing from the installed voice catalog');
   if(process.env.AXX_SPEECH_SELECT==='1'){
    await p.evaluate(()=>{Axx.resident.summon(false);Axx.companion.openFeature('voices');});
@@ -20,6 +20,7 @@ const {chromium}=require(process.env.USERPROFILE+'/.cache/codex-runtimes/codex-p
     reader:Axx.symbiosis.reader.voiceURI,dictation:Axx.voice13.reader.voiceURI,live:document.getElementById('chat-live-voice')?.value}));
   assert(Object.values(receipt.selection).every(uri=>uri===selected),'Select the voice in the installed app before acceptance; all controls must retain it');
   const phrases=[['es','Hola, Señor. Estoy lista para ayudar con sus proyectos.'],['es','Hola, Señor. Estoy lista para ayudar con sus proyectos.']];
+  if(selected==='piper:axx-morcito-en')phrases.splice(0,phrases.length,['en','Hello, I am ready to help with your projects.'],['en','Hello, I am ready to help with your projects.']);
   if(selected==='moss:axx-morcito')phrases.push(['es','Puedo ayudarte con tus proyectos. Dime qué necesitas y lo haremos paso a paso.'],['en','Hello, I can help you with your projects.']);
   for(const [language,text] of phrases){
    const name=selected;
