@@ -12,7 +12,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from backend.speech.moss_tts import MossSpeechService
-from backend.speech.windows_tts import SpeechError
+from backend.speech.windows_tts import SpeechError, WindowsSpeechService
 
 
 class MossStreamTests(unittest.TestCase):
@@ -24,6 +24,27 @@ class MossStreamTests(unittest.TestCase):
         self.voices = patch.object(self.service, '_voice_paths', return_value={'moss:axx-alba': (Path('sample.wav'), 'Axx Alba')})
         self.voices.start(); self.addCleanup(self.voices.stop)
         self.body = {'text': 'Hola. Hello.', 'voice': 'moss:axx-alba'}
+
+    def test_speech_service_does_not_load_an_unselected_moss_model(self):
+        with patch('backend.speech.moss_tts.MossSpeechService') as moss:
+            service = WindowsSpeechService(Path(self.temp.name))
+            self.addCleanup(service.close)
+            moss.return_value.start_warmup.assert_not_called()
+
+    def test_listing_voices_does_not_load_an_unselected_model(self):
+        with patch.object(self.service, 'start_warmup') as warm:
+            self.assertEqual(self.service.voices()[0]['name'], 'moss:axx-alba')
+            warm.assert_not_called()
+
+    def test_selected_moss_voice_still_prepares_its_worker(self):
+        called = threading.Event()
+        with patch.object(self.service, '_ensure_worker', side_effect=lambda: called.set()), \
+                patch.object(self.service, '_request', return_value=iter(())):
+            self.service.prepare({'voice':'moss:axx-alba'})
+            self.assertTrue(called.wait(2))
+            deadline=time.monotonic()+2
+            while self.service._preparing is not None and time.monotonic()<deadline:time.sleep(.01)
+            self.assertIsNone(self.service._preparing)
 
     def test_stopped_worker_closes_stdin_once(self):
         import io

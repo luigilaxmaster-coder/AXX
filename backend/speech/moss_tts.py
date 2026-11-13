@@ -154,8 +154,6 @@ class MossSpeechService:
         voices = [{'name': name, 'language': 'es / en', 'enabled': True, 'streaming': True,
                    'engine': 'moss-onnx', 'label': label + ' · Español / English'}
                   for name, (_, label) in self._voice_paths().items()]
-        if voices:
-            self.start_warmup()
         return voices
 
     def status(self):

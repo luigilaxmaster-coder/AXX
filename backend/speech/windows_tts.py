@@ -67,7 +67,6 @@ class WindowsSpeechService:
         self.moss = MossSpeechService(data_dir)
         self.piper = PiperSpeechService(data_dir)
         self.available = self.available or self.moss.available or self.piper.available
-        self.moss.start_warmup()
 
     def close(self):
         self.cancel_active()

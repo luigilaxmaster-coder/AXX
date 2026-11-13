@@ -1,11 +1,11 @@
-# Cierre 0.22.48 — NOT_READY
+# Cierre 0.22.48 — comprobaciones y límites
 
 Fecha: 13 de noviembre de 2026. Rama: `codex/axx-optical-glass-magicpen-recovery`.
 Base solicitada: `c879d2a75623ee9d5857b5f049fa4f4895ba872c`.
 Corrección del bloqueo CI: `5c11330a512a1ebf4f2852e5ca711559fd2a9b8d`.
-Código de conexiones/voz: `d8575b4e44d27498975025fde423fa480ece4395`.
+Primer commit de conexiones/voz: `d8575b4e44d27498975025fde423fa480ece4395`. El ajuste posterior de carga diferida de modelos está en el commit que contiene este informe; el SHA integrado se obtiene con `git rev-parse HEAD`.
 
-La publicación permanece bloqueada por Ollama local sin servidor, disponibilidad intermitente de Gemini, carga MOSS no fiable en este equipo y aceptación nativa final pendiente. No se construyó ni instaló un instalador productivo de este cierre. No hubo integración en main ni publicación. Los binarios debug previos no son entregables productivos.
+Registro previo a la entrega productiva: al redactarlo no hay instalador, instalación, integración en main ni publicación nuevos. Esos estados deben acreditarse con los recibos finales y GitHub; los binarios debug previos no son entregables productivos. El usuario indicó continuar dejando Ollama configurado pese a sus problemas y modalidad de pago por uso: su falta de verificación se conserva visible, sin inicio automático, cambio de claves ni activación de pagos. Siguen siendo obligatorios los gates de código y la aceptación nativa antes de instalar/publicar.
 
 ## Bloqueo de memoria en Windows
 
@@ -33,7 +33,7 @@ No se modificaron claves, configuraciones ni proveedor seleccionado. Se usaron l
 - Codex: 2 fallos `RPC_TIMEOUT` antes de `thread/ready`, seguidos de un PASS. Un arranque posterior midió `thread/start` en 17,453 s con límite de 20 s, frente a 1,187/0,547 s en caliente. Inferencia: margen insuficiente de arranque local bajo carga, no rechazo del esquema ni fallo de visión demostrado. La creación del hilo de planificación admite ahora hasta 45 s, siempre acotada por el plazo total. No se repite una solicitud incierta. El presupuesto interno respeta los 70/150 s solicitados, en lugar de recortar todos los planes a 70 s. Tres llamadas nuevas pasaron con `gpt-6.1-sol`, proveedor efectivo `openai`, JSON y visión comprobados; arranques 10,750/0,813/0,578 s. No prueba estabilidad universal bajo cualquier carga.
 - Gemini `axx55`: texto 6,156 s y visión/JSON 20,390 s dentro de 70 s en el primer intento. El siguiente recibió HTTP 503 por alta demanda antes de validar salida. El timeout previo no se reprodujo como tal: se distinguen el plazo del cliente, transporte, rechazo del proveedor y validación del plan. No se ocultó el 503 con otro proveedor ni con un PASS histórico.
 - Claude/Gemini: la selección y la ruta coinciden con el modelo configurado; el adaptador devuelve `identity=unverified_profile` y no un `responder_model` independiente. No se afirma una identidad upstream adicional que el recibo no confirme.
-- Ollama local: rechazo 10061 en `127.0.0.1:11434`. No se intentó iniciar ni eludir el bloqueo previo. Inicio manual exacto: `& "$env:LOCALAPPDATA\Programs\Ollama\ollama.exe" serve`; dejar esa ventana abierta y repetir las pruebas cuando `/api/tags` responda.
+- Ollama local: rechazo 10061 en `127.0.0.1:11434`. No se intentó iniciar ni eludir el bloqueo previo. Inicio manual, sólo si el usuario decide retomarlo: `& "$env:LOCALAPPDATA\Programs\Ollama\ollama.exe" serve`. Tras su indicación posterior, se continúa con la configuración existente y la ruta no verificada; no se espera un inicio manual para seguir con las otras tareas.
 - Ollama Cloud: rechazo por facturación/402; no se activaron pagos.
 - OpenRouter: endpoint público accesible; sin credencial, **no verificable**. No se declara conexión fallida.
 - Los alias FreeLLMAPI usan el mismo gateway local detenido. No se atribuye su indisponibilidad local a los proveedores upstream ni se certifica su autenticación a partir de una clave guardada.
@@ -95,6 +95,8 @@ Verificación del código final respetando la calibración JSON del modelo: espa
 
 MOSS falló dos veces al cargar en 90 s con carga alta del equipo (CPU 99,5 %, RAM disponible 1,5 GB). Otro worker terminó, pero el primer probe usó una ruta de salida relativa y no encontró su WAV desde el proceso padre: ese error concreto era del probe, no evidencia de fallo de síntesis del producto. El WAV recuperado contiene 7,68 s de audio y pausas largas; no se certifica naturalidad humana ni aceptación acústica. No se aplicaron humanizadores DSP sin comprobar, cambios de ASR ni reentrenamiento.
 
+Se encontró y eliminó la carga incondicional de MOSS al construir el servicio de voz y listar su catálogo. El modelo se sigue preparando al seleccionar MOSS; elegir Piper ya no inicia un segundo motor pesado. Dos pruebas reprodujeron la carga indebida antes de la corrección; después pasaron 37 pruebas de MOSS/Piper/contratos de entrega. Una síntesis MOSS posterior completó 10,16 s de WAV estéreo a 48 kHz en 36,938 s incluida la carga inicial, sin llamadas externas. Los fallos bajo estrés anteriores permanecen registrados; esta medición no demuestra latencia uniforme ni naturalidad subjetiva.
+
 ## Regresiones y estado de entrega
 
 - Proveedores UI: PASS, incluido estado antiguo tras cambiar modelo. Se completa el fixture de memoria de su prueba; no se debilitan las guardas del producto.
@@ -108,4 +110,4 @@ MOSS falló dos veces al cargar en 90 s con carga alta del equipo (CPU 99,5 %, R
 
 Sin diferencias respecto a c879d2a en el renderer HTML, motor Magic Pen, worker MOSS, ASR, native-voice, ni baseline de diseño. Optical Glass, materiales, geometrías y apariencia aprobados conservan sus bytes. La corrección Phase 7 sólo liga estados IA a la firma de ruta vigente.
 
-El ejecutable instalado conserva SHA-256 `fd1a784a7a4bbfcc952d339bd6c9fa59ae642aa3b1edd78aedab3c23c05a6761` en `%LOCALAPPDATA%\Programs\Axx\Axx.exe`, igual al inicio. No se instalaron estos cambios. La entrega 0.22.48 sigue siendo **rama de diagnóstico**, no release. No hay nuevo instalador productivo, hash/sidecars productivos, backup/restore nuevo, aceptación nativa final, merge ni publicación que declarar. Esos pasos siguen bloqueados y deben ejecutarse sobre el código final sólo cuando los gates requeridos pasen, conforme a `docs/RELEASING.md`.
+En la comprobación previa a la entrega, el ejecutable instalado conserva SHA-256 `fd1a784a7a4bbfcc952d339bd6c9fa59ae642aa3b1edd78aedab3c23c05a6761` en `%LOCALAPPDATA%\Programs\Axx\Axx.exe`, igual al inicio. Este registro de preparación no acredita un instalador productivo, hash/sidecars nuevos, backup/restore, aceptación nativa final, merge ni publicación. Esos pasos deben acreditarse posteriormente sobre el código final y sólo cuando los gates requeridos pasen, conforme a `docs/RELEASING.md`. Los estados finales de publicación se verifican en `release.json` y los hashes de assets confirmados por GitHub.
