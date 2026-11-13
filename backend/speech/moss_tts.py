@@ -27,6 +27,9 @@ MAX_CACHE = 64 * 1024 * 1024
 class MossSpeechService:
     PERSONAL_VOICES = (
         ('axx-morcito', 'Axxmorcito'),
+        ('axx-morcito-calma', 'Axxmorcito · Tranquila'),
+        ('axx-morcito-emocion', 'Axxmorcito · Emocionada'),
+        ('axx-morcito-atencion', 'Axxmorcito · Atenta'),
         ('axx-sam', 'Xxx default'),
         ('axx-valeria', 'Axx Valeria · Cálida y Elocuente'),
         ('axx-elena', 'Axx Elena · Cercana y Melódica'),
@@ -66,8 +69,11 @@ class MossSpeechService:
         try:
             spoken, language = prepare_spoken_text(request['text'], request.get('language', 'auto'))
             voice = self._voice_paths()[request['voice']][0]
-            if request['voice'] == 'moss:axx-morcito' and language == 'en':
-                english = self.personal_samples / 'axx-morcito-en.wav'
+            name = request['voice'].removeprefix('moss:')
+            if name.startswith('axx-morcito') and language == 'en':
+                english = self.personal_samples / f'{name}-en.wav'
+                if not english.is_file():
+                    english = self.personal_samples / 'axx-morcito-en.wav'
                 if english.is_file():
                     voice = english
             engine = [self.script, self.script.with_name('speech_text.py'),
@@ -84,7 +90,7 @@ class MossSpeechService:
             return None
 
     def _phrase_bank_path(self, request, cache_path):
-        if request.get('voice') == 'moss:axx-morcito' and cache_path is not None:
+        if str(request.get('voice', '')).startswith('moss:axx-morcito') and cache_path is not None:
             return self.data_dir / 'phrase-bank' / cache_path.name
         return None
 

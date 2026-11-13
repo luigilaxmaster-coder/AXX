@@ -30,7 +30,32 @@ MAX_SECONDS = 60
 MAX_WORKER_OUTPUT = 256 * 1024
 MAX_REQUEST_IDS = 4096
 AUTO_REQUEST_PREFIX = 'asr-auto-'
-VOICE_CONTEXT = 'Spotify. Google Chrome. YouTube. ChatGPT. Obsidian.'
+VOICE_CONTEXT = (
+    'Axx, Axxmorcito, Piper, MOSS, Spotify, Google Chrome, YouTube, ChatGPT, Obsidian, '
+    'WhatsApp, Telegram, Discord, Visual Studio Code, Blender. '
+    'Okay, vamos a ponernos serios. Hola Axx, ayúdame con esto, abre, busca, configura, '
+    'transcribe en español claro y natural.'
+)
+SPANISH_CORRECTIONS = (
+    (re.compile(r'\b(?:a\s*x\s*x|a\s*ex\s*ex|ax\s*morcito|axx\s*morcito)\b', re.IGNORECASE), 'Axxmorcito'),
+    (re.compile(r'\b(?:habré|abreme|ábreme)\b', re.IGNORECASE), 'abre'),
+    (re.compile(r'\b(?:espotifai|espotify|spotifai)\b', re.IGNORECASE), 'Spotify'),
+    (re.compile(r'\b(?:yutub|yutu|youtub)\b', re.IGNORECASE), 'YouTube'),
+    (re.compile(r'\b(?:guasap|wasap|watsap)\b', re.IGNORECASE), 'WhatsApp'),
+    (re.compile(r'\b(?:chat\s*ge\s*pe\s*te|chat\s*gpt)\b', re.IGNORECASE), 'ChatGPT'),
+    (re.compile(r'\b(?:okey|okei|ok)\s+vamos\s+a\s+ponernos\s+serios\b', re.IGNORECASE), 'Okay, vamos a ponernos serios'),
+)
+
+
+def _normalize_spanish_transcript(text: str) -> str:
+    if not text:
+        return text
+    cleaned = re.sub(r'\s+', ' ', text).strip()
+    for pattern, replacement in SPANISH_CORRECTIONS:
+        cleaned = pattern.sub(replacement, cleaned)
+    return cleaned
+
+
 LOG = logging.getLogger('axx.offline_asr')
 _WORKER_MODEL = None
 _WORKER_MODEL_PATH = None
@@ -186,22 +211,39 @@ def worker_main(raw=None):
             _WORKER_MODEL = _WORKER_MODEL_PATH = None
             from .transcribe_cpp import transcribe
             native = transcribe(audio, request)
-            result = {'text':native['text'], 'segments':[], 'language':native.get('language'),
+            raw_text = native['text']
+            if (request.get('language') or native.get('language') or '').startswith('es'):
+                raw_text = _normalize_spanish_transcript(raw_text)
+            result = {'text':raw_text, 'segments':[], 'language':native.get('language'),
                       'language_probability':None, 'audio_duration_seconds':round(samples/16000,3), 'silence_detected':False}
             inference_ms=round((time.monotonic()-decoded)*1000)
         else:
             # Reject silence and invalid audio before spending memory/time on a cold model.
+            peak = float(np.max(np.abs(audio)))
+            if 0.001 < peak < 0.35:
+                audio = np.clip(audio * min(4.0, 0.75 / peak), -1.0, 1.0).astype(np.float32)
             model=_load_worker_model(requested_model)
             loaded=time.monotonic()
             load_ms=round((loaded-decoded)*1000)
-            generated,info=model.transcribe(audio,language=request.get('language'),task=request['task'],
-                beam_size=5,temperature=0,condition_on_previous_text=False,vad_filter=False,max_new_tokens=128,
-                initial_prompt=VOICE_CONTEXT if request.get('language') == 'es' and request['task'] == 'transcribe' else None)
+            req_lang = request.get('language')
+            use_es_prompt = (req_lang is None or str(req_lang).startswith('es')) and request['task'] == 'transcribe'
+            generated,info=model.transcribe(audio,language=req_lang,task=request['task'],
+                beam_size=5,best_of=5,patience=1.2,temperature=(0.0, 0.2),
+                compression_ratio_threshold=2.2,log_prob_threshold=-1.0,no_speech_threshold=0.55,
+                condition_on_previous_text=False,vad_filter=False,max_new_tokens=224,
+                initial_prompt=VOICE_CONTEXT if use_es_prompt else None)
             segments=[]
             for segment in generated:
                 if len(segments)>=128: raise SpeechError('INVALID_RESPONSE','Too many transcription segments')
-                segments.append({'start':round(segment.start,3),'end':round(segment.end,3),'text':segment.text.strip()[:4000]})
-            result={'text':' '.join(s['text'] for s in segments).strip(),'segments':segments,
+                seg_text = segment.text.strip()[:4000]
+                if (info.language or req_lang or '').startswith('es'):
+                    seg_text = _normalize_spanish_transcript(seg_text)
+                if seg_text:
+                    segments.append({'start':round(segment.start,3),'end':round(segment.end,3),'text':seg_text})
+            full_text = ' '.join(s['text'] for s in segments).strip()
+            if (info.language or req_lang or '').startswith('es'):
+                full_text = _normalize_spanish_transcript(full_text)
+            result={'text':full_text,'segments':segments,
                     'language':info.language,'language_probability':round(info.language_probability,6),
                     'audio_duration_seconds':round(samples/16000,3),'silence_detected':False}
             if excessive_repetition(result['text']):

@@ -28,6 +28,7 @@ a = Analysis(
            ('scripts/configure-native-gateway.py', 'scripts'),
            ('scripts/anythingmcp-local.py', 'scripts'),
            ('backend/speech/moss_worker.py', 'speech'),
+           ('backend/speech/prosody.py', 'speech'),
            ('resources/piper_worker.py', 'speech'),
            ('backend/speech/speech_text.py', 'speech'),
            ('backend/speech/dictation-models.json', 'backend/speech'),

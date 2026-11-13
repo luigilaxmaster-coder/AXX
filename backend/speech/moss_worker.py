@@ -1,4 +1,4 @@
-"""Private persistent MOSS worker: incremental PCM and cooperative cancellation."""
+"""Private persistent MOSS worker: incremental PCM, context-aware voice shifts, and cooperative cancellation."""
 from __future__ import annotations
 
 import base64
@@ -16,8 +16,17 @@ if __package__:
 else:
     from speech_text import prepare_spoken_text, resolve_language
 
+try:
+    if __package__:
+        from .prosody import ProsodyAnalyzer, HumanizerDSP
+    else:
+        from prosody import ProsodyAnalyzer, HumanizerDSP
+except ImportError:
+    ProsodyAnalyzer = None
+    HumanizerDSP = None
+
 PERSONAL_VOICES = (
-    'axx-morcito',
+    'axx-morcito', 'axx-morcito-calma', 'axx-morcito-emocion', 'axx-morcito-atencion',
     'axx-sam',
     'axx-valeria', 'axx-elena', 'axx-mateo', 'axx-dante',
     'axx-alba', 'axx-nova', 'axx-aura', 'axx-titan'
@@ -41,6 +50,7 @@ def create_runtime(model_root, cache_root):
     class StreamingRuntime(OnnxTtsRuntime):
         def __init__(self, **kwargs):
             self.reference_codes = {}
+            self.mood_reference_codes = {}
             self.emit_pcm = None
             self.cancelled = threading.Event()
             super().__init__(**kwargs)
@@ -50,7 +60,6 @@ def create_runtime(model_root, cache_root):
             options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
             options.intra_op_num_threads = self.thread_count
             options.inter_op_num_threads = 1
-            # Idle session pools must not compete with the active decoder/LLM.
             options.add_session_config_entry('session.intra_op.allow_spinning', '0')
             options.add_session_config_entry('session.inter_op.allow_spinning', '0')
             return ort.InferenceSession(str(path_value), sess_options=options, providers=['CPUExecutionProvider'])
@@ -87,12 +96,21 @@ def create_runtime(model_root, cache_root):
                     temp = cache.with_suffix('.tmp')
                     temp.write_text(json.dumps(codes), encoding='utf-8')
                     temp.replace(cache)
-                self.reference_codes[key] = codes
+                # Cap reference prompt to 48 frames (~3.84s) for optimal KV-cache latency and prosodic stability
+                self.reference_codes[key] = codes[:48] if isinstance(codes, list) else codes
             return self.reference_codes[key]
 
         def synthesize_single_chunk(self, *, text, prompt_audio_codes, streaming):
-            tokens = self.encode_text(text)
-            rows = self.build_voice_clone_request_rows(prompt_audio_codes, tokens)
+            chunk_mood = ProsodyAnalyzer.detect_mood(text) if ProsodyAnalyzer is not None else 'neutral'
+            mood_vol = (
+                ProsodyAnalyzer.MOOD_PROFILES.get(chunk_mood, (0.0, 1.0))[1]
+                if ProsodyAnalyzer is not None else 1.0
+            )
+            active_codes = self.mood_reference_codes.get(chunk_mood, prompt_audio_codes)
+
+            padded = f'        {text.lstrip()}' if len(text.split()) < 5 else text
+            tokens = self.encode_text(padded)
+            rows = self.build_voice_clone_request_rows(active_codes, tokens)
             pending, waveforms = [], []
             emitted = 0
             rate = int(self.codec_meta['codec_config']['sample_rate'])
@@ -100,7 +118,7 @@ def create_runtime(model_root, cache_root):
 
             def decode(force=False):
                 nonlocal emitted
-                budget = 1 if emitted == 0 else 4
+                budget = 2 if emitted == 0 else 8
                 if not pending or (not force and len(pending) < budget):
                     return
                 frames = list(pending)
@@ -112,6 +130,16 @@ def create_runtime(model_root, cache_root):
                 if length <= 0:
                     return
                 waveform = np.asarray(audio[0, :, :length].T, dtype=np.float32)
+                if HumanizerDSP is not None and len(waveform) >= 128:
+                    for ch_idx in range(waveform.shape[1]):
+                        col = waveform[:, ch_idx]
+                        if abs(mood_vol - 1.0) >= 0.02:
+                            col = col * mood_vol
+                        waveform[:, ch_idx] = HumanizerDSP.apply_vocal_warmth_eq(col, rate, mood=chunk_mood)
+                if force and len(waveform) > 64:
+                    fade_len = min(int(0.025 * rate), len(waveform) // 3)
+                    if fade_len > 0:
+                        waveform[-fade_len:] *= np.linspace(1.0, 0.0, fade_len, dtype=np.float32)[:, None]
                 waveforms.append(waveform)
                 emitted += length
                 if self.emit_pcm:
@@ -123,6 +151,10 @@ def create_runtime(model_root, cache_root):
                 pending.append(list(frame))
                 decode()
 
+            defaults = self.manifest.get('generation_defaults') or {}
+            old_max = defaults.get('max_new_frames', 375)
+            char_len = len(text.strip())
+            defaults['max_new_frames'] = min(int(old_max), max(18, min(len(tokens) * 4 + 8, int(char_len * 1.35) + 8)))
             try:
                 if self.cancelled.is_set():
                     raise SynthesisCancelled()
@@ -131,28 +163,35 @@ def create_runtime(model_root, cache_root):
                 if self.cancelled.is_set():
                     raise SynthesisCancelled()
             finally:
+                defaults['max_new_frames'] = old_max
                 self.codec_streaming_session.reset()
             channels = int(self.codec_meta['codec_config']['channels'])
             waveform = np.concatenate(waveforms) if waveforms else np.zeros((0, channels), dtype=np.float32)
             return {'text': text, 'text_token_ids': tokens, 'generated_frames': frames, 'waveform': waveform}
 
         def estimate_voice_clone_inter_chunk_pause_seconds(self, text_chunk):
-            # Upstream adds this pause only to the completed WAV. Streaming must
-            # receive the same boundary, or long sentences run together.
+            # Context-aware inter-chunk breath pause so register shifts feel natural and unhurried
             stripped = str(text_chunk).rstrip()
-            if stripped.endswith(('?', '¿', '!', '¡')):
-                seconds = .36
+            chunk_mood = ProsodyAnalyzer.detect_mood(stripped) if ProsodyAnalyzer is not None else 'neutral'
+            if chunk_mood == 'serious':
+                seconds = .12
+            elif chunk_mood in ('affectionate', 'reflective'):
+                seconds = .10
+            elif chunk_mood == 'intro':
+                seconds = .05
+            elif stripped.endswith(('?', '¿', '!', '¡')):
+                seconds = .10
             elif stripped.endswith((',', ';', ':')):
-                seconds = .24
+                seconds = .05
             else:
-                seconds = .32
+                seconds = .08
             if self.emit_pcm:
                 rate = int(self.codec_meta['codec_config']['sample_rate'])
                 channels = int(self.codec_meta['codec_config']['channels'])
                 self.emit_pcm(bytes(round(rate * seconds) * channels * 2), rate, channels)
             return seconds
 
-    threads = max(1, min(8, int(os.environ.get('AXX_MOSS_THREADS', str(min(4, os.cpu_count() or 2))))))
+    threads = max(2, min(8, int(os.environ.get('AXX_MOSS_THREADS', '4'))))
     return StreamingRuntime(model_dir=model_root, thread_count=threads, execution_provider='cpu')
 
 
@@ -201,13 +240,39 @@ def main():
             # Match the service's current reference instead of its startup path.
             if name in PERSONAL_VOICES and personal.is_file():
                 voice = personal
-            english = personal_samples / 'axx-morcito-en.wav'
-            if (name == 'axx-morcito' and not request.get('prepare') and english.is_file()
-                    and resolve_language(request.get('text', ''), request.get('language', 'auto')) == 'en'):
+            # Axxmorcito styles may ship their own English reference; otherwise
+            # they share the base English clip.
+            morcito = name.startswith('axx-morcito')
+            english = personal_samples / f'{name}-en.wav'
+            if morcito and not english.is_file():
+                english = personal_samples / 'axx-morcito-en.wav'
+            is_english = (
+                morcito and not request.get('prepare') and english.is_file()
+                and resolve_language(request.get('text', ''), request.get('language', 'auto')) == 'en'
+            )
+            if is_english:
                 voice = english
+
+            # Populate mood-specific reference codes for automatic contextual shifts on base axx-morcito
+            runtime.mood_reference_codes = {}
+            if morcito:
+                for mood_names, style_file in (
+                    (('serious', 'analytical'), personal_samples / 'axx-morcito-atencion.wav'),
+                    (('affectionate', 'reflective'), personal_samples / 'axx-morcito-calma.wav'),
+                    (('excited', 'question'), personal_samples / 'axx-morcito-emocion.wav'),
+                ):
+                    if style_file.is_file() and (request.get('prepare') or (name == 'axx-morcito' and not is_english)):
+                        try:
+                            scodes = runtime.encode_reference_audio(style_file)
+                            if name == 'axx-morcito' and not is_english:
+                                for m_name in mood_names:
+                                    runtime.mood_reference_codes[m_name] = scodes
+                        except Exception:
+                            pass
+
             if request.get('prepare'):
                 codes = runtime.encode_reference_audio(voice)
-                if name == 'axx-morcito' and english.is_file():
+                if morcito and english.is_file():
                     runtime.encode_reference_audio(english)
                 # Ready means the actual prefill, frame and PCM decoder have
                 # executed, not merely that their ONNX sessions were allocated.
@@ -225,7 +290,7 @@ def main():
                 print(json.dumps({'id': request_id, 'ok': True}), flush=True)
                 continue
             text = request['text']
-            if not voice.is_file() or not isinstance(text, str) or not 1 <= len(text.strip()) <= 220 or '\x00' in text:
+            if not voice.is_file() or not isinstance(text, str) or not 1 <= len(text.strip()) <= 360 or '\x00' in text:
                 raise ValueError('Invalid speech request')
 
             def emit(raw, rate, channels):
@@ -238,7 +303,7 @@ def main():
             runtime.synthesize(text=spoken, prompt_audio_path=voice, output_audio_path=output,
                                streaming=True, sample_mode='fixed', enable_wetext=False,
                                enable_normalize_tts_text=language not in ('es', 'en'),
-                               voice_clone_max_text_tokens=36)
+                               voice_clone_max_text_tokens=84)
             print(json.dumps({'id': request_id, 'ok': True,
                               'elapsed_ms': round((time.monotonic() - started) * 1000)}), flush=True)
         except SynthesisCancelled:
@@ -247,6 +312,7 @@ def main():
             print(json.dumps({'id': request_id, 'ok': False}), flush=True)
         finally:
             runtime.emit_pcm = None
+            runtime.mood_reference_codes = {}
             if request.get('stream'):
                 output.unlink(missing_ok=True)
             with event_lock:

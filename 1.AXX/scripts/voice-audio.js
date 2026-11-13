@@ -39,18 +39,47 @@
         const number = Number(value), [min, max] = limits[name];
         return Number.isFinite(number) ? Math.round(Math.max(min, Math.min(max, number)) * 100) / 100 : neutral[name];
     };
-    const valid = voice => /^(moss|piper):[a-z0-9_-]{1,70}$/i.test(voice || '');
+    const valid = voice => /^(moss|piper):[a-z0-9_@-]{1,70}$/i.test(voice || '');
     const personality = () => Axx.companion?.data?.prefs?.personalityStyle || 'natural';
     const manual = voice => Object.keys(saved[voice] || {}).some(name => Object.hasOwn(limits, name));
+    const isManualPitch = voice => valid(voice) && Number.isFinite(Number(saved[voice]?.pitch)) && Math.abs(Number(saved[voice].pitch)) > .01;
+    const contextProfiles = {
+        neutral: { bass: 0, presence: 0, air: 0, sibilance: 0, level: 1, rate: 1 },
+        serious: { bass: 2.5, presence: 1, air: -2.2, sibilance: 2, level: .88, rate: .94 },
+        analytical: { bass: 1, presence: 1.8, air: -.5, sibilance: 1, level: .98, rate: .98 },
+        affectionate: { bass: 2.2, presence: .6, air: -2, sibilance: 2, level: .92, rate: .96 },
+        reflective: { bass: 1.5, presence: -.6, air: -1.5, sibilance: 1.5, level: .92, rate: .95 },
+        excited: { bass: .5, presence: 1.8, air: 1.2, sibilance: .5, level: 1.04, rate: 1.04 },
+        question: { bass: 0, presence: 1.4, air: 1, sibilance: 0, level: 1.01, rate: 1.02 },
+        intro: { bass: .5, presence: 1.2, air: .5, sibilance: 0, level: 1.01, rate: 1.02 }
+    };
+    const contextForText = text => {
+        const s = String(text || '').trim();
+        if (!s) return 'neutral';
+        if (/\b(?:vamos a ponernos serios|pong[aá]monos serios|hablando en serio|fuera de broma|sin rodeos|esc[uú]chame bien|presta mucha atenci[oó]n|esto es muy importante|esto es cr[ií]tico|en serio te digo|hablando claro|con toda seriedad|ten mucho cuidado|advertencia|peligro)\b/i.test(s)) return 'serious';
+        if (/\b(?:te quiero|cari[nñ]o|amor|mi vida|coraz[oó]n|gracias de verdad|me alegra acompañarte|estoy contigo|cuenta conmigo|tranquilo|tranquila|no te preocupes|todo va a salir bien|descansa|cuidate|cu[ií]date|con mucho gusto)\b/i.test(s)) return 'affectionate';
+        if (/^(?:ok(?:ay)?|bueno|mira|a ver|oye|f[ií]jate|escucha|entonces|pues bien|ahora bien)\b/i.test(s) && s.split(/\s+/).length <= 5) return 'intro';
+        if (/[?¿]/.test(s)) return 'question';
+        if (/[!¡]/.test(s) || /\b(?:incre[ií]ble|excelente|perfecto|genial|maravilloso|fant[aá]stico|brutal|espectacular|logrado|listo|completado con [eé]xito)\b/i.test(s)) return 'excited';
+        if (s.includes('...') || s.includes('…') || /\b(?:quiz[aá]s|tal vez|a veces|pens[aá]ndolo bien|si lo piensas|en el fondo|la verdad es que|curiosamente|sinceramente|me pregunto)\b/i.test(s)) return 'reflective';
+        if (/\b(?:primero|segundo|tercero|por un lado|por otro lado|en conclusi[oó]n|en resumen|el problema es|la soluci[oó]n es|t[eé]cnicamente|arquitectura|configuraci[oó]n|par[aá]metro|sistema|algoritmo|implementaci[oó]n|c[oó]digo|proceso|verifica|comprueba|analizando)\b/i.test(s)) return 'analytical';
+        return 'neutral';
+    };
     const get = voice => Object.fromEntries(Object.keys(limits).map(name =>
         [name, clamp(name, valid(voice) ? (personalitySound[personality()]?.[name] ?? neutral[name])
             + (Number(saved[voice]?.[name]) || 0) : undefined)]));
     const apply = chain => {
-        const values = get(chain.voice), now = chain.context.currentTime;
+        const values = get(chain.voice), ctxMod = contextProfiles[chain.contextMood || 'neutral'] || contextProfiles.neutral, now = chain.context.currentTime;
         for (const [name, node] of [['bass', chain.bass], ['presence', chain.presence], ['air', chain.air]])
-            node.gain.setTargetAtTime(values[name], now, .03);
-        chain.sibilance.gain.setTargetAtTime(-values.sibilance, now, .03);
-        chain.level.gain.setTargetAtTime(values.level, now, .03);
+            node.gain.setTargetAtTime(clamp(name, values[name] + (ctxMod[name] || 0)), now, .035);
+        chain.sibilance.gain.setTargetAtTime(-clamp('sibilance', values.sibilance + (ctxMod.sibilance || 0)), now, .035);
+        chain.level.gain.setTargetAtTime(clamp('level', values.level * (ctxMod.level || 1)), now, .035);
+    };
+    const applyContext = (chain, text) => {
+        if (!chain) return 'neutral';
+        chain.contextMood = contextForText(text);
+        apply(chain);
+        return chain.contextMood;
     };
     const set = (voice, patch) => {
         if (!valid(voice) || !patch || typeof patch !== 'object') return get(voice);
@@ -90,10 +119,14 @@
         source.connect(output.input);
         return { ...output, context: ctx, dispose() { source.disconnect(); output.dispose(); } };
     };
-    Axx.voiceAudio = { get, set, reset, presets, chain, attach, context,
+    Axx.voiceAudio = { get, set, reset, presets, chain, attach, context, isManualPitch, contextForText, applyContext,
+        contextRate(text) { return (contextProfiles[contextForText(text)] || contextProfiles.neutral).rate || 1; },
         refreshPersonality() { for (const active of chains) apply(active); this.refreshPanel?.(); },
-        speed(voice, rate) { return Math.max(.7, Math.min(1.5, Math.max(.75, Math.min(1.3, Number(rate) || 1))
-            * (personalityRate[personality()] || 1) * 2 ** (get(voice).pitch / 12))); } };
+        speed(voice, rate, text) {
+            const ctxRate = text ? ((contextProfiles[contextForText(text)] || contextProfiles.neutral).rate || 1) : 1;
+            return Math.max(.7, Math.min(1.5, Math.max(.75, Math.min(1.3, Number(rate) || 1))
+                * (personalityRate[personality()] || 1) * ctxRate * 2 ** (get(voice).pitch / 12)));
+        } };
     const help = {
         language: 'Automático intenta seguir el idioma de la frase. Forzar español o inglés cambia la lectura; no traduce el contenido.',
         model: 'El modelo genera las palabras de la respuesta hablada. La voz seleccionada convierte esas palabras en audio.',

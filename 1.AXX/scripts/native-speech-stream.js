@@ -77,6 +77,7 @@
         }
         async phrase(text, index) {
             this.pending = true; this.reader.nativePending = true;
+            Axx.voiceAudio?.applyContext?.(this.audioChain, text);
             let response;
             for (let attempt = 0; ; attempt++) {
                 if (!this.valid()) return;

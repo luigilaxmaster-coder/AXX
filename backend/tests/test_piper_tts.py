@@ -13,6 +13,7 @@ from unittest.mock import patch
 import wave
 
 from backend.speech.piper_tts import PiperSpeechService
+from backend.speech.prosody import ProsodyAnalyzer, HumanizerDSP
 from backend.speech.windows_tts import SpeechError
 
 
@@ -77,3 +78,18 @@ class PiperSpeechTests(unittest.TestCase):
             self.assertEqual(audio.getsampwidth(), 2)
         self.assertEqual(result['engine'], 'piper-onnx')
         self.assertFalse(result['playback_verified'])
+
+    def test_contextual_prosody_analyzer_segments_human_registers(self):
+        clauses = ProsodyAnalyzer.segment(
+            'Okay, vamos a ponernos serios, porque este detalle técnico cambia toda la arquitectura.'
+        )
+        self.assertGreaterEqual(len(clauses), 2)
+        self.assertEqual(clauses[0].mood, 'intro')
+        self.assertEqual(clauses[1].mood, 'serious')
+        self.assertLess(clauses[1].volume, 0.90)
+        self.assertGreater(clauses[1].length_factor, 1.0)
+        self.assertEqual(ProsodyAnalyzer.detect_mood('Tranquilo, mi amor, aquí estoy contigo.'), 'affectionate')
+        self.assertEqual(ProsodyAnalyzer.detect_mood('¡Increíble, funcionó a la perfección!'), 'excited')
+        self.assertEqual(ProsodyAnalyzer.detect_mood('¿Cómo quieres configurar el sistema hoy?'), 'question')
+        self.assertEqual(ProsodyAnalyzer.detect_mood('Primero analicemos la estructura del algoritmo.'), 'analytical')
+        self.assertEqual(ProsodyAnalyzer.detect_mood('Quizás... en el fondo sea más sencillo.'), 'reflective')

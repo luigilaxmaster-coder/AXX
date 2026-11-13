@@ -18,8 +18,14 @@ import uuid
 import wave
 
 from backend.inference.process_manager import spawn_managed_process, terminate_process_tree
-from .speech_text import prepare_spoken_text
+from .speech_text import prepare_spoken_text, resolve_language
 from .windows_tts import SpeechError
+
+try:
+    from .prosody import ProsodyAnalyzer, HumanizerDSP
+except ImportError:
+    ProsodyAnalyzer = None
+    HumanizerDSP = None
 
 
 LOG = logging.getLogger(__name__)
@@ -32,12 +38,11 @@ MAX_AUDIO = 12 * 1024 * 1024
 
 PRIVATE_VOICE = re.compile(r'axx-[a-z0-9]+(?:-[a-z0-9]+){0,4}')
 # Speaking styles for private voices: suffix -> (label, length factor, noise, noise_w).
-# Prosody presets only; true emotional timbre needs recordings in that emotion.
 STYLES = {
-    '': ('Natural', 0.98, 0.60, 0.80),
-    'calma': ('Tranquila', 1.08, 0.58, 0.75),
-    'emocion': ('Emocionada', 0.90, 0.65, 0.85),
-    'atencion': ('Atenta', 0.95, 0.60, 0.78),
+    '': ('Natural', 0.96, 0.50, 0.65),
+    'calma': ('Tranquila', 1.04, 0.44, 0.58),
+    'emocion': ('Emocionada', 0.91, 0.58, 0.70),
+    'atencion': ('Atenta', 0.99, 0.44, 0.58),
 }
 
 def _private_meta(config_path: Path, name: str):
@@ -130,7 +135,8 @@ class PiperSpeechService:
         self._stop()
         return 1
 
-    def _request(self, uri, text=None, rate=0, volume=100, timeout=90):
+    def _request(self, uri, text=None, rate=0, volume=100, timeout=90,
+                 length_override=None, noise_override=None, noise_w_override=None):
         name = self._models().get(uri, (None,))[0]
         if not name:
             raise SpeechError('NOT_SUPPORTED', 'La voz Piper seleccionada no está instalada')
@@ -175,6 +181,12 @@ class PiperSpeechService:
             if '@' in uri:
                 _, length, noise, noise_w = STYLES[uri.partition('@')[2]]
                 request.update(length_factor=length, noise_scale=noise, noise_w=noise_w)
+            if length_override is not None:
+                request['length_factor'] = length_override
+            if noise_override is not None:
+                request['noise_scale'] = noise_override
+            if noise_w_override is not None:
+                request['noise_w'] = noise_w_override
         try:
             process.stdin.write((json.dumps(request, ensure_ascii=True) + '\n').encode('ascii'))
             process.stdin.flush()
@@ -211,13 +223,109 @@ class PiperSpeechService:
         threading.Thread(target=load, name='axx-piper-prepare', daemon=True).start()
         return self.status()
 
+    def _apply_warmth_to_wav(self, raw_wav: bytes, clause=None, mood: str = 'neutral') -> bytes:
+        if HumanizerDSP is None:
+            return raw_wav
+        try:
+            import numpy as np
+            with wave.open(io.BytesIO(raw_wav), 'rb') as audio:
+                sr = audio.getframerate()
+                ch = audio.getnchannels()
+                sw = audio.getsampwidth()
+                frames = audio.readframes(audio.getnframes())
+            if sw != 2 or ch != 1 or len(frames) < 128:
+                return raw_wav
+            arr = np.frombuffer(frames, dtype='<i2').astype(np.float32) / 32768.0
+            if clause is not None:
+                arr = HumanizerDSP.process_clause_pcm(arr, sr, clause)
+            else:
+                arr = HumanizerDSP.trim_silence(arr, sr, threshold=0.0045, head_ms=14, tail_ms=20)
+                arr = HumanizerDSP.apply_vocal_warmth_eq(arr, sr, mood=mood)
+            pcm_out = np.clip(arr * 32767.0, -32768.0, 32767.0).astype('<i2').tobytes()
+            buf = io.BytesIO()
+            with wave.open(buf, 'wb') as out_wav:
+                out_wav.setnchannels(1)
+                out_wav.setsampwidth(2)
+                out_wav.setframerate(sr)
+                out_wav.writeframes(pcm_out)
+            return buf.getvalue()
+        except Exception:
+            return raw_wav
+
+    def _process_expressive_piper(self, uri: str, spoken: str, rate: int, volume: int) -> bytes:
+        base_mood = ProsodyAnalyzer.detect_mood(spoken) if ProsodyAnalyzer is not None else 'neutral'
+        if ProsodyAnalyzer is None or '@' in uri:
+            raw = base64.b64decode(self._request(uri, spoken, rate, volume)['audio_base64'], validate=True)
+            return self._apply_warmth_to_wav(raw, mood=base_mood)
+
+        clauses = ProsodyAnalyzer.segment(spoken)
+        if not clauses:
+            raw = base64.b64decode(self._request(uri, spoken, rate, volume)['audio_base64'], validate=True)
+            return self._apply_warmth_to_wav(raw, mood=base_mood)
+
+        if len(clauses) == 1:
+            clause = clauses[0]
+            eff_vol = max(10, min(100, int(round(volume * clause.volume))))
+            raw = base64.b64decode(
+                self._request(
+                    uri, clause.text, rate, eff_vol,
+                    length_override=clause.length_factor,
+                    noise_override=clause.noise_scale,
+                    noise_w_override=clause.noise_w,
+                )['audio_base64'],
+                validate=True,
+            )
+            return self._apply_warmth_to_wav(raw, clause=clause, mood=clause.mood)
+
+        import numpy as np
+        pcm_chunks = []
+        sample_rate = 22050
+        channels = 1
+        sampwidth = 2
+
+        for idx, clause in enumerate(clauses):
+            eff_vol = max(10, min(100, int(round(volume * clause.volume))))
+            chunk_raw = base64.b64decode(
+                self._request(
+                    uri, clause.text, rate, eff_vol,
+                    length_override=clause.length_factor,
+                    noise_override=clause.noise_scale,
+                    noise_w_override=clause.noise_w,
+                )['audio_base64'],
+                validate=True,
+            )
+            chunk_raw = self._apply_warmth_to_wav(chunk_raw, clause=clause, mood=clause.mood)
+            with wave.open(io.BytesIO(chunk_raw), 'rb') as wav_in:
+                sample_rate = wav_in.getframerate()
+                channels = wav_in.getnchannels()
+                sampwidth = wav_in.getsampwidth()
+                frames = wav_in.readframes(wav_in.getnframes())
+                pcm_chunks.append(frames)
+
+            if idx < len(clauses) - 1 and clause.pause_ms > 0:
+                if HumanizerDSP is not None:
+                    pause_arr = HumanizerDSP.create_comfort_pause(clause.pause_ms, sample_rate)
+                    pcm_chunks.append(np.clip(pause_arr * 32767.0, -32768.0, 32767.0).astype('<i2').tobytes())
+                else:
+                    silence_samples = int(sample_rate * clause.pause_ms / 1000.0)
+                    pcm_chunks.append(b'\x00\x00' * (silence_samples * channels))
+
+        out_buf = io.BytesIO()
+        with wave.open(out_buf, 'wb') as wav_out:
+            wav_out.setnchannels(channels)
+            wav_out.setsampwidth(sampwidth)
+            wav_out.setframerate(sample_rate)
+            wav_out.writeframes(b''.join(pcm_chunks))
+        return out_buf.getvalue()
+
     def synthesize(self, body):
         if not isinstance(body, dict) or set(body) - {'text', 'voice', 'rate', 'volume'}:
             raise SpeechError('INVALID_REQUEST', 'Unsupported speech fields')
         text, uri = body.get('text'), body.get('voice')
         if not isinstance(text, str) or not 1 <= len(text.strip()) <= 1200 or '\x00' in text:
             raise SpeechError('INVALID_REQUEST', 'Text must contain 1 to 1200 characters')
-        if not isinstance(uri, str) or uri not in self._models() or type(body.get('rate', 0)) is not int or not -5 <= body.get('rate', 0) <= 5:
+        models = self._models()
+        if not isinstance(uri, str) or uri not in models or type(body.get('rate', 0)) is not int or not -5 <= body.get('rate', 0) <= 5:
             raise SpeechError('INVALID_REQUEST', 'Invalid Piper voice or rate')
         if type(body.get('volume', 100)) is not int or not 0 <= body.get('volume', 100) <= 100:
             raise SpeechError('INVALID_REQUEST', 'Invalid Piper volume')
@@ -225,8 +333,21 @@ class PiperSpeechService:
             raise SpeechError('BUSY', 'Piper is preparing another voice')
         try:
             self._cancelled.clear()
-            spoken, _ = prepare_spoken_text(text, self._models()[uri][2])
-            raw = base64.b64decode(self._request(uri, spoken, body.get('rate', 0), body.get('volume', 100))['audio_base64'], validate=True)
+            effective_uri = uri
+            if uri.startswith('piper:axx-morcito-'):
+                detected = resolve_language(text, 'auto')
+                base, sep, suffix = uri.partition('@')
+                style_part = (sep + suffix) if sep else ''
+                if detected == 'en' and base.endswith('-es'):
+                    alt = 'piper:axx-morcito-en' + style_part
+                    if alt in models:
+                        effective_uri = alt
+                elif detected == 'es' and base.endswith('-en'):
+                    alt = 'piper:axx-morcito-es' + style_part
+                    if alt in models:
+                        effective_uri = alt
+            spoken, _ = prepare_spoken_text(text, models[effective_uri][2])
+            raw = self._process_expressive_piper(effective_uri, spoken, body.get('rate', 0), body.get('volume', 100))
             if not 44 < len(raw) <= MAX_AUDIO:
                 raise ValueError('Invalid Piper WAV size')
             with wave.open(io.BytesIO(raw), 'rb') as audio:
@@ -234,7 +355,7 @@ class PiperSpeechService:
                 if not 8000 <= rate <= 48000 or channels != 1 or audio.getsampwidth() != 2 or not 0 < frames / rate <= 90:
                     raise ValueError('Invalid Piper WAV format')
             return {'engine': 'piper-onnx', 'mime': 'audio/wav', 'audio_base64': base64.b64encode(raw).decode('ascii'),
-                    'voice': uri, 'language': self._models()[uri][2], 'duration_seconds': round(frames / rate, 3),
+                    'voice': uri, 'language': models[effective_uri][2], 'duration_seconds': round(frames / rate, 3),
                     'playback_verified': False, 'external_calls': 0,
                     'evidence': {'sha256': hashlib.sha256(raw).hexdigest(), 'size': len(raw),
                                  'frames': frames, 'sample_rate': rate}}

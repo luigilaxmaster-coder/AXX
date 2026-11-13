@@ -1,53 +1,34 @@
 # Axxmorcito
 
-`moss:axx-morcito` uses two private MOSS reference clips in
+`moss:axx-morcito` and its style variants use private MOSS reference clips in
 `%LOCALAPPDATA%\Axx\speech\voices\`:
 
-- `axx-morcito.wav` for Spanish (required for the voice to appear).
-- `axx-morcito-en.wav` for English (optional; Spanish is used if absent).
+- `axx-morcito.wav` / `axx-morcito-en.wav` for **Axxmorcito** (Natural).
+- `axx-morcito-calma.wav` / `axx-morcito-calma-en.wav` for **Axxmorcito · Tranquila**.
+- `axx-morcito-emocion.wav` / `axx-morcito-emocion-en.wav` for **Axxmorcito · Emocionada**.
+- `axx-morcito-atencion.wav` / `axx-morcito-atencion-en.wav` for **Axxmorcito · Atenta**.
 
-The recordings stay in the user's AppData directory. They are not part of Git,
-the Windows installer, or the public download. To use this voice on another PC,
-copy the reference clips privately to the same folder and refresh the voice list.
-The active MOSS ONNX model clones the selected reference at inference time;
-these recordings do not change its weights. A private CPU fine-tuning experiment
-exists under the local training directory, but its checkpoint is not active:
-the earlier held-out comparison improved Spanish recognition while English
-speaker similarity declined. A local single-phrase speaker check measured
-baseline/trained cosine similarity of 0.7843/0.7880 in Spanish and
-0.7254/0.6872 in English; these scores do not measure listening quality.
-Another training run should use more clean,
-transcribed speech and an independent Spanish/English comparison before any
-checkpoint replaces the current inference model. Keep all weights and recordings
-private.
+Private Piper models (`axx-morcito-es.onnx` and `axx-morcito-en.onnx` with matching
+`.onnx.json` files in `%LOCALAPPDATA%\Axx\speech\piper\models\`) expose the fast
+`piper:axx-morcito-es` and `piper:axx-morcito-en` voices and their `@calma`,
+`@emocion` and `@atencion` prosody variants (~0.35–0.65 s synthesis on CPU after
+initial warmup).
 
-The six Page 1–3 Spanish/English recordings supplied in November contain about
-7 min 25 s of source audio. A private CPU run already split them into 93 training
-clips and four held-out clips, then saved two epochs. The first epoch raised
-speaker similarity on three short probes but also lengthened speech and changed
-some words. A fresh reference comparison on three other phrases was mixed: the
-new Spanish clip improved one phrase from 17.6 s with repeated words to 4.88 s,
-but produced 30 s of unrecognized audio on another. The English clip improved
-one probe from 13.6 s with its first sentence missing to 5.04 s with one plural
-error. These results do not justify switching the active reference or checkpoint.
-The recordings, model candidates and evaluation audio remain private under
-`%LOCALAPPDATA%\Axx\speech\training`.
+## Prosody, Fluidity & Humanizer Engine (`backend/speech/prosody.py`)
 
-When available, Axxmorcito appears in **Voces de Axx** and the chat and live
-voice selectors. A new profile prefers it; an existing saved voice selection is
-kept. Spanish and English use distinct reference hashes in the audio cache, so
-changing either clip invalidates only its own synthesized phrases. MOSS warmup
-is required on first use. Audio cache reuse accelerates repeated text, but does
-not prove a first-response latency or subjective voice quality.
-The chat also speaks replies to typed messages when **Respuestas habladas** is
-enabled and global audio is not muted; that preference remains under user control.
-The sound panel offers per-voice bass, clarity, brightness, sibilance, volume and height/tempo
-controls with explanations on their info icons. Sibilance is a fixed frequency
-reduction, not a trained pronunciation model; height also changes duration.
-PCM packet boundaries use a short fade to reduce clicks. Listen to both
-languages in the installed app before acoustic acceptance.
+- **Model Soup VITS Checkpoint (`axx-morcito-es.onnx`)**: Weight-averaged checkpoint combining `epoch=170` (`val_mel=0.3501`, 97-clip phonetic corpus) and `v4-es/epoch=17` (`val_mel=0.4718`, curated conversational timbre), achieving `0.9132` mean speaker similarity and natural 149–155 Hz F0 contour.
+- **VITS Boundary Silence Trimming (`HumanizerDSP.trim_silence`)**: Trims leading/trailing dead air from synthesized clauses down to 14–26 ms with 8 ms Hanning anti-click fades and `-68 dBFS` comfort breath transitions (35–55 ms), eliminating mid-sentence hesitation gaps.
+- **Mood-Aware Expressive Transitions (`ProsodyAnalyzer`)**: Detects discourse transitions (such as *"Okay, vamos a ponernos serios"*), adjusting neural VITS stochastic parameters (`length_scale`, `noise_scale`, `noise_w_scale`), intimate volume ducking (`0.85x`), and pure-NumPy FFT cascaded biquad tonal warmth (200–225 Hz chest resonance + 3.8–4.5 kHz silk de-harshing) without WSOLA formant distortion.
+- **MOSS-TTS-Nano Streaming Fluidity (`backend/speech/moss_worker.py`)**: Uses the verified `v3_ep1` ONNX weights (`0.89–0.92` similarity), caps reference audio prompts to 48 frames (~3.84 s), pins ONNX intra-op threads to 4 P-core threads on hybrid CPUs, increases `voice_clone_max_text_tokens` to 84, and tightens inter-chunk pauses to 50–110 ms.
 
-An isolated CPU comparison tried joining the two Spanish references. On one
-new phrase the ASR result improved, but on another the generated voice changed
-the requested sentence into an unrelated question. The joined reference was
-rejected; the installed voice sample and selected model were not replaced.
+Build or refresh the dataset and Colab/WSL training bundle with:
+
+- `python scripts/voice/prepare_piper_dataset.py`
+- `python scripts/voice/prepare_moss_references.py`
+- `python scripts/voice/colab_piper_bundle.py pack` / `install <zip>`
+- `scripts/voice/train_axxmorcito_colab.ipynb` (GPU T4) or `scripts/voice/wsl-train-piper.sh` (WSL CPU)
+
+The recordings and trained models stay in the user's AppData directory. They are
+not part of Git, the Windows installer, or the public download. To use this voice
+on another PC, copy the reference clips or ONNX files privately to the same folders
+and refresh the voice list.

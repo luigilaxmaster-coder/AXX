@@ -74,10 +74,11 @@ def prepare_spoken_text(text: str, language: str = 'auto') -> tuple[str, str]:
         text = re.sub(r'\b2ª\b', 'segunda', text, flags=re.I)
         text = re.sub(r'\b3(?:º|er)\b', 'tercer', text, flags=re.I)
         text = re.sub(r'\b3ª\b', 'tercera', text, flags=re.I)
-        # Technical acronyms:
+        # Technical acronyms and natural Spanish loanword phonetics:
         text = re.sub(r'\bPDF\b', 'pe-de-efe', text)
         text = re.sub(r'\bURL\b', 'u-erre-ele', text)
         text = re.sub(r'\bWi[-]?Fi\b', 'uay-fay', text, flags=re.I)
+        text = re.sub(r'\b(?:okay|ok)\b', 'okey', text, flags=re.I)
         # Conversational discourse breathing pauses for natural pacing
         starters = r'Hola(?:\s+principal)?|Por\s+supuesto|Entendido|De\s+acuerdo|Sin\s+embargo|Por\s+ejemplo|Claro(?:\s+que\s+sí)?|Además|Con\s+gusto|En\s+efecto|Perfecto|Excelente'
         text = re.sub(r'(?i)(^|[.!?]\s+)(' + starters + r')(?!\s*[,;:.!?])\s+',
