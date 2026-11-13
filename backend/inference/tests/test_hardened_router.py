@@ -106,6 +106,9 @@ class HardenedRouterTests(unittest.TestCase):
         self.assertGreater(self.calls[-1][2], 100)  # a detailed 3D plan may take minutes; the 20 s chat timeout would cut it
         r.chat({'messages': [{'role': 'user', 'content': 'hi'}], 'max_tokens': 800}, deadline_time=time.monotonic() + 240)
         self.assertLessEqual(self.calls[-1][2], 20)
+        r.providers[0]['capabilities'] = ['text', 'vision']
+        r.chat({'messages': [{'role': 'user', 'content': 'hi'}], 'axx_task': 'vision', 'max_tokens': 2048}, deadline_time=time.monotonic() + 70)
+        self.assertGreater(self.calls[-1][2], 60, 'A small visual plan or aptitude probe needs its visual deadline too')
 
     # === H02: Parseo estricto JSON y rechazo NaN / Infinity ===
     def test_h02_strict_json_rejects_nan_and_infinity(self):

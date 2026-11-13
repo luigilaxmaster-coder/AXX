@@ -130,7 +130,7 @@ def worker_main(state_path: str) -> int:
         if config.get('allow_paid', False) is not False:
             raise RequestError('Paid inference is disabled')
         seconds = data.get('remaining_seconds', 70)
-        if type(seconds) not in (int, float) or not math.isfinite(seconds) or not 0 < seconds <= 70:
+        if type(seconds) not in (int, float) or not math.isfinite(seconds) or not 0 < seconds <= MAX_DEADLINE_MS / 1000:
             raise RequestError('Invalid worker deadline')
         router = Router(config, state=state_path)
         source_options = {}
@@ -309,9 +309,9 @@ class InferenceAdapter:
                    else [sys.executable, '-m', 'backend.server', '--router-worker'])
         command += ['--state', str(self.state_path)]
         worker_config = copy.deepcopy(self.config if config_override is None else config_override)
-        # Clock subtraction can round a valid 70 s budget slightly above the protocol cap.
+        # Preserve long visual requests and remove sub-microsecond clock subtraction noise.
         envelope = {'config': worker_config, 'request': request,
-                    'remaining_seconds': min(70., max(.001, active.deadline_mono - time.monotonic()))}
+                    'remaining_seconds': min(MAX_DEADLINE_MS / 1000, max(.001, round(active.deadline_mono - time.monotonic(), 6)))}
         if active.source_policy is not None:
             active.source_policy.authorize(deadline_mono=active.deadline_mono, cancelled=active.is_cancelled)
             envelope['source_policy'] = {'version': 1, 'allowed_profile_ids': list(active.source_policy.allowed_profile_ids)}

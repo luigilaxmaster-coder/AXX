@@ -5,6 +5,7 @@ import json
 import tempfile
 import threading
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 from backend.ollama_models import detect
@@ -52,6 +53,18 @@ class CapabilityTableTests(unittest.TestCase):
 
 
 class AptitudeTests(MagicPenPresentationTests):
+    def test_aptitude_probe_obeys_the_same_spend_gate_as_generation(self):
+        with patch.object(self.service.budget, 'check', side_effect=ValueError('budget exhausted')):
+            with self.assertRaisesRegex(ValueError, 'budget exhausted'):
+                self.verify(answer())
+        self.assertEqual(self.adapter.calls, [])
+
+    def test_aptitude_probe_accounts_usage_even_when_the_plan_is_invalid(self):
+        with patch.object(self.service.budget, 'record') as record:
+            with self.assertRaises(ValueError):
+                self.verify('invalid')
+        record.assert_called_once()
+
     def verify(self, reply, model='visual-model'):
         self.replies.append(json.dumps(reply) if isinstance(reply, dict) else reply)
         return self.service.verify_spatial({'provider': 'fixture', 'model': model, 'effort': 'auto'})

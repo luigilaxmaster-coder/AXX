@@ -885,7 +885,8 @@
             this.analysisSetup=setup.then(()=>{},()=>{});
             try{
                 const job=await setup;if(!job){if(current()&&this.summaryBubbleMode)this.clearSummaryBubble(true);return;}
-                let q=job.q;const deadline=Date.now()+80000;
+                // A 3D pipeline can identify (60 s), generate (240 s) and repair once (240 s).
+                let q=job.q;const deadline=Date.now()+(format==='presentation'?600000:80000);
                 while(q.state==='running'&&current()){
                     if(Date.now()>deadline)throw Error('El análisis superó el tiempo de espera. Puedes volver a intentarlo.');
                     await new Promise(resolve=>setTimeout(resolve,350));if(!current())return;

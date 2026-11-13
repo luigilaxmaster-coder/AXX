@@ -222,6 +222,9 @@
     if (status) preview.body.append(status);
     shape.body.append(...[F.querySelector('.id20-catalog-head'), $('forms'), labelOf('scale')].filter(Boolean));
     material.body.append(...[$('palettes'), ...['material-exposure', 'material-roughness', 'material-light', 'material-fluidity', 'floor-toggle'].map(labelOf)].filter(Boolean));
+    material.body.prepend(...[document.querySelector('.finish-cards'), $('finish-state'), $('axx-optical-controls')].filter(Boolean));
+    // The appearance owner commits and discards materials together with shape and lighting.
+    for (const id of ['finish-apply', 'finish-restore']) $(id).hidden = true;
     for (const n of loose) if (n.parentNode === F && !n.hidden) more.append(n); // identity switches, saved styles, camera, capture, help
     shapeBuilt = true;
   }

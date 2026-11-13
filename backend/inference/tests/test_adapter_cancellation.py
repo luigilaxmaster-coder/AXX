@@ -23,7 +23,7 @@ class AdapterCancellationTests(unittest.TestCase):
         clock = 442.007
         self.assertGreater((clock + 70) - clock, 70)
         encode = json.dumps
-        for budget in (1., 70.):
+        for budget in (1., 70., 240., 300.):
             with self.subTest(budget=budget):
                 active = ActiveRequest('rounding-fixture', clock + budget, self.event)
                 with patch('backend.inference.adapter.time.monotonic', return_value=clock), \
@@ -40,7 +40,7 @@ class AdapterCancellationTests(unittest.TestCase):
 
     def test_worker_still_rejects_budget_above_protocol_limit_before_routing(self):
         payload = json.dumps({'config': {'allow_paid': False, 'providers': []}, 'request': self.request,
-                              'remaining_seconds': (442.007 + 70) - 442.007}).encode()
+                              'remaining_seconds': 300.001}).encode()
         with io.TextIOWrapper(io.BytesIO(payload)) as stdin, io.TextIOWrapper(io.BytesIO()) as stdout, \
              patch('backend.inference.adapter.sys.stdin', stdin), \
              patch('backend.inference.adapter.sys.stdout', stdout), \

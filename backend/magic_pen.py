@@ -271,10 +271,14 @@ class MagicPenService:
             'messages': [{'role': 'system', 'content': compose('perception', contract=APTITUDE_CONTRACT)['text']},
                 {'role': 'user', 'content': [{'type': 'text', 'text': question},
                     {'type': 'image_url', 'image_url': {'url': 'data:image/png;base64,' + base64.b64encode(buf.getvalue()).decode()}}]}]}
+        connection = self._connection(chosen)
+        self.budget.check(connection)
         if chosen['name'] == '@codex':
             result = self.codex_provider.generate_spatial(route_request)
         else:
             result = self.adapter.route(route_request)
+        if isinstance(result, dict):
+            self.budget.record(connection, result.get('usage'), purpose='aptitude')
         message = result.get('message', {}) if isinstance(result, dict) else {}
         text = message.get('content') if isinstance(message, dict) else None
         if not isinstance(text, str) or not text.strip() or len(text) > MAX_RESPONSE_CHARS:

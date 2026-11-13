@@ -300,6 +300,35 @@ const inventory = () => {
       assert.equal(await ev(() => __calls.filter(c => /(?:computer-use\/configure|microphone\/begin)/.test(c.path || '')).length),0);
       await ev(() => Axx.dictation.configure({model:''}));
     });
+    await check('optical: five presets, transactional preview, exact reversion and restart persistence in both themes', async () => {
+      for (const t of ['light', 'dark']) {
+        await theme(t); await open('appearance');
+        assert.equal(await page.locator('[data-finish=opticalglass]').count(), 1);
+        assert.equal(await page.locator('#p7-shape-material [data-finish]').count(), 4);
+        assert.equal(await page.locator('#finish-apply').isVisible(), false);
+        const before = await ev(() => ({ finish: Axx.app.renderer.getFinish(), optical: AxxOpticalGlass.get(), stored: localStorage.getItem('axx-optical-glass-v1') }));
+        await page.locator('[data-finish=opticalglass]').click();
+        for (const preset of ['reference', 'crystal', 'liquid', 'silica', 'aura']) {
+          await page.locator('[data-optical-preset=' + preset + ']').click();
+          assert.equal(await ev(() => localStorage.getItem('axx-optical-glass-v1')), before.stored, 'preview must not persist');
+        }
+        await page.locator('#appearance-restore').click();
+        assert.deepEqual(await ev(() => ({ finish: Axx.app.renderer.getFinish(), optical: AxxOpticalGlass.get(), stored: localStorage.getItem('axx-optical-glass-v1') })), before);
+        await page.locator('[data-finish=opticalglass]').click();
+        await page.locator('[data-optical-preset=silica]').click();
+        await page.locator('#appearance-apply').click();
+        const saved = await ev(() => AxxOpticalGlass.get());
+        await page.reload(); await page.waitForFunction(() => Axx.phase7 && Axx.chatWorkspace?.ready); await open('appearance');
+        assert.equal(await ev(() => Axx.app.renderer.getFinish()), 'opticalglass');
+        assert.deepEqual(await ev(() => AxxOpticalGlass.get()), saved);
+        for (const finish of ['prism', 'smoke', 'obsidian']) {
+          await page.locator('[data-finish=' + finish + ']').click(); await page.locator('#appearance-apply').click();
+          assert.equal(await ev(() => Axx.app.renderer.getFinish()), finish);
+        }
+        assert.equal(await page.locator('#forms [data-form]').count(), 24);
+        assert.equal(await page.locator('#palettes [data-palette]').count(), 9);
+      }
+    });
     /*P7-CHECKS*/
     await check('no page errors after interaction', async () => assert.deepEqual(errors, []));
   } finally { await browser.close(); server.close(); }

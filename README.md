@@ -11,11 +11,11 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Source%20Version-v0.22.47-informational?style=flat-square" alt="Source version 0.22.47" />
+  <img src="https://img.shields.io/badge/Source%20Version-v0.22.48-informational?style=flat-square" alt="Source version 0.22.48" />
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-36b8a5?style=flat-square" alt="Licencia MIT del código original de Axx" /></a>
   <img src="https://img.shields.io/badge/Windows-x64-242b38?style=flat-square" alt="Windows x64" />
   <a href="https://github.com/luigilaxmaster-coder/AXX/actions/workflows/version-consistency.yml">Integración continua</a> ·
-  <a href="docs/releases/0.22.47.md">Notas de la versión</a> ·
+  <a href="docs/releases/0.22.48.md">Notas de la versión</a> ·
   <a href="docs/COMMAND-TRAINING.md">Práctica y aceptación</a>
 </p>
 
@@ -27,7 +27,7 @@
   <a href="LICENSE">MIT</a>
 </p>
 
-> **Axx is under active development.** Source and published Windows installer are both **v0.22.47**. Validation is recorded per feature; a working UI or build does not by itself certify every hardware-dependent behavior.
+> **Axx is under active development.** Source is **v0.22.48**; the published Windows installer is **v0.22.47**. Delivery of the newer source is pending publication. Validation is recorded per feature; a working UI or build does not by itself certify every hardware-dependent behavior.
 
 ## Download Axx for Windows
 
@@ -38,7 +38,7 @@ Run the installer and open Axx. Python and Node are not required. Start with **A
 
 Backend dependencies are installed with the app and do not require extraction on every launch. Windows may still scan them during startup. The native host allows up to 90 seconds for backend readiness and reports a startup error if that limit is exceeded.
 
-Source and published Windows installer are both **v0.22.47**. Android APKs remain local test artifacts until separately published. See [mobile setup and validation](docs/mobile/README.md) and the [version and release procedure](docs/RELEASING.md).
+Source is **v0.22.48**; the published Windows installer is **v0.22.47**. Delivery of the newer source is pending publication. Android APKs remain local test artifacts until separately published. See [mobile setup and validation](docs/mobile/README.md) and the [version and release procedure](docs/RELEASING.md).
 <!-- release:download:end -->
 
 ---
