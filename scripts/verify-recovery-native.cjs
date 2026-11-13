@@ -18,10 +18,10 @@ async function main(){
  if(fs.existsSync(credential))fs.copyFileSync(credential,path.join(data,'credentials',path.basename(credential)));
  const flow=JSON.parse(fs.readFileSync(path.join(out,'claude-flow.json'))).providers[0].flow;
  const source=flow.find(p=>p.stage==='scene_3d'&&p.state==='completed');assert(source,'Run the real synthetic Magic Pen flow first');
- fs.mkdirSync(path.join(data,'magic-pen'),{recursive:true});
- fs.cpSync(path.join(out,'magic-pen',source.source_id),path.join(data,'magic-pen',source.source_id),{recursive:true});
- const personalBudget=path.join(personal,'magic-pen/spend-ledger.json');
- if(fs.existsSync(personalBudget))fs.copyFileSync(personalBudget,path.join(data,'magic-pen/spend-ledger.json'));
+ const penData=path.join(data,'artifacts/magic-pen');fs.mkdirSync(penData,{recursive:true});
+ fs.cpSync(path.join(out,'magic-pen',source.source_id),path.join(penData,source.source_id),{recursive:true});
+ const personalBudget=path.join(personal,'artifacts/magic-pen/spend-ledger.json');
+ if(fs.existsSync(personalBudget))fs.copyFileSync(personalBudget,path.join(penData,'spend-ledger.json'));
  const listener=net.createServer();await new Promise(r=>listener.listen(0,'127.0.0.1',r));const port=listener.address().port;await new Promise(r=>listener.close(r));
  const program=path.join(process.env.LOCALAPPDATA,'Programs/Axx/Axx.exe'),before=sha(fs.readFileSync(program));
  const log=fs.openSync(path.join(out,'native-process.log'),'a');let child,browser;
@@ -29,7 +29,8 @@ async function main(){
   child=spawn(exe,[],{cwd:path.dirname(exe),windowsHide:true,stdio:['ignore',log,log],env:{...process.env,LOCALAPPDATA:local,
    WEBVIEW2_USER_DATA_FOLDER:path.join(profile,'webview'),WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS:`--remote-debugging-port=${port} --remote-debugging-address=127.0.0.1`}});
   for(let i=0;i<180;i++){try{if((await fetch(`http://127.0.0.1:${port}/json/version`)).ok)break;}catch{}await sleep(500);}
-  browser=await chromium.connectOverCDP(`http://127.0.0.1:${port}`);const page=browser.contexts()[0].pages().find(p=>p.url().includes('Axx.html'));assert(page);
+  browser=await chromium.connectOverCDP(`http://127.0.0.1:${port}`);let page;
+  for(let i=0;i<120;i++){page=browser.contexts()[0].pages().find(p=>p.url().includes('Axx.html'));if(page)break;await sleep(500);}assert(page);
   page.setDefaultTimeout(20000);await page.waitForFunction(()=>Axx.phase7&&Axx.chatWorkspace?.ready,null,{timeout:90000});
   await page.waitForFunction(async()=>(await Axx.nativeInvoke('native_status')).backendReady,null,{timeout:100000});
   const status=await page.evaluate(()=>Axx.nativeInvoke('native_status'));assert.equal(path.resolve(status.dataDirectory),path.resolve(data));
