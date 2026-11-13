@@ -255,6 +255,7 @@ confirme el hash del instalador verificado.
 <!-- release:history:start -->
 | Versión | Estado | Cambios y validación |
 | --- | --- | --- |
+| **0.22.48** | Fuente candidata | [Notas detalladas](docs/releases/0.22.48.md) |
 | **0.22.47** | Publicada · Windows x64 | [Notas detalladas](docs/releases/0.22.47.md) |
 | **0.22.46** | Notas archivadas | [Notas detalladas](docs/releases/0.22.46.md) |
 | **0.22.45** | Notas archivadas | [Notas detalladas](docs/releases/0.22.45.md) |
@@ -262,7 +263,6 @@ confirme el hash del instalador verificado.
 | **0.22.43** | Notas archivadas | [Notas detalladas](docs/releases/0.22.43.md) |
 | **0.22.42** | Notas archivadas | [Notas detalladas](docs/releases/0.22.42.md) |
 | **0.22.41** | Notas archivadas | [Notas detalladas](docs/releases/0.22.41.md) |
-| **0.22.40** | Notas archivadas | [Notas detalladas](docs/releases/0.22.40.md) |
 <!-- release:history:end -->
 
 [Todas las notas](docs/releases/) · [Historial ampliado](CHANGELOG.md) · [Cómo se entrega una versión](docs/RELEASING.md)
