@@ -30,7 +30,7 @@ const {chromium} = require('playwright');
                     if (args.path.startsWith('/axx-api/chat/conversations?id=')) return structuredClone(testConversation);
                     if (args.path === '/axx-api/chat/save') { Object.assign(testConversation,args.body); return {saved:true}; }
                     if (args.path === '/axx-api/chat/operations') return {operations:[]};
-                    if (args.path === '/axx-api/screen/status') return {...rec};
+                    if (args.path === '/axx-api/screen/status') { if(window.recordingUnavailable)throw Error('Backend preparing');return {...rec}; }
                     if (args.path === '/axx-api/screen/start') return rec = {state:'running',id:'test',region:args.body.region,fps:30};
                     if (args.path === '/axx-api/screen/control') return rec = {...rec,state:({pause:'paused',resume:'running',stop:'finished'})[args.body.command]};
                     if (args.path === '/axx-api/connect/ui/claim') return {tasks:[]};
@@ -109,6 +109,9 @@ const {chromium} = require('playwright');
         await send('termina el dictado');
         assert.match(await page.evaluate(() => Axx.voice13.transcript), /Texto dictado de prueba/);
         results.push('Dictation uses its existing permission, destination, microphone start and graceful transcription stop');
+        // The background poll must not turn the unavailable-backend fixture ready again.
+        await page.evaluate(() => { window.recordingUnavailable = true; });
+        await page.waitForFunction(() => !Axx.nativeCapture.polling);
         await page.evaluate(() => { Axx.nativeCapture.backendReady = false; });
         await send('graba');
         assert.match(await page.evaluate(() => Axx.companion.data.messages.at(-1).text), /No se pudo completar.*preparando/);
