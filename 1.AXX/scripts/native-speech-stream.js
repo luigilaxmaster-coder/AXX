@@ -146,8 +146,19 @@
                     const text = this.reader.chunks[index]?.slice(index === this.reader.index ? this.reader.offset : 0);
                     let remaining = text || '';
                     while (remaining && this.valid()) {
-                        const length = Axx.voiceConversation?.phraseLength(remaining, true) || remaining.length;
-                        await this.phrase(remaining.slice(0, length).trim(), index);
+                        let length = Axx.voiceConversation?.phraseLength(remaining, true) || remaining.length;
+                        if (length < 38 && length < remaining.length) {
+                            const tail = remaining.slice(length).trimStart();
+                            const skip = remaining.length - length - tail.length;
+                            const nextLen = Axx.voiceConversation?.phraseLength(tail, true) || 0;
+                            const firstSlice = remaining.slice(0, length);
+                            const nextSlice = tail.slice(0, nextLen);
+                            const sameLang = !(/[¿¡ñáéíóú]/i.test(firstSlice) !== /[¿¡ñáéíóú]/i.test(nextSlice)
+                                || /\b(?:hello|please|thank|with|this)\b/i.test(nextSlice) !== /\b(?:hello|please|thank|with|this)\b/i.test(firstSlice));
+                            if (nextLen > 0 && sameLang && length + skip + nextLen <= 165) length += skip + nextLen;
+                        }
+                        const phraseText = remaining.slice(0, length).trim();
+                        if (phraseText) await this.phrase(phraseText, index);
                         remaining = remaining.slice(length).trimStart();
                     }
                 } else if (!this.sources.size && this.nextIndex >= this.reader.chunks.length && !this.reader.awaitingText) {

@@ -118,15 +118,15 @@ class ProsodyAnalyzer:
 
     MOOD_CONTOURS = {
         # Normalized clause positions (0..1) -> expressive delta cents layered over base pitch_cents.
-        # Reflects measured declarative declination (-6 to -20 Hz) and inquisitive tail rise.
-        'serious':      ((0.0, 0.25, 0.65, 1.0), (10.0, 0.0, -35.0, -60.0)),
-        'analytical':   ((0.0, 0.22, 0.70, 1.0), (18.0, 14.0, -18.0, -45.0)),
-        'affectionate': ((0.0, 0.28, 0.72, 1.0), (14.0, 18.0, -15.0, -42.0)),
-        'reflective':   ((0.0, 0.30, 0.75, 1.0), (8.0, -6.0, -30.0, -52.0)),
-        'intro':        ((0.0, 0.35, 0.80, 1.0), (15.0, 26.0, 16.0, -5.0)),
-        'question':     ((0.0, 0.25, 0.62, 0.92, 1.0), (12.0, -8.0, -10.0, 72.0, 62.0)),
-        'excited':      ((0.0, 0.26, 0.70, 1.0), (16.0, 40.0, 8.0, -18.0)),
-        'neutral':      ((0.0, 0.22, 0.68, 1.0), (16.0, 12.0, -16.0, -44.0)),
+        # Coupled with phase-coherent single-voice prosodic warping & syllabic stress inflection.
+        'serious':      ((0.0, 0.25, 0.65, 1.0), (-15.0, -5.0, -45.0, -75.0)),
+        'analytical':   ((0.0, 0.22, 0.68, 1.0), (22.0, 18.0, -16.0, -45.0)),
+        'affectionate': ((0.0, 0.28, 0.65, 1.0), (14.0, 26.0, -12.0, -38.0)),
+        'reflective':   ((0.0, 0.30, 0.72, 1.0), (10.0, -8.0, -32.0, -58.0)),
+        'intro':        ((0.0, 0.35, 0.78, 1.0), (18.0, 32.0, 14.0, 36.0)),
+        'question':     ((0.0, 0.22, 0.58, 0.88, 1.0), (24.0, -6.0, -18.0, 82.0, 74.0)),
+        'excited':      ((0.0, 0.26, 0.64, 1.0), (28.0, 62.0, 22.0, -16.0)),
+        'neutral':      ((0.0, 0.20, 0.62, 1.0), (22.0, 18.0, -14.0, -48.0)),
     }
 
     @classmethod
@@ -467,22 +467,152 @@ class HumanizerDSP:
         return np.random.normal(0.0, 5e-5, n).astype(np.float32)
 
     @classmethod
+    def _syllabic_stress_envelope(cls, samples: np.ndarray, sample_rate: int) -> np.ndarray:
+        """Extracts zero-phase 1.2-5.5 Hz syllabic stress modulation envelope in [-1, 1]."""
+        n = len(samples)
+        if n < 256:
+            return np.zeros(n, dtype=np.float32)
+        env = np.abs(samples).astype(np.float32)
+        freqs = np.fft.rfftfreq(n, d=1.0 / float(sample_rate))
+        spec = np.fft.rfft(env)
+        # Smooth band-pass between 1.0 Hz and 5.5 Hz (human syllable stress rate)
+        low_cut = 1.0 / (1.0 + (1.0 / np.maximum(freqs, 1e-3)) ** 4)
+        high_cut = 1.0 / (1.0 + (freqs / 5.5) ** 4)
+        mod = np.fft.irfft(spec * low_cut * high_cut, n=n).astype(np.float32)
+        scale = float(np.percentile(np.abs(mod), 92)) if n > 0 else 0.0
+        if scale > 1e-4:
+            mod = np.tanh(mod / (scale * 1.15)).astype(np.float32)
+        else:
+            mod = np.zeros(n, dtype=np.float32)
+        return mod
+
+    @classmethod
+    def apply_natural_intonation_warp(
+        cls,
+        samples: np.ndarray,
+        sample_rate: int,
+        mood: str = 'neutral',
+        base_cents: float = 0.0,
+        u_start: float = 0.0,
+        u_end: float = 1.0,
+    ) -> np.ndarray:
+        """Single-voice phase-coherent cubic Catmull-Rom prosodic pitch & cadence warp.
+
+        Couples phrase-level intonation contours (question rise, attack peak,
+        declarative declination + prepausal lengthening) with syllabic stress
+        micro-inflection without WSOLA overlap-add windowing artifacts.
+        """
+        n = len(samples)
+        if n < int(sample_rate * 0.10):
+            return samples
+
+        u = np.linspace(float(u_start), float(u_end), n, dtype=np.float64)
+        pts_u, pts_dc = ProsodyAnalyzer.MOOD_CONTOURS.get(mood, ProsodyAnalyzer.MOOD_CONTOURS['neutral'])
+        macro_cents = np.interp(u, pts_u, pts_dc)
+
+        syl_mod = cls._syllabic_stress_envelope(samples, sample_rate).astype(np.float64)
+        syl_cents = 26.0 * syl_mod
+
+        total_cents = np.clip(base_cents + macro_cents + syl_cents, -95.0, 95.0)
+        inst_rate = 2.0 ** (total_cents / 1200.0)
+
+        # Cumulative source phase trajectory tau(k)
+        t_of_x = np.empty(n, dtype=np.float64)
+        t_of_x[0] = 0.0
+        t_of_x[1:] = np.cumsum(0.5 * (1.0 / inst_rate[:-1] + 1.0 / inst_rate[1:]))
+        out_len = max(64, int(round(t_of_x[-1])))
+        out_grid = np.linspace(0.0, t_of_x[-1], out_len, dtype=np.float64)
+        src_pos = np.interp(out_grid, t_of_x, np.arange(n, dtype=np.float64))
+
+        idx1 = np.clip(np.floor(src_pos).astype(np.int64), 0, n - 1)
+        t = (src_pos - idx1).astype(np.float32)
+        idx0 = np.clip(idx1 - 1, 0, n - 1)
+        idx2 = np.clip(idx1 + 1, 0, n - 1)
+        idx3 = np.clip(idx1 + 2, 0, n - 1)
+        p0, p1, p2, p3 = samples[idx0], samples[idx1], samples[idx2], samples[idx3]
+        t2 = t * t
+        t3 = t2 * t
+        warped = (
+            0.5 * (
+                (2.0 * p1)
+                + (-p0 + p2) * t
+                + (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3) * t2
+                + (-p0 + 3.0 * p1 - 3.0 * p2 + p3) * t3
+            )
+        ).astype(np.float32)
+        return warped
+
+    @classmethod
+    def apply_dynamic_timbre_contour(
+        cls,
+        samples: np.ndarray,
+        sample_rate: int,
+        mood: str = 'neutral',
+        u_start: float = 0.0,
+        u_end: float = 1.0,
+    ) -> np.ndarray:
+        """Modulates vocal timbre (chest warmth vs upper-harmonic projection) and micro-dynamics."""
+        n = len(samples)
+        if n < 256:
+            return samples
+        try:
+            u = np.linspace(float(u_start), float(u_end), n, dtype=np.float32)
+            pts_u, pts_dc = ProsodyAnalyzer.MOOD_CONTOURS.get(mood, ProsodyAnalyzer.MOOD_CONTOURS['neutral'])
+            macro_norm = (np.interp(u, pts_u, pts_dc) / 80.0).astype(np.float32)
+            syl_mod = cls._syllabic_stress_envelope(samples, sample_rate)
+            expr = np.clip(0.55 * syl_mod + 0.45 * macro_norm, -1.0, 1.0)
+
+            w = (2.0 * np.pi / float(sample_rate)) * np.fft.rfftfreq(n, d=1.0 / float(sample_rate))
+            z1 = np.exp(-1j * w)
+            z2 = z1 * z1
+            spec = np.fft.rfft(samples)
+
+            # Projected upper-mid presence filter (+3.4 dB @ 2450 Hz) for stressed/rising zones
+            b_p, a_p = cls.biquad_peaking(3.4, 2450.0, 0.95, sample_rate)
+            H_pres = (b_p[0] + b_p[1] * z1 + b_p[2] * z2) / (a_p[0] + a_p[1] * z1 + a_p[2] * z2)
+            pres_sig = np.fft.irfft(spec * H_pres, n=n).astype(np.float32)
+
+            # Warm chest resonance filter (+3.2 dB @ 175 Hz, -2.0 dB @ 3100 Hz) for falling/intimate zones
+            b_c1, a_c1 = cls.biquad_peaking(3.2, 175.0, 0.85, sample_rate)
+            b_c2, a_c2 = cls.biquad_peaking(-2.0, 3100.0, 1.05, sample_rate)
+            H_chest = (
+                ((b_c1[0] + b_c1[1] * z1 + b_c1[2] * z2) / (a_c1[0] + a_c1[1] * z1 + a_c1[2] * z2))
+                * ((b_c2[0] + b_c2[1] * z1 + b_c2[2] * z2) / (a_c2[0] + a_c2[1] * z1 + a_c2[2] * z2))
+            )
+            chest_sig = np.fft.irfft(spec * H_chest, n=n).astype(np.float32)
+
+            pos_w = np.maximum(0.0, expr) * 0.55
+            neg_w = np.maximum(0.0, -expr) * 0.55
+            base_w = 1.0 - pos_w - neg_w
+            blended = base_w * samples + pos_w * pres_sig + neg_w * chest_sig
+
+            # Subtle human breath-pressure micro-dynamics (+0.7 dB on stress, -0.9 dB on cadence tail)
+            dyn_gain = 1.0 + 0.085 * expr
+            return (blended * dyn_gain).astype(np.float32)
+        except Exception:
+            return samples
+
+    @classmethod
     def process_clause_pcm(cls, samples: np.ndarray, sample_rate: int, clause: ProsodyClause) -> np.ndarray:
         # 1. Trim VITS boundary dead air while preserving natural consonant attacks and releases
         samples = cls.trim_silence(samples, sample_rate, threshold=0.0040, head_ms=18, tail_ms=28)
 
-        # 2. Optional pitch shift only if explicitly requested (>= 15 cents); avoids WSOLA grain on normal speech
-        if abs(clause.pitch_cents) >= 15.0:
-            samples = cls.pitch_shift_wsola(samples, sample_rate, clause.pitch_cents)
+        # 2. Phase-coherent human intonation contour + syllabic stress pitch inflection
+        samples = cls.apply_natural_intonation_warp(
+            samples, sample_rate, mood=clause.mood, base_cents=clause.pitch_cents
+        )
 
-        # 3. Volume contour
+        # 3. Dynamic vocal timbre modulation (projected presence on peaks, warm chest on cadences)
+        samples = cls.apply_dynamic_timbre_contour(samples, sample_rate, mood=clause.mood)
+
+        # 4. Volume contour
         if abs(clause.volume - 1.0) >= 0.02:
             samples = samples * clause.volume
 
-        # 4. Mood-aware vocal warmth & spectral match EQ
+        # 5. Mood-aware vocal warmth & spectral match EQ
         samples = cls.apply_vocal_warmth_eq(samples, sample_rate, mood=clause.mood, engine='piper')
 
-        # 5. Anti-click smooth boundary fades (10 ms Hanning)
+        # 6. Anti-click smooth boundary fades (10 ms Hanning)
         fade_len = min(len(samples) // 4, int(0.010 * sample_rate))
         if fade_len > 0:
             hanning_fade = 0.5 * (1.0 - np.cos(np.pi * np.arange(fade_len, dtype=np.float32) / fade_len))

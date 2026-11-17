@@ -49,7 +49,8 @@ def prepare_spoken_text(text: str, language: str = 'auto') -> tuple[str, str]:
     lang = resolve_language(text, language)
     if lang not in ('es', 'en'):
         return text, lang
-    text = re.sub(r'[\u200b-\u200f\ufeff]', '', text)
+    text = re.sub(r'[\u200b-\u200f\ufeff\ufe00-\ufe0f]', '', text)
+    text = re.sub(r'[\U0001f000-\U0001faff\u2600-\u27bf]', ' ', text)
     text = re.sub(r'\[([^\]]+)\]\(https?://[^)]+\)', r'\1', text)
     text = re.sub(r'(?m)^\s*(?:#{1,6}\s+|[-*•]\s+)', '', text)
     text = text.replace('**', '').replace('`', '').replace('*', '')

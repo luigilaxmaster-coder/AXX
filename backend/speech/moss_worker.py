@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import queue
+import re
 import sys
 import threading
 import time
@@ -39,6 +40,10 @@ class SynthesisCancelled(Exception):
 
 
 class WarmupComplete(Exception):
+    pass
+
+
+class _SilentChunkRetry(Exception):
     pass
 
 
@@ -106,66 +111,141 @@ def create_runtime(model_root, cache_root):
                 ProsodyAnalyzer.MOOD_PROFILES.get(chunk_mood, (0.0, 1.0))[1]
                 if ProsodyAnalyzer is not None else 1.0
             )
-            active_codes = self.mood_reference_codes.get(chunk_mood, prompt_audio_codes)
-
-            padded = f'        {text.lstrip()}' if len(text.split()) < 5 else text
-            tokens = self.encode_text(padded)
-            rows = self.build_voice_clone_request_rows(active_codes, tokens)
-            pending, waveforms = [], []
-            emitted = 0
+            clean_text = re.sub(r'^[¡¿\s]+', '', text).strip() or text.strip()
             rate = int(self.codec_meta['codec_config']['sample_rate'])
-            self.codec_streaming_session.reset()
-
-            def decode(force=False):
-                nonlocal emitted
-                budget = 2 if emitted == 0 else 4
-                if not pending or (not force and len(pending) < budget):
-                    return
-                frames = list(pending)
-                pending.clear()
-                decoded = self.codec_streaming_session.run_frames(frames)
-                if decoded is None:
-                    return
-                audio, length = decoded
-                if length <= 0:
-                    return
-                waveform = np.asarray(audio[0, :, :length].T, dtype=np.float32)
-                if HumanizerDSP is not None and len(waveform) >= 128:
-                    for ch_idx in range(waveform.shape[1]):
-                        col = waveform[:, ch_idx]
-                        if abs(mood_vol - 1.0) >= 0.02:
-                            col = col * mood_vol
-                        waveform[:, ch_idx] = HumanizerDSP.apply_vocal_warmth_eq(col, rate, mood=chunk_mood, engine='moss')
-                if force and len(waveform) > 64:
-                    fade_len = min(int(0.025 * rate), len(waveform) // 3)
-                    if fade_len > 0:
-                        waveform[-fade_len:] *= np.linspace(1.0, 0.0, fade_len, dtype=np.float32)[:, None]
-                waveforms.append(waveform)
-                emitted += length
-                if self.emit_pcm:
-                    self.emit_pcm(np.clip(waveform * 32767, -32768, 32767).astype('<i2').tobytes(), rate, waveform.shape[1])
-
-            def on_frame(_frames, _index, frame):
-                if self.cancelled.is_set():
-                    raise SynthesisCancelled()
-                pending.append(list(frame))
-                decode()
+            channels = int(self.codec_meta['codec_config']['channels'])
+            expected_frames = max(16.0, float(len(clean_text)) * 0.85)
+            overlap_len = max(64, int(0.005 * rate))
 
             defaults = self.manifest.get('generation_defaults') or {}
             old_max = defaults.get('max_new_frames', 375)
-            char_len = len(text.strip())
-            defaults['max_new_frames'] = min(int(old_max), max(18, min(len(tokens) * 3 + 8, int(char_len * 1.15) + 8)))
-            try:
-                if self.cancelled.is_set():
-                    raise SynthesisCancelled()
-                frames = self.generate_audio_frames(rows, on_frame=on_frame)
-                decode(True)
-                if self.cancelled.is_set():
-                    raise SynthesisCancelled()
-            finally:
-                defaults['max_new_frames'] = old_max
+            char_len = len(clean_text)
+            frames = []
+            tokens = []
+            waveforms = []
+
+            for attempt in range(3):
+                active_codes = (
+                    self.mood_reference_codes.get(chunk_mood, prompt_audio_codes)
+                    if attempt == 0 else prompt_audio_codes
+                )
+                attempt_text = clean_text if attempt == 0 else (
+                    clean_text if clean_text[-1:] in '.!?' else clean_text + '.'
+                )
+                tokens = self.encode_text(attempt_text)
+                rows = self.build_voice_clone_request_rows(active_codes, tokens)
+                pending, waveforms = [], []
+                emitted = 0
+                decoded_frames = 0
+                silent_lead_frames = 0
+                prev_tail = None
                 self.codec_streaming_session.reset()
-            channels = int(self.codec_meta['codec_config']['channels'])
+                defaults['max_new_frames'] = min(
+                    int(old_max),
+                    max(28, min(len(tokens) * 4 + 12, int(char_len * 1.30) + 14))
+                )
+
+                def decode(force=False):
+                    nonlocal emitted, decoded_frames, silent_lead_frames, prev_tail
+                    budget = 3 if emitted == 0 else 4
+                    if not pending or (not force and len(pending) < budget):
+                        return
+                    frames_batch = list(pending)
+                    pending.clear()
+                    decoded = self.codec_streaming_session.run_frames(frames_batch)
+                    if decoded is None:
+                        return
+                    audio, length = decoded
+                    if length <= 0:
+                        return
+                    waveform = np.asarray(audio[0, :, :length].T, dtype=np.float32)
+                    raw_rms = float(np.sqrt(np.mean(waveform ** 2))) if len(waveform) else 0.0
+                    if emitted == 0 and raw_rms < 0.0065:
+                        silent_lead_frames += len(frames_batch)
+                        if not force:
+                            if silent_lead_frames >= 6 and attempt < 2:
+                                raise _SilentChunkRetry()
+                            return
+                        if attempt < 2:
+                            raise _SilentChunkRetry()
+
+                    u0 = min(0.92, float(decoded_frames) / expected_frames)
+                    decoded_frames += len(frames_batch)
+                    u1 = 1.0 if force else min(0.98, float(decoded_frames) / expected_frames)
+                    if u1 <= u0:
+                        u1 = min(1.0, u0 + 0.12)
+
+                    if HumanizerDSP is not None and len(waveform) >= 256:
+                        processed_cols = []
+                        for ch_idx in range(waveform.shape[1]):
+                            col = waveform[:, ch_idx]
+                            if emitted == 0:
+                                col = HumanizerDSP.trim_silence(col, rate, threshold=0.0040, head_ms=12, tail_ms=24)
+                            col = HumanizerDSP.apply_natural_intonation_warp(
+                                col, rate, mood=chunk_mood, base_cents=0.0, u_start=u0, u_end=u1
+                            )
+                            col = HumanizerDSP.apply_dynamic_timbre_contour(
+                                col, rate, mood=chunk_mood, u_start=u0, u_end=u1
+                            )
+                            if abs(mood_vol - 1.0) >= 0.02:
+                                col = col * mood_vol
+                            col = HumanizerDSP.apply_vocal_warmth_eq(col, rate, mood=chunk_mood, engine='moss')
+                            processed_cols.append(col)
+                        min_len = min(len(c) for c in processed_cols)
+                        waveform = np.column_stack([c[:min_len] for c in processed_cols]).astype(np.float32)
+
+                    if prev_tail is not None and len(waveform) > overlap_len:
+                        alpha = (0.5 - 0.5 * np.cos(np.pi * np.arange(overlap_len, dtype=np.float32) / overlap_len))[:, None]
+                        waveform[:overlap_len] = prev_tail * (1.0 - alpha) + waveform[:overlap_len] * alpha
+                        prev_tail = None
+
+                    if not force and len(waveform) > overlap_len * 2:
+                        prev_tail = waveform[-overlap_len:].copy()
+                        waveform = waveform[:-overlap_len]
+                    elif force:
+                        if prev_tail is not None and len(waveform) <= overlap_len:
+                            waveform = np.concatenate([prev_tail, waveform], axis=0)
+                            prev_tail = None
+                        if len(waveform) > 64:
+                            fade_len = min(int(0.025 * rate), len(waveform) // 3)
+                            if fade_len > 0:
+                                waveform[-fade_len:] *= np.linspace(1.0, 0.0, fade_len, dtype=np.float32)[:, None]
+
+                    if len(waveform) == 0:
+                        return
+                    waveforms.append(waveform)
+                    emitted += len(waveform)
+                    if self.emit_pcm:
+                        self.emit_pcm(np.clip(waveform * 32767, -32768, 32767).astype('<i2').tobytes(), rate, waveform.shape[1])
+
+                def on_frame(_frames, _index, frame):
+                    if self.cancelled.is_set():
+                        raise SynthesisCancelled()
+                    pending.append(list(frame))
+                    decode()
+
+                try:
+                    if self.cancelled.is_set():
+                        raise SynthesisCancelled()
+                    frames = self.generate_audio_frames(rows, on_frame=on_frame)
+                    decode(True)
+                    if prev_tail is not None and len(prev_tail) > 0:
+                        fade_len = len(prev_tail)
+                        prev_tail *= np.linspace(1.0, 0.0, fade_len, dtype=np.float32)[:, None]
+                        waveforms.append(prev_tail)
+                        if self.emit_pcm:
+                            self.emit_pcm(np.clip(prev_tail * 32767, -32768, 32767).astype('<i2').tobytes(), rate, prev_tail.shape[1])
+                        prev_tail = None
+                    if self.cancelled.is_set():
+                        raise SynthesisCancelled()
+                    break
+                except _SilentChunkRetry:
+                    self.rng.random()
+                    continue
+                finally:
+                    defaults['max_new_frames'] = old_max
+                    self.codec_streaming_session.reset()
+
             waveform = np.concatenate(waveforms) if waveforms else np.zeros((0, channels), dtype=np.float32)
             return {'text': text, 'text_token_ids': tokens, 'generated_frames': frames, 'waveform': waveform}
 
