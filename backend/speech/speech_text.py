@@ -75,20 +75,71 @@ def prepare_spoken_text(text: str, language: str = 'auto') -> tuple[str, str]:
         text = re.sub(r'\b2ª\b', 'segunda', text, flags=re.I)
         text = re.sub(r'\b3(?:º|er)\b', 'tercer', text, flags=re.I)
         text = re.sub(r'\b3ª\b', 'tercera', text, flags=re.I)
+        # Email arroba and domains
+        text = re.sub(r'(?<=\w)@(?=\w)', ' arroba ', text)
+        text = re.sub(r'\.com\b', ' punto com', text, flags=re.I)
+        # File extensions with leading dot
+        exts = {'pdf': 'punto pe-de-efe', 'png': 'punto pe-ene-ge', 'jpg': 'punto jota-pe-ge',
+                'jpeg': 'punto jota-pe-ge', 'wav': 'punto uav', 'mp3': 'punto eme-pe-tres',
+                'mp4': 'punto eme-pe-cuatro', 'txt': 'punto te-equis-te', 'csv': 'punto ce-ese-uve',
+                'json': 'punto yeison', 'zip': 'punto sip', 'html': 'punto hache-te-eme-ele',
+                'css': 'punto ce-ese-ese', 'js': 'punto jota-ese'}
+        for ext, spoken in exts.items():
+            text = re.sub(r'\.' + ext + r'\b', ' ' + spoken, text, flags=re.I)
         # Technical acronyms and natural Spanish loanword phonetics:
         text = re.sub(r'\bPDF\b', 'pe-de-efe', text)
+        text = re.sub(r'\bPNG\b', 'pe-ene-ge', text)
+        text = re.sub(r'\bJPG\b|\bJPEG\b', 'jota-pe-ge', text)
+        text = re.sub(r'\bWAV\b', 'uav', text)
+        text = re.sub(r'\bMP3\b', 'eme-pe-tres', text)
+        text = re.sub(r'\bMP4\b', 'eme-pe-cuatro', text)
+        text = re.sub(r'\bTXT\b', 'te-equis-te', text)
         text = re.sub(r'\bURL\b', 'u-erre-ele', text)
         text = re.sub(r'\bWi[-]?Fi\b', 'uay-fay', text, flags=re.I)
         text = re.sub(r'\b(?:okay|ok)\b', 'okey', text, flags=re.I)
+        # Units of measurement (when preceded by a cardinal)
+        units = [
+            (r'\b(\d+)\s*cm\b', lambda m: m.group(1) + (' centímetro' if m.group(1) == '1' else ' centímetros')),
+            (r'\b(\d+)\s*mm\b', lambda m: m.group(1) + (' milímetro' if m.group(1) == '1' else ' milímetros')),
+            (r'\b(\d+)\s*km\b', lambda m: m.group(1) + (' kilómetro' if m.group(1) == '1' else ' kilómetros')),
+            (r'\b(\d+)\s*kg\b', lambda m: m.group(1) + (' kilo' if m.group(1) == '1' else ' kilos')),
+            (r'\b(\d+)\s*ms\b', lambda m: m.group(1) + (' milisegundo' if m.group(1) == '1' else ' milisegundos')),
+            (r'\b(\d+)\s*(?:seg|s)\b', lambda m: m.group(1) + (' segundo' if m.group(1) == '1' else ' segundos')),
+            (r'\b(\d+)\s*min\b', lambda m: m.group(1) + (' minuto' if m.group(1) == '1' else ' minutos')),
+            (r'\b(\d+)\s*(?:hrs|h)\b', lambda m: m.group(1) + (' hora' if m.group(1) == '1' else ' horas')),
+            (r'\b(\d+)\s*°C\b', lambda m: m.group(1) + (' grado Celsius' if m.group(1) == '1' else ' grados Celsius')),
+            (r'\b(\d+)\s*GB\b', lambda m: m.group(1) + ' gigabytes'),
+            (r'\b(\d+)\s*MB\b', lambda m: m.group(1) + ' megabytes'),
+            (r'\b(\d+)\s*KB\b', lambda m: m.group(1) + ' kilobytes'),
+        ]
+        for pattern, repl in units:
+            text = re.sub(pattern, repl, text, flags=re.I)
+        # Missing accents restoration on common conversational words
+        common_accents = {
+            'codigo': 'código', 'codigos': 'códigos',
+            'digito': 'dígito', 'digitos': 'dígitos',
+            'musica': 'música',
+            'microfono': 'micrófono', 'microfonos': 'micrófonos',
+            'cancion': 'canción', 'canciones': 'canciones',
+            'numero': 'número', 'numeros': 'números',
+            'telefono': 'teléfono', 'telefonos': 'teléfonos',
+            'tambien': 'también', 'despues': 'después', 'aqui': 'aquí',
+            'ultimo': 'último', 'ultima': 'última', 'facil': 'fácil', 'dificil': 'difícil',
+            'pagina': 'página', 'paginas': 'páginas', 'rapido': 'rápido', 'rapida': 'rápida',
+        }
+        for unacc, acc in common_accents.items():
+            text = re.sub(r'\b' + unacc + r'\b',
+                          lambda m, r=acc: r.capitalize() if m.group()[0].isupper() else r,
+                          text, flags=re.I)
         # Conversational discourse breathing pauses for natural pacing
         starters = r'Hola(?:\s+principal)?|Por\s+supuesto|Entendido|De\s+acuerdo|Sin\s+embargo|Por\s+ejemplo|Claro(?:\s+que\s+sí)?|Además|Con\s+gusto|En\s+efecto|Perfecto|Excelente'
         text = re.sub(r'(?i)(^|[.!?]\s+)(' + starters + r')(?!\s*[,;:.!?])\s+',
                       lambda m: (m.group(1) or '') + m.group(2) + ', ', text)
         # Do not reinterpret versions, URLs, dates, IDs or decimal/grouped forms.
-        # Only isolated cardinal numbers and percentages have a clear reading.
-        text = re.sub(r'(?<![\w./:,\-])(?:0|[1-9][0-9]{0,3})\s*%(?!\w)',
+        # Isolated cardinal numbers, percentages, and comma-separated lists have a clear reading.
+        text = re.sub(r'(?<![\w./:\-])(?<!\d,)(?:0|[1-9][0-9]{0,3})\s*%(?!\w)',
                       lambda m: spanish_integer(int(m.group()[:-1].strip())) + ' por ciento', text)
-        text = re.sub(r'(?<![\w./:,\-])(?:0|[1-9][0-9]{0,3})(?![\w/,:\-]|\.\d)',
+        text = re.sub(r'(?<![\w./:\-])(?<!\d,)(?:0|[1-9][0-9]{0,3})(?![\w/:\-]|\.\d|,\d)',
                       lambda m: spanish_integer(int(m.group())), text)
     text = re.sub(r'(?<=\D),\s*|\s*,(?=\D)', ', ', text)
     text = re.sub(r'(?:,\s*)+,', ', ', text)

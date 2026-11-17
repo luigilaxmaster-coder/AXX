@@ -53,7 +53,7 @@
             if (this.nextTime && this.nextTime < now) this.evidence.underruns++;
             const duration = buffer.duration / speed;
             // PCM packets are consecutive samples, not separate clips to crossfade.
-            const start = Math.max(now + .04, this.nextTime);
+            const start = this.nextTime && this.nextTime >= now ? this.nextTime : Math.max(now + .015, this.nextTime || (now + .04));
             this.nextTime = start + duration;
             this.sources.add(source); this.evidence.chunks++;
             source.onended = () => { this.sources.delete(source); source.disconnect(); };
@@ -121,7 +121,7 @@
                 // Slow CPUs need enough buffered audio to cover the estimated
                 // remaining synthesis. A later stall falls back to whole phrases.
                 if (!streaming && latest && !rebuffered &&
-                    (latest.cache_hit || (events.length >= 4 && seconds / speed >= Math.max(1, reserve)))) {
+                    (latest.cache_hit || (events.length >= 2 && seconds / speed >= Math.max(.4, reserve)))) {
                     streaming = true; this.evidence.streamed_phrases++;
                     if (latest.cache_hit) this.evidence.cached_phrases++;
                 }

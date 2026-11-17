@@ -5397,6 +5397,11 @@
       "bytes": 40444
     },
     {
+      "path": "_internal/backend/speech/dictation-models.json",
+      "sha256": "2dcd7e16002d90eff883fff98c2e78f8a4bbc31f2bb584978076a72b25d94f59",
+      "bytes": 6139
+    },
+    {
       "path": "_internal/backend/telegram/webapp.css",
       "sha256": "ca44ff5a233c7a0da845687b12c1471685203c7445c9d439cdc62776cccd4376",
       "bytes": 4497
@@ -5413,7 +5418,7 @@
     },
     {
       "path": "_internal/base_library.zip",
-      "sha256": "93a3e2ed6e4e7b6604ae26248745df234b8acfbd411186708a0eb6a32d00a5d7",
+      "sha256": "7172ed5d530515a083ff4b021212c599b751714c7613bbe81f5f392fde8ea80c",
       "bytes": 1333717
     },
     {
@@ -6108,13 +6113,13 @@
     },
     {
       "path": "_internal/mobile/js/avatar-renderer.js",
-      "sha256": "0ef2d356c3ba4b48168673093fa1d7dc38b05f5720ccb58835c01b7c5a22248f",
-      "bytes": 10372
+      "sha256": "1ca600123fc70740535679dfcb02664ad8fc48012e313dcf0e60271c98c64d46",
+      "bytes": 10223
     },
     {
       "path": "_internal/mobile/www/js/desktop-avatar.js",
-      "sha256": "1be1953d76733ac227100f3773d84e292d47350cd5fe70394bf5bb2d4379c2b7",
-      "bytes": 214156
+      "sha256": "c4f45c1ddcd39f5ea15ba7d9feb52eb40263d287c62704536f3609d1983c40fd",
+      "bytes": 215127
     },
     {
       "path": "_internal/msvcp140.dll",
@@ -7173,18 +7178,23 @@
     },
     {
       "path": "_internal/speech/moss_worker.py",
-      "sha256": "2d99d2da50994e02608d4b0ce3b4cb212cc03650ab6c0032afeb9f23eaf08645",
-      "bytes": 12363
+      "sha256": "5aaacfad4b06a6cb95f763e6880e54b89f3a3a2a5d7a9200546267ec3ba0e838",
+      "bytes": 18479
     },
     {
       "path": "_internal/speech/piper_worker.py",
-      "sha256": "c9eaf7d9741a8ca7505304592ea0fe93ae371282feca9f8bd3c2ddf0c842f919",
-      "bytes": 1647
+      "sha256": "2809e9a5a379bca5301f67c295b873d8bd6824da11dc8c2ec7fc8951659f31b2",
+      "bytes": 3278
+    },
+    {
+      "path": "_internal/speech/prosody.py",
+      "sha256": "3c791d8fee6d6411d9fe0d22409c139626ba87fb2d672ce185991c02cc9ef159",
+      "bytes": 28595
     },
     {
       "path": "_internal/speech/speech_text.py",
-      "sha256": "d8e4e63038e300ab60b7439fa26309136e25ad03c79a0c71e6e5f4eb9179813e",
-      "bytes": 5405
+      "sha256": "566bb9e07b173e3fce04c8aa0f80da89b2b0d990d8527f6dc73488e5c6e52302",
+      "bytes": 9048
     },
     {
       "path": "_internal/sqlite3.dll",
@@ -10458,9 +10468,9 @@
     },
     {
       "path": "axx-backend.exe",
-      "sha256": "aef3639fea92a27503a926ddf7bed6590ee2d1bce06e03962dcd4a85bbda3b48",
-      "bytes": 23216074
+      "sha256": "350c9e187a260e5301f88dbb3c8456c605d045011bb4dbed04968c2084d3dde8",
+      "bytes": 23271831
     }
   ],
-  "manifest_sha256": "6ddeed7601bb86814ff9b484090448389feb8433007c7c1f0ded8f2142731400"
+  "manifest_sha256": "2f5e6e2887c4d934995db51f270d88084749df39b34098b9a3d01dd322266e6f"
 }

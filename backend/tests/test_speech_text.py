@@ -484,6 +484,22 @@ class SpokenTextTests(unittest.TestCase):
         self.assertEqual(prepare_spoken_text('1er intento, 2do intento y 3er intento.', 'es')[0],
                          'primer intento, segundo intento y tercer intento.')
 
+    def test_number_lists_units_extensions_and_accents(self):
+        # Comma-separated digits and paired numbers
+        self.assertEqual(prepare_spoken_text('0, 8, 4, 1, 7, 9', 'es')[0],
+                         'cero, ocho, cuatro, uno, siete, nueve.')
+        self.assertEqual(prepare_spoken_text('16 y 60, 17 y 70, 18 y 80, 19 y 90', 'es')[0],
+                         'dieciséis y sesenta, diecisiete y setenta, dieciocho y ochenta, diecinueve y noventa.')
+        # Measurement units
+        self.assertEqual(prepare_spoken_text('Avanza 20 cm y sube 2 kg a 25 °C', 'es')[0],
+                         'Avanza veinte centímetros y sube dos kilos a veinticinco grados Celsius.')
+        # File extensions and emails
+        self.assertEqual(prepare_spoken_text('Descarga archivo.pdf y foto.png de contacto@ejemplo.com', 'es')[0],
+                         'Descarga archivo punto pe-de-efe y foto punto pe-ene-ge de contacto arroba ejemplo punto com.')
+        # Missing accents restoration
+        self.assertEqual(prepare_spoken_text('Revisa el codigo de la musica con el microfono y la cancion', 'es')[0],
+                         'Revisa el código de la música con el micrófono y la canción.')
+
 
 if __name__ == '__main__':
     unittest.main()

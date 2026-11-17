@@ -612,11 +612,15 @@ class HumanizerDSP:
         # 5. Mood-aware vocal warmth & spectral match EQ
         samples = cls.apply_vocal_warmth_eq(samples, sample_rate, mood=clause.mood, engine='piper')
 
-        # 6. Anti-click smooth boundary fades (10 ms Hanning)
-        fade_len = min(len(samples) // 4, int(0.010 * sample_rate))
-        if fade_len > 0:
-            hanning_fade = 0.5 * (1.0 - np.cos(np.pi * np.arange(fade_len, dtype=np.float32) / fade_len))
-            samples[:fade_len] *= hanning_fade
-            samples[-fade_len:] *= hanning_fade[::-1]
+        # 6. Clean boundary transitions: 2 ms micro anti-click attack (preserves plosive bursts)
+        # and 18 ms smooth cadence release
+        attack_len = min(len(samples) // 6, int(0.002 * sample_rate))
+        if attack_len > 0:
+            attack_fade = 0.5 * (1.0 - np.cos(np.pi * np.arange(attack_len, dtype=np.float32) / attack_len))
+            samples[:attack_len] *= attack_fade
+        release_len = min(len(samples) // 4, int(0.018 * sample_rate))
+        if release_len > 0:
+            release_fade = 0.5 * (1.0 - np.cos(np.pi * np.arange(release_len, dtype=np.float32) / release_len))
+            samples[-release_len:] *= release_fade[::-1]
 
         return samples
