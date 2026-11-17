@@ -96,8 +96,8 @@ def create_runtime(model_root, cache_root):
                     temp = cache.with_suffix('.tmp')
                     temp.write_text(json.dumps(codes), encoding='utf-8')
                     temp.replace(cache)
-                # Cap reference prompt to 72 frames (~5.76s) so complete 5-6s sentences stay intact without mid-word truncation
-                self.reference_codes[key] = codes[:72] if isinstance(codes, list) else codes
+                # Cap reference prompt to 96 frames (~7.68s) so complete reference sentences stay intact without mid-word truncation
+                self.reference_codes[key] = codes[:96] if isinstance(codes, list) else codes
             return self.reference_codes[key]
 
         def synthesize_single_chunk(self, *, text, prompt_audio_codes, streaming):
@@ -118,7 +118,7 @@ def create_runtime(model_root, cache_root):
 
             def decode(force=False):
                 nonlocal emitted
-                budget = 2 if emitted == 0 else 8
+                budget = 2 if emitted == 0 else 4
                 if not pending or (not force and len(pending) < budget):
                     return
                 frames = list(pending)
@@ -154,7 +154,7 @@ def create_runtime(model_root, cache_root):
             defaults = self.manifest.get('generation_defaults') or {}
             old_max = defaults.get('max_new_frames', 375)
             char_len = len(text.strip())
-            defaults['max_new_frames'] = min(int(old_max), max(18, min(len(tokens) * 4 + 8, int(char_len * 1.35) + 8)))
+            defaults['max_new_frames'] = min(int(old_max), max(18, min(len(tokens) * 3 + 8, int(char_len * 1.15) + 8)))
             try:
                 if self.cancelled.is_set():
                     raise SynthesisCancelled()
@@ -191,7 +191,8 @@ def create_runtime(model_root, cache_root):
                 self.emit_pcm(bytes(round(rate * seconds) * channels * 2), rate, channels)
             return seconds
 
-    threads = max(2, min(8, int(os.environ.get('AXX_MOSS_THREADS', '4'))))
+    default_threads = str(min(6, max(4, (os.cpu_count() or 6) - 2)))
+    threads = max(2, min(8, int(os.environ.get('AXX_MOSS_THREADS', default_threads))))
     return StreamingRuntime(model_dir=model_root, thread_count=threads, execution_provider='cpu')
 
 

@@ -460,7 +460,7 @@ class MossSpeechService:
         threading.Thread(target=generate, name='axx-moss-stream', daemon=True).start()
         spoken, _ = prepare_spoken_text(body['text'], body.get('language', 'auto'))
         return {'stream_id': stream['id'], 'engine': 'moss-onnx', 'format': 'pcm_s16le',
-                'estimated_audio_seconds': min(90, max(1, len(spoken) / 7.5) + .5)}
+                'estimated_audio_seconds': min(90, max(1, len(spoken) / 13.5) + .35)}
 
     def poll_stream(self, body):
         if not isinstance(body, dict) or set(body) != {'stream_id', 'after'} or type(body['after']) is not int or body['after'] < 0:

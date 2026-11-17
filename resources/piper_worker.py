@@ -4,6 +4,7 @@ from __future__ import annotations
 import base64
 import io
 import json
+import os
 from pathlib import Path
 import re
 import sys
@@ -41,7 +42,7 @@ def main():
                 raise ValueError('Unsupported Piper voice')
             if name not in loaded:
                 options = ort.SessionOptions()
-                options.intra_op_num_threads = 2
+                options.intra_op_num_threads = min(4, max(2, os.cpu_count() or 2))
                 options.inter_op_num_threads = 1
                 options.add_session_config_entry('session.intra_op.allow_spinning', '0')
                 options.add_session_config_entry('session.inter_op.allow_spinning', '0')

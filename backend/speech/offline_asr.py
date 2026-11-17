@@ -141,7 +141,8 @@ def _load_worker_model(requested_model):
     unload()
     if _WORKER_MODEL is None or _WORKER_MODEL_PATH != requested_model:
         _WORKER_MODEL = None
-        _WORKER_MODEL = WhisperModel(requested_model,device='cpu',compute_type='int8',cpu_threads=2,num_workers=1,local_files_only=True)
+        threads = min(6, max(2, os.cpu_count() or 4))
+        _WORKER_MODEL = WhisperModel(requested_model,device='cpu',compute_type='int8',cpu_threads=threads,num_workers=1,local_files_only=True)
         _WORKER_MODEL_PATH = requested_model
     return _WORKER_MODEL
 
@@ -228,7 +229,7 @@ def worker_main(raw=None):
             req_lang = request.get('language')
             use_es_prompt = (req_lang is None or str(req_lang).startswith('es')) and request['task'] == 'transcribe'
             generated,info=model.transcribe(audio,language=req_lang,task=request['task'],
-                beam_size=5,best_of=5,patience=1.2,temperature=(0.0, 0.2),
+                beam_size=2,best_of=2,patience=1.0,temperature=(0.0, 0.2),
                 compression_ratio_threshold=2.2,log_prob_threshold=-1.0,no_speech_threshold=0.55,
                 condition_on_previous_text=False,vad_filter=False,max_new_tokens=224,
                 initial_prompt=VOICE_CONTEXT if use_es_prompt else None)

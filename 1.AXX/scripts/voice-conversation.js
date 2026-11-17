@@ -109,5 +109,5 @@
             }
         }
     };
-    window.setInterval(() => Axx.voiceConversation.maybeSurprise(), 30_000);
+    window.setInterval?.(() => Axx.voiceConversation.maybeSurprise(), 30_000);
 })(window.Axx = window.Axx || {});

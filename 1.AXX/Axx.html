@@ -1810,7 +1810,7 @@ body.axx-resident :is(.panel-head,.flow-library-head,.organic-satellite-head,.v1
 <script>"use strict";
 var Axx;
 (function (Axx) {
-    Axx.VERSION = '0.22.49';
+    Axx.VERSION = '0.22.50';
     function newId() {
         if (typeof crypto.randomUUID === 'function')
             return crypto.randomUUID();
@@ -9176,7 +9176,7 @@ var Axx;
                         const lead = Axx.voiceConversation.leadFor(raw, this.data.prefs.voiceLanguage);
                         if (lead) speakPart(lead);
                     }
-                }, 1200) : null;
+                }, 4200) : null;
             try {
                 const chatPrefs = { ...this.data.prefs, prompt_mode: isVoiceTurn ? 'voice' : 'conversation', model: effectiveModel, ...(memoryToken ? { memoryToken, memory_scope:{...memoryToken.memory_scope}, memory_context_id:memoryToken.memory_context_id } : {}), ...(effectiveApiConn ? { apiConnection: effectiveApiConn } : {}), ...(isVoiceTurn ? { max_tokens: 384, voice_turn: true } : {}) };
                 if (memoryToken && this.chatToolsEnabled()) chatPrefs.axx_tools = true;

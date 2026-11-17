@@ -104,16 +104,16 @@ class ProsodyAnalyzer:
 
     MOOD_PROFILES = {
         # (pitch_cents, volume, length_factor, noise_scale, noise_w, base_pause_ms)
-        # Calibrated to match the natural ~150 Hz chest timbre and unhurried cadence
-        # of the original speaker recordings (media_*.mp4 / axx-morcito.wav).
-        'serious':      (-115.0, 0.85, 1.11, 0.36, 0.50, 220),
-        'analytical':   (-70.0,  0.96, 1.04, 0.40, 0.54, 165),
-        'affectionate': (-60.0,  0.88, 1.08, 0.40, 0.52, 190),
-        'reflective':   (-85.0,  0.89, 1.09, 0.42, 0.56, 230),
-        'intro':        (-15.0,  1.02, 0.98, 0.46, 0.60, 115),
-        'question':     (-15.0,  1.01, 1.00, 0.48, 0.62, 185),
-        'excited':      (20.0,   1.06, 0.95, 0.50, 0.64, 155),
-        'neutral':      (-70.0,  1.00, 1.02, 0.42, 0.56, 175),
+        # pitch_cents=0.0 preserves 100% pure neural VITS/MOSS phase without WSOLA graininess;
+        # low noise_scale (0.34-0.42) & natural length_factor (0.98-1.06) keep consonants crisp.
+        'serious':      (0.0, 0.87, 1.06, 0.34, 0.48, 165),
+        'analytical':   (0.0, 0.98, 1.02, 0.36, 0.50, 120),
+        'affectionate': (0.0, 0.91, 1.04, 0.35, 0.48, 145),
+        'reflective':   (0.0, 0.92, 1.04, 0.36, 0.50, 155),
+        'intro':        (0.0, 1.01, 0.99, 0.38, 0.52, 85),
+        'question':     (0.0, 1.01, 1.01, 0.40, 0.54, 130),
+        'excited':      (0.0, 1.04, 0.98, 0.42, 0.56, 115),
+        'neutral':      (0.0, 1.00, 1.02, 0.36, 0.50, 125),
     }
 
     MOOD_CONTOURS = {
@@ -182,19 +182,19 @@ class ProsodyAnalyzer:
 
         raw_chunks: list[str] = []
         for s in sentences:
-            # 1. Check if leading discourse intro ("Okay,", "Mira,", "Bueno,") precedes a non-neutral clause
+            # 1. Check if leading discourse intro ("Okay,", "Mira,", "Bueno,") precedes a serious/dramatic clause
             m_intro = cls.RE_INTRO.match(s)
             if m_intro and m_intro.end() < len(s):
                 first = s[:m_intro.end()].strip()
                 rest = s[m_intro.end():].strip()
                 rest_mood = cls.classify_chunk(rest, idx=1)
-                if first and rest and rest_mood != 'neutral':
+                if first and rest and (rest_mood == 'serious' or cls.RE_SERIOUS.search(rest)):
                     raw_chunks.append(first)
                     s = rest
 
-            # 2. Split on mid-sentence contrast/register pivots ("..., pero ...", "..., vamos a ponernos serios...")
+            # 2. Split on mid-sentence contrast/register pivots only for serious shifts or long multi-clause sentences
             parts = [p.strip() for p in cls.RE_CONTRAST_PIVOT.split(s) if p and p.strip()]
-            if len(parts) > 1:
+            if len(parts) > 1 and (cls.RE_SERIOUS.search(s) or (len(s) > 110 and all(len(p) >= 28 for p in parts))):
                 for p in parts:
                     raw_chunks.append(p)
             else:
@@ -218,15 +218,15 @@ class ProsodyAnalyzer:
             pitch_cents, volume, length_factor, noise_scale, noise_w, base_pause = cls.MOOD_PROFILES.get(
                 mood, cls.MOOD_PROFILES['neutral']
             )
-            pause_ms = 80 if (mood == 'neutral' and punct == ',') else (95 if punct == ',' else base_pause)
+            pause_ms = 65 if (mood == 'neutral' and punct == ',') else (80 if punct == ',' else base_pause)
 
             # Merge consecutive clauses that share the exact same mood (unless separated by a dramatic pause)
             # so VITS/MOSS preserves long-form neural coarticulation within the same register.
             if (
                 clauses
                 and clauses[-1].mood == mood
-                and mood in ('neutral', 'analytical')
-                and len(clauses[-1].text) + len(chunk) <= 220
+                and mood in ('neutral', 'analytical', 'affectionate', 'question')
+                and len(clauses[-1].text) + len(chunk) <= 240
             ):
                 clauses[-1].text = f"{clauses[-1].text} {chunk}".strip()
                 clauses[-1].pause_ms = pause_ms
@@ -420,29 +420,29 @@ class HumanizerDSP:
                         cls.biquad_peaking(-0.9, 4600.0, 1.3, sample_rate),
                     ]
             else:
-                # Base spectral calibration matching measured user voice bands vs Piper ONNX
+                # Transparent, natural spectral polish for Piper ONNX
                 stages = [
-                    cls.biquad_peaking(2.6, 155.0, 0.80, sample_rate),
-                    cls.biquad_peaking(-2.2, 470.0, 1.05, sample_rate),
-                    cls.biquad_peaking(-2.0, 1850.0, 0.85, sample_rate),
-                    cls.biquad_peaking(-0.9, 4100.0, 1.15, sample_rate),
+                    cls.biquad_peaking(1.8, 165.0, 0.85, sample_rate),
+                    cls.biquad_peaking(-1.5, 480.0, 1.05, sample_rate),
+                    cls.biquad_peaking(-1.3, 1880.0, 0.90, sample_rate),
+                    cls.biquad_peaking(-0.6, 4200.0, 1.15, sample_rate),
                 ]
                 if mood == 'serious':
                     stages.extend([
-                        cls.biquad_peaking(1.1, 145.0, 0.90, sample_rate),
-                        cls.biquad_peaking(-1.4, 3600.0, 1.20, sample_rate),
+                        cls.biquad_peaking(0.9, 150.0, 0.90, sample_rate),
+                        cls.biquad_peaking(-1.0, 3600.0, 1.20, sample_rate),
                     ])
                 elif mood == 'analytical':
-                    stages.append(cls.biquad_peaking(1.2, 2500.0, 1.20, sample_rate))
+                    stages.append(cls.biquad_peaking(0.9, 2500.0, 1.20, sample_rate))
                 elif mood == 'affectionate':
                     stages.extend([
-                        cls.biquad_peaking(0.9, 175.0, 0.95, sample_rate),
-                        cls.biquad_peaking(-1.5, 3400.0, 1.15, sample_rate),
+                        cls.biquad_peaking(0.7, 180.0, 0.95, sample_rate),
+                        cls.biquad_peaking(-1.1, 3500.0, 1.15, sample_rate),
                     ])
                 elif mood == 'reflective':
-                    stages.append(cls.biquad_peaking(-1.1, 3600.0, 1.20, sample_rate))
+                    stages.append(cls.biquad_peaking(-0.8, 3600.0, 1.20, sample_rate))
                 elif mood in ('intro', 'question', 'excited'):
-                    stages.append(cls.biquad_peaking(1.4, 2450.0, 1.10, sample_rate))
+                    stages.append(cls.biquad_peaking(1.0, 2450.0, 1.10, sample_rate))
 
             w = (2.0 * np.pi / float(sample_rate)) * np.fft.rfftfreq(n, d=1.0 / float(sample_rate))
             z1 = np.exp(-1j * w)
@@ -468,13 +468,12 @@ class HumanizerDSP:
 
     @classmethod
     def process_clause_pcm(cls, samples: np.ndarray, sample_rate: int, clause: ProsodyClause) -> np.ndarray:
-        # 1. Trim VITS boundary dead air so clauses flow together without hesitation gaps
-        samples = cls.trim_silence(samples, sample_rate, threshold=0.0045, head_ms=14, tail_ms=22)
+        # 1. Trim VITS boundary dead air while preserving natural consonant attacks and releases
+        samples = cls.trim_silence(samples, sample_rate, threshold=0.0040, head_ms=18, tail_ms=28)
 
-        # 2. Pitch anchor + expressive human intonation contour
-        contour = ProsodyAnalyzer.MOOD_CONTOURS.get(clause.mood)
-        if abs(clause.pitch_cents) >= 5.0 or contour is not None:
-            samples = cls.pitch_shift_wsola(samples, sample_rate, clause.pitch_cents, contour=contour)
+        # 2. Optional pitch shift only if explicitly requested (>= 15 cents); avoids WSOLA grain on normal speech
+        if abs(clause.pitch_cents) >= 15.0:
+            samples = cls.pitch_shift_wsola(samples, sample_rate, clause.pitch_cents)
 
         # 3. Volume contour
         if abs(clause.volume - 1.0) >= 0.02:

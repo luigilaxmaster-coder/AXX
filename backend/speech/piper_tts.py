@@ -39,10 +39,10 @@ MAX_AUDIO = 12 * 1024 * 1024
 PRIVATE_VOICE = re.compile(r'axx-[a-z0-9]+(?:-[a-z0-9]+){0,4}')
 # Speaking styles for private voices: suffix -> (label, length factor, noise, noise_w).
 STYLES = {
-    '': ('Natural', 0.96, 0.50, 0.65),
-    'calma': ('Tranquila', 1.04, 0.44, 0.58),
-    'emocion': ('Emocionada', 0.91, 0.58, 0.70),
-    'atencion': ('Atenta', 0.99, 0.44, 0.58),
+    '': ('Natural', 1.02, 0.36, 0.50),
+    'calma': ('Tranquila', 1.06, 0.33, 0.48),
+    'emocion': ('Emocionada', 0.97, 0.42, 0.56),
+    'atencion': ('Atenta', 1.03, 0.35, 0.50),
 }
 
 def _private_meta(config_path: Path, name: str):
@@ -76,6 +76,7 @@ class PiperSpeechService:
         self._preparing = None
         self._last_error = None
         self._cancelled = threading.Event()
+        self._audio_cache = {}
 
     def _models(self):
         if not self.python.is_file() or not self.script.is_file():
@@ -347,7 +348,19 @@ class PiperSpeechService:
                     if alt in models:
                         effective_uri = alt
             spoken, _ = prepare_spoken_text(text, models[effective_uri][2])
-            raw = self._process_expressive_piper(effective_uri, spoken, body.get('rate', 0), body.get('volume', 100))
+            rate_val, vol_val = body.get('rate', 0), body.get('volume', 100)
+            model_file = self.models / (models[effective_uri][0] + '.onnx')
+            mtime = model_file.stat().st_mtime_ns if model_file.is_file() else 0
+            cache_key = (effective_uri, spoken, rate_val, vol_val, mtime)
+            with self._lock:
+                raw = self._audio_cache.get(cache_key)
+            if raw is None:
+                raw = self._process_expressive_piper(effective_uri, spoken, rate_val, vol_val)
+                if 44 < len(raw) <= MAX_AUDIO:
+                    with self._lock:
+                        if len(self._audio_cache) >= 64:
+                            self._audio_cache.pop(next(iter(self._audio_cache)), None)
+                        self._audio_cache[cache_key] = raw
             if not 44 < len(raw) <= MAX_AUDIO:
                 raise ValueError('Invalid Piper WAV size')
             with wave.open(io.BytesIO(raw), 'rb') as audio:

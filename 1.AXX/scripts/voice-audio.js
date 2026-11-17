@@ -45,13 +45,13 @@
     const isManualPitch = voice => valid(voice) && Number.isFinite(Number(saved[voice]?.pitch)) && Math.abs(Number(saved[voice].pitch)) > .01;
     const contextProfiles = {
         neutral: { bass: 0, presence: 0, air: 0, sibilance: 0, level: 1, rate: 1 },
-        serious: { bass: 2.5, presence: 1, air: -2.2, sibilance: 2, level: .88, rate: .94 },
-        analytical: { bass: 1, presence: 1.8, air: -.5, sibilance: 1, level: .98, rate: .98 },
-        affectionate: { bass: 2.2, presence: .6, air: -2, sibilance: 2, level: .92, rate: .96 },
-        reflective: { bass: 1.5, presence: -.6, air: -1.5, sibilance: 1.5, level: .92, rate: .95 },
-        excited: { bass: .5, presence: 1.8, air: 1.2, sibilance: .5, level: 1.04, rate: 1.04 },
-        question: { bass: 0, presence: 1.4, air: 1, sibilance: 0, level: 1.01, rate: 1.02 },
-        intro: { bass: .5, presence: 1.2, air: .5, sibilance: 0, level: 1.01, rate: 1.02 }
+        serious: { bass: 1.2, presence: .5, air: -1.0, sibilance: 1, level: .94, rate: 1 },
+        analytical: { bass: .5, presence: 1.0, air: -.2, sibilance: .5, level: .99, rate: 1 },
+        affectionate: { bass: 1.0, presence: .4, air: -1.0, sibilance: 1, level: .96, rate: 1 },
+        reflective: { bass: .8, presence: -.3, air: -.8, sibilance: .8, level: .96, rate: 1 },
+        excited: { bass: .3, presence: 1.0, air: .8, sibilance: .3, level: 1.02, rate: 1 },
+        question: { bass: 0, presence: .8, air: .6, sibilance: 0, level: 1.01, rate: 1 },
+        intro: { bass: .3, presence: .6, air: .3, sibilance: 0, level: 1.01, rate: 1 }
     };
     const contextForText = text => {
         const s = String(text || '').trim();
