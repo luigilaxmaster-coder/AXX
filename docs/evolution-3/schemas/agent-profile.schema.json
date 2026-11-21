@@ -1,0 +1,289 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:axx:schemas:evolution-3:agent-profile.schema.json",
+  "title": "AXX AgentProfile v1",
+  "description": "CONTRATO PROPUESTO, NO IMPLEMENTADO EN AXX 0.22.52. $id es un identificador URN de esquema, no una URL operativa.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "agent_id",
+    "revision",
+    "name",
+    "role",
+    "instructions",
+    "enabled",
+    "appearance",
+    "intelligence",
+    "workspace",
+    "permissions",
+    "limits",
+    "memory_scope"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "enum": [
+        "1.0"
+      ]
+    },
+    "agent_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "pattern": "^[A-Za-z0-9_.:-]+$"
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80
+    },
+    "role": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 240
+    },
+    "description": {
+      "type": "string",
+      "minLength": 0,
+      "maxLength": 2000
+    },
+    "instructions": {
+      "type": "string",
+      "minLength": 0,
+      "maxLength": 16000
+    },
+    "enabled": {
+      "type": "boolean"
+    },
+    "appearance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "form_id",
+        "palette_id",
+        "catalog_version"
+      ],
+      "properties": {
+        "form_id": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 23
+        },
+        "palette_id": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 8
+        },
+        "catalog_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "material_preset": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "animation_profile": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "scale": {
+          "type": "number",
+          "minimum": 0.1,
+          "maximum": 2
+        }
+      }
+    },
+    "intelligence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "route",
+        "fallback",
+        "max_parallel_turns"
+      ],
+      "properties": {
+        "route": {
+          "type": "string",
+          "enum": [
+            "manual",
+            "policy"
+          ]
+        },
+        "provider_profile_ref": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160,
+          "pattern": "^[A-Za-z0-9_.:-]+$"
+        },
+        "model_id": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 180
+        },
+        "fallback": {
+          "type": "string",
+          "enum": [
+            "none",
+            "ask",
+            "authorized_profiles"
+          ]
+        },
+        "max_parallel_turns": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 8
+        },
+        "max_tokens_per_turn": {
+          "type": "integer",
+          "minimum": 128,
+          "maximum": 1000000
+        }
+      }
+    },
+    "voice": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tts_profile_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160,
+          "pattern": "^[A-Za-z0-9_.:-]+$"
+        },
+        "language": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 48
+        },
+        "auto_speak": {
+          "type": "boolean"
+        },
+        "speed": {
+          "type": "number",
+          "minimum": 0.5,
+          "maximum": 2
+        }
+      }
+    },
+    "workspace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runtime",
+        "foreground_policy"
+      ],
+      "properties": {
+        "runtime": {
+          "type": "string",
+          "enum": [
+            "none",
+            "api",
+            "browser",
+            "window_background",
+            "host_foreground",
+            "isolated_vm",
+            "remote"
+          ]
+        },
+        "foreground_policy": {
+          "type": "string",
+          "enum": [
+            "ask",
+            "queue",
+            "isolated_only",
+            "deny"
+          ]
+        },
+        "project_ref": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160,
+          "pattern": "^[A-Za-z0-9_.:-]+$"
+        },
+        "allowed_roots": {
+          "type": "array",
+          "maxItems": 50,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 400
+          }
+        }
+      }
+    },
+    "permissions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tool_grant_refs",
+        "delegation_enabled"
+      ],
+      "properties": {
+        "tool_grant_refs": {
+          "type": "array",
+          "maxItems": 128,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160,
+            "pattern": "^[A-Za-z0-9_.:-]+$"
+          }
+        },
+        "delegation_enabled": {
+          "type": "boolean"
+        },
+        "max_delegate_depth": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 8
+        }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "max_concurrent_jobs",
+        "max_retries"
+      ],
+      "properties": {
+        "max_concurrent_jobs": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16
+        },
+        "max_retries": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 8
+        },
+        "max_cost_usd": {
+          "type": "number",
+          "minimum": 0
+        },
+        "max_ram_mb": {
+          "type": "integer",
+          "minimum": 128
+        }
+      }
+    },
+    "memory_scope": {
+      "type": "string",
+      "enum": [
+        "conversation",
+        "agent",
+        "project",
+        "explicit_shared"
+      ]
+    }
+  }
+}

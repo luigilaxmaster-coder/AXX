@@ -1,0 +1,11 @@
+{
+  "schema_version": "1.0",
+  "lease_id": "lease-001",
+  "owner_run_id": "run-001",
+  "resource_type": "host_input",
+  "resource_key": "windows-host-001",
+  "fencing_token": 1,
+  "lease_start": "2026-11-21T16:00:00Z",
+  "lease_end": "2026-11-21T16:01:00Z",
+  "status": "active"
+}

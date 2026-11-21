@@ -1,0 +1,308 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:axx:schemas:evolution-3:scene-document-v2.schema.json",
+  "title": "AXX SceneDocument v2",
+  "description": "CONTRATO PROPUESTO, NO IMPLEMENTADO EN AXX 0.22.52. $id es un identificador URN de esquema, no una URL operativa.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "document_id",
+    "revision",
+    "mode",
+    "units",
+    "fidelity",
+    "coordinate_system",
+    "source",
+    "objects",
+    "assets",
+    "timeline"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "enum": [
+        "2.0"
+      ]
+    },
+    "document_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "pattern": "^[A-Za-z0-9_.:-]+$"
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "mode": {
+      "type": "string",
+      "enum": [
+        "diagram",
+        "cad",
+        "simulation",
+        "motion",
+        "material",
+        "diorama",
+        "conceptual"
+      ]
+    },
+    "units": {
+      "type": "string",
+      "enum": [
+        "mm",
+        "cm",
+        "m",
+        "in",
+        "ft",
+        "unitless"
+      ]
+    },
+    "fidelity": {
+      "type": "string",
+      "enum": [
+        "illustrative",
+        "conceptual",
+        "measured",
+        "cad_verified"
+      ]
+    },
+    "coordinate_system": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "up_axis",
+        "handedness"
+      ],
+      "properties": {
+        "up_axis": {
+          "type": "string",
+          "enum": [
+            "X",
+            "Y",
+            "Z"
+          ]
+        },
+        "handedness": {
+          "type": "string",
+          "enum": [
+            "left",
+            "right"
+          ]
+        },
+        "origin": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "source_id",
+        "revision"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "magic_pen_capture",
+            "file",
+            "user_spec",
+            "procedural"
+          ]
+        },
+        "source_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160,
+          "pattern": "^[A-Za-z0-9_.:-]+$"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "sha256": {
+          "type": "string",
+          "minLength": 64,
+          "maxLength": 64,
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      }
+    },
+    "objects": {
+      "type": "array",
+      "maxItems": 10000,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "name",
+          "representation",
+          "fidelity"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160,
+            "pattern": "^[A-Za-z0-9_.:-]+$"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 240
+          },
+          "representation": {
+            "type": "string",
+            "enum": [
+              "svg_node",
+              "mesh",
+              "brep",
+              "primitive",
+              "annotation",
+              "splat"
+            ]
+          },
+          "fidelity": {
+            "type": "string",
+            "enum": [
+              "illustrative",
+              "conceptual",
+              "measured",
+              "cad_verified"
+            ]
+          },
+          "geometry_asset_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160,
+            "pattern": "^[A-Za-z0-9_.:-]+$"
+          },
+          "measured_source": {
+            "type": "string",
+            "enum": [
+              "observed",
+              "documented",
+              "inferred",
+              "assumed"
+            ]
+          },
+          "transform": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "position": {
+                "type": "array",
+                "minItems": 3,
+                "maxItems": 3,
+                "items": {
+                  "type": "number"
+                }
+              },
+              "rotation": {
+                "type": "array",
+                "minItems": 3,
+                "maxItems": 3,
+                "items": {
+                  "type": "number"
+                }
+              },
+              "scale": {
+                "type": "array",
+                "minItems": 3,
+                "maxItems": 3,
+                "items": {
+                  "type": "number"
+                }
+              }
+            }
+          },
+          "properties": {
+            "type": "object"
+          }
+        }
+      }
+    },
+    "assets": {
+      "type": "array",
+      "maxItems": 10000,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "asset_id",
+          "sha256",
+          "mime_type",
+          "size_bytes"
+        ],
+        "properties": {
+          "asset_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160,
+            "pattern": "^[A-Za-z0-9_.:-]+$"
+          },
+          "sha256": {
+            "type": "string",
+            "minLength": 64,
+            "maxLength": 64,
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "mime_type": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "size_bytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "license": {
+            "type": "string",
+            "minLength": 0,
+            "maxLength": 240
+          },
+          "source_uri": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "credit_line": {
+            "type": "string",
+            "minLength": 0,
+            "maxLength": 1000
+          }
+        }
+      }
+    },
+    "timeline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "duration_seconds",
+        "tracks"
+      ],
+      "properties": {
+        "duration_seconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "tracks": {
+          "type": "array",
+          "maxItems": 10000,
+          "items": {
+            "type": "object"
+          }
+        }
+      }
+    }
+  }
+}

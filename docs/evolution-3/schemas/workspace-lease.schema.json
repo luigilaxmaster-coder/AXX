@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:axx:schemas:evolution-3:workspace-lease.schema.json",
+  "title": "AXX ResourceLease v1",
+  "description": "CONTRATO PROPUESTO, NO IMPLEMENTADO EN AXX 0.22.52. $id es un identificador URN de esquema, no una URL operativa.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "lease_id",
+    "owner_run_id",
+    "resource_type",
+    "resource_key",
+    "fencing_token",
+    "lease_start",
+    "lease_end",
+    "status"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "enum": [
+        "1.0"
+      ]
+    },
+    "lease_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "pattern": "^[A-Za-z0-9_.:-]+$"
+    },
+    "owner_run_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "pattern": "^[A-Za-z0-9_.:-]+$"
+    },
+    "resource_type": {
+      "type": "string",
+      "enum": [
+        "host_input",
+        "window",
+        "browser_profile",
+        "workspace_write",
+        "repo_branch",
+        "gpu_heavy",
+        "vm_instance",
+        "microphone",
+        "remote_worker"
+      ]
+    },
+    "resource_key": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 300
+    },
+    "fencing_token": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "lease_start": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "lease_end": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "active",
+        "revoking",
+        "released",
+        "expired",
+        "unknown"
+      ]
+    }
+  }
+}

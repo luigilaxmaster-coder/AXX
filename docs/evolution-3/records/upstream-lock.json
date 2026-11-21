@@ -1,0 +1,239 @@
+{
+  "schema_version": "1.0",
+  "prepared_at": "2026-11-21",
+  "note": "Only entries with verified_commit=true were retrieved as exact repo HEAD in current research. For all other entries, pin exact commit/license and assets prior to import. This is a DOCUMENTATION manifest, not an executable dependency lock.",
+  "entries": [
+    {
+      "label": "AXX",
+      "repository": "https://github.com/luigilaxmaster-coder/AXX",
+      "verified_commit": true,
+      "commit": "508bceabc718905db9bcf4042992d91f4c6c0705",
+      "purpose": "base source reviewed",
+      "import_status": "not_imported"
+    },
+    {
+      "label": "asset-gate",
+      "repository": "https://github.com/codepawl/asset-gate",
+      "verified_commit": true,
+      "commit": "004bfae08c67e9c8ac9730c6c1043e910be7b308",
+      "purpose": "README/code reviewed",
+      "import_status": "not_imported"
+    },
+    {
+      "label": "OpenMausBot",
+      "repository": "https://github.com/milind-soni/OpenMausBot",
+      "verified_commit": true,
+      "commit": "05cd97411da8e7995f25daf96b0c6403e11f4d87",
+      "purpose": "README/code reviewed",
+      "import_status": "not_imported"
+    },
+    {
+      "label": "diorama",
+      "repository": "https://github.com/sloemo01/diorama",
+      "verified_commit": true,
+      "commit": "a4cb0784a13ee51d00df04f3bc6d4fe461ac6b07",
+      "purpose": "README/code reviewed",
+      "import_status": "not_imported"
+    },
+    {
+      "label": "OpenDots",
+      "repository": "https://github.com/CopilotKit/OpenDots",
+      "verified_commit": true,
+      "commit": "0e706ab3686fee50e9f26befc6df2aac2c2b1422",
+      "purpose": "README/code reviewed",
+      "import_status": "not_imported"
+    },
+    {
+      "label": "superpowers",
+      "repository": "https://github.com/obra/superpowers",
+      "verified_commit": false,
+      "commit": null,
+      "purpose": "reference/integration candidate; confirm exact code and licence before implementation",
+      "import_status": "not_imported"
+    },
+    {
+      "label": "diagram-design",
+      "repository": "https://github.com/cathrynlavery/diagram-design",
+      "verified_commit": false,
+      "commit": null,
+      "purpose": "reference/integration candidate; confirm exact code and licence before implementation",
+      "import_status": "not_imported"
+    },
+    {
+      "label": "SOMA",
+      "repository": "https://github.com/Kai-Jungsthoefel/SOMA",
+      "verified_commit": false,
+      "commit": null,
+      "purpose": "reference/integration candidate; confirm exact code and licence before implementation",
+      "import_status": "not_imported"
+    },
+    {
+      "label": "motion-educator",
+      "repository": "https://github.com/zeative/motion-educator",
+      "verified_commit": false,
+      "commit": null,
+      "purpose": "reference/integration candidate; confirm exact code and licence before implementation",
+      "import_status": "not_imported"
+    },
+    {
+      "label": "openvino",
+      "repository": "https://github.com/openvinotoolkit/openvino",
+      "verified_commit": false,
+      "commit": null,
+      "purpose": "reference/integration candidate; confirm exact code and licence before implementation",
+      "import_status": "not_imported"
+    },
+    {
+      "label": "codevember-2026",
+      "repository": "https://github.com/acher249/codevember-2026",
+      "verified_commit": false,
+      "commit": null,
+      "purpose": "reference/integration candidate; confirm exact code and licence before implementation",
+      "import_status": "not_imported"
+    },
+    {
+      "label": "pixelart-gaussiansplat",
+      "repository": "https://github.com/cobanov/pixelart-gaussiansplat",
+      "verified_commit": false,
+      "commit": null,
+      "purpose": "reference/integration candidate; confirm exact code and licence before implementation",
+      "import_status": "not_imported"
+    },
+    {
+      "label": "viz3d",
+      "repository": "https://github.com/codepawl/viz3d",
+      "verified_commit": false,
+      "commit": null,
+      "purpose": "reference/integration candidate; confirm exact code and licence before implementation",
+      "import_status": "not_imported"
+    },
+    {
+      "label": "creator-generalist",
+      "repository": "https://github.com/codepawl/creator-generalist",
+      "verified_commit": false,
+      "commit": null,
+      "purpose": "reference/integration candidate; confirm exact code and licence before implementation",
+      "import_status": "not_imported"
+    },
+    {
+      "label": "Cua Driver",
+      "repository": "https://github.com/trycua/cua",
+      "verified_commit": false,
+      "commit": null,
+      "purpose": "reference/integration candidate; confirm exact code and licence before implementation",
+      "import_status": "not_imported"
+    },
+    {
+      "label": "openMouse",
+      "repository": "https://github.com/alstonmendonca/openMouse",
+      "verified_commit": false,
+      "commit": null,
+      "purpose": "reference/integration candidate; confirm exact code and licence before implementation",
+      "import_status": "not_imported"
+    },
+    {
+      "label": "Monaco",
+      "repository": "https://github.com/microsoft/monaco-editor",
+      "verified_commit": false,
+      "commit": null,
+      "purpose": "reference/integration candidate; confirm exact code and licence before implementation",
+      "import_status": "not_imported"
+    },
+    {
+      "label": "Monaco-LanguageClient",
+      "repository": "https://github.com/TypeFox/monaco-languageclient",
+      "verified_commit": false,
+      "commit": null,
+      "purpose": "reference/integration candidate; confirm exact code and licence before implementation",
+      "import_status": "not_imported"
+    },
+    {
+      "label": "LSP node",
+      "repository": "https://github.com/microsoft/vscode-languageserver-node",
+      "verified_commit": false,
+      "commit": null,
+      "purpose": "reference/integration candidate; confirm exact code and licence before implementation",
+      "import_status": "not_imported"
+    },
+    {
+      "label": "DAP",
+      "repository": "https://github.com/microsoft/debug-adapter-protocol",
+      "verified_commit": false,
+      "commit": null,
+      "purpose": "reference/integration candidate; confirm exact code and licence before implementation",
+      "import_status": "not_imported"
+    },
+    {
+      "label": "Tree-sitter",
+      "repository": "https://github.com/tree-sitter/tree-sitter",
+      "verified_commit": false,
+      "commit": null,
+      "purpose": "reference/integration candidate; confirm exact code and licence before implementation",
+      "import_status": "not_imported"
+    },
+    {
+      "label": "Theia",
+      "repository": "https://github.com/eclipse-theia/theia",
+      "verified_commit": false,
+      "commit": null,
+      "purpose": "reference/integration candidate; confirm exact code and licence before implementation",
+      "import_status": "not_imported"
+    },
+    {
+      "label": "OpenHands SDK",
+      "repository": "https://github.com/OpenHands/software-agent-sdk",
+      "verified_commit": false,
+      "commit": null,
+      "purpose": "reference/integration candidate; confirm exact code and licence before implementation",
+      "import_status": "not_imported"
+    },
+    {
+      "label": "Aider",
+      "repository": "https://github.com/Aider-AI/aider",
+      "verified_commit": false,
+      "commit": null,
+      "purpose": "reference/integration candidate; confirm exact code and licence before implementation",
+      "import_status": "not_imported"
+    },
+    {
+      "label": "OpenCode",
+      "repository": "https://github.com/anomalyco/opencode",
+      "verified_commit": false,
+      "commit": null,
+      "purpose": "reference/integration candidate; confirm exact code and licence before implementation",
+      "import_status": "not_imported"
+    },
+    {
+      "label": "WinAppCli",
+      "repository": "https://github.com/microsoft/winappCli",
+      "verified_commit": false,
+      "commit": null,
+      "purpose": "reference/integration candidate; confirm exact code and licence before implementation",
+      "import_status": "not_imported"
+    },
+    {
+      "label": "Playwright",
+      "repository": "https://github.com/microsoft/playwright",
+      "verified_commit": false,
+      "commit": null,
+      "purpose": "reference/integration candidate; confirm exact code and licence before implementation",
+      "import_status": "not_imported"
+    },
+    {
+      "label": "OpenBot",
+      "repository": "https://github.com/CopilotKit/OpenBot",
+      "verified_commit": false,
+      "commit": null,
+      "purpose": "reference/integration candidate; confirm exact code and licence before implementation",
+      "import_status": "not_imported"
+    },
+    {
+      "label": "Continue",
+      "repository": "https://github.com/continuedev/continue",
+      "verified_commit": false,
+      "commit": null,
+      "purpose": "reference/integration candidate; confirm exact code and licence before implementation",
+      "import_status": "not_imported"
+    }
+  ]
+}
