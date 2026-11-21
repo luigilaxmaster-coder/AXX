@@ -10,7 +10,7 @@ Base auditada: PR #6, `2f177eae1891efb6097f8dd319872745c37e0f51`. Cambios revisa
 | Connect | 135 tests, 1 omitido | No sustituye login/logout/errores reales del servicio |
 | Rust | 42 pasan, 2 ignored | `TAURI_CONFIG` de pruebas sin recursos del instalador |
 | Magic Pen legacy | 19 casos pasan, ademÃ¡s spatial/technical/explode | Sin hardware del pen/captura |
-| Companion | PASS | 15 contratos, 113 backend (1 skip), 58 navegador, 8 selectores; hashes comparados con fuente |
+| Companion | PASS anterior; revalidación final en curso | 15 contratos, 113 backend (1 skip), 58 navegador, 8 selectores; hashes comparados con fuente |
 | Monaco con servicio real | PASS tras generar mÃ³dulos `.js` | IPC nativo simulado en navegador, archivos/HTTP/SQLite reales |
 | Nativa aislada WebView2 | PASS tras D23 | Fuente debug, 9 capturas, guardado CRLF real; no instalaciÃ³n/frozen backend |
 | Inferencia Codex | Respuestas reales, streaming, continuidad tras recrear proveedor, cancelaciÃ³n y cambio solâ†’terra | No se alterÃ³ sesiÃ³n global ni se revocÃ³ acceso |
@@ -41,3 +41,5 @@ Se requieren los otros requisitos existentes del backend y Playwright/Chromium p
 ## No comprobado
 
 Installer/frozen backend con kernel CAD, Android fÃ­sico, audio de micrÃ³fono/altavoz, visiÃ³n de proveedor, multi-monitor, carga prolongada/GPU y autenticaciÃ³n nueva/revocada contra servicios externos. Los drivers de UIA/browser/background, estudios v2 y rutinas pendientes se detallan en DEFECT-REGISTER.md. Dictamen: **NOT_RELEASE_READY**.
+
+La revalidación tras actualizar package.json se guarda en `companion-validation-final.json`; la evidencia anterior no debe usarse como recibo de publicación. El cierre final de CI y regresiones se registra también en el cuerpo del PR sin alterar el código ensayado.

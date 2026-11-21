@@ -6,7 +6,7 @@ Fecha: 2026-11-21. Base: `2f177ea` (PR #6). Rama: `codex/axx-evolution-3-audit-v
 
 - Fuente: Windows 0.22.52; Android 0.2.14/code 35, independientes. No se incrementaron versiones porque no se autorizaron instalación/publicación en los documentos de la tarea.
 - Compilación nativa debug aislada: ejecutada, 9 vistas capturadas, edición/guardado CRLF con IPC y disco verificados. No equivale a paquete congelado ni a app instalada.
-- Rust: 42 pass y 2 ignored. Evolution/integración: 58 pass. Companion: PASS, huellas de entrada comparadas con fuente final.
+- Rust: 42 pass y 2 ignored. Evolution/integración: 58 pass. Companion: PASS en pasada anterior; revalidación de las dependencias finales en curso, ver REGRESSION-RESULTS.md y cierre del PR.
 - GitHub CI: consultar el estado exacto del HEAD del PR y REGRESSION-RESULTS.md; no inferir aprobación a partir de fuentes subidas.
 - Pendientes de producto: estudios v2 en UI, agentes/equipos con inferencia por perfil, scheduler/dispatcher de rutinas, LSP/DAP/drivers background, drafts tras cierre, empaquetado de kernel y rendimiento sostenido.
 - Pendientes externos: hardware Android/audio/visión/múltiples monitores, SIWC registrado, API autorizada y ChatGPT web/túnel.
