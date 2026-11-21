@@ -146,13 +146,16 @@ def validate_geometry_task(task: Any) -> dict[str, Any]:
             raise CadContractError('section_plane.offset must be a finite number')
         clean_section = {'axis': section['axis'], 'offset': float(offset)}
 
+    explode_factor = task.get('explode_factor', 0.0)
+    if type(explode_factor) not in (int, float) or not math.isfinite(explode_factor) or not 0 <= explode_factor <= 1000:
+        raise CadContractError('explode_factor must be finite and between 0 and 1000')
     return {
         'task_id': task_id,
         'units': units,
         'tolerance_mm': float(tol),
         'parts': validated_parts,
         'section_plane': clean_section,
-        'explode_factor': float(task.get('explode_factor', 0.0)),
+        'explode_factor': float(explode_factor),
         'overall_fidelity': 'cad_verified' if all_dimensions_verified else 'conceptual',
         'engineering_verification_status': 'engineering-unverified',
     }
@@ -190,186 +193,132 @@ def _part_bounding_dimensions(kind: str, dims: dict[str, float], pid: str) -> tu
     raise CadContractError(f'Unhandled part kind: {kind}')
 
 
+UNIT_METERS = {'mm': .001, 'cm': .01, 'm': 1., 'in': .0254, 'ft': .3048}
+
+
+def _cadquery():
+    try:
+        import cadquery as cq
+        return cq
+    except ImportError as exc:
+        raise CadContractError('CAD kernel unavailable: install requirements-cad.txt in the worker runtime') from exc
+
+
+def _part_shape(part):
+    cq = _cadquery()
+    w, h, d = part['bounding_box']
+    dims, kind = part['dimensions'], part['kind']
+    if kind in {'cylinder', 'shaft', 'tube', 'flange'}:
+        shape = cq.Solid.makeCylinder(w / 2, h, cq.Vector(0, -h / 2, 0), cq.Vector(0, 1, 0))
+        inner = dims.get('inner_radius', dims.get('bore_diameter', 0) / 2)
+        if kind in {'tube', 'flange'} and inner > 0:
+            shape = shape.cut(cq.Solid.makeCylinder(inner, h, cq.Vector(0, -h / 2, 0), cq.Vector(0, 1, 0)))
+    else:
+        shape = cq.Workplane('XY').box(w, h, d).val()
+        if kind == 'plate_with_holes' and dims.get('hole_diameter', 0) > 0:
+            shape = shape.cut(cq.Solid.makeCylinder(dims['hole_diameter'] / 2, d, cq.Vector(0, 0, -d / 2)))
+        elif kind == 'l_bracket':
+            thickness = dims.get('thickness', min(w, h) * .2)
+            cut = cq.Workplane('XY').box(w - thickness, h - thickness, d).val().translate((thickness / 2, thickness / 2, 0))
+            shape = shape.cut(cut)
+        elif kind == 'enclosure':
+            thickness = dims.get('wall_thickness')
+            if thickness is None or thickness * 2 >= min(w, h, d):
+                raise CadContractError('Enclosure requires a documented wall_thickness smaller than half each dimension')
+            cavity = cq.Workplane('XY').box(w - 2 * thickness, h - 2 * thickness, d - thickness).val().translate((0, 0, thickness / 2))
+            shape = shape.cut(cavity)
+    if not shape.isValid() or shape.Volume() <= 0:
+        raise CadContractError('CAD kernel rejected a non-solid or invalid part')
+    return shape
+
+
+def _placed_shape(part, task):
+    shape = _part_shape(part)
+    for axis, angle in zip(((1, 0, 0), (0, 1, 0), (0, 0, 1)), part['rotation']):
+        if angle:
+            shape = shape.rotate((0, 0, 0), axis, math.degrees(angle))
+    factor = task['explode_factor']
+    return shape.translate(tuple(p + e * factor for p, e in zip(part['position'], part['explode_vector'])))
+
+
 def generate_parametric_step_bytes(validated_task: dict[str, Any]) -> bytes:
-    """Generate a valid, deterministic ISO-10303-21 STEP AP203 B-Rep solid file for the parametric parts."""
-    unit_map = {
-        'mm': ('MILLI', 'METRE', 1.0),
-        'cm': ('CENTI', 'METRE', 10.0),
-        'm': ('', 'METRE', 1000.0),
-        'in': ('', 'INCH', 25.4),
-        'ft': ('', 'FOOT', 304.8),
-    }
-    prefix, unit_name, _ = unit_map[validated_task['units']]
-    lines = [
-        'ISO-10303-21;',
-        'HEADER;',
-        "FILE_DESCRIPTION(('AXX Evolution 3.0 Parametric CAD Solid','engineering-unverified'),'2;1');",
-        f"FILE_NAME('{validated_task['task_id']}.step','2026-11-21T00:00:00',('AXX CAD Studio'),('AXX'),'AXX-CAD-v1','AXX','');",
-        "FILE_SCHEMA(('CONFIG_CONTROL_DESIGN'));",
-        'ENDSEC;',
-        'DATA;',
-        "#1 = APPLICATION_CONTEXT('configuration controlled 3d designs of mechanical parts and assemblies');",
-        "#2 = APPLICATION_PROTOCOL_DEFINITION('international standard','config_control_design',1994,#1);",
-        f"#3 = ( LENGTH_UNIT() NAMED_UNIT(*) SI_UNIT({'.' + prefix + '.' if prefix else '$'},.{unit_name}.) );",
-        f"#4 = UNCERTAINTY_MEASURE_WITH_UNIT(LENGTH_MEASURE({validated_task['tolerance_mm']:.4f}),#3,'distance_accuracy_value','confusion accuracy');",
-        '#5 = ( GEOMETRIC_REPRESENTATION_CONTEXT(3) GLOBAL_UNCERTAINTY_ASSIGNED_CONTEXT((#4)) GLOBAL_UNIT_ASSIGNED_CONTEXT((#3)) REPRESENTATION_CONTEXT(\'ID1\',\'3D\') );',
-    ]
-
-    eid = 10
-    for part in validated_task['parts']:
-        bx, by, bz = part['bounding_box']
-        px, py, pz = part['position']
-        p_origin = eid
-        p_axis = eid + 1
-        p_ref = eid + 2
-        p_place = eid + 3
-        p_solid = eid + 4
-        p_shape = eid + 5
-        lines.extend([
-            f'#{p_origin} = CARTESIAN_POINT(\'{part["part_id"]}_origin\',({px:.4f},{py:.4f},{pz:.4f}));',
-            f'#{p_axis} = DIRECTION(\'{part["part_id"]}_axis\',(0.0,0.0,1.0));',
-            f'#{p_ref} = DIRECTION(\'{part["part_id"]}_ref\',(1.0,0.0,0.0));',
-            f'#{p_place} = AXIS2_PLACEMENT_3D(\'{part["part_id"]}_placement\',#{p_origin},#{p_axis},#{p_ref});',
-            f'#{p_solid} = BLOCK(\'{part["name"]}\',#{p_place},{bx:.4f},{by:.4f},{bz:.4f});',
-            f'#{p_shape} = MANIFOLD_SOLID_BREP(\'{part["part_id"]}\',#{p_solid});',
-        ])
-        eid += 10
-
-    lines.extend([
-        'ENDSEC;',
-        'END-ISO-10303-21;',
-        '',
-    ])
-    return '\n'.join(lines).encode('utf-8')
+    """Export actual OpenCascade solids; the worker never evaluates generated code."""
+    import tempfile
+    cq = _cadquery()
+    shapes = [_placed_shape(part, validated_task) for part in validated_task['parts']]
+    compound = cq.Compound.makeCompound(shapes)
+    unit = {'mm': 'MM', 'cm': 'CM', 'm': 'M', 'in': 'INCH', 'ft': 'FT'}[validated_task['units']]
+    with tempfile.TemporaryDirectory(prefix='axx-step-') as temp:
+        path = Path(temp) / 'geometry.step'
+        compound.exportStep(str(path), unit=unit)
+        return path.read_bytes()
 
 
 def validate_step_bytes(step_bytes: bytes) -> dict[str, Any]:
-    """Verify that STEP bytes form a syntactically valid ISO-10303-21 B-Rep file and extract solid bounds."""
+    """Reopen STEP with an independent OpenCascade reader and validate every solid."""
+    import tempfile
     if not isinstance(step_bytes, (bytes, bytearray)) or len(step_bytes) < 64:
         raise CadContractError('STEP payload is empty or too short')
-    text = step_bytes.decode('utf-8', errors='replace')
-    if not text.startswith('ISO-10303-21;') or 'END-ISO-10303-21;' not in text:
-        raise CadContractError('Invalid ISO-10303-21 STEP envelope')
-    if 'HEADER;' not in text or 'DATA;' not in text:
-        raise CadContractError('Missing HEADER or DATA section in STEP file')
-
+    cq = _cadquery()
+    with tempfile.TemporaryDirectory(prefix='axx-step-read-') as temp:
+        path = Path(temp) / 'geometry.step'
+        path.write_bytes(step_bytes)
+        try:
+            shapes = cq.importers.importStep(str(path), unit='MM').solids().vals()
+        except Exception as exc:
+            raise CadContractError('OpenCascade could not reopen the STEP artifact') from exc
+    if not shapes or any(not shape.isValid() or shape.Volume() <= 0 for shape in shapes):
+        raise CadContractError('STEP artifact does not contain valid closed solids')
     solids = []
-    block_re = re.compile(r"BLOCK\('([^']+)',#\d+,([0-9.+-]+),([0-9.+-]+),([0-9.+-]+)\);")
-    for match in block_re.finditer(text):
-        name, bx, by, bz = match.groups()
-        solids.append({
-            'name': name,
-            'bounding_box': [round(float(bx), 4), round(float(by), 4), round(float(bz), 4)],
-        })
-    if not solids:
-        raise CadContractError('STEP file contains no verifiable B-Rep solids')
-    return {
-        'valid': True,
-        'solid_count': len(solids),
-        'solids': solids,
-        'sha256': hashlib.sha256(step_bytes).hexdigest(),
-        'size_bytes': len(step_bytes),
-    }
+    for shape in shapes:
+        box = shape.BoundingBox()
+        solids.append({'bounding_box': [box.xlen, box.ylen, box.zlen], 'volume_mm3': shape.Volume()})
+    return {'valid': True, 'units': 'mm', 'solid_count': len(solids), 'solids': solids,
+            'sha256': hashlib.sha256(step_bytes).hexdigest(), 'size_bytes': len(step_bytes)}
 
 
 def generate_parametric_glb_bytes(validated_task: dict[str, Any]) -> bytes:
     """Generate a standards-compliant binary glTF 2.0 (.glb) preview mesh congruent with the STEP solids."""
-    positions: list[float] = []
-    indices: list[int] = []
-    nodes: list[dict[str, Any]] = []
-    meshes: list[dict[str, Any]] = []
-
-    vertex_offset = 0
-    for idx, part in enumerate(validated_task['parts']):
-        bx, by, bz = part['bounding_box']
-        hx, hy, hz = bx / 2.0, by / 2.0, bz / 2.0
-        px, py, pz = part['position']
-        ex, ey, ez = part['explode_vector']
-        ef = validated_task.get('explode_factor', 0.0)
-        tx, ty, tz = px + ex * ef, py + ey * ef, pz + ez * ef
-
-        cube_verts = [
-            (-hx, -hy, -hz), (hx, -hy, -hz), (hx, hy, -hz), (-hx, hy, -hz),
-            (-hx, -hy, hz), (hx, -hy, hz), (hx, hy, hz), (-hx, hy, hz),
-        ]
-        for vx, vy, vz in cube_verts:
-            positions.extend([vx, vy, vz])
-
-        cube_indices = [
-            0, 1, 2, 2, 3, 0,
-            4, 5, 6, 6, 7, 4,
-            0, 4, 7, 7, 3, 0,
-            1, 5, 6, 6, 2, 1,
-            3, 2, 6, 6, 7, 3,
-            0, 1, 5, 5, 4, 0,
-        ]
-        for ci in cube_indices:
-            indices.append(vertex_offset + ci)
-        vertex_offset += 8
-
-        nodes.append({
-            'name': part['part_id'],
-            'mesh': idx,
-            'translation': [round(tx, 4), round(ty, 4), round(tz, 4)],
-            'extras': {
-                'part_id': part['part_id'],
-                'bounding_box': [bx, by, bz],
-                'fidelity': part['fidelity'],
-                'measured_source': part['measured_source'],
-            },
-        })
-        meshes.append({
-            'name': part['name'],
-            'primitives': [{'attributes': {'POSITION': 0}, 'indices': 1}],
-        })
-
-    pos_bytes = struct.pack(f'<{len(positions)}f', *positions)
-    idx_bytes = struct.pack(f'<{len(indices)}H', *indices)
-    while len(idx_bytes) % 4 != 0:
-        idx_bytes += b'\x00'
-    bin_chunk = pos_bytes + idx_bytes
-
-    xs = positions[0::3]
-    ys = positions[1::3]
-    zs = positions[2::3]
-    gltf_json = {
-        'asset': {'version': '2.0', 'generator': 'AXX CAD Studio v1'},
-        'scene': 0,
-        'scenes': [{'nodes': list(range(len(nodes)))}],
-        'nodes': nodes,
-        'meshes': meshes,
-        'buffers': [{'byteLength': len(bin_chunk)}],
-        'bufferViews': [
-            {'buffer': 0, 'byteOffset': 0, 'byteLength': len(pos_bytes), 'target': 34962},
-            {'buffer': 0, 'byteOffset': len(pos_bytes), 'byteLength': len(idx_bytes), 'target': 34963},
-        ],
-        'accessors': [
-            {
-                'bufferView': 0,
-                'componentType': 5126,
-                'count': len(positions) // 3,
-                'type': 'VEC3',
-                'min': [min(xs), min(ys), min(zs)],
-                'max': [max(xs), max(ys), max(zs)],
-            },
-            {
-                'bufferView': 1,
-                'componentType': 5123,
-                'count': len(indices),
-                'type': 'SCALAR',
-            },
-        ],
-    }
-
-    json_bytes = json.dumps(gltf_json, separators=(',', ':'), ensure_ascii=False).encode('utf-8')
-    while len(json_bytes) % 4 != 0:
-        json_bytes += b' '
-
-    total_length = 12 + 8 + len(json_bytes) + 8 + len(bin_chunk)
-    header = struct.pack('<III', 0x46546C67, 2, total_length)  # magic 'glTF', version 2
-    json_header = struct.pack('<II', len(json_bytes), 0x4E4F534A)  # 'JSON'
-    bin_header = struct.pack('<II', len(bin_chunk), 0x004E4942)  # 'BIN\0'
-    return header + json_header + json_bytes + bin_header + bin_chunk
+    nodes, meshes, views, accessors = [], [], [], []
+    buffer = bytearray()
+    scale = UNIT_METERS[validated_task['units']]
+    for part in validated_task['parts']:
+        shape = _placed_shape(part, validated_task)
+        deflection = validated_task['tolerance_mm'] / (scale * 1000) / max(max(part['bounding_box']), 1) / 8
+        vertices, triangles = shape.tessellate(deflection, .05)
+        positions, normals = [], []
+        # Face-local vertices preserve sharp edges and outward normals from the CAD tessellator.
+        for triangle in triangles:
+            a, b, c = [vertices[index] for index in triangle]
+            normal = (b - a).cross(c - a).normalized()
+            for vertex in (a, b, c):
+                positions.extend([vertex.x * scale, vertex.y * scale, vertex.z * scale])
+                normals.extend([normal.x, normal.y, normal.z])
+        primitive = {}
+        for semantic, values in [('POSITION', positions), ('NORMAL', normals)]:
+            data = struct.pack(f'<{len(values)}f', *values)
+            views.append({'buffer': 0, 'byteOffset': len(buffer), 'byteLength': len(data), 'target': 34962})
+            buffer.extend(data)
+            accessor = {'bufferView': len(views) - 1, 'componentType': 5126, 'count': len(values) // 3, 'type': 'VEC3'}
+            if semantic == 'POSITION':
+                accessor.update(min=[min(values[i::3]) for i in range(3)], max=[max(values[i::3]) for i in range(3)])
+            accessors.append(accessor)
+            primitive[semantic] = len(accessors) - 1
+        box = shape.BoundingBox()
+        # glTF is right-handed Y-up in metres; rotate Z-up CAD into that frame.
+        nodes.append({'name': part['part_id'], 'mesh': len(meshes),
+                      'rotation': [-math.sqrt(.5), 0, 0, math.sqrt(.5)],
+                      'extras': {'part_id': part['part_id'], 'units': validated_task['units'],
+                                 'bounding_box': [box.xlen, box.ylen, box.zlen], 'fidelity': part['fidelity']}})
+        meshes.append({'name': part['name'], 'primitives': [{'attributes': primitive}]})
+    gltf = {'asset': {'version': '2.0', 'generator': 'AXX CAD OpenCascade'}, 'scene': 0,
+            'scenes': [{'nodes': list(range(len(nodes)))}], 'nodes': nodes, 'meshes': meshes,
+            'buffers': [{'byteLength': len(buffer)}], 'bufferViews': views, 'accessors': accessors}
+    json_bytes = json.dumps(gltf, separators=(',', ':'), ensure_ascii=False).encode('utf-8')
+    json_bytes += b' ' * (-len(json_bytes) % 4)
+    total = 12 + 8 + len(json_bytes) + 8 + len(buffer)
+    return (struct.pack('<III', 0x46546C67, 2, total) + struct.pack('<II', len(json_bytes), 0x4E4F534A)
+            + json_bytes + struct.pack('<II', len(buffer), 0x004E4942) + buffer)
 
 
 def validate_glb_bytes(glb_bytes: bytes) -> dict[str, Any]:
@@ -384,6 +333,25 @@ def validate_glb_bytes(glb_bytes: bytes) -> dict[str, Any]:
         raise CadContractError('Missing JSON chunk in GLB')
     gltf = json.loads(glb_bytes[20:20 + json_len].decode('utf-8'))
     nodes = gltf.get('nodes') or []
+    binary_offset = 20 + json_len
+    if binary_offset + 8 > len(glb_bytes):
+        raise CadContractError('Missing GLB binary chunk')
+    bin_len, bin_type = struct.unpack('<II', glb_bytes[binary_offset:binary_offset + 8])
+    if bin_type != 0x004E4942 or binary_offset + 8 + bin_len != len(glb_bytes):
+        raise CadContractError('Invalid GLB binary chunk')
+    binary = glb_bytes[binary_offset + 8:]
+    for node in nodes:
+        primitive = gltf['meshes'][node['mesh']]['primitives'][0]
+        accessor = gltf['accessors'][primitive['attributes']['POSITION']]
+        view = gltf['bufferViews'][accessor['bufferView']]
+        if accessor['componentType'] != 5126 or accessor['type'] != 'VEC3':
+            raise CadContractError('Unsupported CAD mesh position format')
+        offset = view.get('byteOffset', 0) + accessor.get('byteOffset', 0)
+        size = accessor['count'] * 12
+        if size <= 0 or offset + size > len(binary):
+            raise CadContractError('CAD mesh accessor exceeds the binary buffer')
+        vertices = struct.unpack_from(f"<{accessor['count'] * 3}f", binary, offset)
+        node['mesh_bounds_mm'] = [(max(vertices[i::3]) - min(vertices[i::3])) * 1000 for i in range(3)]
     return {
         'valid': True,
         'node_count': len(nodes),
@@ -409,7 +377,7 @@ def verify_step_glb_congruence(
     max_delta = 0.0
     for solid, node in zip(step_info['solids'], glb_info['nodes']):
         s_box = solid['bounding_box']
-        g_box = (node.get('extras') or {}).get('bounding_box')
+        g_box = node.get('mesh_bounds_mm')
         if not isinstance(g_box, list) or len(g_box) != 3:
             raise CadContractError('GLB node missing bounding_box metadata')
         for sv, gv in zip(s_box, g_box):
@@ -453,8 +421,8 @@ def execute_cad_geometry_task(
     if output_dir is not None:
         out = Path(output_dir)
         out.mkdir(parents=True, exist_ok=True)
-        step_file = out / f"{validated['task_id']}-{step_sha[:12]}.step"
-        glb_file = out / f"{validated['task_id']}-{glb_sha[:12]}.glb"
+        step_file = out / f"cad-{step_sha[:24]}.step"
+        glb_file = out / f"cad-{glb_sha[:24]}.glb"
         step_file.write_bytes(step_bytes)
         glb_file.write_bytes(glb_bytes)
         step_path_str = str(step_file)
@@ -549,7 +517,7 @@ def execute_cad_geometry_task(
 class IsolatedCadWorker:
     """Supervises an isolated subprocess running parametric CAD tasks with timeout, kill, and recovery."""
 
-    def __init__(self, worker_script: str | Path | None = None, timeout_seconds: float = 15.0):
+    def __init__(self, worker_script: str | Path | None = None, timeout_seconds: float = 45.0):
         base = Path(getattr(sys, '_MEIPASS', Path(__file__).resolve().parents[2]))
         self.worker_script = Path(worker_script or (base / 'workers' / 'cad-worker' / 'worker.py'))
         self.timeout_seconds = float(timeout_seconds)

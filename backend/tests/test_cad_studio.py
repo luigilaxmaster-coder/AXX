@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 from pathlib import Path
+import json
+import math
+import struct
 import tempfile
 import unittest
 
@@ -17,6 +20,28 @@ from backend.spatial.cad_contracts import (
 
 
 class CadStudioTests(unittest.TestCase):
+    def test_physical_units_real_solids_rotation_and_distinct_meshes(self):
+        for units, mm in [('mm', 1), ('cm', 10), ('m', 1000), ('in', 25.4), ('ft', 304.8)]:
+            task = {'task_id': 'units-' + units, 'units': units, 'tolerance_mm': .01, 'parts': [
+                {'part_id': 'box', 'kind': 'box', 'dimensions': {'width':2,'height':3,'depth':4},
+                 'measured_source':'documented','position':[1,2,3], 'rotation':[0,0,math.pi/2]},
+                {'part_id': 'tube', 'kind': 'tube', 'dimensions': {'radius':1,'inner_radius':.5,'length':5},
+                 'measured_source':'documented','position':[10,0,0]}]}
+            result = execute_cad_geometry_task(task)
+            solids = validate_step_bytes(result['step_bytes'])['solids']
+            self.assertAlmostEqual(solids[0]['volume_mm3'], 24 * mm**3, places=3)
+            self.assertAlmostEqual(solids[1]['volume_mm3'], math.pi * .75 * 5 * mm**3, places=3)
+            for actual, expected in zip(solids[0]['bounding_box'], [3*mm,2*mm,4*mm]):
+                self.assertAlmostEqual(actual, expected, places=5)
+            raw = result['glb_bytes']; size = struct.unpack_from('<I', raw, 12)[0]
+            gltf = json.loads(raw[20:20+size])
+            accessors = [mesh['primitives'][0]['attributes']['POSITION'] for mesh in gltf['meshes']]
+            self.assertEqual(len(set(accessors)), 2, 'Each part needs its own geometry, not a repeated assembly')
+            for mesh in gltf['meshes']:
+                self.assertIn('NORMAL', mesh['primitives'][0]['attributes'])
+            # An independent STEP reimport and actual binary positions agree in physical mm.
+            self.assertTrue(result['congruence']['congruent'])
+
     def test_mp_03_parametric_step_glb_generation_and_congruence_verification(self):
         with tempfile.TemporaryDirectory() as tmp:
             task = {
@@ -55,7 +80,7 @@ class CadStudioTests(unittest.TestCase):
             result = execute_cad_geometry_task(task, output_dir=tmp)
             self.assertTrue(result['congruence']['congruent'])
             self.assertEqual(result['congruence']['solid_count'], 2)
-            self.assertEqual(result['congruence']['max_dimensional_delta'], 0.0)
+            self.assertLessEqual(result['congruence']['max_dimensional_delta'], task['tolerance_mm'])
 
             scene = result['scene_document']
             self.assertEqual(scene['fidelity'], 'cad_verified')
@@ -96,7 +121,7 @@ class CadStudioTests(unittest.TestCase):
             })
 
     def test_isolated_cad_worker_execution_and_timeout_kill_recovery(self):
-        worker = IsolatedCadWorker(timeout_seconds=10.0)
+        worker = IsolatedCadWorker()  # Includes cold native CAD kernel startup; the hang test retains its 0.4 s deadline.
         with tempfile.TemporaryDirectory() as tmp:
             valid_task = {
                 'task_id': 'cad-worker-ok',

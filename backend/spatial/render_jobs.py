@@ -274,27 +274,30 @@ def _build_deterministic_mp4_container(
     seed: int,
     timestamps: list[float],
 ) -> bytes:
-    """Build a valid, deterministic ISO Base Media File Format (.mp4) byte stream embedding the rendered frames."""
-    def box(box_type: bytes, payload: bytes) -> bytes:
-        return struct.pack('>I4s', 8 + len(payload), box_type) + payload
-
-    ftyp = box(b'ftyp', b'isom\x00\x00\x02\x00isomiso2mp41')
-    meta_json = json.dumps({
-        'generator': 'AXX Motion Studio v1',
-        'fps': int(fps),
-        'seed': int(seed),
-        'frame_count': len(frame_pngs),
-        'timestamps': [round(t, 4) for t in timestamps],
-        'frame_sha256s': [hashlib.sha256(f).hexdigest() for f in frame_pngs],
-        'simulation_fidelity': 'illustrative_not_fem_cfd',
-    }, sort_keys=True, separators=(',', ':')).encode('utf-8')
-    mvhd = struct.pack('>IIII', 0, 0, int(fps), len(frame_pngs))
-    udta = box(b'udta', meta_json)
-    moov = box(b'moov', box(b'mvhd', mvhd) + udta)
-
-    mdat_payload = b''.join(struct.pack('>I', len(frame)) + frame for frame in frame_pngs)
-    mdat = box(b'mdat', mdat_payload)
-    return ftyp + moov + mdat
+    """Encode real H.264 video with the already packaged PyAV runtime."""
+    try:
+        import av
+    except ImportError as exc:
+        raise MotionStudioError('Video export requires the pinned PyAV runtime in requirements-telegram.txt') from exc
+    output = io.BytesIO()
+    with av.open(output, mode='w', format='mp4', options={'fflags': '+bitexact'}) as video:
+        with Image.open(io.BytesIO(frame_pngs[0])) as first:
+            width, height = first.size
+        stream = video.add_stream('libx264', rate=fps)
+        stream.width, stream.height = width, height
+        stream.pix_fmt = 'yuv420p'
+        stream.codec_context.thread_count = 1
+        stream.codec_context.flags |= av.codec.context.Flags.bitexact
+        stream.options = {'preset': 'medium', 'crf': '18'}
+        for index, png in enumerate(frame_pngs):
+            with Image.open(io.BytesIO(png)) as image:
+                frame = av.VideoFrame.from_image(image.convert('RGB'))
+            frame.pts = index
+            for packet in stream.encode(frame):
+                video.mux(packet)
+        for packet in stream.encode():
+            video.mux(packet)
+    return output.getvalue()
 
 
 def export_motion_mp4(

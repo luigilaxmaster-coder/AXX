@@ -14,6 +14,7 @@ from __future__ import annotations
 from contextlib import closing
 import hashlib
 import json
+import math
 from pathlib import Path
 import re
 import sqlite3
@@ -251,8 +252,8 @@ class AssetRegistry:
         if not dec_list or any(d not in ALLOWED_DECODERS for d in dec_list):
             raise AssetGateError(f'Unsupported decoders: {dec_list}')
 
-        dims = dimensions_m or [1.0, 1.0, 1.0]
-        if not isinstance(dims, list) or len(dims) != 3 or any(type(x) not in (int, float) or x <= 0 for x in dims):
+        dims = dimensions_m
+        if dims is not None and (not isinstance(dims, list) or len(dims) != 3 or any(type(x) not in (int, float) or not math.isfinite(x) or x <= 0 for x in dims)):
             raise AssetGateError('dimensions_m must be 3 positive numbers [x, y, z] in meters')
 
         lic = str(license_id or '').strip()
@@ -331,7 +332,7 @@ class AssetRegistry:
                         1 if redistribution_allowed else 0,
                         lod_level,
                         triangle_count,
-                        json.dumps([float(x) for x in dims]),
+                        json.dumps([float(x) for x in dims] if dims is not None else None),
                         json.dumps(dec_list),
                         storage_path_str,
                         now,

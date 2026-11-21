@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import io
 import tempfile
 import unittest
 
@@ -13,6 +14,16 @@ from backend.spatial.render_jobs import (
 
 
 class MotionStudioTests(unittest.TestCase):
+    def test_export_has_decodable_video_frames(self):
+        import av
+        result = export_motion_mp4(self._sample_motion_scene(), fps=5)
+        with av.open(io.BytesIO(result['mp4_bytes'])) as video:
+            self.assertEqual(len(video.streams.video), 1)
+            frames = list(video.decode(video=0))
+            self.assertEqual(len(frames), result['frame_count'])
+            self.assertEqual((frames[0].width, frames[0].height), (640, 360))
+            self.assertEqual([frame.pts for frame in frames], sorted({frame.pts for frame in frames}))
+
     def _sample_motion_scene(self) -> dict:
         return {
             'schema_version': '2.0',

@@ -5,6 +5,13 @@ from pathlib import Path
 
 # Models remain local; the public installer contains no model weights.
 telegram_licenses = []
+cad_licenses = []
+for package in ('cadquery', 'cadquery-ocp', 'vtk'):
+    dist = distribution(package)
+    files = [item for item in dist.files or () if Path(str(item)).name.upper().startswith(('LICENSE', 'COPYING', 'NOTICE'))]
+    if not files:
+        raise RuntimeError(f'Missing CAD dependency license for {package}')
+    cad_licenses += [(str(dist.locate_file(item)), f'licenses/cad/{package}') for item in files]
 for package in ('telethon', 'py-tgcalls', 'ntgcalls'):
     dist = distribution(package)
     files = [item for item in dist.files or () if '/licenses/' in str(item).replace('\\', '/')]
@@ -49,10 +56,11 @@ a = Analysis(
            + collect_data_files('rapidocr_onnxruntime', excludes=['models/*'])
            + collect_data_files('telethon') + collect_data_files('pytgcalls')
            + sum((copy_metadata(package) for package in ('telethon', 'py-tgcalls', 'ntgcalls')), [])
-           + telegram_licenses,
+           + telegram_licenses + cad_licenses + copy_metadata('cadquery'),
     hiddenimports=collect_submodules('backend', filter=lambda name: '.tests' not in name and '.test_' not in name)
         + collect_submodules('mcp', filter=lambda name: not name.startswith('mcp.cli')) + collect_submodules('uvicorn')
         + collect_submodules('telethon') + collect_submodules('pytgcalls') + [
+        'cadquery', 'OCP',
         'cli_anything.blender.core.scene', 'cli_anything.blender.core.objects',
         'cli_anything.blender.core.lighting', 'cli_anything.blender.core.render',
         'cli_anything.blender.utils.bpy_gen', 'faster_whisper', 'ctranslate2',
@@ -62,7 +70,7 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=['torch', 'torchaudio', 'transformers', 'tensorflow', 'fairseq', 'pandas', 'scipy', 'matplotlib', 'pytest', 'IPython'],
+    excludes=['torch', 'torchaudio', 'transformers', 'tensorflow', 'fairseq', 'pandas', 'matplotlib', 'pytest', 'IPython'],
     noarchive=False,
     optimize=0,
 )
