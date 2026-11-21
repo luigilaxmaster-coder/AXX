@@ -172,6 +172,16 @@ class MagicPenService:
         self.worker = None
         self.closing = self.closed = False
         self.index_path = self.root / 'requests.sqlite'
+        from backend.evolution_flags import EvolutionFeatureFlags
+        from backend.spatial.scene_document import SceneDocumentStore
+        from backend.spatial.asset_registry import AssetRegistry
+        self.evolution_flags = EvolutionFeatureFlags(self.index_path)
+        self.scenes_v2 = SceneDocumentStore(self.index_path)
+        self.asset_registry = AssetRegistry(
+            self.index_path,
+            storage_root=self.root / 'assets-v2',
+            shape_registry=self.shapes,
+        )
         with closing(sqlite3.connect(self.index_path, timeout=10)) as db, db:
             db.execute('CREATE TABLE IF NOT EXISTS request_ids (id TEXT PRIMARY KEY, source_id TEXT NOT NULL, signature TEXT NOT NULL)')
         for path in self.root.glob('*/document.json'):
@@ -207,6 +217,12 @@ class MagicPenService:
         with self.lock:
             # The existing adapter owns the bounded upstream deadline. A daemon still
             # unwinding is cancelled; its response cannot publish after closing.
+            if hasattr(self, 'scenes_v2') and self.scenes_v2:
+                self.scenes_v2.close()
+            if hasattr(self, 'asset_registry') and self.asset_registry:
+                self.asset_registry.close()
+            if hasattr(self, 'evolution_flags') and self.evolution_flags:
+                self.evolution_flags.close()
             self.closed = True
 
     def directory(self, id):
@@ -1121,3 +1137,64 @@ class MagicPenService:
                 self.condition.wait(timeout=.05)
             q = self.query({'id': q['source_id'], 'query_id': q['id']})
         return q
+
+    # --- AXX Evolution 3.0 Additive Spatial & Magic Pen Studio Integration (Fase 7 / PR-10) ---
+
+    def import_query_to_scene_v2(self, capture_id: str, query_id: str, *, document_id: str | None = None) -> dict:
+        """Import a completed Magic Pen query's PresentationPlan v1 into SceneDocumentStore v2 (requires magic_scene_v2)."""
+        self._open()
+        self.evolution_flags.require_enabled_for_new_dispatch('magic_scene_v2')
+        from backend.spatial.scene_document import import_presentation_plan_v1
+        q = self.query({'id': capture_id, 'query_id': query_id})
+        plan_v1 = q.get('presentation')
+        if not isinstance(plan_v1, dict):
+            raise ValueError('La consulta seleccionada no contiene una presentación visual importable.')
+        doc_id = document_id or f'scene-{capture_id[:12]}-{query_id[:12]}'
+        doc_v2 = import_presentation_plan_v1(
+            plan_v1,
+            document_id=doc_id,
+            source_id=capture_id,
+            source_revision=int(q.get('revision', 1)),
+        )
+        return self.scenes_v2.create_document(doc_v2, operation_id=f'op-import-{query_id[:16]}')
+
+    def patch_scene_v2(self, patch: dict) -> dict:
+        """Apply an incremental CAS ScenePatch to a SceneDocument v2 (requires magic_scene_v2)."""
+        self._open()
+        self.evolution_flags.require_enabled_for_new_dispatch('magic_scene_v2')
+        from backend.spatial.patches import apply_scene_patch
+        return apply_scene_patch(self.scenes_v2, patch)
+
+    def build_cad_scene_v2(self, geometry_task: dict, *, store_document: bool = True) -> dict:
+        """Execute a parametric CAD GeometryTask and optionally persist its SceneDocument v2 (requires cad_worker_v1)."""
+        self._open()
+        self.evolution_flags.require_enabled_for_new_dispatch('cad_worker_v1')
+        from backend.spatial.cad_contracts import execute_cad_geometry_task
+        cad_out = self.root / 'cad-exports'
+        res = execute_cad_geometry_task(geometry_task, output_dir=cad_out)
+        if store_document:
+            self.evolution_flags.require_enabled_for_new_dispatch('magic_scene_v2')
+            self.scenes_v2.create_document(res['scene_document'], operation_id=f"op-cad-{res['task_id']}")
+        return res
+
+    def freeze_and_export_motion_v2(
+        self,
+        document_id: str,
+        *,
+        timestamp_seconds: float = 0.0,
+        seed: int = 42,
+        export_mp4: bool = False,
+        fps: int = 5,
+    ) -> dict:
+        """Freeze a SceneDocument v2 at timestamp t and optionally export a deterministic MP4 (requires motion_worker_v1)."""
+        self._open()
+        self.evolution_flags.require_enabled_for_new_dispatch('motion_worker_v1')
+        from backend.spatial.render_jobs import export_motion_mp4, freeze_scene_at
+        doc = self.scenes_v2.get_document(document_id)
+        frozen = freeze_scene_at(doc, timestamp_seconds, seed=seed)
+        mp4_res = None
+        if export_mp4:
+            out_file = self.root / 'exports' / f'{document_id}-r{doc["revision"]}-s{seed}.mp4'
+            mp4_res = export_motion_mp4(doc, output_path=out_file, fps=fps, seed=seed)
+        return {'frozen': frozen, 'mp4': mp4_res}
+

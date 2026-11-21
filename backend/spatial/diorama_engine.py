@@ -145,11 +145,14 @@ def evaluate_diorama_qa(
     *,
     timestamps: list[float] | None = None,
     seed: int = 42,
-    max_step_displacement: float = 8.0,
-    frustum_bound: float = 25.0,
+    max_step_displacement: float | None = None,
+    frustum_bound: float | None = None,
 ) -> dict[str, Any]:
     """Run per-entity freeze-frame QA detecting frozen actors, teleports, offscreen objects, and missing credits (MP-08)."""
     validated = validate_scene_document_v2(scene_doc)
+    unit_scale = {'mm': 50.0, 'cm': 10.0, 'in': 4.0, 'ft': 2.0, 'm': 1.0, 'unitless': 1.0}.get(validated['units'], 1.0)
+    effective_frustum = float(frustum_bound) if frustum_bound is not None else (25.0 * unit_scale)
+    effective_max_step = float(max_step_displacement) if max_step_displacement is not None else (8.0 * unit_scale)
     duration = float(validated['timeline'].get('duration_seconds', 1.0))
     if timestamps is None:
         if duration <= 0:
@@ -178,7 +181,7 @@ def evaluate_diorama_qa(
 
     for oid, positions in history_by_id.items():
         # Offscreen check across all sampled frames
-        if any(any(abs(coord) > frustum_bound for coord in pos) for pos in positions):
+        if any(any(abs(coord) > effective_frustum for coord in pos) for pos in positions):
             offscreen_actors.append(oid)
 
         if len(positions) >= 2:
@@ -187,7 +190,7 @@ def evaluate_diorama_qa(
             max_jump = max(step_dists)
             if oid in animated_actor_ids and total_motion < 1e-4:
                 frozen_actors.append(oid)
-            if max_jump > max_step_displacement:
+            if max_jump > effective_max_step:
                 teleported_actors.append(oid)
 
     missing_credits: list[str] = []
