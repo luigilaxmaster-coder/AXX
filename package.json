@@ -5,6 +5,7 @@
   "license": "MIT",
   "description": "Axx Windows desktop distribution",
   "scripts": {
+    "prepare:renderer": "node scripts/prepare-monaco.cjs",
     "tauri": "tauri",
     "build:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-windows.ps1",
     "connect:install": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-axx-connect.ps1",
@@ -14,5 +15,8 @@
   },
   "devDependencies": {
     "@tauri-apps/cli": "2.12.3"
+  },
+  "dependencies": {
+    "monaco-editor": "0.57.0"
   }
 }

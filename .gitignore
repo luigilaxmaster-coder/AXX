@@ -14,6 +14,7 @@ test_install/
 
 # Node dependencies
 node_modules/
+/1.AXX/scripts/vendor/monaco-*/
 
 # Python virtual environments & cache
 .venv/
