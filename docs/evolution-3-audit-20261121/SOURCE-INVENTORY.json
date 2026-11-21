@@ -254,7 +254,7 @@
     {
       "path": "backend/code_studio/projects.py",
       "argon_sha256": "d84d5f9a1e420ddb002e43b7377ce42f2c251197274b3210c2610928620f31a6",
-      "current_sha256": "dd1ea65144a54e7f7c7c0b0b2fd39c9d384114af45b5867b4d61f5bcdfce9a66"
+      "current_sha256": "21597b4b387c3386000dde95398e82b79a98cfe9264b0ec13b808b917a73680e"
     },
     {
       "path": "backend/code_studio/test_runner.py",
@@ -349,7 +349,7 @@
     {
       "path": "backend/tests/test_code_studio_core.py",
       "argon_sha256": "c23ad3cf0b62e45adb4d6679bb1e9a0103a499aad03d0efdcc3d8e5f216cdcac",
-      "current_sha256": "35dd94a4067aa632ecee8d74eea6ef2f1de0c1ecf28e6d505cb6647220f49929"
+      "current_sha256": "af191a71a36ca4644d6ead05e53a94747ea8c16ecdeddcf50559540753bd5d58"
     },
     {
       "path": "backend/tests/test_code_studio_pro.py",

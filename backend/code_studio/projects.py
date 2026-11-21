@@ -84,8 +84,8 @@ def resolve_scoped_project_path(project_root: str | Path, relative_path: str) ->
     norm_parts = Path(relative_path).parts
     if '..' in norm_parts:
         raise CodeSecurityError(f'Path traversal (..) rejected: {relative_path!r}')
-    if '.git' in norm_parts and len(norm_parts) >= 2 and norm_parts[1] in ('config', 'hooks'):
-        raise CodeSecurityError('Modifying .git/config or .git/hooks is prohibited')
+    if any(part.rstrip(' .').casefold() == '.git' for part in norm_parts):
+        raise CodeSecurityError('Access to Git metadata through the file editor is prohibited')
 
     root = Path(project_root).resolve()
     candidate = root / relative_path

@@ -45,3 +45,8 @@ Causa: Monaco 0.57.0 fija DOMPurify 3.4.15 en sus recursos precompilados. Cambia
 ## D23 — Carga de módulos del editor en Windows (P1)
 
 El job remoto de `45e3100` detectó que el editor ESM no se montaba (timeout en la prueba real de navegación/guardado). La extensión `.mjs` depende del MIME registrado por el host Windows; el entorno local no reproducía la misma asociación. Se conservan módulos ESM, pero se generan y solicitan con extensión `.js`, admitida por ambos servidores. El worker mantiene `type: module`. No se elimina la prueba ni se incrementa su timeout. Evidencia: ejecución 44949881476, nueva prueba `test_code_studio_ui` y aceptación WebView2. Los paquetes generados anteriores se apartaron dentro del build privado para evitar su distribución accidental.
+
+
+## D24 — Metadatos Git y normalización Windows (P1)
+
+Reproducción: `.GIT/config` y `nested/.git/hooks/post-checkout` eran aceptados por el resolvedor de archivos; solo se bloqueaba `.git/config` con esa capitalización y profundidad. Causa: comparación sensible a mayúsculas y posición fija de los componentes. Solución: rechazar cualquier componente `.git`, en cualquier profundidad, sin distinguir mayúsculas y normalizando puntos/espacios finales de Windows. Se mantiene `.github` accesible. El mismo resolvedor protege edición, parches e indexación. Test previo falla con archivos sintéticos; suite Core/Pro/UI/HTTP posterior aprueba y conserva los bytes de config. Evidencias privadas: `git-path-before.log`, `git-path-after.log`.

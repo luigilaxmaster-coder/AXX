@@ -29,6 +29,20 @@ from backend.code_studio.test_runner import SupervisedTestRunner, UnauthorizedTo
 
 
 class CodeStudioCoreTests(unittest.TestCase):
+    def test_git_metadata_is_blocked_case_insensitively_at_every_depth(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / '.git').mkdir()
+            config = root / '.git/config'
+            config.write_bytes(b'synthetic config; do not modify')
+            for name in ('.git', '.git/config', '.GIT/CONFIG', 'nested/.git/hooks/post-checkout',
+                         '.git./config', '.git /config'):
+                with self.subTest(path=name), self.assertRaises(CodeSecurityError):
+                    resolve_scoped_project_path(root, name)
+            self.assertEqual(config.read_bytes(), b'synthetic config; do not modify')
+            self.assertEqual(resolve_scoped_project_path(root, '.github/workflows/check.yml'),
+                             (root / '.github/workflows/check.yml').resolve())
+
     def test_project_registration_cannot_retarget_or_erase_saved_history(self):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp); first=root/'first'; second=root/'second'; first.mkdir(); second.mkdir()
