@@ -32,7 +32,9 @@ class OpenVinoAndSplatTests(unittest.TestCase):
             manual_provider_selected='codex-subscription',
             requested_model_params_b=1.5,
         )
-        self.assertTrue(bench['benchmark_passed'])
+        self.assertFalse(bench['benchmark_passed'])
+        self.assertTrue(bench['reference_benchmark_passed'])
+        self.assertFalse(bench['openvino_inference_verified'])
         self.assertEqual(bench['manual_provider_preserved'], 'codex-subscription')
         self.assertFalse(bench['silent_fallback_performed'])
 

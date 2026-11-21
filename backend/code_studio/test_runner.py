@@ -94,7 +94,12 @@ class SupervisedTestRunner:
 
         target_cwd = Path(cwd).resolve() if cwd else self.projects.get_project_root(project_id)
         project_root = self.projects.get_project_root(project_id)
-        if not (target_cwd == project_root or target_cwd.is_relative_to(project_root.parent)):
+        allowed_worktree = False
+        with self.projects.lock, self.projects._connect() as db:
+            if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='code_worktrees'").fetchone():
+                allowed_worktree = any(Path(row[0]).resolve() == target_cwd for row in db.execute(
+                    "SELECT worktree_path FROM code_worktrees WHERE project_id=? AND status='active'", (project_id,)))
+        if not (target_cwd == project_root or target_cwd.is_relative_to(project_root) or allowed_worktree):
             raise UnauthorizedToolchainError(f'Test working directory {target_cwd} is outside authorized boundaries')
 
         # Sanitize environment variables so secrets are not leaked to test subprocesses

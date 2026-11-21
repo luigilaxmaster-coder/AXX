@@ -85,11 +85,16 @@ class IsolatedVMProvider:
         if self.allow_simulated_sandbox:
             detected_backends.append('isolated_sandbox_driver')
 
-        available = len(detected_backends) > 0
+        usable = [backend for backend in detected_backends if backend in ('wsl2', 'isolated_sandbox_driver')]
+        available = bool(usable)
         return {
             'available': available,
             'detected_backends': detected_backends,
-            'primary_backend': detected_backends[0] if detected_backends else None,
+            'primary_backend': usable[0] if usable else None,
+            'usable_backends': usable,
+            'independent_windows_desktop': False,
+            'wsl_host_filesystem_isolated': False,
+            'resource_limits_enforced': False,
             'wsl_kernel': wsl_kernel,
             'host_clipboard_shared': False,
             'host_mouse_affected': False,
@@ -112,6 +117,8 @@ class IsolatedVMProvider:
                 f'Requested VM backend {chosen_backend!r} is not available on this host '
                 f"(detected={probe_info['detected_backends']})"
             )
+        if chosen_backend not in ('wsl2', 'isolated_sandbox_driver'):
+            raise VMUnavailableError('Hypervisor executable detected, but no VM lifecycle driver is connected')
 
         guest_root = f'/tmp/axx_vm_{vm_id}'
         if chosen_backend == 'wsl2':
@@ -191,13 +198,8 @@ class IsolatedVMProvider:
                 guest_exit_code = proc.returncode
                 guest_output = proc.stdout.strip()
             else:
-                # Record structured UI/virtual action log inside the guest filesystem
-                event_json = json.dumps({'action_type': action_type, 'payload': body, 'fencing_token': fencing_token})
-                proc = self._run_wsl(
-                    ['sh', '-c', f'printf "%s\\n" "$1" >> "{guest_root}/actions.jsonl" && wc -l < "{guest_root}/actions.jsonl"', '--', event_json]
-                )
-                guest_exit_code = proc.returncode
-                guest_output = f'guest_log_lines={proc.stdout.strip()}'
+                return {'status': 'unsupported_mode', 'executed': False, 'vm_id': vm_id,
+                        'reason': 'WSL workspace supports file and command operations, not graphical input'}
 
         receipt = {
             'vm_id': vm_id,
@@ -231,6 +233,8 @@ class IsolatedVMProvider:
             )
             if proc.returncode == 0 and proc.stdout.strip():
                 guest_archive_sha256 = proc.stdout.strip().split()[0]
+            if not guest_archive_sha256:
+                raise VMUnavailableError('WSL snapshot failed; no archive digest was verified')
 
         snap = {
             'snapshot_id': snap_id,

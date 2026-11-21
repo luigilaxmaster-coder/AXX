@@ -313,6 +313,8 @@ class Evolution3FullFunctionalAuditTests(unittest.TestCase):
             state_db = tmp_path / 'state.db'
             srv, chats, id_store, executor, commands, mp = _start_bound_server(state_db, tmp_path)
             try:
+                for flag in srv.evolution_runtime.flags.list_flags():
+                    srv.evolution_runtime.flags.set_flag(flag['flag_id'], True, reason='isolated functional audit')
                 client = _HttpTestClient(srv.server_port, srv.host_token)
 
                 # 1. Multi-agent run executing a real ActionExecutor tool (file_artifact_writer)
@@ -349,6 +351,16 @@ class Evolution3FullFunctionalAuditTests(unittest.TestCase):
                 )
                 self.assertEqual(st_run, 200)
 
+                # A graph does not authorize effects: HTTP dispatch must wait for an exact approval.
+                denied, _ = client.request('POST', '/axx-api/agents/v1/runs/execute-task', {'task_id':'task-write-file'})
+                self.assertEqual(denied, 403)
+                self.assertFalse((executor.workspace_root / 'multiagent_output.txt').exists())
+                approval = {'conversation_id':'conv-exec-1','run_id':'run-real-exec-1','task_id':'task-write-file',
+                            'agent_id':'axx-builder','operation_id':'op-approved-file','tool_name':'file_artifact_writer',
+                            'parameters':{'path':'multiagent_output.txt','content':'Verificado por ActionExecutor real'}}
+                self.assertEqual(client.request('POST','/axx-api/agents/v1/approvals/request',approval)[0],200)
+                self.assertEqual(client.request('POST','/axx-api/agents/v1/approvals/resolve',
+                    {'operation_id':'op-approved-file','approved':True})[0],200)
                 # Execute task-write-file via ActionExecutor and verify with IndependentVerifierService
                 st_exec, exec_res = client.request(
                     'POST',
@@ -356,6 +368,7 @@ class Evolution3FullFunctionalAuditTests(unittest.TestCase):
                     {
                         'task_id': 'task-write-file',
                         'lease_id': 'lease-exec-1',
+                        'operation_id':'op-approved-file',
                         'verifier_agent_id': 'axx-verifier',
                     },
                 )
@@ -494,6 +507,8 @@ class Evolution3FullFunctionalAuditTests(unittest.TestCase):
 
             srv, chats, id_store, executor, commands, mp = _start_bound_server(state_db, tmp_path)
             try:
+                for flag in srv.evolution_runtime.flags.list_flags():
+                    srv.evolution_runtime.flags.set_flag(flag['flag_id'], True, reason='isolated functional audit')
                 client = _HttpTestClient(srv.server_port, srv.host_token)
 
                 # 1. Code Studio over HTTP: register -> create worktree -> propose/apply -> run tests -> integrate -> rollback

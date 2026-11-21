@@ -75,9 +75,9 @@ class LanguageServerManager:
                 'language': lang,
                 'project_root': str(root),
                 'binary': resolved_exe,
-                'status': 'running',
-                'degraded': False,
-                'degraded_reason': None,
+                'status': 'degraded_syntax_only',
+                'degraded': True,
+                'degraded_reason': 'LSP executable detected; no protocol process is connected. Using structural AST.',
             }
         self.sessions[key] = session
         return dict(session)

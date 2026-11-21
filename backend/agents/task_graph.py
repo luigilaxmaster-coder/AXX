@@ -624,11 +624,12 @@ class TaskGraphEngine:
         *,
         lease_id: str,
         delivery_mode: str | None = None,
+        operation_id: str | None = None,
     ) -> dict[str, Any]:
         """Execute a task's action strictly through ActionExecutor/CommandService (I-01)."""
         if self.action_executor is None:
             raise TaskGraphError('ActionExecutor is required to dispatch host/workspace tasks')
-        node = self.lease_and_start_task(task_id, lease_id=lease_id)
+        node = self.lease_and_start_task(task_id, lease_id=lease_id, operation_id=operation_id)
         action_spec = node['action_spec']
         tool_name = action_spec.get('tool_name')
         inputs = action_spec.get('inputs') or {}

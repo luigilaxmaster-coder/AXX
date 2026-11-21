@@ -58,9 +58,9 @@ class DebugAdapterManager:
             'adapter': adapter,
             'host': '127.0.0.1',
             'port': int(port),
-            'state': 'paused',
+            'state': 'unavailable',
             'breakpoints': [],
-            'locals': {'counter': 3, 'status': 'ok'},
+            'locals': {},
         }
         self.sessions[session_id] = session
         return dict(session)
@@ -91,10 +91,11 @@ class DebugAdapterManager:
                 f'Autonomous agent DAP evaluate is restricted to read-only variable inspection; rejected: {expr!r}'
             )
 
-        value = session['locals'].get(expr, f'<evaluated:{expr}>')
         return {
             'session_id': session_id,
             'expression': expr,
-            'result': value,
+            'result': None,
+            'status': 'unsupported_mode',
+            'reason': 'No debug adapter process is connected; no expression was evaluated',
             'actor': actor,
         }

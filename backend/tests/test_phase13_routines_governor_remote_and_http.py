@@ -81,7 +81,13 @@ class Phase13IntegrationTests(unittest.TestCase):
         trig = routines.trigger_routine('rout-daily-clean', proposes_mutation=True)
         self.assertFalse(trig['executed'])
         self.assertEqual(trig['status'], 'awaiting_approval')
-        self.assertTrue(trig['approval_card_created'])
+        self.assertFalse(trig['approval_card_created'])
+        self.assertTrue(trig['approval_required'])
+        routines.register_routine(routine_id='readonly', agent_id='a', conversation_id='c',
+                                  schedule_spec='0 8 * * *', requested_capabilities=['read_workspace'], requires_approval=False)
+        read = routines.trigger_routine('readonly', proposes_mutation=False)
+        self.assertFalse(read['executed'])
+        self.assertEqual(read['status'], 'blocked_dispatcher_unavailable')
         self.assertFalse(trig['activated_microphone'])
         self.assertFalse(trig['activated_host_input'])
 

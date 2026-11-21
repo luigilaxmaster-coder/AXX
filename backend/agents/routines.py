@@ -194,8 +194,8 @@ class AutonomousRoutineService:
             next_status = 'awaiting_approval'
             executed = False
         else:
-            next_status = 'completed_readonly'
-            executed = True
+            next_status = 'blocked_dispatcher_unavailable'
+            executed = False
 
         with self.lock, self._connect() as db:
             with db:
@@ -208,7 +208,9 @@ class AutonomousRoutineService:
             'routine_id': routine_id,
             'executed': executed,
             'status': next_status,
-            'approval_card_created': next_status == 'awaiting_approval',
+            'approval_card_created': False,
+            'approval_required': next_status == 'awaiting_approval',
+            'dispatcher_connected': False,
             'activated_microphone': False,
             'activated_host_input': False,
         }

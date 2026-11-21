@@ -10,6 +10,7 @@ Enforces Invariants:
 from __future__ import annotations
 
 import base64
+import hashlib
 from pathlib import Path
 import tempfile
 import urllib.parse
@@ -35,12 +36,12 @@ from backend.code_studio.projects import CodeProjectService
 from backend.code_studio.test_runner import SupervisedTestRunner
 from backend.evolution_flags import EvolutionFeatureFlags
 from backend.spatial.asset_registry import AssetRegistry
-from backend.spatial.cad_contracts import IsolatedCadWorker
+from backend.spatial.cad_contracts import IsolatedCadWorker, validate_geometry_task
 from backend.spatial.diagram_studio import auto_layout_diagram, check_diagram_qa, export_diagram_svg
 from backend.spatial.diorama_engine import evaluate_diorama_qa
-from backend.spatial.patches import apply_scene_patch
+from backend.spatial.patches import apply_scene_patch, undo_scene_patch, redo_scene_patch
 from backend.spatial.render_jobs import export_motion_mp4, freeze_scene_at
-from backend.spatial.scene_document import validate_scene_document_v2
+from backend.spatial.scene_document import SceneDocumentStore, validate_scene_document_v2
 from backend.workspaces.browser_sessions import BrowserSessionManager
 from backend.workspaces.focus_guard import AttentionGuardian
 from backend.workspaces.leases import ResourceLeaseManager
@@ -127,6 +128,7 @@ class EvolutionHttpRuntime:
         self.code_links = CodeArtifactLinkService(self.code_projects)
 
         self.cad_worker = IsolatedCadWorker()
+        self.scenes = self.magic_pen.scenes_v2 if self.magic_pen is not None else SceneDocumentStore(self.db_path)
         self.assets = AssetRegistry(self.db_path, storage_root=self.base_dir / 'assets')
 
     def close(self) -> None:
@@ -140,6 +142,7 @@ class EvolutionHttpRuntime:
             self.leases,
             self.code_projects,
             self.assets,
+            *([self.scenes] if self.magic_pen is None else []),
         ):
             close_fn = getattr(svc, 'close', None)
             if callable(close_fn):
@@ -224,6 +227,24 @@ class EvolutionHTTP:
         if path == '/axx-api/workspaces/v1/vm/probe':
             self.handler._send_json(200, self.rt.vms.probe())
             return True
+        if path == '/axx-api/spatial/v2/scenes':
+            self.handler._send_json(200, self.rt.scenes.get_document(query.get('document_id', [''])[0]))
+            return True
+        if path == '/axx-api/spatial/v2/scenes/history':
+            self.handler._send_json(200, {'revisions': self.rt.scenes.list_revisions(query.get('document_id', [''])[0])})
+            return True
+        if path == '/axx-api/code/v1/projects':
+            self.handler._send_json(200, {'projects': self.rt.code_projects.list_projects()})
+            return True
+        if path == '/axx-api/code/v1/directory':
+            entries = self.rt.code_projects.list_directory(query.get('project_id', [''])[0], query.get('path', [''])[0])
+            self.handler._send_json(200, {'entries': entries})
+            return True
+        if path == '/axx-api/code/v1/git/status':
+            root = self.rt.code_projects.get_project_root(query.get('project_id', [''])[0])
+            self.handler._send_json(200, {'dirty_files': self.rt.code_git.detect_dirty_files(root),
+                                         'head': self.rt.code_git.get_head_commit(root)})
+            return True
 
         self.handler._send_json(404, {'error': {'code': 'NOT_FOUND', 'message': f'Unknown Evolution GET endpoint: {path}'}})
         return True
@@ -233,7 +254,31 @@ class EvolutionHTTP:
             return False
 
         # 1. Feature Flags
+        cleanup = path.endswith(('/cancel', '/reconcile', '/release', '/revoke', '/stop', '/destroy', '/remove'))
+        if not cleanup:
+            required = []
+            if path.startswith(('/axx-api/agents/v1/profiles', '/axx-api/agents/v1/bindings')):
+                required.append('agent_profiles_v1')
+            elif path.startswith(('/axx-api/agents/v1/runs', '/axx-api/agents/v1/handoffs')):
+                required.append('team_chat_v1')
+            elif path.startswith('/axx-api/code/v1/'):
+                required.append('code_studio_v1')
+                if path.endswith('/tests/run'):
+                    required.append('code_execution_v1')
+            elif path.startswith('/axx-api/spatial/v2/'):
+                required.append('magic_scene_v2')
+                for segment, flag in (('/cad/', 'cad_worker_v1'), ('/motion/', 'motion_worker_v1'), ('/assets/', 'asset_gate_mcp_v1')):
+                    if segment in path:
+                        required.append(flag)
+            elif path.startswith(('/axx-api/workspaces/v1/browsers/', '/axx-api/workspaces/v1/uia/')):
+                required.append('computer_background_v1')
+            elif path.startswith('/axx-api/workspaces/v1/vm/'):
+                required.append('computer_vm_v1')
+            for flag in required:
+                self.rt.flags.require_enabled_for_new_dispatch(flag)
         if path == '/axx-api/agents/v1/flags/set':
+            if type(body.get('enabled')) is not bool or type(body.get('expected_revision')) is not int:
+                raise ValueError('enabled and expected_revision must be boolean and integer respectively')
             updated = self.rt.flags.set_flag(
                 body['flag_id'],
                 enabled=bool(body['enabled']),
@@ -315,12 +360,19 @@ class EvolutionHTTP:
             return True
         if path == '/axx-api/agents/v1/runs/execute-task':
             task_id = body['task_id']
+            node = self.rt.task_graph.get_task(task_id)
+            approval = self.rt.orchestrator.pending_approvals.get(body.get('operation_id', node['operation_id']))
+            if (not approval or approval['status'] != 'approved' or approval['task_id'] != task_id
+                    or approval['tool_name'] != node['action_spec'].get('tool_name')
+                    or approval['parameters'] != node['action_spec'].get('inputs', {})):
+                raise PermissionError('Task requires explicit approval bound to its operation, tool and parameters')
             lease_id = body.get('lease_id', f'lease-{task_id}')
             verifier_id = body.get('verifier_agent_id', 'axx-verifier')
             verifying_node = self.rt.task_graph.dispatch_task_via_executor(
                 task_id,
                 lease_id=lease_id,
                 delivery_mode=body.get('delivery_mode'),
+                operation_id=approval['operation_id'],
             )
             if verifying_node['state'] == 'verifying':
                 verdict = self.rt.verifier.verify_task(verifying_node, verifier_agent_id=verifier_id)
@@ -370,6 +422,8 @@ class EvolutionHTTP:
             self.handler._send_json(200, {'approval': card})
             return True
         if path == '/axx-api/agents/v1/approvals/resolve':
+            if type(body.get('approved')) is not bool:
+                raise ValueError('approved must be a boolean')
             resolved = self.rt.orchestrator.resolve_human_approval(
                 operation_id=body['operation_id'],
                 approved=bool(body['approved']),
@@ -594,11 +648,18 @@ class EvolutionHTTP:
             self.handler._send_json(200, removed)
             return True
         if path == '/axx-api/code/v1/tests/run':
+            cwd = None
+            if body['workspace_id'] != body['project_id']:
+                worktree = self.rt.code_git.get_worktree(body['workspace_id'])
+                if worktree['project_id'] != body['project_id'] or worktree['status'] != 'active':
+                    raise PermissionError('Test workspace does not belong to this active project')
+                cwd = Path(worktree['worktree_path'])
             receipt = self.rt.code_tests.run_test_command(
                 report_id=body['report_id'],
                 project_id=body['project_id'],
                 workspace_id=body['workspace_id'],
                 command=body['command'],
+                cwd=cwd,
             )
             self.handler._send_json(200, {'receipt': receipt})
             return True
@@ -612,9 +673,17 @@ class EvolutionHTTP:
             scene = validate_scene_document_v2(body)
             self.handler._send_json(200, {'valid': True, 'scene': scene})
             return True
+        if path == '/axx-api/spatial/v2/scenes':
+            scene = self.rt.scenes.create_document(body['scene'], operation_id=body.get('operation_id', 'op-create'))
+            self.handler._send_json(200, scene)
+            return True
         if path == '/axx-api/spatial/v2/scenes/patch':
-            patched = apply_scene_patch(body['scene'], body['patch'])
+            patched = apply_scene_patch(self.rt.scenes, body['patch'])
             self.handler._send_json(200, patched)
+            return True
+        if path in ('/axx-api/spatial/v2/scenes/undo', '/axx-api/spatial/v2/scenes/redo'):
+            action = undo_scene_patch if path.endswith('/undo') else redo_scene_patch
+            self.handler._send_json(200, action(self.rt.scenes, body['document_id'], operation_id=body['operation_id']))
             return True
         if path == '/axx-api/spatial/v2/diagrams/layout':
             laid_out = auto_layout_diagram(body['diagram'])
@@ -623,7 +692,8 @@ class EvolutionHTTP:
             self.handler._send_json(200, {'diagram': laid_out, 'qa': qa, 'svg': svg})
             return True
         if path == '/axx-api/spatial/v2/cad/build':
-            cad_out = self.rt.base_dir / 'cad_outputs' / str(body.get('task', {}).get('task_id', 'cad-task'))
+            task = validate_geometry_task(body.get('task'))
+            cad_out = self.rt.base_dir / 'cad_outputs' / hashlib.sha256(task['task_id'].encode()).hexdigest()[:24]
             cad_out.mkdir(parents=True, exist_ok=True)
             result = self.rt.cad_worker.run_task(body['task'], output_dir=cad_out)
             self.handler._send_json(200, result)
@@ -633,7 +703,8 @@ class EvolutionHTTP:
             self.handler._send_json(200, frozen)
             return True
         if path == '/axx-api/spatial/v2/motion/export-mp4':
-            out_file = self.rt.base_dir / 'renders' / f"{body['scene'].get('document_id', 'scene')}.mp4"
+            scene = validate_scene_document_v2(body['scene'])
+            out_file = self.rt.base_dir / 'renders' / (hashlib.sha256(scene['document_id'].encode()).hexdigest()[:24] + '.mp4')
             out_file.parent.mkdir(parents=True, exist_ok=True)
             mp4_res = export_motion_mp4(
                 body['scene'],
@@ -645,15 +716,22 @@ class EvolutionHTTP:
             self.handler._send_json(200, serializable)
             return True
         if path == '/axx-api/spatial/v2/assets/register':
-            raw_bytes = base64.b64decode(body['content_b64']) if 'content_b64' in body else str(body.get('content_text', '')).encode('utf-8')
+            raw_bytes = base64.b64decode(body['content_b64'], validate=True) if 'content_b64' in body else str(body.get('content_text', '')).encode('utf-8')
+            filename = body.get('filename', body.get('logical_name', 'asset'))
+            mime = body.get('mime_type') or {'.glb':'model/gltf-binary','.gltf':'model/gltf+json','.svg':'image/svg+xml','.png':'image/png'}.get(Path(filename).suffix.lower())
             asset = self.rt.assets.register_asset(
+                asset_id=body.get('asset_id', 'asset-' + hashlib.sha256(raw_bytes).hexdigest()[:24]),
+                logical_name=body.get('logical_name', filename),
                 raw_bytes=raw_bytes,
-                filename=body['filename'],
-                license_spdx=body['license_spdx'],
-                provenance_source=body['provenance_source'],
-                credit_text=body.get('credit_text', ''),
-                triangle_count=int(body.get('triangle_count', 100)),
-                lods=body.get('lods', ['lod0']),
+                mime_type=mime,
+                license_id=body.get('license_id', body.get('license_spdx')),
+                asset_source=body.get('asset_source', body.get('provenance_source', 'local')),
+                credit_line=body.get('credit_line', body.get('credit_text', '')),
+                triangle_count=body.get('triangle_count', 0),
+                lod_level=body.get('lod_level', (body.get('lods') or ['lod0'])[0]),
+                dimensions_m=body.get('dimensions_m'),
+                expected_sha256=body.get('expected_sha256'),
+                redistribution_allowed=body.get('redistribution_allowed', False),
             )
             self.handler._send_json(200, {'asset': asset})
             return True

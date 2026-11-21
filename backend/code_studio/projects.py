@@ -206,6 +206,7 @@ class CodeProjectService:
             return _NullClosing(self._persistent_conn)
         conn = sqlite3.connect(self.db_path, timeout=10.0, check_same_thread=False)
         conn.row_factory = sqlite3.Row
+        conn.execute('PRAGMA foreign_keys=ON')
         return closing(conn)
 
     def _init_schema(self) -> None:
@@ -255,9 +256,12 @@ class CodeProjectService:
         now = self.clock()
         with self.lock, self._connect() as db:
             with db:
+                existing = db.execute('SELECT project_root_ref FROM code_projects WHERE project_id=?', (project_id,)).fetchone()
+                if existing and Path(existing['project_root_ref']).resolve() != root:
+                    raise CodeSecurityError('A registered project ID cannot be moved to another root')
                 db.execute(
                     '''
-                    INSERT OR REPLACE INTO code_projects (project_id, project_root_ref, git_root_ref, project_revision, created_at_ms)
+                    INSERT OR IGNORE INTO code_projects (project_id, project_root_ref, git_root_ref, project_revision, created_at_ms)
                     VALUES (?, ?, ?, 1, ?)
                     ''',
                     (project_id, str(root), git_root, now),
@@ -274,6 +278,36 @@ class CodeProjectService:
                 raise LookupError(f'Project not registered: {project_id}')
             return Path(row['project_root_ref']).resolve()
 
+    @staticmethod
+    def _file_sha256(path: Path) -> str:
+        with path.open('rb') as stream:
+            return hashlib.file_digest(stream, 'sha256').hexdigest()
+
+    def list_projects(self) -> list[dict[str, Any]]:
+        with self.lock, self._connect() as db:
+            return [dict(row) for row in db.execute(
+                'SELECT project_id, project_root_ref, git_root_ref FROM code_projects ORDER BY project_id LIMIT 200')]
+
+    def list_directory(self, project_id: str, relative_path: str = '') -> list[dict[str, Any]]:
+        root = self.get_project_root(project_id)
+        directory = resolve_scoped_project_path(root, relative_path) if relative_path else root
+        if not directory.is_dir():
+            raise NotADirectoryError(relative_path)
+        entries = []
+        with os.scandir(directory) as children:
+            for child in children:
+                if len(entries) >= 2000:
+                    raise ValueError('Directory exceeds the 2000-entry limit; open a narrower folder')
+                if child.name in {'.git', 'node_modules', '__pycache__', '.venv', 'target', 'build'}:
+                    continue
+                child_path = Path(child.path).relative_to(root).as_posix()
+                try:
+                    checked = resolve_scoped_project_path(root, child_path)
+                except CodeSecurityError:
+                    continue
+                entries.append({'path': child_path, 'name': child.name, 'directory': checked.is_dir()})
+        return sorted(entries, key=lambda entry: (not entry['directory'], entry['name'].casefold()))
+
     def read_document(self, project_id: str, relative_path: str) -> dict[str, Any]:
         """Read a file inside an authorized project with binary/BOM/EOL detection and large-file read-only degradation (CODE-01)."""
         root = self.get_project_root(project_id)
@@ -289,7 +323,7 @@ class CodeProjectService:
             return {
                 'project_id': project_id,
                 'path': relative_path,
-                'sha256': hashlib.sha256(full_path.read_bytes()).hexdigest(),
+                'sha256': self._file_sha256(full_path),
                 'encoding': info['encoding'],
                 'line_ending': info['line_ending'],
                 'size_bytes': size,
@@ -326,58 +360,63 @@ class CodeProjectService:
         operation_id: str = 'op-save',
     ) -> dict[str, Any]:
         """Atomically save a file with CAS expected_sha256 verification and Time Machine snapshot recording (CODE-01)."""
-        root = self.get_project_root(project_id)
-        full_path = resolve_scoped_project_path(root, relative_path)
-        if not full_path.is_file():
-            raise FileNotFoundError(f'File not found: {relative_path}')
+        with self.lock:
+            root = self.get_project_root(project_id)
+            full_path = resolve_scoped_project_path(root, relative_path)
+            if not full_path.is_file():
+                raise FileNotFoundError(f'File not found: {relative_path}')
 
-        current_raw = full_path.read_bytes()
-        current_info = detect_encoding_and_eol(current_raw)
-        if current_info['sha256'] != expected_sha256:
-            raise CodeConflictError(
-                f"Save conflict on {relative_path}: expected sha256={expected_sha256}, on_disk={current_info['sha256']}"
+            if not isinstance(new_content, str) or len(new_content.encode('utf-8')) > self.max_editable_bytes:
+                raise ValueError('Edited document exceeds the editable text size limit')
+            if full_path.stat().st_size > self.max_editable_bytes:
+                raise ValueError('Large files are read-only')
+            current_raw = full_path.read_bytes()
+            current_info = detect_encoding_and_eol(current_raw)
+            if current_info['sha256'] != expected_sha256:
+                raise CodeConflictError(
+                    f"Save conflict on {relative_path}: expected sha256={expected_sha256}, on_disk={current_info['sha256']}"
+                )
+
+            target_enc = encoding or current_info['encoding']
+            target_eol = line_ending or (
+                'CRLF' if current_info['line_ending'] == 'CRLF' else 'LF'
+            )
+            new_raw = encode_with_preserved_format(new_content, encoding=target_enc, line_ending=target_eol)
+            new_sha = hashlib.sha256(new_raw).hexdigest()
+
+            # Record before & after snapshots in Code Time Machine before atomic replace
+            self._record_snapshot(
+                project_id=project_id,
+                relative_path=relative_path,
+                sha256=current_info['sha256'],
+                encoding=current_info['encoding'],
+                line_ending=current_info['line_ending'],
+                raw_blob=current_raw,
+                actor=actor,
+                operation_id=f'{operation_id}:before',
+            )
+            atomic_write_bytes(full_path, new_raw)
+            self._record_snapshot(
+                project_id=project_id,
+                relative_path=relative_path,
+                sha256=new_sha,
+                encoding=target_enc,
+                line_ending=target_eol,
+                raw_blob=new_raw,
+                actor=actor,
+                operation_id=f'{operation_id}:after',
             )
 
-        target_enc = encoding or current_info['encoding']
-        target_eol = line_ending or (
-            'CRLF' if current_info['line_ending'] == 'CRLF' else 'LF'
-        )
-        new_raw = encode_with_preserved_format(new_content, encoding=target_enc, line_ending=target_eol)
-        new_sha = hashlib.sha256(new_raw).hexdigest()
-
-        # Record before & after snapshots in Code Time Machine before atomic replace
-        self._record_snapshot(
-            project_id=project_id,
-            relative_path=relative_path,
-            sha256=current_info['sha256'],
-            encoding=current_info['encoding'],
-            line_ending=current_info['line_ending'],
-            raw_blob=current_raw,
-            actor=actor,
-            operation_id=f'{operation_id}:before',
-        )
-        atomic_write_bytes(full_path, new_raw)
-        self._record_snapshot(
-            project_id=project_id,
-            relative_path=relative_path,
-            sha256=new_sha,
-            encoding=target_enc,
-            line_ending=target_eol,
-            raw_blob=new_raw,
-            actor=actor,
-            operation_id=f'{operation_id}:after',
-        )
-
-        return {
-            'status': 'saved',
-            'project_id': project_id,
-            'path': relative_path,
-            'previous_sha256': current_info['sha256'],
-            'new_sha256': new_sha,
-            'encoding': target_enc,
-            'line_ending': target_eol,
-            'size_bytes': len(new_raw),
-        }
+            return {
+                'status': 'saved',
+                'project_id': project_id,
+                'path': relative_path,
+                'previous_sha256': current_info['sha256'],
+                'new_sha256': new_sha,
+                'encoding': target_enc,
+                'line_ending': target_eol,
+                'size_bytes': len(new_raw),
+            }
 
     def restore_snapshot(
         self,

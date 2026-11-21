@@ -163,8 +163,9 @@ class BackgroundInteractionRouter:
             }
 
         return {
-            'status': 'completed',
-            'executed': True,
+            'status': 'unsupported_mode',
+            'executed': False,
+            'reason': 'No semantic UIA driver is connected; no action was dispatched',
             'channel': 'uia_background',
             'window_key': leased_window_key,
             'uia_pattern': uia_pattern,

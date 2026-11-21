@@ -114,10 +114,12 @@ class GitWorkspaceService:
         base_dir = self.worktrees_base_dir or (repo_root.parent / f'.{repo_root.name}_axx_worktrees')
         base_dir.mkdir(parents=True, exist_ok=True)
         wt_path = (base_dir / workspace_id).resolve()
+        if wt_path.parent != base_dir.resolve():
+            raise ValueError('Worktree path must be a direct child of its managed root')
         if wt_path.exists():
-            shutil.rmtree(wt_path, ignore_errors=True)
+            raise FileExistsError('Worktree destination already exists; preserving its files')
 
-        self._run_git(repo_root, ['worktree', 'add', '-B', branch_name, str(wt_path), base_commit])
+        self._run_git(repo_root, ['worktree', 'add', '-b', branch_name, str(wt_path), base_commit])
 
         now = self.projects.clock()
         with self.projects.lock, self.projects._connect() as db:
@@ -200,9 +202,9 @@ class GitWorkspaceService:
         repo_root = self.projects.get_project_root(wt['project_id'])
         wt_path = Path(wt['worktree_path'])
         if wt_path.exists():
-            self._run_git(repo_root, ['worktree', 'remove', '--force', str(wt_path)], check=False)
-            if wt_path.exists():
-                shutil.rmtree(wt_path, ignore_errors=True)
+            if self.detect_dirty_files(wt_path):
+                raise DirtyWorktreeError('Worktree has uncommitted files; preserve or commit them before removal')
+            self._run_git(repo_root, ['worktree', 'remove', str(wt_path)])
         with self.projects.lock, self.projects._connect() as db:
             with db:
                 db.execute(

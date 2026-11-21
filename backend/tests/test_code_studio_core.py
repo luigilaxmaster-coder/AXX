@@ -29,6 +29,22 @@ from backend.code_studio.test_runner import SupervisedTestRunner, UnauthorizedTo
 
 
 class CodeStudioCoreTests(unittest.TestCase):
+    def test_project_registration_cannot_retarget_or_erase_saved_history(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp); first=root/'first'; second=root/'second'; first.mkdir(); second.mkdir()
+            (first/'sample.py').write_bytes(b'VALUE = 1\n')
+            service=CodeProjectService(root/'state.db'); self.addCleanup(service.close)
+            service.register_project('stable',first)
+            original=service.read_document('stable','sample.py')
+            service.save_document('stable','sample.py','VALUE = 2\n',expected_sha256=original['sha256'])
+            service.register_project('stable',first)
+            with service._connect() as db:
+                self.assertEqual(db.execute('SELECT COUNT(*) FROM code_time_machine_snapshots').fetchone()[0],2)
+                self.assertEqual(db.execute('PRAGMA foreign_keys').fetchone()[0],1)
+            with self.assertRaises(CodeSecurityError):
+                service.register_project('stable',second)
+            self.assertEqual(service.get_project_root('stable'),first.resolve())
+
     def test_sec03_path_traversal_ads_secrets_and_junctions_blocked(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / 'proj'
@@ -267,8 +283,18 @@ class CodeStudioCoreTests(unittest.TestCase):
                 git_ws.integrate_into_primary_workspace('cs-b')
             self.assertEqual((repo / 'b.py').read_text(encoding='utf-8'), 'B = 999  # user dirty edit\n')
 
-            git_ws.remove_agent_worktree('wt-agent-a')
-            git_ws.remove_agent_worktree('wt-agent-b')
+            with self.assertRaises(DirtyWorktreeError):
+                git_ws.remove_agent_worktree('wt-agent-a')
+            self.assertEqual((Path(wt_a['worktree_path']) / 'a.py').read_text(), 'A = 2\n')
+            with self.assertRaises(FileExistsError):
+                git_ws.create_agent_worktree(workspace_id='wt-agent-a', project_id='repo-1',
+                                             agent_id='agent-a', task_slug='edit-a')
+            self.assertEqual((Path(wt_a['worktree_path']) / 'a.py').read_text(), 'A = 2\n')
+            # Commit fixture edits before testing non-destructive removal.
+            for wt in (wt_a, wt_b):
+                subprocess.run(['git', '-C', wt['worktree_path'], 'add', '.'], check=True, capture_output=True)
+                subprocess.run(['git', '-C', wt['worktree_path'], 'commit', '-m', 'Fixture edit'], check=True, capture_output=True)
+                git_ws.remove_agent_worktree(wt['workspace_id'])
 
 
 if __name__ == '__main__':

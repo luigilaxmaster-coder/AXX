@@ -152,6 +152,12 @@ class BackgroundWorkspacesTests(unittest.TestCase):
             )
             self.assertFalse(res_a['action_receipt']['used_host_sendinput'])
             self.assertFalse(res_b['action_receipt']['stole_foreground_focus'])
+            self.assertEqual(res_a['status'], 'unsupported_mode')
+            self.assertFalse(res_a['executed'])
+            self.assertEqual(browsers.sessions['sess-a']['current_url'], 'about:blank')
+            for profile_id in ('.', '..'):
+                with self.assertRaises(ValueError):
+                    browsers.create_isolated_session(session_id='unsafe', profile_id=profile_id, agent_id='a')
 
     def test_pc03_and_pc04_window_identity_and_zero_silent_sendinput_fallback(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -190,7 +196,7 @@ class BackgroundWorkspacesTests(unittest.TestCase):
                 'process_name': 'notepad.exe',
             }
 
-            # 1. Valid semantic UIA background action succeeds without focus theft
+            # 1. A lease is authorization evidence, not proof that an absent UIA driver acted.
             ok_res = router.execute_uia_background_action(
                 owner_run_id='run-uia',
                 fencing_token=win_lease['fencing_token'],
@@ -200,7 +206,8 @@ class BackgroundWorkspacesTests(unittest.TestCase):
                 control_id='Edit1',
                 value='Hello background UIA',
             )
-            self.assertEqual(ok_res['status'], 'completed')
+            self.assertEqual(ok_res['status'], 'unsupported_mode')
+            self.assertFalse(ok_res['executed'])
             self.assertFalse(ok_res['used_host_sendinput'])
 
             # 2. PC-03: If the window handle is recycled by another PID/class, action aborts immediately

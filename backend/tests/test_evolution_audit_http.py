@@ -1,0 +1,77 @@
+"""Regression tests for actual Evolution HTTP storage, conflicts and trust boundaries."""
+from pathlib import Path
+import tempfile
+import unittest
+
+from backend.tests.test_evolution3_full_functional_audit import _start_bound_server, _stop_bound_server, _HttpTestClient
+from backend.tests import test_motion_studio
+
+
+class EvolutionAuditHttpTests(unittest.TestCase):
+    def test_asset_http_contract_keeps_unknown_measurements_unknown(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);services=_start_bound_server(root/'state.db',root/'runtime')
+            try:
+                for flag in ('magic_scene_v2','asset_gate_mcp_v1'):
+                    services[0].evolution_runtime.flags.set_flag(flag,True,reason='isolated asset test')
+                api=_HttpTestClient(services[0].server_port,services[0].host_token)
+                code,data=api.request('POST','/axx-api/spatial/v2/assets/register',
+                    {'filename':'triangle.gltf','license_spdx':'MIT','provenance_source':'local',
+                     'content_text':'{"asset":{"version":"2.0"},"scenes":[{"nodes":[]}],"nodes":[]}'})
+                self.assertEqual(code,200,data)
+                self.assertIsNone(data['asset']['dimensions_m'])
+            finally:
+                _stop_bound_server(*services)
+
+    def test_scene_patch_undo_redo_and_restart_use_the_persistent_store(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            services = _start_bound_server(root / 'state.db', root / 'runtime')
+            services[0].evolution_runtime.flags.set_flag('magic_scene_v2', True, reason='isolated scene test')
+            try:
+                api = _HttpTestClient(services[0].server_port, services[0].host_token)
+                scene = test_motion_studio.MotionStudioTests()._sample_motion_scene()
+                self.assertEqual(api.request('POST', '/axx-api/spatial/v2/scenes', {'scene':scene})[0], 200)
+                patch = {'document_id':scene['document_id'],'base_revision':1,'operation_id':'patch-name',
+                         'target_object_ids':['piston-1'],'allowed_paths':['name'],
+                         'changes':[{'op':'object.update','object_id':'piston-1','fields':{'name':'Verified change'}}]}
+                self.assertEqual(api.request('POST','/axx-api/spatial/v2/scenes/patch',{'patch':patch})[0],200)
+                self.assertEqual(api.request('POST','/axx-api/spatial/v2/scenes/patch',{'patch':patch})[0],409)
+                read = lambda: api.request('GET','/axx-api/spatial/v2/scenes?document_id=' + scene['document_id'])[1]
+                self.assertEqual(read()['objects'][0]['name'],'Verified change')
+                for action, expected in [('undo','Pistón Principal'),('redo','Verified change')]:
+                    code, data = api.request('POST','/axx-api/spatial/v2/scenes/' + action,
+                                            {'document_id':scene['document_id'],'operation_id':action + '-name'})
+                    self.assertEqual(code,200,data)
+                    self.assertEqual(read()['objects'][0]['name'],expected)
+            finally:
+                _stop_bound_server(*services)
+            services = _start_bound_server(root / 'state.db',root / 'runtime')
+            try:
+                api = _HttpTestClient(services[0].server_port,services[0].host_token)
+                self.assertEqual(read()['objects'][0]['name'],'Verified change')
+                self.assertEqual(read()['revision'],4)
+            finally:
+                _stop_bound_server(*services)
+
+    def test_invalid_exports_cannot_allocate_directories_and_flags_require_real_booleans(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp); services=_start_bound_server(root/'state.db',root/'runtime')
+            try:
+                api=_HttpTestClient(services[0].server_port,services[0].host_token)
+                code,data=api.request('POST','/axx-api/code/v1/projects/register',{'project_id':'off','project_root':str(root)})
+                self.assertEqual(code,403,data)
+                for flag in ('magic_scene_v2','cad_worker_v1','motion_worker_v1'):
+                    services[0].evolution_runtime.flags.set_flag(flag, True, reason='isolated negative test')
+                for path,body in [('/axx-api/spatial/v2/cad/build',{'task':{'task_id':'../../escaped'}}),
+                                  ('/axx-api/spatial/v2/motion/export-mp4',{'scene':{'document_id':'../../escaped'}})]:
+                    code,data=api.request('POST',path,body)
+                    self.assertEqual(code,400,data)
+                self.assertFalse((root/'escaped').exists())
+                self.assertFalse((root/'runtime/evolution3/cad_outputs').exists())
+                code,data=api.request('POST','/axx-api/agents/v1/flags/set',
+                    {'flag_id':'code_studio_v1','expected_revision':1,'enabled':'false'})
+                self.assertEqual(code,400,data)
+                self.assertFalse(services[0].evolution_runtime.flags.is_enabled('code_studio_v1'))
+            finally:
+                _stop_bound_server(*services)

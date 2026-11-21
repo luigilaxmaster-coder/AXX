@@ -114,7 +114,8 @@ class CodeStudioProTests(unittest.TestCase):
 
             # Safe read-only variable inspection by agent is allowed
             res = dap.evaluate_expression(session_id='dap-1', expression='counter', actor='agent')
-            self.assertEqual(res['result'], 3)
+            self.assertIsNone(res['result'])
+            self.assertEqual(res['status'], 'unsupported_mode')
 
             # Dangerous side-effecting expression by agent is blocked
             with self.assertRaises(DebugSecurityError):

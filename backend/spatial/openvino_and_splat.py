@@ -40,7 +40,7 @@ def probe_openvino_runtime() -> dict[str, Any]:
             core = ov.Core()
             devices = list(getattr(core, 'available_devices', ['CPU']))
         except Exception:
-            devices = ['CPU']
+            devices = []
     return {
         'provider_id': 'openvino_local_auxiliary',
         'opt_in_only': True,
@@ -84,7 +84,10 @@ def benchmark_auxiliary_task(
     p95 = latencies_ms[min(len(latencies_ms) - 1, int(len(latencies_ms) * 0.95))]
 
     return {
-        'benchmark_passed': True,
+        'benchmark_passed': False,
+        'reference_benchmark_passed': True,
+        'benchmark_kind': 'python_reference_only',
+        'openvino_inference_verified': False,
         'runtime_probe': probe,
         'manual_provider_preserved': manual_provider_selected,
         'silent_fallback_performed': False,

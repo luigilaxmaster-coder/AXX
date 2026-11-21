@@ -63,6 +63,9 @@ from backend.mobile.http_api import MobileHTTP
 from backend.anticipation import AnticipationService
 from backend.telegram.http_api import TelegramHTTP
 from backend.agents.http_api import EvolutionHTTP, EvolutionHttpRuntime
+from backend.code_studio.projects import CodeConflictError
+from backend.spatial.scene_document import StaleSceneRevisionError
+from backend.evolution_flags import StaleFlagRevisionError
 from backend.memory import task_memory
 from backend import session_memory
 
@@ -1561,6 +1564,12 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
             self._send_json(409 if exc.code == 'BUSY' else 400, {'error': {'code': exc.code, 'message': str(exc)}})
         except ApprovalRequired as exc:
             self._send_json(403, {'error': {'code': 'APPROVAL_REQUIRED', 'message': str(exc)}})
+        except (CodeConflictError, StaleSceneRevisionError, StaleFlagRevisionError) as exc:
+            self._send_json(409, {'error': {'code': 'STALE_REVISION', 'message': str(exc)}})
+        except PermissionError as exc:
+            self._send_json(403, {'error': {'code': 'FORBIDDEN', 'message': str(exc)}})
+        except (FileNotFoundError, LookupError) as exc:
+            self._send_json(404, {'error': {'code': 'NOT_FOUND', 'message': str(exc)}})
         except (ValueError, TypeError, ActionExecutionError) as exc:
             self._send_json(400, {'error': {'code': 'INVALID_REQUEST', 'message': str(exc)}})
         except Exception:

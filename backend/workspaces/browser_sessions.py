@@ -58,7 +58,7 @@ class BrowserSessionManager:
         agent_id: str,
         custom_profile_dir: str | Path | None = None,
     ) -> dict[str, Any]:
-        if not isinstance(profile_id, str) or not PROFILE_ID_RE.fullmatch(profile_id):
+        if not isinstance(profile_id, str) or not PROFILE_ID_RE.fullmatch(profile_id) or profile_id in ('.', '..'):
             raise ValueError(f'Invalid profile_id: {profile_id!r}')
         if profile_id.lower() in ('default', 'personal', 'system-default'):
             raise PersonalBrowserProfileBlockedError(f'Reserved personal profile_id rejected: {profile_id!r}')
@@ -74,6 +74,8 @@ class BrowserSessionManager:
         else:
             profile_dir = (self.profiles_root / profile_id).resolve()
             self._validate_not_personal_root(profile_dir)
+            if not profile_dir.is_relative_to(self.profiles_root):
+                raise PersonalBrowserProfileBlockedError('Profile escapes the isolated browser root')
 
         profile_dir.mkdir(parents=True, exist_ok=True)
         session = {
@@ -111,8 +113,6 @@ class BrowserSessionManager:
             fencing_token=int(fencing_token),
         )
 
-        if action == 'navigate':
-            session['current_url'] = target
         record = {
             'action': action,
             'target': target,
@@ -120,10 +120,13 @@ class BrowserSessionManager:
             'fencing_token': int(fencing_token),
             'used_host_sendinput': False,
             'stole_foreground_focus': False,
+            'executed': False,
         }
         session['history'].append(record)
         return {
-            'status': 'completed',
+            'status': 'unsupported_mode',
+            'executed': False,
+            'reason': 'No isolated browser driver is connected to the approved command executor',
             'session_id': session_id,
             'profile_id': session['profile_id'],
             'current_url': session['current_url'],
