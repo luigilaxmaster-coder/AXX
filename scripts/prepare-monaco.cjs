@@ -15,11 +15,11 @@ fs.writeFileSync(entry, "export * from 'monaco-editor/editor/editor.api.js';\nim
   const result = await build({absWorkingDir:root,entryPoints:{editor:entry,
     'editor.worker':path.join(source,'esm/vs/editor/editor.worker.js')},outdir:target,
     bundle:true,splitting:true,format:'esm',platform:'browser',minify:true,
-    outExtension:{'.js':'.mjs'},loader:{'.ttf':'file'},legalComments:'external',metafile:true});
+    loader:{'.ttf':'file'},legalComments:'external',metafile:true});
   assert(Object.keys(result.metafile.inputs).some(input => input.includes('dompurify/')));
   fs.copyFileSync(path.join(source,'LICENSE'),path.join(target,'LICENSE'));
   fs.copyFileSync(path.join(root,'node_modules/dompurify/LICENSE'),path.join(target,'DOMPURIFY-LICENSE'));
-  assert(fs.statSync(path.join(target,'editor.mjs')).size > 0);
-  assert(fs.statSync(path.join(target,'editor.worker.mjs')).size > 0);
+  assert(fs.statSync(path.join(target,'editor.js')).size > 0);
+  assert(fs.statSync(path.join(target,'editor.worker.js')).size > 0);
   console.log('Prepared Monaco ' + version + ' with DOMPurify ' + config.overrides.dompurify);
 })().catch(error => { console.error(error); process.exitCode = 1; });

@@ -36,10 +36,10 @@
     if (loading) return loading;
     loading = (async () => {
       const base = new URL('scripts/vendor/monaco-0.57.0-esm/',document.baseURI);
-      window.MonacoEnvironment = {getWorker:() => new Worker(new URL('editor.worker.mjs',base),{type:'module'})};
+      window.MonacoEnvironment = {getWorker:() => new Worker(new URL('editor.worker.js',base),{type:'module'})};
       const style = document.createElement('link'); style.rel = 'stylesheet'; style.href = new URL('editor.css',base).href;
       document.head.append(style);
-      monaco = await import(new URL('editor.mjs',base).href);
+      monaco = await import(new URL('editor.js',base).href);
       editor = monaco.editor.create(ui('editor'), {automaticLayout:true,minimap:{enabled:false},fontSize:13,
         theme:document.body.dataset.uiTheme === 'light' ? 'vs' : 'vs-dark',ariaLabel:'Código del archivo'});
       return editor;
