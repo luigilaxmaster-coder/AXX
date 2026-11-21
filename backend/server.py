@@ -62,6 +62,7 @@ from backend.converter import ConverterService
 from backend.mobile.http_api import MobileHTTP
 from backend.anticipation import AnticipationService
 from backend.telegram.http_api import TelegramHTTP
+from backend.agents.http_api import EvolutionHTTP
 from backend.memory import task_memory
 from backend import session_memory
 
@@ -355,6 +356,8 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                 self._send_json(200, self.anticipation.status(query.get('task_id', [None])[0]))
                 return
             if TelegramHTTP(self).get(path):
+                return
+            if EvolutionHTTP(self).get(path):
                 return
             if path == '/axx-api/telegram/status':
                 self._send_json(200, self.telegram.status() if self.telegram else {'state': 'unavailable'})
@@ -704,6 +707,8 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                 self._send_json(200, result)
                 return
             if TelegramHTTP(self).post(path, body):
+                return
+            if EvolutionHTTP(self).post(path, body):
                 return
             if path in ('/axx-api/telegram/review', '/axx-api/telegram/decision'):
                 fields = {'peer_id', 'operation_id'} if path.endswith('/review') else {'peer_id', 'token', 'decision'}
