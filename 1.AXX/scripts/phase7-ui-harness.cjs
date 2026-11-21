@@ -64,7 +64,7 @@ const inventory = () => {
 (async () => {
   const html = fs.readFileSync(path.join(root, 'Axx.html'), 'utf8');
   const server = http.createServer((req, res) => {
-    const file = path.join(root, 'scripts', path.basename(req.url.split('?')[0]));
+    const file = req.url.startsWith('/scripts/') ? require('./test-static-assets.cjs').scriptPath(req.url) : '';
     if (req.url.startsWith('/scripts/') && fs.existsSync(file)) { res.writeHead(200, { 'Content-Type': req.url.includes('.css') ? 'text/css' : 'application/javascript' }); return res.end(fs.readFileSync(file)); }
     res.writeHead(200, { 'Content-Type': 'text/html' }); res.end(html);
   });

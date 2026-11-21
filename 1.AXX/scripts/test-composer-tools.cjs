@@ -46,7 +46,7 @@ const PROMPT = 'AXX, muéstrame el estado actual de CPU y memoria RAM.';
   let port; for (let i = 0; i < 160 && !port; i++) { try { port = JSON.parse(fs.readFileSync(ready, 'utf8')).port; } catch { await new Promise(r => setTimeout(r, 250)); } }
   assert(port, 'backend did not start: ' + stderr.slice(-600));
   const web = http.createServer((req, res) => {
-    const url = req.url.split('?')[0], file = url.startsWith('/scripts/') ? path.join(__dirname, path.basename(url)) : path.join(__dirname, '../Axx.html');
+    const url = req.url.split('?')[0], file = url.startsWith('/scripts/') ? require('./test-static-assets.cjs').scriptPath(url) : path.join(__dirname, '../Axx.html');
     if (!fs.existsSync(file)) { res.statusCode = 404; return res.end(); }
     res.setHeader('Content-Type', file.endsWith('.js') ? 'application/javascript' : file.endsWith('.css') ? 'text/css' : 'text/html'); res.end(fs.readFileSync(file));
   });

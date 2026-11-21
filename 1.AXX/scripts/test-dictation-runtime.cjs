@@ -4,7 +4,7 @@ const {createRequire}=require('node:module');
 const {chromium}=createRequire(path.join(process.env.USERPROFILE,'.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/package.json'))('playwright');
 (async()=>{
   const server=http.createServer((req,res)=>{
-    const file=req.url.startsWith('/scripts/')?path.join(__dirname,path.basename(req.url)):path.join(__dirname,'../Axx.html');
+    const file=req.url.startsWith('/scripts/')?require('./test-static-assets.cjs').scriptPath(req.url):path.join(__dirname,'../Axx.html');
     res.setHeader('Content-Type',file.endsWith('.js')?'application/javascript':file.endsWith('.css')?'text/css':'text/html');res.end(fs.readFileSync(file));
   });
   await new Promise(r=>server.listen(0,'127.0.0.1',r));

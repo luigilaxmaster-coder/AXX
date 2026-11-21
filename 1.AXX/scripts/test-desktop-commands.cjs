@@ -41,7 +41,7 @@ const {chromium} = createRequire(path.join(process.env.USERPROFILE, '.cache/code
     const transcript=await request({method:'POST',path:'/axx-api/speech/transcribe',body:{audio_base64:audio.audio_base64,mime:'audio/wav',language:'en',task:'transcribe'}});
     assert.ok(transcript.text.trim().length>10,JSON.stringify(transcript));
     server = http.createServer((req,res)=>{
-      const file = req.url.startsWith('/scripts/') ? path.join(__dirname,path.basename(req.url)) : path.join(__dirname,'../Axx.html');
+      const file = req.url.startsWith('/scripts/') ? require('./test-static-assets.cjs').scriptPath(req.url) : path.join(__dirname,'../Axx.html');
       res.setHeader('Content-Type',file.endsWith('.js')?'application/javascript':'text/html');
       res.end(fs.readFileSync(file));
     });

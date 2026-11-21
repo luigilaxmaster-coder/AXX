@@ -28,6 +28,8 @@ jobs:
       - run: npx --no-install playwright install chromium
       - name: Renderer syntax and geometry contracts
         run: |
+          node 1.AXX/scripts/test-static-assets.cjs
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
           node scripts/validate_js.js
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           Get-ChildItem 1.AXX/scripts -File -Include *.js,*.cjs,*.mjs -Recurse | ForEach-Object {

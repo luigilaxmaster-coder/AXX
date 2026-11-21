@@ -3,7 +3,7 @@ const fs = require('node:fs'), path = require('node:path'), http = require('node
 const {chromium} = require('playwright');
 (async () => {
     const server = http.createServer((req, res) => {
-        const file = req.url.startsWith('/scripts/') ? path.join(__dirname, path.basename(req.url)) : path.join(__dirname, '../Axx.html');
+        const file = req.url.startsWith('/scripts/') ? require('./test-static-assets.cjs').scriptPath(req.url) : path.join(__dirname, '../Axx.html');
         res.setHeader('Content-Type', file.endsWith('.js') ? 'application/javascript' : 'text/html'); res.end(fs.readFileSync(file));
     });
     await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));

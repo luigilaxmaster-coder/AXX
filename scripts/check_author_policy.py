@@ -31,16 +31,31 @@ def validate_log(output: str) -> list[str]:
     return errors
 
 
-def main(base: str, head: str) -> int:
+def commit_range(base: str, head: str, default_ref: str) -> list[str]:
+    if base and not re.fullmatch(r"0+", base):
+        return [f"{base}..{head}"]
+    if not default_ref:
+        raise ValueError("A new-branch push requires the fetched default branch reference")
+    common = subprocess.run(
+        ["git", "merge-base", head, default_ref], check=True, capture_output=True, text=True,
+    ).stdout.strip()
+    resolved_head = subprocess.run(
+        ["git", "rev-parse", "--verify", f"{head}^{{commit}}"], check=True, capture_output=True, text=True,
+    ).stdout.strip()
+    # A branch created at the default tip still validates its tip, not unrelated history.
+    return [f"{common}..{head}"] if common != resolved_head else [head, "--max-count=1"]
+
+
+def main(base: str, head: str, default_ref: str = "") -> int:
     try:
         result = subprocess.run(
-            ["git", "log", f"{base}..{head}", "--format=%H%x1f%an%x1f%ae%x1f%cn%x1f%ce%x1f%B%x1e"],
+            ["git", "log", *commit_range(base, head, default_ref), "--format=%H%x1f%an%x1f%ae%x1f%cn%x1f%ce%x1f%B%x1e"],
             check=True,
             capture_output=True,
             text=True,
             encoding="utf-8",
         )
-    except (OSError, subprocess.CalledProcessError) as exc:
+    except (OSError, ValueError, subprocess.CalledProcessError) as exc:
         print(f"Unable to inspect commit range: {exc}", file=sys.stderr)
         return 2
     errors = validate_log(result.stdout)
@@ -52,7 +67,7 @@ def main(base: str, head: str) -> int:
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 3:
-        print("Usage: check_author_policy.py BASE_SHA HEAD_SHA", file=sys.stderr)
+    if len(sys.argv) not in (3, 4):
+        print("Usage: check_author_policy.py BASE_SHA HEAD_SHA [DEFAULT_BRANCH_REF]", file=sys.stderr)
         raise SystemExit(2)
-    raise SystemExit(main(sys.argv[1], sys.argv[2]))
+    raise SystemExit(main(*sys.argv[1:]))

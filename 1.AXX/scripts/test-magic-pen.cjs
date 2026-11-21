@@ -4,7 +4,7 @@ const fs=require('node:fs'),path=require('node:path'),http=require('node:http'),
 const {chromium} = require('playwright');
 (async()=>{
  const out=path.resolve(__dirname,'../../build/magic-pen-desktop');fs.mkdirSync(out,{recursive:true});
- const server=http.createServer((req,res)=>{const f=req.url.startsWith('/scripts/')?path.join(__dirname,path.basename(req.url)):path.join(__dirname,'../Axx.html');res.setHeader('Content-Type',f.endsWith('.js')?'application/javascript':f.endsWith('.css')?'text/css':'text/html');res.end(fs.readFileSync(f));});await new Promise(r=>server.listen(0,'127.0.0.1',r));
+ const server=http.createServer((req,res)=>{const f=req.url.startsWith('/scripts/')?require('./test-static-assets.cjs').scriptPath(req.url):path.join(__dirname,'../Axx.html');res.setHeader('Content-Type',f.endsWith('.js')?'application/javascript':f.endsWith('.css')?'text/css':'text/html');res.end(fs.readFileSync(f));});await new Promise(r=>server.listen(0,'127.0.0.1',r));
  const browser=await chromium.launch({headless:true,executablePath:process.env.AXX_TEST_CHROMIUM});
  const passed=[];
  try{

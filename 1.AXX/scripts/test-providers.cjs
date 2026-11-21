@@ -3,7 +3,7 @@ const {requirePlaywright}=require('./test-browser-runtime.cjs');
 const {chromium}=requirePlaywright();
 (async()=>{
   const server=http.createServer((req,res)=>{
-    const file=req.url.startsWith('/scripts/')?path.join(__dirname,path.basename(req.url)):path.join(__dirname,'../Axx.html');
+    const file=req.url.startsWith('/scripts/')?require('./test-static-assets.cjs').scriptPath(req.url):path.join(__dirname,'../Axx.html');
     res.setHeader('Content-Type',file.endsWith('.js')?'application/javascript':'text/html');res.end(fs.readFileSync(file));
   });
   await new Promise(r=>server.listen(0,'127.0.0.1',r));

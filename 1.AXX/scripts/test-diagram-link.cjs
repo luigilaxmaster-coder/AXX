@@ -5,7 +5,7 @@ const { chromium } = createRequire(path.join(process.env.USERPROFILE, '.cache/co
 (async () => {
   const server = http.createServer((req, res) => {
     if (!req.url.startsWith('/scripts/')) { res.setHeader('Content-Type', 'text/html'); return res.end('<!doctype html><body></body>'); }
-    res.setHeader('Content-Type', 'application/javascript'); res.end(fs.readFileSync(path.join(__dirname, path.basename(req.url))));
+    res.setHeader('Content-Type', 'application/javascript'); res.end(fs.readFileSync(require('./test-static-assets.cjs').scriptPath(req.url)));
   });
   await new Promise(r => server.listen(0, '127.0.0.1', r));
   const browser = await chromium.launch({ headless: true, executablePath: process.env.AXX_TEST_CHROMIUM || path.join(process.env.LOCALAPPDATA, 'ms-playwright/chromium_headless_shell-1248/chrome-headless-shell-win64/chrome-headless-shell.exe') });

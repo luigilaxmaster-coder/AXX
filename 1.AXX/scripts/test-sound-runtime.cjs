@@ -8,7 +8,7 @@ const { chromium } = runtime('playwright');
 (async () => {
   const root = path.resolve(__dirname, '..');
   const server = http.createServer((req, res) => {
-    const file = req.url.startsWith('/scripts/') ? path.join(__dirname, path.basename(req.url)) : path.join(root, 'Axx.html');
+    const file = req.url.startsWith('/scripts/') ? require('./test-static-assets.cjs').scriptPath(req.url) : path.join(root, 'Axx.html');
     res.setHeader('Content-Type', file.endsWith('.js') ? 'application/javascript' : 'text/html');
     res.end(fs.readFileSync(file));
   });

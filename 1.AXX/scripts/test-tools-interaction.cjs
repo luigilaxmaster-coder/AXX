@@ -10,7 +10,7 @@ const { chromium } = runtime('playwright');
 (async () => {
   const root = path.resolve(__dirname, '..');
   const server = http.createServer((req, res) => {
-    const file = req.url.startsWith('/scripts/') ? path.join(__dirname, path.basename(req.url)) : (process.env.AXX_TEST_HTML || path.join(root, 'Axx.html'));
+    const file = req.url.startsWith('/scripts/') ? require('./test-static-assets.cjs').scriptPath(req.url) : (process.env.AXX_TEST_HTML || path.join(root, 'Axx.html'));
     res.setHeader('Content-Type', file.endsWith('.js') ? 'application/javascript' : file.endsWith('.css') ? 'text/css' : 'text/html');
     res.end(fs.readFileSync(file));
   });
