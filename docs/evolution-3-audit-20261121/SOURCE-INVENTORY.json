@@ -1,0 +1,821 @@
+{
+  "base": "2f177eae1891efb6097f8dd319872745c37e0f51",
+  "files": [
+    {
+      "path": "1.AXX/Axx.html",
+      "argon_sha256": "dae88d2d18a0448cb25de2b9f417897e0a21044fda760aa07ff65c5959cdfb7f",
+      "current_sha256": "4b149f98770db1e79b4a176069dbc56e289e11d31867377576af5fc7cab04216"
+    },
+    {
+      "path": "1.AXX/scripts/agents/agent-designer.js",
+      "argon_sha256": "4b1ac7ad6a5836e85c9faf4f31ac1054d47da0998012576f98c2a4354c0a97dc",
+      "current_sha256": "dc9540f0a8e3fe8eb88729edf0cabba7e6bc3156253e0f76ab4d74aa6c7b5a94"
+    },
+    {
+      "path": "1.AXX/scripts/agents/agent-roster.js",
+      "argon_sha256": "117bc93157195de9421a014ce73193874ba70d94339f2386b1e25694d9863bce",
+      "current_sha256": "7316a80fa641e38eed08952e7402f4fe856e0d2a7002eacb9724139227730db5"
+    },
+    {
+      "path": "1.AXX/scripts/agents/agent-timeline.js",
+      "argon_sha256": "0d9c73e6165474f47f42462da63d87ed7bb236a353954121094b0de0a4431599",
+      "current_sha256": "224ab94611d474d798706b921f129ed51dfa0918e24d66f764f73f73968c2231"
+    },
+    {
+      "path": "1.AXX/scripts/agents/team-chat.js",
+      "argon_sha256": "e1b1e3dadfedb46a55d5cb14e2e8d5f9158c060b174d4a8bad5e6a7cdc424d30",
+      "current_sha256": "e50f9f293f0dfd2177ee104e9a1bf2bbe442582b5718e49fd674d783a43075e5"
+    },
+    {
+      "path": "1.AXX/scripts/agents/work-approvals.js",
+      "argon_sha256": "8994d328ef98617aeb452b4f0e1020e8d53751ffe16cf2928114d7bb633db1ce",
+      "current_sha256": "8fb19b67371db324429ccd98d00dae27ef1ef808c706b4b9ffcaeb4ec167b5ef"
+    },
+    {
+      "path": "1.AXX/scripts/code-studio/code-diff.js",
+      "argon_sha256": "9f8046ff756fdfc02c792377ecebd968b4d9184cf24a51017e9f2ba4da671cf5",
+      "current_sha256": "dd7eb1d41bcc18888130e13c4506d38172af57671470a8bc2ec9020c83a150b4"
+    },
+    {
+      "path": "1.AXX/scripts/code-studio/code-editor.js",
+      "argon_sha256": "6ee325f5b380d4f10ede40fe49d4435c7f5a9a52a2764af70cc705aa92288745",
+      "current_sha256": "dc5dfee1d7a0b5c7fb005f80f88bc9ce7d3a55e2735a8bd84fb032716429075a"
+    },
+    {
+      "path": "1.AXX/scripts/code-studio/code-workspace.js",
+      "argon_sha256": "43768b89cdacb718f33dfb8e68914cb52989aa5ecc75f110a550c44158df75b0",
+      "current_sha256": "cdb290f038a2f07a8c774c89a79ad4d4e7bf8f93109f3e3614852089b7ad78c0"
+    },
+    {
+      "path": "1.AXX/scripts/code-studio/git-panel.js",
+      "argon_sha256": "74f303bec29f74564039abb4331f8ad97153f1662498e98c3c3f6b796e6b9731",
+      "current_sha256": "1cdefa7ba5ca67a793bfa076cbd0cc80162261b46e435617593afb9bdf8d00f7"
+    },
+    {
+      "path": "1.AXX/scripts/code-studio/problems-panel.js",
+      "argon_sha256": "2e00dbc5351c4599c039dc652a254fb6f5e5bc858aab6d44f4e0f82aef2d638d",
+      "current_sha256": "2e86e5f3044754797a1dc2ee9aab4830603153a77699f6f9a371e7189f1bcd33"
+    },
+    {
+      "path": "1.AXX/scripts/code-studio/terminal-panel.js",
+      "argon_sha256": "8b67a24ae2dc8f63e22912ac8a7e92ba36799aa4da524a53ab869f4a908719ce",
+      "current_sha256": "e7d27490d30e3f5aec8e1dca74da67a64bce506cc1d0a2a60d9f9db527b7e958"
+    },
+    {
+      "path": "1.AXX/scripts/evolution-theme.css",
+      "argon_sha256": "60f24185bef3a8206789b43368e478a64d70797c03e7283bc265fb9fd04b00cc",
+      "current_sha256": "2982a9f8098a82edb2ebca84740a792f240ccc72b12077d46be66297e6f7a679"
+    },
+    {
+      "path": "1.AXX/scripts/evolution-theme.js",
+      "argon_sha256": "7d787dea71fd773741dad54e2dbc574bb62077aacd3aa9afc50d1abfc166d838",
+      "current_sha256": "88940f904c27444fcd023a068104eeeec217d58b20e9ec32ce7daeba0d863aaa"
+    },
+    {
+      "path": "1.AXX/scripts/evolution3-runtime.js",
+      "argon_sha256": "ae03617eaf863aaa16747460b0dd400340ded2ba5e92105959ff1f9eceb6a097",
+      "current_sha256": "e95875b64ff496e9ecc3b04027b3e9f641274facde07e033969810fb916ddba2"
+    },
+    {
+      "path": "1.AXX/scripts/magic-pen/asset-browser.js",
+      "argon_sha256": "cf722cadc66e7833d6cdaf0e79415ecc97096cd9531a491349e45df8f6549c9d",
+      "current_sha256": "4fa67efbaf78d1e92b6bbd5eb259b68d049b4f6e80173d43cd8acb7518ff2922"
+    },
+    {
+      "path": "1.AXX/scripts/magic-pen/cad-editor.js",
+      "argon_sha256": "04c5e230a7a3834f7c4f1c6472f5ff941577c122133f09e8b211c7a2eaf05556",
+      "current_sha256": "cdf12820b42ceadc9d6b90716d4022a364262b4b45d3df24b1f07a47efd40dee"
+    },
+    {
+      "path": "1.AXX/scripts/magic-pen/diagram-editor.js",
+      "argon_sha256": "69b8f71e80b4fbf8a9b6f1a94a337f2c600e53c9eb706ee9dfef4c547188028c",
+      "current_sha256": "e4f4db874640bdaa7c74e67574849439ad80f050bb170d6ffac15cf8cd6f6f00"
+    },
+    {
+      "path": "1.AXX/scripts/magic-pen/scene-history.js",
+      "argon_sha256": "f114dde29c63d482006854accd84f305e1ae8c658a7c2d5fec4d5bdbbed0ecbf",
+      "current_sha256": "8dc0d6f26a23c4f2f77fbe2265be001e0f4024e60b0d0207c6b3318000f48c9c"
+    },
+    {
+      "path": "1.AXX/scripts/magic-pen/timeline-editor.js",
+      "argon_sha256": "5047e41e33e0b58d3c8392fa292e3c365bc747a386ce80e2bf6f56e7e26623f1",
+      "current_sha256": "069a6cb38d3f7d0ba37d8a27b2c2c33d215899555a20d8a8143f0c9201fa5f65"
+    },
+    {
+      "path": "1.AXX/scripts/workspaces/browser-stage.js",
+      "argon_sha256": "fe9fd3ea5a4e564a35d1572bd4810ad31dc0e6ce7799a9282dac2ae0de9cc3ea",
+      "current_sha256": "7d220335e15ab244398229f76f0ac47beb20c039b81ade46852d7e8b19d15290"
+    },
+    {
+      "path": "1.AXX/scripts/workspaces/virtual-cursors.js",
+      "argon_sha256": "bf90d6288233fdc2958d393ea5ed3f20b6c84414f2f0f87cf6943bc9bea031cc",
+      "current_sha256": "b8d7822cbbccff444d9e6f12c4cc49ac316ea9d845c683c73d5f59186f3cfe96"
+    },
+    {
+      "path": "1.AXX/scripts/workspaces/vm-stage.js",
+      "argon_sha256": "aad7d69c7c0e2be98baa89c1f5d95f90f59d1814bb8b1ac76e27f51f6cc910da",
+      "current_sha256": "e40b0d93f1ddf2db2569ddb229244d19391fb7e4d6a1f6c92a9d69ff225f27a1"
+    },
+    {
+      "path": "1.AXX/scripts/workspaces/window-stage.js",
+      "argon_sha256": "96dabc2ece1a01abfb1e4031698ee6c79ff26183faa8fbdbcfb874027f963a91",
+      "current_sha256": "2c31e5b45bab758cff2657cc818e365664a68447d4ed1032a0b3417645d722ee"
+    },
+    {
+      "path": "1.AXX/scripts/workspaces/workspace-switcher.js",
+      "argon_sha256": "c09c2deb5f6f3d60c860ef2cb33e65a23d0e7a4444755d996725b3b6f3693196",
+      "current_sha256": "6fb119be8919e3d49f48d68b29b89701a7f7fe6aaf9bbd72e1c5999aebdee4bd"
+    },
+    {
+      "path": "axx-backend.spec",
+      "argon_sha256": "782f09bea5da02a3dd0a467db56eb11676e49221b1bb3b69d169140faf36185f",
+      "current_sha256": "d83b1ef6a5392cd00f7b36e02f6f11673bb15b425d08099950238942f2070802"
+    },
+    {
+      "path": "backend/action_learning.py",
+      "argon_sha256": "d35f8560c45710c21f6c907d2c406d559615403d805b2eea2f44f6d749e7868d",
+      "current_sha256": "7272457441bac166d463a1027ff016a706e8fdbb23416c90c79617fc9358f930"
+    },
+    {
+      "path": "backend/agents/__init__.py",
+      "argon_sha256": "ed0675d4c25dec2520e9089003eb18e2f2db6517ea1a681c67af2b8617828769",
+      "current_sha256": "5133f153bd93b66cf9d7af65aa93e7637e2333738bc7106856c5ae844b552442"
+    },
+    {
+      "path": "backend/agents/bindings.py",
+      "argon_sha256": "9523c3f157670660111577c5ef76128b0656b1a5175c5dd831165289e53934c7",
+      "current_sha256": "08c1af253957d7c47fb59a6f35aba2043f09e36bc7c441a20a6dc28a17fc5e22"
+    },
+    {
+      "path": "backend/agents/events.py",
+      "argon_sha256": "482c03a0772fd96c3d1731f24d14ec41c30d28de5f83bd26e5bd565ffc7c0816",
+      "current_sha256": "a84808ff73f5a5e3ccd6399af7381517af3237b09bf5e8a730369df26a0f8fdf"
+    },
+    {
+      "path": "backend/agents/handoffs.py",
+      "argon_sha256": "92e0b908263af52bd8ddfdabe4b592eb6147222e9a7cbcac992690ec9031cb77",
+      "current_sha256": "31d410b67041116b2336f9dd6ab10aa453492e299575c893841d5a2499fac96d"
+    },
+    {
+      "path": "backend/agents/http_api.py",
+      "argon_sha256": "0a8429d89314c2e1858cc8510ce68f25c7dc73c44600e97da90bafee9fd41e5d",
+      "current_sha256": "fa23b0c1205972613837a64f93015d63f33327490f04bf51d9f0853e4feb6305"
+    },
+    {
+      "path": "backend/agents/orchestrator.py",
+      "argon_sha256": "9149e19743660ea08335e16d5f166d8a5087c945c5b7e2bfa08a67e58aff3952",
+      "current_sha256": "39e46e45e990c421a855998ce52c94727a1fcf53ba496225bcc964b84855122d"
+    },
+    {
+      "path": "backend/agents/policy.py",
+      "argon_sha256": "4123e66fac30a9a259e3fb2da564f7c3820a9f89e0dc9723798d94899462a612",
+      "current_sha256": "66ff5fb26aa5e63d412c0c3202aa9e669f45a8e607698d587d54c6d4c3c7967b"
+    },
+    {
+      "path": "backend/agents/profiles.py",
+      "argon_sha256": "4a22bc62f450a7505b8d3b240afd0397c7472f474ff739c3d6bd1a9524d6ba3d",
+      "current_sha256": "d5108080ef5800270b3e4ac15d38a16a3b64318d88194c9dae469531d0f36b1d"
+    },
+    {
+      "path": "backend/agents/recovery.py",
+      "argon_sha256": "733c8e326b7a344ee15981f17e324bf9ce5d53439a48d147af2cad7198d5d5c0",
+      "current_sha256": "40faeb58b4491fa505a8723ba6a7f99399969739ea42997f78e6ff4a36ab9699"
+    },
+    {
+      "path": "backend/agents/registry.py",
+      "argon_sha256": "de7ede4e2acd2876c0d3045440113087f7b086d84f14486e39571a36d60540c2",
+      "current_sha256": "e712834ce34fe1fac6755c806e8a50cddb8be119bf737dcb0ae910cc656b6ff0"
+    },
+    {
+      "path": "backend/agents/resource_governor.py",
+      "argon_sha256": "fa599b216f75bedeba7545f0390d84562d49a7209a27a8622bd8fd27e4274338",
+      "current_sha256": "0a242640b2f036da1e73e9ea0822ebf093e814b183dfce897c068126d0905c0c"
+    },
+    {
+      "path": "backend/agents/routines.py",
+      "argon_sha256": "a636594fa5852bd04ff534fa2baf87cd634edd9952c121a77371227ed5ef0047",
+      "current_sha256": "3a8dd7ef02883e46e090a6028bca0ffdc27951391a1bc62572eb39792e8dd134"
+    },
+    {
+      "path": "backend/agents/scheduler.py",
+      "argon_sha256": "73291deac9b534ca4bdde197128e40bf45934b6e72f7db5fc828fc4307852f72",
+      "current_sha256": "6681cf6f3b9ead606618d5042bb8064e9d32df3c5e6a7d4f16c19ca4ec591057"
+    },
+    {
+      "path": "backend/agents/superpowers.py",
+      "argon_sha256": "3d6b253561bfb5da35882d492ee52ec11d882c910ac9bce4632668f413b9aac3",
+      "current_sha256": "d4186fc24311171308a9d84b7b6140f88cea1f125bc332def4c03386e7793cad"
+    },
+    {
+      "path": "backend/agents/task_graph.py",
+      "argon_sha256": "5e79fb7572e6ead3ab80924d67a3fcb06101973695155a1d1b1db9947c495ad0",
+      "current_sha256": "67fc3ce329f4502b4db73434a9fa8e8c3102d8e472d323d06ee2d264a16af420"
+    },
+    {
+      "path": "backend/chat_store.py",
+      "argon_sha256": "85595ee58d93d14d250d8ed290fc7cf8485e9fe8dfae18916b02f958497d5441",
+      "current_sha256": "e1d05bb31749abb516d91eaab100209007309d6275ada35fc8d29d6afe7a3473"
+    },
+    {
+      "path": "backend/code_studio/__init__.py",
+      "argon_sha256": "97f3a23e1026ef4f9a71f3252dace76b173d72ce2f686315517834d4dd058d84",
+      "current_sha256": "a153af38c608d4ca8f84db0d39455fe2a368553d522abc7281b4868ca61c24ff"
+    },
+    {
+      "path": "backend/code_studio/artifact_link.py",
+      "argon_sha256": "f235523d9760ab44884593bbe4ae0604762c0463070dd9a3a31633d4dc64640a",
+      "current_sha256": "dc2c7361cbc2b52dbd349fa9ffdc927511cef581a991636c0fe164cd2d4b4400"
+    },
+    {
+      "path": "backend/code_studio/debug_adapters.py",
+      "argon_sha256": "b83e0f2bac22163a9a6c26a47a4c803e16f29d9cd258ed08b4bc0661b8f7ac0b",
+      "current_sha256": "0d5f0514671171986f39f5ffd0fc9c73c6fe9b6373884edcd58f706f0239b13c"
+    },
+    {
+      "path": "backend/code_studio/git_workspace.py",
+      "argon_sha256": "fc5001f8a371a9229f68432b1c9a8e1083570941a09e4210bec7a7ad4d6d31d0",
+      "current_sha256": "383f46cdc35e5d809491f140cfe5d8a4e57b43ce2bd08e49753e002810bdc79d"
+    },
+    {
+      "path": "backend/code_studio/indexer.py",
+      "argon_sha256": "075647adc1b276b8ecdd7ff7856edbef320ec1acdf74c9a53709f9418c495a4a",
+      "current_sha256": "50311d0161d09fc7aeac05a9e441510a849ffd7321c6d4d570a85f53dadaa44b"
+    },
+    {
+      "path": "backend/code_studio/language_servers.py",
+      "argon_sha256": "797e79e05615aba69da057fab57a328e2e5eef0d922f9f4018e6a1824a06c6cb",
+      "current_sha256": "e6b51948b64f4c76a134740377597b8d7bc3b9f2c07fbeb2378b1134ad676423"
+    },
+    {
+      "path": "backend/code_studio/patch_engine.py",
+      "argon_sha256": "d0f07e1082aeaa45dddcb7867de95b33f615bf15a35e3c3a8dc1ab4ec90b260f",
+      "current_sha256": "96f66bfa0a6b7defa5cf0a58346d24b8ca7a896388b0ce8eaa950293f048d102"
+    },
+    {
+      "path": "backend/code_studio/projects.py",
+      "argon_sha256": "d84d5f9a1e420ddb002e43b7377ce42f2c251197274b3210c2610928620f31a6",
+      "current_sha256": "dd1ea65144a54e7f7c7c0b0b2fd39c9d384114af45b5867b4d61f5bcdfce9a66"
+    },
+    {
+      "path": "backend/code_studio/test_runner.py",
+      "argon_sha256": "d95246f34b083b323be3b5790cdaf431bfc036543a1007c9dafe645d183efd30",
+      "current_sha256": "6170bae820663a39d6279b93ce8e6e16ba86d9b3e67a2c067176d48596d54e66"
+    },
+    {
+      "path": "backend/evolution_flags.py",
+      "argon_sha256": "9861f66cb5cd0125067d013a543e6bc434ae41871f4d22c1891fc19d8b0d4a71",
+      "current_sha256": "d088c0499210c17e05be0f742bedcdeb546fdc723be1a5e676eb69edf5805e07"
+    },
+    {
+      "path": "backend/magic_pen.py",
+      "argon_sha256": "dbb87c78e4011348dac19b4bafe2a9a0368c7fab3a7e18f6daf0c955253782dc",
+      "current_sha256": "a40fb2e04ca0770922502d6877e5bc043e0a977d77248d6f88dc565c9c649013"
+    },
+    {
+      "path": "backend/server.py",
+      "argon_sha256": "95301feb06b123df01ccc5c22521a7d1688d5915536e5eee3d3066b5fed0127f",
+      "current_sha256": "6ac336283e489f1e7972d080ccef457f2748b5ad0cb47ed82d83848f7d923e08"
+    },
+    {
+      "path": "backend/spatial/__init__.py",
+      "argon_sha256": "0adf6b1bc5390de83ebdaa83808fb4a9da2f402fbf48ad3b4dd28b2741593210",
+      "current_sha256": "c17192ef22ae6843e20b10bd1f00f6f1750084a019c20c1b5638cf61675202de"
+    },
+    {
+      "path": "backend/spatial/asset_registry.py",
+      "argon_sha256": "a953f984f57d41c3a8a36db26ae6a2e6a0cb0641488d398d01ba3b029ccfaba0",
+      "current_sha256": "a63064eda2c466bc0765d997351d7be44873efb7e7472cb349a1e0bb130ff3a3"
+    },
+    {
+      "path": "backend/spatial/cad_contracts.py",
+      "argon_sha256": "95af785549fb74720121bab8ff63f946b4e7429664b5ffc4da321eb322c58644",
+      "current_sha256": "4be4af52a29bddec7278b6a3cad7755fc5b7ba2314762c65d0774f2511442b82"
+    },
+    {
+      "path": "backend/spatial/diagram_studio.py",
+      "argon_sha256": "89c17dddd6a70c394e9d0ef9ebb56eb20451a61991126b842511cfc882a1a57e",
+      "current_sha256": "f63b9ea734c9c26c451508a26c40d5e7104e30bf9eba66102e23f2ba8224b258"
+    },
+    {
+      "path": "backend/spatial/diorama_engine.py",
+      "argon_sha256": "5647d04b2f034744fc4295b16412894651859bcaacaa85755c4229426dede8f5",
+      "current_sha256": "71cad6e8ad9b760ab014f0a04d49d2b87e9641c702807dd6f7eba97c187a94a4"
+    },
+    {
+      "path": "backend/spatial/openvino_and_splat.py",
+      "argon_sha256": "bb4f001f242ad8ad348ea292ef39c6315e4e37c374db51c93c93b6ac201c8886",
+      "current_sha256": "f7fea1877a5c2154412c6fdcd63c01ec4869aa01fd929254962347261f77f53b"
+    },
+    {
+      "path": "backend/spatial/patches.py",
+      "argon_sha256": "8d0c82fd41b0d060dc3b075c5b2e0e032be18c18dc281c84d377a088423ccd26",
+      "current_sha256": "a9f6cdcdbbc617c9d9442f9649d9d8faad2405b4a20a72fa6c26733267f0a58e"
+    },
+    {
+      "path": "backend/spatial/render_jobs.py",
+      "argon_sha256": "37c110d1d5b9497d47877a80908836fe1550a2f4c9900e387dd95b00a733e965",
+      "current_sha256": "f52ce91c8a9cd05482b62724cd27a175dcd92c4dbfe7b889666c2514db1a4c01"
+    },
+    {
+      "path": "backend/spatial/scene_document.py",
+      "argon_sha256": "684f31934f6242f73f3f6c760e3fa42b40879624bb26437109d299a70a7dc71c",
+      "current_sha256": "079a093ec23fe3fda9ba54467449bf5084eaf8e29bb1e31bc818a7b4fee35d52"
+    },
+    {
+      "path": "backend/speech/speech_text.py",
+      "argon_sha256": "2559a00a9500ac680364ef35bb399c965846332db408b4bbb679c27b5152a9bc",
+      "current_sha256": "bbb53753716753b361008d0fcc71afee581aa4126b3140cbd599e0ab33595b4c"
+    },
+    {
+      "path": "backend/tests/test_agent_profiles_and_chat_bindings.py",
+      "argon_sha256": "e919d9f51360ab06400a27b0ded49207e5542b7c5cea32b76040623f44112026",
+      "current_sha256": "9fa3d91439cffd871da2aa2bb2d17437641570f302c67e75e8da08134915c26a"
+    },
+    {
+      "path": "backend/tests/test_asset_gate_and_diorama.py",
+      "argon_sha256": "b9f8f3b5cd9de75de113611b36c05b66c6242d729a6761b50e05f8db827d9b0a",
+      "current_sha256": "0fd7cd05da05e7450e55f63385812ac980280ba5f1bd3724cbaac25f13aa561d"
+    },
+    {
+      "path": "backend/tests/test_background_workspaces.py",
+      "argon_sha256": "45364f2479af584fe90f387cba4a10245951ab463e65eefe6f00c57ba4878105",
+      "current_sha256": "b3b3a93a1aaa8e73b947a39bce9bc4d766d1cb24f95e9fcae4c21cb84e94b7e0"
+    },
+    {
+      "path": "backend/tests/test_cad_studio.py",
+      "argon_sha256": "eda7eea892aaf4ba40366101e56e3cc23dc58dfb99a9f859d9b0c3443e0b61ff",
+      "current_sha256": "54719514eab8189837a9ec58b3387bc5a5346e0d8ba9e8b9ac6f7d11ebbaf28a"
+    },
+    {
+      "path": "backend/tests/test_code_studio_core.py",
+      "argon_sha256": "c23ad3cf0b62e45adb4d6679bb1e9a0103a499aad03d0efdcc3d8e5f216cdcac",
+      "current_sha256": "35dd94a4067aa632ecee8d74eea6ef2f1de0c1ecf28e6d505cb6647220f49929"
+    },
+    {
+      "path": "backend/tests/test_code_studio_pro.py",
+      "argon_sha256": "afcac384a91d52c03cf7819534231922bca5280e4bdf830c9c1d88fce8bcccb7",
+      "current_sha256": "bb34032d6338cbed89d8ee2120611c790cfc608c4588a1784f6b789606b79f8d"
+    },
+    {
+      "path": "backend/tests/test_evolution3_full_functional_audit.py",
+      "argon_sha256": "24cf8a841eb596712e2b7042ea8f7ea173d9d677f96ba02d045f3487e6261537",
+      "current_sha256": "81caff60c8f9e5529c1269c34371b5fef7fb20d0b8c372040c4eca7365c9acec"
+    },
+    {
+      "path": "backend/tests/test_evolution3_ui_playwright.py",
+      "argon_sha256": "bd17c8094087570bdd48c1c79df9c9d906fad5b8b147aaaa11deba952b0fb51c",
+      "current_sha256": "0c60b3b220b8711c313b3ca8276c0d9805bbc7336b862c8ee5244d7a3ee971c9"
+    },
+    {
+      "path": "backend/tests/test_evolution_flags.py",
+      "argon_sha256": "1660531d4ceba016899d14975f015915abbb8cd86d3736576a7a18138df58658",
+      "current_sha256": "9ac6c6e250f965e24e08502aceb0cf5618cb8c446340986418815c8188afbc43"
+    },
+    {
+      "path": "backend/tests/test_magic_pen_evolution_g7.py",
+      "argon_sha256": "6ea00bb6f4650b878d5ebf8fb1f3eb3b400ef78c1cbb5ef186127a10c064a152",
+      "current_sha256": "a12d2b109bea2f7f6e505d84eb851d42a45b76b64a989d14448060f458ff0b83"
+    },
+    {
+      "path": "backend/tests/test_motion_studio.py",
+      "argon_sha256": "15d14ae2436db0dc5d779a0c77b356732014710c879fe313d8659e4844614c61",
+      "current_sha256": "7195d5a56db3884e336ec71903b051dfa9c5a2db58a3c96288aaba5b68ad3f48"
+    },
+    {
+      "path": "backend/tests/test_multiagent_orchestration.py",
+      "argon_sha256": "de1b2c1af9730f395c7bba9c9d7fa15ddc443c12115def80da766954d787d77e",
+      "current_sha256": "6774aa2a0e66ab642a017342d13b9fdad1908214c37b668459c90e2c21904b21"
+    },
+    {
+      "path": "backend/tests/test_openvino_and_splat.py",
+      "argon_sha256": "bb58e55e5d21c174c08ddf86ef20cfa93a943e1ff692efe9c831b6b482f24e3d",
+      "current_sha256": "944c5187b6fb18f26fa39e6dafcbfec9cdc4e22647f52c8eb45e412fea3d9daf"
+    },
+    {
+      "path": "backend/tests/test_phase13_routines_governor_remote_and_http.py",
+      "argon_sha256": "3f20a719903543fdbe66bd0706d5c2bd77265e394d4854a2f9b1ab9305dad540",
+      "current_sha256": "556a79ca8b089ad8ab92c53ba4c65d3a7942811b39065aa50ac2a060f14a564b"
+    },
+    {
+      "path": "backend/tests/test_scene_document_and_diagram_studio.py",
+      "argon_sha256": "87693eb32eb4a35f4ac0edf95513c91733af526a402a4ee1f8a2f6e43edde269",
+      "current_sha256": "a695d172d1e890949adbd252ab4971dbe381b4a6b71f4729b4842da2b745b6c7"
+    },
+    {
+      "path": "backend/tests/test_task_graph_and_superpowers.py",
+      "argon_sha256": "305c9a1234e06634b1a9669f51bf6c75a32fa7dc1c277ae48640c687fdf7e71f",
+      "current_sha256": "d8da53e582ffa36c315131abeadbf7c7b8502c3d31c9f13c4c790d7dc1699a9b"
+    },
+    {
+      "path": "backend/workspaces/__init__.py",
+      "argon_sha256": "ba87f529545192d5a27dbb906a2df83866b550a61501644f78528d135b14e651",
+      "current_sha256": "b904050151bf51f92e9cab9303b4d6d8ea17c920f0651ab96f575a37e9b71b51"
+    },
+    {
+      "path": "backend/workspaces/browser_sessions.py",
+      "argon_sha256": "18427b5092c4909c1deeb4bbf0cfc6fcfe44aea8f52ea2ef25e32ee5e983a542",
+      "current_sha256": "79c4e28f39ef0017590b2dacd1ed3bebe6edd3b76d11ccb2b59a3d52c8b9c208"
+    },
+    {
+      "path": "backend/workspaces/focus_guard.py",
+      "argon_sha256": "659958613834c96d6cbce1415502ca226144ea097c38c1a48f7d7448ca1b4875",
+      "current_sha256": "bc1500e594df101d0b17674e058eb3d98b2ddb7f64ca79c0f236698e1d1ba253"
+    },
+    {
+      "path": "backend/workspaces/leases.py",
+      "argon_sha256": "90a16d7047322acd46b8f5ba5798e1591f2d134d74c52de1bfc47d18f137097d",
+      "current_sha256": "b7452a79837f9450db18efa8002b19ee4a611aaa6b512a13420fb2b69c464482"
+    },
+    {
+      "path": "backend/workspaces/manager.py",
+      "argon_sha256": "d71cea60a756cd0acfd2d298461928d74deb3f3370769b7f2255f3130c293799",
+      "current_sha256": "9524312e384f07bb36e78f4f4b64f49915e469d2f2e34beafc602961ece6ace5"
+    },
+    {
+      "path": "backend/workspaces/remote_protocol.py",
+      "argon_sha256": "69faab5b9bd8bf9ce1a4a9a99494adf876d74dd1559ecf2bfddfa82d8ef207ec",
+      "current_sha256": "cb45cbf2d244f4b009d891ddadc0580cca937eca28826a6af511a0acc9bf556a"
+    },
+    {
+      "path": "backend/workspaces/vm_provider.py",
+      "argon_sha256": "41956b013ea602e1072deb4937c7f332809b06549a38c7118a03bbc6170501ea",
+      "current_sha256": "bd422f47398ef8e28c3f0d1e31a99655bddcf34fcf16b44b5138dfee1ae6c91c"
+    },
+    {
+      "path": "docs/evolution-3/INFORME_AUDITORIA_FINAL_INDEPENDIENTE.md",
+      "argon_sha256": "c2877fe74be43ff1788b6515cc6a29654aded68905ca3d37e539a61873611bc9",
+      "current_sha256": "0a9e5b6bf4f4c326363d500175eda670282f153d9588c824282ab4efe5b55d9e"
+    },
+    {
+      "path": "docs/evolution-3/MANUAL_MAESTRO.md",
+      "argon_sha256": "3614460703c03ba3a0e0709ecace99d9865527b0af97efbdb100143ee636eef2",
+      "current_sha256": "448731f9e413cd48971510ac795bbf08e810e3a9b1afb49711320eb4544527b3"
+    },
+    {
+      "path": "docs/evolution-3/MANUAL_MAESTRO.pdf",
+      "argon_sha256": "da8e7d5c934e33a2835684d17026f537f927f0c9deffc7d516cb51aa209f535a",
+      "current_sha256": "da8e7d5c934e33a2835684d17026f537f927f0c9deffc7d516cb51aa209f535a"
+    },
+    {
+      "path": "docs/evolution-3/PACKAGE_MANIFEST.json",
+      "argon_sha256": "b5af1b4b4bae6e240b09f6e8c25025e4c51bc1c805453178d3028333c21e47d9",
+      "current_sha256": "1143a14c9a64f6b07eb6e04e5ed1f820f7ab954a9d39a570475633d70969d908"
+    },
+    {
+      "path": "docs/evolution-3/README.md",
+      "argon_sha256": "f425e0f06201f081a7e7d3983d64eb3ca26b7bdb9ad977ed245ee8e43ac9c862",
+      "current_sha256": "e0d6a35d2fb922bf2fb61d13403506170e99298b6c26b8f9dabdf352f6e0b9c4"
+    },
+    {
+      "path": "docs/evolution-3/SHA256SUMS.txt",
+      "argon_sha256": "48065758fa4e5aead049f6bfb60d5d9e65340061f1e4d1b390eb145a6681a976",
+      "current_sha256": "14d989d9ecf18d08db0e1e97607983e9ae51503cc25c9e7f5275ff17c8f36cfb"
+    },
+    {
+      "path": "docs/evolution-3/docs/00_BASELINE_Y_REGLAS.md",
+      "argon_sha256": "71454ddda578ad05df29d10aea41ab2026a33c0b59fe548de84f0266a1e5d291",
+      "current_sha256": "f21cab815d30af7cfc4f0c52f69b702da833c19f42cb313b64bab9afc2110486"
+    },
+    {
+      "path": "docs/evolution-3/docs/01_REQUISITOS_PRODUCTO.md",
+      "argon_sha256": "98b74c101b750f1093ce71cdafc55fadbf8322fae6ed2f4ad9a1524964dbc38d",
+      "current_sha256": "a732fa4df635e03c0900df82c7f9d0dd0973a2e3d1ba2c5bb95f9aabc46c72e9"
+    },
+    {
+      "path": "docs/evolution-3/docs/02_ARQUITECTURA_OBJETIVO.md",
+      "argon_sha256": "17db38b5e822459a48b528e91d513f08ff43f23a33cd29397c1f7ccfdda3accb",
+      "current_sha256": "1a82f972168ddf26a51c9b0b40e98444234d947af53135d87209ed7dfba442d7"
+    },
+    {
+      "path": "docs/evolution-3/docs/03_AGENT_DESIGNER_CHAT.md",
+      "argon_sha256": "05c62d091408b5bf9bf0bbb3249337f76e1a3c8057e83df571c0fb8cf508e517",
+      "current_sha256": "e035d4b908c6148be75600e9f7f47da022c685c31eee453b5c17a64e2ba2d81c"
+    },
+    {
+      "path": "docs/evolution-3/docs/04_ORQUESTACION_MULTIAGENTE.md",
+      "argon_sha256": "56bf0694b8335f1e774dc313a0b462a1c54361dfc0124b0c10c904c6a7464001",
+      "current_sha256": "2805a3c782dfa6d7bd670131e130a73f72630374a6a7ac21abd919813f911ce3"
+    },
+    {
+      "path": "docs/evolution-3/docs/05_SEGURIDAD_Y_PERMISOS.md",
+      "argon_sha256": "8b27a45df3643f8631099e54534e3cb2ae47aee87147461b085bdaa8b5177c56",
+      "current_sha256": "45cfcc6897888408922de963db6388e3c50e615473495216d20f827a5a0cb908"
+    },
+    {
+      "path": "docs/evolution-3/docs/06_COMPUTER_USE_SEGUNDO_PLANO.md",
+      "argon_sha256": "b638de99068703be7fcdf86cbf30e6c0e7ca45253ccd19395ccb6de7ff788c80",
+      "current_sha256": "d3a5f0dabb0c849dcdbdb541e2148a34844a9884da6fcfa2bcf67e7165727514"
+    },
+    {
+      "path": "docs/evolution-3/docs/07_CODE_STUDIO.md",
+      "argon_sha256": "2f39acc481903b9b0f245ffc1bbc40a7746fa39c3be0131be22c436adcd89e3f",
+      "current_sha256": "614681f4668aaa49441ce223f335aa0b1319bb05df46ef9d6bf95ea16f0e68eb"
+    },
+    {
+      "path": "docs/evolution-3/docs/08_MAGIC_PEN_Y_ASSETS.md",
+      "argon_sha256": "5924366ed21aa30b6407a907dea6d3216f5d4f27cd793dec0a34e748b20a3fb6",
+      "current_sha256": "a98b216df3cc48790828de4e747cdf6e4f1b15df4aba2b42c57d14d36783c09c"
+    },
+    {
+      "path": "docs/evolution-3/docs/09_DATOS_Y_MIGRACIONES.md",
+      "argon_sha256": "e248e820078af6e05b1687ad6a88fcb90b73c242faf607b7001a0ef34cee95bb",
+      "current_sha256": "ac3baaf7c6fa1e553f29a11a657f991851a4da2f8a6a6a429da7cc0f71fc1b23"
+    },
+    {
+      "path": "docs/evolution-3/docs/10_API_Y_EVENTOS.md",
+      "argon_sha256": "9442ed373f2696f4ead40cab332dca3ac452ef1aa62c9594f1e1007b2a39e39a",
+      "current_sha256": "0bbaac56cbd3907af8c8de5630a934724f25417e5c824b36392577eb5c4bc085"
+    },
+    {
+      "path": "docs/evolution-3/docs/11_RENDIMIENTO_Y_INFRAESTRUCTURA.md",
+      "argon_sha256": "70246ef30bdc83401b381bbcf1d50c4a6bb826bef037aa445751dbb93d87e048",
+      "current_sha256": "cb64ac38dc05cdacc7727d7f8984266b9d6bd23b5c9fb10d80c48599d0af3b0d"
+    },
+    {
+      "path": "docs/evolution-3/docs/12_PRUEBAS_Y_ACEPTACION.md",
+      "argon_sha256": "f5fc09d94ae7b4c3258e078d80ad85a365b5230674d7829a4957e769bb474aec",
+      "current_sha256": "706508560699ac452d7444fa7eaff4b43970f800f08b9269a1c4e9c41e0c0147"
+    },
+    {
+      "path": "docs/evolution-3/docs/13_FASES_Y_GATES.md",
+      "argon_sha256": "265b0414b5ce2f5a832a3f568b44cbc9c76748032f27ba765b585b642dce87b0",
+      "current_sha256": "df26d4cda60d832618b0bebe39147840875eb1fec25fe060b4280db68001458d"
+    },
+    {
+      "path": "docs/evolution-3/docs/14_DESPLIEGUE_Y_ROLLBACK.md",
+      "argon_sha256": "e877a36ffb51764e5441880bd3c2a181010eb2664e820d67ee0267e92a36b7eb",
+      "current_sha256": "b20ca9ceb36c06ac1d02534b07a647baf1464f8c6a63fa06e01d42531e32a5bb"
+    },
+    {
+      "path": "docs/evolution-3/docs/15_REFERENCIAS_Y_LICENCIAS.md",
+      "argon_sha256": "c126b1766aa71eb103c4503650d8174deb1d13db809899e54baeb744cba2d0a4",
+      "current_sha256": "aa992887c2241e8242ba0554cc8b4c33d246cdafa04b04fdef3907f966a16f0b"
+    },
+    {
+      "path": "docs/evolution-3/docs/16_PROMPT_MAESTRO_CODEX.md",
+      "argon_sha256": "eb35cf55d45fdd9c8399da3d685f89a48366239e1757eebc065119b761985de0",
+      "current_sha256": "f295e824b381e1e537529aed6ee0c57e0bb5934c9ccded5996f0ecf1c2e0c8f1"
+    },
+    {
+      "path": "docs/evolution-3/docs/17_DECISIONES_Y_RIESGOS.md",
+      "argon_sha256": "59cda8223e29b88e40547da046a0587720e6f5abb5a661932385019a7fb4f2e1",
+      "current_sha256": "e5b08d696d4d85b3cd3bfff8b664542d6d8dd42b46df52081b7e19bd5a723223"
+    },
+    {
+      "path": "docs/evolution-3/docs/18_CONTRATOS_DE_INTERACCION.md",
+      "argon_sha256": "abdf1933088efafa3aba3e21a5d70c3dd51f613c71fd0f040b222dbd015fd438",
+      "current_sha256": "7348ffbc767cdc36b7cd525da2d7dea670e737445de2e3f41a205c2be2e3f12e"
+    },
+    {
+      "path": "docs/evolution-3/docs/19_MAPA_DE_CAMBIOS_POR_ARCHIVO.md",
+      "argon_sha256": "fc0338c56231ae9ab178efeef775a546aa967dfed75dc6794a6b999c3b4a5a3a",
+      "current_sha256": "c6539ba22eaa163927ef17335978ace1a7a42132c8cf62c9b609d26ed5105cc8"
+    },
+    {
+      "path": "docs/evolution-3/docs/20_PLAN_DE_PRS.md",
+      "argon_sha256": "f9029160ddb6bab1d576c7b169eb2d057f89d938ae985a5e12fde7717ccdce04",
+      "current_sha256": "048e8b5a83440fbc2b0418717b833ae5d7142b0911858fbb383c6c9c02369ff6"
+    },
+    {
+      "path": "docs/evolution-3/examples/agent-profile.example.json",
+      "argon_sha256": "182d96428309c8d5b5df027198c15638e602e090f87144dfd840bb6d1e2ae69d",
+      "current_sha256": "d69e0852fb8540acca8531451828789e8762f886d827c3380e37080a160ecb5b"
+    },
+    {
+      "path": "docs/evolution-3/examples/code-changeset.example.json",
+      "argon_sha256": "baead4e5f777cd30a362a74e203bdb3812877fb8ed51e0fa48f922bf23e48258",
+      "current_sha256": "03b6935c8b329fd4b59232fa77bb4d1a3b195deeb39a2cc9f3ef5c229f443285"
+    },
+    {
+      "path": "docs/evolution-3/examples/handoff.example.json",
+      "argon_sha256": "ef8d8fc6a87147277dc2d7cdef03884aaa09195161bce89723cf87717353f627",
+      "current_sha256": "cf5159d88c93d15f1c753f26c5e33c6c371e459cb45a871129cb622cc0296b08"
+    },
+    {
+      "path": "docs/evolution-3/examples/runtime-event.example.json",
+      "argon_sha256": "c30826278ce0271ab521d12b8b556b577757b1e5129081f19c13e346783a9432",
+      "current_sha256": "3fb9493949a3d0f4b99c6d47e8bb4a006f7c790018ce471672e61859532f8e92"
+    },
+    {
+      "path": "docs/evolution-3/examples/scene-document-v2.example.json",
+      "argon_sha256": "d430d6d8d33cab4891c054c76a7db1fe202fded12e0fd99c352fc442f3c7544a",
+      "current_sha256": "404a0f8e5dc850fd2157a8b975a6768cc4792d5d850d53b607bd16796ac7b049"
+    },
+    {
+      "path": "docs/evolution-3/examples/workspace-lease.example.json",
+      "argon_sha256": "79bf57a55602a8d51b7a390a619be7ab115fd29bcf1b65625773bb168004c7f8",
+      "current_sha256": "3af512fd8623b65621c54297e91defd53c095db53a321eaa1c946bae66ba12e1"
+    },
+    {
+      "path": "docs/evolution-3/phase-0/AUDIT_AND_BASELINE.md",
+      "argon_sha256": "69fd95f5df8d0818c259c56b6db72c86172d1c3ce1fecb0270767f07f2d61d46",
+      "current_sha256": "dadaa8fb0f99ad775078dc8d4341430efed13813c81c26e7ff99b0fe7c66de12"
+    },
+    {
+      "path": "docs/evolution-3/phase-0/GATE_G0.md",
+      "argon_sha256": "8111dd934c344acb4100467964f40bdff9a9d4a061594f18c9a4f2ac75fc0a65",
+      "current_sha256": "2bbca096e37989121c3ca4e24e9a9c9654d450c7407aa292860c6e08d245e5b3"
+    },
+    {
+      "path": "docs/evolution-3/phase-0/spec.md",
+      "argon_sha256": "e92f3c4ba21b3ebed69d662b36d4525a0ac81f50b9a1ab006ebbf9bec65a9a5d",
+      "current_sha256": "2e9916715ab7da9b76b2af1f9c35d2b49429010329ad7b81bbd865e27034d8b0"
+    },
+    {
+      "path": "docs/evolution-3/phase-1/GATE_G1.md",
+      "argon_sha256": "373a3897c4f46409933d97923aaa9eec69ce1948e1dc63998c5d1c23006433ac",
+      "current_sha256": "45b2f018a39a8787a0b8f81cc2533fb48c67e98aa15f005a2329ec28bb3c0623"
+    },
+    {
+      "path": "docs/evolution-3/phase-1/spec.md",
+      "argon_sha256": "ac9c291340607a9f59d80477d0999386f1421e6354d98df1163ffd646e3708a0",
+      "current_sha256": "524deb98a69a63c43f3b5d8d216065a7460a3ff702c0e1c3a842cc69f7aaa0df"
+    },
+    {
+      "path": "docs/evolution-3/phase-10/GATE_G10.md",
+      "argon_sha256": "274b4f31fcfd405c71d8cda256856f7a1d13acf0d2f167efe17d349da75de230",
+      "current_sha256": "868093f747576baf2d8ecc73689a303d2ea89d459fd90434869ae2a28359649e"
+    },
+    {
+      "path": "docs/evolution-3/phase-10/spec.md",
+      "argon_sha256": "d05fcd83921ebd8a233163aac6df187818c645f3c8f1f686f04533dd5b2e73d9",
+      "current_sha256": "140c36bf08c10584917a959368acbb9fcddcacc7d336ca083b187671e25d5336"
+    },
+    {
+      "path": "docs/evolution-3/phase-11/GATE_G11.md",
+      "argon_sha256": "23a99eefd6a6a8888a8c5ff959a0d8ea2038310c1675c842f2951a5d66ab77a4",
+      "current_sha256": "d2209928334a8ef63ad8e394aa58ac0f260008d4e04bf295a0863b32e073670e"
+    },
+    {
+      "path": "docs/evolution-3/phase-11/spec.md",
+      "argon_sha256": "0e14a69743b7cee13f0908c799b4e347eb4bded7b5d2e3f4ee694981f798353e",
+      "current_sha256": "f835e9a1d144976f3a7039b6e3b509642ab25e6915cf34b8f9aaed81f165bdc9"
+    },
+    {
+      "path": "docs/evolution-3/phase-12/GATE_G12.md",
+      "argon_sha256": "53d2e398a1377097d5f34e80a918d936621b23d8c5ed66389b12079bf740ba47",
+      "current_sha256": "ce7be53a5bc796af7c8b7e28d559870b0b2928d6054bcf461e939182a7a65996"
+    },
+    {
+      "path": "docs/evolution-3/phase-12/spec.md",
+      "argon_sha256": "875928a80d5e5d4b1221ffbafbe9e1d05bc2b07cfe0a9675db86bbbc9da3fd9a",
+      "current_sha256": "c11b3a953b1cbc6ca9497bc53d1d269db9bd04d52fd716163f59dbc3c5753004"
+    },
+    {
+      "path": "docs/evolution-3/phase-13/GATE_G13.md",
+      "argon_sha256": "8b526eae5f47ed1dc503fc7799afc65e7aeed56b3f033c26c056b0a6bdaddcb2",
+      "current_sha256": "368c40107c26b8d57ee7329aaa9d70332f31e0cc8c702d5313ebd286e60eaad2"
+    },
+    {
+      "path": "docs/evolution-3/phase-13/spec.md",
+      "argon_sha256": "8694d98ba6a320135fe3820dc8ac4ebe6aa6e5faec101af2a0b703e2d544bb16",
+      "current_sha256": "664f0bf3c4e004db85074a6a75c76b1cbc8d97709f977c5cb3d5115ee29987d2"
+    },
+    {
+      "path": "docs/evolution-3/phase-2/GATE_G2.md",
+      "argon_sha256": "7cfa46a66e8f381ecdd0814ac41dc5d7b30de19a48b4db197af9201b064cf979",
+      "current_sha256": "6235381d972543a27e4f3e410759d63ac49543789f4315ffa66d903a4fe6353c"
+    },
+    {
+      "path": "docs/evolution-3/phase-2/spec.md",
+      "argon_sha256": "efc1c6fc252bb38e9c709895e64ed314226e5bce7117b8b20b1e90f6bfdb80b4",
+      "current_sha256": "89995fc40cbd760c4a101cfb4ced2edb2fd019f60b2b59658d7ce24345593d3c"
+    },
+    {
+      "path": "docs/evolution-3/phase-3/GATE_G3.md",
+      "argon_sha256": "075f7239c13fae7c2b50c5da3447fbe75368e54fbca5a955e57fbc300652bdb1",
+      "current_sha256": "8435c19645113a6733351100adf2a2f1f4d5201797cd160701f509fdc3844e80"
+    },
+    {
+      "path": "docs/evolution-3/phase-3/spec.md",
+      "argon_sha256": "ccc6bc0fb242323c0c4178057983aa4a9e09f29c43bd4ecfc984a6e582870abe",
+      "current_sha256": "a0b5906e2d22db06d36b6ad9403c52eddbccdfefd79c97a7b59b64c212ed8b52"
+    },
+    {
+      "path": "docs/evolution-3/phase-4/GATE_G4.md",
+      "argon_sha256": "5839681b3a5437283802e7ce72f3354cd1d03f2df96582d40438347964c985d1",
+      "current_sha256": "90af6df29bc52b4f5e37703fffa5ff266159543e9b9e7e7ad4a444a9ba622d16"
+    },
+    {
+      "path": "docs/evolution-3/phase-4/spec.md",
+      "argon_sha256": "22c8716c73d301649bb717e3339cf9453022defc767ae760d43a9cb5c1c5e041",
+      "current_sha256": "409da09569512a35d010bc53497170db8bb4f6ce52f75a98dec59e1e9e8a0f25"
+    },
+    {
+      "path": "docs/evolution-3/phase-5/GATE_G5.md",
+      "argon_sha256": "894709b9a4cb765b7a6e6e9415ee1fef82bc9d6b27359838a15436c5e502150c",
+      "current_sha256": "49eb774b7c4a6fc274a391a80e93c9ded1fe8aa9e155afded233731aa3573fd0"
+    },
+    {
+      "path": "docs/evolution-3/phase-5/spec.md",
+      "argon_sha256": "5ff0e6378a37397f99c0a1c9dc2dabdd45a40f5389433d2ed397d77792a86492",
+      "current_sha256": "b027b3614cba78b26031121e8070a4e4fb375961c3a0494cc13107456a8f91b5"
+    },
+    {
+      "path": "docs/evolution-3/phase-6/GATE_G6.md",
+      "argon_sha256": "b35df054c82a7692d0470d4b0e5dd8a3d5349653c490e7759639c959649afa23",
+      "current_sha256": "0e4d2cf230776d864a71acd2a0f01ed2b7ffc4b3f557c3f9d3978e79847a95d6"
+    },
+    {
+      "path": "docs/evolution-3/phase-6/spec.md",
+      "argon_sha256": "b36e82c39e2d8bd955ce33afeb48e2adeefa6d9d0d8ce912148262b5d7239468",
+      "current_sha256": "a4a577397b82c407e0c78640310362184d3311cb1534035eab82a1a6226cb6e6"
+    },
+    {
+      "path": "docs/evolution-3/phase-7/GATE_G7.md",
+      "argon_sha256": "9e1e63925465f9428df367bac8b0b9e41c4680aa11ff8ced361dbc704b4a2413",
+      "current_sha256": "cc2a3155cb4860e105e69c8c019020eafe8ea3222df6a8dd871df59f2c6c9cec"
+    },
+    {
+      "path": "docs/evolution-3/phase-7/spec.md",
+      "argon_sha256": "4b76987431f7d3214399aa4cded092cc8ae6d2e46718948d4e7b9238bf113cba",
+      "current_sha256": "de3455eaa80e4b8891e8a4d9c2574821b65f3b72153f35a3f4357bba0d74969f"
+    },
+    {
+      "path": "docs/evolution-3/phase-8/GATE_G8.md",
+      "argon_sha256": "b843dd42438e433bc0f397046b5fa5a89ae8c96e0e026d4661a1cf8239bf4929",
+      "current_sha256": "86a8691e0a9f5e09b9f322a8a5d3ba141d88a690b6ae746e56bc50bc62ceed14"
+    },
+    {
+      "path": "docs/evolution-3/phase-8/spec.md",
+      "argon_sha256": "505977e65b840415f5e183e69347249fb3d089dd2c7ad5e0961282ed758756d8",
+      "current_sha256": "88da87d6202e644c2e029edcb04aef84fcb1b1cf6fc17c3e16375277ade1e464"
+    },
+    {
+      "path": "docs/evolution-3/phase-9/GATE_G9.md",
+      "argon_sha256": "1780612de71b4b9f0fd8338d03a75cbb3ef9c3a1ac803e13c2f2f2877932c1e1",
+      "current_sha256": "96e01328f7ebddc67e33edd0ef38932b467f763e5d93690a02d9db7e1a1f2649"
+    },
+    {
+      "path": "docs/evolution-3/phase-9/spec.md",
+      "argon_sha256": "811019fca92a89b351a8b695884d13d820f5adc95445acf5504c2c1a1e73b687",
+      "current_sha256": "b9dea7cfee23a153ad60727e40eeae8d22d74dcb01c528370e433ecfb66df43c"
+    },
+    {
+      "path": "docs/evolution-3/qa/PHASE_GATE_TEMPLATE.md",
+      "argon_sha256": "71b6964259979069e375eb3c8c734f58ba9d199e5cc44e41b4ca5e2816431e2d",
+      "current_sha256": "5c31051a1deb7d1391e88205e6d929fe5698c6956436338dda8264315f407395"
+    },
+    {
+      "path": "docs/evolution-3/qa/acceptance-matrix.csv",
+      "argon_sha256": "410d49df2ccc91966b0f430c043bab76eb01c514a04dbd3f7647a879a6f5e5df",
+      "current_sha256": "888b4b63804cdd918a7c47119cc9a9bf7fdca4dd0851cb8ccfd9bec6d9128319"
+    },
+    {
+      "path": "docs/evolution-3/qa/validate_bundle.py",
+      "argon_sha256": "82854941a17517cefc4d4a708643018a98f3ba1d513cfea607850a0e0a896446",
+      "current_sha256": "74a0e9cbd6960eddbe34a21e6a3ff711fe3fe9b7201139e06d1f695ad8b5b864"
+    },
+    {
+      "path": "docs/evolution-3/records/ADR_TEMPLATE.md",
+      "argon_sha256": "3ca4d319d8f53332dc2d321f34c06c2c4303ba561cdc6e7e0c5012651ad280c7",
+      "current_sha256": "8ee480ecae06d6455a6add5bae35bd680eef64670510c050ba579cff65cf78bd"
+    },
+    {
+      "path": "docs/evolution-3/records/upstream-lock.json",
+      "argon_sha256": "3f864addf6ef086d69193962a21e692137e5291dabd7c59340081938d773234b",
+      "current_sha256": "a67107845e2ec1b8202c654e3582814d6c6ee307818ab8516dfd514f9cc5cae4"
+    },
+    {
+      "path": "docs/evolution-3/schemas/agent-profile.schema.json",
+      "argon_sha256": "8f99634983f90e8f1ab68e4031adb52cc72ffffd87db27427f0fe6095acbd9f1",
+      "current_sha256": "10ebb2ecb8862350989d67cf6f0c37b0aac0145270ea052400cf77453dfe9ec9"
+    },
+    {
+      "path": "docs/evolution-3/schemas/code-changeset.schema.json",
+      "argon_sha256": "ee384da2e51a468ab63a015fa89055a4d54690a8bd6cfa4e928ecfcfdbbd2581",
+      "current_sha256": "4aa76962dbd1f8c0723e9217506bf4393feed9f285e7ab3314f6099297604740"
+    },
+    {
+      "path": "docs/evolution-3/schemas/handoff.schema.json",
+      "argon_sha256": "f2f73fa39f988c01d05f24fb6276f62171f8ad2be933c14a2f123a16b3b4d5cf",
+      "current_sha256": "7cc0a30378050bfa8fe549486aeb74409091df3583dfcdacf79ca80e4d6a28cc"
+    },
+    {
+      "path": "docs/evolution-3/schemas/runtime-event.schema.json",
+      "argon_sha256": "5b04197e12786ee6226caa6c6cd71076384062a26c4b9c214d73dba601657fae",
+      "current_sha256": "f1bf665c98eb38ae8f85ff903d57af4b0d646515ee269e1d0493ca7544d2642e"
+    },
+    {
+      "path": "docs/evolution-3/schemas/scene-document-v2.schema.json",
+      "argon_sha256": "4398bb053790d6cb377ae73520a5c60a780bcef22d4cd93c9248cca8e450bb0b",
+      "current_sha256": "38419b273520c6b9220b4ab11d646485aa398cb7557ba737263c2e9f3842893f"
+    },
+    {
+      "path": "docs/evolution-3/schemas/workspace-lease.schema.json",
+      "argon_sha256": "7e0035f2ad8a34f8f9cb350a3e7565a7e143dc608ef8e8f88a9dd888069e0033",
+      "current_sha256": "a77bd9519e34a131fe46c9fa7105be19bfee8e040487b7e2d66ef9dc284d83d1"
+    },
+    {
+      "path": "docs/evolution-3/sql/001_agent_foundation.sql",
+      "argon_sha256": "3f43efa45060df72c4572edeb9b00174ab1683480dddf81db60775b6f0b649c7",
+      "current_sha256": "ce72c23daa6180bf7c8335ef46f4e1b371a6a36593528878fe810f81798e3c23"
+    },
+    {
+      "path": "workers/cad-worker/worker.py",
+      "argon_sha256": "ea6667257536db43349d2a016e2c3c0dc581a7b67567e418f0a2292fad631a45",
+      "current_sha256": "6b95c9b48ae95f1f44172ff1f147b77f1aa0031dee1dabfe95188dfe81798b4f"
+    }
+  ],
+  "scope": "Complete PR file inventory; this is not a claim of exhaustive line-by-line certification"
+}
