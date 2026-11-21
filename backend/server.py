@@ -62,7 +62,7 @@ from backend.converter import ConverterService
 from backend.mobile.http_api import MobileHTTP
 from backend.anticipation import AnticipationService
 from backend.telegram.http_api import TelegramHTTP
-from backend.agents.http_api import EvolutionHTTP
+from backend.agents.http_api import EvolutionHTTP, EvolutionHttpRuntime
 from backend.memory import task_memory
 from backend import session_memory
 
@@ -318,6 +318,27 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
             self.wfile.write(content)
             self.close_connection = True
             return
+
+        if path.startswith('/scripts/') and not self.server.host_owned:
+            scripts_dir = (self.frontend_path.parent / 'scripts').resolve()
+            rel = path[len('/scripts/'):].lstrip('/')
+            target_file = (scripts_dir / rel).resolve()
+            if target_file.is_file() and (target_file == scripts_dir or scripts_dir in target_file.parents):
+                mimes = {
+                    '.js': 'application/javascript; charset=utf-8',
+                    '.mjs': 'application/javascript; charset=utf-8',
+                    '.css': 'text/css; charset=utf-8',
+                    '.json': 'application/json; charset=utf-8',
+                }
+                content = target_file.read_bytes()
+                self.send_response(200)
+                self.send_header('Content-Type', mimes.get(target_file.suffix.lower(), 'application/octet-stream'))
+                self.send_header('Content-Length', str(len(content)))
+                self.send_header('Connection', 'close')
+                self.end_headers()
+                self.wfile.write(content)
+                self.close_connection = True
+                return
 
         if (path == '/mobile' or path.startswith('/mobile/')) and not self.server.host_owned:
             rel = path[len('/mobile'):].lstrip('/') or 'index.html'
@@ -1692,6 +1713,18 @@ def run_server(host='127.0.0.1', port=4173, config_path='providers.json', state_
             'converter': converter, 'mcp_host': mcp_host, 'anticipation': anticipation
         })
         server = ThreadedHTTPServer((host, port), handler)
+        server.evolution_runtime = EvolutionHttpRuntime(
+            db_path=state_path,
+            storage_dir=state_dir / 'evolution3',
+            chat_store=chats,
+            action_executor=executor,
+            command_service=commands,
+            magic_pen=magic_pen,
+            speech_service=speech,
+            identity_store=identity,
+        )
+        services.append(server.evolution_runtime)
+        server.evolution_runtime.routines.reconcile_on_startup()
         from backend.mobile.gateway import MobileGateway
         server.mobile = MobileGateway.for_backend(server, state_path, state_dir)
         executor.input_control = server.mobile.control
@@ -1787,6 +1820,9 @@ def main():
     if '--office-worker' in sys.argv[1:]:
         from backend.actions.office_workflows import worker_main as office_worker_main
         return office_worker_main()
+    if '--cad-worker' in sys.argv[1:]:
+        from backend.spatial.cad_contracts import worker_main as cad_worker_main
+        return cad_worker_main()
     if '--mcp-server' in sys.argv[1:]:
         from backend.connect.mcp_server import main as mcp_main
         return mcp_main()

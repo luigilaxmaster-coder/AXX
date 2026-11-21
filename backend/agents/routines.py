@@ -107,7 +107,6 @@ class AutonomousRoutineService:
                 f'Autonomous routine {routine_id!r} cannot request forbidden capabilities (E2E-07): {forbidden}'
             )
 
-        # Imported routines ALWAYS start disabled/paused until explicitly enabled by the user (E2E-07)
         if imported_from_package:
             effective_enabled = False
             status = 'paused_on_import'
@@ -145,17 +144,32 @@ class AutonomousRoutineService:
             ).fetchone()
             if not row:
                 raise LookupError(f'Routine not found: {routine_id}')
-            return {
-                'routine_id': row['routine_id'],
-                'agent_id': row['agent_id'],
-                'conversation_id': row['conversation_id'],
-                'schedule_spec': row['schedule_spec'],
-                'enabled': bool(row['enabled']),
-                'requires_approval': bool(row['requires_approval']),
-                'capabilities': json.loads(row['capabilities_json']),
-                'last_run_at_ms': row['last_run_at_ms'],
-                'status': row['status'],
-            }
+            return self._row_to_dict(row)
+
+    def list_routines(self, conversation_id: str | None = None) -> list[dict[str, Any]]:
+        with self.lock, self._connect() as db:
+            if conversation_id:
+                rows = db.execute(
+                    'SELECT * FROM autonomous_routines WHERE conversation_id=? ORDER BY routine_id',
+                    (conversation_id,),
+                ).fetchall()
+            else:
+                rows = db.execute('SELECT * FROM autonomous_routines ORDER BY routine_id').fetchall()
+            return [self._row_to_dict(r) for r in rows]
+
+    @staticmethod
+    def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            'routine_id': row['routine_id'],
+            'agent_id': row['agent_id'],
+            'conversation_id': row['conversation_id'],
+            'schedule_spec': row['schedule_spec'],
+            'enabled': bool(row['enabled']),
+            'requires_approval': bool(row['requires_approval']),
+            'capabilities': json.loads(row['capabilities_json']),
+            'last_run_at_ms': row['last_run_at_ms'],
+            'status': row['status'],
+        }
 
     def trigger_routine(
         self,
@@ -197,4 +211,30 @@ class AutonomousRoutineService:
             'approval_card_created': next_status == 'awaiting_approval',
             'activated_microphone': False,
             'activated_host_input': False,
+        }
+
+    def cancel_routine(self, routine_id: str) -> dict[str, Any]:
+        """Cancel and disable an autonomous routine, persisting state across restarts."""
+        self.get_routine(routine_id)
+        with self.lock, self._connect() as db:
+            with db:
+                db.execute(
+                    "UPDATE autonomous_routines SET enabled=0, status='cancelled' WHERE routine_id=?",
+                    (routine_id,),
+                )
+        return self.get_routine(routine_id)
+
+    def reconcile_on_startup(self) -> dict[str, Any]:
+        """Reconcile persisted routines on service startup without auto-executing pending mutations."""
+        routines = self.list_routines()
+        scheduled = [r['routine_id'] for r in routines if r['enabled'] and r['status'] == 'scheduled']
+        awaiting = [r['routine_id'] for r in routines if r['status'] == 'awaiting_approval']
+        cancelled = [r['routine_id'] for r in routines if r['status'] == 'cancelled']
+        paused = [r['routine_id'] for r in routines if r['status'] in ('paused', 'paused_on_import')]
+        return {
+            'total': len(routines),
+            'scheduled': scheduled,
+            'awaiting_approval': awaiting,
+            'cancelled': cancelled,
+            'paused': paused,
         }

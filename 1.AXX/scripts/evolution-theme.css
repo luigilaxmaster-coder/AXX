@@ -1,0 +1,382 @@
+/**
+ * AXX EVOLUTION 3.0 — AESTHETIC THEME ENGINE (Apple × Google Design x100)
+ *
+ * Invariants:
+ * - Purely additive stylesheet. Zero modifications to protected baselines.
+ * - Hardware-accelerated transforms & sub-pixel precision.
+ * - Dynamic color tokens harmonized with AXX's 9 canonical avatar palettes.
+ * - Optical glass translucency with double-layer specular illumination.
+ * - Spring physics curves for micro-interactions and tactile feedback.
+ */
+
+:root {
+  /* ==========================================================================
+     1. COLOR FOUNDATIONS & DYNAMIC TOKENS (MATERIAL YOU × OBSIDIAN DARK LUXURY)
+     ========================================================================== */
+  --axx-bg-deep: #08080b;
+  --axx-bg-surface: #0e0e13;
+  --axx-bg-elevated: rgba(18, 18, 26, 0.82);
+  --axx-bg-glass: rgba(15, 15, 22, 0.72);
+  --axx-bg-glass-active: rgba(24, 24, 36, 0.88);
+  
+  /* Specular & Optical Edge Highlights */
+  --axx-hairline-specular: rgba(255, 255, 255, 0.08);
+  --axx-hairline-specular-top: rgba(255, 255, 255, 0.14);
+  --axx-hairline-glow: rgba(120, 190, 255, 0.18);
+  --axx-border-subtle: rgba(255, 255, 255, 0.06);
+
+  /* Typography Contrast Hierarchy (Apple Pro Typography) */
+  --axx-text-primary: rgba(255, 255, 255, 0.96);
+  --axx-text-secondary: rgba(255, 255, 255, 0.70);
+  --axx-text-tertiary: rgba(255, 255, 255, 0.44);
+  --axx-text-disabled: rgba(255, 255, 255, 0.25);
+
+  /* Dynamic Accent (Harmonized with AXX Palette: Default Obsidian Cyan/Violet) */
+  --axx-accent-core: #157eff;
+  --axx-accent-glow: rgba(21, 126, 255, 0.28);
+  --axx-accent-secondary: #79e7ff;
+  --axx-accent-tertiary: #a14dff;
+  
+  /* Semantic Status Indicators */
+  --axx-status-success: #10b981;
+  --axx-status-warning: #f59e0b;
+  --axx-status-error: #ef4444;
+  --axx-status-info: #3b82f6;
+
+  /* ==========================================================================
+     2. MOTION & PHYSICAL SPRINGS (APPLE SPRING DYNAMICS)
+     ========================================================================== */
+  --axx-spring-snappy: cubic-bezier(0.16, 1, 0.3, 1);
+  --axx-spring-bouncy: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --axx-spring-gentle: cubic-bezier(0.25, 1, 0.5, 1);
+  --axx-duration-quick: 140ms;
+  --axx-duration-standard: 240ms;
+  --axx-duration-smooth: 380ms;
+
+  /* ==========================================================================
+     3. OPTICAL GLASS & DEPTH SHADOWS
+     ========================================================================== */
+  --axx-glass-blur: blur(28px) saturate(190%) contrast(105%);
+  --axx-shadow-ambient: 0 16px 40px -8px rgba(0, 0, 0, 0.75);
+  --axx-shadow-key: 0 4px 14px rgba(0, 0, 0, 0.45);
+  --axx-shadow-elevation: 0 24px 64px -12px rgba(0, 0, 0, 0.88), 0 0 1px 1px var(--axx-hairline-specular) inset;
+  
+  /* Radii Geometry (Continuous Squircles) */
+  --axx-radius-sm: 8px;
+  --axx-radius-md: 14px;
+  --axx-radius-lg: 20px;
+  --axx-radius-full: 9999px;
+}
+
+/* ==========================================================================
+   4. AGENT DESIGNER MODAL & CARDS (APPLE-TIER ELEVATION)
+   ========================================================================== */
+.axx-agent-designer-modal {
+  background: var(--axx-bg-glass) !important;
+  backdrop-filter: var(--axx-glass-blur) !important;
+  -webkit-backdrop-filter: var(--axx-glass-blur) !important;
+  border: 1px solid var(--axx-hairline-specular) !important;
+  border-top-color: var(--axx-hairline-specular-top) !important;
+  border-radius: var(--axx-radius-lg) !important;
+  box-shadow: var(--axx-shadow-elevation) !important;
+  color: var(--axx-text-primary) !important;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter", sans-serif !important;
+  letter-spacing: -0.012em !important;
+  transition: transform var(--axx-duration-standard) var(--axx-spring-snappy),
+              opacity var(--axx-duration-standard) ease !important;
+  overflow: hidden !important;
+}
+
+.axx-agent-designer-tabs {
+  display: flex !important;
+  gap: 6px !important;
+  padding: 6px !important;
+  background: rgba(0, 0, 0, 0.35) !important;
+  border-radius: var(--axx-radius-md) !important;
+  border: 1px solid var(--axx-border-subtle) !important;
+  margin: 12px 16px !important;
+}
+
+.axx-agent-designer-tabs button {
+  flex: 1 !important;
+  padding: 8px 14px !important;
+  border-radius: var(--axx-radius-sm) !important;
+  border: none !important;
+  background: transparent !important;
+  color: var(--axx-text-secondary) !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  cursor: pointer !important;
+  transition: all var(--axx-duration-quick) var(--axx-spring-snappy) !important;
+}
+
+.axx-agent-designer-tabs button:hover {
+  color: var(--axx-text-primary) !important;
+  background: rgba(255, 255, 255, 0.05) !important;
+}
+
+.axx-agent-designer-tabs button.active,
+.axx-agent-designer-tabs button[aria-selected="true"] {
+  background: var(--axx-bg-glass-active) !important;
+  color: #ffffff !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4), 0 0 0 1px var(--axx-hairline-specular-top) inset !important;
+}
+
+.axx-agent-designer-body {
+  padding: 16px 20px !important;
+  max-height: 520px !important;
+  overflow-y: auto !important;
+}
+
+.axx-agent-designer-footer {
+  display: flex !important;
+  justify-content: flex-end !important;
+  gap: 10px !important;
+  padding: 14px 20px !important;
+  background: rgba(0, 0, 0, 0.25) !important;
+  border-top: 1px solid var(--axx-border-subtle) !important;
+}
+
+.axx-agent-designer-footer button {
+  padding: 8px 18px !important;
+  border-radius: var(--axx-radius-sm) !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  cursor: pointer !important;
+  transition: all var(--axx-duration-quick) var(--axx-spring-snappy) !important;
+}
+
+.axx-agent-designer-footer button:hover {
+  transform: translateY(-1px) !important;
+}
+
+.axx-agent-designer-footer button:active {
+  transform: scale(0.975) !important;
+}
+
+/* Agent Roster Cards (Floating Grid) */
+.axx-agent-roster-panel {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)) !important;
+  gap: 14px !important;
+  padding: 16px !important;
+}
+
+.axx-agent-roster-card {
+  background: var(--axx-bg-glass) !important;
+  backdrop-filter: var(--axx-glass-blur) !important;
+  -webkit-backdrop-filter: var(--axx-glass-blur) !important;
+  border: 1px solid var(--axx-hairline-specular) !important;
+  border-radius: var(--axx-radius-md) !important;
+  padding: 16px !important;
+  box-shadow: var(--axx-shadow-key) !important;
+  transition: all var(--axx-duration-standard) var(--axx-spring-snappy) !important;
+}
+
+.axx-agent-roster-card:hover {
+  transform: translateY(-2px) !important;
+  border-color: var(--axx-hairline-specular-top) !important;
+  box-shadow: var(--axx-shadow-ambient), 0 0 20px var(--axx-accent-glow) !important;
+}
+
+.axx-agent-card-title {
+  font-size: 15px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  color: var(--axx-text-primary) !important;
+  margin-bottom: 6px !important;
+}
+
+/* ==========================================================================
+   5. MAGIC PEN DIAGRAM STUDIO (SUB-PIXEL VECTOR PRECISION)
+   ========================================================================== */
+.axx-diagram-studio-svg {
+  background: radial-gradient(circle at 50% 50%, rgba(21, 126, 255, 0.04) 0%, transparent 70%), var(--axx-bg-deep) !important;
+  border-radius: var(--axx-radius-md) !important;
+  box-shadow: 0 0 0 1px var(--axx-hairline-specular) inset !important;
+}
+
+.axx-diagram-studio-svg line {
+  stroke: rgba(255, 255, 255, 0.22) !important;
+  stroke-width: 1.5px !important;
+  stroke-linecap: round !important;
+  transition: stroke var(--axx-duration-quick) ease, stroke-width var(--axx-duration-quick) ease !important;
+}
+
+.axx-diagram-studio-svg line:hover {
+  stroke: var(--axx-accent-secondary) !important;
+  stroke-width: 2.5px !important;
+}
+
+.axx-diagram-studio-svg g rect {
+  fill: var(--axx-bg-glass) !important;
+  stroke: var(--axx-hairline-specular) !important;
+  stroke-width: 1px !important;
+  rx: 10px !important;
+  ry: 10px !important;
+  filter: drop-shadow(0 6px 16px rgba(0, 0, 0, 0.6)) !important;
+  transition: all var(--axx-duration-standard) var(--axx-spring-snappy) !important;
+  cursor: grab !important;
+}
+
+.axx-diagram-studio-svg g rect:hover {
+  stroke: var(--axx-accent-core) !important;
+  stroke-width: 1.5px !important;
+  fill: var(--axx-bg-glass-active) !important;
+}
+
+.axx-diagram-studio-svg g text {
+  fill: var(--axx-text-primary) !important;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", sans-serif !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  letter-spacing: -0.01em !important;
+  pointer-events: none !important;
+}
+
+/* ==========================================================================
+   6. CAD STUDIO PARAMÉTRICO (INDUSTRIAL HUD PRECISION)
+   ========================================================================== */
+.axx-cad-studio-panel {
+  background: var(--axx-bg-glass) !important;
+  backdrop-filter: var(--axx-glass-blur) !important;
+  border: 1px solid var(--axx-hairline-specular) !important;
+  border-radius: var(--axx-radius-md) !important;
+  padding: 16px !important;
+  color: var(--axx-text-primary) !important;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", sans-serif !important;
+}
+
+.axx-cad-header {
+  display: flex !important;
+  align-items: center !important;
+  gap: 12px !important;
+  padding-bottom: 12px !important;
+  border-bottom: 1px solid var(--axx-border-subtle) !important;
+  margin-bottom: 14px !important;
+}
+
+.axx-cad-fidelity-badge,
+.axx-cad-eng-badge {
+  display: inline-flex !important;
+  align-items: center !important;
+  padding: 3px 10px !important;
+  border-radius: var(--axx-radius-full) !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.04em !important;
+  text-transform: uppercase !important;
+}
+
+.axx-cad-fidelity-badge {
+  background: rgba(16, 185, 129, 0.14) !important;
+  color: #34d399 !important;
+  border: 1px solid rgba(16, 185, 129, 0.28) !important;
+}
+
+.axx-cad-eng-badge {
+  background: rgba(59, 130, 246, 0.14) !important;
+  color: #60a5fa !important;
+  border: 1px solid rgba(59, 130, 246, 0.28) !important;
+}
+
+.axx-cad-part-card {
+  background: rgba(0, 0, 0, 0.32) !important;
+  border: 1px solid var(--axx-border-subtle) !important;
+  border-radius: var(--axx-radius-sm) !important;
+  padding: 12px 14px !important;
+  margin-bottom: 10px !important;
+}
+
+.axx-cad-part-title {
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  color: var(--axx-text-primary) !important;
+  margin-bottom: 8px !important;
+}
+
+.axx-cad-dim-row {
+  display: flex !important;
+  justify-content: space-between !important;
+  align-items: center !important;
+  font-size: 12px !important;
+  color: var(--axx-text-secondary) !important;
+  margin: 4px 0 !important;
+}
+
+.axx-cad-dim-row input {
+  background: rgba(0, 0, 0, 0.5) !important;
+  border: 1px solid var(--axx-border-subtle) !important;
+  border-radius: 4px !important;
+  color: #ffffff !important;
+  padding: 3px 8px !important;
+  font-family: "SF Mono", Menlo, Consolas, monospace !important;
+  font-size: 12px !important;
+  font-variant-numeric: tabular-nums !important;
+  width: 76px !important;
+  text-align: right !important;
+}
+
+/* ==========================================================================
+   7. MOTION & SIMULATION TIMELINE (CINEMATIC CONTROL)
+   ========================================================================== */
+.axx-motion-timeline-panel {
+  display: flex !important;
+  align-items: center !important;
+  gap: 14px !important;
+  background: var(--axx-bg-glass) !important;
+  backdrop-filter: var(--axx-glass-blur) !important;
+  border: 1px solid var(--axx-hairline-specular) !important;
+  border-radius: var(--axx-radius-md) !important;
+  padding: 10px 18px !important;
+}
+
+.axx-motion-time-label {
+  font-family: "SF Mono", Menlo, Consolas, monospace !important;
+  font-size: 12px !important;
+  font-variant-numeric: tabular-nums !important;
+  color: var(--axx-accent-secondary) !important;
+  letter-spacing: 0.02em !important;
+}
+
+/* ==========================================================================
+   8. VIRTUAL CURSORS (NON-INVASIVE LUMINOUS RINGS)
+   ========================================================================== */
+.axx-virtual-cursor {
+  position: absolute !important;
+  pointer-events: none !important;
+  z-index: 999999 !important;
+  transition: transform 90ms cubic-bezier(0.1, 0.9, 0.2, 1) !important;
+  will-change: transform !important;
+}
+
+.axx-virtual-cursor-ring {
+  width: 26px !important;
+  height: 26px !important;
+  border-radius: 50% !important;
+  border: 2px solid var(--axx-accent-secondary) !important;
+  background: radial-gradient(circle, var(--axx-accent-glow) 0%, transparent 70%) !important;
+  box-shadow: 0 0 12px var(--axx-accent-glow) !important;
+  animation: axx-cursor-pulse 2.4s infinite ease-in-out !important;
+}
+
+.axx-virtual-cursor-tag {
+  position: absolute !important;
+  left: 28px !important;
+  top: 4px !important;
+  background: rgba(10, 10, 16, 0.88) !important;
+  backdrop-filter: blur(8px) !important;
+  border: 1px solid var(--axx-hairline-specular) !important;
+  border-radius: 6px !important;
+  padding: 2px 8px !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  color: #ffffff !important;
+  white-space: nowrap !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4) !important;
+}
+
+@keyframes axx-cursor-pulse {
+  0%, 100% { transform: scale(1); opacity: 0.85; }
+  50% { transform: scale(1.12); opacity: 1; }
+}

@@ -39,6 +39,7 @@ a = Analysis(
            ('mobile/js/avatar-renderer.js', 'mobile/js'),
            ('backend/actions/uia_worker.ps1', 'backend/actions'),
            ('backend/actions/uia_observer.ps1', 'backend/actions'),
+           ('workers/cad-worker/worker.py', 'workers/cad-worker'),
            ('resources/command-library.json', 'resources'),
            ('resources/procedure-library.zip', 'resources'),
            ('master_icon.png', '.'),

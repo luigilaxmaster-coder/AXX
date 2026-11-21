@@ -550,8 +550,8 @@ class IsolatedCadWorker:
     """Supervises an isolated subprocess running parametric CAD tasks with timeout, kill, and recovery."""
 
     def __init__(self, worker_script: str | Path | None = None, timeout_seconds: float = 15.0):
-        root = Path(__file__).resolve().parents[2]
-        self.worker_script = Path(worker_script or (root / 'workers' / 'cad-worker' / 'worker.py'))
+        base = Path(getattr(sys, '_MEIPASS', Path(__file__).resolve().parents[2]))
+        self.worker_script = Path(worker_script or (base / 'workers' / 'cad-worker' / 'worker.py'))
         self.timeout_seconds = float(timeout_seconds)
         self.last_crash_recovered = False
 
@@ -568,8 +568,12 @@ class IsolatedCadWorker:
             'output_dir': str(output_dir),
         }, ensure_ascii=False).encode('utf-8')
         timeout = float(timeout_override if timeout_override is not None else self.timeout_seconds)
+        if getattr(sys, 'frozen', False):
+            cmd = [sys.executable, '--cad-worker']
+        else:
+            cmd = [sys.executable, str(self.worker_script)]
         proc = subprocess.Popen(
-            [sys.executable, str(self.worker_script)],
+            cmd,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -593,3 +597,29 @@ class IsolatedCadWorker:
         if not response.get('ok'):
             raise CadContractError(response.get('error', 'CAD worker returned failure'))
         return response['result']
+
+
+def worker_main() -> int:
+    """Entrypoint for isolated CAD worker subprocess (used by both workers/cad-worker/worker.py and frozen axx-backend.exe --cad-worker)."""
+    import time
+    try:
+        raw = sys.stdin.buffer.read().decode('utf-8')
+        request = json.loads(raw)
+        task = request.get('task') or {}
+        if task.get('_simulate_hang_seconds'):
+            time.sleep(float(task['_simulate_hang_seconds']))
+        output_dir = request.get('output_dir')
+        res = execute_cad_geometry_task(task, output_dir=output_dir)
+        serializable = {
+            'task_id': res['task_id'],
+            'scene_document': res['scene_document'],
+            'step_path': res['step_path'],
+            'glb_path': res['glb_path'],
+            'congruence': res['congruence'],
+            'diagnostic_report': res['diagnostic_report'],
+        }
+        sys.stdout.write(json.dumps({'ok': True, 'result': serializable}, ensure_ascii=False))
+        return 0
+    except Exception as exc:
+        sys.stdout.write(json.dumps({'ok': False, 'error': str(exc)}, ensure_ascii=False))
+        return 1
