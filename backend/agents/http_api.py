@@ -191,7 +191,7 @@ class EvolutionHTTP:
             conv_id = query.get('conversation_id', [''])[0]
             if not conv_id:
                 raise ValueError('conversation_id is required')
-            self.handler._send_json(200, {'bindings': self.rt.bindings.list_conversation_agents(conv_id)})
+            self.handler._send_json(200, {'bindings': self.rt.bindings.list_conversation_members(conv_id)})
             return True
         if path == '/axx-api/agents/v1/flags':
             self.handler._send_json(200, {'flags': self.rt.flags.list_flags()})
@@ -271,12 +271,25 @@ class EvolutionHTTP:
             self.handler._send_json(200, {'profile': imported})
             return True
         if path == '/axx-api/agents/v1/bindings/convert':
-            converted = self.rt.bindings.convert_chat_to_agent_or_team(
-                body['conversation_id'],
-                lead_agent_id=body['lead_agent_id'],
-                member_agent_ids=body.get('member_agent_ids'),
+            conv_id = body['conversation_id']
+            self.rt.bindings.bind_agent_to_conversation(
+                conv_id,
+                body['lead_agent_id'],
+                membership_role='lead',
             )
-            self.handler._send_json(200, converted)
+            for member_id in body.get('member_agent_ids') or []:
+                self.rt.bindings.bind_agent_to_conversation(
+                    conv_id,
+                    member_id,
+                    membership_role='member',
+                )
+            self.handler._send_json(
+                200,
+                {
+                    'conversation_id': conv_id,
+                    'bindings': self.rt.bindings.list_conversation_members(conv_id),
+                },
+            )
             return True
         if path == '/axx-api/agents/v1/bindings/switch':
             switched = self.rt.bindings.switch_agent(
@@ -616,7 +629,7 @@ class EvolutionHTTP:
             self.handler._send_json(200, result)
             return True
         if path == '/axx-api/spatial/v2/motion/freeze':
-            frozen = freeze_scene_at(body['scene'], t_sec=float(body['t_sec']), seed=int(body.get('seed', 42)))
+            frozen = freeze_scene_at(body['scene'], float(body.get('t_sec', body.get('t_seconds', 0.0))), seed=int(body.get('seed', 42)))
             self.handler._send_json(200, frozen)
             return True
         if path == '/axx-api/spatial/v2/motion/export-mp4':
@@ -625,11 +638,11 @@ class EvolutionHTTP:
             mp4_res = export_motion_mp4(
                 body['scene'],
                 output_path=out_file,
-                fps=int(body.get('fps', 12)),
+                fps=int(body.get('fps', 10)),
                 seed=int(body.get('seed', 42)),
-                narration_text=body.get('narration_text'),
             )
-            self.handler._send_json(200, mp4_res)
+            serializable = {k: v for k, v in mp4_res.items() if k != 'mp4_bytes'}
+            self.handler._send_json(200, serializable)
             return True
         if path == '/axx-api/spatial/v2/assets/register':
             raw_bytes = base64.b64decode(body['content_b64']) if 'content_b64' in body else str(body.get('content_text', '')).encode('utf-8')
