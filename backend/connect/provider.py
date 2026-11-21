@@ -249,6 +249,14 @@ class CodexProvider:
                     self.local_enabled = json.loads(setting[0]) is True
                 except ValueError:
                     self.local_enabled = False
+            selected = self.db.execute("SELECT value_json FROM connect_settings WHERE key='selected_model'").fetchone()
+            if selected:
+                try:
+                    model = json.loads(selected[0])
+                    if isinstance(model, str) and re.fullmatch(r'[A-Za-z0-9_.:/-]{1,160}', model):
+                        self.selected_model = model
+                except ValueError:
+                    pass  # A corrupt preference cannot authorize a different provider.
             for row in self.db.execute('SELECT request_id,body_json FROM connect_runs').fetchall():
                 body = json.loads(row['body_json'])
                 if body['state'] not in TERMINAL:
@@ -1172,6 +1180,9 @@ class CodexProvider:
                 run['_turn_input'], run['_turn_effort'], run['_turn_schema'] = turn_input, turn_effort, turn_schema
             self.live[request_id] = run
             self.selected_model = model
+            with self.db:
+                self.db.execute("INSERT OR REPLACE INTO connect_settings(key,value_json) VALUES('selected_model',?)",
+                                (json.dumps(model),))
             self._event(run, 'run/accepted')
             threading.Thread(target=self._run, args=(run, message), daemon=True,
                              name='axx-codex-turn').start()
@@ -1201,6 +1212,8 @@ class CodexProvider:
                 saved = None if run['purpose'] in {'capability','planning'} else self.db.execute(
                     'SELECT * FROM connect_conversations WHERE conversation_id=?',
                     (run['conversation_id'] + ':axx-direct-v2',)).fetchone()
+                if saved is not None and saved['model'] != run['model']:
+                    saved = None  # A resumed thread can retain its previous model despite an override.
             common = {'model': run['model'], 'modelProvider': 'openai', 'cwd': self.cwd,
                       'approvalPolicy': 'on-request', 'sandbox': 'read-only',
                       'approvalsReviewer': 'user',

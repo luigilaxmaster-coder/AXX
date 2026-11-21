@@ -5,6 +5,7 @@ from pathlib import Path
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 from backend.auth.chatgpt_auth import ChatGPTAuthManager
 from backend.auth.callback_page import get_callback_html
 from backend.inference.chatgpt_adapter import ChatGPTSubscriptionAdapter
@@ -23,26 +24,21 @@ class TestChatGPTAuth(unittest.TestCase):
         self.assertEqual(status['models'], [])
         self.assertIsNone(status['email'])
 
-    def test_start_oauth_generates_pkce_and_state(self):
-        res = self.auth.start_oauth(port=4173, open_browser=False)
-        self.assertIn('auth_url', res)
-        self.assertIn('state', res)
-        self.assertIn('https://auth.openai.com/api/accounts/authorize', res['auth_url'])
-        self.assertIn('dynamic_agent_client', res['auth_url'])
-        self.assertIn('code_challenge_method=S256', res['auth_url'])
-        self.assertIn('chatgpt.tokens.use.direct', res['auth_url'])
-        self.assertIn(res['state'], self.auth.pending_states)
-
-    def test_custom_client_id(self):
-        self.assertEqual(self.auth.get_client_id(), 'dynamic_agent_client')
-        self.auth.set_client_id('oaiapp_test_custom_id_123')
-        self.assertEqual(self.auth.get_client_id(), 'oaiapp_test_custom_id_123')
-        status = self.auth.get_status()
-        self.assertEqual(status['client_id'], 'oaiapp_test_custom_id_123')
-        res = self.auth.start_oauth(port=4173, open_browser=False)
-        self.assertIn('client_id=oaiapp_test_custom_id_123', res['auth_url'])
-        self.auth.set_client_id('')
-        self.assertEqual(self.auth.get_client_id(), 'dynamic_agent_client')
+    def test_retired_auth_never_reads_or_transmits_saved_credentials(self):
+        legacy = Path(self.tmp_dir.name) / 'auth' / 'chatgpt.json'
+        legacy.parent.mkdir()
+        legacy.write_bytes(b'private-test-fixture')
+        with patch('urllib.request.urlopen', side_effect=AssertionError('Network forbidden')):
+            auth = ChatGPTAuthManager(data_dir=Path(self.tmp_dir.name))
+            with self.assertRaisesRegex(ValueError, 'Codex App Server'):
+                auth.start_oauth(port=4173, open_browser=False)
+            with self.assertRaisesRegex(ValueError, 'Codex App Server'):
+                auth.set_client_id('unregistered-client')
+            self.assertIsNone(auth.get_access_token())
+            self.assertFalse(auth.refresh_access_token())
+            self.assertFalse(auth.handle_callback('code', 'state')[0])
+            auth.clear_auth()
+        self.assertEqual(legacy.read_bytes(), b'private-test-fixture')
 
     def test_callback_page_html_rendering(self):
         success_html = get_callback_html(True, "Autorización completada", "Luigi").decode('utf-8')
@@ -54,15 +50,15 @@ class TestChatGPTAuth(unittest.TestCase):
         self.assertIn('No se pudo completar la conexión', error_html)
         self.assertIn('Error de prueba', error_html)
 
-    def test_adapter_cooldown_and_fallback(self):
+    def test_retired_adapter_blocks_every_fallback_path(self):
         adapter = ChatGPTSubscriptionAdapter(self.auth)
         self.assertFalse(adapter.is_available())
-        # Set artificial cooldown
-        adapter.cooldown_until = time.time() + 60
-        cooldown = adapter.get_cooldown()
-        self.assertIsNotNone(cooldown)
-        self.assertTrue(cooldown['active'])
-        self.assertGreater(cooldown['remaining_seconds'], 0)
+        with patch('urllib.request.urlopen', side_effect=AssertionError('Network forbidden')):
+            for allow_fallback in (False, True):
+                with self.assertRaisesRegex(ValueError, 'Codex App Server'):
+                    adapter.chat('gpt-4o', [{'role': 'user', 'content': 'test'}], allow_fallback=allow_fallback)
+            with self.assertRaises(ValueError):
+                adapter.query_local_ollama([])
 
 if __name__ == '__main__':
     unittest.main()

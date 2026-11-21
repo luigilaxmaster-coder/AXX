@@ -144,6 +144,15 @@ class ControlledProcess:
 
 
 class ProviderTests(unittest.TestCase):
+    def test_selected_model_survives_restart_without_starting_another_turn(self):
+        with patch.object(self.provider, '_run'):
+            self.provider.start({'request_id': 'selected-model', 'conversation_id': 'selected-model',
+                                 'model': 'gpt-6.1-terra', 'message': 'test'})
+        self.provider.close()
+        self.provider = ControlledProvider(None, self.path, self.temp.name)
+        self.assertEqual(self.provider.selected_model, 'gpt-6.1-terra')
+        self.assertFalse(self.provider.status()['inference_verified'])
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.path = Path(self.temp.name)/'state.db'
@@ -929,6 +938,16 @@ class ProviderTests(unittest.TestCase):
             self.assertEqual(run['error']['code'], 'MODEL_UNVERIFIED')
         self.assertEqual(sum(method == 'thread/resume' for method, _ in self.provider.rpc_calls), 2)
         self.assertFalse(any(method == 'turn/start' for method, _ in self.provider.rpc_calls))
+
+    def test_explicit_model_switch_starts_a_new_thread_instead_of_resuming_the_old_model(self):
+        self.start(conversation_id='model-switch'); self.wait_started(); self.complete()
+        self.provider.rpc_calls.clear()
+        self.start(request_id='switch', conversation_id='model-switch', model='gpt-6.1-terra')
+        run = self.wait_started('switch')
+        self.assertEqual(run['runtime_model'], 'gpt-6.1-terra')
+        self.assertTrue(any(method == 'thread/start' for method, _ in self.provider.rpc_calls))
+        self.assertFalse(any(method == 'thread/resume' for method, _ in self.provider.rpc_calls))
+        self.complete()
 
     def test_blocked_write_and_flush_have_bounded_unknown_outcome_without_replay(self):
         for phase in ('write', 'flush'):
