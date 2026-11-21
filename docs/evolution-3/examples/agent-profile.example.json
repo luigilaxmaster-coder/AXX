@@ -1,0 +1,46 @@
+{
+  "schema_version": "1.0",
+  "agent_id": "axx-dev-001",
+  "revision": 1,
+  "name": "AXX Developer",
+  "role": "software_engineer",
+  "description": "Agente de desarrollo aislado",
+  "instructions": "Trabaja sobre un worktree. Prepara diffs y pruebas; no publica sin aprobar.",
+  "enabled": false,
+  "appearance": {
+    "form_id": 17,
+    "palette_id": 0,
+    "catalog_version": "unverified-desktop-mapping",
+    "material_preset": "obsidian"
+  },
+  "intelligence": {
+    "route": "manual",
+    "provider_profile_ref": "codex-configured",
+    "model_id": "",
+    "fallback": "ask",
+    "max_parallel_turns": 1
+  },
+  "voice": {
+    "language": "es-DO",
+    "auto_speak": false
+  },
+  "workspace": {
+    "runtime": "api",
+    "foreground_policy": "ask",
+    "project_ref": "axx-project",
+    "allowed_roots": [
+      "project://axx"
+    ]
+  },
+  "permissions": {
+    "tool_grant_refs": [],
+    "delegation_enabled": false,
+    "max_delegate_depth": 0
+  },
+  "limits": {
+    "max_concurrent_jobs": 1,
+    "max_retries": 1,
+    "max_cost_usd": 0
+  },
+  "memory_scope": "agent"
+}

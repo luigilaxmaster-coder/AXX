@@ -1,0 +1,48 @@
+{
+  "schema_version": "2.0",
+  "document_id": "scene-001",
+  "revision": 1,
+  "mode": "cad",
+  "units": "mm",
+  "fidelity": "conceptual",
+  "coordinate_system": {
+    "up_axis": "Z",
+    "handedness": "right",
+    "origin": [
+      0,
+      0,
+      0
+    ]
+  },
+  "source": {
+    "kind": "magic_pen_capture",
+    "source_id": "capture-001",
+    "revision": 1
+  },
+  "objects": [
+    {
+      "id": "part-001",
+      "name": "Panel principal",
+      "representation": "brep",
+      "fidelity": "conceptual",
+      "geometry_asset_id": "asset-001",
+      "measured_source": "inferred",
+      "properties": {
+        "width_mm": 500
+      }
+    }
+  ],
+  "assets": [
+    {
+      "asset_id": "asset-001",
+      "sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+      "mime_type": "model/step",
+      "size_bytes": 4096,
+      "license": "internal"
+    }
+  ],
+  "timeline": {
+    "duration_seconds": 0,
+    "tracks": []
+  }
+}

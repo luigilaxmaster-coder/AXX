@@ -1,0 +1,39 @@
+test_id,acceptance_criterion,gate,required_evidence,status,evidence_ref,notes
+CHAT-01,Legacy chat ID/messages/drafts preserved,G8,"integration,Windows",PASS,backend/tests/test_agent_profiles_and_chat_bindings.py,Verified lossless chat-to-agent conversion preserving messages/drafts/group_id/connect_id/TTL
+CHAT-02,No implicit cross-chat context,G8,"negative,privacy",PASS,backend/tests/test_agent_profiles_and_chat_bindings.py,Verified CrossChatAccessDeniedError blocks unlinked conversation reads
+CHAT-03,TTL 90 days and forget respected,G8,integration,PASS,backend/tests/test_agent_profiles_and_chat_bindings.py,Verified ChatStore.mutate('forget') scrubs agent_conversation_links and artifacts
+AGENT-01,Create/edit/disable without global profile change,G8,"unit,Windows",PASS,backend/tests/test_agent_profiles_and_chat_bindings.py,Verified AgentRegistry CRUD and CAS profile_revision isolation from global IdentityStore
+AGENT-02,"24 forms /9 palettes real thumbs, preview reversible",G8,"visual,Windows",PASS,1.AXX/scripts/test-spatial-shapes.cjs,Verified 24 canonical forms and 9 palettes + reversible Agent Designer preview
+AGENT-03,Team permissions and actor attribution,G11,"integration,negative",PASS,backend/tests/test_multiagent_orchestration.py,Verified mid-run draining agent transition and per-agent attribution
+AGENT-04,Provider switch preserves scope,G8,integration,PASS,backend/tests/test_agent_profiles_and_chat_bindings.py,Verified provider/model override preserves conversation and permission scope
+AGENT-05,Team export strips secrets and inactive routines,G11,security,PASS,backend/tests/test_agent_profiles_and_chat_bindings.py,Verified export_agent_package strips secrets and imported routines start paused_on_import
+ORCH-01,TaskGraph accepts DAG and rejects cycles,G1,unit,PASS,backend/tests/test_task_graph_and_superpowers.py,Verified Kahn topological sort and CycleDetectedError + max_delegate_depth<=2
+ORCH-02,Crash/unknown effect never auto redispatched,G1,fault-injection,PASS,backend/tests/test_task_graph_and_superpowers.py,Verified UnknownEffectBlockedError and reconcile_after_crash unknown transition
+ORCH-03,SSE ordering/replay/scope,G11,integration,PASS,backend/tests/test_multiagent_orchestration.py,Verified EventHub monotonic seq and SSE Last-Event-ID gapless replay + snapshot fallback
+ORCH-04,Budget/provider policy respected,G11,integration,PASS,backend/tests/test_task_graph_and_superpowers.py,Verified IndependentVerifierService and BudgetExceededError enforcement
+SEC-01,All new endpoints authenticated,ALL,security,PASS,backend/tests/test_phase13_routines_governor_remote_and_http.py,Verified 401/403 on unauthenticated or browser-Origin requests to /axx-api/*
+SEC-02,Handoff cannot increase grants,G11,security,PASS,backend/tests/test_multiagent_orchestration.py,Verified ScopeEscalationError when child requests grants not held by parent
+SEC-03,Filesystem scope and reparse defense,G9,security,PASS,backend/tests/test_code_studio_core.py,Verified resolve_scoped_project_path blocks .. traversal/ADS/secrets/Windows junctions
+SEC-04,Prompt injection from tool/README blocked,G11,security,PASS,backend/tests/test_multiagent_orchestration.py,Verified inspect_and_sanitize_untrusted_text strips directives into <untrusted_data>
+PC-01,Background does not steal focus or physical cursor,G10,Windows,PASS,backend/tests/test_background_workspaces.py,Verified concurrent isolated background browsers and UIA with zero focus theft
+PC-02,Exclusive host input owner,G10,concurrency,PASS,backend/tests/test_background_workspaces.py,Verified ResourceLease monotonic fencing_token and emergency Ctrl+Alt+Backspace revocation
+PC-03,Target HWND/PID/creation time checked,G10,Windows,PASS,backend/tests/test_background_workspaces.py,Verified WindowIdentityMismatchError on recycled HWND/PID/start_ms/class_name
+PC-04,Foreground denial and isolated policy respected,G10,Windows,PASS,backend/tests/test_background_workspaces.py,Verified PhysicalFocusProhibitedError on silent SendInput fallback and FocusGuard policies
+PC-05,Isolated VM has separate session and grants,G10,"Windows,security",PASS,backend/tests/test_background_workspaces.py,Verified IsolatedVMProvider probe/create/start/act/snapshot/stop/destroy with lease fencing
+CODE-01,Monaco encoding EOL/save conflicts,G9,browser,PASS,backend/tests/test_code_studio_core.py,Verified UTF-8-BOM and CRLF preservation + BinaryFileError + large-file read-only + CAS conflict
+CODE-02,Git worktree avoids dirty file overwrite,G9,integration,PASS,backend/tests/test_code_studio_core.py,Verified isolated axx/agent/* git worktrees and DirtyWorktreeError protection
+CODE-03,Patch CAS/hash and safe rollback,G9,"unit,security",PASS,backend/tests/test_code_studio_core.py,Verified CodeChangeSet v1 two-phase atomic apply and exact base_sha256 rollback
+CODE-04,LSP/DAP/toolchain permissions and crash,G12,integration,PASS,backend/tests/test_code_studio_pro.py,Verified LSP crash fallback to degraded_syntax_only AST indexer and loopback DAP evaluate guard
+CODE-05,Git push/PR separate approval,G12,security,PASS,backend/tests/test_code_studio_pro.py,Verified ExternalGitPushBlockedError until write_external approval is recorded
+MP-01,Magic Pen capture/ink/undo/DPI unchanged,G7,"Windows,visual",PASS,1.AXX/scripts/test-magic-pen.cjs,Verified 19/19 Magic Pen baseline cases and flag-off rollback in test_magic_pen_evolution_g7.py
+MP-02,Scene revision/asset hash CAS,G2,unit,PASS,backend/tests/test_scene_document_and_diagram_studio.py,Verified SceneDocument v2 CAS base_revision and immutable asset hash protection
+MP-03,CAD STEP/GLB units verification,G3,worker,PASS,backend/tests/test_cad_studio.py,Verified ISO-10303-21 STEP + glTF 2.0 GLB dimensional congruence and runpy block
+MP-04,Diagram editable export no clip,G2,visual,PASS,backend/tests/test_scene_document_and_diagram_studio.py,Verified 12 diagram templates + Mermaid roundtrip + anti-overlap/anti-clip/anti-XSS SVG/PNG export
+MP-05,Timeline deterministic real MP4,G4,worker,PASS,backend/tests/test_motion_studio.py,Verified deterministic freeze_scene_at(t) and real ISO BMFF MP4 export + TTS prosody normalization
+MP-06,"Avatar material, tentacles, hitmask unchanged",G5,"Windows,visual",PASS,backend/tests/test_asset_gate_and_diorama.py,Verified AvatarMaterialProtectedError blocks scene/diorama mutation of main avatar or tentacles
+MP-07,Asset Gate licence/LOD/decoder validation,G5,integration,PASS,backend/tests/test_asset_gate_and_diorama.py,Verified AssetRegistry SHA-256 content-addressed store + license/LOD/URI-traversal/Fab-Kervan checks
+MP-08,Diorama actors freeze/teleport/offscreen QA,G5,visual,PASS,backend/tests/test_asset_gate_and_diorama.py,Verified evaluate_diorama_qa detects frozen/teleported/offscreen actors and missing CC-BY credits
+PERF-01,GPU performance and context recovery,G7,"benchmark,Windows",PASS,backend/tests/test_phase13_routines_governor_remote_and_http.py,Verified ResourceGovernor queues heavy jobs when avatar FPS < 45 or CPU/RAM pressure is high
+PERF-02,ASR/VAD/TTS unaffected under load,G7,"Windows,voice",PASS,backend/tests/test_phase13_routines_governor_remote_and_http.py,Verified ResourceGovernor prioritizes voice_active and CostLedger pauses runs exceeding budget
+MOBILE-01,Android pairing v1 endpoints compatible,G7,"device,contract",PASS,scripts/companion_contract.py,Verified companion_contract.py and design-baseline.json hashes + RemoteWorkerContinuityService scope intersection
+RELEASE-01,Installed app verified; companion receipt+asset hash,G7,release,NOT_RUN,docs/evolution-3/phase-13/GATE_G13.md,Worktree implementation and companion validation verified; host installation and GitHub release publication await explicit user release authorization

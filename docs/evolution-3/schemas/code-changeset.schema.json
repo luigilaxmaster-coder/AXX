@@ -1,0 +1,155 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:axx:schemas:evolution-3:code-changeset.schema.json",
+  "title": "AXX CodeChangeSet v1",
+  "description": "CONTRATO PROPUESTO, NO IMPLEMENTADO EN AXX 0.22.52. $id es un identificador URN de esquema, no una URL operativa.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "changeset_id",
+    "project_id",
+    "workspace_id",
+    "agent_id",
+    "base_commit",
+    "branch",
+    "status",
+    "files",
+    "test_report_refs",
+    "created_at"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "enum": [
+        "1.0"
+      ]
+    },
+    "changeset_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "pattern": "^[A-Za-z0-9_.:-]+$"
+    },
+    "project_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "pattern": "^[A-Za-z0-9_.:-]+$"
+    },
+    "workspace_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "pattern": "^[A-Za-z0-9_.:-]+$"
+    },
+    "agent_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "pattern": "^[A-Za-z0-9_.:-]+$"
+    },
+    "base_commit": {
+      "type": "string",
+      "minLength": 7,
+      "maxLength": 64
+    },
+    "branch": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 240
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "proposed",
+        "validated",
+        "applied",
+        "conflict",
+        "failed",
+        "integrated"
+      ]
+    },
+    "files": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 500,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "base_sha256",
+          "proposed_sha256",
+          "diff_digest",
+          "encoding"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024
+          },
+          "base_sha256": {
+            "type": "string",
+            "minLength": 64,
+            "maxLength": 64,
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "proposed_sha256": {
+            "type": "string",
+            "minLength": 64,
+            "maxLength": 64,
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "diff_digest": {
+            "type": "string",
+            "minLength": 64,
+            "maxLength": 64,
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "encoding": {
+            "type": "string",
+            "enum": [
+              "utf-8",
+              "utf-8-sig",
+              "utf-16-le",
+              "utf-16-be"
+            ]
+          },
+          "line_ending": {
+            "type": "string",
+            "enum": [
+              "LF",
+              "CRLF",
+              "MIXED"
+            ]
+          },
+          "is_binary": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "approval_operation_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "pattern": "^[A-Za-z0-9_.:-]+$"
+    },
+    "test_report_refs": {
+      "type": "array",
+      "maxItems": 128,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 160,
+        "pattern": "^[A-Za-z0-9_.:-]+$"
+      }
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

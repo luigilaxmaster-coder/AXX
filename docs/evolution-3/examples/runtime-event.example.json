@@ -1,0 +1,15 @@
+{
+  "schema_version": "1.0",
+  "event_id": "evt-184",
+  "seq": 184,
+  "conversation_id": "chat-001",
+  "run_id": "run-001",
+  "agent_id": "axx-dev-001",
+  "type": "task.progress",
+  "timestamp": "2026-11-21T16:00:00Z",
+  "payload": {
+    "message": "3 de 5 pruebas",
+    "completed_steps": 3,
+    "total_steps": 5
+  }
+}

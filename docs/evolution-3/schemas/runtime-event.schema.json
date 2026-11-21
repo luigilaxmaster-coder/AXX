@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:axx:schemas:evolution-3:runtime-event.schema.json",
+  "title": "AXX RuntimeEvent v1",
+  "description": "CONTRATO PROPUESTO, NO IMPLEMENTADO EN AXX 0.22.52. $id es un identificador URN de esquema, no una URL operativa.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "event_id",
+    "seq",
+    "conversation_id",
+    "run_id",
+    "agent_id",
+    "type",
+    "timestamp",
+    "payload"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "enum": [
+        "1.0"
+      ]
+    },
+    "event_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "pattern": "^[A-Za-z0-9_.:-]+$"
+    },
+    "seq": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "conversation_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "pattern": "^[A-Za-z0-9_.:-]+$"
+    },
+    "run_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "pattern": "^[A-Za-z0-9_.:-]+$"
+    },
+    "agent_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "pattern": "^[A-Za-z0-9_.:-]+$"
+    },
+    "type": {
+      "type": "string",
+      "enum": [
+        "agent.created",
+        "agent.updated",
+        "run.queued",
+        "run.started",
+        "task.started",
+        "task.progress",
+        "tool.prepared",
+        "approval.requested",
+        "approval.resolved",
+        "tool.dispatched",
+        "tool.verified",
+        "artifact.created",
+        "handoff.created",
+        "handoff.completed",
+        "run.failed",
+        "run.unknown",
+        "run.completed",
+        "run.cancelled"
+      ]
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "payload": {
+      "type": "object",
+      "maxProperties": 48,
+      "additionalProperties": {
+        "type": [
+          "string",
+          "integer",
+          "number",
+          "boolean",
+          "object",
+          "array",
+          "null"
+        ]
+      }
+    }
+  }
+}

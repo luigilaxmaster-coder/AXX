@@ -83,7 +83,8 @@ def prepare_spoken_text(text: str, language: str = 'auto') -> tuple[str, str]:
                 'jpeg': 'punto jota-pe-ge', 'wav': 'punto uav', 'mp3': 'punto eme-pe-tres',
                 'mp4': 'punto eme-pe-cuatro', 'txt': 'punto te-equis-te', 'csv': 'punto ce-ese-uve',
                 'json': 'punto yeison', 'zip': 'punto sip', 'html': 'punto hache-te-eme-ele',
-                'css': 'punto ce-ese-ese', 'js': 'punto jota-ese'}
+                'css': 'punto ce-ese-ese', 'js': 'punto jota-ese', 'svg': 'punto ese-uve-ge',
+                'glb': 'punto ge-ele-be', 'step': 'punto estep', 'stl': 'punto ese-te-ele'}
         for ext, spoken in exts.items():
             text = re.sub(r'\.' + ext + r'\b', ' ' + spoken, text, flags=re.I)
         # Technical acronyms and natural Spanish loanword phonetics:
@@ -95,7 +96,13 @@ def prepare_spoken_text(text: str, language: str = 'auto') -> tuple[str, str]:
         text = re.sub(r'\bMP4\b', 'eme-pe-cuatro', text)
         text = re.sub(r'\bTXT\b', 'te-equis-te', text)
         text = re.sub(r'\bURL\b', 'u-erre-ele', text)
+        text = re.sub(r'\bSVG\b', 'ese-uve-ge', text)
+        text = re.sub(r'\bGLB\b', 'ge-ele-be', text)
+        text = re.sub(r'\bLSP\b', 'ele-ese-pe', text)
+        text = re.sub(r'\bDAP\b', 'de-a-pe', text)
         text = re.sub(r'\bWi[-]?Fi\b', 'uay-fay', text, flags=re.I)
+        text = re.sub(r'\bBluetooth\b', 'blu-tuth', text, flags=re.I)
+        text = re.sub(r'\bequalizador\b', 'ecualizador', text, flags=re.I)
         text = re.sub(r'\b(?:okay|ok)\b', 'okey', text, flags=re.I)
         # Units of measurement (when preceded by a cardinal)
         units = [
@@ -123,9 +130,20 @@ def prepare_spoken_text(text: str, language: str = 'auto') -> tuple[str, str]:
             'cancion': 'canción', 'canciones': 'canciones',
             'numero': 'número', 'numeros': 'números',
             'telefono': 'teléfono', 'telefonos': 'teléfonos',
-            'tambien': 'también', 'despues': 'después', 'aqui': 'aquí',
-            'ultimo': 'último', 'ultima': 'última', 'facil': 'fácil', 'dificil': 'difícil',
-            'pagina': 'página', 'paginas': 'páginas', 'rapido': 'rápido', 'rapida': 'rápida',
+            'tambien': 'también', 'despues': 'después', 'aqui': 'aquí', 'alla': 'allá',
+            'ultimo': 'último', 'ultima': 'última', 'ultimos': 'últimos', 'ultimas': 'últimas',
+            'facil': 'fácil', 'dificil': 'difícil',
+            'pagina': 'página', 'paginas': 'páginas',
+            'rapido': 'rápido', 'rapida': 'rápida', 'rapidos': 'rápidos', 'rapidas': 'rápidas',
+            'imagenes': 'imágenes',
+            'practico': 'práctico', 'practica': 'práctica',
+            'tecnico': 'técnico', 'tecnica': 'técnica',
+            'version': 'versión', 'versiones': 'versiones',
+            'revision': 'revisión', 'reunion': 'reunión',
+            'informacion': 'información', 'configuracion': 'configuración',
+            'descripcion': 'descripción', 'atencion': 'atención',
+            'opcion': 'opción', 'opciones': 'opciones',
+            'autonomo': 'autónomo', 'autonoma': 'autónoma',
         }
         for unacc, acc in common_accents.items():
             text = re.sub(r'\b' + unacc + r'\b',

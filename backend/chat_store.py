@@ -150,6 +150,12 @@ class ChatStore:
             if 'connect_runs' in tables:
                 db.execute('DELETE FROM connect_events WHERE request_id IN (SELECT request_id FROM connect_runs WHERE created_at<=?)', (cutoff/1000,))
                 db.execute('DELETE FROM connect_runs WHERE created_at<=?', (cutoff/1000,))
+            if 'agent_conversation_links' in tables:
+                db.execute('DELETE FROM agent_conversation_links WHERE conversation_id NOT IN (SELECT id FROM chat_conversations)')
+            if 'agent_events' in tables:
+                db.execute('DELETE FROM agent_events WHERE conversation_id NOT IN (SELECT id FROM chat_conversations)')
+            if 'agent_event_cursors' in tables:
+                db.execute('DELETE FROM agent_event_cursors WHERE conversation_id NOT IN (SELECT id FROM chat_conversations)')
 
     def _new(self, db, body):
         cid = str(uuid.uuid4())
@@ -468,6 +474,13 @@ class ChatStore:
                 db.execute('UPDATE chat_context SET requires_review=1 WHERE group_id=? AND origin_task_id IS NULL', (group,))
             db.execute('DELETE FROM chat_link_messages WHERE conversation_id=? OR source_id=?', (task_id,task_id))
             db.execute('DELETE FROM chat_links WHERE conversation_id=? OR source_id=?', (task_id,task_id))
+            tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            if 'agent_conversation_links' in tables:
+                db.execute('DELETE FROM agent_conversation_links WHERE conversation_id=?', (task_id,))
+            if 'agent_events' in tables:
+                db.execute('DELETE FROM agent_events WHERE conversation_id=?', (task_id,))
+            if 'agent_event_cursors' in tables:
+                db.execute('DELETE FROM agent_event_cursors WHERE conversation_id=?', (task_id,))
             old_connect_ids = []
             for cid in sorted(affected):
                 old = db.execute('SELECT connect_id FROM chat_conversations WHERE id=?', (cid,)).fetchone()
@@ -542,6 +555,12 @@ class ChatStore:
                         db.execute('DELETE FROM shared_messages WHERE conversation_id=?', (row['shared_id'],))
                         # Events contain copies of message text.
                         db.execute("DELETE FROM shared_events WHERE json_extract(data,'$.conversation_id')=?", (row['shared_id'],))
+                    if db.execute("SELECT name FROM sqlite_master WHERE name='agent_conversation_links'").fetchone():
+                        db.execute('DELETE FROM agent_conversation_links WHERE conversation_id=?', (cid,))
+                    if db.execute("SELECT name FROM sqlite_master WHERE name='agent_events'").fetchone():
+                        db.execute('DELETE FROM agent_events WHERE conversation_id=?', (cid,))
+                    if db.execute("SELECT name FROM sqlite_master WHERE name='agent_event_cursors'").fetchone():
+                        db.execute('DELETE FROM agent_event_cursors WHERE conversation_id=?', (cid,))
                 else:
                     group = body.get('group_id',row['group_id']) or None
                     if group and not db.execute('SELECT id FROM chat_groups WHERE id=?',(ident(group),)).fetchone():
@@ -680,6 +699,12 @@ class ChatStore:
                 if db.execute("SELECT name FROM sqlite_master WHERE name='shared_messages'").fetchone():
                     db.execute('DELETE FROM shared_messages')
                     db.execute('DELETE FROM shared_events')
+                if db.execute("SELECT name FROM sqlite_master WHERE name='agent_conversation_links'").fetchone():
+                    db.execute('DELETE FROM agent_conversation_links')
+                if db.execute("SELECT name FROM sqlite_master WHERE name='agent_events'").fetchone():
+                    db.execute('DELETE FROM agent_events')
+                if db.execute("SELECT name FROM sqlite_master WHERE name='agent_event_cursors'").fetchone():
+                    db.execute('DELETE FROM agent_event_cursors')
             else:
                 raise ValueError('Operación de chat desconocida')
             result = {'id':cid,'ok':True}

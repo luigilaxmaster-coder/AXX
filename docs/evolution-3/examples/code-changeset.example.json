@@ -1,0 +1,23 @@
+{
+  "schema_version": "1.0",
+  "changeset_id": "cs-001",
+  "project_id": "axx-project",
+  "workspace_id": "wt-001",
+  "agent_id": "axx-dev-001",
+  "base_commit": "508bceabc718905db9bcf4042992d91f4c6c0705",
+  "branch": "axx/agent/dev-001",
+  "status": "proposed",
+  "files": [
+    {
+      "path": "backend/agents/profiles.py",
+      "base_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "proposed_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+      "diff_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+      "encoding": "utf-8",
+      "line_ending": "LF",
+      "is_binary": false
+    }
+  ],
+  "test_report_refs": [],
+  "created_at": "2026-11-21T16:00:00Z"
+}
