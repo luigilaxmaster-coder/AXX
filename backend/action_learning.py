@@ -186,6 +186,20 @@ class ActionLearning:
                 WHERE source_dispatch_json IS NOT NULL''')
         self.skills = SkillMemory(self.db, self.lock, procedure_library=getattr(commands, 'procedures', None))
         commands.mission_guard = self.assert_dispatch_context
+        from .agents.task_graph import TaskGraphEngine
+        from .agents.superpowers import IndependentVerifierService, SuperpowersWorkflowService
+        self.task_graph = TaskGraphEngine(
+            db_path=commands.executor.db_path,
+            command_service=commands,
+            action_executor=commands.executor,
+        )
+        self.verifier = IndependentVerifierService(action_executor=commands.executor)
+        self.superpowers = SuperpowersWorkflowService(
+            self.task_graph,
+            self.verifier,
+            skill_memory=self.skills,
+        )
+        self.task_graph.reconcile_after_crash()
 
     def close(self):
         with self.lock:
@@ -205,6 +219,8 @@ class ActionLearning:
         with self.idle:
             if not self.idle.wait_for(lambda: self.active_operations == 0, timeout=35):
                 raise TimeoutError('Una operación sigue activa; la base permanece abierta para preservar sus resultados')
+            if hasattr(self, 'task_graph') and self.task_graph:
+                self.task_graph.close()
             self.db.close()
             self.budget_db.close()
             self.closed = True
