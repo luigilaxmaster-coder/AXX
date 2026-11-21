@@ -14,9 +14,13 @@
     "connect:uninstall": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/uninstall-axx-connect.ps1"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "2.12.3"
+    "@tauri-apps/cli": "2.12.3",
+    "esbuild": "0.28.2"
   },
   "dependencies": {
     "monaco-editor": "0.57.0"
+  },
+  "overrides": {
+    "dompurify": "3.4.18"
   }
 }

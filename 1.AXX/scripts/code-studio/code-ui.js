@@ -22,7 +22,7 @@
   const api = (method, path, body) => Axx.backendRequest(method, '/axx-api/code/v1/' + path, body);
   const status = text => { ui('status').textContent = text; };
   const output = text => { ui('output').hidden = false; ui('output').textContent = text; };
-  const tabs = new Map(); let project = null, directory = '', active = null, editor = null, loading = null, diffEditor = null, originalModel = null;
+  const tabs = new Map(); let project = null, directory = '', active = null, editor = null, monaco = null, loading = null, diffEditor = null, originalModel = null;
   function setOpen(open) {
     host.hidden = !open; entry.textContent = open ? 'Cerrar Code Studio' : 'Abrir Code Studio';
     host.parentElement.classList.toggle('axx-code-active',open);
@@ -34,19 +34,16 @@
 
   function loadEditor() {
     if (loading) return loading;
-    loading = new Promise((resolve, reject) => {
-      const loader = document.createElement('script'); loader.src = 'scripts/vendor/monaco-0.57.0/vs/loader.js';
-      loader.onerror = () => reject(new Error('Falta el editor local. Prepare los recursos de Monaco antes de compilar Axx.'));
-      loader.onload = () => {
-        window.require.config({paths:{vs:new URL('scripts/vendor/monaco-0.57.0/vs',document.baseURI).href}});
-        window.require(['vs/editor/editor.main'], () => {
-          editor = monaco.editor.create(ui('editor'), {automaticLayout:true, minimap:{enabled:false}, fontSize:13,
-            theme:document.body.dataset.uiTheme === 'light' ? 'vs' : 'vs-dark', ariaLabel:'Código del archivo'});
-          resolve(editor);
-        }, reject);
-      };
-      document.head.append(loader);
-    }).catch(error => { loading = null; throw error; });
+    loading = (async () => {
+      const base = new URL('scripts/vendor/monaco-0.57.0-esm/',document.baseURI);
+      window.MonacoEnvironment = {getWorker:() => new Worker(new URL('editor.worker.mjs',base),{type:'module'})};
+      const style = document.createElement('link'); style.rel = 'stylesheet'; style.href = new URL('editor.css',base).href;
+      document.head.append(style);
+      monaco = await import(new URL('editor.mjs',base).href);
+      editor = monaco.editor.create(ui('editor'), {automaticLayout:true,minimap:{enabled:false},fontSize:13,
+        theme:document.body.dataset.uiTheme === 'light' ? 'vs' : 'vs-dark',ariaLabel:'Código del archivo'});
+      return editor;
+    })().catch(error => { loading = null; throw error; });
     return loading;
   }
   function renderTabs() {
