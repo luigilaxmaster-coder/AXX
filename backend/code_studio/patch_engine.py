@@ -286,6 +286,16 @@ class CodePatchEngine:
                 raise LookupError(f'CodeChangeSet not found: {changeset_id}')
             return json.loads(row['changeset_json'])
 
+    def get_diffs(self, changeset_id: str) -> dict[str, Any]:
+        with self.projects.lock, self.projects._connect() as db:
+            row = db.execute('SELECT proposed_blobs_json, created_at_ms FROM code_changesets WHERE changeset_id=?',
+                             (changeset_id,)).fetchone()
+            if not row:
+                raise LookupError(f'CodeChangeSet not found: {changeset_id}')
+        blobs = json.loads(row['proposed_blobs_json'])
+        return {'created_at_ms': int(row['created_at_ms']),
+                'files': [{'path': path, 'diff_text': blob['diff_text']} for path, blob in blobs.items()]}
+
     def apply_changeset(
         self,
         changeset_id: str,

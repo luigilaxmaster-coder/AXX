@@ -6,12 +6,15 @@ verifies afterwards that the route which answered is the one the Act asked for.
 """
 from __future__ import annotations
 
+import fnmatch
 from typing import Any
 
 from backend.agents.registry import AgentNotFoundError
 
 CONNECT_PROVIDER_REF = 'axx-connect'  # intelligence.provider_profile_ref for the ChatGPT/Codex runtime
 CHAT_TOOL_ID = 'axx.commands'          # grant needed before an Act may receive AXX command tools
+CODE_TOOL_ID = 'axx.code'              # grant for Code Studio work; operation_kinds pick the steps it covers
+CODE_OPERATIONS = ('worktree', 'patch', 'test', 'integrate')
 
 _PERSONALITY_TEXT = {
     'formality': {'casual': 'Usa un tono cercano.', 'neutral': 'Usa un tono neutral.', 'formal': 'Usa un tono formal.'},
@@ -152,6 +155,21 @@ class ActInferenceService:
             'identity': 'reported' if responder else 'configured_route',
             'model_verified': matches,
         }
+
+    def authorize_code(self, act_id: str, operation: str, project_id: str) -> dict[str, Any]:
+        """Re-read the Act and its grants for one Code Studio step; nothing is inherited from teams or copies."""
+        if operation not in CODE_OPERATIONS or not isinstance(project_id, str):
+            raise ValueError('Operación de código desconocida.')
+        try:
+            profile = self.registry.get_profile(act_id)
+        except AgentNotFoundError:
+            raise ActInferenceError('ACT_NOT_FOUND', 'El Act no existe.') from None
+        if not profile['enabled'] or profile.get('draining'):
+            raise ActInferenceError('ACT_DISABLED', 'El Act está deshabilitado.')
+        if not any(g['tool_id'] == CODE_TOOL_ID and g['approval_mode'] != 'deny' and operation in g['operation_kinds']
+                   and fnmatch.fnmatchcase(project_id, g['resource_pattern']) for g in self.registry.list_permissions(act_id)):
+            raise PermissionError(f'El Act no tiene permiso «{operation}» de {CODE_TOOL_ID} para este proyecto.')
+        return profile
 
     def record(self, conversation_id: Any, request_id: Any, act: dict[str, Any], event_type: str,
                payload: dict[str, Any]) -> None:

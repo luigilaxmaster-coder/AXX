@@ -186,4 +186,5 @@ class SupervisedTestRunner:
                 'stdout_preview': row['stdout_preview'],
                 'stderr_preview': row['stderr_preview'],
                 'passed': int(row['exit_code']) == 0,
+                'created_at_ms': int(row['created_at_ms']),
             }

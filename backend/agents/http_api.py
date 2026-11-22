@@ -22,7 +22,7 @@ from backend.agents.events import EventHub
 from backend.agents.orchestrator import MultiAgentOrchestrator
 from backend.agents.profiles import validate_agent_profile
 from backend.agents.recovery import MultiAgentRecoveryService
-from backend.agents.registry import AgentRegistry
+from backend.agents.registry import AgentNotFoundError, AgentRegistry
 from backend.agents.resource_governor import ResourceGovernor
 from backend.agents.routines import AutonomousRoutineService
 from backend.agents.superpowers import IndependentVerifierService
@@ -151,6 +151,18 @@ class EvolutionHttpRuntime:
                 close_fn()
 
 
+ACT_CODE_ROUTES = {
+    '/axx-api/code/v1/worktrees/create': 'worktree',
+    '/axx-api/code/v1/worktrees/remove': 'worktree',
+    '/axx-api/code/v1/worktrees/propose-apply': 'patch',
+    '/axx-api/code/v1/tests/run': 'test',
+    '/axx-api/code/v1/worktrees/integrate': 'integrate',
+    '/axx-api/code/v1/changesets/propose': 'primary',
+    '/axx-api/code/v1/changesets/apply': 'primary',
+    '/axx-api/code/v1/changesets/rollback': 'primary',
+}
+
+
 class EvolutionHTTP:
     """Dispatches additive /axx-api/agents/v1/*, /axx-api/workspaces/v1/*, /axx-api/code/v1/*, and /axx-api/spatial/v2/* endpoints."""
 
@@ -259,6 +271,11 @@ class EvolutionHTTP:
             entries = self.rt.code_projects.list_directory(query.get('project_id', [''])[0], query.get('path', [''])[0])
             self.handler._send_json(200, {'entries': entries})
             return True
+        if path == '/axx-api/code/v1/changesets':
+            changeset_id = query.get('changeset_id', [''])[0]
+            self.handler._send_json(200, {'changeset': self.rt.code_patches.get_changeset(changeset_id),
+                                         'diffs': self.rt.code_patches.get_diffs(changeset_id)})
+            return True
         if path == '/axx-api/code/v1/git/status':
             root = self.rt.code_projects.get_project_root(query.get('project_id', [''])[0])
             self.handler._send_json(200, {'dirty_files': self.rt.code_git.detect_dirty_files(root),
@@ -267,6 +284,59 @@ class EvolutionHTTP:
 
         self.handler._send_json(404, {'error': {'code': 'NOT_FOUND', 'message': f'Unknown Evolution GET endpoint: {path}'}})
         return True
+
+    def _is_act(self, agent_id: Any) -> bool:
+        if not isinstance(agent_id, str):
+            return False
+        try:
+            self.rt.registry.get_profile(agent_id)
+            return True
+        except (AgentNotFoundError, ValueError):
+            return False
+
+    def _gate_act_code(self, path: str, body: dict[str, Any]) -> None:
+        """Act work on Code Studio routes: own grant per step, own worktree only, tests before integration.
+
+        Requests that name no Act (the owner's own Code Studio actions) keep their existing behaviour.
+        """
+        operation = ACT_CODE_ROUTES[path]
+        explicit = body.get('act_id')
+        project_id, owner, changeset = body.get('project_id'), None, None
+        if path in ('/axx-api/code/v1/worktrees/create', '/axx-api/code/v1/changesets/propose'):
+            owner = body.get('agent_id')
+        elif path in ('/axx-api/code/v1/worktrees/propose-apply', '/axx-api/code/v1/worktrees/remove') or (
+                path == '/axx-api/code/v1/tests/run' and body.get('workspace_id') != project_id):
+            worktree = self.rt.code_git.get_worktree(body['workspace_id'])
+            owner, project_id = worktree['agent_id'], worktree['project_id']
+        elif path != '/axx-api/code/v1/tests/run':
+            changeset = self.rt.code_patches.get_changeset(body['changeset_id'])
+            owner, project_id = changeset['agent_id'], changeset['project_id']
+        # The owner may always remove a worktree or roll back; any other step on an Act's work is that Act's step.
+        if explicit is None and (path in ('/axx-api/code/v1/worktrees/remove', '/axx-api/code/v1/changesets/rollback')
+                                 or not self._is_act(owner)):
+            return
+        actor = explicit if explicit is not None else owner
+        if owner is not None and owner != actor:
+            raise PermissionError('Un Act solo puede usar su propio worktree y sus propios cambios.')
+        if operation == 'primary':
+            raise PermissionError('Los Acts trabajan en su worktree; la integración en el proyecto pasa por sus pruebas.')
+        self.rt.flags.require_enabled_for_new_dispatch('agent_profiles_v1')
+        self.rt.acts.authorize_code(actor, operation, project_id)
+        if operation == 'integrate':
+            created = self.rt.code_patches.get_diffs(body['changeset_id'])['created_at_ms']
+            report_ids = body.get('test_report_ids')
+            if not isinstance(report_ids, list) or not report_ids:
+                raise PermissionError('Integrar el trabajo de un Act exige pruebas superadas en su worktree.')
+            for report_id in report_ids:
+                receipt = self.rt.code_tests.get_receipt(report_id)
+                if (not receipt['passed'] or receipt['workspace_id'] != changeset['workspace_id']
+                        or receipt['project_id'] != project_id or receipt['created_at_ms'] < created):
+                    raise PermissionError(f'La prueba {report_id} no superó o no corresponde a este cambio.')
+        conversation_id = body.get('conversation_id')
+        run_id = body.get('changeset_id') or body.get('report_id') or body.get('workspace_id')
+        self.rt.acts.record(conversation_id, run_id, {'act_id': actor}, 'tool.dispatched',
+                            {'kind': 'act_code', 'tool_id': 'axx.code', 'operation': operation, 'route': path,
+                             'project_id': project_id})
 
     def post(self, path: str, body: dict[str, Any]) -> bool:
         if not path.startswith(('/axx-api/agents/v1/', '/axx-api/workspaces/v1/', '/axx-api/code/v1/', '/axx-api/spatial/v2/')):
@@ -623,6 +693,8 @@ class EvolutionHTTP:
             return True
 
         # 6. Code Studio endpoints
+        if path in ACT_CODE_ROUTES:
+            self._gate_act_code(path, body)
         if path == '/axx-api/code/v1/drafts/save':
             if 'content' not in body:
                 raise ValueError('Draft content must be present; null explicitly clears it')

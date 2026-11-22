@@ -13,7 +13,8 @@
     <div data-code="tabs" class="axx-code-tabs" role="tablist" aria-label="Archivos abiertos"></div>
     <div data-code="editor" class="axx-code-editor" aria-label="Editor de código"></div>
     <div data-code="diff-editor" class="axx-code-editor" aria-label="Comparación de cambios" hidden></div>
-    <details><summary>Git y pruebas</summary><div class="quick-row"><button data-code="git" type="button">Estado Git</button><button data-code="worktree" type="button">Crear worktree</button><button data-code="test" type="button">Ejecutar pruebas Python</button></div></details>
+    <details><summary>Git y pruebas</summary><div class="quick-row"><button data-code="git" type="button">Estado Git</button><button data-code="worktree" type="button">Crear worktree</button><button data-code="test" type="button">Ejecutar pruebas Python</button></div>
+      <div class="quick-row"><label class="setting">Act<select data-code="act"><option value="">Sin Acts</option></select></label><button data-code="act-task" type="button" disabled>Delegar archivo al Act</button><button data-code="act-test" type="button" hidden>Probar en su worktree</button><button data-code="act-integrate" type="button" hidden>Integrar trabajo del Act</button></div></details>
     <pre data-code="output" class="axx-code-output" tabindex="0" hidden></pre>`;
   const entry = document.createElement('button'); entry.type = 'button'; entry.textContent = 'Abrir Code Studio';
   entry.className = 'axx-code-entry';
@@ -118,7 +119,7 @@
     active = id; const tab = tabs.get(id); editor.setModel(tab.model);
     ui('diff-editor').hidden = true;
     editor.updateOptions({readOnly:tab.read_only_degraded});
-    ui('save').disabled = tab.read_only_degraded; ui('diff').disabled = false; ui('reload').disabled=false; ui('ask-act').disabled=false;
+    ui('save').disabled = tab.read_only_degraded; ui('diff').disabled = false; ui('reload').disabled=false; ui('ask-act').disabled=false; syncActs();
     status(tab.read_only_degraded ? tab.truncation_notice : tab.path + ' · ' + tab.encoding + ' · ' + tab.line_ending);
     renderTabs(); draftStatus(tab); editor.focus();
   }
@@ -180,15 +181,19 @@
       tab.generation++;try{await persistDraft(tab);}catch(error){status('Archivo guardado en disco; borrador pendiente: '+(error.message||error));return;}renderTabs(); status(tab.dirty ? 'Guardado; hay cambios posteriores sin guardar.' : 'Archivo guardado y verificado en disco.');
     } finally { ui('save').disabled = Boolean(tab.read_only_degraded); }
   });
-  ui('diff').onclick = () => attempt(async () => {
-    const tab = tabs.get(active); if (!tab) return;
+  function showDiff(original, modified, path) {
     ui('diff-editor').hidden = false;
     if (!diffEditor) diffEditor = monaco.editor.createDiffEditor(ui('diff-editor'), {automaticLayout:true,readOnly:true,renderSideBySide:false,
       minimap:{enabled:false},theme:document.body.dataset.uiTheme === 'light' ? 'vs' : 'vs-dark'});
-    diffEditor.setModel(null); originalModel?.dispose();
+    const previous = diffEditor.getModel(); diffEditor.setModel(null); originalModel?.dispose();
+    if (previous?.modified && ![...tabs.values()].some(t => t.model === previous.modified)) previous.modified.dispose();
+    originalModel = monaco.editor.createModel(original,language(path));
+    diffEditor.setModel({original:originalModel,modified}); diffEditor.layout();
+  }
+  ui('diff').onclick = () => attempt(async () => {
+    const tab = tabs.get(active); if (!tab) return;
     const disk=await api('POST','documents/read',{project_id:tab.project_id,path:tab.path});
-    originalModel = monaco.editor.createModel(disk.content,language(tab.path));
-    diffEditor.setModel({original:originalModel,modified:tab.model}); diffEditor.layout();
+    showDiff(disk.content, tab.model, tab.path);
   });
   ui('reload').onclick=()=>attempt(async()=>{
     const tab=tabs.get(active);if(!tab)return;
@@ -223,17 +228,80 @@
     const result = await api('POST','worktrees/create',{project_id:project.project_id,workspace_id:id,agent_id:'user',task_slug:id});
     output('Worktree creado. Abra esta carpeta para editarlo:\n' + result.worktree.worktree_path);
   });
-  ui('test').onclick = () => attempt(async () => {
-    if (!project) throw new Error('Abra primero un proyecto.');
-    if (!confirm('¿Ejecutar las pruebas Python de esta carpeta? El código del proyecto se ejecutará con su cuenta.')) return;
+  async function allowTests() {
     const flags = await Axx.evolution3.getFlags();
     const flag = flags.flags.find(flag => flag.flag_id === 'code_execution_v1');
     if (flag && !flag.enabled) await Axx.evolution3.setFlag(flag.flag_id,true,flag.revision,'user_test_execution_opt_in','manual-opt-in');
+  }
+  ui('test').onclick = () => attempt(async () => {
+    if (!project) throw new Error('Abra primero un proyecto.');
+    if (!confirm('¿Ejecutar las pruebas Python de esta carpeta? El código del proyecto se ejecutará con su cuenta.')) return;
+    await allowTests();
     status('Ejecutando pruebas…');
     const result = await api('POST','tests/run',{project_id:project.project_id,workspace_id:project.project_id,
       report_id:'test-' + crypto.randomUUID(),command:['python','-m','unittest','discover','-v']});
     output('Salida: ' + result.receipt.exit_code + '\n' + result.receipt.stdout_preview + '\n' + result.receipt.stderr_preview);
     status(result.receipt.passed ? 'Pruebas terminadas correctamente.' : 'Las pruebas detectaron errores.');
+  });
+  // ---- Act work: its own worktree and grant; its model writes the file, AXX applies, tests and integrates (CODE-04..10) ----
+  let actWork = null;
+  function syncActs() {
+    const acts = (Axx.acts?.acts || []).filter(a => a.enabled), current = ui('act').value;
+    ui('act').replaceChildren(...(acts.length ? acts : [{agent_id:'',name:'Sin Acts'}]).map(a => new Option(a.name, a.agent_id, false, a.agent_id === current)));
+    ui('act-task').disabled = !acts.length || !tabs.get(active);
+  }
+  ui('act').onfocus = syncActs;
+  ui('act-task').onclick = () => attempt(async () => {
+    const tab = tabs.get(active), act = (Axx.acts?.acts || []).find(a => a.agent_id === ui('act').value);
+    if (!tab || !act) throw new Error('Abre un archivo y elige un Act.');
+    const git = await api('GET','git/status?project_id=' + encodeURIComponent(tab.project_id));
+    if (git.dirty_files.includes(tab.path)) throw new Error('El archivo tiene cambios sin confirmar en Git; el Act trabaja sobre la última versión confirmada.');
+    const instruction = prompt('¿Qué debe cambiar ' + act.name + ' en ' + tab.path + '?');
+    if (!instruction?.trim()) return;
+    const disk = await api('POST','documents/read',{project_id:tab.project_id,path:tab.path});
+    if (disk.content.length > 12000) throw new Error('El archivo supera 12.000 caracteres; delega una parte más pequeña.');
+    const id = crypto.randomUUID().slice(0, 12), base = {act_id:act.agent_id, project_id:tab.project_id};
+    status(act.name + ' prepara su worktree…');
+    const wt = (await api('POST','worktrees/create',{...base,agent_id:act.agent_id,workspace_id:'act-' + id,task_slug:'task-' + id})).worktree;
+    status(act.name + ' está escribiendo el cambio con su modelo…');
+    const lang = language(tab.path);
+    const reply = await Axx.acts.chatAs(act, {...Axx.companion.data.prefs, prompt_mode:'conversation'}, [{role:'user', content:
+      'Tarea de código sobre ' + tab.path + '. Instrucción: ' + instruction.trim()
+      + '\nDevuelve el contenido COMPLETO del archivo modificado en un único bloque ```' + lang + ' y nada fuera del bloque.'
+      + '\n\nContenido actual:\n```' + lang + '\n' + disk.content + '\n```'}], new AbortController().signal);
+    const blocks = [...String(reply.text).matchAll(/```[^\n]*\n([\s\S]*?)```/g)];
+    if (!blocks.length) throw new Error(act.name + ' no devolvió un archivo completo; no se aplicó ningún cambio. Worktree: ' + wt.worktree_path);
+    const content = blocks.at(-1)[1];
+    const changeset = 'cs-' + id;
+    await api('POST','worktrees/propose-apply',{act_id:act.agent_id,changeset_id:changeset,workspace_id:wt.workspace_id,
+      file_edits:[{path:tab.path,new_content:content}]});
+    const view = await api('GET','changesets?changeset_id=' + encodeURIComponent(changeset));
+    actWork = {act, tab, workspace_id:wt.workspace_id, changeset_id:changeset, report_id:null};
+    showDiff(disk.content, monaco.editor.createModel(content, lang), tab.path);
+    output('Cambio de ' + act.name + ' (modelo verificado: ' + (reply.route?.act?.model_verified ? 'sí' : 'no') + ') aplicado en su worktree\n'
+      + wt.worktree_path + '\n\n' + view.diffs.files.map(f => f.diff_text).join('\n'));
+    ui('act-test').hidden = false; ui('act-integrate').hidden = true;
+    status('Revisa el diff. El proyecto no ha cambiado; prueba el cambio en el worktree del Act.');
+  });
+  ui('act-test').onclick = () => attempt(async () => {
+    if (!actWork) return;
+    if (!confirm('¿Ejecutar las pruebas Python en el worktree de ' + actWork.act.name + '? Incluye el código que escribió el Act y se ejecuta con su cuenta.')) return;
+    await allowTests(); status('Ejecutando pruebas en el worktree del Act…');
+    const report = 'test-' + crypto.randomUUID();
+    const result = await api('POST','tests/run',{act_id:actWork.act.agent_id,project_id:actWork.tab.project_id,workspace_id:actWork.workspace_id,
+      report_id:report,command:['python','-m','unittest','discover','-v']});
+    actWork.report_id = result.receipt.passed ? report : null;
+    output('Salida: ' + result.receipt.exit_code + '\n' + result.receipt.stdout_preview + '\n' + result.receipt.stderr_preview);
+    ui('act-integrate').hidden = !result.receipt.passed;
+    status(result.receipt.passed ? 'Pruebas superadas en el worktree. Puedes integrar el cambio.' : 'Las pruebas fallaron; el cambio no se puede integrar.');
+  });
+  ui('act-integrate').onclick = () => attempt(async () => {
+    if (!actWork?.report_id) return;
+    if (!confirm('¿Integrar en el proyecto el cambio de ' + actWork.act.name + ' en ' + actWork.tab.path + '?')) return;
+    await api('POST','worktrees/integrate',{act_id:actWork.act.agent_id,changeset_id:actWork.changeset_id,test_report_ids:[actWork.report_id]});
+    const tab = actWork.tab; actWork = null; ui('act-test').hidden = true; ui('act-integrate').hidden = true;
+    if (tabs.get(active) === tab && !tab.dirty) ui('reload').click();
+    status('Cambio integrado y verificado contra el disco.');
   });
   window.addEventListener('beforeunload', event => { if ([...tabs.values()].some(tab => tab.dirty)) { event.preventDefault(); event.returnValue = ''; } });
   Axx.codeStudio = {flushDrafts:() => Promise.all([...tabs.values()].filter(t=>!t.read_only_degraded).map(t=>persistDraft(t))),open:() => entry.click(), openFile, browse, get editor(){return editor;}, get diffEditor(){return diffEditor;}, get tabs(){return tabs;}};

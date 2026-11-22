@@ -7,7 +7,7 @@
   if (!Axx?.isNative?.() || !Axx.companion || !document.getElementById('view-agent')) return;
   const c = Axx.companion;
   const api = (method, path, body) => Axx.backendRequest(method, '/axx-api/agents/v1/' + path, body);
-  const CONNECT = 'axx-connect', TOOL = 'axx.commands';
+  const CONNECT = 'axx-connect', TOOL = 'axx.commands', CODE = 'axx.code', CODE_OPS = ['worktree', 'patch', 'test', 'integrate'];
   const FORMS = ['Core', 'Flow', 'Pearl', 'Torus', 'Split', 'Wave', 'Bloom', 'Fold', 'Spike', 'Drift', 'Orbit', 'Morph',
     'Cushion', 'Trefoil', 'Nova', 'Heart', 'Infinity', 'Helix', 'Knot', 'Petal', 'Prism', 'Capsule', 'Crescent', 'Ripple'];
   const PALETTES = ['Obsidian', 'Nebula', 'Ocean', 'Sunset', 'Amethyst', 'Emerald', 'Champagne', 'Silver', 'Void'];
@@ -129,6 +129,8 @@
     state.grants = act && !duplicate ? (await api('GET', 'profiles/permissions?agent_id=' + encodeURIComponent(act.agent_id))).permissions : [];
     state.toolGrant = state.grants.some(g => g.tool_id === TOOL && g.approval_mode !== 'deny');
     base.toolGrant = state.toolGrant;
+    const codeGrant = state.grants.find(g => g.tool_id === CODE && g.approval_mode !== 'deny');
+    base.codeOps = Object.fromEntries(CODE_OPS.map(op => [op, !!codeGrant?.operation_kinds.includes(op)]));
     state.draft = base; state.base = JSON.stringify(base); state.tab = 'identity';
     preview.hidden = true; renderEditor();
   }
@@ -207,7 +209,12 @@
       case 'memory': return [field('Alcance', control('memory_scope', 'select', {pairs: [['conversation', 'Solo esta conversación'], ['agent', 'Privada del Act'],
         ['project', 'Proyecto'], ['explicit_shared', 'Compartida explícitamente']]}))];
       case 'tools': return [field('Comandos AXX (cada acción sigue pidiendo su aprobación)', control('toolGrant', 'checkbox')),
-        el('p', {textContent: 'Sin este permiso el Act conversa y propone, pero no recibe herramientas. Revocarlo bloquea la siguiente acción.'})];
+        el('p', {textContent: 'Sin este permiso el Act conversa y propone, pero no recibe herramientas. Revocarlo bloquea la siguiente acción.'}),
+        el('fieldset', {}, el('legend', {textContent: 'Code Studio (siempre en el worktree propio del Act)'}),
+          field('Crear su worktree', control('codeOps.worktree', 'checkbox')),
+          field('Aplicar parches en su worktree', control('codeOps.patch', 'checkbox')),
+          field('Ejecutar pruebas en su worktree', control('codeOps.test', 'checkbox')),
+          field('Integrar en el proyecto tras pruebas superadas', control('codeOps.integrate', 'checkbox')))];
       case 'computer': return [field('Entorno', control('workspace.runtime', 'select', {pairs: [['none', 'Ninguno'], ['api', 'Archivos/API'], ['browser', 'Navegador aislado'],
         ['window_background', 'Ventana en segundo plano'], ['host_foreground', 'Primer plano (con reserva)'], ['isolated_vm', 'VM aislada'], ['remote', 'Remoto']]})),
         field('Política de foco', control('workspace.foreground_policy', 'select', {pairs: [['deny', 'Rechazar'], ['ask', 'Preguntar'], ['queue', 'Esperar'], ['isolated_only', 'Solo aislado']]}))];
@@ -247,6 +254,7 @@
     e.preventDefault();
     if (!editor.reportValidity()) return;
     const d = structuredClone(state.draft), wantsTool = !!d.toolGrant; delete d.toolGrant;
+    const codeOps = CODE_OPS.filter(op => d.codeOps?.[op]); delete d.codeOps;
     for (const k of ['personality', 'collaboration']) if (d[k] && !Object.keys(d[k]).length) delete d[k];
     let saved;
     if (d.agent_id) {
@@ -260,6 +268,12 @@
       if (wantsTool) await api('POST', 'profiles/permissions/grant', {agent_id: saved.agent_id, grant_id: 'grant-' + saved.agent_id + '-commands',
         tool_id: TOOL, resource_pattern: '*', operation_kinds: ['command'], approval_mode: 'ask'});
       else for (const g of state.grants.filter(g => g.tool_id === TOOL)) await api('POST', 'profiles/permissions/revoke', {agent_id: saved.agent_id, grant_id: g.grant_id});
+    }
+    const codeGrants = state.grants.filter(g => g.tool_id === CODE);
+    if (codeOps.join() !== (codeGrants[0]?.operation_kinds || []).filter(op => CODE_OPS.includes(op)).join() || codeGrants.length > 1) {
+      for (const g of codeGrants) await api('POST', 'profiles/permissions/revoke', {agent_id: saved.agent_id, grant_id: g.grant_id});
+      if (codeOps.length) await api('POST', 'profiles/permissions/grant', {agent_id: saved.agent_id, grant_id: 'grant-' + saved.agent_id + '-code',
+        tool_id: CODE, resource_pattern: '*', operation_kinds: codeOps, approval_mode: 'ask'});
     }
     // Verify persistence by reading the stored profile back, not by trusting the form.
     const stored = (await api('GET', 'profiles?agent_id=' + encodeURIComponent(saved.agent_id))).profile;
@@ -319,6 +333,9 @@
     const chosen = localStorage.getItem(chatKey());
     const act = mentioned(lastUser?.content) || state.acts.find(a => a.enabled && a.agent_id === chosen);
     if (!act) return brainChat(p, messages, signal, onDelta);
+    return chatAs(act, p, messages, signal, onDelta);
+  };
+  async function chatAs(act, p, messages, signal, onDelta = () => {}) {
     const connect = act.intelligence?.provider_profile_ref === CONNECT;
     const label = '〔' + act.name + '〕 ';
     c.sayStatus?.(act.name + ' está trabajando con ' + modelLabel(act) + '…');
@@ -326,7 +343,7 @@
       selection_mode: 'manual', model: act.intelligence?.model_id || p.model},
       messages, signal, text => onDelta(label + text));
     return {...result, text: label + result.text};
-  };
-  Axx.acts = {load, mentioned, get acts() { return state.acts; }, chooseForChat};
+  }
+  Axx.acts = {load, mentioned, chatAs, get acts() { return state.acts; }, chooseForChat};
   void load().catch(() => {});
 })(window.Axx);

@@ -32,6 +32,10 @@ Chat existente ──BrainClient.chat(p + act_id)──► /axx-api/chat ──A
                          ActInferenceService.verify_router ──► axx_act {modelo pedido, servido, informado, model_verified}
                          EventHub ◄── run.started / run.completed / run.failed (agent_id = act_id, run_id = request_id)
 Code Studio ──"Pedir a un Act"──► composer del chat (selección como datos) ──► mismo flujo
+Code Studio ──"Delegar archivo al Act"──► /axx-api/code/v1/worktrees/create (act_id) ──► worktree axx/agent/<act>/<tarea>
+            └► Axx.acts.chatAs ──► /axx-api/chat (modelo del Act) ──► archivo completo ──► worktrees/propose-apply
+            └► GET changesets (diff) ──► tests/run en su worktree (recibo) ──► worktrees/integrate (grant + recibo)
+            Puerta: EvolutionHTTP._gate_act_code ──► ActInferenceService.authorize_code (grant axx.code por paso)
 ```
 
 Reglas aplicadas:
@@ -44,6 +48,24 @@ Reglas aplicadas:
 - **Perfil global intacto.** Un turno de Act en Codex no modifica `selected_model`. Usa la clave de hilo `…:axx-direct-v2:act:<id>`, y el hilo de AXX conserva su clave original.
 - **Flag.** Todo pasa por `agent_profiles_v1`, que arranca desactivado. Acts Studio muestra "Activar Acts" para que el propietario decida.
 
+### Herramientas de código para Acts (CODE-04..10)
+
+- **Mismos endpoints, misma maquinaria.** Los Acts usan `worktrees/create`, `worktrees/propose-apply`, `tests/run`,
+  `worktrees/integrate` y `worktrees/remove` de Code Studio. No hay un segundo motor de parches ni de pruebas.
+- **Permiso por paso.** El grant `axx.code` lleva `operation_kinds` ⊆ `worktree`, `patch`, `test`, `integrate` y un
+  `resource_pattern` sobre el `project_id` (`*` desde la UI). Se relee en cada petición; revocarlo bloquea el siguiente paso.
+- **Identidad.** Si la petición trae `act_id`, o si el `agent_id`/worktree/cambio pertenece a un Act registrado, la puerta
+  aplica aunque falte `act_id`. Un Act solo usa su propio worktree y sus propios cambios. Sin Act de por medio, las acciones
+  del propietario en Code Studio no cambian. El propietario siempre puede retirar un worktree.
+- **Nunca en la copia principal directamente.** `changesets/propose|apply|rollback` están vetados a los Acts. Su trabajo
+  entra al proyecto solo por `worktrees/integrate`.
+- **Pruebas antes de integrar.** `integrate` exige `test_report_ids` con recibos del runner supervisado: superados, del mismo
+  worktree y proyecto, y posteriores al cambio. La protección existente contra archivos sucios y la CAS por SHA-256 se mantienen.
+- **El modelo escribe datos, no permisos.** La respuesta del Act solo aporta el contenido del archivo. AXX lo aplica en el
+  worktree, enseña el diff y pide confirmación antes de ejecutar pruebas y antes de integrar.
+- **Eventos.** Cada paso autorizado publica `tool.dispatched` (`kind: act_code`, operación, ruta, proyecto) cuando la
+  petición trae `conversation_id`.
+
 ## 3. Contratos y migraciones (aditivos)
 
 - `AgentProfile v1`: campos opcionales `personality` (11 enums + 3 textos + `default_language`), `autonomy.mode` (`manual|assisted|auto_safe|background|scheduled|isolated`), `collaboration` (`mention`, `accepts_handoffs`, `review_required`, `rules`). Los perfiles que no los traen se devuelven igual que antes.
@@ -51,6 +73,7 @@ Reglas aplicadas:
 - `/axx-api/chat`: entrada `act_id`, `act_revision`; salida `axx_act`. Errores: `ACT_NOT_FOUND` 404, `ACT_DISABLED` 403, `ACT_STALE_REVISION` 409, `ACT_MODEL_UNSET`/`ACT_TRANSPORT_MISMATCH` 400, `MODEL_MISMATCH` 502.
 - `/axx-api/connect/start`: entrada `act_id`, `act_revision`. `act_thread` lo asigna solo el servidor (si llega del cliente: 400).
 - Rutas nuevas bajo el flag existente: `GET agents/v1/catalog`, `GET|POST agents/v1/profiles/permissions[/grant|/revoke]`, `POST agents/v1/profiles/preview`, `GET|POST agents/v1/teams`. La revocación siempre se permite (ruta de limpieza).
+- Code Studio: entrada opcional `act_id` (y `test_report_ids` en `worktrees/integrate`) en las rutas existentes; nuevo `GET code/v1/changesets?changeset_id=` (cambio + diffs); el recibo de pruebas añade `created_at_ms`. Grant nuevo por convención: `tool_id: axx.code`. Sin tablas nuevas. Errores de la puerta: 403 `FORBIDDEN`, 404 si el Act/recibo no existe.
 - `/v1` móvil y `design-baseline.json`: sin cambios (`companion_contract.check_contract` OK).
 
 ## 4. Archivos
@@ -66,15 +89,20 @@ Reglas aplicadas:
 | `1.AXX/scripts/agents/acts-studio.{js,css}` | Nuevo: biblioteca, editor de 11 pestañas, selector y `@mención` en el chat. |
 | `1.AXX/Axx.html` | Reenvío de `act_id` en `BrainClient.chat` y carga del módulo (sin tocar estilos inline protegidos). |
 | `1.AXX/scripts/axx-connect.js` | Reenvío de `act_id` a Codex. |
-| `1.AXX/scripts/code-studio/code-ui.js` | Botón "Pedir a un Act". |
-| `backend/tests/test_acts_inference.py`, `backend/tests/test_acts_ui.py` | Nuevas pruebas. |
+| `1.AXX/scripts/code-studio/code-ui.js` | "Pedir a un Act"; "Delegar archivo al Act", "Probar en su worktree", "Integrar trabajo del Act"; vista de diff compartida. |
+| `backend/agents/act_inference.py` (`authorize_code`), `backend/agents/http_api.py` (`_gate_act_code`, `GET code/v1/changesets`) | Puerta `axx.code` y lectura de diffs. |
+| `backend/code_studio/patch_engine.py` (`get_diffs`), `backend/code_studio/test_runner.py` (`created_at_ms` en el recibo) | Campos aditivos. |
+| `1.AXX/scripts/agents/acts-studio.js` | Casillas `axx.code` en Herramientas; `Axx.acts.chatAs` compartido por chat y Code Studio. |
+| `backend/tests/test_acts_inference.py`, `backend/tests/test_acts_code_tools.py`, `backend/tests/test_acts_ui.py` | Nuevas pruebas. |
 
 ## 5. Pruebas ejecutadas
 
 | Comando | Resultado |
 |---|---|
 | `pytest backend/tests/test_acts_inference.py` | 7 passed + 1 real (Ollama) passed en ejecución separada (62 s) |
-| `pytest backend/tests/test_acts_ui.py` | 1 passed (Playwright, `Axx.html` real, backend real) |
+| `pytest backend/tests/test_acts_ui.py` | 2 passed (Playwright, `Axx.html` real, backend real; el segundo: permiso `axx.code` → delegar → diff → pruebas → integrar) |
+| `pytest backend/tests/test_acts_code_tools.py` | 1 passed (controlado) + 1 real passed: `qwen2.5:7b-instruct` escribió la corrección, pasó las pruebas en su worktree y se integró (49 s) |
+| **Regresión completa** `pytest backend/tests` (incremento de herramientas de código, Ollama activo) | **1757 passed, 14 skipped, 0 failed**, 1188 subtests (23 min). Skips: fixtures nativos opcionales (Edge, Office, Blender, OCR privado, symlinks) |
 | Regresión: agentes, auditoría HTTP, auditoría funcional, rutinas, smoke, `backend/connect/tests`, Code Studio core/UI/recovery, task graph, Acts | 188 passed, 1 skipped, 3 failed → ver abajo |
 | `node test-providers / test-static-assets / test-chat-usability / test-desktop-frontend` | PASS |
 | `companion_contract.check_contract` | OK |
@@ -116,21 +144,27 @@ Entorno: Windows 11, Python 3.12, Chromium (Playwright), servidor AXX lanzado po
 | ACT-14 revocar → bloquear | PASS | Grant/revocación por HTTP; la siguiente resolución no concede herramientas. El bloqueo en el despacho está en el código, pero no se ejercitó con una herramienta real. |
 | CODE-01/02 Monaco + proyecto real | PASS | `test_code_studio_ui` (Codex). |
 | CODE-03 selección → Act | PARCIAL | "Pedir a un Act" coloca la selección en el chat y el Act responde con su modelo. Sin prueba de UI propia. |
-| CODE-04..10 worktree/parche/diff/pruebas/revisión/integración por Act | PENDIENTE | Los servicios de Codex existen y tienen pruebas; ningún Act los invoca todavía (no hay adaptadores de herramientas de código para Acts). |
+| CODE-04 worktree propio del Act | PASS | Rama `axx/agent/act-dev/<tarea>`; sin grant → 403; el nombre de un Act registrado no sirve de etiqueta libre. |
+| CODE-05 parche escrito por el modelo del Act | PASS | Controlado + **real**: `qwen2.5:7b-instruct` escribió la corrección por `/axx-api/chat` con `model_verified`. Solo cambia el worktree. |
+| CODE-06 diff | PASS | `GET code/v1/changesets` y editor de diferencias de Monaco (UI). |
+| CODE-07 pruebas en su worktree | PASS | Subprocesos reales del runner supervisado: falla antes del parche y pasa después. |
+| CODE-08 revisión | PASS (propietario) | El propietario revisa el diff y confirma pruebas e integración. No hay todavía revisión por un segundo Act (QA). |
+| CODE-09 integración | PASS | Sin grant `integrate`, sin recibos, con recibo fallido o anterior al cambio → 403. Con recibo válido, el archivo del proyecto coincide con el SHA propuesto. |
+| CODE-10 aislamiento y revocación | PASS | Otro Act no puede parchear ni probar en ese worktree; `changesets/*` vetado; revocar bloquea el siguiente paso; las acciones del propietario siguen igual. |
 | CODE-11..14 borradores, recuperación multiarchivo, ediciones externas, metadatos Git | PASS | Pruebas recuperadas de Codex (31 passed). |
 | PC-01..05 | PENDIENTE | Este incremento no los aborda. Codex ya marcó Browser/UIA/VM como `unsupported_mode` (D15/D17). |
 | ROUTINE-01..03 | PENDIENTE | No hay dispatcher real (D21 sigue abierto). |
 | VISUAL-01 24 formas × 9 paletas | PARCIAL | Catálogo y validación completos. Las miniaturas son el SVG genérico del backend, no del renderer real de AXX. |
 | VISUAL-02 renderer principal intacto | SOURCE_VERIFIED | Ningún archivo del renderer modificado; línea base de diseño OK. |
 | VISUAL-03 rendimiento | PENDIENTE | No medido. |
-| Demo final Dev/Visual/QA | NO ALCANZADA | Requiere CODE-04..10, orquestación de equipo desde el chat y aceptación nativa. |
+| Demo final Dev/Visual/QA | NO ALCANZADA | CODE-04..10 ya funcionan con un Act. Faltan la orquestación de equipo desde el chat (Dev → Visual → QA), la revisión por un Act QA y la aceptación nativa. |
 
 ## 7. Funciones no disponibles en este incremento
 
-Vista de handoffs en el chat. Ejecución de equipo desde una sola frase con TaskGraph. Herramientas de código tipadas para Acts (worktree, parche, pruebas). Miniaturas desde el renderer real. Voz por Act conectada al TTS (los campos se guardan, el motor aún no los lee). Límites del ResourceGovernor por Act. Scheduler de rutinas. LSP/DAP reales. Computer Use por Act.
+Vista de handoffs en el chat. Ejecución de equipo desde una sola frase con TaskGraph. Miniaturas desde el renderer real. Voz por Act conectada al TTS (los campos se guardan, el motor aún no los lee). Límites del ResourceGovernor por Act. Scheduler de rutinas. LSP/DAP reales. Computer Use por Act.
 
 ## 8. Rollback
 
-1. Desactivar `agent_profiles_v1` ("Desactivar Acts" o `POST /axx-api/agents/v1/flags/set`): los turnos con `act_id` se rechazan y el chat responde solo como AXX.
+1. Desactivar `agent_profiles_v1` ("Desactivar Acts" o `POST /axx-api/agents/v1/flags/set`): los turnos con `act_id` se rechazan y el chat responde solo como AXX; los pasos de Code Studio de un Act también se rechazan. Los worktrees de Acts quedan en disco y el propietario puede retirarlos.
 2. Revertir los commits de esta rama. La columna `behavior_json` es aditiva y el código anterior la ignora, así que no hace falta revertir la BD.
 3. Los hilos Codex de Acts usan claves propias y no alteran el hilo de AXX.
