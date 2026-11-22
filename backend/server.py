@@ -653,7 +653,10 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
             raise ValueError('Content-Length is required')
         length = int(length_header)
         req_path = urllib.parse.urlsplit(self.path).path
-        limit = 8 * 1024 * 1024 if req_path == '/axx-api/screen/save' else MAX_BODY
+        # JSON escaping can expand each bounded 2 MiB document to 12 MiB.
+        limit = {'/axx-api/code/v1/drafts/save': 32 * 1024 * 1024,
+                 '/axx-api/code/v1/documents/save': 16 * 1024 * 1024,
+                 '/axx-api/screen/save': 8 * 1024 * 1024}.get(req_path, MAX_BODY)
         if length > limit:
             self._send_json(413, {'error': {'code': 'INVALID_REQUEST', 'message': 'Body exceeds size limit'}})
             return None

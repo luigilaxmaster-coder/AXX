@@ -236,6 +236,13 @@ class EvolutionHTTP:
         if path == '/axx-api/code/v1/projects':
             self.handler._send_json(200, {'projects': self.rt.code_projects.list_projects()})
             return True
+        if path == '/axx-api/code/v1/drafts':
+            project_id=query.get('project_id',[''])[0];relative=query.get('path',[None])[0]
+            self.handler._send_json(200, self.rt.code_projects.get_draft(project_id,relative) if relative is not None else {'drafts':self.rt.code_projects.list_drafts(project_id)})
+            return True
+        if path == '/axx-api/code/v1/file-transactions':
+            self.handler._send_json(200,{'transactions':self.rt.code_projects.recovery.list(query.get('project_id',[None])[0])})
+            return True
         if path == '/axx-api/code/v1/directory':
             entries = self.rt.code_projects.list_directory(query.get('project_id', [''])[0], query.get('path', [''])[0])
             self.handler._send_json(200, {'entries': entries})
@@ -254,7 +261,7 @@ class EvolutionHTTP:
             return False
 
         # 1. Feature Flags
-        cleanup = path.endswith(('/cancel', '/reconcile', '/release', '/revoke', '/stop', '/destroy', '/remove'))
+        cleanup = path in ('/axx-api/code/v1/file-transactions/recover','/axx-api/code/v1/file-transactions/acknowledge') or path.endswith(('/cancel', '/reconcile', '/release', '/revoke', '/stop', '/destroy', '/remove'))
         if not cleanup:
             required = []
             if path.startswith(('/axx-api/agents/v1/profiles', '/axx-api/agents/v1/bindings')):
@@ -572,6 +579,23 @@ class EvolutionHTTP:
             return True
 
         # 6. Code Studio endpoints
+        if path == '/axx-api/code/v1/drafts/save':
+            if 'content' not in body:
+                raise ValueError('Draft content must be present; null explicitly clears it')
+            result=self.rt.code_projects.save_draft(body['project_id'],body['path'],
+                expected_revision=body['expected_revision'],content=body.get('content'),
+                base_content=body.get('base_content'),base_sha256=body.get('base_sha256'),
+                encoding=body.get('encoding'),line_ending=body.get('line_ending'))
+            self.handler._send_json(200,result)
+            return True
+        if path == '/axx-api/code/v1/file-transactions/recover':
+            self.rt.code_projects.get_project_root(body['project_id'])
+            self.handler._send_json(200,{'transactions':self.rt.code_projects.recovery.recover(body['project_id'])})
+            return True
+        if path == '/axx-api/code/v1/file-transactions/acknowledge':
+            result=self.rt.code_projects.recovery.acknowledge(body['transaction_id'],body['expected_hashes'],body.get('preserve_external'))
+            self.handler._send_json(200,result)
+            return True
         if path == '/axx-api/code/v1/projects/register':
             proj = self.rt.code_projects.register_project(body['project_id'], body['project_root'])
             self.handler._send_json(200, proj)

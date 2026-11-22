@@ -202,6 +202,8 @@ class CodeProjectService:
             self._persistent_conn = sqlite3.connect(':memory:', check_same_thread=False)
             self._persistent_conn.row_factory = sqlite3.Row
         self._init_schema()
+        from .recovery import FileRecovery
+        self.recovery = FileRecovery(self)
 
     def _connect(self):
         if self._persistent_conn is not None:
@@ -237,6 +239,12 @@ class CodeProjectService:
                         operation_id TEXT NOT NULL,
                         created_at_ms INTEGER NOT NULL
                     );
+                    CREATE TABLE IF NOT EXISTS code_drafts (
+                        project_id TEXT NOT NULL REFERENCES code_projects(project_id),
+                        relative_path TEXT NOT NULL, revision INTEGER NOT NULL,
+                        content TEXT, base_content TEXT, base_sha256 TEXT,
+                        encoding TEXT, line_ending TEXT, updated_at_ms INTEGER NOT NULL,
+                        PRIMARY KEY(project_id,relative_path));
                     CREATE INDEX IF NOT EXISTS idx_time_machine_lookup
                         ON code_time_machine_snapshots(project_id, relative_path, created_at_ms);
                     '''
@@ -363,6 +371,7 @@ class CodeProjectService:
     ) -> dict[str, Any]:
         """Atomically save a file with CAS expected_sha256 verification and Time Machine snapshot recording (CODE-01)."""
         with self.lock:
+            self.recovery.assert_writable(project_id)
             root = self.get_project_root(project_id)
             full_path = resolve_scoped_project_path(root, relative_path)
             if not full_path.is_file():
@@ -386,7 +395,7 @@ class CodeProjectService:
             new_raw = encode_with_preserved_format(new_content, encoding=target_enc, line_ending=target_eol)
             new_sha = hashlib.sha256(new_raw).hexdigest()
 
-            # Record before & after snapshots in Code Time Machine before atomic replace
+            # Preserve the old bytes before preparing the durable write intent.
             self._record_snapshot(
                 project_id=project_id,
                 relative_path=relative_path,
@@ -397,17 +406,10 @@ class CodeProjectService:
                 actor=actor,
                 operation_id=f'{operation_id}:before',
             )
-            atomic_write_bytes(full_path, new_raw)
-            self._record_snapshot(
-                project_id=project_id,
-                relative_path=relative_path,
-                sha256=new_sha,
-                encoding=target_enc,
-                line_ending=target_eol,
-                raw_blob=new_raw,
-                actor=actor,
-                operation_id=f'{operation_id}:after',
-            )
+            self.recovery.replace(project_id, root,
+                [{'path':relative_path,'before':current_raw,'after':new_raw,
+                  'encoding':target_enc,'line_ending':target_eol}],
+                actor=actor,operation_id=f'{operation_id}:after')
 
             return {
                 'status': 'saved',
@@ -431,6 +433,7 @@ class CodeProjectService:
     ) -> dict[str, Any]:
         """Restore a file from Code Time Machine by its historical SHA-256 (CODE-03)."""
         with self.lock:
+            self.recovery.assert_writable(project_id)
             root = self.get_project_root(project_id)
             full_path = resolve_scoped_project_path(root, relative_path)
             with self.lock, self._connect() as db:
@@ -450,19 +453,16 @@ class CodeProjectService:
 
             if hashlib.sha256(raw_blob).hexdigest() != target_sha256:
                 raise RuntimeError('Snapshot hash mismatch; file was not modified')
-            atomic_write_bytes(full_path, raw_blob)
-            if hashlib.sha256(full_path.read_bytes()).hexdigest() != target_sha256:
-                raise RuntimeError('Post-restore hash mismatch')
-            self._record_snapshot(
-                project_id=project_id,
-                relative_path=relative_path,
-                sha256=target_sha256,
-                encoding=encoding,
-                line_ending=line_ending,
-                raw_blob=raw_blob,
-                actor=actor,
-                operation_id=operation_id,
-            )
+            current = full_path.read_bytes() if full_path.is_file() else None
+            if current is not None:
+                info = detect_encoding_and_eol(current)
+                self._record_snapshot(project_id=project_id,relative_path=relative_path,
+                    sha256=info['sha256'],encoding=info['encoding'],line_ending=info['line_ending'],
+                    raw_blob=current,actor=actor,operation_id=f'{operation_id}:before')
+            self.recovery.replace(project_id, root,
+                [{'path':relative_path,'before':current,'after':raw_blob,
+                  'encoding':encoding,'line_ending':line_ending}],
+                actor=actor,operation_id=operation_id)
             return {
                 'status': 'restored',
                 'project_id': project_id,
@@ -484,14 +484,46 @@ class CodeProjectService:
         actor: str,
         operation_id: str,
     ) -> None:
-        now = self.clock()
-        with self.lock, self._connect() as db:
-            with db:
-                db.execute(
-                    '''
-                    INSERT INTO code_time_machine_snapshots
-                        (project_id, relative_path, sha256, encoding, line_ending, raw_blob, actor, operation_id, created_at_ms)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ''',
-                    (project_id, relative_path, sha256, encoding, line_ending, raw_blob, actor, operation_id, now),
-                )
+        with self.lock, self._connect() as db, db:
+            self._insert_snapshot(db, project_id=project_id, relative_path=relative_path,
+                sha256=sha256, encoding=encoding, line_ending=line_ending,
+                raw_blob=raw_blob, actor=actor, operation_id=operation_id)
+
+    def _insert_snapshot(self, db, *, project_id, relative_path, sha256, encoding, line_ending, raw_blob, actor, operation_id):
+        db.execute('INSERT INTO code_time_machine_snapshots '
+                   '(project_id,relative_path,sha256,encoding,line_ending,raw_blob,actor,operation_id,created_at_ms) '
+                   'VALUES (?,?,?,?,?,?,?,?,?)',
+                   (project_id,relative_path,sha256,encoding,line_ending,raw_blob,actor,operation_id,self.clock()))
+
+    def list_drafts(self, project_id):
+        self.get_project_root(project_id)
+        with self.lock,self._connect() as db:
+            return [dict(row) for row in db.execute('SELECT relative_path,revision,updated_at_ms FROM code_drafts WHERE project_id=? AND content IS NOT NULL ORDER BY updated_at_ms DESC',(project_id,))]
+
+    def get_draft(self, project_id, relative_path):
+        resolve_scoped_project_path(self.get_project_root(project_id),relative_path)
+        with self.lock,self._connect() as db:
+            row=db.execute('SELECT * FROM code_drafts WHERE project_id=? AND relative_path=?',(project_id,relative_path)).fetchone()
+            return dict(row) if row else {'project_id':project_id,'relative_path':relative_path,'revision':0,'content':None}
+
+    def save_draft(self, project_id, relative_path, *, expected_revision, content, base_content=None, base_sha256=None, encoding=None, line_ending=None):
+        resolve_scoped_project_path(self.get_project_root(project_id),relative_path)
+        if type(expected_revision) is not int or expected_revision<0:
+            raise ValueError('Draft expected_revision must be a nonnegative integer')
+        if content is not None:
+            if not all(isinstance(v,str) and len(v.encode('utf-8'))<=self.max_editable_bytes for v in (content,base_content)):
+                raise ValueError('Draft content/base exceeds editable size or is not text')
+            if not isinstance(base_sha256,str) or not re.fullmatch('[0-9a-f]{64}',base_sha256):
+                raise ValueError('Draft base_sha256 must be a SHA-256 digest')
+            encode_with_preserved_format('',encoding=encoding,line_ending=line_ending)
+            if line_ending not in ('LF','CRLF','MIXED'):
+                raise ValueError('Draft line ending is invalid')
+        with self.lock,self._connect() as db,db:
+            db.execute('BEGIN IMMEDIATE')
+            row=db.execute('SELECT revision FROM code_drafts WHERE project_id=? AND relative_path=?',(project_id,relative_path)).fetchone()
+            revision=row[0] if row else 0
+            if expected_revision!=revision:
+                raise CodeConflictError('Draft revision conflict; another editor saved a different draft')
+            db.execute('INSERT INTO code_drafts VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(project_id,relative_path) DO UPDATE SET revision=excluded.revision,content=excluded.content,base_content=excluded.base_content,base_sha256=excluded.base_sha256,encoding=excluded.encoding,line_ending=excluded.line_ending,updated_at_ms=excluded.updated_at_ms',
+                       (project_id,relative_path,revision+1,content,base_content,base_sha256,encoding,line_ending,self.clock()))
+            return {'revision':revision+1,'persisted':True,'cleared':content is None}

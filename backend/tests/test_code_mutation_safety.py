@@ -45,15 +45,15 @@ class CodeMutationSafetyTests(unittest.TestCase):
             self.service.save_document('p','a.py','A = 999\n',expected_sha256=base)
 
     def test_apply_excludes_a_concurrent_save(self):
-        self.assert_serialized(lambda:self.engine.apply_changeset('cs'),'backend.code_studio.patch_engine')
+        self.assert_serialized(lambda:self.engine.apply_changeset('cs'),'backend.code_studio.recovery')
 
     def test_rollback_excludes_a_concurrent_save(self):
         self.engine.apply_changeset('cs')
-        self.assert_serialized(lambda:self.engine.rollback_changeset('cs'),'backend.code_studio.patch_engine')
+        self.assert_serialized(lambda:self.engine.rollback_changeset('cs'),'backend.code_studio.recovery')
 
     def test_restore_excludes_a_concurrent_save(self):
         self.engine.apply_changeset('cs')
-        self.assert_serialized(lambda:self.service.restore_snapshot('p','a.py',self.initial_sha),'backend.code_studio.projects')
+        self.assert_serialized(lambda:self.service.restore_snapshot('p','a.py',self.initial_sha),'backend.code_studio.recovery')
 
     def test_force_must_be_an_actual_boolean(self):
         self.engine.apply_changeset('cs'); self.file.write_bytes(b'A = 999\r\n')

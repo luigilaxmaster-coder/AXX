@@ -2,14 +2,14 @@
 
 Enforces Invariants:
 - CODE-03: Every agent edit is represented as a validated CodeChangeSet v1 with base_sha256,
-  proposed_sha256, and diff_digest. Application is atomic (two-phase preflight + Time Machine snapshot
-  + atomic replace). Rollback restores exact base_sha256 bytes across all touched files.
+  proposed_sha256, and diff_digest. Application uses durable recovery intents, verified replacements and conflict-safe compensation. Rollback restores exact base_sha256 bytes across all touched files.
 - I-02 / I-08: Agents cannot write arbitrarily without a tracked CodeChangeSet and workspace lease/scope.
 """
 from __future__ import annotations
 
 import copy
 import difflib
+from datetime import datetime, timezone
 import hashlib
 import json
 from pathlib import Path
@@ -19,7 +19,6 @@ from typing import Any
 from backend.code_studio.projects import (
     CodeConflictError,
     CodeProjectService,
-    atomic_write_bytes,
     detect_encoding_and_eol,
     encode_with_preserved_format,
     resolve_scoped_project_path,
@@ -142,7 +141,7 @@ def compute_unified_diff(path: str, old_text_lf: str, new_text_lf: str) -> tuple
 
 
 class CodePatchEngine:
-    """Proposes, persists, atomically applies, and rolls back CodeChangeSets (CODE-03)."""
+    """Proposes, persists, applies with recovery, and rolls back CodeChangeSets (CODE-03)."""
 
     def __init__(self, project_service: CodeProjectService):
         self.projects = project_service
@@ -179,12 +178,13 @@ class CodePatchEngine:
         base_commit: str,
         branch: str,
         file_edits: list[dict[str, Any]],
-        created_at: str = '2026-11-21T16:00:00Z',
+        created_at: str | None = None,
         test_report_refs: list[str] | None = None,
         approval_operation_id: str | None = None,
         target_root: Path | None = None,
     ) -> dict[str, Any]:
         """Build and persist a validated CodeChangeSet proposal from a list of {'path': ..., 'new_content': ...}."""
+        created_at = created_at or datetime.now(timezone.utc).isoformat()
         root = Path(target_root).resolve() if target_root else self.projects.get_project_root(project_id)
         files_manifest: list[dict[str, Any]] = []
         proposed_blobs: dict[str, dict[str, str]] = {}
@@ -250,12 +250,13 @@ class CodePatchEngine:
         now = self.projects.clock()
         with self.projects.lock, self.projects._connect() as db:
             with db:
-                db.execute(
+                inserted = db.execute(
                     '''
-                    INSERT OR REPLACE INTO code_changesets
+                    INSERT INTO code_changesets
                         (changeset_id, project_id, workspace_id, agent_id, base_commit, branch, status,
                          changeset_json, proposed_blobs_json, approval_operation_id, created_at_ms)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(changeset_id) DO NOTHING
                     ''',
                     (
                         changeset_id,
@@ -271,6 +272,8 @@ class CodePatchEngine:
                         now,
                     ),
                 )
+                if inserted.rowcount != 1:
+                    raise CodeConflictError('ChangeSet ID already exists; use a new ID for a revised proposal')
         return validated
 
     def get_changeset(self, changeset_id: str) -> dict[str, Any]:
@@ -353,33 +356,16 @@ class CodePatchEngine:
                     }
                 )
 
-            # Phase 2: Record Time Machine snapshots and replace each file atomically
-            # shortcut: multi-file commits need a journal for crash recovery before automatic agent integration.
             for item in staged_writes:
-                self.projects._record_snapshot(
-                    project_id=project_id,
-                    relative_path=item['rel_path'],
-                    sha256=item['current_info']['sha256'],
-                    encoding=item['current_info']['encoding'],
-                    line_ending=item['current_info']['line_ending'],
-                    raw_blob=item['current_raw'],
-                    actor=changeset['agent_id'],
-                    operation_id=f'changeset:{changeset_id}:before',
-                )
-                atomic_write_bytes(item['full_path'], item['new_raw'])
-                self.projects._record_snapshot(
-                    project_id=project_id,
-                    relative_path=item['rel_path'],
-                    sha256=item['new_sha'],
-                    encoding=item['encoding'],
-                    line_ending=item['line_ending'],
-                    raw_blob=item['new_raw'],
-                    actor=changeset['agent_id'],
-                    operation_id=f'changeset:{changeset_id}:after',
-                )
-
-            updated = self._update_status(changeset_id, 'applied')
-            return updated
+                self.projects._record_snapshot(project_id=project_id, relative_path=item['rel_path'],
+                    sha256=item['current_info']['sha256'], encoding=item['current_info']['encoding'],
+                    line_ending=item['current_info']['line_ending'], raw_blob=item['current_raw'],
+                    actor=changeset['agent_id'], operation_id=f'changeset:{changeset_id}:before')
+            self.projects.recovery.replace(project_id, root,
+                [{'path':i['rel_path'],'before':i['current_raw'],'after':i['new_raw'],
+                  'encoding':i['encoding'],'line_ending':i['line_ending']} for i in staged_writes],
+                actor=changeset['agent_id'], changeset_id=changeset_id, final_status='applied')
+            return self.get_changeset(changeset_id)
 
     def rollback_changeset(
         self,
@@ -416,16 +402,13 @@ class CodePatchEngine:
                 if hashlib.sha256(raw).hexdigest() != base_sha:
                     raise RuntimeError(f'Snapshot hash mismatch for {relative}; files were not modified')
                 staged.append((path, relative, raw, base_sha))
-            restored_files = []
-            for path, relative, raw, base_sha in staged:
-                atomic_write_bytes(path, raw)
-                verified_sha = hashlib.sha256(path.read_bytes()).hexdigest()
-                if verified_sha != base_sha:
-                    raise RuntimeError(f'Post-rollback hash mismatch on {relative}')
-                restored_files.append({'path': relative, 'restored_sha256': verified_sha})
-            self._update_status(changeset_id, 'proposed')
-            return {'status': 'rolled_back', 'changeset_id': changeset_id,
-                    'project_id': project_id, 'files': restored_files}
+            self.projects.recovery.replace(project_id, root,
+                [{'path':relative,'before':path.read_bytes() if path.is_file() else None,'after':raw,
+                  'encoding':detect_encoding_and_eol(raw)['encoding'],
+                  'line_ending':detect_encoding_and_eol(raw)['line_ending']} for path,relative,raw,sha in staged],
+                actor='rollback',changeset_id=changeset_id,final_status='proposed')
+            return {'status':'rolled_back','changeset_id':changeset_id,'project_id':project_id,
+                    'files':[{'path':relative,'restored_sha256':sha} for path,relative,raw,sha in staged]}
 
     def _update_status(self, changeset_id: str, new_status: str) -> dict[str, Any]:
         with self.projects.lock, self.projects._connect() as db:
