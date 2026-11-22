@@ -11,3 +11,5 @@ El worker tiene 45 s de plazo por defecto para incluir arranque frío del kernel
 Limitaciones abiertas: sección geométrica no aplicada por el worker; parámetros de recinto requieren wall_thickness; la placa preset usa un taladro central y no describe una distribución arbitraria de agujeros. La UI CAD v2 y el visor legacy no están conectados de extremo a extremo. No se acredita importación GLB arbitraria en la UI, raycasting v2, calibración de varios DPI, clipping 3D ni benchmark prolongado de GPU. No se modificaron materiales/cámara del avatar.
 
 Evidencia: `step-before.json` (validador anterior true, lector 0 sólidos), `cad-final.log`, `backend/tests/test_cad_studio.py`, `evolution-final.log`.
+
+Se probó también el worker CAD del backend PyInstaller sobre f2ce6b0: STEP con dos sólidos reimportados (volúmenes 24.0 y 11.78097245 mm3), GLB dos nodos y congruencia física, 27.969 s. Inventario onedir y licencias CadQuery/OCP/VTK verificados. Esto sigue siendo distinto de aceptación del instalador completo; el guard de raíz Git posterior requiere reconstrucción final, cuyo cierre se registra en el PR.

@@ -39,6 +39,9 @@ class CodeStudioCoreTests(unittest.TestCase):
                          '.git./config', '.git /config'):
                 with self.subTest(path=name), self.assertRaises(CodeSecurityError):
                     resolve_scoped_project_path(root, name)
+            for selected_root in (root / '.git', root / '.GIT' / 'hooks'):
+                with self.subTest(root=str(selected_root)), self.assertRaises(CodeSecurityError):
+                    resolve_scoped_project_path(selected_root, 'config')
             self.assertEqual(config.read_bytes(), b'synthetic config; do not modify')
             self.assertEqual(resolve_scoped_project_path(root, '.github/workflows/check.yml'),
                              (root / '.github/workflows/check.yml').resolve())

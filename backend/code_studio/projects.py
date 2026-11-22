@@ -81,13 +81,13 @@ def resolve_scoped_project_path(project_root: str | Path, relative_path: str) ->
     if ':' in relative_path or relative_path.startswith(('\\\\', '//', '/', '\\')):
         raise CodeSecurityError(f'Absolute, UNC, or Alternate Data Stream path rejected: {relative_path!r}')
 
+    root = Path(project_root).resolve()
     norm_parts = Path(relative_path).parts
     if '..' in norm_parts:
         raise CodeSecurityError(f'Path traversal (..) rejected: {relative_path!r}')
-    if any(part.rstrip(' .').casefold() == '.git' for part in norm_parts):
+    if any(part.rstrip(' .').casefold() == '.git' for part in (*root.parts, *norm_parts)):
         raise CodeSecurityError('Access to Git metadata through the file editor is prohibited')
 
-    root = Path(project_root).resolve()
     candidate = root / relative_path
 
     # Check every existing ancestor from root down to candidate for reparse points / symlinks
