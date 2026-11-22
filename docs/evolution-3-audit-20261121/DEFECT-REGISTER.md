@@ -57,3 +57,18 @@ Reproducción: `.GIT/config` y `nested/.git/hooks/post-checkout` eran aceptados 
 Al aprobar un modelo, `axx-connect.js` sustituía `c.brain` por un cliente de prueba. Esa sustitución descartaba los wrappers ya instalados por chat-workspace y prompt-contracts. Se reproduce con el flujo real de selección del navegador: cambia la identidad del cliente y pierde sus wrappers. Corrección mínima: copiar el estado comprobado del cliente de prueba al cliente activo, conservando sus métodos decorados. Regresión en test-providers exige identidad estable, mismo método chat y que una nota de grupo sintética llegue a la petición del proveedor tras activar el modelo. Prueba dirigida aprobada; la inferencia de este test es controlada, no se presenta como servicio externo real. Evidencias: model-client-before.log y model-client-after.log.
 
 D24, cierre adicional: la raíz elegida también se comprueba. Antes, seleccionar directamente una carpeta `.git` y abrir `config` evitaba la validación de los componentes relativos. La prueba reproduce ese acceso; la corrección incluye root.parts en el mismo guard normalizado. La suite Core/Pro/UI/HTTP repite 13 casos con PASS (`git-root-before.log`, `git-root-after.log`).
+
+
+## D26 — Guardado, aplicación y restauración concurrentes (P1)
+
+Los locks de apply/rollback/restore solo protegían consultas SQLite; se liberaban antes de escribir archivos. Tres pruebas de intercalado determinista reprodujeron un guardado aceptado que luego quedaba sobrescrito por la mutación en curso. Las tres operaciones mantienen ahora el mismo RLock de CodeProjectService durante validación, snapshots y escritura; el guardado posterior recibe conflicto de CAS. El alcance es el backend actual; no se afirma exclusión de editores externos ni de otros procesos. Evidencias: mutation-before.log y mutation-final.log.
+
+## D27 — Coerción insegura de force en rollback (P1)
+
+HTTP convertía bool("false") en True, permitiendo sobrescribir una edición posterior. Se pasa el valor original al motor compartido y se exige un bool real. Las pruebas rechazan strings, números y null; un POST real con force string devuelve 400 y conserva bytes del cambio externo. El booleano False válido mantiene la protección de conflictos. No se eliminaron snapshots ni datos.
+
+## D28 — Integridad de snapshots y escritura verificada (P1)
+
+Restore no comprobaba el hash del blob antes de sobrescribir el archivo. Rollback validaba snapshots uno a uno después de empezar a restaurar; un segundo snapshot corrupto dejaba el primero modificado. Se validan todos antes de escribir. atomic_write_bytes relee los bytes reemplazados y rechaza diferencias antes de devolver éxito o registrar la revisión posterior. Las pruebas inyectan corrupción controlada en SQLite y una edición externa en la frontera de replace: detectan el fallo y conservan archivos. Ocho nuevas regresiones; 21 casos Core/Pro/UI/HTTP/mutaciones aprobados.
+
+La sustitución es atómica por archivo. Un corte de proceso o error de E/S a mitad de varios archivos aún requiere reconciliación; falta journal de grupo. No se acredita un commit multiarchivo atómico ante crash ni CAS absoluto frente a procesos externos que no colaboran. Esta limitación sigue bloqueando integración automática y release.

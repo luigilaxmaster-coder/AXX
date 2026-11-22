@@ -618,7 +618,7 @@ class EvolutionHTTP:
             self.handler._send_json(200, {'changeset': applied})
             return True
         if path == '/axx-api/code/v1/changesets/rollback':
-            rolled = self.rt.code_patches.rollback_changeset(body['changeset_id'], force=bool(body.get('force', False)))
+            rolled = self.rt.code_patches.rollback_changeset(body['changeset_id'], force=body.get('force', False))
             self.handler._send_json(200, rolled)
             return True
         if path == '/axx-api/code/v1/worktrees/create':

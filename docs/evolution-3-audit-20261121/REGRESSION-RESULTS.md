@@ -5,7 +5,7 @@ Base auditada: PR #6, `2f177eae1891efb6097f8dd319872745c37e0f51`. Cambios revisa
 | Verificación | Resultado observado | Límite |
 |---|---|---|
 | Baseline de Evolution | 44 tests originales pasan | No detectaban STEP/MP4 falsos ni controles desconectados |
-| Evolution ampliado + integración HTTP | 58 tests pasan | Incluye suite funcional adicional; el job CI tiene 56 tests tras agregar D24 |
+| Evolution ampliado + integración HTTP | 58 tests pasan | Incluye suite funcional adicional; el job CI tiene 64 tests tras agregar D24 y ocho pruebas de mutaciones |
 | CAD/OpenCascade | 4 tests pasan | Reimportación STEP, volúmenes, bounds y geometría binaria GLB; no UI CAD empaquetada |
 | Connect | 135 tests, 1 omitido | No sustituye login/logout/errores reales del servicio |
 | Rust | 42 pasan, 2 ignored | `TAURI_CONFIG` de pruebas sin recursos del instalador |
@@ -49,3 +49,5 @@ D24: suite de Core/Pro/UI/HTTP aprobada tras reproducir el bypass Git. Inferenci
 CI remoto de d02f622: los seis checks de push/PR finalizaron SUCCESS (version 44951383794/44951380636; companion 44951383868/44951380797; autoría 44951383821/44951380698). La corrección D25 posterior requiere sus nuevos checks: consultar el HEAD vigente en el PR. test-providers pasó con la regresión de identidad, wrappers y contexto de grupo.
 
 Aceptación posterior sobre f2ce6b0: backend congelado/onedir construido y verificado; worker CAD real en 27.969 s, dos sólidos STEP reimportados y GLB congruente. Ventana debug con backend congelado: Code Studio guarda CRLF y ChatGPT se selecciona/verifica desde UI; chat real AXX_NATIVE_CHAT_OK, modelo sol solicitado/servido y memoria vinculada, cliente/wrappers conservados. Evidencias privadas native-chatgpt-live.json y packaged-cad/verification.json. La ampliación D24 para la raíz del proyecto obliga a reconstruir el backend y verificar el nuevo HEAD; el cierre definitivo se registra en el PR.
+
+D26–D28: ocho pruebas nuevas reproducen tres carreras, force inválido (incluido POST HTTP), snapshots corruptos y diferencia de readback. Suite combinada Core/Pro/UI/HTTP/mutaciones: 21 pass en 13.507 s. Se añade test_code_mutation_safety al workflow. CI/paquete del nuevo HEAD requieren cierre independiente; las comprobaciones de 43d2268 no se atribuyen al código posterior.

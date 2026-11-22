@@ -177,6 +177,8 @@ def atomic_write_bytes(target_path: Path, payload: bytes) -> None:
             f.flush()
             os.fsync(f.fileno())
         os.replace(tmp_path, target_path)
+        if target_path.read_bytes() != payload:
+            raise CodeConflictError('Post-write verification mismatch; file changed during save')
     finally:
         tmp_path.unlink(missing_ok=True)
 
@@ -428,42 +430,47 @@ class CodeProjectService:
         operation_id: str = 'op-restore',
     ) -> dict[str, Any]:
         """Restore a file from Code Time Machine by its historical SHA-256 (CODE-03)."""
-        root = self.get_project_root(project_id)
-        full_path = resolve_scoped_project_path(root, relative_path)
-        with self.lock, self._connect() as db:
-            row = db.execute(
-                '''
-                SELECT raw_blob, encoding, line_ending FROM code_time_machine_snapshots
-                WHERE project_id=? AND relative_path=? AND sha256=?
-                ORDER BY snapshot_id DESC LIMIT 1
-                ''',
-                (project_id, relative_path, target_sha256),
-            ).fetchone()
-            if not row:
-                raise LookupError(f'Snapshot {target_sha256} not found for {relative_path}')
-            raw_blob = bytes(row['raw_blob'])
-            encoding = row['encoding']
-            line_ending = row['line_ending']
+        with self.lock:
+            root = self.get_project_root(project_id)
+            full_path = resolve_scoped_project_path(root, relative_path)
+            with self.lock, self._connect() as db:
+                row = db.execute(
+                    '''
+                    SELECT raw_blob, encoding, line_ending FROM code_time_machine_snapshots
+                    WHERE project_id=? AND relative_path=? AND sha256=?
+                    ORDER BY snapshot_id DESC LIMIT 1
+                    ''',
+                    (project_id, relative_path, target_sha256),
+                ).fetchone()
+                if not row:
+                    raise LookupError(f'Snapshot {target_sha256} not found for {relative_path}')
+                raw_blob = bytes(row['raw_blob'])
+                encoding = row['encoding']
+                line_ending = row['line_ending']
 
-        atomic_write_bytes(full_path, raw_blob)
-        self._record_snapshot(
-            project_id=project_id,
-            relative_path=relative_path,
-            sha256=target_sha256,
-            encoding=encoding,
-            line_ending=line_ending,
-            raw_blob=raw_blob,
-            actor=actor,
-            operation_id=operation_id,
-        )
-        return {
-            'status': 'restored',
-            'project_id': project_id,
-            'path': relative_path,
-            'restored_sha256': target_sha256,
-            'encoding': encoding,
-            'line_ending': line_ending,
-        }
+            if hashlib.sha256(raw_blob).hexdigest() != target_sha256:
+                raise RuntimeError('Snapshot hash mismatch; file was not modified')
+            atomic_write_bytes(full_path, raw_blob)
+            if hashlib.sha256(full_path.read_bytes()).hexdigest() != target_sha256:
+                raise RuntimeError('Post-restore hash mismatch')
+            self._record_snapshot(
+                project_id=project_id,
+                relative_path=relative_path,
+                sha256=target_sha256,
+                encoding=encoding,
+                line_ending=line_ending,
+                raw_blob=raw_blob,
+                actor=actor,
+                operation_id=operation_id,
+            )
+            return {
+                'status': 'restored',
+                'project_id': project_id,
+                'path': relative_path,
+                'restored_sha256': target_sha256,
+                'encoding': encoding,
+                'line_ending': line_ending,
+            }
 
     def _record_snapshot(
         self,

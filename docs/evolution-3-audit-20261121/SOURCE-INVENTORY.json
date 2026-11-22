@@ -159,7 +159,7 @@
     {
       "path": "backend/agents/http_api.py",
       "argon_sha256": "0a8429d89314c2e1858cc8510ce68f25c7dc73c44600e97da90bafee9fd41e5d",
-      "current_sha256": "fa23b0c1205972613837a64f93015d63f33327490f04bf51d9f0853e4feb6305"
+      "current_sha256": "28daceb40ec0d6548d13526865902ef7c0e0d70a46104b68fb8eefab860e2fc4"
     },
     {
       "path": "backend/agents/orchestrator.py",
@@ -249,12 +249,12 @@
     {
       "path": "backend/code_studio/patch_engine.py",
       "argon_sha256": "d0f07e1082aeaa45dddcb7867de95b33f615bf15a35e3c3a8dc1ab4ec90b260f",
-      "current_sha256": "96f66bfa0a6b7defa5cf0a58346d24b8ca7a896388b0ce8eaa950293f048d102"
+      "current_sha256": "3864cddef1c0af08024ee62d8c4ffce09c0cb4ced31a164a0bbff71eaedaecd4"
     },
     {
       "path": "backend/code_studio/projects.py",
       "argon_sha256": "d84d5f9a1e420ddb002e43b7377ce42f2c251197274b3210c2610928620f31a6",
-      "current_sha256": "0917d9d33d356ec464bce55666035f1c91203d08eb541db2e702dc413ce21a97"
+      "current_sha256": "bd60b8b4ad4d654556fcfaf910d9ea87b54a73cce8720c057ea6f3c3fde0f71f"
     },
     {
       "path": "backend/code_studio/test_runner.py",

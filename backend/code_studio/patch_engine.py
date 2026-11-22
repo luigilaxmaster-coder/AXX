@@ -289,95 +289,97 @@ class CodePatchEngine:
         *,
         target_root: Path | None = None,
     ) -> dict[str, Any]:
-        """Atomically apply a CodeChangeSet after two-phase base_sha256 verification across all files (CODE-03)."""
-        with self.projects.lock, self.projects._connect() as db:
-            row = db.execute(
-                'SELECT changeset_json, proposed_blobs_json FROM code_changesets WHERE changeset_id=?',
-                (changeset_id,),
-            ).fetchone()
-            if not row:
-                raise LookupError(f'CodeChangeSet not found: {changeset_id}')
-            changeset = json.loads(row['changeset_json'])
-            proposed_blobs = json.loads(row['proposed_blobs_json'])
+        """Apply after all-file CAS preflight, serializing writes with project saves (CODE-03)."""
+        with self.projects.lock:
+            with self.projects.lock, self.projects._connect() as db:
+                row = db.execute(
+                    'SELECT changeset_json, proposed_blobs_json FROM code_changesets WHERE changeset_id=?',
+                    (changeset_id,),
+                ).fetchone()
+                if not row:
+                    raise LookupError(f'CodeChangeSet not found: {changeset_id}')
+                changeset = json.loads(row['changeset_json'])
+                proposed_blobs = json.loads(row['proposed_blobs_json'])
 
-        project_id = changeset['project_id']
-        root = Path(target_root).resolve() if target_root else self.projects.get_project_root(project_id)
+            project_id = changeset['project_id']
+            root = Path(target_root).resolve() if target_root else self.projects.get_project_root(project_id)
 
-        # Phase 1: Preflight check ALL files before writing any bytes
-        staged_writes: list[dict[str, Any]] = []
-        for f_entry in changeset['files']:
-            rel_path = f_entry['path']
-            full_path = resolve_scoped_project_path(root, rel_path)
-            if not full_path.is_file():
-                self._update_status(changeset_id, 'conflict')
-                raise CodeConflictError(f'File missing on disk during apply: {rel_path}')
+            # Phase 1: Preflight check ALL files before writing any bytes
+            staged_writes: list[dict[str, Any]] = []
+            for f_entry in changeset['files']:
+                rel_path = f_entry['path']
+                full_path = resolve_scoped_project_path(root, rel_path)
+                if not full_path.is_file():
+                    self._update_status(changeset_id, 'conflict')
+                    raise CodeConflictError(f'File missing on disk during apply: {rel_path}')
 
-            current_raw = full_path.read_bytes()
-            current_sha = hashlib.sha256(current_raw).hexdigest()
-            if current_sha != f_entry['base_sha256']:
-                self._update_status(changeset_id, 'conflict')
-                raise CodeConflictError(
-                    f"CAS conflict applying {changeset_id} on {rel_path}: "
-                    f"expected base_sha256={f_entry['base_sha256']}, on_disk={current_sha}"
+                current_raw = full_path.read_bytes()
+                current_sha = hashlib.sha256(current_raw).hexdigest()
+                if current_sha != f_entry['base_sha256']:
+                    self._update_status(changeset_id, 'conflict')
+                    raise CodeConflictError(
+                        f"CAS conflict applying {changeset_id} on {rel_path}: "
+                        f"expected base_sha256={f_entry['base_sha256']}, on_disk={current_sha}"
+                    )
+
+                current_info = detect_encoding_and_eol(current_raw)
+                blob_info = proposed_blobs.get(rel_path)
+                if not blob_info:
+                    raise CodeChangeSetValidationError(f'Missing proposed content blob for {rel_path}')
+
+                target_eol = 'CRLF' if f_entry.get('line_ending') == 'CRLF' else 'LF'
+                new_raw = encode_with_preserved_format(
+                    blob_info['new_content'],
+                    encoding=f_entry['encoding'],
+                    line_ending=target_eol,
+                )
+                new_sha = hashlib.sha256(new_raw).hexdigest()
+                if new_sha != f_entry['proposed_sha256']:
+                    self._update_status(changeset_id, 'failed')
+                    raise CodeChangeSetValidationError(
+                        f"Proposed SHA-256 mismatch for {rel_path}: expected={f_entry['proposed_sha256']}, actual={new_sha}"
+                    )
+
+                staged_writes.append(
+                    {
+                        'rel_path': rel_path,
+                        'full_path': full_path,
+                        'current_raw': current_raw,
+                        'current_info': current_info,
+                        'new_raw': new_raw,
+                        'new_sha': new_sha,
+                        'encoding': f_entry['encoding'],
+                        'line_ending': target_eol,
+                    }
                 )
 
-            current_info = detect_encoding_and_eol(current_raw)
-            blob_info = proposed_blobs.get(rel_path)
-            if not blob_info:
-                raise CodeChangeSetValidationError(f'Missing proposed content blob for {rel_path}')
-
-            target_eol = 'CRLF' if f_entry.get('line_ending') == 'CRLF' else 'LF'
-            new_raw = encode_with_preserved_format(
-                blob_info['new_content'],
-                encoding=f_entry['encoding'],
-                line_ending=target_eol,
-            )
-            new_sha = hashlib.sha256(new_raw).hexdigest()
-            if new_sha != f_entry['proposed_sha256']:
-                self._update_status(changeset_id, 'failed')
-                raise CodeChangeSetValidationError(
-                    f"Proposed SHA-256 mismatch for {rel_path}: expected={f_entry['proposed_sha256']}, actual={new_sha}"
+            # Phase 2: Record Time Machine snapshots and replace each file atomically
+            # shortcut: multi-file commits need a journal for crash recovery before automatic agent integration.
+            for item in staged_writes:
+                self.projects._record_snapshot(
+                    project_id=project_id,
+                    relative_path=item['rel_path'],
+                    sha256=item['current_info']['sha256'],
+                    encoding=item['current_info']['encoding'],
+                    line_ending=item['current_info']['line_ending'],
+                    raw_blob=item['current_raw'],
+                    actor=changeset['agent_id'],
+                    operation_id=f'changeset:{changeset_id}:before',
+                )
+                atomic_write_bytes(item['full_path'], item['new_raw'])
+                self.projects._record_snapshot(
+                    project_id=project_id,
+                    relative_path=item['rel_path'],
+                    sha256=item['new_sha'],
+                    encoding=item['encoding'],
+                    line_ending=item['line_ending'],
+                    raw_blob=item['new_raw'],
+                    actor=changeset['agent_id'],
+                    operation_id=f'changeset:{changeset_id}:after',
                 )
 
-            staged_writes.append(
-                {
-                    'rel_path': rel_path,
-                    'full_path': full_path,
-                    'current_raw': current_raw,
-                    'current_info': current_info,
-                    'new_raw': new_raw,
-                    'new_sha': new_sha,
-                    'encoding': f_entry['encoding'],
-                    'line_ending': target_eol,
-                }
-            )
-
-        # Phase 2: Record Time Machine snapshots and atomically replace all files
-        for item in staged_writes:
-            self.projects._record_snapshot(
-                project_id=project_id,
-                relative_path=item['rel_path'],
-                sha256=item['current_info']['sha256'],
-                encoding=item['current_info']['encoding'],
-                line_ending=item['current_info']['line_ending'],
-                raw_blob=item['current_raw'],
-                actor=changeset['agent_id'],
-                operation_id=f'changeset:{changeset_id}:before',
-            )
-            atomic_write_bytes(item['full_path'], item['new_raw'])
-            self.projects._record_snapshot(
-                project_id=project_id,
-                relative_path=item['rel_path'],
-                sha256=item['new_sha'],
-                encoding=item['encoding'],
-                line_ending=item['line_ending'],
-                raw_blob=item['new_raw'],
-                actor=changeset['agent_id'],
-                operation_id=f'changeset:{changeset_id}:after',
-            )
-
-        updated = self._update_status(changeset_id, 'applied')
-        return updated
+            updated = self._update_status(changeset_id, 'applied')
+            return updated
 
     def rollback_changeset(
         self,
@@ -386,60 +388,44 @@ class CodePatchEngine:
         target_root: Path | None = None,
         force: bool = False,
     ) -> dict[str, Any]:
-        """Atomically revert all files modified by a CodeChangeSet back to their exact base_sha256 (CODE-03)."""
-        changeset = self.get_changeset(changeset_id)
-        project_id = changeset['project_id']
-        root = Path(target_root).resolve() if target_root else self.projects.get_project_root(project_id)
-
-        # Verify current state before rolling back unless force=True
-        for f_entry in changeset['files']:
-            rel_path = f_entry['path']
-            full_path = resolve_scoped_project_path(root, rel_path)
-            if not force and full_path.is_file():
-                current_sha = hashlib.sha256(full_path.read_bytes()).hexdigest()
-                if current_sha != f_entry['proposed_sha256']:
-                    raise CodeConflictError(
-                        f"Cannot rollback {changeset_id}: {rel_path} was modified after apply "
-                        f"(expected={f_entry['proposed_sha256']}, on_disk={current_sha})"
-                    )
-
-        restored_files: list[dict[str, Any]] = []
-        for f_entry in changeset['files']:
-            rel_path = f_entry['path']
-            base_sha = f_entry['base_sha256']
-            with self.projects.lock, self.projects._connect() as db:
-                row = db.execute(
-                    '''
-                    SELECT raw_blob, encoding, line_ending FROM code_time_machine_snapshots
-                    WHERE project_id=? AND relative_path=? AND sha256=?
-                    ORDER BY snapshot_id DESC LIMIT 1
-                    ''',
-                    (project_id, rel_path, base_sha),
-                ).fetchone()
+        """Validate every file/snapshot before restoring, excluding project saves (CODE-03)."""
+        with self.projects.lock:
+            if type(force) is not bool:
+                raise ValueError('force must be a boolean')
+            changeset = self.get_changeset(changeset_id)
+            project_id = changeset['project_id']
+            root = Path(target_root).resolve() if target_root else self.projects.get_project_root(project_id)
+            staged = []
+            for entry in changeset['files']:
+                relative = entry['path']; base_sha = entry['base_sha256']
+                path = resolve_scoped_project_path(root, relative)
+                if not force and path.is_file():
+                    current_sha = hashlib.sha256(path.read_bytes()).hexdigest()
+                    if current_sha != entry['proposed_sha256']:
+                        raise CodeConflictError(
+                            f"Cannot rollback {changeset_id}: {relative} was modified after apply "
+                            f"(expected={entry['proposed_sha256']}, on_disk={current_sha})")
+                with self.projects._connect() as db:
+                    row = db.execute(
+                        'SELECT raw_blob FROM code_time_machine_snapshots '
+                        'WHERE project_id=? AND relative_path=? AND sha256=? ORDER BY snapshot_id DESC LIMIT 1',
+                        (project_id, relative, base_sha)).fetchone()
                 if not row:
-                    raise LookupError(f'Time Machine snapshot {base_sha} not found for {rel_path}')
-                raw_blob = bytes(row['raw_blob'])
-
-            full_path = resolve_scoped_project_path(root, rel_path)
-            atomic_write_bytes(full_path, raw_blob)
-            verified_sha = hashlib.sha256(full_path.read_bytes()).hexdigest()
-            if verified_sha != base_sha:
-                raise RuntimeError(f'Post-rollback hash mismatch on {rel_path}')
-
-            restored_files.append(
-                {
-                    'path': rel_path,
-                    'restored_sha256': verified_sha,
-                }
-            )
-
-        self._update_status(changeset_id, 'proposed')
-        return {
-            'status': 'rolled_back',
-            'changeset_id': changeset_id,
-            'project_id': project_id,
-            'files': restored_files,
-        }
+                    raise LookupError(f'Time Machine snapshot {base_sha} not found for {relative}')
+                raw = bytes(row['raw_blob'])
+                if hashlib.sha256(raw).hexdigest() != base_sha:
+                    raise RuntimeError(f'Snapshot hash mismatch for {relative}; files were not modified')
+                staged.append((path, relative, raw, base_sha))
+            restored_files = []
+            for path, relative, raw, base_sha in staged:
+                atomic_write_bytes(path, raw)
+                verified_sha = hashlib.sha256(path.read_bytes()).hexdigest()
+                if verified_sha != base_sha:
+                    raise RuntimeError(f'Post-rollback hash mismatch on {relative}')
+                restored_files.append({'path': relative, 'restored_sha256': verified_sha})
+            self._update_status(changeset_id, 'proposed')
+            return {'status': 'rolled_back', 'changeset_id': changeset_id,
+                    'project_id': project_id, 'files': restored_files}
 
     def _update_status(self, changeset_id: str, new_status: str) -> dict[str, Any]:
         with self.projects.lock, self.projects._connect() as db:
