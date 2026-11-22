@@ -230,6 +230,35 @@ class ActCodeToolsTests(unittest.TestCase):
         self.assertIn(('act-qa', 'handoff.completed'), kinds)
 
 
+    def test_single_prompt_team_applies_dev_patch_in_its_worktree_before_qa(self):  # teams/run apply_in_worktree (controlled)
+        api = self.srv.api
+        run = {'conversation_id': 'conv-team', 'prompt': 'Dev, corrige add para que sume. QA, verifica.',
+               'project_id': 'proj', 'file_path': 'calc.py', 'apply_in_worktree': True, 'test_command': TESTS}
+        seen = len(_CoderModel.seen)
+        code, denied = api.request('POST', '/axx-api/agents/v1/teams/run', run)
+        self.assertEqual(code, 403, denied)  # no axx.code grant: nothing is sent to any model
+        self.assertEqual(len(_CoderModel.seen), seen)
+        self.grant(['worktree', 'patch', 'test', 'integrate'])
+        self.grant(['review'], act='act-qa')
+        _CoderModel.review = 'VEREDICTO: APROBADO\nLa suma es correcta.'
+        code, res = api.request('POST', '/axx-api/agents/v1/teams/run', {**run, 'run_id': 'teamrun-fix1'})
+        self.assertEqual(code, 200, res)
+        self.assertEqual([s['act_id'] for s in res['steps']], ['act-dev', 'act-qa'])
+        work = res['work']
+        self.assertEqual(Path(work['worktree']['worktree_path'], 'calc.py').read_text(encoding='utf-8'), FIXED)
+        self.assertEqual((self.repo / 'calc.py').read_text(encoding='utf-8'), BUGGY)  # the user's copy is untouched
+        self.assertTrue(work['test_receipt']['passed'])
+        self.assertEqual((res['steps'][0]['applied'], res['steps'][0]['tests_passed']), (True, True))
+        self.assertEqual((res['steps'][1]['verdict'], res['steps'][1]['review_recorded']), ('approved', True))
+        qa_request = json.dumps(_CoderModel.seen[-1]['messages'], ensure_ascii=False)
+        self.assertIn('+    return a + b', qa_request)  # QA received the real diff applied by AXX…
+        self.assertIn('Pruebas en el worktree: superadas', qa_request)  # …and the real test receipt
+        code, done = self.post('worktrees/integrate', {'act_id': 'act-dev', 'changeset_id': work['changeset_id'],
+                                                       'test_report_ids': [work['test_receipt']['report_id']]})
+        self.assertEqual(code, 200, done)
+        self.assertEqual((self.repo / 'calc.py').read_text(encoding='utf-8'), FIXED)
+
+
 @unittest.skipUnless({'qwen2.5:7b-instruct', 'llama3.2:1b'} <= _ollama_models(), 'Ollama with qwen2.5:7b-instruct and llama3.2:1b not reachable')
 class ActCodeRealOllamaTests(unittest.TestCase):
     def test_real_dev_writes_the_fix_and_a_real_qa_model_reviews_it(self):  # CODE-05..09 + Dev → QA with real inference

@@ -47,13 +47,14 @@
       monaco = await import(new URL('editor.js',base).href);
       editor = monaco.editor.create(ui('editor'), {automaticLayout:true,minimap:{enabled:false},fontSize:13,
         theme:document.body.dataset.uiTheme === 'light' ? 'vs' : 'vs-dark',ariaLabel:'Código del archivo'});
+      registerLsp();
       return editor;
     })().catch(error => { loading = null; throw error; });
     return loading;
   }
   function draftStatus(tab) {
     if (tabs.get(active) !== tab) return;
-    ui('draft-status').textContent = tab.draftError || (tab.pending || tab.generation !== tab.ack ? 'Protegiendo borrador…' : tab.dirty ? 'Borrador protegido en este equipo.' : 'Sin cambios pendientes.');
+    ui('draft-status').textContent = tab.draftError || (tab.pending || tab.generation !== tab.ack ? 'Protegiendo borrador…' : tab.dirty ? 'Borrador protegido en este equipo.' : 'Sin cambios pendientes.') + (tab.lspStatus ? ' · ' + tab.lspStatus : '');
   }
   async function persistDraft(tab) {
     clearTimeout(tab.timer);
@@ -76,6 +77,40 @@
     if(tab.suppress||tab.read_only_degraded)return;
     tab.dirty=tab.model.getValue()!==tab.base;tab.generation++;renderTabs();draftStatus(tab);
     clearTimeout(tab.timer);tab.timer=setTimeout(()=>void persistDraft(tab).catch(()=>{}),250);
+    scheduleLsp(tab);
+  }
+  // ---- Live language server: the backend keeps the stdio JSON-RPC process; Monaco shows its diagnostics and completions ----
+  const LSP_LANGS = new Set(['python','typescript','javascript','rust']);
+  const LSP_KINDS = {2:'Method',3:'Function',4:'Constructor',5:'Field',6:'Variable',7:'Class',8:'Interface',9:'Module',10:'Property',13:'Enum',14:'Keyword',21:'Constant',22:'Struct'};
+  function scheduleLsp(tab, delay = 600) {
+    const lang = language(tab.path); if (!LSP_LANGS.has(lang)) return;
+    clearTimeout(tab.lspTimer);
+    tab.lspTimer = setTimeout(() => void syncLsp(tab, lang).catch(() => {}), delay);
+  }
+  async function syncLsp(tab, lang) {
+    const res = await api('POST','lsp/sync',{project_id:tab.project_id,path:tab.path,language:lang,content:tab.model.getValue()});
+    if (tab.model.isDisposed()) return;
+    tab.lspStatus = res.lsp_status === 'live' ? 'LSP ' + res.binary : 'Sin servidor de lenguaje: análisis estructural';
+    draftStatus(tab);
+    const sev = {1:monaco.MarkerSeverity.Error, 2:monaco.MarkerSeverity.Warning, 3:monaco.MarkerSeverity.Info, 4:monaco.MarkerSeverity.Hint, error:monaco.MarkerSeverity.Error};
+    monaco.editor.setModelMarkers(tab.model, 'axx-lsp', (res.diagnostics || []).map(d => d.range ? {
+      startLineNumber:d.range.start.line + 1, startColumn:d.range.start.character + 1, endLineNumber:d.range.end.line + 1,
+      endColumn:Math.max(d.range.end.character + 1, d.range.start.character + 2), message:String(d.message), severity:sev[d.severity || 1], source:d.source
+    } : {startLineNumber:d.line || 1, startColumn:d.column || 1, endLineNumber:d.line || 1, endColumn:(d.column || 1) + 1,
+      message:String(d.message), severity:sev[d.severity] || monaco.MarkerSeverity.Warning, source:d.source}));
+  }
+  function registerLsp() {
+    for (const lang of LSP_LANGS) monaco.languages.registerCompletionItemProvider(lang, {triggerCharacters:['.',':','>'],
+      async provideCompletionItems(model, position) {
+        const tab = [...tabs.values()].find(t => t.model === model); if (!tab) return {suggestions:[]};
+        clearTimeout(tab.lspTimer); await syncLsp(tab, lang).catch(() => {});  // completion must see the current buffer
+        const res = await api('POST','lsp/completion',{project_id:tab.project_id,path:tab.path,language:lang,
+          line:position.lineNumber - 1,character:position.column - 1}).catch(() => ({items:[]}));
+        const word = model.getWordUntilPosition(position);
+        const range = {startLineNumber:position.lineNumber, endLineNumber:position.lineNumber, startColumn:word.startColumn, endColumn:word.endColumn};
+        return {suggestions:res.items.map(i => ({label:i.label, kind:monaco.languages.CompletionItemKind[LSP_KINDS[i.kind] || 'Text'],
+          detail:i.detail, insertText:i.insertText, range}))};
+      }});
   }
   async function refreshProjects() {
     const result=await api('GET','projects');ui('recent').replaceChildren(new Option('Seleccionar…',''));
@@ -137,7 +172,7 @@
         dirty:recovered,draftRevision:draft.revision,generation:0,ack:0,pending:null,draftError:'',
         model:monaco.editor.createModel(recovered?draft.content:doc.content,language(path))};
       tab.listener=tab.model.onDidChangeContent(()=>changed(tab));
-      tabs.set(id, tab);
+      tabs.set(id, tab); scheduleLsp(tab, 0);
     }
     select(id);
   }
@@ -280,17 +315,38 @@
     const goal = prompt('Objetivo para el equipo sobre ' + tab.path + ':', 'Analiza mejoras en el componente y verifica posibles regresiones.');
     if (!goal?.trim()) return;
     status('Ejecutando equipo de Acts sobre ' + tab.path + '…');
+    const git = await api('GET','git/status?project_id=' + encodeURIComponent(tab.project_id));
+    if (git.dirty_files.includes(tab.path)) throw new Error('El archivo tiene cambios sin confirmar en Git; el equipo trabaja sobre la última versión confirmada.');
     const res = await Axx.backendRequest('POST', '/axx-api/agents/v1/teams/run', {
       conversation_id: Axx.chatWorkspace?.active?.id || 'default',
       act_ids: enabled.slice(0, 3).map(a => a.agent_id),
-      project_id: tab.project_id,
-      file_path: tab.path,
+      ...teamWork(tab),
       prompt: goal.trim(),
     });
-    output(res.consolidated_text);
-    chatNote(res.consolidated_text);
-    status('Equipo completado (' + res.steps.length + ' pasos verificados).');
+    showTeamResult(res, tab);
   });
+  // The lead Act's patch lands in its own worktree; tests/review results come from AXX, not from model text.
+  function teamWork(tab) {
+    return {project_id: tab.project_id, file_path: tab.path, apply_in_worktree: true,
+      ...(tab.path.endsWith('.py') ? {test_command: ['python','-m','unittest','discover','-v']} : {})};
+  }
+  async function showTeamResult(res, tab, fromChat = false) {
+    output(res.consolidated_text);
+    if (!fromChat) chatNote(res.consolidated_text);  // a chat-started run already answers with this text
+    const work = res.work;
+    if (!work?.changeset_id) { status('Equipo completado (' + res.steps.length + ' pasos verificados).'); return; }
+    const lead = (Axx.acts?.acts || []).find(a => a.agent_id === work.worktree.agent_id) || {agent_id: work.worktree.agent_id, name: work.worktree.agent_id};
+    const view = await api('GET','changesets?changeset_id=' + encodeURIComponent(work.changeset_id));
+    const passed = !!work.test_receipt?.passed, approved = (work.reviews || []).at(-1)?.verdict === 'approved';
+    actWork = {act: lead, tab, workspace_id: work.worktree.workspace_id, changeset_id: work.changeset_id,
+      report_id: passed ? work.test_receipt.report_id : null, approved};
+    output(res.consolidated_text + '\n\nDiff aplicado en ' + work.worktree.worktree_path + ':\n' + view.diffs.files.map(f => f.diff_text).join('\n'));
+    ui('act-test').hidden = false;
+    ui('act-integrate').hidden = !passed || (!!lead.collaboration?.review_required && !approved);
+    chatNote('Cambio del equipo en ' + tab.path + ' aplicado en el worktree de ' + lead.name + (work.test_receipt ? '; pruebas ' + (passed ? 'superadas' : 'fallidas') : '')
+      + ((work.reviews || []).length ? '; revisión: ' + work.reviews.at(-1).verdict : '') + '. El proyecto no ha cambiado.');
+    status('Equipo completado: cambio en el worktree de ' + lead.name + (passed ? '. Pruebas superadas; puedes integrar.' : '. Revisa el diff y las pruebas.'));
+  }
   ui('act').onfocus = syncActs;
   ui('act-task').onclick = () => attempt(async () => {
     const tab = tabs.get(active), act = (Axx.acts?.acts || []).find(a => a.agent_id === ui('act').value);
@@ -367,5 +423,5 @@
     status('Cambio integrado y verificado contra el disco.');
   });
   window.addEventListener('beforeunload', event => { if ([...tabs.values()].some(tab => tab.dirty)) { event.preventDefault(); event.returnValue = ''; } });
-  Axx.codeStudio = {flushDrafts:() => Promise.all([...tabs.values()].filter(t=>!t.read_only_degraded).map(t=>persistDraft(t))),open:() => entry.click(), openFile, browse, get editor(){return editor;}, get diffEditor(){return diffEditor;}, get tabs(){return tabs;}};
+  Axx.codeStudio = {flushDrafts:() => Promise.all([...tabs.values()].filter(t=>!t.read_only_degraded).map(t=>persistDraft(t))),open:() => entry.click(), openFile, browse, teamWork, showTeamResult, get activeFile(){const t=tabs.get(active);return t&&!t.read_only_degraded?t:null;}, get editor(){return editor;}, get diffEditor(){return diffEditor;}, get tabs(){return tabs;}};
 })(window.Axx);

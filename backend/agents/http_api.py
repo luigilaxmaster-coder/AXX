@@ -181,6 +181,7 @@ class EvolutionHttpRuntime:
             self.acts.end_execution(act_id, run_id)
 
     def close(self) -> None:
+        self.code_lsp.close()
         for svc in (
             self.flags,
             self.registry,
@@ -565,6 +566,27 @@ class EvolutionHTTP:
         lead_id = next((a['agent_id'] for r, a in participants if r == 'lead'), participants[0][1]['agent_id'])
         ordered = sorted(participants, key=lambda x: (0 if x[0] == 'lead' else (2 if x[0] == 'reviewer' else 1)))
 
+        # apply_in_worktree: the lead Act's file goes into its own worktree through the same axx.code gate as Code Studio,
+        # before any handoff; later Acts receive the real diff and test receipt instead of free text.
+        apply = body.get('apply_in_worktree') is True
+        test_command = body.get('test_command')
+        work: dict[str, Any] = {}
+        if apply:
+            if not body.get('project_id') or not body.get('file_path'):
+                raise ValueError('apply_in_worktree requiere project_id y file_path.')
+            if test_command is not None and (not isinstance(test_command, list) or not test_command
+                                             or not all(isinstance(part, str) and part for part in test_command)):
+                raise ValueError('test_command debe ser una lista de textos.')
+            self.rt.flags.require_enabled_for_new_dispatch('code_studio_v1')
+            if test_command:
+                self.rt.flags.require_enabled_for_new_dispatch('code_execution_v1')
+            author = ordered[0][1]['agent_id']
+            wt_body = {'act_id': author, 'agent_id': author, 'project_id': body['project_id'],
+                       'workspace_id': ('act-' + run_id)[:80], 'task_slug': run_id[:80], 'conversation_id': conversation_id}
+            self._gate_act_code('/axx-api/code/v1/worktrees/create', wt_body)
+            work['worktree'] = self.rt.code_git.create_agent_worktree(
+                workspace_id=wt_body['workspace_id'], project_id=body['project_id'], agent_id=author, task_slug=wt_body['task_slug'])
+
         nodes: list[dict[str, Any]] = []
         prev_tid: str | None = None
         for idx, (mrole, act_prof) in enumerate(ordered):
@@ -653,6 +675,10 @@ class EvolutionHTTP:
                 if code_context and idx == 0:
                     extra_ctx += code_context
                 msg_content = f"Objetivo del equipo: {prompt_text}\nTu rol asignado en esta tarea: {mrole}.{extra_ctx}"
+                if apply and idx == 0:
+                    msg_content += (f"\n\nDevuelve el contenido COMPLETO de {body['file_path']} ya modificado en un único bloque "
+                                    "``` y nada fuera del bloque. AXX lo aplicará solo en tu worktree.")
+                reviewing = apply and mrole == 'reviewer' and 'changeset_id' in work
                 if prior_summary:
                     msg_content += f"\n\nResumen previo verificado del equipo:\n{prior_summary}"
                 envelope = {
@@ -662,7 +688,8 @@ class EvolutionHTTP:
                     'request_id': req_id,
                     'generation': {'max_tokens': 800},
                     'messages': [
-                        {'role': 'system', 'content': 'Trabajas dentro de un equipo coordinado de AXX. Limítate al alcance autorizado de tu turno.'},
+                        {'role': 'system', 'content': 'Trabajas dentro de un equipo coordinado de AXX. Limítate al alcance autorizado de tu turno.'
+                                                      + (' ' + REVIEW_POLICY if reviewing else '')},
                         {'role': 'user', 'content': msg_content},
                     ],
                 }
@@ -679,6 +706,23 @@ class EvolutionHTTP:
                                                     event_type='run.failed', payload={'task_id': task_id, 'error': err_msg})
                     raise ActInferenceError('MODEL_MISMATCH', err_msg)
                 text = str(res['message'].get('content') or '').strip()
+                step_extra: dict[str, Any] = {}
+                handoff_text = text
+                if apply and idx == 0:
+                    handoff_text = self._apply_team_patch(body, work, act_prof, text, conversation_id, run_id, test_command)
+                    step_extra = {'applied': True, 'changeset_id': work['changeset_id'],
+                                  **({'tests_passed': work['test_receipt']['passed']} if 'test_receipt' in work else {})}
+                elif reviewing:
+                    match = VERDICT_RE.match(text.splitlines()[0] if text else '')  # first line only votes
+                    verdict = {'APROBADO': 'approved', 'CAMBIOS': 'changes'}[match.group(1).upper()] if match else 'unclear'
+                    try:
+                        self._gate_act_code('/axx-api/code/v1/changesets/review',
+                                            {'act_id': act_id, 'changeset_id': work['changeset_id'], 'conversation_id': conversation_id})
+                        work.setdefault('reviews', []).append(self.rt.code_patches.record_review(
+                            work['changeset_id'], act_id, verdict, resolved['model'], text))
+                        step_extra = {'verdict': verdict, 'review_recorded': True}
+                    except PermissionError as exc:
+                        step_extra = {'verdict': verdict, 'review_recorded': False, 'review_error': str(exc)}
                 art = self.rt.registry.record_artifact(
                     artifact_id=f'art-{task_id}',
                     run_id=run_id,
@@ -705,7 +749,7 @@ class EvolutionHTTP:
                         event_type='handoff.completed',
                         payload={'task_id': task_id, 'artifact_id': art['artifact_id'], 'model': resolved['model']},
                     )
-                prior_summary = (prior_summary + f"\n\n[{act_prof['name']} · {resolved['model']}]:\n{text}").strip()
+                prior_summary = (prior_summary + f"\n\n[{act_prof['name']} · {resolved['model']}]:\n{handoff_text}").strip()
                 steps_output.append({
                     'task_id': task_id,
                     'act_id': act_id,
@@ -715,6 +759,7 @@ class EvolutionHTTP:
                     'model_verified': True,
                     'text': text,
                     'artifact_id': art['artifact_id'],
+                    **step_extra,
                 })
             finally:
                 self.rt.acts.end_execution(act_id, req_id, provider=resolved.get('provider_name') or 'local',
@@ -736,7 +781,36 @@ class EvolutionHTTP:
             'artifacts': artifacts,
             'consolidated_text': consolidated,
             'graph': self.rt.task_graph.get_graph(run_id),
+            **({'work': work} if apply else {}),
         }
+
+    def _apply_team_patch(self, body, work, act_prof, text, conversation_id, run_id, test_command) -> str:
+        """Apply the lead Act's file in its worktree (and optionally test it); return the verified note for the handoff."""
+        author, wt = act_prof['agent_id'], work['worktree']
+        blocks = re.findall(r'```[^\n]*\n([\s\S]*?)```', text)
+        if not blocks:
+            raise ActInferenceError('ACT_NO_PATCH', f"{act_prof['name']} no devolvió un archivo completo; no se aplicó ningún cambio.")
+        changeset_id = ('cs-' + run_id)[:120]
+        self._gate_act_code('/axx-api/code/v1/worktrees/propose-apply',
+                            {'act_id': author, 'changeset_id': changeset_id, 'workspace_id': wt['workspace_id'],
+                             'conversation_id': conversation_id})
+        self.rt.code_git.propose_and_apply_in_worktree(changeset_id=changeset_id, workspace_id=wt['workspace_id'],
+                                                       file_edits=[{'path': body['file_path'], 'new_content': blocks[-1]}])
+        work['changeset_id'] = changeset_id
+        diff = '\n'.join(f['diff_text'] for f in self.rt.code_patches.get_diffs(changeset_id)['files'])
+        note = f"[Parche aplicado por AXX en el worktree de {act_prof['name']} ({changeset_id})]\n```diff\n{diff[:6000]}\n```"
+        if test_command:
+            report_id = ('tr-' + run_id)[:120]
+            self._gate_act_code('/axx-api/code/v1/tests/run',
+                                {'act_id': author, 'project_id': body['project_id'], 'workspace_id': wt['workspace_id'],
+                                 'report_id': report_id, 'conversation_id': conversation_id})
+            receipt = self.rt.code_tests.run_test_command(report_id=report_id, project_id=body['project_id'],
+                                                          workspace_id=wt['workspace_id'], command=test_command,
+                                                          cwd=Path(wt['worktree_path']))
+            work['test_receipt'] = receipt
+            note += (f"\n[Pruebas en el worktree: {'superadas' if receipt['passed'] else 'fallidas'} (código {receipt['exit_code']})]"
+                     f"\n{receipt['stdout_preview'][-1500:]}{receipt['stderr_preview'][-1500:]}")
+        return note
 
     def post(self, path: str, body: dict[str, Any]) -> bool:
         if not path.startswith(('/axx-api/agents/v1/', '/axx-api/workspaces/v1/', '/axx-api/code/v1/', '/axx-api/spatial/v2/')):
@@ -1235,6 +1309,17 @@ class EvolutionHTTP:
         if path == '/axx-api/code/v1/index':
             summary = self.rt.code_indexer.index_project(body['project_id'])
             self.handler._send_json(200, summary)
+            return True
+        if path == '/axx-api/code/v1/lsp/sync':
+            if not isinstance(body.get('content'), str) or len(body['content']) > 2 * 1024 * 1024:
+                raise ValueError('content debe ser texto de hasta 2 MB')
+            self.handler._send_json(200, self.rt.code_lsp.sync_document(
+                project_id=body['project_id'], language=body['language'], relative_path=body['path'], content=body['content']))
+            return True
+        if path == '/axx-api/code/v1/lsp/completion':
+            self.handler._send_json(200, self.rt.code_lsp.complete(
+                project_id=body['project_id'], language=body['language'], relative_path=body['path'],
+                line=body['line'], character=body['character']))
             return True
         if path == '/axx-api/code/v1/lsp/inspect':
             info = self.rt.code_lsp.get_document_symbols_and_diagnostics(

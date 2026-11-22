@@ -730,11 +730,14 @@
 
   async function runTeamFromChat(promptText, teamId = null) {
     c.sayStatus?.('Coordinando equipo de Acts…');
+    const file = Axx.codeStudio?.activeFile;  // with a file open in Code Studio the lead Act patches it in its worktree
     const res = await api('POST', 'teams/run', {
       conversation_id: activeConvId(),
       prompt: promptText,
       ...(teamId ? {team_id: teamId} : {}),
+      ...(file ? Axx.codeStudio.teamWork(file) : {}),
     });
+    if (file && res.work) await Axx.codeStudio.showTeamResult(res, file, true).catch(() => {});
     await refreshActivity();
     if (c.message && teamId) {
       c.message('assistant', res.consolidated_text, 'local');
