@@ -269,7 +269,8 @@
             if (c.pending || c.externalBusy || c.connecting || JSON.stringify([c.data.prefs.provider, c.data.prefs.model, c.data.prefs.selection_mode]) !== previousRoute)
                 throw new Error('La ruta activa cambió durante la prueba. Vuelve a seleccionar el modelo.');
             Object.assign(c.data.prefs, {provider:'chatgpt', selection_mode:'manual', ai_mode:'chatgpt', model:selected});
-            c.brain = trial;
+            // Keep the memory/prompt wrappers attached to the active client.
+            Object.assign(c.brain, trial);
             $('ai-provider').value = 'chatgpt';
             $('ai-model').replaceChildren(...trial.models.map(id => new Option(id, id)));
             $('ai-model').value = selected;

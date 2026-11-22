@@ -45,3 +45,5 @@ Installer/frozen backend con kernel CAD, Android físico, audio de micrófono/al
 La revalidación tras actualizar package.json se guarda en `companion-validation-final.json`; la evidencia anterior no debe usarse como recibo de publicación. El cierre final de CI y regresiones se registra también en el cuerpo del PR sin alterar el código ensayado.
 
 D24: suite de Core/Pro/UI/HTTP aprobada tras reproducir el bypass Git. Inferencia adicional real: axx_status emitido por gpt-6.1-sol y procesado por ConnectService.dispatch, executor=ready. Companion final terminó con PASS y validate_receipt comprobó todos sus hashes. El cierre remoto se registra en el PR.
+
+CI remoto de d02f622: los seis checks de push/PR finalizaron SUCCESS (version 44951383794/44951380636; companion 44951383868/44951380797; autoría 44951383821/44951380698). La corrección D25 posterior requiere sus nuevos checks: consultar el HEAD vigente en el PR. test-providers pasó con la regresión de identidad, wrappers y contexto de grupo.

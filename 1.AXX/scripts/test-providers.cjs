@@ -22,6 +22,14 @@ const {chromium}=requirePlaywright();
           const chat={id:'providers-fixture',title:'Provider reconnection',mode:'ask',group_id:null,
             connect_id:'providers-fixture-context',memory_context_id:'providers-fixture-context',
             memory_scope:{task_id:'providers-fixture',generation:0},messages:[],context:[],links:[],draft:''};
+          if(window.testChatGPT && args.path.startsWith('/axx-api/connect/')) {
+            if(args.path.includes('/status'))return {executor:'ready',engine:{authenticated:true,local_connection_enabled:true,model:'fixture-chatgpt',models:['fixture-chatgpt'],inference_verified:true,state:'connected'}};
+            if(args.path.endsWith('/history'))return {runs:[]};
+            if(args.path.endsWith('/start')){window.connectRequests.push(args.body);return {state:'accepted'};}
+            if(args.path.includes('/run?'))return {state:'completed',response:'AXX_CONNECT_OK',model:'fixture-chatgpt',events:[]};
+            return {};
+          }
+          if(window.testChatGPT)chat.context=[{text:'SYNTHETIC_GROUP_AFTER_MODEL_CHANGE'}];
           if(args.path.startsWith('/axx-api/chat/conversations'))return args.path.includes('?')?chat:{conversations:[chat],groups:[],default_mode:'ask'};
           if(args.path==='/axx-api/chat/migrate')return {id:chat.id,created:false};
           if(args.path==='/axx-api/chat/create')return chat;
@@ -264,6 +272,16 @@ const {chromium}=requirePlaywright();
     await page.locator('#provider-name').fill('Ollama en mi equipo');
     await page.locator('#provider-model').selectOption('__manual__');
     await page.locator('#provider-model-manual').fill('qwen3:4b');
+    await page.evaluate(()=>{window.testChatGPT=true;window.connectRequests=[];window.beforeBrain=Axx.companion.brain;window.beforeChat=Axx.companion.brain.chat;});
+    await page.locator('#tab-mode-chatgpt').click();
+    await page.evaluate(()=>Axx.connect.refresh());
+    await page.locator('#axx-connect-model').selectOption('fixture-chatgpt');
+    await page.locator('#axx-connect-verify').click();
+    await page.waitForFunction(()=>document.getElementById('axx-connect-status').textContent.includes('Respuesta comprobada'));
+    assert.equal(await page.evaluate(()=>Axx.companion.brain===window.beforeBrain),true,'Selecting ChatGPT preserves the decorated BrainClient');
+    assert.equal(await page.evaluate(()=>Axx.companion.brain.chat===window.beforeChat),true,'Memory/prompt wrappers survive model activation');
+    await page.evaluate(()=>Axx.companion.brain.chat({...Axx.companion.data.prefs},[{role:'user',content:'context-preservation-check'}],undefined,()=>{}));
+    assert.match(await page.evaluate(()=>window.connectRequests.at(-1).message),/SYNTHETIC_GROUP_AFTER_MODEL_CHANGE/,'Group context still reaches the selected provider');
     console.log('PASS: provider presets, discovery, explicit sensitive permission, identity changes without inherited consent, save, protected credentials, edit/disable, candidate pending states and real-only evaluation activation');
   }finally{await browser.close();server.close();}
 })().catch(e=>{console.error(e);process.exitCode=1});

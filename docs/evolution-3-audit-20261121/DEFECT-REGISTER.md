@@ -50,3 +50,8 @@ El job remoto de `45e3100` detectó que el editor ESM no se montaba (timeout en 
 ## D24 — Metadatos Git y normalización Windows (P1)
 
 Reproducción: `.GIT/config` y `nested/.git/hooks/post-checkout` eran aceptados por el resolvedor de archivos; solo se bloqueaba `.git/config` con esa capitalización y profundidad. Causa: comparación sensible a mayúsculas y posición fija de los componentes. Solución: rechazar cualquier componente `.git`, en cualquier profundidad, sin distinguir mayúsculas y normalizando puntos/espacios finales de Windows. Se mantiene `.github` accesible. El mismo resolvedor protege edición, parches e indexación. Test previo falla con archivos sintéticos; suite Core/Pro/UI/HTTP posterior aprueba y conserva los bytes de config. Evidencias privadas: `git-path-before.log`, `git-path-after.log`.
+
+
+## D25 — Activación ChatGPT conservando el contexto (P1)
+
+Al aprobar un modelo, `axx-connect.js` sustituía `c.brain` por un cliente de prueba. Esa sustitución descartaba los wrappers ya instalados por chat-workspace y prompt-contracts. Se reproduce con el flujo real de selección del navegador: cambia la identidad del cliente y pierde sus wrappers. Corrección mínima: copiar el estado comprobado del cliente de prueba al cliente activo, conservando sus métodos decorados. Regresión en test-providers exige identidad estable, mismo método chat y que una nota de grupo sintética llegue a la petición del proveedor tras activar el modelo. Prueba dirigida aprobada; la inferencia de este test es controlada, no se presenta como servicio externo real. Evidencias: model-client-before.log y model-client-after.log.
