@@ -310,5 +310,35 @@ class ActCodeRealOllamaTests(unittest.TestCase):
                 srv.close()
 
 
+    def test_real_single_prompt_team_patches_in_worktree_tests_and_reviews(self):  # teams/run apply_in_worktree, real models
+        model, qa_model = 'qwen2.5:7b-instruct', 'llama3.2:1b'
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            repo = git_repo(Path(tmp))
+            srv = _Server(Path(tmp), [provider('ollama-qwen', 'http://127.0.0.1:11434/v1', model),
+                                      provider('ollama-llama', 'http://127.0.0.1:11434/v1', qa_model)])
+            try:
+                for flag in ('agent_profiles_v1', 'code_studio_v1', 'code_execution_v1'):
+                    srv.rt.flags.set_flag(flag, True, reason='real team test')
+                api = srv.api
+                api.timeout = 300  # two real models answer in sequence inside one request
+                api.request('POST', '/axx-api/agents/v1/profiles', act_spec('act-dev', 'Dev', 'Helix', 'ollama-qwen', model))
+                api.request('POST', '/axx-api/agents/v1/profiles', act_spec('act-qa', 'QA', 'Core', 'ollama-llama', qa_model, role='QA'))
+                for act, ops in (('act-dev', ['worktree', 'patch', 'test']), ('act-qa', ['review'])):
+                    api.request('POST', '/axx-api/agents/v1/profiles/permissions/grant', {
+                        'agent_id': act, 'grant_id': 'g-' + act, 'tool_id': 'axx.code', 'operation_kinds': ops, 'approval_mode': 'ask'})
+                api.request('POST', '/axx-api/code/v1/projects/register', {'project_id': 'proj', 'project_root': str(repo)})
+                code, res = api.request('POST', '/axx-api/agents/v1/teams/run', {
+                    'conversation_id': 'conv-real-team', 'prompt': 'Dev, corrige add para que sume. QA, verifica.',
+                    'project_id': 'proj', 'file_path': 'calc.py', 'apply_in_worktree': True, 'test_command': TESTS})
+                self.assertEqual(code, 200, res)
+                self.assertEqual([s['model'] for s in res['steps']], [model, qa_model])
+                self.assertTrue(res['work']['test_receipt']['passed'], res['work']['test_receipt']['stderr_preview'])
+                self.assertEqual((repo / 'calc.py').read_text(encoding='utf-8'), BUGGY)
+                print(f"\n[TEAM-REAL] Dev {model} patched in worktree, tests passed; QA {qa_model} verdict="
+                      f"{res['steps'][1].get('verdict')} recorded={res['steps'][1].get('review_recorded')}")
+            finally:
+                srv.close()
+
+
 if __name__ == '__main__':
     unittest.main()

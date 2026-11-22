@@ -7,10 +7,12 @@ skipped, never passed, when Ollama is not reachable.
 from __future__ import annotations
 
 import http.server
+import os
 import json
 from pathlib import Path
 import tempfile
 import threading
+import time
 import unittest
 import urllib.request
 
@@ -316,6 +318,48 @@ class ActRealOllamaTests(unittest.TestCase):
                     print(f"\n[ACT-REAL] {act_id} via {model}: {body['choices'][0]['message']['content'].strip()[:160]}")
             finally:
                 srv.close()
+
+
+
+@unittest.skipUnless(os.environ.get('AXX_REAL_CODEX') == '1', 'Opt-in: set AXX_REAL_CODEX=1 to use the signed-in Codex/ChatGPT account')
+class ActRealCodexTests(unittest.TestCase):
+    def test_act_turn_runs_on_its_own_codex_model_and_thread_without_touching_the_global_model(self):  # ACT-05/07/10 on axx-connect
+        from backend.connect.provider import TERMINAL, CodexProvider
+        from backend.connect.service import ConnectService
+        from backend.memory.procedural_memory import ProceduralMemory
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            srv = _Server(Path(tmp), [])
+            memory = ProceduralMemory(Path(tmp) / 'state.db')
+            connect = ConnectService(srv.commands, memory)
+            codex = CodexProvider(srv.commands, Path(tmp) / 'state.db', Path(tmp), dispatcher=connect.dispatch)
+            srv.server.RequestHandlerClass.connect, srv.server.RequestHandlerClass.provider = connect, codex
+            try:
+                status = srv.api.request('GET', '/axx-api/connect/status')[1]
+                info = codex.status()
+                self.assertTrue(info['authenticated'], info.get('diagnostic'))
+                models = info['models']
+                global_model = codex.selected_model
+                act_model = next((m for m in models if m != global_model), global_model)
+                srv.rt.flags.set_flag('agent_profiles_v1', True, reason='real codex act test')
+                srv.api.request('POST', '/axx-api/agents/v1/profiles',
+                                act_spec('act-dev', 'Dev', 'Helix', 'axx-connect', act_model, instructions='Firma como Dev.'))
+                code, started = srv.api.request('POST', '/axx-api/connect/start', {
+                    'act_id': 'act-dev', 'message': 'Responde en una línea: ¿cuál es tu nombre de Act?',
+                    'conversation_id': 'conv-codex', 'request_id': 'codex-act-1', 'purpose': 'chat'})
+                self.assertEqual(code, 200, started)
+                deadline = time.monotonic() + 240
+                while True:
+                    run = srv.api.request('GET', '/axx-api/connect/run?request_id=codex-act-1')[1]
+                    if run.get('state') in TERMINAL or time.monotonic() > deadline:
+                        break
+                    time.sleep(1)
+                self.assertEqual(run.get('state'), 'completed', run.get('error'))
+                self.assertEqual(run.get('model'), act_model)
+                self.assertEqual(run.get('act_thread'), 'act-dev')
+                self.assertEqual(codex.selected_model, global_model)  # the AXX-wide model choice is untouched
+                print(f"\n[ACT-CODEX-REAL] {act_model} (global {global_model}, status={status.get('state')}): {str(run.get('response'))[:200]}")
+            finally:
+                codex.close(); connect.close(); memory.close(); srv.close()
 
 
 if __name__ == '__main__':

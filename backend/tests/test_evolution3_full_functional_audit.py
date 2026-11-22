@@ -31,6 +31,8 @@ from backend.agents.http_api import EvolutionHttpRuntime
 
 
 class _HttpTestClient:
+    timeout = 25  # real-model tests that chain several turns raise it on their instance
+
     def __init__(self, port: int, token: str):
         self.port = port
         self.token = token
@@ -45,7 +47,7 @@ class _HttpTestClient:
             payload = json.dumps(body, ensure_ascii=False).encode('utf-8')
             headers['Content-Type'] = 'application/json'
             headers['Content-Length'] = str(len(payload))
-        conn = http.client.HTTPConnection('127.0.0.1', self.port, timeout=25)
+        conn = http.client.HTTPConnection('127.0.0.1', self.port, timeout=self.timeout)
         try:
             conn.request(method, path, body=payload, headers=headers)
             resp = conn.getresponse()

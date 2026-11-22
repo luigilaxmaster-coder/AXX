@@ -9,7 +9,8 @@ Fecha: 2026-11-22. Rama: `claude/acts-architecture-integration-d303e9`, base `1f
 | `SOURCE_VERIFIED` | Esquema Act aditivo, `ActInferenceService` + `ResourceGovernor` (`max_concurrent_jobs`/`max_cost_usd`), `AvatarFormAdapter` (24 SVG paramétricas distintas × 9 paletas × 6 materiales), `RoutineDispatcher` conectado (`every:*`, history, pause/resume/tick), orquestación de equipos desde una frase (`POST agents/v1/teams/run` con `TaskGraph` + handoffs + artefactos), puertas `axx.spatial` y `axx.computer`, sonda LSP/DAP real (`UNAVAILABLE` honesto), `ACT-08` bindings en chat, voz por Act conectada al TTS de `Axx.html` y panel `Actividad Acts`. |
 | `INTEGRATION_VERIFIED` | Servidor AXX real + router + transporte HTTP real + Chromium (Playwright) sobre `Axx.html` real. Flujo completo `Dev -> Visual -> QA`, conversión `ACT-08` sin pérdida de historial/borradores, benchmark de UI (`VISUAL-03`), y compatibilidad móvil `validate_companion.py`. |
 | `NATIVE_VERIFIED` | **No.** Esta ronda se verificó sobre código fuente + Playwright + pruebas HTTP nativas; falta re-compilar, instalar y pasar aceptación WebView2 nativa sobre este incremento. |
-| `EXTERNAL_BLOCKED` | ChatGPT/Codex para Acts (`axx-connect`) con cuenta real y escenario multiproveedor externo (dependen de credenciales/sesión externa y daemon Ollama encendido). |
+| `EXTERNAL_BLOCKED` | Servidores LSP reales: en este equipo no hay `pylsp`, `pyright` ni `typescript-language-server`, y `rust-analyzer` es solo el proxy de rustup sin componente. El cliente LSP se verificó con un servidor stdio de prueba. Multiproveedor de distintos fabricantes además de Ollama + ChatGPT no probado. |
+| `REAL_VERIFIED` (externo) | ChatGPT/Codex para un Act con la sesión real del propietario: `gpt-6.1-terra` en el hilo `act-dev`, con el modelo global intacto (`gpt-6.1-sol`). Ollama real: dos Acts con dos modelos, Dev → QA en Code Studio y equipo de una frase con `apply_in_worktree` (parche en el worktree, pruebas superadas y revisión registrada). |
 | `RELEASE_BLOCKED` | No se altera la versión publicada ni se hace merge a `origin/main` sin autorización explícita del propietario. |
 
 No se declara `RELEASE_READY`.
@@ -167,7 +168,7 @@ Entorno: Windows 11, Python 3.12, Chromium (Playwright), servidor AXX lanzado po
 | ACT-14 revocar → bloquear | PASS | Grant/revocación por HTTP + comprobación de ausencia de herramientas en la petición real (`/axx-api/chat`) tras revocar. |
 | CODE-01/02 Monaco + proyecto real | PASS | `test_code_studio_ui` (Codex). |
 | CODE-03 selección → Act | PASS parcial | "Pedir a un Act" + `Diagnósticos y LSP` + `Equipo Dev → QA` integrados en `code-ui.js`. |
-| CODE-04 worktree propio del Act | PASS | Rama `axx/agent/act-dev/<tarea>`; sin grant → 403; sonda LSP/DAP reporta `available` / `UNAVAILABLE` real sin falsificar servidores. |
+| CODE-04 worktree propio del Act | PASS | Rama `axx/agent/act-dev/<tarea>`; sin grant → 403; la sonda LSP ejecuta `--version`: un ejecutable que solo está en el PATH (p. ej. el proxy de rustup) ya no figura como disponible. |
 | CODE-05 parche escrito por el modelo del Act | PASS | Controlado + **real** en worktree del Act. Solo cambia el worktree. |
 | CODE-06 diff | PASS | `GET code/v1/changesets` y editor de diferencias de Monaco (UI). |
 | CODE-07 pruebas en su worktree | PASS | Subprocesos reales del runner supervisado: falla antes del parche y pasa después. |
@@ -194,8 +195,9 @@ Entorno: Windows 11, Python 3.12, Chromium (Playwright), servidor AXX lanzado po
 
 ### Puntos abiertos para que Claude continúe / perfeccione:
 - Automatizar el ciclo completo de parche en worktree + pruebas + Diorama/Visual QA dentro de un solo turno de `teams/run` cuando `apply_in_worktree: true`.
-- Conectar cliente JSON-RPC stdio en tiempo real hacia Monaco (`registerCompletionItemProvider` / diagnósticos en vivo) si se detecta un servidor LSP instalado en `lsp/status`.
-- Ejecutar la prueba real con Ollama activo y sesión real de ChatGPT/Codex + compilación e instalación nativa WebView2 bajo `scripts/release.py` cuando el propietario lo autorice.
+- **Hecho:** cliente JSON-RPC stdio (`LspProcess`): `lsp/sync` (didOpen/didChange y diagnósticos publicados) y `lsp/completion`. Monaco incluye ahora las contribuciones `suggest` y `hover`, y muestra marcas y sugerencias. Sin servidor, o si falla, se usan los diagnósticos AST.
+- **Hecho:** `teams/run` con `apply_in_worktree`: Dev aplica su archivo en su worktree antes del traspaso; Visual y QA reciben el diff real y el recibo de pruebas; el veredicto de QA se guarda si tiene `review`.
+- **Hecho:** pruebas reales con Ollama y turno real de Act por ChatGPT/Codex (opt-in `AXX_REAL_CODEX=1`). Pendiente en esta lista: compilación, instalación y aceptación nativa WebView2 del commit final.
 
 ## 8. Rollback
 
