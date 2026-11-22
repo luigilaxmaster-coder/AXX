@@ -6,7 +6,7 @@
   host.className = 'axx-code-studio'; host.hidden = true;
   host.innerHTML = `<h3>Code Studio</h3>
     <details data-code="project-settings" open><summary>Carpeta del proyecto</summary><label class="setting">Proyecto guardado<select data-code="recent"><option value="">Seleccionar…</option></select></label><button data-code="open-recent" type="button">Abrir proyecto guardado</button><form data-code="project-form"><label class="setting">Ruta local<input data-code="root" required placeholder="C:\\Proyectos\\mi-proyecto"></label><button type="submit">Abrir proyecto</button></form></details>
-    <div class="quick-row"><button data-code="parent" type="button">Subir carpeta</button><button data-code="save" type="button" disabled>Guardar archivo</button><button data-code="diff" type="button" disabled>Comparar con disco</button><button data-code="reload" type="button" disabled>Descartar borrador y recargar</button></div>
+    <div class="quick-row"><button data-code="parent" type="button">Subir carpeta</button><button data-code="save" type="button" disabled>Guardar archivo</button><button data-code="diff" type="button" disabled>Comparar con disco</button><button data-code="reload" type="button" disabled>Descartar borrador y recargar</button><button data-code="ask-act" type="button" disabled>Pedir a un Act</button></div>
     <p data-code="status" role="status" aria-live="polite">Abra una carpeta para editar sus archivos.</p>
     <p data-code="draft-status" role="status" aria-live="polite"></p><nav data-code="drafts" aria-label="Borradores recuperables"></nav><div data-code="recovery" role="status"></div>
     <nav data-code="browser" class="axx-code-browser" aria-label="Archivos del proyecto"></nav>
@@ -118,7 +118,7 @@
     active = id; const tab = tabs.get(id); editor.setModel(tab.model);
     ui('diff-editor').hidden = true;
     editor.updateOptions({readOnly:tab.read_only_degraded});
-    ui('save').disabled = tab.read_only_degraded; ui('diff').disabled = false; ui('reload').disabled=false;
+    ui('save').disabled = tab.read_only_degraded; ui('diff').disabled = false; ui('reload').disabled=false; ui('ask-act').disabled=false;
     status(tab.read_only_degraded ? tab.truncation_notice : tab.path + ' · ' + tab.encoding + ' · ' + tab.line_ending);
     renderTabs(); draftStatus(tab); editor.focus();
   }
@@ -197,6 +197,20 @@
     const cleared=await api('POST','drafts/save',{project_id:tab.project_id,path:tab.path,expected_revision:tab.draftRevision,content:null});
     tab.draftRevision=cleared.revision;tab.base=doc.content;tab.sha256=doc.sha256;tab.encoding=doc.encoding;tab.line_ending=doc.line_ending;
     tab.suppress=true;try{tab.model.setValue(doc.content);}finally{tab.suppress=false;}tab.dirty=false;tab.generation++;tab.ack=tab.generation;select(active);
+  });
+  // Sends the selected code to the chat as data; the Act answers there with its own model and permissions.
+  ui('ask-act').onclick = () => attempt(async () => {
+    const tab = tabs.get(active); if (!tab || !editor) return;
+    const range = editor.getSelection(), picked = range && !range.isEmpty() ? tab.model.getValueInRange(range) : tab.model.getValue();
+    if (picked.length > 12000) throw new Error('La selección supera 12.000 caracteres; selecciona una parte más pequeña.');
+    const lines = range && !range.isEmpty() ? ' líneas ' + range.startLineNumber + '-' + range.endLineNumber : '';
+    const act = Axx.acts?.acts?.find(a => a.enabled && a.collaboration?.mention);
+    const input = document.getElementById('chat-input');
+    const prefix = act ? '@' + act.collaboration.mention + ' ' : '';
+    input.value = prefix + '\n\nProyecto ' + tab.project_id + ' · ' + tab.path + lines
+      + ':\n```' + language(tab.path) + '\n' + picked + '\n```';
+    Axx.companion?.openChat?.(); input.focus(); input.setSelectionRange(prefix.length, prefix.length);
+    status('Selección enviada al chat. Escribe la petición y elige el Act con @ o el selector.');
   });
   ui('git').onclick = () => attempt(async () => {
     if (!project) throw new Error('Abra primero un proyecto Git.');

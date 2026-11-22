@@ -1134,7 +1134,11 @@ class CodexProvider:
         if body.get('origin', 'axx') not in {'axx', 'axx-ui', 'test'} or body.get('parent_execution_id') or type(depth) is not int or depth != 0:
             raise ProviderError('RECURSION_BLOCKED', 'Una herramienta no puede iniciar otro planificador de Axx.')
         original_conversation_id = body.get('conversation_id', 'axx-main')
-        fingerprint_data = [message, conversation_id, model, purpose, source_language, target_language, prompt['sha256']]
+        act_thread = body.get('act_thread')  # set only by the server after resolving an Act profile
+        if act_thread is not None and (purpose not in {'chat', 'voice'} or not isinstance(act_thread, str)
+                                       or not re.fullmatch(r'[A-Za-z0-9_.:-]{1,160}', act_thread)):
+            raise ProviderError('INVALID_INPUT', 'Hilo de Act inválido.')
+        fingerprint_data = [message, conversation_id, model, purpose, source_language, target_language, prompt['sha256'], act_thread]
         if images:fingerprint_data.append(images)
         with self.lock:
             if self.closed:
@@ -1163,7 +1167,7 @@ class CodexProvider:
                    'state': 'accepted', 'response': '', 'thread_id': None, 'turn_id': None,
                    'inference_verified': False,
                    'tool_results': [], 'usage': None, 'error': None, 'last_event': 0,
-                   'managed_operations': [],
+                   'managed_operations': [], 'act_thread': act_thread,
                    'created_at': now, 'updated_at': now, 'cancel_requested': False, **memory}
             with self.db:
                 self.db.execute('BEGIN IMMEDIATE')
@@ -1179,14 +1183,21 @@ class CodexProvider:
             if turn_input is not None:
                 run['_turn_input'], run['_turn_effort'], run['_turn_schema'] = turn_input, turn_effort, turn_schema
             self.live[request_id] = run
-            self.selected_model = model
-            with self.db:
-                self.db.execute("INSERT OR REPLACE INTO connect_settings(key,value_json) VALUES('selected_model',?)",
-                                (json.dumps(model),))
+            if act_thread is None:  # An Act's model never replaces AXX's own selected model.
+                self.selected_model = model
+                with self.db:
+                    self.db.execute("INSERT OR REPLACE INTO connect_settings(key,value_json) VALUES('selected_model',?)",
+                                    (json.dumps(model),))
             self._event(run, 'run/accepted')
             threading.Thread(target=self._run, args=(run, message), daemon=True,
                              name='axx-codex-turn').start()
             return self.get(request_id)
+
+    @staticmethod
+    def _thread_key(run):
+        # Each Act keeps its own Codex thread inside the same conversation; AXX keeps the original key.
+        key = run['conversation_id'] + ':axx-direct-v2'
+        return key + ':act:' + run['act_thread'] if run.get('act_thread') else key
 
     def _run(self, run, message):
         self.rpc_context.deadline = run['_deadline']
@@ -1211,7 +1222,7 @@ class CodexProvider:
                 # Legacy threads retain their old tool schema; preserve them under their original key.
                 saved = None if run['purpose'] in {'capability','planning'} else self.db.execute(
                     'SELECT * FROM connect_conversations WHERE conversation_id=?',
-                    (run['conversation_id'] + ':axx-direct-v2',)).fetchone()
+                    (self._thread_key(run),)).fetchone()
                 if saved is not None and saved['model'] != run['model']:
                     saved = None  # A resumed thread can retain its previous model despite an override.
             common = {'model': run['model'], 'modelProvider': 'openai', 'cwd': self.cwd,
@@ -1254,7 +1265,7 @@ class CodexProvider:
                 if not ephemeral:
                     with self.db:
                         self.db.execute('INSERT OR REPLACE INTO connect_conversations VALUES (?,?,?,?)',
-                                        (run['conversation_id'] + ':axx-direct-v2', thread_id, run['model'], time.time()))
+                                        (self._thread_key(run), thread_id, run['model'], time.time()))
                 self._event(run, 'thread/ready', {'thread_id': thread_id, 'resumed': bool(saved)})
             if run['_cancel'].is_set():
                 run['state'] = 'cancelled'

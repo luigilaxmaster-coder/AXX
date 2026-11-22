@@ -63,6 +63,7 @@ from backend.mobile.http_api import MobileHTTP
 from backend.anticipation import AnticipationService
 from backend.telegram.http_api import TelegramHTTP
 from backend.agents.http_api import EvolutionHTTP, EvolutionHttpRuntime
+from backend.agents.act_inference import ActInferenceError
 from backend.code_studio.projects import CodeConflictError
 from backend.spatial.scene_document import StaleSceneRevisionError
 from backend.evolution_flags import StaleFlagRevisionError
@@ -841,7 +842,8 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                     return
                 if set(body) - {'model', 'stream', 'axx_task', 'messages', 'temperature', 'max_tokens', 'tools',
                                 'request_id', 'conversation_id', 'deadline_ms', 'sensitivity',
-                                'provider', 'allow_fallback', 'mode', 'provider_name', 'selection_mode', 'memory_scope', 'memory_context_id', 'axx_tools'}:
+                                'provider', 'allow_fallback', 'mode', 'provider_name', 'selection_mode', 'memory_scope', 'memory_context_id', 'axx_tools',
+                                'act_id', 'act_revision'}:
                     raise ValueError('Unsupported chat fields')
 
                 captured_memory = self._capture_memory(body, chat=True)
@@ -851,6 +853,17 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                 for key in ('request_id', 'conversation_id', 'deadline_ms', 'sensitivity', 'selection_mode'):
                     if key in body:
                         envelope[key] = body[key]
+                act = acts = None
+                if 'act_id' in body:
+                    # The Act's own provider/model replaces the client's choice; no fallback to another route.
+                    evolution = EvolutionHTTP(self).rt
+                    evolution.flags.require_enabled_for_new_dispatch('agent_profiles_v1')
+                    acts = evolution.acts
+                    act = acts.resolve(body['act_id'], transport='router', expected_revision=body.get('act_revision'))
+                    acts.apply_to_router(envelope, act)
+                    acts.record(captured_memory['memory_context_id'] or body.get('conversation_id'), body.get('request_id'), act, 'run.started',
+                                {'requested_provider': act['provider_name'], 'requested_model': act['model'],
+                                 'selection_mode': act['selection_mode'], 'revision': act['revision']})
                 tool_catalog = {}
                 tool_status = None
                 tool_chat = None
@@ -862,6 +875,8 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                     chat_tools.operation_id(body.get('request_id'))
                     tool_chat = self.chats.get(captured_memory['task_id'])
                     provider_name, tool_catalog = chat_tools.catalog(self.commands, self.adapter.config, envelope)
+                    if act is not None and not act['tools_allowed']:
+                        tool_catalog = {}  # Act without an active axx.commands grant never receives tools.
                     if tool_catalog and not tool_chat['archived']:
                         envelope['provider_name'] = provider_name
                         envelope['generation']['tools'] = [{'type': 'function', 'function': tool}
@@ -873,6 +888,16 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                         tool_status = 'unsupported'
                 result = self.adapter.route(envelope)
                 self._check_memory(captured_memory)
+                act_receipt = None
+                if act is not None:
+                    if result.get('ok'):
+                        act_receipt = acts.verify_router(act, result.get('route'))
+                        if not act_receipt['model_verified']:
+                            result = {'ok': False, 'request_id': result.get('request_id'), 'error': {
+                                'code': 'MODEL_MISMATCH', 'message': 'La ruta que respondió no coincide con el modelo del Act.'}}
+                    acts.record(captured_memory['memory_context_id'] or body.get('conversation_id'), body.get('request_id'), act,
+                                'run.completed' if result.get('ok') else 'run.failed',
+                                act_receipt or {'error_code': result.get('error', {}).get('code')})
                 if not result.get('ok'):
                     code = result.get('error', {}).get('code')
                     status = 409 if code == 'BUSY' else 400 if code == 'INVALID_REQUEST' else 499 if code == 'CANCELLED' else 502
@@ -882,7 +907,10 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                 tool_receipt = None
                 if tool_catalog and message.get('tool_calls'):
                     current = self.chats.get(tool_chat['id'])
-                    if current['archived'] or current['mode'] != tool_chat['mode']:
+                    if act is not None and not acts.resolve(act['act_id'], transport='router')['tools_allowed']:
+                        tool_receipt = {'state': 'blocked', 'postconditions_passed': False, 'error': {
+                            'code': 'ACT_PERMISSION_REVOKED', 'message': 'El permiso del Act fue revocado.'}}
+                    elif current['archived'] or current['mode'] != tool_chat['mode']:
                         tool_receipt = {'state': 'blocked', 'postconditions_passed': False, 'error': {
                             'code': 'MODE_CHANGED', 'message': 'Cambió la autorización de la conversación.'}}
                     else:
@@ -907,6 +935,7 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                     self._check_memory(captured_memory)
                     self._send_json(200, {'request_id': result['request_id'], 'choices': [{'message': message, 'finish_reason': 'stop'}],
                                          'axx_router': result.get('route'),
+                                         **({'axx_act': act_receipt} if act_receipt else {}),
                                          **({'axx_tools_status': tool_status} if tool_status else {}),
                                          **({'axx_tool_receipt': tool_receipt} if tool_receipt is not None else {})})
             elif path == '/axx-api/chat/cancel':
@@ -1567,6 +1596,9 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
             self._send_json(409 if exc.code == 'BUSY' else 400, {'error': {'code': exc.code, 'message': str(exc)}})
         except ApprovalRequired as exc:
             self._send_json(403, {'error': {'code': 'APPROVAL_REQUIRED', 'message': str(exc)}})
+        except ActInferenceError as exc:
+            self._send_json({'ACT_NOT_FOUND': 404, 'ACT_STALE_REVISION': 409, 'ACT_DISABLED': 403}.get(exc.code, 400),
+                            {'error': {'code': exc.code, 'message': str(exc)}})
         except (CodeConflictError, StaleSceneRevisionError, StaleFlagRevisionError) as exc:
             self._send_json(409, {'error': {'code': 'STALE_REVISION', 'message': str(exc)}})
         except PermissionError as exc:

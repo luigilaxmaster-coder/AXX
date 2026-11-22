@@ -16,6 +16,7 @@ import tempfile
 import urllib.parse
 from typing import Any
 
+from backend.agents.act_inference import CONNECT_PROVIDER_REF, ActInferenceService, persona_prompt
 from backend.agents.bindings import ConversationBindingService
 from backend.agents.events import EventHub
 from backend.agents.orchestrator import MultiAgentOrchestrator
@@ -94,6 +95,7 @@ class EvolutionHttpRuntime:
         self.task_graph = TaskGraphEngine(self.db_path, action_executor=self.action_executor)
         self.verifier = IndependentVerifierService(action_executor=self.action_executor)
         self.event_hub = EventHub(self.db_path)
+        self.acts = ActInferenceService(self.registry, self.event_hub)
         self.recovery = MultiAgentRecoveryService(self.task_graph, self.event_hub)
         self.orchestrator = MultiAgentOrchestrator(
             task_graph=self.task_graph,
@@ -184,6 +186,16 @@ class EvolutionHTTP:
                 include_disabled = query.get('include_disabled', ['false'])[0].lower() == 'true'
                 self.handler._send_json(200, {'profiles': self.rt.registry.list_profiles(include_disabled=include_disabled)})
             return True
+        if path == '/axx-api/agents/v1/catalog':
+            self.handler._send_json(200, self.rt.registry.avatar_adapter.catalog())
+            return True
+        if path == '/axx-api/agents/v1/profiles/permissions':
+            agent_id = query.get('agent_id', [''])[0]
+            self.handler._send_json(200, {'permissions': self.rt.registry.list_permissions(agent_id)})
+            return True
+        if path == '/axx-api/agents/v1/teams':
+            self.handler._send_json(200, {'team': self.rt.registry.get_team(query.get('team_id', [''])[0])})
+            return True
         if path == '/axx-api/agents/v1/profiles/export':
             agent_id = query.get('agent_id', [''])[0]
             if not agent_id:
@@ -264,7 +276,7 @@ class EvolutionHTTP:
         cleanup = path in ('/axx-api/code/v1/file-transactions/recover','/axx-api/code/v1/file-transactions/acknowledge') or path.endswith(('/cancel', '/reconcile', '/release', '/revoke', '/stop', '/destroy', '/remove'))
         if not cleanup:
             required = []
-            if path.startswith(('/axx-api/agents/v1/profiles', '/axx-api/agents/v1/bindings')):
+            if path.startswith(('/axx-api/agents/v1/profiles', '/axx-api/agents/v1/bindings', '/axx-api/agents/v1/teams')):
                 required.append('agent_profiles_v1')
             elif path.startswith(('/axx-api/agents/v1/runs', '/axx-api/agents/v1/handoffs')):
                 required.append('team_chat_v1')
@@ -321,6 +333,38 @@ class EvolutionHTTP:
                 new_agent_id=body.get('new_agent_id'),
             )
             self.handler._send_json(200, {'profile': imported})
+            return True
+        if path == '/axx-api/agents/v1/profiles/preview':
+            profile = self.rt.registry.get_profile(body['agent_id'])
+            ref = profile['intelligence'].get('provider_profile_ref')
+            self.handler._send_json(200, {
+                'agent_id': profile['agent_id'], 'revision': profile['revision'], 'persona': persona_prompt(profile),
+                'transport': 'connect' if ref == CONNECT_PROVIDER_REF else 'router',
+                'intelligence': profile['intelligence'],
+                'permissions': self.rt.registry.list_permissions(profile['agent_id'])})
+            return True
+        if path == '/axx-api/agents/v1/profiles/permissions/grant':
+            kinds = body.get('operation_kinds', [])
+            if not isinstance(kinds, list) or not all(isinstance(k, str) for k in kinds):
+                raise ValueError('operation_kinds must be a list of strings')
+            expiry = body.get('expires_at_ms')
+            if expiry is not None and type(expiry) is not int:
+                raise ValueError('expires_at_ms must be an integer')
+            self.rt.registry.get_profile(body['agent_id'])  # 404 before inserting a dangling grant
+            grant = self.rt.registry.grant_permission(
+                grant_id=body['grant_id'], agent_id=body['agent_id'], tool_id=body['tool_id'],
+                resource_pattern=str(body.get('resource_pattern', '*')), operation_kinds=kinds,
+                approval_mode=body.get('approval_mode', 'ask'), expires_at_ms=expiry, granted_by='owner')
+            self.handler._send_json(200, {'grant': grant})
+            return True
+        if path == '/axx-api/agents/v1/profiles/permissions/revoke':
+            self.handler._send_json(200, {'revoked': self.rt.registry.revoke_permission(body['agent_id'], body['grant_id'])})
+            return True
+        if path == '/axx-api/agents/v1/teams':
+            team = self.rt.registry.create_team(team_id=body['team_id'], title=str(body.get('title', '')),
+                                                members=body['members'], purpose=str(body.get('purpose', '')),
+                                                mode=body.get('mode', 'collaboration'))
+            self.handler._send_json(200, {'team': team})
             return True
         if path == '/axx-api/agents/v1/bindings/convert':
             conv_id = body['conversation_id']

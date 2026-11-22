@@ -119,6 +119,17 @@ class ConnectHTTP:
                     body['memory_context_id'] = body['conversation_id']
                 if body.get('purpose','chat') in ('chat','voice') and body.get('memory_context_id') != body.get('conversation_id'):
                     raise ValueError('La solicitud debe conservar el contexto opaco original del chat')
+            if isinstance(body, dict) and 'act_thread' in body:
+                raise ValueError('act_thread is assigned by the server')
+            if isinstance(body, dict) and 'act_id' in body:
+                from backend.agents.http_api import EvolutionHTTP
+                rt = EvolutionHTTP(self.h).rt
+                rt.flags.require_enabled_for_new_dispatch('agent_profiles_v1')
+                act = rt.acts.resolve(body['act_id'], transport='connect', expected_revision=body.get('act_revision'))
+                body = rt.acts.apply_to_connect(body, act)
+                rt.acts.record(body.get('memory_context_id', body.get('conversation_id')), body.get('request_id'), act,
+                               'run.started', {'requested_provider': act['provider_name'], 'requested_model': act['model'],
+                                               'revision': act['revision']})
             result = self.provider.start(body)
         elif path == '/axx-api/connect/cancel':
             if set(body) - {'operation_id', 'request_id'}:

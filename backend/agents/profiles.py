@@ -96,6 +96,25 @@ ALLOWED_FALLBACKS = frozenset({
     'authorized_profiles',
 })
 
+# Acts (Evolution 3.1): optional, additive behaviour sections. Absent sections keep AgentProfile v1 output unchanged.
+PERSONALITY_ENUMS: dict[str, tuple[str, ...]] = {
+    'formality': ('casual', 'neutral', 'formal'),
+    'concision': ('brief', 'balanced', 'detailed'),
+    'creativity': ('low', 'medium', 'high'),
+    'proactivity': ('low', 'medium', 'high'),
+    'research_tendency': ('low', 'medium', 'high'),
+    'technical_depth': ('low', 'medium', 'high'),
+    'examples': ('none', 'some', 'many'),
+    'explanation_level': ('expert', 'intermediate', 'beginner'),
+    'review_style': ('lenient', 'balanced', 'strict'),
+    'question_policy': ('ask_when_blocked', 'ask_first', 'avoid'),
+    'response_format': ('prose', 'bullets', 'structured'),
+}
+PERSONALITY_TEXT_LIMITS = {'communication_style': 500, 'coding_preferences': 1000, 'quality_criteria': 1000}
+AUTONOMY_MODES = ('manual', 'assisted', 'auto_safe', 'background', 'scheduled', 'isolated')
+MENTION_RE = re.compile(r'^[A-Za-z0-9_-]{1,32}$')
+LANG_RE = re.compile(r'^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$')
+
 ID_RE = re.compile(r'^[A-Za-z0-9_.:-]{1,160}$')
 SECRET_LEAK_RE = re.compile(
     r'(?:\bsk-[A-Za-z0-9]{16,}\b|\bghp_[A-Za-z0-9]{20,}\b|\bAIza[0-9A-Za-z_-]{20,}\b|\bBearer\s+[A-Za-z0-9._-]{16,}\b)',
@@ -233,7 +252,7 @@ def validate_agent_profile(profile: Any) -> dict[str, Any]:
     if missing:
         raise AgentProfileValidationError(f'Missing required AgentProfile fields: {sorted(missing)}')
 
-    allowed_fields = required_fields | {'description', 'voice', 'collaboration', 'autonomy'}
+    allowed_fields = required_fields | {'description', 'voice', 'collaboration', 'autonomy', 'personality'}
     extra = set(profile) - allowed_fields
     if extra:
         raise AgentProfileValidationError(f'Unexpected AgentProfile fields: {sorted(extra)}')
@@ -443,7 +462,61 @@ def validate_agent_profile(profile: Any) -> dict[str, Any]:
         'permissions': clean_perms,
         'limits': clean_limits,
         'memory_scope': mem_scope,
+        **validate_act_behavior(profile),
     }
+
+
+def validate_act_behavior(profile: dict[str, Any]) -> dict[str, Any]:
+    """Validate the optional Acts sections. Personality shapes wording only; it never grants tools or permissions."""
+    out: dict[str, Any] = {}
+    if profile.get('personality') is not None:
+        raw = profile['personality']
+        if not isinstance(raw, dict):
+            raise AgentProfileValidationError('personality must be an object')
+        unknown = set(raw) - set(PERSONALITY_ENUMS) - set(PERSONALITY_TEXT_LIMITS) - {'default_language'}
+        if unknown:
+            raise AgentProfileValidationError(f'Unexpected personality fields: {sorted(unknown)}')
+        clean: dict[str, Any] = {}
+        for key, allowed in PERSONALITY_ENUMS.items():
+            if key in raw:
+                if raw[key] not in allowed:
+                    raise AgentProfileValidationError(f'personality.{key} must be one of {list(allowed)}')
+                clean[key] = raw[key]
+        for key, limit in PERSONALITY_TEXT_LIMITS.items():
+            if key in raw:
+                if not isinstance(raw[key], str) or len(raw[key]) > limit:
+                    raise AgentProfileValidationError(f'personality.{key} must be text up to {limit} characters')
+                clean[key] = raw[key].strip()
+        if 'default_language' in raw:
+            if not isinstance(raw['default_language'], str) or not LANG_RE.fullmatch(raw['default_language']):
+                raise AgentProfileValidationError('personality.default_language must be a language code')
+            clean['default_language'] = raw['default_language']
+        out['personality'] = clean
+    if profile.get('autonomy') is not None:
+        raw = profile['autonomy']
+        if not isinstance(raw, dict) or set(raw) - {'mode'} or raw.get('mode') not in AUTONOMY_MODES:
+            raise AgentProfileValidationError(f'autonomy must be {{"mode": one of {list(AUTONOMY_MODES)}}}')
+        out['autonomy'] = {'mode': raw['mode']}
+    if profile.get('collaboration') is not None:
+        raw = profile['collaboration']
+        if not isinstance(raw, dict) or set(raw) - {'mention', 'accepts_handoffs', 'review_required', 'rules'}:
+            raise AgentProfileValidationError('collaboration accepts mention, accepts_handoffs, review_required and rules')
+        clean = {}
+        if 'mention' in raw:
+            if not isinstance(raw['mention'], str) or not MENTION_RE.fullmatch(raw['mention']):
+                raise AgentProfileValidationError('collaboration.mention must be 1..32 letters, digits, _ or -')
+            clean['mention'] = raw['mention']
+        for key in ('accepts_handoffs', 'review_required'):
+            if key in raw:
+                if type(raw[key]) is not bool:
+                    raise AgentProfileValidationError(f'collaboration.{key} must be a boolean')
+                clean[key] = raw[key]
+        if 'rules' in raw:
+            if not isinstance(raw['rules'], str) or len(raw['rules']) > 1000:
+                raise AgentProfileValidationError('collaboration.rules must be text up to 1000 characters')
+            clean['rules'] = raw['rules'].strip()
+        out['collaboration'] = clean
+    return out
 
 
 def export_agent_package(

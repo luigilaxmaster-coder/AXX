@@ -45,6 +45,11 @@ class _NullClosing:
         return None
 
 
+def _behavior_json(validated: dict[str, Any]) -> str:
+    return json.dumps({k: validated[k] for k in ('personality', 'autonomy', 'collaboration') if k in validated},
+                      ensure_ascii=False)
+
+
 def _check_id(value: Any, field: str) -> str:
     if not isinstance(value, str) or not ID_RE.fullmatch(value):
         raise AgentProfileValidationError(f'Invalid {field}: {value!r}')
@@ -137,6 +142,9 @@ class AgentRegistry:
                     );
                     '''
                 )
+                # Acts 3.1 additive migration: optional personality/autonomy/collaboration sections.
+                if 'behavior_json' not in {r[1] for r in db.execute('PRAGMA table_info(agent_profiles)')}:
+                    db.execute("ALTER TABLE agent_profiles ADD COLUMN behavior_json TEXT NOT NULL DEFAULT '{}'")
 
     def close(self) -> None:
         with self.lock:
@@ -163,8 +171,8 @@ class AgentRegistry:
                         (agent_id, revision, name, role, description, instructions,
                          appearance_json, intelligence_json, voice_json, workspace_json,
                          permissions_json, limits_json, memory_scope, enabled, draining,
-                         created_at_ms, updated_at_ms, disabled_at_ms)
-                    VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
+                         created_at_ms, updated_at_ms, disabled_at_ms, behavior_json)
+                    VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
                     ''',
                     (
                         validated['agent_id'],
@@ -183,6 +191,7 @@ class AgentRegistry:
                         now,
                         now,
                         None if validated['enabled'] else now,
+                        _behavior_json(validated),
                     ),
                 )
                 db.execute('COMMIT')
@@ -237,7 +246,9 @@ class AgentRegistry:
                 for key, val in updates.items():
                     if key in ('agent_id', 'schema_version', 'revision'):
                         continue
-                    if isinstance(val, dict) and isinstance(merged.get(key), dict):
+                    if key in ('personality', 'autonomy', 'collaboration'):
+                        merged[key] = copy.deepcopy(val)  # Acts sections replace, so a cleared option really clears
+                    elif isinstance(val, dict) and isinstance(merged.get(key), dict):
                         merged[key] = {**merged[key], **copy.deepcopy(val)}
                     else:
                         merged[key] = copy.deepcopy(val)
@@ -258,7 +269,7 @@ class AgentRegistry:
                     SET revision=?, name=?, role=?, description=?, instructions=?,
                         appearance_json=?, intelligence_json=?, voice_json=?, workspace_json=?,
                         permissions_json=?, limits_json=?, memory_scope=?, enabled=?,
-                        updated_at_ms=?, disabled_at_ms=?
+                        updated_at_ms=?, disabled_at_ms=?, behavior_json=?
                     WHERE agent_id=? AND revision=?
                     ''',
                     (
@@ -277,6 +288,7 @@ class AgentRegistry:
                         1 if validated['enabled'] else 0,
                         now,
                         None if validated['enabled'] else (row['disabled_at_ms'] or now),
+                        _behavior_json(validated),
                         agent_id,
                         current_rev,
                     ),
@@ -403,6 +415,16 @@ class AgentRegistry:
                 raise
         return {'grant_id': grant_id, 'agent_id': agent_id, 'tool_id': tool_id, 'approval_mode': approval_mode}
 
+    def revoke_permission(self, agent_id: str, grant_id: str) -> bool:
+        """Delete one grant; the next Act turn or tool dispatch re-reads grants and is blocked (ACT-14)."""
+        _check_id(agent_id, 'agent_id')
+        _check_id(grant_id, 'grant_id')
+        with self.lock, self._connect() as db:
+            with db:
+                removed = db.execute('DELETE FROM agent_permissions WHERE agent_id=? AND grant_id=?',
+                                     (agent_id, grant_id)).rowcount
+        return removed == 1
+
     def list_permissions(self, agent_id: str) -> list[dict[str, Any]]:
         _check_id(agent_id, 'agent_id')
         now = self.clock()
@@ -516,6 +538,7 @@ class AgentRegistry:
             'permissions': json.loads(row['permissions_json']),
             'limits': json.loads(row['limits_json']),
             'memory_scope': row['memory_scope'],
+            **json.loads(row['behavior_json'] or '{}'),
             'created_at_ms': int(row['created_at_ms']),
             'updated_at_ms': int(row['updated_at_ms']),
             'disabled_at_ms': int(row['disabled_at_ms']) if row['disabled_at_ms'] is not None else None,
