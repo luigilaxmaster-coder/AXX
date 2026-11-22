@@ -104,3 +104,16 @@ ancho intrínseco mínimo en el componente nuevo; no se modifican CSS compartido
 referencias visuales ni hashes protegidos. La repetición pasó las 120
 combinaciones y las pruebas existentes de geometría aprobada y snapshots v1.
 Esto acredita el navegador con transporte declarado, no un APK ni teclado nativo.
+
+
+## Ampliación de escritorio: Code Studio · 22 de noviembre de 2026
+
+El nuevo editor se monta dentro del panel de perfil existente; no añade una clase de ventana ni una pantalla de teléfono. Conserva layout radial, personaje, cámara y hashes protegidos. Los casos aceptados se limitan a esta matriz; no amplían el soporte físico de Android/iOS.
+
+| Superficie y ventana | Escala/texto | Caso observado | Evidencia y límite |
+| --- | --- | --- | --- |
+| Tauri/WebView2 debug, viewport 1536 × 816 CSS | DPR 1,25; texto estándar, tema de la captura | Editor, archivo CRLF, guardado IPC/readback y conservación de 24 formas/9 paletas | Capturas y native-ui.json privados; backend congelado real. No instalador ni barrido de DPI/temas. |
+| Chromium, viewport 1440 × 1000 CSS | Texto estándar; DPR no registrado en el recibo de esta prueba | BOM/CRLF, navegación, diff, conflicto externo y conservación del borrador al cerrar el panel | test_code_studio_ui: HTTP/archivos/SQLite reales, IPC nativo declarado como fixture. No aceptación física. |
+| Ventanas estrechas, texto 170/200 %, varios monitores y lectores de pantalla | Pendiente | Sin soporte adicional certificado | La adaptación CSS del componente no sustituye mediciones y aceptación nativas de estas clases. |
+
+La carpeta del proyecto y los controles secundarios se pliegan, el editor usa el ancho del contenedor y su área es redimensionable/desplazable. No se refrescaron referencias visuales para aprobar un cambio. [Revisión y límites](../evolution-3-audit-20261121/VISUAL-UX-REVIEW.md); fuente exacta y cierre de aceptación en el Draft PR #7.

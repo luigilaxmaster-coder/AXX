@@ -11,3 +11,10 @@ Code Studio ahora usa Monaco local sin CDN, tipografía de código, explorador, 
 La comparación de Code Studio es ausencia de editor interactivo antes versus edición nativa comprobada después, no una promesa de rediseño premium terminado. Se inspeccionaron capturas; siguen pendientes teclado/lector de pantalla completo, texto 200 %, múltiples monitores y todos los DPI. La captura nativa inicial por el driver de escritorio tuvo coordenadas no coincidentes; se utilizó el harness de aceptación CDP de la propia WebView2 para comprobar la candidata.
 
 No se cambiaron la cámara aprobada, geometría, tentáculos ni paletas. No se añadieron caras ni ojos. Las capturas y preferencias privadas permanecen fuera de Git.
+
+
+## Matriz adicional del nuevo panel
+
+Se extendió SCREEN-STUDY-20261029.md con Code Studio: WebView2 a 1536×816 CSS y DPR1,25, y navegador a 1440×1000 con IPC fixture. Texto ampliado, otras densidades, varias pantallas y lectores de pantalla quedan pendientes; no se certifican mediante la regla CSS de 480 px. No hay un Code Studio móvil nuevo acreditado.
+
+Comparativa privada visual-comparison.html: markup original de PR #6, verificado sin editor montado, frente al editor actual con servicio real de archivos. Ambas imágenes de la comparativa usan IPC fixture; las capturas nativas se mantienen separadas y no se presentan como antes/después de un instalador.
