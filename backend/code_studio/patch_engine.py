@@ -165,8 +165,33 @@ class CodePatchEngine:
                         approval_operation_id TEXT,
                         created_at_ms INTEGER NOT NULL
                     );
+                    CREATE TABLE IF NOT EXISTS code_changeset_reviews (
+                        review_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        changeset_id TEXT NOT NULL REFERENCES code_changesets(changeset_id) ON DELETE CASCADE,
+                        reviewer_id TEXT NOT NULL,
+                        verdict TEXT NOT NULL CHECK(verdict IN ('approved', 'changes', 'unclear')),
+                        model TEXT NOT NULL,
+                        summary TEXT NOT NULL,
+                        created_at_ms INTEGER NOT NULL
+                    );
                     '''
                 )
+
+    def record_review(self, changeset_id: str, reviewer_id: str, verdict: str, model: str, summary: str) -> dict[str, Any]:
+        self.get_changeset(changeset_id)
+        now = self.projects.clock()
+        with self.projects.lock, self.projects._connect() as db:
+            with db:
+                review_id = db.execute(
+                    'INSERT INTO code_changeset_reviews (changeset_id, reviewer_id, verdict, model, summary, created_at_ms) '
+                    'VALUES (?, ?, ?, ?, ?, ?)', (changeset_id, reviewer_id, verdict, model, summary[:4000], now)).lastrowid
+        return {'review_id': review_id, 'changeset_id': changeset_id, 'reviewer_id': reviewer_id, 'verdict': verdict,
+                'model': model, 'summary': summary[:4000], 'created_at_ms': now}
+
+    def list_reviews(self, changeset_id: str) -> list[dict[str, Any]]:
+        with self.projects.lock, self.projects._connect() as db:
+            return [dict(r) for r in db.execute(
+                'SELECT * FROM code_changeset_reviews WHERE changeset_id=? ORDER BY review_id', (changeset_id,))]
 
     def propose_changeset(
         self,

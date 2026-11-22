@@ -105,7 +105,7 @@ class ActsUiTests(unittest.TestCase):
                 srv.close()
                 echo.shutdown(); echo.server_close()
 
-    def test_grant_code_tools_then_delegate_a_file_test_and_integrate_from_code_studio(self):  # CODE-04..10 UI (controlled)
+    def test_grant_code_tools_then_dev_writes_qa_reviews_and_owner_integrates(self):  # CODE-04..10 + Dev → QA UI (controlled)
         _CoderModel.seen = []
         coder = serve(_CoderModel)
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temp:
@@ -113,7 +113,11 @@ class ActsUiTests(unittest.TestCase):
             srv = _Server(Path(temp), [provider('loop-a', f'http://127.0.0.1:{coder.server_port}/v1', 'model-alpha')])
             try:
                 srv.rt.flags.set_flag('agent_profiles_v1', True, reason='owner enabled Acts')
-                srv.rt.registry.create_profile(act_spec('act-dev', 'Dev', 'Helix', 'loop-a', 'model-alpha'))
+                srv.rt.registry.create_profile(act_spec('act-dev', 'Dev', 'Helix', 'loop-a', 'model-alpha',
+                                                        collaboration={'review_required': True}))
+                srv.rt.registry.create_profile(act_spec('act-qa', 'QA', 'Core', 'loop-a', 'model-alpha', role='QA'))
+                srv.rt.registry.grant_permission(grant_id='g-qa-review', agent_id='act-qa', tool_id='axx.code',
+                                                 resource_pattern='*', operation_kinds=['review'])
                 with sync_playwright() as p:
                     browser = p.chromium.launch(headless=True)
                     try:
@@ -122,7 +126,7 @@ class ActsUiTests(unittest.TestCase):
                         page.evaluate("Axx.companion.openFeature('agent')")
                         # Owner grants the Code Studio steps in Acts Studio's Herramientas tab.
                         page.get_by_role('button', name='Abrir Acts', exact=True).click()
-                        page.locator('.axx-acts-card').get_by_role('button', name='Personalizar').click()
+                        page.locator('.axx-acts-card', has_text='Dev').get_by_role('button', name='Personalizar').click()
                         form = page.locator('.axx-acts-editor')
                         form.get_by_role('tab', name='Herramientas').click()
                         for label in ('Crear su worktree', 'Aplicar parches en su worktree', 'Ejecutar pruebas en su worktree',
@@ -152,7 +156,14 @@ class ActsUiTests(unittest.TestCase):
 
                         page.get_by_role('button', name='Probar en su worktree', exact=True).click()
                         page.wait_for_function(status % 'Pruebas superadas', timeout=60000)
-                        page.get_by_role('button', name='Integrar trabajo del Act', exact=True).click()
+                        integrate = page.get_by_role('button', name='Integrar trabajo del Act', exact=True)
+                        self.assertFalse(integrate.is_visible())  # Dev requires another Act's review first
+                        page.locator('[data-code=reviewer]').select_option('act-qa')
+                        page.get_by_role('button', name='Pedir revisión', exact=True).click()
+                        page.wait_for_function(status % 'QA aprobó el cambio', timeout=60000)
+                        self.assertIn('VEREDICTO', json_messages := page.evaluate('JSON.stringify(Axx.companion.data.messages.map(m => m.text))'))
+                        self.assertIn('〔Dev〕 → 〔QA〕', json_messages)  # the handoff is visible in the existing chat
+                        integrate.click()
                         page.wait_for_function(status % 'Cambio integrado', timeout=60000)
                         self.assertEqual((repo / 'calc.py').read_text(encoding='utf-8'), FIXED)
                         page.wait_for_function("Axx.codeStudio.editor.getValue().includes('a + b')")

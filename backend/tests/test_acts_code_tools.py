@@ -27,13 +27,15 @@ TESTS = [sys.executable, '-m', 'unittest', 'discover', '-v']
 
 
 class _CoderModel(_EchoModel):
-    """Controlled OpenAI-compatible responder: answers code tasks with one complete file."""
+    """Controlled OpenAI-compatible responder: one complete file for code tasks, `review` text for reviews."""
+    review = 'VEREDICTO: APROBADO\nLa suma es correcta y las pruebas pasan.'
 
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
         type(self).seen.append(body)
+        reviewing = 'VEREDICTO' in body['messages'][0]['content']
         reply = json.dumps({'id': 'x', 'model': body['model'], 'choices': [{'index': 0, 'finish_reason': 'stop', 'message': {
-            'role': 'assistant', 'content': '```python\n' + FIXED + '```'}}]}).encode()
+            'role': 'assistant', 'content': type(self).review if reviewing else '```python\n' + FIXED + '```'}}]}).encode()
         self.send_response(200)
         self.send_header('Content-Type', 'application/json')
         self.send_header('Content-Length', str(len(reply)))
@@ -183,20 +185,71 @@ class ActCodeToolsTests(unittest.TestCase):
                       [(e['agent_id'], e['type'], e['payload'].get('operation')) for e in events])
 
 
-@unittest.skipUnless('qwen2.5:7b-instruct' in _ollama_models(), 'Ollama with qwen2.5:7b-instruct not reachable')
+    def test_qa_act_review_is_run_by_axx_and_gates_integration_when_required(self):  # Dev → QA handoff (controlled)
+        api = self.srv.api
+        code, upd = api.request('POST', '/axx-api/agents/v1/profiles/update', {
+            'agent_id': 'act-dev', 'expected_revision': 1, 'patch': {'collaboration': {'review_required': True}}})
+        self.assertEqual(code, 200, upd)
+        self.grant(['worktree', 'patch', 'test', 'integrate'])
+        self.post('worktrees/create', {'act_id': 'act-dev', 'agent_id': 'act-dev', 'project_id': 'proj',
+                                       'workspace_id': 'act-w1', 'task_slug': 'fix-add'})
+        self.post('worktrees/propose-apply', {'act_id': 'act-dev', 'changeset_id': 'cs-1', 'workspace_id': 'act-w1',
+                                              'file_edits': [{'path': 'calc.py', 'new_content': FIXED}]})
+        code, run = self.post('tests/run', {'act_id': 'act-dev', 'project_id': 'proj', 'workspace_id': 'act-w1',
+                                            'report_id': 'r1', 'command': TESTS})
+        self.assertTrue(run['receipt']['passed'])
+        integrate = {'act_id': 'act-dev', 'changeset_id': 'cs-1', 'test_report_ids': ['r1']}
+        self.assertEqual(self.post('worktrees/integrate', integrate)[0], 403)  # review required, none yet
+
+        review = {'act_id': 'act-qa', 'changeset_id': 'cs-1', 'conversation_id': 'conv-code'}
+        self.assertEqual(self.post('changesets/review', {**review, 'act_id': 'act-dev'})[0], 403)  # never the author
+        self.assertEqual(self.post('changesets/review', review)[0], 403)  # QA has no review grant yet
+        self.grant(['review'], act='act-qa')
+        seen = len(_CoderModel.seen)
+        for text, verdict in (('VEREDICTO: CAMBIOS\nFalta un caso negativo.', 'changes'),
+                              ('Revisé el diff.\nVEREDICTO: APROBADO', 'unclear'),  # only the first line can vote
+                              ('VEREDICTO: APROBADO\nCorrecto.', 'approved')):
+            _CoderModel.review = text
+            code, body = self.post('changesets/review', review)
+            self.assertEqual((code, body['review']['verdict']), (200, verdict), body)
+            self.assertTrue(body['review']['route']['model_verified'])
+            if verdict != 'approved':
+                self.assertEqual(self.post('worktrees/integrate', integrate)[0], 403)
+        sent = json.dumps(_CoderModel.seen[seen]['messages'], ensure_ascii=False)
+        self.assertIn('+    return a + b', sent)  # the reviewer's model received the real diff…
+        self.assertIn('superadas', sent)  # …and the real test receipt
+        self.assertIn('«QA»', sent)  # with the reviewer's own persona
+        code, done = self.post('worktrees/integrate', integrate)
+        self.assertEqual(code, 200, done)
+        self.assertEqual((self.repo / 'calc.py').read_text(encoding='utf-8'), FIXED)
+        view = api.request('GET', '/axx-api/code/v1/changesets?changeset_id=cs-1')[1]
+        self.assertEqual([r['verdict'] for r in view['reviews']], ['changes', 'unclear', 'approved'])
+        events = api.request('GET', '/axx-api/agents/v1/events/sse?conversation_id=conv-code')[1]['events']
+        kinds = [(e['agent_id'], e['type']) for e in events]
+        self.assertIn(('act-dev', 'handoff.created'), kinds)
+        self.assertIn(('act-qa', 'handoff.completed'), kinds)
+
+
+@unittest.skipUnless({'qwen2.5:7b-instruct', 'llama3.2:1b'} <= _ollama_models(), 'Ollama with qwen2.5:7b-instruct and llama3.2:1b not reachable')
 class ActCodeRealOllamaTests(unittest.TestCase):
-    def test_real_local_model_writes_the_fix_that_passes_tests_and_is_integrated(self):  # CODE-05..09 with real inference
-        model = 'qwen2.5:7b-instruct'
-        urllib.request.urlopen(urllib.request.Request('http://127.0.0.1:11434/api/generate', method='POST',
-                               data=json.dumps({'model': model, 'keep_alive': '10m'}).encode()), timeout=300).read()  # cold load only
+    def test_real_dev_writes_the_fix_and_a_real_qa_model_reviews_it(self):  # CODE-05..09 + Dev → QA with real inference
+        model, qa_model = 'qwen2.5:7b-instruct', 'llama3.2:1b'
+        for m in (model, qa_model):  # cold load only, outside AXX; not counted as evidence
+            urllib.request.urlopen(urllib.request.Request('http://127.0.0.1:11434/api/generate', method='POST',
+                                   data=json.dumps({'model': m, 'keep_alive': '10m'}).encode()), timeout=300).read()
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             repo = git_repo(Path(tmp))
-            srv = _Server(Path(tmp), [provider('ollama-qwen', 'http://127.0.0.1:11434/v1', model)])
+            srv = _Server(Path(tmp), [provider('ollama-qwen', 'http://127.0.0.1:11434/v1', model),
+                                      provider('ollama-llama', 'http://127.0.0.1:11434/v1', qa_model)])
             try:
                 for flag in ('agent_profiles_v1', 'code_studio_v1', 'code_execution_v1'):
                     srv.rt.flags.set_flag(flag, True, reason='real act code test')
                 api = srv.api
                 api.request('POST', '/axx-api/agents/v1/profiles', act_spec('act-dev', 'Dev', 'Helix', 'ollama-qwen', model))
+                api.request('POST', '/axx-api/agents/v1/profiles', act_spec('act-qa', 'QA', 'Core', 'ollama-llama', qa_model, role='QA'))
+                api.request('POST', '/axx-api/agents/v1/profiles/permissions/grant', {
+                    'agent_id': 'act-qa', 'grant_id': 'g-review', 'tool_id': 'axx.code', 'operation_kinds': ['review'],
+                    'approval_mode': 'ask'})
                 api.request('POST', '/axx-api/agents/v1/profiles/permissions/grant', {
                     'agent_id': 'act-dev', 'grant_id': 'g-code', 'tool_id': 'axx.code',
                     'operation_kinds': ['worktree', 'patch', 'test', 'integrate'], 'approval_mode': 'ask'})
@@ -215,6 +268,11 @@ class ActCodeRealOllamaTests(unittest.TestCase):
                     'act_id': 'act-dev', 'project_id': 'proj', 'workspace_id': 'act-w1', 'report_id': 'r1', 'command': TESTS})
                 self.assertEqual(code, 200, run)
                 self.assertTrue(run['receipt']['passed'], run['receipt']['stderr_preview'])
+                code, rev = api.request('POST', '/axx-api/code/v1/changesets/review', {'act_id': 'act-qa', 'changeset_id': 'cs-1'})
+                self.assertEqual(code, 200, rev)
+                self.assertEqual(rev['review']['route']['responder_model'], qa_model)
+                self.assertTrue(rev['review']['route']['model_verified'])
+                print(f"\n[ACT-REVIEW-REAL] {qa_model} verdict={rev['review']['verdict']}:\n{rev['review']['summary'][:400]}")
                 code, done = api.request('POST', '/axx-api/code/v1/worktrees/integrate', {
                     'act_id': 'act-dev', 'changeset_id': 'cs-1', 'test_report_ids': ['r1']})
                 self.assertEqual(code, 200, done)

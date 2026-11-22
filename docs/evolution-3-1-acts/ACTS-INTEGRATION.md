@@ -35,6 +35,8 @@ Code Studio ──"Pedir a un Act"──► composer del chat (selección como d
 Code Studio ──"Delegar archivo al Act"──► /axx-api/code/v1/worktrees/create (act_id) ──► worktree axx/agent/<act>/<tarea>
             └► Axx.acts.chatAs ──► /axx-api/chat (modelo del Act) ──► archivo completo ──► worktrees/propose-apply
             └► GET changesets (diff) ──► tests/run en su worktree (recibo) ──► worktrees/integrate (grant + recibo)
+            └► "Pedir revisión" ──► changesets/review (Act QA) ──► AXX envía diff + recibos al modelo del QA ──► veredicto guardado
+            Progreso del equipo ──► notas de AXX en el chat existente (〔Dev〕 → 〔QA〕, veredicto, integración)
             Puerta: EvolutionHTTP._gate_act_code ──► ActInferenceService.authorize_code (grant axx.code por paso)
 ```
 
@@ -63,6 +65,12 @@ Reglas aplicadas:
   worktree y proyecto, y posteriores al cambio. La protección existente contra archivos sucios y la CAS por SHA-256 se mantienen.
 - **El modelo escribe datos, no permisos.** La respuesta del Act solo aporta el contenido del archivo. AXX lo aplica en el
   worktree, enseña el diff y pide confirmación antes de ejecutar pruebas y antes de integrar.
+- **Revisión por otro Act (Dev → QA).** `POST code/v1/changesets/review {act_id, changeset_id}`: el revisor necesita
+  `review` en su grant `axx.code` y nunca puede ser el autor. AXX, no el cliente, envía al modelo del revisor el diff y los
+  recibos de pruebas posteriores al cambio, con una política que trata ese contenido como datos. Solo vota la **primera
+  línea** (`VEREDICTO: APROBADO|CAMBIOS`); cualquier otra respuesta queda como `unclear`. El veredicto se guarda en
+  `code_changeset_reviews` con el modelo verificado. Si el Act autor tiene `collaboration.review_required`, integrar exige que
+  la **última** revisión sea `approved` y de otro Act. Se publican `handoff.created` (autor → revisor) y `handoff.completed`.
 - **Eventos.** Cada paso autorizado publica `tool.dispatched` (`kind: act_code`, operación, ruta, proyecto) cuando la
   petición trae `conversation_id`.
 
@@ -73,7 +81,7 @@ Reglas aplicadas:
 - `/axx-api/chat`: entrada `act_id`, `act_revision`; salida `axx_act`. Errores: `ACT_NOT_FOUND` 404, `ACT_DISABLED` 403, `ACT_STALE_REVISION` 409, `ACT_MODEL_UNSET`/`ACT_TRANSPORT_MISMATCH` 400, `MODEL_MISMATCH` 502.
 - `/axx-api/connect/start`: entrada `act_id`, `act_revision`. `act_thread` lo asigna solo el servidor (si llega del cliente: 400).
 - Rutas nuevas bajo el flag existente: `GET agents/v1/catalog`, `GET|POST agents/v1/profiles/permissions[/grant|/revoke]`, `POST agents/v1/profiles/preview`, `GET|POST agents/v1/teams`. La revocación siempre se permite (ruta de limpieza).
-- Code Studio: entrada opcional `act_id` (y `test_report_ids` en `worktrees/integrate`) en las rutas existentes; nuevo `GET code/v1/changesets?changeset_id=` (cambio + diffs); el recibo de pruebas añade `created_at_ms`. Grant nuevo por convención: `tool_id: axx.code`. Sin tablas nuevas. Errores de la puerta: 403 `FORBIDDEN`, 404 si el Act/recibo no existe.
+- Code Studio: entrada opcional `act_id` (y `test_report_ids` en `worktrees/integrate`) en las rutas existentes; nuevo `GET code/v1/changesets?changeset_id=` (cambio + diffs); el recibo de pruebas añade `created_at_ms`. Grant nuevo por convención: `tool_id: axx.code` (`worktree|patch|test|integrate|review`). Nueva ruta `POST code/v1/changesets/review`; `GET code/v1/changesets` añade `reviews`. Tabla nueva aditiva `code_changeset_reviews` (CREATE IF NOT EXISTS). Errores de la puerta: 403 `FORBIDDEN`, 404 si el Act/recibo no existe.
 - `/v1` móvil y `design-baseline.json`: sin cambios (`companion_contract.check_contract` OK).
 
 ## 4. Archivos
@@ -101,8 +109,9 @@ Reglas aplicadas:
 |---|---|
 | `pytest backend/tests/test_acts_inference.py` | 7 passed + 1 real (Ollama) passed en ejecución separada (62 s) |
 | `pytest backend/tests/test_acts_ui.py` | 2 passed (Playwright, `Axx.html` real, backend real; el segundo: permiso `axx.code` → delegar → diff → pruebas → integrar) |
-| `pytest backend/tests/test_acts_code_tools.py` | 1 passed (controlado) + 1 real passed: `qwen2.5:7b-instruct` escribió la corrección, pasó las pruebas en su worktree y se integró (49 s) |
+| `pytest backend/tests/test_acts_code_tools.py` | 2 passed (controlado: herramientas + revisión QA) + 1 real passed (60 s): `qwen2.5:7b-instruct` escribió la corrección, pasó las pruebas en su worktree, `llama3.2:1b` la revisó como QA y se integró |
 | **Regresión completa** `pytest backend/tests` (incremento de herramientas de código, Ollama activo) | **1757 passed, 14 skipped, 0 failed**, 1188 subtests (23 min). Skips: fixtures nativos opcionales (Edge, Office, Blender, OCR privado, symlinks) |
+| **Regresión completa** tras la revisión Dev → QA (Ollama activo) | **1758 passed, 14 skipped, 0 failed**, 1188 subtests (30 min) |
 | Regresión: agentes, auditoría HTTP, auditoría funcional, rutinas, smoke, `backend/connect/tests`, Code Studio core/UI/recovery, task graph, Acts | 188 passed, 1 skipped, 3 failed → ver abajo |
 | `node test-providers / test-static-assets / test-chat-usability / test-desktop-frontend` | PASS |
 | `companion_contract.check_contract` | OK |
@@ -112,6 +121,20 @@ Las 3 fallas de la regresión, comprobadas contra la base `1f026a0` en un worktr
 - `test_evolution3_full_functional_audit::test_02` y `test_provider_capability::test_invalid_images…`: timeouts bajo carga (la misma ejecución incluía el modelo 7B). Ejecutadas aisladas en esta rama: **2 passed**.
 - `test_code_studio_ui`: el worktree no tenía el bundle Monaco generado (`1.AXX/scripts/vendor`, ignorado por git). Copiado desde el worktree de Codex: **passed**. Para reproducirlo en limpio: `npm ci` y `node scripts/prepare-monaco.cjs`.
 - Además, `test-axx-connect.cjs` falla con `axx-translation-` **también en la base**: es preexistente y no lo introduce este cambio.
+
+Evidencia real de Dev → QA (salida de la prueba, recortada):
+
+```
+[ACT-CODE-REAL] qwen2.5:7b-instruct wrote calc.py:
+def add(a, b):
+    return a + b
+[ACT-REVIEW-REAL] llama3.2:1b verdict=changes:
+VEREDICTO: CAMBIOS
+La modificación ... ha alterado su comportamiento con respecto a la suma. ...
+```
+
+El revisor de 1B pidió cambios sobre una corrección correcta y con pruebas superadas. AXX guarda el veredicto tal cual: la
+calidad de la revisión depende del modelo que el propietario asigne al Act QA.
 
 Evidencia de inferencia real (salida de la prueba):
 
@@ -140,7 +163,7 @@ Entorno: Windows 11, Python 3.12, Chromium (Playwright), servidor AXX lanzado po
 | ACT-10 cambio de modelo sin hilo viejo | PASS (router) | Revisión vieja → 409; la nueva usa `model-beta`. Codex: clave de hilo por Act + D05 existente, solo SOURCE. |
 | ACT-11 Team con dos Acts | PASS | `POST/GET agents/v1/teams`; sin permisos implícitos. |
 | ACT-12 modelos independientes | PASS parcial | Dos modelos reales distintos del mismo motor (Ollama). Multiproveedor: EXTERNAL_BLOCKED. |
-| ACT-13 handoffs/progreso en el chat | PARCIAL | Eventos `run.*` por Act en EventHub/SSE; el chat muestra la etiqueta `〔Act〕` y el estado. Falta la vista de handoffs. |
+| ACT-13 handoffs/progreso en el chat | PASS (Dev → QA en Code Studio) | `handoff.created/completed` en EventHub y notas de AXX en el chat existente: cambio aplicado, pruebas, traspaso a QA, veredicto e integración. Sin vista dedicada de handoffs para otros flujos. |
 | ACT-14 revocar → bloquear | PASS | Grant/revocación por HTTP; la siguiente resolución no concede herramientas. El bloqueo en el despacho está en el código, pero no se ejercitó con una herramienta real. |
 | CODE-01/02 Monaco + proyecto real | PASS | `test_code_studio_ui` (Codex). |
 | CODE-03 selección → Act | PARCIAL | "Pedir a un Act" coloca la selección en el chat y el Act responde con su modelo. Sin prueba de UI propia. |
@@ -148,7 +171,7 @@ Entorno: Windows 11, Python 3.12, Chromium (Playwright), servidor AXX lanzado po
 | CODE-05 parche escrito por el modelo del Act | PASS | Controlado + **real**: `qwen2.5:7b-instruct` escribió la corrección por `/axx-api/chat` con `model_verified`. Solo cambia el worktree. |
 | CODE-06 diff | PASS | `GET code/v1/changesets` y editor de diferencias de Monaco (UI). |
 | CODE-07 pruebas en su worktree | PASS | Subprocesos reales del runner supervisado: falla antes del parche y pasa después. |
-| CODE-08 revisión | PASS (propietario) | El propietario revisa el diff y confirma pruebas e integración. No hay todavía revisión por un segundo Act (QA). |
+| CODE-08 revisión | PASS | El propietario revisa el diff. Revisión por un Act QA ejecutada por AXX: controlada (aprobado/cambios/sin veredicto) y **real** (`llama3.2:1b` revisó el cambio de `qwen2.5:7b-instruct` con modelo verificado). Con `review_required`, sin aprobación de otro Act → 403. |
 | CODE-09 integración | PASS | Sin grant `integrate`, sin recibos, con recibo fallido o anterior al cambio → 403. Con recibo válido, el archivo del proyecto coincide con el SHA propuesto. |
 | CODE-10 aislamiento y revocación | PASS | Otro Act no puede parchear ni probar en ese worktree; `changesets/*` vetado; revocar bloquea el siguiente paso; las acciones del propietario siguen igual. |
 | CODE-11..14 borradores, recuperación multiarchivo, ediciones externas, metadatos Git | PASS | Pruebas recuperadas de Codex (31 passed). |
@@ -157,11 +180,11 @@ Entorno: Windows 11, Python 3.12, Chromium (Playwright), servidor AXX lanzado po
 | VISUAL-01 24 formas × 9 paletas | PARCIAL | Catálogo y validación completos. Las miniaturas son el SVG genérico del backend, no del renderer real de AXX. |
 | VISUAL-02 renderer principal intacto | SOURCE_VERIFIED | Ningún archivo del renderer modificado; línea base de diseño OK. |
 | VISUAL-03 rendimiento | PENDIENTE | No medido. |
-| Demo final Dev/Visual/QA | NO ALCANZADA | CODE-04..10 ya funcionan con un Act. Faltan la orquestación de equipo desde el chat (Dev → Visual → QA), la revisión por un Act QA y la aceptación nativa. |
+| Demo final Dev/Visual/QA | NO ALCANZADA | Dev → QA funciona desde Code Studio con el progreso en el chat. Faltan el Act Visual (Magic Pen/3D), lanzar el equipo con una sola frase escrita en el chat y la aceptación nativa. |
 
 ## 7. Funciones no disponibles en este incremento
 
-Vista de handoffs en el chat. Ejecución de equipo desde una sola frase con TaskGraph. Miniaturas desde el renderer real. Voz por Act conectada al TTS (los campos se guardan, el motor aún no los lee). Límites del ResourceGovernor por Act. Scheduler de rutinas. LSP/DAP reales. Computer Use por Act.
+Vista dedicada de handoffs fuera de Code Studio. Act Visual en el equipo. Ejecución de equipo desde una sola frase con TaskGraph. Miniaturas desde el renderer real. Voz por Act conectada al TTS (los campos se guardan, el motor aún no los lee). Límites del ResourceGovernor por Act. Scheduler de rutinas. LSP/DAP reales. Computer Use por Act.
 
 ## 8. Rollback
 

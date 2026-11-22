@@ -166,6 +166,12 @@ class SupervisedTestRunner:
                 )
         return receipt
 
+    def list_receipts(self, workspace_id: str, *, since_ms: int = 0) -> list[dict[str, Any]]:
+        with self.projects.lock, self.projects._connect() as db:
+            ids = [r[0] for r in db.execute('SELECT report_id FROM code_test_receipts WHERE workspace_id=? AND created_at_ms>=? '
+                                            'ORDER BY created_at_ms', (workspace_id, since_ms))]
+        return [self.get_receipt(report_id) for report_id in ids]
+
     def get_receipt(self, report_id: str) -> dict[str, Any]:
         with self.projects.lock, self.projects._connect() as db:
             row = db.execute(

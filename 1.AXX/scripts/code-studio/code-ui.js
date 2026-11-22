@@ -14,7 +14,7 @@
     <div data-code="editor" class="axx-code-editor" aria-label="Editor de código"></div>
     <div data-code="diff-editor" class="axx-code-editor" aria-label="Comparación de cambios" hidden></div>
     <details><summary>Git y pruebas</summary><div class="quick-row"><button data-code="git" type="button">Estado Git</button><button data-code="worktree" type="button">Crear worktree</button><button data-code="test" type="button">Ejecutar pruebas Python</button></div>
-      <div class="quick-row"><label class="setting">Act<select data-code="act"><option value="">Sin Acts</option></select></label><button data-code="act-task" type="button" disabled>Delegar archivo al Act</button><button data-code="act-test" type="button" hidden>Probar en su worktree</button><button data-code="act-integrate" type="button" hidden>Integrar trabajo del Act</button></div></details>
+      <div class="quick-row"><label class="setting">Act<select data-code="act"><option value="">Sin Acts</option></select></label><button data-code="act-task" type="button" disabled>Delegar archivo al Act</button><button data-code="act-test" type="button" hidden>Probar en su worktree</button><label class="setting" data-code="review-row" hidden>Revisor<select data-code="reviewer"></select></label><button data-code="act-review" type="button" hidden>Pedir revisión</button><button data-code="act-integrate" type="button" hidden>Integrar trabajo del Act</button></div></details>
     <pre data-code="output" class="axx-code-output" tabindex="0" hidden></pre>`;
   const entry = document.createElement('button'); entry.type = 'button'; entry.textContent = 'Abrir Code Studio';
   entry.className = 'axx-code-entry';
@@ -245,6 +245,8 @@
   });
   // ---- Act work: its own worktree and grant; its model writes the file, AXX applies, tests and integrates (CODE-04..10) ----
   let actWork = null;
+  // Team progress is written into the existing chat as AXX notes; only results AXX verified are reported there.
+  function chatNote(text) { const c = Axx.companion; if (!c?.message) return; c.message('assistant', text, 'local'); c.renderChat(); c.save(); }
   function syncActs() {
     const acts = (Axx.acts?.acts || []).filter(a => a.enabled), current = ui('act').value;
     ui('act').replaceChildren(...(acts.length ? acts : [{agent_id:'',name:'Sin Acts'}]).map(a => new Option(a.name, a.agent_id, false, a.agent_id === current)));
@@ -280,7 +282,8 @@
     showDiff(disk.content, monaco.editor.createModel(content, lang), tab.path);
     output('Cambio de ' + act.name + ' (modelo verificado: ' + (reply.route?.act?.model_verified ? 'sí' : 'no') + ') aplicado en su worktree\n'
       + wt.worktree_path + '\n\n' + view.diffs.files.map(f => f.diff_text).join('\n'));
-    ui('act-test').hidden = false; ui('act-integrate').hidden = true;
+    ui('act-test').hidden = false; ui('act-integrate').hidden = true; ui('act-review').hidden = true; ui('review-row').hidden = true;
+    chatNote('〔' + act.name + '〕 Cambio en ' + tab.path + ' aplicado en su worktree (' + changeset + '). El proyecto no ha cambiado.');
     status('Revisa el diff. El proyecto no ha cambiado; prueba el cambio en el worktree del Act.');
   });
   ui('act-test').onclick = () => attempt(async () => {
@@ -290,10 +293,29 @@
     const report = 'test-' + crypto.randomUUID();
     const result = await api('POST','tests/run',{act_id:actWork.act.agent_id,project_id:actWork.tab.project_id,workspace_id:actWork.workspace_id,
       report_id:report,command:['python','-m','unittest','discover','-v']});
-    actWork.report_id = result.receipt.passed ? report : null;
+    actWork.report_id = result.receipt.passed ? report : null; actWork.approved = false;
     output('Salida: ' + result.receipt.exit_code + '\n' + result.receipt.stdout_preview + '\n' + result.receipt.stderr_preview);
-    ui('act-integrate').hidden = !result.receipt.passed;
-    status(result.receipt.passed ? 'Pruebas superadas en el worktree. Puedes integrar el cambio.' : 'Las pruebas fallaron; el cambio no se puede integrar.');
+    const reviewers = (Axx.acts?.acts || []).filter(a => a.enabled && a.agent_id !== actWork.act.agent_id);
+    ui('reviewer').replaceChildren(...reviewers.map(a => new Option(a.name, a.agent_id)));
+    ui('review-row').hidden = ui('act-review').hidden = !result.receipt.passed || !reviewers.length;
+    ui('act-integrate').hidden = !result.receipt.passed || !!actWork.act.collaboration?.review_required;
+    chatNote('〔' + actWork.act.name + '〕 Pruebas en su worktree: ' + (result.receipt.passed ? 'superadas' : 'fallidas (código ' + result.receipt.exit_code + ')') + '.');
+    status(result.receipt.passed ? (actWork.act.collaboration?.review_required ? 'Pruebas superadas. Este Act exige revisión de otro Act antes de integrar.'
+      : 'Pruebas superadas en el worktree. Puedes integrar el cambio o pedir revisión.') : 'Las pruebas fallaron; el cambio no se puede integrar.');
+  });
+  ui('act-review').onclick = () => attempt(async () => {
+    const reviewer = (Axx.acts?.acts || []).find(a => a.agent_id === ui('reviewer').value);
+    if (!actWork?.report_id || !reviewer) return;
+    status(actWork.act.name + ' pasa el cambio a ' + reviewer.name + ' para revisión…');
+    chatNote('〔' + actWork.act.name + '〕 → 〔' + reviewer.name + '〕 Revisión de ' + actWork.changeset_id + ' con diff y resultado de pruebas.');
+    const {review} = await api('POST','changesets/review',{act_id:reviewer.agent_id,changeset_id:actWork.changeset_id,
+      conversation_id:Axx.chatWorkspace?.active?.id});
+    actWork.approved = review.verdict === 'approved';
+    const label = {approved:'APROBADO', changes:'CAMBIOS', unclear:'SIN VEREDICTO CLARO'}[review.verdict];
+    output('Revisión de ' + reviewer.name + ' (' + review.model + ', modelo verificado): ' + label + '\n\n' + review.summary);
+    chatNote('〔' + reviewer.name + '〕 ' + review.summary);
+    ui('act-integrate').hidden = !actWork.approved && !!actWork.act.collaboration?.review_required;
+    status(actWork.approved ? reviewer.name + ' aprobó el cambio.' : reviewer.name + ' no aprobó el cambio: ' + label + '.');
   });
   ui('act-integrate').onclick = () => attempt(async () => {
     if (!actWork?.report_id) return;
@@ -301,6 +323,8 @@
     await api('POST','worktrees/integrate',{act_id:actWork.act.agent_id,changeset_id:actWork.changeset_id,test_report_ids:[actWork.report_id]});
     const tab = actWork.tab; actWork = null; ui('act-test').hidden = true; ui('act-integrate').hidden = true;
     if (tabs.get(active) === tab && !tab.dirty) ui('reload').click();
+    ui('act-review').hidden = ui('review-row').hidden = true;
+    chatNote('Cambio integrado en ' + tab.path + ' tras pruebas superadas.');
     status('Cambio integrado y verificado contra el disco.');
   });
   window.addEventListener('beforeunload', event => { if ([...tabs.values()].some(tab => tab.dirty)) { event.preventDefault(); event.returnValue = ''; } });

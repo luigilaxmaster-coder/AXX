@@ -7,7 +7,7 @@
   if (!Axx?.isNative?.() || !Axx.companion || !document.getElementById('view-agent')) return;
   const c = Axx.companion;
   const api = (method, path, body) => Axx.backendRequest(method, '/axx-api/agents/v1/' + path, body);
-  const CONNECT = 'axx-connect', TOOL = 'axx.commands', CODE = 'axx.code', CODE_OPS = ['worktree', 'patch', 'test', 'integrate'];
+  const CONNECT = 'axx-connect', TOOL = 'axx.commands', CODE = 'axx.code', CODE_OPS = ['worktree', 'patch', 'test', 'integrate', 'review'];
   const FORMS = ['Core', 'Flow', 'Pearl', 'Torus', 'Split', 'Wave', 'Bloom', 'Fold', 'Spike', 'Drift', 'Orbit', 'Morph',
     'Cushion', 'Trefoil', 'Nova', 'Heart', 'Infinity', 'Helix', 'Knot', 'Petal', 'Prism', 'Capsule', 'Crescent', 'Ripple'];
   const PALETTES = ['Obsidian', 'Nebula', 'Ocean', 'Sunset', 'Amethyst', 'Emerald', 'Champagne', 'Silver', 'Void'];
@@ -214,7 +214,8 @@
           field('Crear su worktree', control('codeOps.worktree', 'checkbox')),
           field('Aplicar parches en su worktree', control('codeOps.patch', 'checkbox')),
           field('Ejecutar pruebas en su worktree', control('codeOps.test', 'checkbox')),
-          field('Integrar en el proyecto tras pruebas superadas', control('codeOps.integrate', 'checkbox')))];
+          field('Integrar en el proyecto tras pruebas superadas', control('codeOps.integrate', 'checkbox')),
+          field('Revisar cambios de otros Acts', control('codeOps.review', 'checkbox')))];
       case 'computer': return [field('Entorno', control('workspace.runtime', 'select', {pairs: [['none', 'Ninguno'], ['api', 'Archivos/API'], ['browser', 'Navegador aislado'],
         ['window_background', 'Ventana en segundo plano'], ['host_foreground', 'Primer plano (con reserva)'], ['isolated_vm', 'VM aislada'], ['remote', 'Remoto']]})),
         field('Política de foco', control('workspace.foreground_policy', 'select', {pairs: [['deny', 'Rechazar'], ['ask', 'Preguntar'], ['queue', 'Esperar'], ['isolated_only', 'Solo aislado']]}))];

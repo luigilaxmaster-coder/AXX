@@ -14,7 +14,7 @@ from backend.agents.registry import AgentNotFoundError
 CONNECT_PROVIDER_REF = 'axx-connect'  # intelligence.provider_profile_ref for the ChatGPT/Codex runtime
 CHAT_TOOL_ID = 'axx.commands'          # grant needed before an Act may receive AXX command tools
 CODE_TOOL_ID = 'axx.code'              # grant for Code Studio work; operation_kinds pick the steps it covers
-CODE_OPERATIONS = ('worktree', 'patch', 'test', 'integrate')
+CODE_OPERATIONS = ('worktree', 'patch', 'test', 'integrate', 'review')
 
 _PERSONALITY_TEXT = {
     'formality': {'casual': 'Usa un tono cercano.', 'neutral': 'Usa un tono neutral.', 'formal': 'Usa un tono formal.'},
