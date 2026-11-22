@@ -126,6 +126,80 @@ class AgentProfileValidationError(ValueError):
     """Raised when an AgentProfile violates schema, appearance, or secret-hygiene rules."""
 
 
+def _form_svg_geometry(form_id: int, cx: int, cy: int, s: int, accent: str, glow: str, mat: str) -> str:
+    """Return distinct parametric SVG silhouette matching each of the 24 canonical AXX forms."""
+    import math
+    r = s * 0.27
+    stroke_w = max(1.6, round(s * 0.018, 2))
+    fill_op = {'optical_glass': '0.35', 'iridescent_pearl': '0.88', 'brushed_titanium': '0.78',
+               'velvet_matte': '0.92', 'bioluminescent_gel': '0.68'}.get(mat, '0.82')
+    gid = f'g{form_id}'
+    if form_id == 0:  # Core: layered magnetic sphere
+        return f'<circle cx="{cx}" cy="{cy}" r="{r:.1f}" fill="url(#{gid})" fill-opacity="{fill_op}" stroke="{accent}" stroke-width="{stroke_w}"/>'
+    if form_id == 1:  # Flow: sweeping fluid ribbons
+        return f'<path d="M{cx-r:.1f} {cy} C{cx-r*0.5:.1f} {cy-r*1.1:.1f},{cx+r*0.5:.1f} {cy+r*1.1:.1f},{cx+r:.1f} {cy} C{cx+r*0.5:.1f} {cy-r*0.9:.1f},{cx-r*0.5:.1f} {cy+r*0.9:.1f},{cx-r:.1f} {cy}Z" fill="url(#{gid})" fill-opacity="{fill_op}" stroke="{accent}" stroke-width="{stroke_w}"/>'
+    if form_id == 2:  # Pearl: specular nested pearl orb
+        return f'<circle cx="{cx}" cy="{cy}" r="{r*0.95:.1f}" fill="url(#{gid})" fill-opacity="0.92" stroke="{accent}" stroke-width="{stroke_w}"/><ellipse cx="{cx-r*0.28:.1f}" cy="{cy-r*0.3:.1f}" rx="{r*0.28:.1f}" ry="{r*0.16:.1f}" fill="#ffffff" fill-opacity="0.45"/>'
+    if form_id == 3:  # Torus: thick metallic ring
+        return f'<circle cx="{cx}" cy="{cy}" r="{r*0.76:.1f}" fill="none" stroke="url(#{gid})" stroke-width="{r*0.42:.1f}"/><circle cx="{cx}" cy="{cy}" r="{r*0.97:.1f}" fill="none" stroke="{accent}" stroke-width="1.2" opacity="0.7"/>'
+    if form_id == 4:  # Split: twin counter-balanced halves
+        return f'<path d="M{cx-2} {cy-r:.1f} A{r:.1f} {r:.1f} 0 0 0 {cx-2} {cy+r:.1f}Z M{cx+2} {cy-r:.1f} A{r:.1f} {r:.1f} 0 0 1 {cx+2} {cy+r:.1f}Z" fill="url(#{gid})" fill-opacity="{fill_op}" stroke="{accent}" stroke-width="{stroke_w}"/>'
+    if form_id == 5:  # Wave: harmonic dual crest
+        return f'<path d="M{cx-r*1.15:.1f} {cy} Q{cx-r*0.55:.1f} {cy-r:.1f},{cx} {cy} T{cx+r*1.15:.1f} {cy} Q{cx+r*0.55:.1f} {cy+r*0.9:.1f},{cx} {cy} T{cx-r*1.15:.1f} {cy}Z" fill="url(#{gid})" fill-opacity="{fill_op}" stroke="{accent}" stroke-width="{stroke_w}"/>'
+    if form_id == 6:  # Bloom: 6-petal radiant blossom
+        petals = ''.join(
+            f'<ellipse cx="{cx + math.cos(a)*r*0.46:.1f}" cy="{cy + math.sin(a)*r*0.46:.1f}" rx="{r*0.44:.1f}" ry="{r*0.24:.1f}" transform="rotate({math.degrees(a):.1f} {cx + math.cos(a)*r*0.46:.1f} {cy + math.sin(a)*r*0.46:.1f})" fill="url(#{gid})" fill-opacity="0.72" stroke="{accent}" stroke-width="1.1"/>'
+            for a in (k * math.pi / 3 for k in range(6))
+        )
+        return petals + f'<circle cx="{cx}" cy="{cy}" r="{r*0.28:.1f}" fill="{accent}"/>'
+    if form_id == 7:  # Fold: faceted origami fold
+        return f'<polygon points="{cx},{cy-r*1.05:.1f} {cx+r:.1f},{cy-r*0.1:.1f} {cx+r*0.45:.1f},{cy+r:.1f} {cx-r*0.65:.1f},{cy+r*0.75:.1f} {cx-r:.1f},{cy-r*0.2:.1f}" fill="url(#{gid})" fill-opacity="{fill_op}" stroke="{accent}" stroke-width="{stroke_w}"/><line x1="{cx}" y1="{cy-r*1.05:.1f}" x2="{cx}" y2="{cy+r*0.85:.1f}" stroke="{accent}" stroke-width="1.1" opacity="0.65"/>'
+    if form_id == 8:  # Spike: 8-point crystalline star
+        pts = ' '.join(
+            f'{cx + math.cos(k*math.pi/8)*(r*1.12 if k%2==0 else r*0.46):.1f},{cy + math.sin(k*math.pi/8)*(r*1.12 if k%2==0 else r*0.46):.1f}'
+            for k in range(16)
+        )
+        return f'<polygon points="{pts}" fill="url(#{gid})" fill-opacity="{fill_op}" stroke="{accent}" stroke-width="{stroke_w}"/>'
+    if form_id == 9:  # Drift: asymmetric droplet cloud
+        return f'<path d="M{cx-r*0.9:.1f} {cy+r*0.25:.1f} C{cx-r*1.1:.1f} {cy-r*0.65:.1f},{cx+r*0.2:.1f} {cy-r*1.15:.1f},{cx+r*0.9:.1f} {cy-r*0.2:.1f} C{cx+r*1.2:.1f} {cy+r*0.7:.1f},{cx-r*0.2:.1f} {cy+r*1.1:.1f},{cx-r*0.9:.1f} {cy+r*0.25:.1f}Z" fill="url(#{gid})" fill-opacity="{fill_op}" stroke="{accent}" stroke-width="{stroke_w}"/>'
+    if form_id == 10:  # Orbit: core + inclined orbital rings
+        return f'<ellipse cx="{cx}" cy="{cy}" rx="{r*1.15:.1f}" ry="{r*0.36:.1f}" transform="rotate(-24 {cx} {cy})" fill="none" stroke="{accent}" stroke-width="1.6"/><ellipse cx="{cx}" cy="{cy}" rx="{r*1.15:.1f}" ry="{r*0.36:.1f}" transform="rotate(24 {cx} {cy})" fill="none" stroke="{glow}" stroke-width="1.4"/><circle cx="{cx}" cy="{cy}" r="{r*0.48:.1f}" fill="url(#{gid})" stroke="{accent}" stroke-width="1.4"/>'
+    if form_id == 11:  # Morph: fluid squircle lobe
+        return f'<path d="M{cx} {cy-r:.1f} C{cx+r*0.85:.1f} {cy-r*0.95:.1f},{cx+r*1.1:.1f} {cy+r*0.25:.1f},{cx+r*0.55:.1f} {cy+r*0.85:.1f} C{cx-r*0.1:.1f} {cy+r*1.15:.1f},{cx-r*1.05:.1f} {cy+r*0.65:.1f},{cx-r*0.85:.1f} {cy-r*0.3:.1f} C{cx-r*0.7:.1f} {cy-r*0.85:.1f},{cx-r*0.35:.1f} {cy-r:.1f},{cx} {cy-r:.1f}Z" fill="url(#{gid})" fill-opacity="{fill_op}" stroke="{accent}" stroke-width="{stroke_w}"/>'
+    if form_id == 12:  # Cushion: rounded tetrahedral pillow
+        return f'<rect x="{cx-r*0.86:.1f}" y="{cy-r*0.86:.1f}" width="{r*1.72:.1f}" height="{r*1.72:.1f}" rx="{r*0.48:.1f}" transform="rotate(15 {cx} {cy})" fill="url(#{gid})" fill-opacity="{fill_op}" stroke="{accent}" stroke-width="{stroke_w}"/>'
+    if form_id == 13:  # Trefoil: three interlocked lobes
+        return ''.join(
+            f'<circle cx="{cx + math.cos(a)*r*0.42:.1f}" cy="{cy + math.sin(a)*r*0.42:.1f}" r="{r*0.48:.1f}" fill="url(#{gid})" fill-opacity="0.72" stroke="{accent}" stroke-width="1.3"/>'
+            for a in (-math.pi / 2, math.pi / 6, 5 * math.pi / 6)
+        )
+    if form_id == 14:  # Nova: sunburst core
+        rays = ''.join(
+            f'<line x1="{cx + math.cos(k*math.pi/6)*r*0.5:.1f}" y1="{cy + math.sin(k*math.pi/6)*r*0.5:.1f}" x2="{cx + math.cos(k*math.pi/6)*r*1.12:.1f}" y2="{cy + math.sin(k*math.pi/6)*r*1.12:.1f}" stroke="{accent}" stroke-width="1.8" stroke-linecap="round"/>'
+            for k in range(12)
+        )
+        return rays + f'<circle cx="{cx}" cy="{cy}" r="{r*0.55:.1f}" fill="url(#{gid})" stroke="{accent}" stroke-width="{stroke_w}"/>'
+    if form_id == 15:  # Heart: sculpted geometric cardioid
+        return f'<path d="M{cx} {cy+r*0.95:.1f} C{cx-r*1.2:.1f} {cy+r*0.2:.1f},{cx-r*1.05:.1f} {cy-r*0.95:.1f},{cx} {cy-r*0.35:.1f} C{cx+r*1.05:.1f} {cy-r*0.95:.1f},{cx+r*1.2:.1f} {cy+r*0.2:.1f},{cx} {cy+r*0.95:.1f}Z" fill="url(#{gid})" fill-opacity="{fill_op}" stroke="{accent}" stroke-width="{stroke_w}"/>'
+    if form_id == 16:  # Infinity: continuous lemniscate ribbon
+        return f'<path d="M{cx} {cy} C{cx-r*0.5:.1f} {cy-r*0.85:.1f},{cx-r*1.25:.1f} {cy-r*0.5:.1f},{cx-r*1.05:.1f} {cy} C{cx-r*1.25:.1f} {cy+r*0.5:.1f},{cx-r*0.5:.1f} {cy+r*0.85:.1f},{cx} {cy} C{cx+r*0.5:.1f} {cy-r*0.85:.1f},{cx+r*1.25:.1f} {cy-r*0.5:.1f},{cx+r*1.05:.1f} {cy} C{cx+r*1.25:.1f} {cy+r*0.5:.1f},{cx+r*0.5:.1f} {cy+r*0.85:.1f},{cx} {cy}Z" fill="none" stroke="url(#{gid})" stroke-width="{r*0.26:.1f}" stroke-linecap="round"/>'
+    if form_id == 17:  # Helix: intertwined double strand
+        return f'<path d="M{cx-r*0.55:.1f} {cy-r:.1f} C{cx+r*0.85:.1f} {cy-r*0.35:.1f},{cx-r*0.85:.1f} {cy+r*0.35:.1f},{cx+r*0.55:.1f} {cy+r:.1f}" fill="none" stroke="{accent}" stroke-width="{r*0.22:.1f}" stroke-linecap="round"/><path d="M{cx+r*0.55:.1f} {cy-r:.1f} C{cx-r*0.85:.1f} {cy-r*0.35:.1f},{cx+r*0.85:.1f} {cy+r*0.35:.1f},{cx-r*0.55:.1f} {cy+r:.1f}" fill="none" stroke="url(#{gid})" stroke-width="{r*0.22:.1f}" stroke-linecap="round"/>'
+    if form_id == 18:  # Knot: torus-knot weave
+        return f'<ellipse cx="{cx}" cy="{cy}" rx="{r*0.95:.1f}" ry="{r*0.44:.1f}" transform="rotate(60 {cx} {cy})" fill="none" stroke="{glow}" stroke-width="{r*0.2:.1f}"/><ellipse cx="{cx}" cy="{cy}" rx="{r*0.95:.1f}" ry="{r*0.44:.1f}" transform="rotate(-60 {cx} {cy})" fill="none" stroke="{accent}" stroke-width="{r*0.2:.1f}"/><ellipse cx="{cx}" cy="{cy}" rx="{r*0.95:.1f}" ry="{r*0.44:.1f}" fill="none" stroke="url(#{gid})" stroke-width="{r*0.18:.1f}"/>'
+    if form_id == 19:  # Petal: sculpted curved blade
+        return f'<path d="M{cx} {cy-r*1.05:.1f} C{cx+r*0.95:.1f} {cy-r*0.45:.1f},{cx+r*0.8:.1f} {cy+r*0.7:.1f},{cx} {cy+r*1.05:.1f} C{cx-r*0.8:.1f} {cy+r*0.7:.1f},{cx-r*0.95:.1f} {cy-r*0.45:.1f},{cx} {cy-r*1.05:.1f}Z" fill="url(#{gid})" fill-opacity="{fill_op}" stroke="{accent}" stroke-width="{stroke_w}"/>'
+    if form_id == 20:  # Prism: hexagonal diamond facet
+        pts = ' '.join(f'{cx + math.cos(k*math.pi/3 - math.pi/6)*r:.1f},{cy + math.sin(k*math.pi/3 - math.pi/6)*r:.1f}' for k in range(6))
+        return f'<polygon points="{pts}" fill="url(#{gid})" fill-opacity="{fill_op}" stroke="{accent}" stroke-width="{stroke_w}"/><polygon points="{cx},{cy-r:.1f} {cx+r*0.86:.1f},{cy+r*0.5:.1f} {cx-r*0.86:.1f},{cy+r*0.5:.1f}" fill="none" stroke="#ffffff" stroke-opacity="0.35" stroke-width="1"/>'
+    if form_id == 21:  # Capsule: angled aerodynamic stadium pill
+        return f'<rect x="{cx-r*0.52:.1f}" y="{cy-r:.1f}" width="{r*1.04:.1f}" height="{r*2:.1f}" rx="{r*0.52:.1f}" transform="rotate(28 {cx} {cy})" fill="url(#{gid})" fill-opacity="{fill_op}" stroke="{accent}" stroke-width="{stroke_w}"/>'
+    if form_id == 22:  # Crescent: razor lunar arc
+        return f'<path d="M{cx+r*0.35:.1f} {cy-r*0.95:.1f} A{r:.1f} {r:.1f} 0 1 0 {cx+r*0.35:.1f} {cy+r*0.95:.1f} A{r*0.72:.1f} {r*0.82:.1f} 0 1 1 {cx+r*0.35:.1f} {cy-r*0.95:.1f}Z" fill="url(#{gid})" fill-opacity="{fill_op}" stroke="{accent}" stroke-width="{stroke_w}"/>'
+    # form_id == 23: Ripple: concentric acoustic rings
+    return f'<circle cx="{cx}" cy="{cy}" r="{r*1.02:.1f}" fill="none" stroke="{glow}" stroke-width="1.5" opacity="0.55"/><circle cx="{cx}" cy="{cy}" r="{r*0.72:.1f}" fill="none" stroke="{accent}" stroke-width="2" opacity="0.8"/><circle cx="{cx}" cy="{cy}" r="{r*0.38:.1f}" fill="url(#{gid})" stroke="{accent}" stroke-width="1.4"/>'
+
+
 class AvatarFormAdapter:
     """Adapter for the 24 canonical AXX forms and 9 palettes with cached 128-256px SVG thumbnails (AGENT-02)."""
 
@@ -171,19 +245,22 @@ class AvatarFormAdapter:
         form_name = CANONICAL_AXX_FORMS[form_id]
         palette = CANONICAL_AXX_PALETTES[palette_id]
         cx = size_px // 2
-        cy = size_px // 2
-        r_outer = int(size_px * 0.36)
-        r_inner = int(size_px * 0.18) + (form_id % 7)
+        cy = int(size_px * 0.45)
+        r_outer = int(size_px * 0.38)
+        gid = f'g{form_id}'
+        shape_svg = _form_svg_geometry(form_id, cx, cy, size_px, palette['accent'], palette['glow'], mat)
 
         svg = (
             f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {size_px} {size_px}" width="{size_px}" height="{size_px}" '
             f'data-form-id="{form_id}" data-form-name="{html.escape(form_name)}" data-palette-id="{palette_id}" '
             f'data-material="{html.escape(mat)}" data-reduce-motion="{str(bool(reduce_motion)).lower()}">'
+            f'<defs><linearGradient id="{gid}" x1="0%" y1="0%" x2="100%" y2="100%">'
+            f'<stop offset="0%" stop-color="{palette["accent"]}"/><stop offset="100%" stop-color="{palette["glow"]}"/></linearGradient></defs>'
             f'<rect width="{size_px}" height="{size_px}" rx="{size_px // 5}" fill="{palette["primary"]}"/>'
-            f'<circle cx="{cx}" cy="{cy}" r="{r_outer}" fill="{palette["glow"]}" fill-opacity="0.28" stroke="{palette["accent"]}" stroke-width="2"/>'
-            f'<circle cx="{cx}" cy="{cy}" r="{r_inner}" fill="{palette["accent"]}" fill-opacity="0.85"/>'
-            f'<text x="{cx}" y="{size_px - 10}" fill="{palette["accent"]}" font-family="Segoe UI, sans-serif" '
-            f'font-size="11" text-anchor="middle">{html.escape(form_name)}</text>'
+            f'<circle cx="{cx}" cy="{cy}" r="{r_outer}" fill="{palette["glow"]}" fill-opacity="0.14"/>'
+            f'{shape_svg}'
+            f'<text x="{cx}" y="{size_px - 9}" fill="{palette["accent"]}" font-family="Segoe UI, sans-serif" '
+            f'font-size="11" font-weight="600" text-anchor="middle">{html.escape(form_name)}</text>'
             '</svg>'
         )
         entry = {
@@ -316,6 +393,17 @@ def validate_agent_profile(profile: Any) -> dict[str, Any]:
         'scale': round(scale, 3),
         'reduce_motion': bool(app.get('reduce_motion', False)),
     }
+    if 'animation_intensity' in app:
+        ai = float(app['animation_intensity'])
+        if not (0.0 <= ai <= 2.0):
+            raise AgentProfileValidationError('appearance.animation_intensity must be 0.0..2.0')
+        clean_appearance['animation_intensity'] = round(ai, 2)
+    if isinstance(app.get('reactions'), dict):
+        clean_appearance['reactions'] = {
+            str(k)[:40]: str(v)[:80]
+            for k, v in app['reactions'].items()
+            if k in ('idle', 'listening', 'thinking', 'working', 'approval', 'completed', 'error') and v is not None
+        }
 
     # Intelligence validation
     intel = profile.get('intelligence')
@@ -364,10 +452,24 @@ def validate_agent_profile(profile: Any) -> dict[str, Any]:
         'preserve_user_microphone': True,
     }
     if voice.get('tts_profile_id'):
-        tref = str(voice['tts_profile_id'])
-        if not ID_RE.fullmatch(tref):
+        tref = str(voice['tts_profile_id']).strip()
+        if not re.fullmatch(r'^[A-Za-z0-9_.: ()-]{1,160}$', tref):
             raise AgentProfileValidationError('Invalid voice.tts_profile_id')
         clean_voice['tts_profile_id'] = tref
+    if 'intonation' in voice:
+        inton = str(voice['intonation'])
+        if inton not in ('calm', 'warm', 'focused', 'energetic', 'neutral'):
+            raise AgentProfileValidationError('Invalid voice.intonation')
+        clean_voice['intonation'] = inton
+    if 'expressiveness' in voice:
+        expr = str(voice['expressiveness'])
+        if expr not in ('low', 'medium', 'high'):
+            raise AgentProfileValidationError('Invalid voice.expressiveness')
+        clean_voice['expressiveness'] = expr
+    if 'listen_allowed' in voice:
+        clean_voice['listen_allowed'] = bool(voice['listen_allowed'])
+    if 'dictation_allowed' in voice:
+        clean_voice['dictation_allowed'] = bool(voice['dictation_allowed'])
 
     # Workspace validation
     ws = profile.get('workspace')
@@ -441,6 +543,25 @@ def validate_agent_profile(profile: Any) -> dict[str, Any]:
         if ram < 128:
             raise AgentProfileValidationError('limits.max_ram_mb must be >= 128')
         clean_limits['max_ram_mb'] = ram
+    if 'max_cpu_percent' in limits:
+        cpu = float(limits['max_cpu_percent'])
+        if not (5.0 <= cpu <= 100.0):
+            raise AgentProfileValidationError('limits.max_cpu_percent must be 5..100')
+        clean_limits['max_cpu_percent'] = round(cpu, 1)
+    if 'max_task_seconds' in limits:
+        secs = int(limits['max_task_seconds'])
+        if not (5 <= secs <= 86400):
+            raise AgentProfileValidationError('limits.max_task_seconds must be 5..86400')
+        clean_limits['max_task_seconds'] = secs
+    if 'daily_budget_usd' in limits:
+        dbudget = float(limits['daily_budget_usd'])
+        if dbudget < 0:
+            raise AgentProfileValidationError('limits.daily_budget_usd must be >= 0')
+        clean_limits['daily_budget_usd'] = round(dbudget, 4)
+    if 'remote_execution_allowed' in limits:
+        clean_limits['remote_execution_allowed'] = bool(limits['remote_execution_allowed'])
+    if 'user_priority_override' in limits:
+        clean_limits['user_priority_override'] = bool(limits['user_priority_override'])
 
     mem_scope = profile.get('memory_scope')
     if mem_scope not in ALLOWED_MEMORY_SCOPES:
@@ -473,7 +594,8 @@ def validate_act_behavior(profile: dict[str, Any]) -> dict[str, Any]:
         raw = profile['personality']
         if not isinstance(raw, dict):
             raise AgentProfileValidationError('personality must be an object')
-        unknown = set(raw) - set(PERSONALITY_ENUMS) - set(PERSONALITY_TEXT_LIMITS) - {'default_language'}
+        extra_keys = {'default_language', 'languages', 'initiative_level', 'result_format'}
+        unknown = set(raw) - set(PERSONALITY_ENUMS) - set(PERSONALITY_TEXT_LIMITS) - extra_keys
         if unknown:
             raise AgentProfileValidationError(f'Unexpected personality fields: {sorted(unknown)}')
         clean: dict[str, Any] = {}
@@ -491,6 +613,19 @@ def validate_act_behavior(profile: dict[str, Any]) -> dict[str, Any]:
             if not isinstance(raw['default_language'], str) or not LANG_RE.fullmatch(raw['default_language']):
                 raise AgentProfileValidationError('personality.default_language must be a language code')
             clean['default_language'] = raw['default_language']
+        if 'languages' in raw:
+            langs = raw['languages']
+            if not isinstance(langs, list) or len(langs) > 12 or not all(isinstance(x, str) and LANG_RE.fullmatch(x) for x in langs):
+                raise AgentProfileValidationError('personality.languages must be a list of language codes')
+            clean['languages'] = list(dict.fromkeys(langs))
+        if 'initiative_level' in raw:
+            if raw['initiative_level'] not in ('low', 'medium', 'high'):
+                raise AgentProfileValidationError('personality.initiative_level must be low, medium or high')
+            clean['initiative_level'] = raw['initiative_level']
+        if 'result_format' in raw:
+            if raw['result_format'] not in ('summary', 'detailed', 'diff_and_evidence', 'checklist'):
+                raise AgentProfileValidationError('personality.result_format invalid')
+            clean['result_format'] = raw['result_format']
         out['personality'] = clean
     if profile.get('autonomy') is not None:
         raw = profile['autonomy']

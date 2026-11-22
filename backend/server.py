@@ -426,7 +426,7 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                     'native': self.server.host_owned, 'desktop': {'available': os.name == 'nt' and self.server.host_owned,
                     'platform': sys.platform}, 'details': inference_status,
                     'chatgpt_auth': self.chatgpt_auth.get_status() if self.chatgpt_auth else {'authenticated': False},
-                    'memory': self.memory.ai_memory.status() if self.memory.ai_memory else {'backend': 'sqlite', 'available': False},
+                    'memory': self.memory.ai_memory.status() if self.memory and self.memory.ai_memory else {'backend': 'sqlite', 'available': False},
                     'features': {'actions': True, 'command_library': bool(self.commands), 'procedural_memory': True, 'spotify': False,
                                  'chatgpt_subscription': bool(self.chatgpt_auth and self.chatgpt_auth.is_authenticated()),
                                  'remote_inference_configured': any(p.get('enabled') for p in self.adapter.config.get('providers', []))}})
@@ -587,7 +587,7 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                     self._send_json(200, {'operations': self.executor.list_operations()})
             elif path == '/axx-api/recipes':
                 with self.server.action_lock:
-                    recipes = self.memory.list_recipes()
+                    recipes = self.memory.list_recipes() if self.memory else []
                     for recipe in recipes:
                         compatible = self.memory.find_recipe(recipe['intent_key'])
                         recipe['schema'] = compatible.schema if compatible else None
@@ -640,7 +640,7 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                              'error': {'code': 'NOT_CONFIGURED', 'message': message}})
 
     def _memory_status(self):
-        return self.memory.ai_memory.status() if self.memory.ai_memory else {'backend': 'sqlite', 'available': False, 'fallback': True}
+        return self.memory.ai_memory.status() if self.memory and self.memory.ai_memory else {'backend': 'sqlite', 'available': False, 'fallback': True}
 
     def _speech_error(self, error):
         status = {'INVALID_REQUEST':400, 'BUSY':409, 'CANCELLED':499, 'NOT_SUPPORTED':501, 'DEADLINE_EXCEEDED':504}.get(error.code,502)
@@ -854,90 +854,101 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                     if key in body:
                         envelope[key] = body[key]
                 act = acts = None
+                act_exec_id = None
                 if 'act_id' in body:
                     # The Act's own provider/model replaces the client's choice; no fallback to another route.
                     evolution = EvolutionHTTP(self).rt
                     evolution.flags.require_enabled_for_new_dispatch('agent_profiles_v1')
                     acts = evolution.acts
                     act = acts.resolve(body['act_id'], transport='router', expected_revision=body.get('act_revision'))
+                    act_exec_id = str(body.get('request_id') or uuid.uuid4().hex)
+                    acts.begin_execution(act['act_id'], act_exec_id)
                     acts.apply_to_router(envelope, act)
                     acts.record(captured_memory['memory_context_id'] or body.get('conversation_id'), body.get('request_id'), act, 'run.started',
                                 {'requested_provider': act['provider_name'], 'requested_model': act['model'],
                                  'selection_mode': act['selection_mode'], 'revision': act['revision']})
-                tool_catalog = {}
-                tool_status = None
-                tool_chat = None
-                if 'axx_tools' in body:
-                    if (body['axx_tools'] is not True or self.request_channel != 'desktop' or 'tools' in body
-                            or not self.connect or not self.chats or not captured_memory['task_id']
-                            or not captured_memory['memory_scope'] or envelope['task'] != 'chat' or body.get('stream') is True):
-                        raise ValueError('Las herramientas requieren una conversación local vigente y su catálogo.')
-                    chat_tools.operation_id(body.get('request_id'))
-                    tool_chat = self.chats.get(captured_memory['task_id'])
-                    provider_name, tool_catalog = chat_tools.catalog(self.commands, self.adapter.config, envelope)
-                    if act is not None and not act['tools_allowed']:
-                        tool_catalog = {}  # Act without an active axx.commands grant never receives tools.
-                    if tool_catalog and not tool_chat['archived']:
-                        envelope['provider_name'] = provider_name
-                        envelope['generation']['tools'] = [{'type': 'function', 'function': tool}
-                                                            for _, tool in tool_catalog.values()]
-                        envelope['messages'] = [{'role': 'system', 'content': chat_tools.GUIDANCE}, *envelope['messages']]
-                        tool_status = 'available'
-                    else:
-                        tool_catalog = {}
-                        tool_status = 'unsupported'
-                result = self.adapter.route(envelope)
-                self._check_memory(captured_memory)
-                act_receipt = None
-                if act is not None:
-                    if result.get('ok'):
-                        act_receipt = acts.verify_router(act, result.get('route'))
-                        if not act_receipt['model_verified']:
-                            result = {'ok': False, 'request_id': result.get('request_id'), 'error': {
-                                'code': 'MODEL_MISMATCH', 'message': 'La ruta que respondió no coincide con el modelo del Act.'}}
-                    acts.record(captured_memory['memory_context_id'] or body.get('conversation_id'), body.get('request_id'), act,
-                                'run.completed' if result.get('ok') else 'run.failed',
-                                act_receipt or {'error_code': result.get('error', {}).get('code')})
-                if not result.get('ok'):
-                    code = result.get('error', {}).get('code')
-                    status = 409 if code == 'BUSY' else 400 if code == 'INVALID_REQUEST' else 499 if code == 'CANCELLED' else 502
-                    self._send_json(status, result)
-                    return
-                message = result['message']
-                tool_receipt = None
-                if tool_catalog and message.get('tool_calls'):
-                    current = self.chats.get(tool_chat['id'])
-                    if act is not None and not acts.resolve(act['act_id'], transport='router')['tools_allowed']:
-                        tool_receipt = {'state': 'blocked', 'postconditions_passed': False, 'error': {
-                            'code': 'ACT_PERMISSION_REVOKED', 'message': 'El permiso del Act fue revocado.'}}
-                    elif current['archived'] or current['mode'] != tool_chat['mode']:
-                        tool_receipt = {'state': 'blocked', 'postconditions_passed': False, 'error': {
-                            'code': 'MODE_CHANGED', 'message': 'Cambió la autorización de la conversación.'}}
-                    else:
-                        tool_receipt = chat_tools.dispatch(
-                            self.connect, message['tool_calls'], tool_catalog, body['request_id'],
-                            {'conversation_id': tool_chat['id'], 'command_mode': current['mode'],
-                             'memory_scope': captured_memory['memory_scope'],
-                             'memory_context_id': captured_memory['memory_context_id']})
-                # Compatibility SSE carries one complete response; providers always stream=false.
-                if body.get('stream') is True:
-                    payload = ('data: ' + json.dumps({'delta': message.get('content', ''), 'done': True,
-                               'choices': [{'delta': message, 'finish_reason': 'stop'}]}) + '\n\ndata: [DONE]\n\n').encode('utf-8')
+                try:
+                    tool_catalog = {}
+                    tool_status = None
+                    tool_chat = None
+                    if 'axx_tools' in body:
+                        if (body['axx_tools'] is not True or self.request_channel != 'desktop' or 'tools' in body
+                                or not self.connect or not self.chats or not captured_memory['task_id']
+                                or not captured_memory['memory_scope'] or envelope['task'] != 'chat' or body.get('stream') is True):
+                            raise ValueError('Las herramientas requieren una conversación local vigente y su catálogo.')
+                        chat_tools.operation_id(body.get('request_id'))
+                        tool_chat = self.chats.get(captured_memory['task_id'])
+                        provider_name, tool_catalog = chat_tools.catalog(self.commands, self.adapter.config, envelope)
+                        if act is not None and not act['tools_allowed']:
+                            tool_catalog = {}  # Act without an active axx.commands grant never receives tools.
+                        if tool_catalog and not tool_chat['archived']:
+                            envelope['provider_name'] = provider_name
+                            envelope['generation']['tools'] = [{'type': 'function', 'function': tool}
+                                                                for _, tool in tool_catalog.values()]
+                            envelope['messages'] = [{'role': 'system', 'content': chat_tools.GUIDANCE}, *envelope['messages']]
+                            tool_status = 'available'
+                        else:
+                            tool_catalog = {}
+                            tool_status = 'unsupported'
+                    result = self.adapter.route(envelope)
                     self._check_memory(captured_memory)
-                    self.send_response(200)
-                    self.send_header('Content-Type', 'text/event-stream; charset=utf-8')
-                    self.send_header('Content-Length', str(len(payload)))
-                    self.send_header('Connection', 'close')
-                    self.end_headers()
-                    self.wfile.write(payload)
-                    self.close_connection = True
-                else:
-                    self._check_memory(captured_memory)
-                    self._send_json(200, {'request_id': result['request_id'], 'choices': [{'message': message, 'finish_reason': 'stop'}],
-                                         'axx_router': result.get('route'),
-                                         **({'axx_act': act_receipt} if act_receipt else {}),
-                                         **({'axx_tools_status': tool_status} if tool_status else {}),
-                                         **({'axx_tool_receipt': tool_receipt} if tool_receipt is not None else {})})
+                    act_receipt = None
+                    if act is not None:
+                        if result.get('ok'):
+                            act_receipt = acts.verify_router(act, result.get('route'))
+                            if not act_receipt['model_verified']:
+                                result = {'ok': False, 'request_id': result.get('request_id'), 'error': {
+                                    'code': 'MODEL_MISMATCH', 'message': 'La ruta que respondió no coincide con el modelo del Act.'}}
+                        acts.record(captured_memory['memory_context_id'] or body.get('conversation_id'), body.get('request_id'), act,
+                                    'run.completed' if result.get('ok') else 'run.failed',
+                                    act_receipt or {'error_code': result.get('error', {}).get('code')})
+                    if not result.get('ok'):
+                        code = result.get('error', {}).get('code')
+                        status = 409 if code == 'BUSY' else 400 if code == 'INVALID_REQUEST' else 499 if code == 'CANCELLED' else 502
+                        self._send_json(status, result)
+                        return
+                    message = result['message']
+                    tool_receipt = None
+                    if tool_catalog and message.get('tool_calls'):
+                        current = self.chats.get(tool_chat['id'])
+                        if act is not None and not acts.resolve(act['act_id'], transport='router')['tools_allowed']:
+                            tool_receipt = {'state': 'blocked', 'postconditions_passed': False, 'error': {
+                                'code': 'ACT_PERMISSION_REVOKED', 'message': 'El permiso del Act fue revocado.'}}
+                        elif current['archived'] or current['mode'] != tool_chat['mode']:
+                            tool_receipt = {'state': 'blocked', 'postconditions_passed': False, 'error': {
+                                'code': 'MODE_CHANGED', 'message': 'Cambió la autorización de la conversación.'}}
+                        else:
+                            tool_receipt = chat_tools.dispatch(
+                                self.connect, message['tool_calls'], tool_catalog, body['request_id'],
+                                {'conversation_id': tool_chat['id'], 'command_mode': current['mode'],
+                                 'memory_scope': captured_memory['memory_scope'],
+                                 'memory_context_id': captured_memory['memory_context_id']})
+                    # Compatibility SSE carries one complete response; providers always stream=false.
+                    if body.get('stream') is True:
+                        sse_obj = {'delta': message.get('content', ''), 'done': True,
+                                   'choices': [{'delta': message, 'finish_reason': 'stop'}]}
+                        if act_receipt:
+                            sse_obj['axx_act'] = act_receipt
+                        payload = ('data: ' + json.dumps(sse_obj) + '\n\ndata: [DONE]\n\n').encode('utf-8')
+                        self._check_memory(captured_memory)
+                        self.send_response(200)
+                        self.send_header('Content-Type', 'text/event-stream; charset=utf-8')
+                        self.send_header('Content-Length', str(len(payload)))
+                        self.send_header('Connection', 'close')
+                        self.end_headers()
+                        self.wfile.write(payload)
+                        self.close_connection = True
+                    else:
+                        self._check_memory(captured_memory)
+                        self._send_json(200, {'request_id': result['request_id'], 'choices': [{'message': message, 'finish_reason': 'stop'}],
+                                             'axx_router': result.get('route'),
+                                             **({'axx_act': act_receipt} if act_receipt else {}),
+                                             **({'axx_tools_status': tool_status} if tool_status else {}),
+                                             **({'axx_tool_receipt': tool_receipt} if tool_receipt is not None else {})})
+                finally:
+                    if act is not None and acts is not None and act_exec_id is not None:
+                        acts.end_execution(act['act_id'], act_exec_id, provider=act.get('provider_name') or 'local',
+                                           model=act.get('model') or 'default')
             elif path == '/axx-api/chat/cancel':
                 request_id = body.get('request_id')
                 if not isinstance(request_id, str):

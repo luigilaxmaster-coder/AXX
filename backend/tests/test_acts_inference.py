@@ -250,6 +250,38 @@ class ActChatHttpTests(unittest.TestCase):
         self.assertIn('«Dev»', preview['persona'])
         self.assertEqual(api.request('GET', '/axx-api/agents/v1/catalog')[1]['form_count'], 24)
 
+    def test_sse_stream_returns_axx_act_and_revoked_grant_omits_tool_catalog(self):  # ACT-14 HTTP dispatch verification
+        api, rt = self.srv.api, self.srv.rt
+        rt.flags.set_flag('agent_profiles_v1', True, reason='acts sse test')
+        api.request('POST', '/axx-api/agents/v1/profiles', act_spec('act-sse', 'SSE', 'Flow', 'loop-a', 'model-alpha'))
+        # Stream=True must return axx_act verification receipt
+        raw_req = urllib.request.Request(
+            f'http://127.0.0.1:{self.srv.server.server_port}/axx-api/chat',
+            method='POST',
+            headers={
+                'Authorization': f'Bearer {self.srv.server.host_token}',
+                'Content-Type': 'application/json',
+            },
+            data=json.dumps({
+                'messages': [{'role': 'user', 'content': 'Stream test'}],
+                'request_id': 'req-sse-1', 'conversation_id': 'conv-sse-1',
+                'act_id': 'act-sse', 'stream': True,
+            }).encode('utf-8'),
+        )
+        with urllib.request.urlopen(raw_req, timeout=10) as resp:
+            raw_sse = resp.read().decode('utf-8')
+        first_data = json.loads(next(line[6:] for line in raw_sse.splitlines() if line.startswith('data: ') and line != 'data: [DONE]'))
+        self.assertTrue(first_data['axx_act']['model_verified'])
+        self.assertEqual(first_data['axx_act']['responder_model'], 'model-alpha')
+
+        # Grant axx.commands then revoke -> next turn resolves tools_allowed=False and receives zero tools in upstream request
+        grant = {'agent_id': 'act-sse', 'grant_id': 'g-cmd', 'tool_id': 'axx.commands', 'operation_kinds': ['command'], 'approval_mode': 'ask'}
+        self.assertEqual(api.request('POST', '/axx-api/agents/v1/profiles/permissions/grant', grant)[0], 200)
+        self.assertEqual(api.request('POST', '/axx-api/agents/v1/profiles/permissions/revoke', {'agent_id': 'act-sse', 'grant_id': 'g-cmd'})[1], {'revoked': True})
+        code, res = self.chat('act-sse')
+        self.assertEqual(code, 200, res)
+        self.assertNotIn('tools', _EchoModel.seen[-1])
+
 
 def _ollama_models():
     try:

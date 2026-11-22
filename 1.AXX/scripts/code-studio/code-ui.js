@@ -6,7 +6,7 @@
   host.className = 'axx-code-studio'; host.hidden = true;
   host.innerHTML = `<h3>Code Studio</h3>
     <details data-code="project-settings" open><summary>Carpeta del proyecto</summary><label class="setting">Proyecto guardado<select data-code="recent"><option value="">Seleccionar…</option></select></label><button data-code="open-recent" type="button">Abrir proyecto guardado</button><form data-code="project-form"><label class="setting">Ruta local<input data-code="root" required placeholder="C:\\Proyectos\\mi-proyecto"></label><button type="submit">Abrir proyecto</button></form></details>
-    <div class="quick-row"><button data-code="parent" type="button">Subir carpeta</button><button data-code="save" type="button" disabled>Guardar archivo</button><button data-code="diff" type="button" disabled>Comparar con disco</button><button data-code="reload" type="button" disabled>Descartar borrador y recargar</button><button data-code="ask-act" type="button" disabled>Pedir a un Act</button></div>
+    <div class="quick-row"><button data-code="parent" type="button">Subir carpeta</button><button data-code="save" type="button" disabled>Guardar archivo</button><button data-code="diff" type="button" disabled>Comparar con disco</button><button data-code="reload" type="button" disabled>Descartar borrador y recargar</button><button data-code="lsp-check" type="button" disabled>Diagnósticos y LSP</button><button data-code="ask-act" type="button" disabled>Pedir a un Act</button></div>
     <p data-code="status" role="status" aria-live="polite">Abra una carpeta para editar sus archivos.</p>
     <p data-code="draft-status" role="status" aria-live="polite"></p><nav data-code="drafts" aria-label="Borradores recuperables"></nav><div data-code="recovery" role="status"></div>
     <nav data-code="browser" class="axx-code-browser" aria-label="Archivos del proyecto"></nav>
@@ -14,7 +14,7 @@
     <div data-code="editor" class="axx-code-editor" aria-label="Editor de código"></div>
     <div data-code="diff-editor" class="axx-code-editor" aria-label="Comparación de cambios" hidden></div>
     <details><summary>Git y pruebas</summary><div class="quick-row"><button data-code="git" type="button">Estado Git</button><button data-code="worktree" type="button">Crear worktree</button><button data-code="test" type="button">Ejecutar pruebas Python</button></div>
-      <div class="quick-row"><label class="setting">Act<select data-code="act"><option value="">Sin Acts</option></select></label><button data-code="act-task" type="button" disabled>Delegar archivo al Act</button><button data-code="act-test" type="button" hidden>Probar en su worktree</button><label class="setting" data-code="review-row" hidden>Revisor<select data-code="reviewer"></select></label><button data-code="act-review" type="button" hidden>Pedir revisión</button><button data-code="act-integrate" type="button" hidden>Integrar trabajo del Act</button></div></details>
+      <div class="quick-row"><label class="setting">Act<select data-code="act"><option value="">Sin Acts</option></select></label><button data-code="act-task" type="button" disabled>Delegar archivo al Act</button><button data-code="act-team-run" type="button" disabled>Equipo Dev → QA</button><button data-code="act-test" type="button" hidden>Probar en su worktree</button><label class="setting" data-code="review-row" hidden>Revisor<select data-code="reviewer"></select></label><button data-code="act-review" type="button" hidden>Pedir revisión</button><button data-code="act-integrate" type="button" hidden>Integrar trabajo del Act</button></div></details>
     <pre data-code="output" class="axx-code-output" tabindex="0" hidden></pre>`;
   const entry = document.createElement('button'); entry.type = 'button'; entry.textContent = 'Abrir Code Studio';
   entry.className = 'axx-code-entry';
@@ -119,7 +119,7 @@
     active = id; const tab = tabs.get(id); editor.setModel(tab.model);
     ui('diff-editor').hidden = true;
     editor.updateOptions({readOnly:tab.read_only_degraded});
-    ui('save').disabled = tab.read_only_degraded; ui('diff').disabled = false; ui('reload').disabled=false; ui('ask-act').disabled=false; syncActs();
+    ui('save').disabled = tab.read_only_degraded; ui('diff').disabled = false; ui('reload').disabled=false; ui('lsp-check').disabled=false; ui('ask-act').disabled=false; syncActs();
     status(tab.read_only_degraded ? tab.truncation_notice : tab.path + ' · ' + tab.encoding + ' · ' + tab.line_ending);
     renderTabs(); draftStatus(tab); editor.focus();
   }
@@ -203,15 +203,35 @@
     tab.draftRevision=cleared.revision;tab.base=doc.content;tab.sha256=doc.sha256;tab.encoding=doc.encoding;tab.line_ending=doc.line_ending;
     tab.suppress=true;try{tab.model.setValue(doc.content);}finally{tab.suppress=false;}tab.dirty=false;tab.generation++;tab.ack=tab.generation;select(active);
   });
-  // Sends the selected code to the chat as data; the Act answers there with its own model and permissions.
+  ui('lsp-check').onclick = () => attempt(async () => {
+    const tab = tabs.get(active); if (!tab) return;
+    const lang = language(tab.path);
+    const [lspStat, dapStat, inspect] = await Promise.all([
+      api('GET', 'lsp/status'),
+      api('GET', 'dap/status'),
+      api('POST', 'lsp/inspect', {project_id: tab.project_id, language: lang, path: tab.path}).catch(e => ({error: e.message})),
+    ]);
+    const srvInfo = lspStat.servers?.[lang];
+    const lines = [
+      `LSP (${lang}): ${srvInfo ? (srvInfo.installed ? 'available · ' + srvInfo.binary : 'UNAVAILABLE (AST fallback activo)') : 'UNAVAILABLE'}`,
+      `DAP debugpy: ${dapStat.adapters?.debugpy?.status || 'UNAVAILABLE'} · node-inspect: ${dapStat.adapters?.['node-inspect']?.status || 'UNAVAILABLE'}`,
+      `Símbolos AST: ${(inspect.symbols || []).map(s => s.name + ' (L' + (s.line || '?') + ')').join(', ') || 'ninguno'}`,
+      `Diagnósticos: ${(inspect.diagnostics || []).map(d => d.message).join(' | ') || '0 errores de sintaxis'}`,
+    ];
+    output(lines.join('\n'));
+    status(`LSP ${lang}: ${srvInfo?.status || 'UNAVAILABLE'}`);
+  });
+  // Sends the selected code (or current diff/diagnostics) to the chat as data; the Act answers there.
   ui('ask-act').onclick = () => attempt(async () => {
     const tab = tabs.get(active); if (!tab || !editor) return;
     const range = editor.getSelection(), picked = range && !range.isEmpty() ? tab.model.getValueInRange(range) : tab.model.getValue();
     if (picked.length > 12000) throw new Error('La selección supera 12.000 caracteres; selecciona una parte más pequeña.');
     const lines = range && !range.isEmpty() ? ' líneas ' + range.startLineNumber + '-' + range.endLineNumber : '';
-    const act = Axx.acts?.acts?.find(a => a.enabled && a.collaboration?.mention);
+    const selectedAct = (Axx.acts?.acts || []).find(a => a.enabled && a.agent_id === ui('act')?.value)
+      || Axx.acts?.acts?.find(a => a.enabled && a.collaboration?.mention);
     const input = document.getElementById('chat-input');
-    const prefix = act ? '@' + act.collaboration.mention + ' ' : '';
+    const mentionTag = selectedAct ? (selectedAct.collaboration?.mention || selectedAct.name) : '';
+    const prefix = mentionTag ? '@' + mentionTag + ' ' : '';
     input.value = prefix + '\n\nProyecto ' + tab.project_id + ' · ' + tab.path + lines
       + ':\n```' + language(tab.path) + '\n' + picked + '\n```';
     Axx.companion?.openChat?.(); input.focus(); input.setSelectionRange(prefix.length, prefix.length);
@@ -251,7 +271,26 @@
     const acts = (Axx.acts?.acts || []).filter(a => a.enabled), current = ui('act').value;
     ui('act').replaceChildren(...(acts.length ? acts : [{agent_id:'',name:'Sin Acts'}]).map(a => new Option(a.name, a.agent_id, false, a.agent_id === current)));
     ui('act-task').disabled = !acts.length || !tabs.get(active);
+    ui('act-team-run').disabled = acts.length < 2 || !tabs.get(active);
   }
+  ui('act-team-run').onclick = () => attempt(async () => {
+    const tab = tabs.get(active); if (!tab) return;
+    const enabled = (Axx.acts?.acts || []).filter(a => a.enabled);
+    if (enabled.length < 2) throw new Error('Necesitas al menos 2 Acts habilitados para ejecutar en equipo.');
+    const goal = prompt('Objetivo para el equipo sobre ' + tab.path + ':', 'Analiza mejoras en el componente y verifica posibles regresiones.');
+    if (!goal?.trim()) return;
+    status('Ejecutando equipo de Acts sobre ' + tab.path + '…');
+    const res = await Axx.backendRequest('POST', '/axx-api/agents/v1/teams/run', {
+      conversation_id: Axx.chatWorkspace?.active?.id || 'default',
+      act_ids: enabled.slice(0, 3).map(a => a.agent_id),
+      project_id: tab.project_id,
+      file_path: tab.path,
+      prompt: goal.trim(),
+    });
+    output(res.consolidated_text);
+    chatNote(res.consolidated_text);
+    status('Equipo completado (' + res.steps.length + ' pasos verificados).');
+  });
   ui('act').onfocus = syncActs;
   ui('act-task').onclick = () => attempt(async () => {
     const tab = tabs.get(active), act = (Axx.acts?.acts || []).find(a => a.agent_id === ui('act').value);

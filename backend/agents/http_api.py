@@ -97,7 +97,8 @@ class EvolutionHttpRuntime:
         self.task_graph = TaskGraphEngine(self.db_path, action_executor=self.action_executor)
         self.verifier = IndependentVerifierService(action_executor=self.action_executor)
         self.event_hub = EventHub(self.db_path)
-        self.acts = ActInferenceService(self.registry, self.event_hub)
+        self.governor = ResourceGovernor(self.db_path)
+        self.acts = ActInferenceService(self.registry, self.event_hub, governor=self.governor)
         self.recovery = MultiAgentRecoveryService(self.task_graph, self.event_hub)
         self.orchestrator = MultiAgentOrchestrator(
             task_graph=self.task_graph,
@@ -105,8 +106,13 @@ class EvolutionHttpRuntime:
             verifier=self.verifier,
             bindings=self.bindings,
         )
-        self.routines = AutonomousRoutineService(self.db_path)
-        self.governor = ResourceGovernor(self.db_path)
+        self.routines = AutonomousRoutineService(
+            self.db_path,
+            dispatcher=self._dispatch_routine,
+            event_hub=self.event_hub,
+            orchestrator=self.orchestrator,
+            governor=self.governor,
+        )
 
         self.leases = ResourceLeaseManager(self.db_path)
         self.focus_guard = AttentionGuardian(self.leases)
@@ -134,6 +140,45 @@ class EvolutionHttpRuntime:
         self.cad_worker = IsolatedCadWorker()
         self.scenes = self.magic_pen.scenes_v2 if self.magic_pen is not None else SceneDocumentStore(self.db_path)
         self.assets = AssetRegistry(self.db_path, storage_root=self.base_dir / 'assets')
+
+    def _dispatch_routine(self, routine: dict[str, Any], run_id: str) -> dict[str, Any]:
+        """Execute one non-mutating scheduled routine via TaskGraph + ActInferenceService + EventHub."""
+        act_id = routine['agent_id']
+        conv_id = routine['conversation_id']
+        self.acts.begin_execution(act_id, run_id, job_class='multiagent_background_batch')
+        try:
+            graph = self.task_graph.create_graph(
+                run_id=run_id,
+                conversation_id=conv_id,
+                agent_id=act_id,
+                goal_spec={'objective': f"Routine {routine['routine_id']}", 'schedule_spec': routine['schedule_spec']},
+                nodes=[{'task_id': f'{run_id}-t1', 'agent_id': act_id, 'role': 'routine_worker'}],
+                max_cost_usd=float(routine.get('budget_usd', 0.5)),
+            )
+            profile = self.registry.get_profile(act_id)
+            if self.event_hub is not None:
+                self.event_hub.publish_event(
+                    conversation_id=conv_id,
+                    run_id=run_id,
+                    agent_id=act_id,
+                    event_type='run.started',
+                    payload={'kind': 'routine', 'routine_id': routine['routine_id'], 'nodes': len(graph['nodes'])},
+                )
+            summary = f"Rutina «{routine['routine_id']}» ejecutada para Act {profile['name']} ({routine['schedule_spec']})."
+            if routine.get('prompt_text'):
+                summary += f" Objetivo: {routine['prompt_text'][:120]}"
+            self.registry.record_artifact(
+                artifact_id=f'art-{run_id}',
+                run_id=run_id,
+                act_id=act_id,
+                artifact_type='routine_report',
+                path_or_ref=f'routine://{routine["routine_id"]}/{run_id}',
+                sha256=hashlib.sha256(summary.encode('utf-8')).hexdigest(),
+                metadata={'schedule_spec': routine['schedule_spec']},
+            )
+            return {'run_id': run_id, 'summary': summary}
+        finally:
+            self.acts.end_execution(act_id, run_id)
 
     def close(self) -> None:
         for svc in (
@@ -215,7 +260,26 @@ class EvolutionHTTP:
             self.handler._send_json(200, {'permissions': self.rt.registry.list_permissions(agent_id)})
             return True
         if path == '/axx-api/agents/v1/teams':
-            self.handler._send_json(200, {'team': self.rt.registry.get_team(query.get('team_id', [''])[0])})
+            team_id = query.get('team_id', [None])[0]
+            if team_id:
+                self.handler._send_json(200, {'team': self.rt.registry.get_team(team_id)})
+            else:
+                include_disabled = query.get('include_disabled', ['false'])[0].lower() == 'true'
+                self.handler._send_json(200, {'teams': self.rt.registry.list_teams(include_disabled=include_disabled)})
+            return True
+        if path == '/axx-api/agents/v1/artifacts':
+            self.handler._send_json(200, {'artifacts': self.rt.registry.list_artifacts(
+                run_id=query.get('run_id', [None])[0], act_id=query.get('act_id', [None])[0])})
+            return True
+        if path == '/axx-api/agents/v1/governor/status':
+            self.handler._send_json(200, {
+                'profile': self.rt.governor.profile_name,
+                'telemetry': dict(self.rt.governor.telemetry),
+                'active_by_act': self.rt.acts.active_counts(),
+            })
+            return True
+        if path == '/axx-api/agents/v1/routines/history':
+            self.handler._send_json(200, {'runs': self.rt.routines.list_runs(routine_id=query.get('routine_id', [None])[0])})
             return True
         if path == '/axx-api/agents/v1/profiles/export':
             agent_id = query.get('agent_id', [''])[0]
@@ -290,6 +354,12 @@ class EvolutionHTTP:
             root = self.rt.code_projects.get_project_root(query.get('project_id', [''])[0])
             self.handler._send_json(200, {'dirty_files': self.rt.code_git.detect_dirty_files(root),
                                          'head': self.rt.code_git.get_head_commit(root)})
+            return True
+        if path == '/axx-api/code/v1/lsp/status':
+            self.handler._send_json(200, self.rt.code_lsp.probe_available_servers())
+            return True
+        if path == '/axx-api/code/v1/dap/status':
+            self.handler._send_json(200, self.rt.code_dap.probe_available_adapters())
             return True
 
         self.handler._send_json(404, {'error': {'code': 'NOT_FOUND', 'message': f'Unknown Evolution GET endpoint: {path}'}})
@@ -383,7 +453,290 @@ class EvolutionHTTP:
         review = self.rt.code_patches.record_review(changeset_id, reviewer, verdict, act['model'], text)
         self.rt.acts.record(conversation_id, request_id, act, 'handoff.completed',
                             {'kind': 'act_review', 'changeset_id': changeset_id, 'verdict': verdict})
+        self.rt.registry.record_artifact(
+            artifact_id=f'review-{request_id[:16]}',
+            run_id=changeset_id,
+            act_id=reviewer,
+            project_id=changeset.get('project_id', ''),
+            artifact_type='code_review',
+            path_or_ref=f'changeset://{changeset_id}',
+            sha256=hashlib.sha256(text.encode('utf-8')).hexdigest(),
+            verification_status='verified',
+            metadata={'verdict': verdict, 'model': act['model']},
+        )
         return {**review, 'route': model}
+
+    def _gate_act_spatial(self, path: str, body: dict[str, Any]) -> None:
+        act_id = body.get('act_id')
+        if not act_id:
+            return
+        self.rt.flags.require_enabled_for_new_dispatch('agent_profiles_v1')
+        op_map = {
+            '/axx-api/spatial/v2/scenes/patch': ('patch', body.get('patch', {}).get('document_id', '*')),
+            '/axx-api/spatial/v2/scenes/undo': ('patch', body.get('document_id', '*')),
+            '/axx-api/spatial/v2/scenes/redo': ('patch', body.get('document_id', '*')),
+            '/axx-api/spatial/v2/diagrams/layout': ('patch', body.get('diagram', {}).get('diagram_id', '*')),
+            '/axx-api/spatial/v2/cad/build': ('cad', body.get('task', {}).get('task_id', '*')),
+            '/axx-api/spatial/v2/diorama/qa': ('qa', body.get('scene', {}).get('document_id', '*')),
+            '/axx-api/spatial/v2/motion/export-mp4': ('export', body.get('scene', {}).get('document_id', '*')),
+        }
+        op, scope = op_map.get(path, ('read', '*'))
+        self.rt.acts.authorize_spatial(act_id, op, str(scope or '*'))
+        self.rt.acts.record(
+            body.get('conversation_id'),
+            body.get('operation_id') or uuid.uuid4().hex[:16],
+            {'act_id': act_id},
+            'tool.dispatched',
+            {'kind': 'act_spatial', 'tool_id': 'axx.spatial', 'operation': op, 'route': path, 'scope': scope},
+        )
+
+    def _gate_act_workspace(self, path: str, body: dict[str, Any]) -> None:
+        act_id = body.get('act_id')
+        if not act_id:
+            return
+        self.rt.flags.require_enabled_for_new_dispatch('agent_profiles_v1')
+        if '/browsers/' in path:
+            op, scope = 'browser', str(body.get('profile_id') or body.get('session_id') or '*')
+        elif '/uia/' in path:
+            op = 'foreground' if body.get('requires_physical_focus') else 'uia'
+            scope = str(body.get('leased_window_key') or '*')
+        elif '/vm/' in path:
+            op, scope = 'vm', str(body.get('vm_id') or '*')
+        else:
+            op, scope = 'files', str(body.get('resource_key') or '*')
+        self.rt.acts.authorize_workspace(act_id, op, scope)
+        self.rt.acts.record(
+            body.get('conversation_id'),
+            body.get('owner_run_id') or uuid.uuid4().hex[:16],
+            {'act_id': act_id},
+            'tool.dispatched',
+            {'kind': 'act_workspace', 'tool_id': 'axx.computer', 'operation': op, 'route': path, 'scope': scope},
+        )
+
+    def _resolve_team_participants(self, body: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
+        """Resolve ordered participants from team_id, explicit act_ids, or @mentions in the prompt."""
+        all_acts = self.rt.registry.list_profiles(include_disabled=False)
+        by_id = {a['agent_id']: a for a in all_acts}
+        participants: list[tuple[str, dict[str, Any]]] = []
+        seen: set[str] = set()
+        if body.get('team_id'):
+            team = self.rt.registry.get_team(body['team_id'])
+            for m in team['members']:
+                if m['agent_id'] in by_id and m['agent_id'] not in seen:
+                    seen.add(m['agent_id'])
+                    participants.append((m['role'], by_id[m['agent_id']]))
+        for aid in body.get('act_ids') or []:
+            if aid in by_id and aid not in seen:
+                seen.add(aid)
+                role = 'reviewer' if 'qa' in by_id[aid]['name'].lower() or 'qa' in by_id[aid]['role'].lower() else 'member'
+                participants.append((role, by_id[aid]))
+        prompt_text = str(body.get('prompt') or '')
+        for token in re.findall(r'@([A-Za-z0-9_-]{1,32})\b', prompt_text):
+            low = token.lower()
+            match = next(
+                (a for a in all_acts if (a.get('collaboration') or {}).get('mention', '').lower() == low or a['name'].lower() == low),
+                None,
+            )
+            if match and match['agent_id'] not in seen:
+                seen.add(match['agent_id'])
+                role = 'reviewer' if ('qa' in match['name'].lower() or 'qa' in match['role'].lower()) else ('lead' if not participants else 'member')
+                participants.append((role, match))
+        # Also match standalone leading/clause Act names like "Dev, ... Visual, ... QA, ..."
+        for a in all_acts:
+            if a['agent_id'] in seen:
+                continue
+            pat = re.compile(rf'(?:^|[.!\n]\s*)\b{re.escape(a["name"])}\b\s*[,:]', re.IGNORECASE)
+            if pat.search(prompt_text):
+                seen.add(a['agent_id'])
+                role = 'reviewer' if ('qa' in a['name'].lower() or 'qa' in a['role'].lower()) else ('lead' if not participants else 'member')
+                participants.append((role, a))
+        if not participants:
+            raise ValueError('No hay Acts habilitados coincidentes en la solicitud o equipo.')
+        return participants
+
+    def _run_team_pipeline(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Execute a deterministic multi-Act TaskGraph pipeline from a single chat prompt (no fabricated concurrency)."""
+        conversation_id = str(body.get('conversation_id') or 'team-conv')
+        prompt_text = str(body.get('prompt') or '').strip()
+        if not prompt_text:
+            raise ValueError('prompt es obligatorio para ejecutar el equipo.')
+        participants = self._resolve_team_participants(body)
+        run_id = str(body.get('run_id') or f'teamrun-{uuid.uuid4().hex[:12]}')
+        lead_id = next((a['agent_id'] for r, a in participants if r == 'lead'), participants[0][1]['agent_id'])
+        ordered = sorted(participants, key=lambda x: (0 if x[0] == 'lead' else (2 if x[0] == 'reviewer' else 1)))
+
+        nodes: list[dict[str, Any]] = []
+        prev_tid: str | None = None
+        for idx, (mrole, act_prof) in enumerate(ordered):
+            tid = f'{run_id}-t{idx + 1}'
+            nodes.append({
+                'task_id': tid,
+                'agent_id': act_prof['agent_id'],
+                'role': mrole,
+                'depends_on': [prev_tid] if prev_tid else [],
+            })
+            prev_tid = tid
+
+        self.rt.orchestrator.start_run(
+            run_id=run_id,
+            conversation_id=conversation_id,
+            lead_agent_id=lead_id,
+            nodes=nodes,
+            goal_spec={'objective': prompt_text[:500]},
+            budget_usd=float(body.get('budget_usd', 5.0)),
+        )
+
+        # Optional authorized scene / code context (strictly read within grants, zero cross-chat leaks)
+        scene_context = ''
+        if body.get('scene_document_id'):
+            try:
+                scene_doc = self.rt.scenes.get_document(body['scene_document_id'])
+                qa_res = evaluate_diorama_qa(scene_doc)
+                scene_context = f"\n\n[Escena 3D autorizada {scene_doc['document_id']} rev.{scene_doc['revision']}: objetos={len(scene_doc.get('objects', []))}, DioramaQA={'OK' if qa_res.get('passed') else qa_res}]"
+            except Exception as exc:
+                scene_context = f'\n\n[Escena no disponible: {exc}]'
+
+        code_context = ''
+        if body.get('project_id') and body.get('file_path'):
+            try:
+                doc = self.rt.code_projects.read_document(body['project_id'], body['file_path'])
+                code_context = f"\n\n[Archivo autorizado {body['project_id']}:{body['file_path']} sha={doc['sha256'][:12]}]\n```\n{doc['content'][:6000]}\n```"
+            except Exception as exc:
+                code_context = f'\n\n[Archivo no disponible: {exc}]'
+
+        steps_output: list[dict[str, Any]] = []
+        artifacts: list[dict[str, Any]] = []
+        prior_summary = ''
+        for idx, ((mrole, act_prof), node) in enumerate(zip(ordered, nodes)):
+            act_id = act_prof['agent_id']
+            task_id = node['task_id']
+            req_id = f'{run_id}-req-{idx + 1}'
+            resolved = self.rt.acts.resolve(act_id, transport='router')
+            self.rt.acts.begin_execution(act_id, req_id, job_class='interactive_chat')
+            try:
+                self.rt.task_graph.ready_tasks(run_id)
+                self.rt.task_graph.lease_and_start_task(task_id, lease_id=f'lease-{task_id}', operation_id=f'op-{task_id}')
+                if idx > 0:
+                    prev_act_id = ordered[idx - 1][1]['agent_id']
+                    handoff_id = f'ho-{run_id[:12]}-{idx}'
+                    prev_grants = {g['grant_id'] for g in self.rt.registry.list_permissions(prev_act_id) if g['approval_mode'] != 'deny'}
+                    next_grants = {g['grant_id'] for g in self.rt.registry.list_permissions(act_id) if g['approval_mode'] != 'deny'}
+                    shared_grants = sorted(prev_grants & next_grants)
+                    prev_artifacts = [
+                        {'artifact_id': a['artifact_id'], 'sha256': a['sha256'], 'revision': a['revision']}
+                        for a in artifacts[-4:] if a.get('sha256')
+                    ]
+                    self.rt.orchestrator.delegate_handoff(
+                        handoff_payload={
+                            'schema_version': '1.0',
+                            'handoff_id': handoff_id,
+                            'conversation_id': conversation_id,
+                            'run_id': run_id,
+                            'task_id': task_id,
+                            'from_agent_id': prev_act_id,
+                            'to_agent_id': act_id,
+                            'operation_id': f'op-{handoff_id}',
+                            'idempotency_key': f'idem-{handoff_id}',
+                            'tool_grant_refs': shared_grants,
+                            'objective': f'Continuar objetivo: {prompt_text[:200]}',
+                            'inputs': prev_artifacts,
+                            'required_outputs': ['verified_response'],
+                            'acceptance_criteria': ['Respuesta verificada del modelo asignado al Act'],
+                            'limits': {'max_attempts': 1, 'deadline_seconds': 60, 'max_cost_usd': float(body.get('budget_usd', 5.0))},
+                        },
+                        parent_grants=sorted(prev_grants),
+                        untrusted_notes=prior_summary[:1000],
+                    )
+                extra_ctx = ''
+                if ('visual' in act_prof['name'].lower() or 'visual' in act_prof['role'].lower()) and scene_context:
+                    extra_ctx += scene_context
+                if code_context and idx == 0:
+                    extra_ctx += code_context
+                msg_content = f"Objetivo del equipo: {prompt_text}\nTu rol asignado en esta tarea: {mrole}.{extra_ctx}"
+                if prior_summary:
+                    msg_content += f"\n\nResumen previo verificado del equipo:\n{prior_summary}"
+                envelope = {
+                    'provider_name': '',
+                    'model': '',
+                    'task': 'chat',
+                    'request_id': req_id,
+                    'generation': {'max_tokens': 800},
+                    'messages': [
+                        {'role': 'system', 'content': 'Trabajas dentro de un equipo coordinado de AXX. Limítate al alcance autorizado de tu turno.'},
+                        {'role': 'user', 'content': msg_content},
+                    ],
+                }
+                self.rt.acts.apply_to_router(envelope, resolved)
+                self.rt.acts.record(conversation_id, req_id, resolved, 'run.started', {'team_run_id': run_id, 'role': mrole})
+                adapter = getattr(self.handler, 'adapter', None)
+                if adapter is None:
+                    raise RuntimeError('InferenceAdapter no disponible en el servidor')
+                res = adapter.route(envelope)
+                route_receipt = self.rt.acts.verify_router(resolved, res.get('route')) if res.get('ok') else None
+                if not res.get('ok') or not route_receipt or not route_receipt['model_verified']:
+                    err_msg = (res.get('error') or {}).get('message', 'El modelo del Act no respondió con verificación.')
+                    self.rt.event_hub.publish_event(conversation_id=conversation_id, run_id=run_id, agent_id=act_id,
+                                                    event_type='run.failed', payload={'task_id': task_id, 'error': err_msg})
+                    raise ActInferenceError('MODEL_MISMATCH', err_msg)
+                text = str(res['message'].get('content') or '').strip()
+                art = self.rt.registry.record_artifact(
+                    artifact_id=f'art-{task_id}',
+                    run_id=run_id,
+                    act_id=act_id,
+                    project_id=str(body.get('project_id') or ''),
+                    artifact_type='team_step_output',
+                    path_or_ref=f'run://{run_id}/{task_id}',
+                    sha256=hashlib.sha256(text.encode('utf-8')).hexdigest(),
+                    verification_status='verified',
+                    metadata={'role': mrole, 'model': resolved['model']},
+                )
+                artifacts.append(art)
+                sub = self.rt.task_graph.submit_for_verification(task_id, result={'text': text, 'artifact_id': art['artifact_id']},
+                                                                 evidence={'model_verified': True, 'model': resolved['model']})
+                verifier_id = f'verifier:{act_id}'
+                verdict = self.rt.verifier.verify_task(sub, verifier_agent_id=verifier_id)
+                self.rt.task_graph.complete_verified_task(task_id, verifier_evidence=verdict)
+                self.rt.acts.record(conversation_id, req_id, resolved, 'run.completed', route_receipt)
+                if idx > 0:
+                    self.rt.event_hub.publish_event(
+                        conversation_id=conversation_id,
+                        run_id=run_id,
+                        agent_id=act_id,
+                        event_type='handoff.completed',
+                        payload={'task_id': task_id, 'artifact_id': art['artifact_id'], 'model': resolved['model']},
+                    )
+                prior_summary = (prior_summary + f"\n\n[{act_prof['name']} · {resolved['model']}]:\n{text}").strip()
+                steps_output.append({
+                    'task_id': task_id,
+                    'act_id': act_id,
+                    'act_name': act_prof['name'],
+                    'role': mrole,
+                    'model': resolved['model'],
+                    'model_verified': True,
+                    'text': text,
+                    'artifact_id': art['artifact_id'],
+                })
+            finally:
+                self.rt.acts.end_execution(act_id, req_id, provider=resolved.get('provider_name') or 'local',
+                                           model=resolved.get('model') or 'default')
+
+        self.rt.event_hub.publish_event(
+            conversation_id=conversation_id,
+            run_id=run_id,
+            agent_id=lead_id,
+            event_type='run.completed',
+            payload={'kind': 'team_run', 'steps': len(steps_output), 'artifact_ids': [a['artifact_id'] for a in artifacts]},
+        )
+        consolidated = '\n\n'.join(f"〔{s['act_name']} · {s['model']}〕\n{s['text']}" for s in steps_output)
+        return {
+            'run_id': run_id,
+            'conversation_id': conversation_id,
+            'lead_agent_id': lead_id,
+            'steps': steps_output,
+            'artifacts': artifacts,
+            'consolidated_text': consolidated,
+            'graph': self.rt.task_graph.get_graph(run_id),
+        }
 
     def post(self, path: str, body: dict[str, Any]) -> bool:
         if not path.startswith(('/axx-api/agents/v1/', '/axx-api/workspaces/v1/', '/axx-api/code/v1/', '/axx-api/spatial/v2/')):
@@ -478,10 +831,22 @@ class EvolutionHTTP:
             self.handler._send_json(200, {'revoked': self.rt.registry.revoke_permission(body['agent_id'], body['grant_id'])})
             return True
         if path == '/axx-api/agents/v1/teams':
-            team = self.rt.registry.create_team(team_id=body['team_id'], title=str(body.get('title', '')),
-                                                members=body['members'], purpose=str(body.get('purpose', '')),
-                                                mode=body.get('mode', 'collaboration'))
+            team = self.rt.registry.create_team(
+                team_id=body['team_id'], title=str(body.get('title', '')),
+                members=body['members'], purpose=str(body.get('purpose', '')),
+                mode=body.get('mode', 'collaboration'),
+                coordinator_agent_id=body.get('coordinator_agent_id'),
+                budget_usd=float(body.get('budget_usd', 5.0)),
+                max_concurrency=int(body.get('max_concurrency', 2)),
+                delegation_rules=str(body.get('delegation_rules', '')),
+                shared_memory_policy=str(body.get('shared_memory_policy', 'explicit_shared')),
+                workspace_scope=str(body.get('workspace_scope', '')),
+                review_criteria=str(body.get('review_criteria', '')),
+            )
             self.handler._send_json(200, {'team': team})
+            return True
+        if path == '/axx-api/agents/v1/teams/run':
+            self.handler._send_json(200, self._run_team_pipeline(body))
             return True
         if path == '/axx-api/agents/v1/bindings/convert':
             conv_id = body['conversation_id']
@@ -611,6 +976,9 @@ class EvolutionHTTP:
                 enabled=bool(body.get('enabled', True)),
                 requires_approval=bool(body.get('requires_approval', True)),
                 imported_from_package=bool(body.get('imported_from_package', False)),
+                prompt_text=str(body.get('prompt_text', '')),
+                max_retries=int(body.get('max_retries', 1)),
+                budget_usd=float(body.get('budget_usd', 0.5)),
             )
             self.handler._send_json(200, {'routine': routine})
             return True
@@ -620,6 +988,15 @@ class EvolutionHTTP:
                 proposes_mutation=bool(body.get('proposes_mutation', True)),
             )
             self.handler._send_json(200, trig)
+            return True
+        if path == '/axx-api/agents/v1/routines/pause':
+            self.handler._send_json(200, {'routine': self.rt.routines.pause_routine(body['routine_id'])})
+            return True
+        if path == '/axx-api/agents/v1/routines/resume':
+            self.handler._send_json(200, {'routine': self.rt.routines.resume_routine(body['routine_id'])})
+            return True
+        if path == '/axx-api/agents/v1/routines/tick':
+            self.handler._send_json(200, {'results': self.rt.routines.tick_due_routines(now_ms=body.get('now_ms'))})
             return True
         if path == '/axx-api/agents/v1/routines/cancel':
             cancelled = self.rt.routines.cancel_routine(body['routine_id'])
@@ -650,6 +1027,8 @@ class EvolutionHTTP:
             return True
 
         # 5. Workspaces, Leases, FocusGuard, Browsers, UIA & VM
+        if path.startswith('/axx-api/workspaces/v1/'):
+            self._gate_act_workspace(path, body)
         if path == '/axx-api/workspaces/v1/leases/acquire':
             lease = self.rt.leases.acquire_lease(
                 lease_id=body['lease_id'],
@@ -857,8 +1236,18 @@ class EvolutionHTTP:
             summary = self.rt.code_indexer.index_project(body['project_id'])
             self.handler._send_json(200, summary)
             return True
+        if path == '/axx-api/code/v1/lsp/inspect':
+            info = self.rt.code_lsp.get_document_symbols_and_diagnostics(
+                project_id=body['project_id'],
+                language=body['language'],
+                relative_path=body['path'],
+            )
+            self.handler._send_json(200, info)
+            return True
 
         # 7. Spatial Studio v2 endpoints
+        if path.startswith('/axx-api/spatial/v2/'):
+            self._gate_act_spatial(path, body)
         if path == '/axx-api/spatial/v2/scenes/validate':
             scene = validate_scene_document_v2(body)
             self.handler._send_json(200, {'valid': True, 'scene': scene})

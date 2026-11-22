@@ -33,6 +33,20 @@ class LanguageServerManager:
         self.indexer = indexer
         self.sessions: dict[tuple[str, str], dict[str, Any]] = {}
 
+    def probe_available_servers(self) -> dict[str, Any]:
+        """Discover allowlisted LSP binaries installed on the machine; returns UNAVAILABLE when missing."""
+        servers: dict[str, Any] = {}
+        for lang, binaries in ALLOWED_LSP_SERVERS.items():
+            found = next((b for b in binaries if shutil.which(b)), None)
+            servers[lang] = {
+                'language': lang,
+                'binary': found,
+                'installed': found is not None,
+                'status': 'available' if found else 'UNAVAILABLE',
+                'ast_fallback': True,
+            }
+        return {'servers': servers}
+
     def start_language_server(
         self,
         *,

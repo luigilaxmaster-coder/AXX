@@ -140,11 +140,28 @@ class AgentRegistry:
                         role TEXT NOT NULL CHECK(role IN ('lead','member','reviewer')),
                         PRIMARY KEY(team_id, agent_id)
                     );
+
+                    CREATE TABLE IF NOT EXISTS act_artifacts (
+                        artifact_id TEXT PRIMARY KEY,
+                        run_id TEXT NOT NULL,
+                        act_id TEXT NOT NULL REFERENCES agent_profiles(agent_id) ON DELETE RESTRICT,
+                        project_id TEXT NOT NULL DEFAULT '',
+                        artifact_type TEXT NOT NULL,
+                        path_or_ref TEXT NOT NULL,
+                        sha256 TEXT NOT NULL DEFAULT '',
+                        revision INTEGER NOT NULL DEFAULT 1,
+                        verification_status TEXT NOT NULL DEFAULT 'pending',
+                        metadata_json TEXT NOT NULL DEFAULT '{}',
+                        created_at_ms INTEGER NOT NULL
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_act_artifacts_run ON act_artifacts(run_id);
                     '''
                 )
-                # Acts 3.1 additive migration: optional personality/autonomy/collaboration sections.
+                # Acts 3.1 additive migrations
                 if 'behavior_json' not in {r[1] for r in db.execute('PRAGMA table_info(agent_profiles)')}:
                     db.execute("ALTER TABLE agent_profiles ADD COLUMN behavior_json TEXT NOT NULL DEFAULT '{}'")
+                if 'team_meta_json' not in {r[1] for r in db.execute('PRAGMA table_info(agent_teams)')}:
+                    db.execute("ALTER TABLE agent_teams ADD COLUMN team_meta_json TEXT NOT NULL DEFAULT '{}'")
 
     def close(self) -> None:
         with self.lock:
@@ -458,12 +475,30 @@ class AgentRegistry:
         members: list[dict[str, str]],
         purpose: str = '',
         mode: str = 'collaboration',
+        coordinator_agent_id: str | None = None,
+        budget_usd: float = 5.0,
+        max_concurrency: int = 2,
+        delegation_rules: str = '',
+        shared_memory_policy: str = 'explicit_shared',
+        workspace_scope: str = '',
+        review_criteria: str = '',
     ) -> dict[str, Any]:
         _check_id(team_id, 'team_id')
         if mode not in ('consultation', 'collaboration'):
             raise AgentProfileValidationError("team mode must be 'consultation' or 'collaboration'")
         if not isinstance(members, list) or not members:
             raise AgentProfileValidationError('Team requires at least one member')
+        if coordinator_agent_id is not None:
+            _check_id(coordinator_agent_id, 'coordinator_agent_id')
+        meta = {
+            'coordinator_agent_id': coordinator_agent_id,
+            'budget_usd': max(0.0, float(budget_usd)),
+            'max_concurrency': max(1, min(int(max_concurrency), 8)),
+            'delegation_rules': str(delegation_rules)[:1000],
+            'shared_memory_policy': str(shared_memory_policy or 'explicit_shared')[:64],
+            'workspace_scope': str(workspace_scope)[:400],
+            'review_criteria': str(review_criteria)[:1000],
+        }
         now = self.clock()
         with self.lock, self._connect() as db:
             db.execute('PRAGMA foreign_keys=ON')
@@ -471,10 +506,10 @@ class AgentRegistry:
             try:
                 db.execute(
                     '''
-                    INSERT INTO agent_teams (team_id, title, purpose, mode, revision, created_at_ms, disabled)
-                    VALUES (?, ?, ?, ?, 1, ?, 0)
+                    INSERT INTO agent_teams (team_id, title, purpose, mode, revision, created_at_ms, disabled, team_meta_json)
+                    VALUES (?, ?, ?, ?, 1, ?, 0, ?)
                     ''',
-                    (team_id, str(title).strip()[:120], str(purpose).strip()[:500], mode, now),
+                    (team_id, str(title).strip()[:120], str(purpose).strip()[:500], mode, now, json.dumps(meta, ensure_ascii=False)),
                 )
                 for m in members:
                     aid = _check_id(m.get('agent_id'), 'member.agent_id')
@@ -501,6 +536,7 @@ class AgentRegistry:
                 'SELECT agent_id, role FROM agent_team_members WHERE team_id=? ORDER BY role, agent_id',
                 (team_id,),
             ).fetchall()
+            meta = json.loads(trow['team_meta_json'] or '{}') if 'team_meta_json' in trow.keys() else {}
             return {
                 'team_id': trow['team_id'],
                 'title': trow['title'],
@@ -510,7 +546,86 @@ class AgentRegistry:
                 'disabled': bool(trow['disabled']),
                 'created_at_ms': int(trow['created_at_ms']),
                 'members': [{'agent_id': r['agent_id'], 'role': r['role']} for r in mrows],
+                **meta,
             }
+
+    def list_teams(self, *, include_disabled: bool = True) -> list[dict[str, Any]]:
+        with self.lock, self._connect() as db:
+            query = 'SELECT team_id FROM agent_teams'
+            if not include_disabled:
+                query += ' WHERE disabled=0'
+            query += ' ORDER BY created_at_ms ASC, team_id ASC'
+            rows = db.execute(query).fetchall()
+            return [self.get_team(r['team_id']) for r in rows]
+
+    def record_artifact(
+        self,
+        *,
+        artifact_id: str,
+        run_id: str,
+        act_id: str,
+        artifact_type: str,
+        path_or_ref: str,
+        sha256: str = '',
+        project_id: str = '',
+        revision: int = 1,
+        verification_status: str = 'verified',
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        _check_id(artifact_id, 'artifact_id')
+        _check_id(run_id, 'run_id')
+        _check_id(act_id, 'act_id')
+        now = self.clock()
+        with self.lock, self._connect() as db:
+            db.execute('PRAGMA foreign_keys=ON')
+            with db:
+                db.execute(
+                    '''
+                    INSERT OR REPLACE INTO act_artifacts
+                        (artifact_id, run_id, act_id, project_id, artifact_type, path_or_ref, sha256,
+                         revision, verification_status, metadata_json, created_at_ms)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ''',
+                    (
+                        artifact_id,
+                        run_id,
+                        act_id,
+                        str(project_id)[:160],
+                        str(artifact_type)[:80],
+                        str(path_or_ref)[:600],
+                        str(sha256)[:64],
+                        int(revision),
+                        str(verification_status)[:40],
+                        json.dumps(metadata or {}, ensure_ascii=False),
+                        now,
+                    ),
+                )
+        return self.list_artifacts(run_id=run_id)[0]
+
+    def list_artifacts(self, *, run_id: str | None = None, act_id: str | None = None) -> list[dict[str, Any]]:
+        with self.lock, self._connect() as db:
+            if run_id:
+                rows = db.execute('SELECT * FROM act_artifacts WHERE run_id=? ORDER BY created_at_ms DESC', (run_id,)).fetchall()
+            elif act_id:
+                rows = db.execute('SELECT * FROM act_artifacts WHERE act_id=? ORDER BY created_at_ms DESC', (act_id,)).fetchall()
+            else:
+                rows = db.execute('SELECT * FROM act_artifacts ORDER BY created_at_ms DESC LIMIT 200').fetchall()
+            return [
+                {
+                    'artifact_id': r['artifact_id'],
+                    'run_id': r['run_id'],
+                    'act_id': r['act_id'],
+                    'project_id': r['project_id'],
+                    'artifact_type': r['artifact_type'],
+                    'path_or_ref': r['path_or_ref'],
+                    'sha256': r['sha256'],
+                    'revision': int(r['revision']),
+                    'verification_status': r['verification_status'],
+                    'metadata': json.loads(r['metadata_json'] or '{}'),
+                    'created_at_ms': int(r['created_at_ms']),
+                }
+                for r in rows
+            ]
 
     def _row_to_profile(self, row: sqlite3.Row) -> dict[str, Any]:
         appearance = json.loads(row['appearance_json'])

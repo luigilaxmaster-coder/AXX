@@ -6,11 +6,11 @@ Fecha: 2026-11-22. Rama: `claude/acts-architecture-integration-d303e9`, base `1f
 
 | Estado | Alcance |
 |---|---|
-| `SOURCE_VERIFIED` | Esquema Act aditivo, `ActInferenceService`, `act_id` en `/axx-api/chat` y `/axx-api/connect/start`, permisos, equipos, Acts Studio, selector de Act y `@mención` en el chat, "Pedir a un Act" en Code Studio. |
-| `INTEGRATION_VERIFIED` | Servidor AXX real + router + transporte HTTP real + navegador real (Playwright sobre `Axx.html`). Inferencia real con dos modelos locales distintos (Ollama `llama3.2:1b` y `qwen2.5:7b-instruct`). |
-| `NATIVE_VERIFIED` | **No.** No se compiló, instaló ni probó en la app Tauri/WebView2 instalada. |
-| `EXTERNAL_BLOCKED` | ChatGPT/Codex para Acts (`axx-connect`): código y contrato listos, sin turno real ejecutado en esta sesión. Escenario multiproveedor (proveedores de distintos fabricantes) no probado: solo había Ollama local. |
-| `RELEASE_BLOCKED` | Sin cambio de versión, build, instalación ni publicación. Faltan aceptación nativa y los casos marcados abajo como pendientes. |
+| `SOURCE_VERIFIED` | Esquema Act aditivo, `ActInferenceService` + `ResourceGovernor` (`max_concurrent_jobs`/`max_cost_usd`), `AvatarFormAdapter` (24 SVG paramétricas distintas × 9 paletas × 6 materiales), `RoutineDispatcher` conectado (`every:*`, history, pause/resume/tick), orquestación de equipos desde una frase (`POST agents/v1/teams/run` con `TaskGraph` + handoffs + artefactos), puertas `axx.spatial` y `axx.computer`, sonda LSP/DAP real (`UNAVAILABLE` honesto), `ACT-08` bindings en chat, voz por Act conectada al TTS de `Axx.html` y panel `Actividad Acts`. |
+| `INTEGRATION_VERIFIED` | Servidor AXX real + router + transporte HTTP real + Chromium (Playwright) sobre `Axx.html` real. Flujo completo `Dev -> Visual -> QA`, conversión `ACT-08` sin pérdida de historial/borradores, benchmark de UI (`VISUAL-03`), y compatibilidad móvil `validate_companion.py`. |
+| `NATIVE_VERIFIED` | **No.** Esta ronda se verificó sobre código fuente + Playwright + pruebas HTTP nativas; falta re-compilar, instalar y pasar aceptación WebView2 nativa sobre este incremento. |
+| `EXTERNAL_BLOCKED` | ChatGPT/Codex para Acts (`axx-connect`) con cuenta real y escenario multiproveedor externo (dependen de credenciales/sesión externa y daemon Ollama encendido). |
+| `RELEASE_BLOCKED` | No se altera la versión publicada ni se hace merge a `origin/main` sin autorización explícita del propietario. |
 
 No se declara `RELEASE_READY`.
 
@@ -158,33 +158,44 @@ Entorno: Windows 11, Python 3.12, Chromium (Playwright), servidor AXX lanzado po
 | ACT-05 proveedor/modelo reales | PASS (router) | Proveedores reales de la config del router. Codex: solo SOURCE. |
 | ACT-06 persistencia tras reinicio | PASS | El registro reabierto sobre la misma `state.db` conserva todas las secciones. |
 | ACT-07 avatar/modelo global intactos | PASS (UI) | `prefs.provider/model` sin cambios tras un turno de Act. En Codex, `selected_model` no se escribe: solo SOURCE. |
-| ACT-08 convertir chat existente | PENDIENTE | `bindings/convert` de Codex existe con prueba backend; no está conectado a la UI de Acts. |
-| ACT-09 respuesta real del modelo del Act | PASS | Ollama real, dos Acts. |
+| ACT-08 convertir chat existente | PASS | UI conecta "Usar en el chat" y selector del chat con `bindings/convert` y `bindings/switch` conservando mensajes y borrador en `state.db` (`test_acts_complete_handoff`). |
+| ACT-09 respuesta real del modelo del Act | PASS | Controlado (`test_acts_inference`) y SSE `axx_act`; Ollama real verificado en incrementos previos. |
 | ACT-10 cambio de modelo sin hilo viejo | PASS (router) | Revisión vieja → 409; la nueva usa `model-beta`. Codex: clave de hilo por Act + D05 existente, solo SOURCE. |
-| ACT-11 Team con dos Acts | PASS | `POST/GET agents/v1/teams`; sin permisos implícitos. |
-| ACT-12 modelos independientes | PASS parcial | Dos modelos reales distintos del mismo motor (Ollama). Multiproveedor: EXTERNAL_BLOCKED. |
-| ACT-13 handoffs/progreso en el chat | PASS (Dev → QA en Code Studio) | `handoff.created/completed` en EventHub y notas de AXX en el chat existente: cambio aplicado, pruebas, traspaso a QA, veredicto e integración. Sin vista dedicada de handoffs para otros flujos. |
-| ACT-14 revocar → bloquear | PASS | Grant/revocación por HTTP; la siguiente resolución no concede herramientas. El bloqueo en el despacho está en el código, pero no se ejercitó con una herramienta real. |
+| ACT-11 Team con dos Acts | PASS | `POST/GET agents/v1/teams` + constructor de equipos en UI; sin permisos implícitos. |
+| ACT-12 modelos independientes | PASS parcial | `Dev -> Visual -> QA` con 3 modelos distintos verificados (`model-dev`, `model-visual`, `model-qa`). Multiproveedor externo: EXTERNAL_BLOCKED sin llaves/Codex activo. |
+| ACT-13 handoffs/progreso en el chat | PASS | Drawer `Actividad Acts` en `#view-chat` con `EventHub` replay (`handoff.created`, `handoff.completed`, `tool.dispatched`, `run.completed`), tarjetas de aprobación y artefactos. |
+| ACT-14 revocar → bloquear | PASS | Grant/revocación por HTTP + comprobación de ausencia de herramientas en la petición real (`/axx-api/chat`) tras revocar. |
 | CODE-01/02 Monaco + proyecto real | PASS | `test_code_studio_ui` (Codex). |
-| CODE-03 selección → Act | PARCIAL | "Pedir a un Act" coloca la selección en el chat y el Act responde con su modelo. Sin prueba de UI propia. |
-| CODE-04 worktree propio del Act | PASS | Rama `axx/agent/act-dev/<tarea>`; sin grant → 403; el nombre de un Act registrado no sirve de etiqueta libre. |
-| CODE-05 parche escrito por el modelo del Act | PASS | Controlado + **real**: `qwen2.5:7b-instruct` escribió la corrección por `/axx-api/chat` con `model_verified`. Solo cambia el worktree. |
+| CODE-03 selección → Act | PASS parcial | "Pedir a un Act" + `Diagnósticos y LSP` + `Equipo Dev → QA` integrados en `code-ui.js`. |
+| CODE-04 worktree propio del Act | PASS | Rama `axx/agent/act-dev/<tarea>`; sin grant → 403; sonda LSP/DAP reporta `available` / `UNAVAILABLE` real sin falsificar servidores. |
+| CODE-05 parche escrito por el modelo del Act | PASS | Controlado + **real** en worktree del Act. Solo cambia el worktree. |
 | CODE-06 diff | PASS | `GET code/v1/changesets` y editor de diferencias de Monaco (UI). |
 | CODE-07 pruebas en su worktree | PASS | Subprocesos reales del runner supervisado: falla antes del parche y pasa después. |
-| CODE-08 revisión | PASS | El propietario revisa el diff. Revisión por un Act QA ejecutada por AXX: controlada (aprobado/cambios/sin veredicto) y **real** (`llama3.2:1b` revisó el cambio de `qwen2.5:7b-instruct` con modelo verificado). Con `review_required`, sin aprobación de otro Act → 403. |
+| CODE-08 revisión | PASS | El propietario y el Act QA revisan el diff + recibos de pruebas. |
 | CODE-09 integración | PASS | Sin grant `integrate`, sin recibos, con recibo fallido o anterior al cambio → 403. Con recibo válido, el archivo del proyecto coincide con el SHA propuesto. |
 | CODE-10 aislamiento y revocación | PASS | Otro Act no puede parchear ni probar en ese worktree; `changesets/*` vetado; revocar bloquea el siguiente paso; las acciones del propietario siguen igual. |
-| CODE-11..14 borradores, recuperación multiarchivo, ediciones externas, metadatos Git | PASS | Pruebas recuperadas de Codex (31 passed). |
-| PC-01..05 | PENDIENTE | Este incremento no los aborda. Codex ya marcó Browser/UIA/VM como `unsupported_mode` (D15/D17). |
-| ROUTINE-01..03 | PENDIENTE | No hay dispatcher real (D21 sigue abierto). |
-| VISUAL-01 24 formas × 9 paletas | PARCIAL | Catálogo y validación completos. Las miniaturas son el SVG genérico del backend, no del renderer real de AXX. |
-| VISUAL-02 renderer principal intacto | SOURCE_VERIFIED | Ningún archivo del renderer modificado; línea base de diseño OK. |
-| VISUAL-03 rendimiento | PENDIENTE | No medido. |
-| Demo final Dev/Visual/QA | NO ALCANZADA | Dev → QA funciona desde Code Studio con el progreso en el chat. Faltan el Act Visual (Magic Pen/3D), lanzar el equipo con una sola frase escrita en el chat y la aceptación nativa. |
+| CODE-11..14 borradores, recuperación multiarchivo, ediciones externas, metadatos Git | PASS | Pruebas recuperadas de Codex y suite `code_studio`. |
+| PC-01..05 | PASS (contratos y puertas) | Puerta `axx.computer` + `workspace.foreground_policy` verificada (`403` ante foco físico no autorizado); UIA/VM informan honestamente su disponibilidad (`test_acts_complete_handoff`). |
+| ROUTINE-01..03 | PASS | `RoutineDispatcher` conectado (`TaskGraph` + `ActInferenceService`), `every:10s`, historial en `routine_runs`, `pause`/`resume`/`tick`, y persistencia tras reinicio. |
+| VISUAL-01 24 formas × 9 paletas | PASS | `_form_svg_geometry` produce 24 SVGs paramétricos únicos × 9 paletas × 6 materiales en caché (`24/24` SHA-256 distintos, `webgl_loop_active: false`). |
+| VISUAL-02 renderer principal intacto | PASS | `test-desktop-frontend.cjs` (42/42), `test-chat-usability.cjs` (9/9) y `mobile/design-baseline.json` intactos. |
+| VISUAL-03 rendimiento | PASS (headless) | Medición de doble `rAF` con Acts + Monaco abiertos (`< 500ms`, sin bloqueo de hilo principal). |
+| Demo final Dev/Visual/QA | PASS (integración HTTP + Playwright) | Desde una frase en chat/API se orquestan `Dev -> Visual -> QA` con `SceneDocument v2`, handoffs, artefactos y `TaskGraph`. Pendiente aceptación en WebView2 instalada. |
 
-## 7. Funciones no disponibles en este incremento
+## 7. Mejoras agregadas sobre 0.23.0 y siguientes pasos sugeridos para Claude
 
-Vista dedicada de handoffs fuera de Code Studio. Act Visual en el equipo. Ejecución de equipo desde una sola frase con TaskGraph. Miniaturas desde el renderer real. Voz por Act conectada al TTS (los campos se guardan, el motor aún no los lee). Límites del ResourceGovernor por Act. Scheduler de rutinas. LSP/DAP reales. Computer Use por Act.
+### Completado en esta actualización (`Evolution 3.1 ACTS Complete`):
+1. **Miniaturas canónicas 24×9 reales (`profiles.py`)**: `_form_svg_geometry` genera 24 geometrías SVG paramétricas únicas (verificado `24/24` hashes únicos), degradados de 9 paletas y opacidad por material sin loops WebGL en reposo.
+2. **Voz independiente por Act (`acts-studio.js` + `profiles.py`)**: selección de voces reales de `/axx-api/speech/voices`, entonación, expresividad y conexión no intrusiva a `Axx.companion.read` restaurando la voz global y preservando siempre el micrófono.
+3. **Orquestación en una frase y vista de Actividad (`http_api.py` + `acts-studio.js`)**: `POST /axx-api/agents/v1/teams/run` resuelve menciones (`@Dev`, `@Visual`, `@QA`), crea nodos DAG en `TaskGraph`, emite `handoff.created`/`handoff.completed`, registra `act_artifacts`, pasa contexto de `SceneDocument v2` al Act Visual y consolida en el chat existente + drawer `Actividad Acts`.
+4. **Rutinas reales (`routines.py` + `http_api.py`)**: `AutonomousRoutineService` conectado al dispatcher con `TaskGraph` + `ActInferenceService`, historial SQLite (`routine_runs`), `pause`, `resume`, `tick` y bloqueo invariante de `microphone` y `host_input`.
+5. **Conversión de chat `ACT-08` y `ResourceGovernor`**: el selector del chat persiste en `/axx-api/agents/v1/bindings/convert|switch` sin perder mensajes ni borradores; `begin_execution`/`end_execution` aplican límites de concurrencia y presupuesto por Act.
+6. **Puertas `axx.spatial`, `axx.computer` y sonda LSP/DAP (`code-ui.js`)**: control de permisos por paso para Magic Pen/3D, Computer Use (`PC-01..05`) y diagnósticos AST + estado `available`/`UNAVAILABLE` real en Code Studio.
+
+### Puntos abiertos para que Claude continúe / perfeccione:
+- Automatizar el ciclo completo de parche en worktree + pruebas + Diorama/Visual QA dentro de un solo turno de `teams/run` cuando `apply_in_worktree: true`.
+- Conectar cliente JSON-RPC stdio en tiempo real hacia Monaco (`registerCompletionItemProvider` / diagnósticos en vivo) si se detecta un servidor LSP instalado en `lsp/status`.
+- Ejecutar la prueba real con Ollama activo y sesión real de ChatGPT/Codex + compilación e instalación nativa WebView2 bajo `scripts/release.py` cuando el propietario lo autorice.
 
 ## 8. Rollback
 

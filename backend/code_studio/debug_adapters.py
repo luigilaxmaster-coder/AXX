@@ -34,6 +34,31 @@ class DebugAdapterManager:
         self.projects = project_service
         self.sessions: dict[str, dict[str, Any]] = {}
 
+    def probe_available_adapters(self) -> dict[str, Any]:
+        """Discover allowlisted loopback DAP adapters installed on host; declares UNAVAILABLE when missing."""
+        import importlib.util
+        import shutil
+        adapters: dict[str, Any] = {
+            'debugpy': {
+                'adapter': 'debugpy',
+                'installed': importlib.util.find_spec('debugpy') is not None,
+                'loopback_only': True,
+            },
+            'node-inspect': {
+                'adapter': 'node-inspect',
+                'installed': shutil.which('node') is not None,
+                'loopback_only': True,
+            },
+            'codelldb': {
+                'adapter': 'codelldb',
+                'installed': shutil.which('codelldb') is not None,
+                'loopback_only': True,
+            },
+        }
+        for v in adapters.values():
+            v['status'] = 'available' if v['installed'] else 'UNAVAILABLE'
+        return {'adapters': adapters}
+
     def create_debug_session(
         self,
         *,
