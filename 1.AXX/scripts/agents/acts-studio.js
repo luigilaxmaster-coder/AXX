@@ -72,15 +72,19 @@
   const importInput = el('input', {type: 'file', accept: 'application/json', hidden: true});
   const entry = el('button', {type: 'button', className: 'axx-code-entry', textContent: 'Abrir Acts'});
   const flagButton = el('button', {type: 'button', hidden: true});
-  const subTabsRow = el('div', {className: 'quick-row'},
-    el('button', {type: 'button', textContent: 'Biblioteca de Acts', onclick: () => { state.subview = 'library'; renderSubview(); }}),
-    el('button', {type: 'button', textContent: 'Equipos (Teams)', onclick: () => { state.subview = 'teams'; renderSubview(); }}),
-    el('button', {type: 'button', textContent: 'Rutinas', onclick: () => { state.subview = 'routines'; renderSubview(); }}));
-  const quickRow = el('div', {className: 'quick-row'},
-    el('button', {type: 'button', textContent: 'Crear Act', onclick: () => edit(null)}),
-    el('button', {type: 'button', textContent: 'Importar perfil', onclick: () => importInput.click()}),
-    flagButton);
-  host.append(el('h3', {textContent: 'Acts Studio'}), status, govStatus, quickRow, subTabsRow, library, teamsBox, routinesBox, editor, preview, importInput);
+  const subTabsRow = el('div', {className: 'axx-acts-segments', role: 'tablist', ariaLabel: 'Secciones de Acts'},
+    ...[['library', 'Biblioteca de Acts'], ['teams', 'Equipos (Teams)'], ['routines', 'Rutinas']].map(([id, label]) => {
+      const b = el('button', {type: 'button', role: 'tab', textContent: label, onclick: () => { state.subview = id; renderSubview(); }});
+      b.dataset.sub = id; return b; }));
+  const createButton = el('button', {type: 'button', textContent: 'Crear Act', className: 'primary', onclick: () => edit(null)});
+  const importButton = el('button', {type: 'button', textContent: 'Importar perfil', onclick: () => importInput.click()});
+  const quickRow = el('div', {className: 'quick-row'}, createButton, importButton, flagButton);
+  host.append(
+    el('header', {className: 'axx-acts-head'},
+      el('div', {}, el('h3', {textContent: 'Acts Studio'}),
+        el('p', {className: 'axx-acts-sub', textContent: 'Agentes persistentes: cada Act tiene su modelo, personalidad, forma, voz, memoria y permisos propios.'})),
+      govStatus),
+    status, el('div', {className: 'axx-acts-toolbar'}, quickRow, subTabsRow), library, teamsBox, routinesBox, editor, preview, importInput);
   document.getElementById('view-agent').append(entry, host);
   document.head.append(el('link', {rel: 'stylesheet', href: 'scripts/agents/acts-studio.css'}));
   const say = text => { status.textContent = text; };
@@ -91,16 +95,31 @@
     library.hidden = state.subview !== 'library';
     teamsBox.hidden = state.subview !== 'teams';
     routinesBox.hidden = state.subview !== 'routines';
+    for (const b of subTabsRow.children) b.setAttribute('aria-selected', String(b.dataset.sub === state.subview));
     if (state.subview === 'teams') renderTeams();
     if (state.subview === 'routines') renderRoutines();
   }
+
+  // The panel title names the open studio; other views (phase7 settings) rewrite it, so re-assert on every change.
+  const panelTitle = document.getElementById('panel-title');
+  const syncTitle = () => {
+    if (!panelTitle) return;
+    const view = document.querySelector('#view-agent:not([hidden])');
+    const want = !view ? null : !host.hidden ? 'Acts' : view.querySelector('.axx-code-studio:not([hidden])') ? 'Code Studio' : null;
+    if (!view) return;  // another view owns the title
+    if (want && panelTitle.textContent !== want) panelTitle.textContent = want;
+    else if (!want && ['Acts', 'Code Studio'].includes(panelTitle.textContent)) panelTitle.textContent = 'Personalizar AXX';
+  };
+  Axx.syncStudioTitle = syncTitle;
+  if (panelTitle) new MutationObserver(syncTitle).observe(panelTitle, {childList: true, characterData: true, subtree: true});
+  new MutationObserver(syncTitle).observe(document.getElementById('view-agent'), {attributes: true, attributeFilter: ['hidden']});
 
   async function toggleStudio(forceOpen) {
     const targetOpen = forceOpen !== undefined ? forceOpen : host.hidden;
     if (!targetOpen && !host.hidden && dirty() && !confirm('Hay cambios sin guardar en el Act. ¿Cerrar y descartarlos?')) return;
     if (targetOpen) Axx.codeStudio?.close?.();  // one studio at a time in the agent view
     host.hidden = !targetOpen; entry.textContent = host.hidden ? 'Abrir Acts' : 'Cerrar Acts';
-    host.parentElement.classList.toggle('axx-acts-active', !host.hidden);
+    host.parentElement.classList.toggle('axx-acts-active', !host.hidden); syncTitle();
     if (host.hidden) { editor.hidden = true; state.draft = null; } else await load();
     Axx.resident?.schedule?.();
   }
@@ -148,6 +167,10 @@
     // New capabilities start off; only the owner's explicit click enables them.
     const flag = (flags.flags || []).find(f => f.flag_id === 'agent_profiles_v1');
     flagButton.hidden = !flag;
+    state.actsOff = !!flag && !flag.enabled;
+    flagButton.classList.toggle('primary', state.actsOff);
+    createButton.classList.toggle('primary', !state.actsOff);
+    for (const b of [createButton, importButton]) { b.disabled = state.actsOff; b.title = state.actsOff ? 'Activa Acts primero' : ''; }
     if (flag) {
       flagButton.textContent = flag.enabled ? 'Desactivar Acts' : 'Activar Acts';
       flagButton.onclick = attempt(async () => {
@@ -202,7 +225,7 @@
         preview.scrollIntoView({block: 'nearest', behavior: 'smooth'});
       })});
       const actions = el('div', {className: 'quick-row'},
-        el('button', {type: 'button', textContent: 'Usar en el chat', disabled: !act.enabled, onclick: attempt(async () => { await chooseForChat(act.agent_id); say(act.name + ' responderá en este chat (conversación conservada).'); })}),
+        el('button', {type: 'button', className: 'primary', textContent: 'Usar en el chat', disabled: !act.enabled, onclick: attempt(async () => { await chooseForChat(act.agent_id); say(act.name + ' responderá en este chat (conversación conservada).'); })}),
         el('button', {type: 'button', textContent: 'Personalizar', onclick: attempt(() => edit(act))}),
         el('button', {type: 'button', textContent: 'Duplicar', onclick: attempt(() => edit(act, true))}),
         el('button', {type: 'button', textContent: act.enabled ? 'Deshabilitar' : 'Habilitar', onclick: attempt(() => toggle(act))}),
@@ -223,7 +246,19 @@
       card.dataset.state = live;
       return card;
     }));
-    if (!state.acts.length) library.append(el('p', {textContent: 'Todavía no hay Acts. Crea uno para asignarle un modelo y trabajar con él desde el chat.'}));
+    if (!state.acts.length) {
+      const step = (n, title, text) => el('li', {}, el('span', {className: 'axx-acts-step-n', textContent: n, ariaHidden: 'true'}),
+        el('div', {}, el('strong', {textContent: title}), el('span', {textContent: text})));
+      library.append(el('div', {className: 'axx-acts-intro', role: 'note'},
+        el('p', {textContent: state.actsOff
+          ? 'Así empiezas con Acts:'
+          : 'Todavía no hay Acts. Crea uno para asignarle un modelo y trabajar con él desde el chat.'}),
+        el('ol', {className: 'axx-acts-steps'},
+          step('1', 'Activar', 'Acts empieza desactivado; solo tú lo enciendes. Nada recibe permisos al activarlo.'),
+          step('2', 'Crear y personalizar', 'Nombre, rol, forma y paleta, modelo (Ollama o ChatGPT), voz, memoria y autonomía.'),
+          step('3', 'Trabajar', 'Elígelo en el chat o escribe @mención; en Code Studio delega archivos y forma equipos Dev → QA.'),
+          step('4', 'Conceder herramientas', 'Cada herramienta (código, comandos, escena, computadora) se concede aparte y se puede revocar.'))));
+    }
   }
 
   function renderTeams() {

@@ -35,7 +35,7 @@
   function setOpen(open) {
     if (open && !document.querySelector('.axx-acts-studio')?.hidden) void Axx.acts?.close?.();  // one studio at a time
     host.hidden = !open; entry.textContent = open ? 'Cerrar Code Studio' : 'Abrir Code Studio';
-    host.parentElement.classList.toggle('axx-code-active',open);
+    host.parentElement.classList.toggle('axx-code-active',open); Axx.syncStudioTitle?.();
     Axx.resident?.schedule?.();
   }
   const attempt = async task => { try { await task(); } catch (error) {

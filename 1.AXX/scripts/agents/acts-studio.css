@@ -1,7 +1,24 @@
 .axx-acts-studio { color:var(--ink,inherit); display:grid; gap:10px; --acts-line:var(--line,#5554); --acts-soft:rgba(127,140,170,.07); }
 .axx-acts-studio [hidden] { display:none!important; }
 .axx-acts-active > :not(.axx-acts-studio):not(.axx-code-entry) { display:none!important; }
-.axx-acts-studio > h3 { margin:0; font-size:18px; letter-spacing:-.01em; }
+.axx-acts-studio .axx-acts-head { display:flex; align-items:flex-end; justify-content:space-between; gap:6px 16px; flex-wrap:wrap; }
+.axx-acts-studio .axx-acts-head h3 { margin:0; font-size:20px; letter-spacing:-.015em; }
+.axx-acts-studio .axx-acts-sub { margin:2px 0 0; font-size:12.5px; opacity:.72; max-width:62ch; }
+.axx-acts-studio .axx-acts-toolbar { display:flex; align-items:center; justify-content:space-between; gap:8px 12px; flex-wrap:wrap;
+  padding-bottom:10px; border-bottom:1px solid var(--acts-line); }
+.axx-acts-studio .primary:not(:disabled) { background:var(--accent,#157eff); border-color:transparent; color:#fff; font-weight:600; }
+.axx-acts-studio button:disabled { opacity:.45; cursor:not-allowed; }
+.axx-acts-studio .axx-acts-segments { display:flex; flex-wrap:wrap; gap:2px; padding:3px; border-radius:11px; background:var(--acts-soft); border:1px solid var(--acts-line); }
+.axx-acts-studio .axx-acts-segments > button { min-height:32px; padding:4px 12px; font-size:12.5px; border:0; background:transparent; border-radius:8px; }
+.axx-acts-studio .axx-acts-segments > [aria-selected=true] { background:var(--panel-bg, rgba(255,255,255,.85)); box-shadow:0 1px 4px rgba(0,0,0,.14), inset 0 -2px 0 var(--accent,#157eff); font-weight:600; }
+.axx-acts-studio .axx-acts-intro { grid-column:1 / -1; display:grid; gap:10px; padding:14px; border:1px dashed var(--acts-line); border-radius:14px; }
+.axx-acts-studio .axx-acts-intro > p { margin:0; font-size:13.5px; font-weight:600; }
+.axx-acts-studio .axx-acts-steps { list-style:none; margin:0; padding:0; display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:10px; }
+.axx-acts-studio .axx-acts-steps li { display:grid; grid-template-columns:28px minmax(0,1fr); gap:10px; align-items:start; padding:10px 12px; border-radius:12px; background:var(--acts-soft); }
+.axx-acts-studio .axx-acts-steps li div { display:grid; gap:3px; font-size:12.5px; line-height:1.45; }
+.axx-acts-studio .axx-acts-steps li span:not(.axx-acts-step-n) { opacity:.75; }
+.axx-acts-studio .axx-acts-step-n { display:grid; place-items:center; width:28px; height:28px; border-radius:50%; font-weight:700; font-size:13px;
+  color:var(--accent,#157eff); box-shadow:inset 0 0 0 1.5px currentColor; }
 .axx-acts-studio .axx-acts-status { margin:0; font-size:12.5px; opacity:.8; }
 .axx-acts-studio .axx-acts-gov-status { font:11.5px/1.4 ui-monospace,'Cascadia Code',Consolas,monospace; opacity:.7; }
 .axx-acts-studio .quick-row { display:flex; flex-wrap:wrap; gap:6px; }
@@ -22,7 +39,6 @@
   font:11px/1.5 ui-monospace,'Cascadia Code',Consolas,monospace; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; opacity:.9; }
 .axx-acts-studio .axx-acts-card .quick-row { grid-column:1 / -1; gap:5px; }
 .axx-acts-studio .axx-acts-card .quick-row > button { min-height:28px; padding:3px 9px; font-size:12px; }
-.axx-acts-studio .axx-acts-card .quick-row > button:first-child { box-shadow:inset 0 0 0 1.5px var(--accent,#157eff); }
 /* State colour comes only from backend events (EventHub run.* / governor), never from a timer. */
 .axx-acts-studio .axx-acts-badge { display:inline-flex; align-items:center; gap:5px; padding:1px 8px; border-radius:999px; font-size:11px; font-weight:600;
   border:1px solid color-mix(in srgb, var(--state,#8a94a6) 60%, transparent); color:var(--state,#8a94a6); }

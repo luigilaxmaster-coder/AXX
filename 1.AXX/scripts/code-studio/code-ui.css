@@ -12,8 +12,14 @@
 .axx-code-head [aria-pressed=true] { box-shadow:inset 0 0 0 1.5px var(--accent,#157eff); }
 .axx-code-studio details[data-code=project-settings] { border:1px solid var(--line,#5554); border-radius:12px; padding:6px 10px; }
 .axx-code-studio details[data-code=project-settings] summary { cursor:pointer; font-size:12.5px; font-weight:600; }
-.axx-code-project { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:8px 10px; align-items:end; margin-top:6px; }
-.axx-code-project form { grid-column:1 / -1; display:grid; grid-template-columns:minmax(0,1fr) auto; gap:8px; align-items:end; }
+/* One compact row (saved project | path) so the IDE body stays in view; stacks only on narrow panels. */
+.axx-code-project { display:grid; grid-template-columns:minmax(0,.8fr) auto minmax(0,1.2fr); gap:8px 10px; align-items:end; margin-top:6px; }
+.axx-code-project form { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:8px; align-items:end; }
+/* #panel#panel outranks interface-theme's resident `.setting` row padding/border without !important. */
+#panel#panel .axx-code-project .setting, .axx-code-project .setting { margin:0; padding:0; border:0; gap:3px; font-size:11.5px; font-weight:600; opacity:.95; }
+.axx-code-project select, .axx-code-project input { min-height:32px; padding:4px 9px; font-size:12.5px; }
+.axx-code-project button { min-height:32px; padding:4px 11px; font-size:12.5px; border-radius:9px; white-space:nowrap; }
+@media (max-width:900px) { .axx-code-project { grid-template-columns:minmax(0,1fr) auto; } .axx-code-project form { grid-column:1 / -1; } }
 .axx-code-toolbar { display:flex; flex-wrap:wrap; gap:6px; }
 .axx-code-toolbar button, .axx-code-acts button, .axx-code-head button { min-height:32px; padding:4px 11px; font-size:12.5px; border-radius:9px; }
 .axx-code-body { display:grid; grid-template-columns:minmax(160px,210px) minmax(0,1fr) minmax(210px,260px); gap:10px; align-items:stretch; }
