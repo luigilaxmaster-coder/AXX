@@ -7937,6 +7937,8 @@ var Axx;
         { id: 'inbox', family: 'settings', title: 'Actividad', description: 'Consulta avisos sin interrumpir las tareas en ejecución.', view: 'inbox', availability: 'EVENTOS DE ESTA SESIÓN' },
         { id: 'help', family: 'settings', title: 'Controles y alcance', description: 'Atajos, privacidad y diferencias entre HTML y Windows.', view: 'help', availability: 'GUÍA INCLUIDA' },
         { id: 'learn', family: 'actions', title: 'Aprende esto', description: 'Observa una demostración y prepara una habilidad verificable.', view: 'files', availability: 'OBSERVACIÓN LOCAL · CON APROBACIÓN' },
+        { id: 'acts', family: 'actions', title: 'Acts · agentes personales', description: 'Agentes con su propio modelo, personalidad, voz y permisos. Úsalos en el chat con @nombre o en equipo (Dev, Visual, QA).', view: 'agent', availability: 'SE ACTIVA EN ACTS STUDIO' },
+        { id: 'codestudio', family: 'actions', title: 'Code Studio', description: 'Editor Monaco sobre tus proyectos Git: diffs, pruebas, LSP y Acts que trabajan en su propio worktree.', view: 'agent', availability: 'LOCAL · PROYECTOS GIT' },
     ];
     function speechReplyText(value) {
         return String(value || '').slice(0, 7000)
@@ -12906,6 +12908,7 @@ var Axx;
         translate: '<path d="M2 5h12M8 2v3M5 5c0 6 6 9 9 10M12 5c0 6-5 9-10 11M13 22l5-12 5 12M15 18h6"/>',
         file: '<path d="M3 7h7l2-3h8a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 1-2Z"/>',
         app: '<rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/>',
+        code: '<path d="m8 6-6 6 6 6M16 6l6 6-6 6M14 4l-4 16"/>',
         check: '<path d="m5 12 4 4L20 5"/>', close: '<path d="m6 6 12 12M18 6 6 18"/>', back: '<path d="m14 5-7 7 7 7"/>',
         sparkle: '<path d="m12 2 2.5 7.5L22 12l-7.5 2.5L12 22l-2.5-7.5L2 12l7.5-2.5Z"/>',
         task: '<path d="m3 6 2 2 4-4m-6 9 2 2 4-4m-6 9 2 2 4-4M13 6h8M13 13h8M13 20h8"/>',
@@ -12914,10 +12917,10 @@ var Axx;
         undo: '<path d="M3 10h12a6 6 0 0 1 0 12M3 10l6-6M3 10l6 6"/>', image: '<rect x="2" y="3" width="20" height="18" rx="3"/><circle cx="8" cy="9" r="2"/><path d="m2 17 5-4 5 4 4-5 6 5"/>'
     };
     function icon(name) { return '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round">' + (ICONS[name] || ICONS.sparkle) + '</svg>'; }
-    const LABELS = { transfer: 'Archivos', computeruse: 'Computer Use · Controlar PC', converter: 'Convertidor', magicpen: 'Magic Pen', music: 'Música', screen: 'Grabar pantalla', layout11: 'Ajustar espacio', chat: 'Chat', dictation: 'Dictar', reader: 'Leer', voices: 'Voces de Axx', translation: 'Traducir', notes: 'Notas', timer: 'Temporizador', todos: 'Tareas', calculator: 'Calcular', stopwatch: 'Cronómetro', textstudio: 'Editar texto', images: 'Imágenes', reach: 'Archivos y apps', files: 'Huella de archivo', organic: 'Cuadernos', appearance: 'Apariencia', morphui: 'Modos y materia', studio: 'Girar en 3D', focus: 'Concentración', focusNow: 'Enfocar 25 min', transcript: 'Transcribir / vídeo', ai: 'Conectar IA', personalize: 'Personalizar AXX', sound: 'Sonidos', settings: 'Datos y sistema', inbox: 'Actividad', help: 'Ayuda', roadmap: 'Próximamente', experience: 'Probar Axx', lab: 'Animaciones', audio: 'Audio reactivo', tour: 'Cómo se abre' };
-    const TOOL_ICONS = { transfer: 'file', computeruse: 'screen', converter: 'file', magicpen: 'pen', music: 'music', screen: 'screen', layout11: 'app', chat: 'chat', dictation: 'mic', reader: 'read', voices: 'read', translation: 'translate', notes: 'note', timer: 'timer', todos: 'task', calculator: 'calculator', stopwatch: 'timer', textstudio: 'edit', images: 'image', reach: 'file', files: 'hash', organic: 'book', ai: 'sparkle', sound: 'read', settings: 'settings', morphui: 'cube', transcript: 'waveform', appearance: 'palette', studio: 'rotate', focus: 'focus', focusNow: 'focus', inbox: 'activity', help: 'help', roadmap: 'route', experience: 'play', lab: 'lab', audio: 'waveform', tour: 'route' };
+    const LABELS = { acts: 'Acts', codestudio: 'Code Studio', transfer: 'Archivos', computeruse: 'Computer Use · Controlar PC', converter: 'Convertidor', magicpen: 'Magic Pen', music: 'Música', screen: 'Grabar pantalla', layout11: 'Ajustar espacio', chat: 'Chat', dictation: 'Dictar', reader: 'Leer', voices: 'Voces de Axx', translation: 'Traducir', notes: 'Notas', timer: 'Temporizador', todos: 'Tareas', calculator: 'Calcular', stopwatch: 'Cronómetro', textstudio: 'Editar texto', images: 'Imágenes', reach: 'Archivos y apps', files: 'Huella de archivo', organic: 'Cuadernos', appearance: 'Apariencia', morphui: 'Modos y materia', studio: 'Girar en 3D', focus: 'Concentración', focusNow: 'Enfocar 25 min', transcript: 'Transcribir / vídeo', ai: 'Conectar IA', personalize: 'Personalizar AXX', sound: 'Sonidos', settings: 'Datos y sistema', inbox: 'Actividad', help: 'Ayuda', roadmap: 'Próximamente', experience: 'Probar Axx', lab: 'Animaciones', audio: 'Audio reactivo', tour: 'Cómo se abre' };
+    const TOOL_ICONS = { acts: 'dots', codestudio: 'code', transfer: 'file', computeruse: 'screen', converter: 'file', magicpen: 'pen', music: 'music', screen: 'screen', layout11: 'app', chat: 'chat', dictation: 'mic', reader: 'read', voices: 'read', translation: 'translate', notes: 'note', timer: 'timer', todos: 'task', calculator: 'calculator', stopwatch: 'timer', textstudio: 'edit', images: 'image', reach: 'file', files: 'hash', organic: 'book', ai: 'sparkle', sound: 'read', settings: 'settings', morphui: 'cube', transcript: 'waveform', appearance: 'palette', studio: 'rotate', focus: 'focus', focusNow: 'focus', inbox: 'activity', help: 'help', roadmap: 'route', experience: 'play', lab: 'lab', audio: 'waveform', tour: 'route' };
     const GROUPS = {
-        create: { label: 'Crear', icon: 'note', ids: ['magicpen', 'converter', 'chat', 'dictation', 'screen', 'notes', 'organic', 'textstudio', 'images'] },
+        create: { label: 'Crear', icon: 'note', ids: ['acts', 'codestudio', 'magicpen', 'converter', 'chat', 'dictation', 'screen', 'notes', 'organic', 'textstudio', 'images'] },
         work: { label: 'Productividad', icon: 'timer', ids: ['transfer','commands','applications','timer', 'todos', 'focus', 'calculator', 'stopwatch', 'reach', 'files'] },
         assist: { label: 'Asistencia', icon: 'sparkle', ids: ['computeruse','personalize','music', 'reader', 'voices', 'layout11', 'translation', 'transcript', 'ai', 'morphui', 'studio', 'settings', 'audio', 'lab', 'inbox', 'help', 'roadmap', 'experience', 'tour'] }
     };
@@ -19718,6 +19721,11 @@ var Axx;
                 // A reply started before a gesture must never repaint its old position.
                 if (revision !== this.layoutRevision || this.panelDrag || this.panelResize || this.drag || this.bodyMovePending) { this.layoutAgain = true; return; }
                 this.geometry = state?.desktop || this.geometry || { workWidth: screen.availWidth || 1280, workHeight: screen.availHeight || 900, spaceLeft: 800, spaceRight: 300, spaceAbove: 500, spaceBelow: 300 };
+                { // desktop_layout replies may carry only the anchor; without spaces the panel clamp below would be skipped (NaN bounds).
+                    const geo = this.geometry, gw = geo.workWidth || 1920, gh = geo.workHeight || 1080;
+                    geo.spaceLeft ??= geo.anchorX ?? gw / 2; geo.spaceRight ??= gw - geo.spaceLeft;
+                    geo.spaceAbove ??= geo.anchorY ?? gh / 2; geo.spaceBelow ??= gh - geo.spaceAbove;
+                }
                 const g = this.geometry, size = this.size, half = size / 2, margin = 72;
                 const boxes = [{ id: 'stage', x: -half, y: -half, width: size, height: size }];
                 if (Axx.reach?.sequence?.active || this.visible('reach-delivery') || this.visible('reach-progress')) {
@@ -19736,7 +19744,9 @@ var Axx;
                 document.body.classList.toggle('resident-invoked', opened);
                 const panelBox = (id, width = 420, height = 560, side = null) => {
                     const saved = this.panelPositions[this.panelPositionKey(id)];
-                    if (saved) {
+                    const studioOpen = id === 'panel' && !document.getElementById('view-agent')?.hidden
+                        && document.querySelector('#view-agent > .axx-code-studio:not([hidden]), #view-agent > .axx-acts-studio:not([hidden])');
+                    if (saved && !studioOpen) {
                         if (Number.isFinite(saved.width) && saved.width >= 320) width = saved.width;
                         if (Number.isFinite(saved.height) && saved.height >= 400) height = saved.height;
                     }
@@ -19784,7 +19794,9 @@ var Axx;
                 if (step === 3) panelBox('flow-sheet', 520, 640);
                 if (panel) {
                     const selected = this.panelPositionKey('panel').slice('panel:'.length);
-                    const dimensions = selected === 'chat' ? [940, 720] : ['ai','settings','files','appearance','magicpen','computeruse'].includes(selected) ? [680, 720] : ['music','timer','roadmap','screen'].includes(selected) ? [600, 680] : [540, 620];
+                    // Code Studio / Acts Studio need an IDE-sized surface; panelBox still clamps it to the work area.
+                    const studio = !document.getElementById('view-agent')?.hidden && document.querySelector('#view-agent > .axx-code-studio:not([hidden]), #view-agent > .axx-acts-studio:not([hidden])');
+                    const dimensions = studio ? [1240, 860] : selected === 'chat' ? [940, 720] : ['ai','settings','files','appearance','magicpen','computeruse'].includes(selected) ? [680, 720] : ['music','timer','roadmap','screen'].includes(selected) ? [600, 680] : [540, 620];
                     panelBox('panel', ...dimensions);
                 }
                 for (const id of extraIds) if (this.visible(id)) {

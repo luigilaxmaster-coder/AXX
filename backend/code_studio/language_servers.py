@@ -13,6 +13,7 @@ import shutil
 import subprocess
 import threading
 import time
+import urllib.parse
 from typing import Any
 
 from backend.code_studio.indexer import CodeStructuralIndexer
@@ -26,6 +27,7 @@ ALLOWED_LSP_SERVERS: dict[str, list[str]] = {
 }
 
 
+LSP_QUERIES = ('hover', 'definition', 'references')
 LSP_ARGS = {'pyright-langserver': ['--stdio'], 'typescript-language-server': ['--stdio'], 'pylsp': [], 'rust-analyzer': []}
 MAX_FRAME = 8 * 1024 * 1024
 
@@ -291,6 +293,35 @@ class LanguageServerManager:
                                                  'detail': str(i.get('detail') or '')[:200],
                                                  'insertText': str(i.get('insertText') or i.get('label', ''))[:2000]}
                                                 for i in items[:200] if isinstance(i, dict)]}
+
+    def query(self, *, project_id: str, language: str, relative_path: str, method: str, line: int, character: int) -> dict[str, Any]:
+        """hover / definition / references for the open buffer; locations outside the project root are dropped."""
+        if method not in LSP_QUERIES:
+            raise ValueError(f'Consulta LSP no permitida: {method!r}')
+        lang, uri, proc = self._live(project_id, language, relative_path)
+        if proc is None or uri not in proc.versions:
+            return {'lsp_status': 'degraded_syntax_only', 'result': None}
+        params = {'textDocument': {'uri': uri}, 'position': {'line': int(line), 'character': int(character)}}
+        if method == 'references':
+            params['context'] = {'includeDeclaration': True}
+        try:
+            result = proc.request('textDocument/' + method, params)
+        except (OSError, TimeoutError, RuntimeError):
+            return {'lsp_status': 'live', 'result': None}
+        if method == 'hover':
+            contents = (result or {}).get('contents') if isinstance(result, dict) else None
+            parts = contents if isinstance(contents, list) else [contents]
+            text = '\n\n'.join(p.get('value', '') if isinstance(p, dict) else str(p) for p in parts if p)
+            return {'lsp_status': 'live', 'result': {'markdown': text[:8000]} if text else None}
+        root = proc.root.as_uri()
+        locations = result if isinstance(result, list) else [result] if isinstance(result, dict) else []
+        kept = []
+        for loc in locations[:200]:
+            target = loc.get('uri') or loc.get('targetUri') or ''
+            rng = loc.get('range') or loc.get('targetSelectionRange') or loc.get('targetRange')
+            if target.startswith(root + '/') and isinstance(rng, dict):
+                kept.append({'path': urllib.parse.unquote(target[len(root) + 1:]), 'range': rng})
+        return {'lsp_status': 'live', 'result': kept}
 
     def close(self) -> None:
         for proc in self.processes.values():

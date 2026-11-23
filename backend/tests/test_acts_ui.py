@@ -31,7 +31,7 @@ def serve(handler):
 
 
 def open_axx(browser, srv, web):
-    page = browser.new_page(viewport={'width': 1440, 'height': 1000})
+    page = browser.new_page(viewport={'width': 1920, 'height': 1080})  # matches the fixture's declared work area
 
     def request(method, path, body=None):
         code, data = srv.api.request(method, path, body)
@@ -144,7 +144,6 @@ class ActsUiTests(unittest.TestCase):
                         page.get_by_role('button', name='Abrir proyecto', exact=True).click()
                         page.locator('[data-code=browser]').get_by_role('button', name='calc.py', exact=True).click()
                         page.wait_for_function("Axx.codeStudio.editor.getValue().includes('a - b')")
-                        page.locator('summary', has_text='Git y pruebas').click()
                         page.locator('[data-code=act]').select_option('act-dev')
                         status = "document.querySelector('[data-code=status]').textContent.includes(%r)"
                         page.get_by_role('button', name='Delegar archivo al Act', exact=True).click()

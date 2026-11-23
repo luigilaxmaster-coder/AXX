@@ -54,6 +54,12 @@ while (msg := read()) is not None:
         publish(msg['params']['textDocument']['uri'], msg['params']['contentChanges'][-1]['text'] if configured else '')
     elif method == 'textDocument/completion':
         send({'id': msg['id'], 'result': {'isIncomplete': False, 'items': [{'label': 'axx_fixture_item', 'kind': 3, 'detail': 'fixture'}]}})
+    elif method == 'textDocument/hover':
+        send({'id': msg['id'], 'result': {'contents': {'kind': 'markdown', 'value': '**x**: int'}}})
+    elif method in ('textDocument/definition', 'textDocument/references'):
+        uri = msg['params']['textDocument']['uri']
+        send({'id': msg['id'], 'result': [{'uri': uri, 'range': {'start': {'line': 0, 'character': 0}, 'end': {'line': 0, 'character': 1}}},
+                                           {'uri': 'file:///C:/outside/secret.py', 'range': {'start': {'line': 0, 'character': 0}, 'end': {'line': 0, 'character': 1}}}]})
     elif method == 'shutdown':
         send({'id': msg['id'], 'result': None})
     elif method == 'exit':

@@ -98,7 +98,9 @@
   async function toggleStudio(forceOpen) {
     const targetOpen = forceOpen !== undefined ? forceOpen : host.hidden;
     if (!targetOpen && !host.hidden && dirty() && !confirm('Hay cambios sin guardar en el Act. ¿Cerrar y descartarlos?')) return;
+    if (targetOpen) Axx.codeStudio?.close?.();  // one studio at a time in the agent view
     host.hidden = !targetOpen; entry.textContent = host.hidden ? 'Abrir Acts' : 'Cerrar Acts';
+    host.parentElement.classList.toggle('axx-acts-active', !host.hidden);
     if (host.hidden) { editor.hidden = true; state.draft = null; } else await load();
     Axx.resident?.schedule?.();
   }
@@ -117,7 +119,7 @@
     c.openFeature = function (id) {
       if (id === 'acts') {
         const res = origOpenFeature('agent');
-        void toggleStudio(true);
+        void toggleStudio(true).then(() => host.scrollIntoView({block: 'start', behavior: 'smooth'}));
         return res;
       }
       return origOpenFeature(id);
@@ -168,6 +170,9 @@
     return i.provider_profile_ref ? (i.provider_profile_ref === CONNECT ? 'ChatGPT · ' : i.provider_profile_ref + ' · ') + (i.model_id || 'sin modelo') : 'Sin modelo';
   }
 
+  const STATE_LABEL = {idle: 'En espera', planning: 'Planificando', working: 'Trabajando', awaiting_approval: 'Espera aprobación',
+    paused: 'En pausa', blocked: 'Bloqueado', completed: 'Completado', failed: 'Error', disabled: 'Deshabilitado'};
+  const AUTONOMY_LABEL = {manual: 'Manual', assisted: 'Asistido', auto_safe: 'Auto seguro', background: 'Segundo plano', scheduled: 'Programado', isolated: 'Aislado'};
   function actLiveStatus(act) {
     if (!act.enabled) return 'disabled';
     return state.actStates[act.agent_id] || ((state.governor?.active_by_act?.[act.agent_id] > 0) ? 'working' : 'idle');
@@ -175,18 +180,26 @@
 
   function renderLibrary() {
     library.replaceChildren(...state.acts.map(act => {
-      const img = el('img', {alt: '', width: 56, height: 56, src: 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(act.thumbnail?.svg || '')});
-      const badge = el('span', {className: 'axx-acts-badge', textContent: actLiveStatus(act)});
+      const img = el('img', {alt: '', width: 64, height: 64, src: 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(act.thumbnail?.svg || '')});
+      const live = actLiveStatus(act);
+      const badge = el('span', {className: 'axx-acts-badge axx-acts-state', textContent: STATE_LABEL[live] || live});
+      badge.dataset.state = live;
       const permBtn = el('button', {type: 'button', textContent: 'Permisos / Historial', onclick: attempt(async () => {
         const [perms, arts] = await Promise.all([
           api('GET', 'profiles/permissions?agent_id=' + encodeURIComponent(act.agent_id)),
           api('GET', 'artifacts?act_id=' + encodeURIComponent(act.agent_id)).catch(() => ({artifacts: []})),
         ]);
         preview.hidden = false;
-        preview.textContent = `Permisos de ${act.name} (${act.agent_id}):\n`
-          + (perms.permissions.length ? JSON.stringify(perms.permissions, null, 2) : '(Sin permisos concedidos)')
-          + `\n\nArtefactos (${arts.artifacts.length}):\n`
-          + (arts.artifacts.length ? JSON.stringify(arts.artifacts.slice(0, 10), null, 2) : '(Sin artefactos aún)');
+        const when = ms => ms ? new Date(ms).toLocaleString() : 'sin caducidad';
+        preview.textContent = `Permisos de ${act.name} · ${act.agent_id}\n`
+          + (perms.permissions.length ? perms.permissions.map(g => `• ${g.tool_id} — ${(g.operation_kinds || []).join(', ') || 'sin operaciones'}`
+            + `\n    alcance ${g.resource_pattern} · aprobación ${g.approval_mode} · ${when(g.expires_at_ms)} · concedido por ${g.granted_by}`).join('\n')
+            : '• Sin permisos concedidos: conversa y propone, pero no ejecuta herramientas.')
+          + `\n\nArtefactos verificados (${arts.artifacts.length})\n`
+          + (arts.artifacts.length ? arts.artifacts.slice(0, 12).map(a => `• ${a.artifact_type || a.type || 'artefacto'} · ${a.path_or_ref || ''}`
+            + `\n    sha256 ${String(a.sha256 || '').slice(0, 16)}… · ${a.verification_status || ''} · run ${a.run_id || ''}`).join('\n')
+            : '• Todavía no hay artefactos.');
+        preview.scrollIntoView({block: 'nearest', behavior: 'smooth'});
       })});
       const actions = el('div', {className: 'quick-row'},
         el('button', {type: 'button', textContent: 'Usar en el chat', disabled: !act.enabled, onclick: attempt(async () => { await chooseForChat(act.agent_id); say(act.name + ' responderá en este chat (conversación conservada).'); })}),
@@ -195,11 +208,20 @@
         el('button', {type: 'button', textContent: act.enabled ? 'Deshabilitar' : 'Habilitar', onclick: attempt(() => toggle(act))}),
         el('button', {type: 'button', textContent: 'Exportar', onclick: attempt(() => exportAct(act))}),
         permBtn);
-      return el('article', {className: 'axx-acts-card', role: 'listitem', ariaLabel: act.name}, img,
-        el('div', {}, el('strong', {textContent: act.name}), el('span', {textContent: ' · ' + act.role}), badge,
-          el('small', {textContent: modelLabel(act) + ' · ' + (act.enabled ? 'Activo' : 'Deshabilitado') + ' · rev. ' + act.revision
-            + ' · ' + FORMS[act.appearance.form_id] + ' / ' + PALETTES[act.appearance.palette_id]
-            + ' · Autonomía: ' + (act.autonomy?.mode || 'manual')})), actions);
+      const chip = (text, title) => el('span', {className: 'axx-acts-chip', textContent: text, title: title || text});
+      const card = el('article', {className: 'axx-acts-card', role: 'listitem', ariaLabel: act.name},
+        el('div', {className: 'axx-acts-thumb'}, img),
+        el('div', {className: 'axx-acts-meta'},
+          el('div', {className: 'axx-acts-title'}, el('strong', {textContent: act.name}), badge),
+          el('span', {className: 'axx-acts-role', textContent: act.role + (act.collaboration?.mention ? ' · @' + act.collaboration.mention : '')}),
+          el('div', {className: 'axx-acts-chips'},
+            chip(modelLabel(act), 'Proveedor · modelo que usa este Act (verificado en cada turno)'),
+            chip(FORMS[act.appearance.form_id] + ' / ' + PALETTES[act.appearance.palette_id], 'Forma y paleta'),
+            chip('Autonomía: ' + (AUTONOMY_LABEL[act.autonomy?.mode] || 'Manual'), 'Modo de autonomía'),
+            chip('rev. ' + act.revision, 'Revisión del perfil (CAS)'))),
+        actions);
+      card.dataset.state = live;
+      return card;
     }));
     if (!state.acts.length) library.append(el('p', {textContent: 'Todavía no hay Acts. Crea uno para asignarle un modelo y trabajar con él desde el chat.'}));
   }
@@ -783,6 +805,6 @@
       throw err;
     }
   }
-  Axx.acts = {load, mentioned, findAllMentions, runTeamFromChat, chatAs, get acts() { return state.acts; }, chooseForChat, open: () => toggleStudio(true)};
+  Axx.acts = {load, mentioned, findAllMentions, runTeamFromChat, chatAs, get acts() { return state.acts; }, chooseForChat, open: () => toggleStudio(true), close: () => toggleStudio(false)};
   void load().catch(() => {});
 })(window.Axx);

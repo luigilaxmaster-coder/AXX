@@ -4,17 +4,24 @@
   if (!Axx?.isNative?.() || !document.getElementById('view-agent')) return;
   const host = document.createElement('section');
   host.className = 'axx-code-studio'; host.hidden = true;
-  host.innerHTML = `<h3>Code Studio</h3>
-    <details data-code="project-settings" open><summary>Carpeta del proyecto</summary><label class="setting">Proyecto guardado<select data-code="recent"><option value="">Seleccionar…</option></select></label><button data-code="open-recent" type="button">Abrir proyecto guardado</button><form data-code="project-form"><label class="setting">Ruta local<input data-code="root" required placeholder="C:\\Proyectos\\mi-proyecto"></label><button type="submit">Abrir proyecto</button></form></details>
-    <div class="quick-row"><button data-code="parent" type="button">Subir carpeta</button><button data-code="save" type="button" disabled>Guardar archivo</button><button data-code="diff" type="button" disabled>Comparar con disco</button><button data-code="reload" type="button" disabled>Descartar borrador y recargar</button><button data-code="lsp-check" type="button" disabled>Diagnósticos y LSP</button><button data-code="ask-act" type="button" disabled>Pedir a un Act</button></div>
-    <p data-code="status" role="status" aria-live="polite">Abra una carpeta para editar sus archivos.</p>
-    <p data-code="draft-status" role="status" aria-live="polite"></p><nav data-code="drafts" aria-label="Borradores recuperables"></nav><div data-code="recovery" role="status"></div>
-    <nav data-code="browser" class="axx-code-browser" aria-label="Archivos del proyecto"></nav>
-    <div data-code="tabs" class="axx-code-tabs" role="tablist" aria-label="Archivos abiertos"></div>
-    <div data-code="editor" class="axx-code-editor" aria-label="Editor de código"></div>
-    <div data-code="diff-editor" class="axx-code-editor" aria-label="Comparación de cambios" hidden></div>
-    <details><summary>Git y pruebas</summary><div class="quick-row"><button data-code="git" type="button">Estado Git</button><button data-code="worktree" type="button">Crear worktree</button><button data-code="test" type="button">Ejecutar pruebas Python</button></div>
-      <div class="quick-row"><label class="setting">Act<select data-code="act"><option value="">Sin Acts</option></select></label><button data-code="act-task" type="button" disabled>Delegar archivo al Act</button><button data-code="act-team-run" type="button" disabled>Equipo Dev → QA</button><button data-code="act-test" type="button" hidden>Probar en su worktree</button><label class="setting" data-code="review-row" hidden>Revisor<select data-code="reviewer"></select></label><button data-code="act-review" type="button" hidden>Pedir revisión</button><button data-code="act-integrate" type="button" hidden>Integrar trabajo del Act</button></div></details>
+  host.innerHTML = `<header class="axx-code-head"><h3>Code Studio</h3><p data-code="status" role="status" aria-live="polite">Abra una carpeta para editar sus archivos.</p>
+      <button data-code="toggle-acts" type="button" aria-pressed="true" title="Mostrar u ocultar el panel de Acts">Panel Acts</button></header>
+    <details data-code="project-settings" open><summary>Carpeta del proyecto</summary><div class="axx-code-project"><label class="setting">Proyecto guardado<select data-code="recent"><option value="">Seleccionar…</option></select></label><button data-code="open-recent" type="button">Abrir proyecto guardado</button><form data-code="project-form"><label class="setting">Ruta local<input data-code="root" required placeholder="C:\\Proyectos\\mi-proyecto"></label><button type="submit">Abrir proyecto</button></form></div></details>
+    <div class="axx-code-toolbar" role="toolbar" aria-label="Archivo"><button data-code="parent" type="button">Subir carpeta</button><button data-code="save" type="button" disabled>Guardar archivo</button><button data-code="diff" type="button" disabled>Comparar con disco</button><button data-code="reload" type="button" disabled>Descartar borrador y recargar</button><button data-code="lsp-check" type="button" disabled>Diagnósticos y LSP</button></div>
+    <div class="axx-code-body">
+      <aside class="axx-code-side" aria-label="Explorador"><h4>Explorador</h4><nav data-code="browser" class="axx-code-browser" aria-label="Archivos del proyecto"></nav>
+        <h4>Borradores y recuperación</h4><nav data-code="drafts" aria-label="Borradores recuperables"></nav><div data-code="recovery" role="status"></div></aside>
+      <main class="axx-code-main"><div data-code="tabs" class="axx-code-tabs" role="tablist" aria-label="Archivos abiertos"></div>
+        <div data-code="editor" class="axx-code-editor" aria-label="Editor de código"></div>
+        <div data-code="diff-editor" class="axx-code-editor" aria-label="Comparación de cambios" hidden></div>
+        <p data-code="draft-status" class="axx-code-statusbar" role="status" aria-live="polite"></p></main>
+      <aside class="axx-code-acts" aria-label="Acts en este proyecto"><h4>Acts</h4>
+        <label class="setting">Act<select data-code="act"><option value="">Sin Acts</option></select></label>
+        <div class="axx-code-stack"><button data-code="act-task" type="button" disabled>Delegar archivo al Act</button><button data-code="ask-act" type="button" disabled>Pedir a un Act</button><button data-code="act-team-run" type="button" disabled>Equipo Dev → QA</button></div>
+        <ol class="axx-code-flow" aria-label="Pasos del trabajo del Act"><li data-step="worktree">Worktree propio</li><li data-step="patch">Parche y diff</li><li data-step="test">Pruebas</li><li data-step="review">Revisión</li><li data-step="integrate">Integración</li></ol>
+        <div class="axx-code-stack"><button data-code="act-test" type="button" hidden>Probar en su worktree</button><label class="setting" data-code="review-row" hidden>Revisor<select data-code="reviewer"></select></label><button data-code="act-review" type="button" hidden>Pedir revisión</button><button data-code="act-integrate" type="button" hidden>Integrar trabajo del Act</button></div>
+        <h4>Git y pruebas</h4><div class="axx-code-stack"><button data-code="git" type="button">Estado Git</button><button data-code="worktree" type="button">Crear worktree</button><button data-code="test" type="button">Ejecutar pruebas Python</button></div></aside>
+    </div>
     <pre data-code="output" class="axx-code-output" tabindex="0" hidden></pre>`;
   const entry = document.createElement('button'); entry.type = 'button'; entry.textContent = 'Abrir Code Studio';
   entry.className = 'axx-code-entry';
@@ -26,6 +33,7 @@
   const output = text => { ui('output').hidden = false; ui('output').textContent = text; };
   const tabs = new Map(); let project = null, directory = '', active = null, editor = null, monaco = null, loading = null, diffEditor = null, originalModel = null;
   function setOpen(open) {
+    if (open && !document.querySelector('.axx-acts-studio')?.hidden) void Axx.acts?.close?.();  // one studio at a time
     host.hidden = !open; entry.textContent = open ? 'Cerrar Code Studio' : 'Abrir Code Studio';
     host.parentElement.classList.toggle('axx-code-active',open);
     Axx.resident?.schedule?.();
@@ -99,7 +107,30 @@
     } : {startLineNumber:d.line || 1, startColumn:d.column || 1, endLineNumber:d.line || 1, endColumn:(d.column || 1) + 1,
       message:String(d.message), severity:sev[d.severity] || monaco.MarkerSeverity.Warning, source:d.source}));
   }
+  async function lspQuery(model, position, method) {
+    const tab = [...tabs.values()].find(t => t.model === model); if (!tab) return null;
+    const res = await api('POST','lsp/query',{project_id:tab.project_id,path:tab.path,language:language(tab.path),method,
+      line:position.lineNumber - 1,character:position.column - 1}).catch(() => ({result:null}));
+    return {tab, result:res.result};
+  }
+  const toRange = r => ({startLineNumber:r.start.line + 1, startColumn:r.start.character + 1, endLineNumber:r.end.line + 1, endColumn:r.end.character + 1});
+  function locations(q, model) {
+    if (!q?.result?.length) return [];
+    const other = q.result.find(l => l.path !== q.tab.path);
+    if (other && !q.result.some(l => l.path === q.tab.path)) void openFile(other.path).catch(() => {});  // jump to the other project file
+    return q.result.filter(l => l.path === q.tab.path).map(l => ({uri:model.uri, range:toRange(l.range)}));
+  }
   function registerLsp() {
+    for (const lang of LSP_LANGS) {
+      monaco.languages.registerHoverProvider(lang, {async provideHover(model, position) {
+        const q = await lspQuery(model, position, 'hover'); return q?.result ? {contents:[{value:q.result.markdown}]} : null; }});
+      monaco.languages.registerDefinitionProvider(lang, {async provideDefinition(model, position) {
+        return locations(await lspQuery(model, position, 'definition'), model); }});
+      monaco.languages.registerReferenceProvider(lang, {async provideReferences(model, position) {
+        const q = await lspQuery(model, position, 'references');
+        if (q?.result?.length) output('Referencias (' + q.result.length + '):\n' + q.result.map(l => l.path + ':' + (l.range.start.line + 1)).join('\n'));
+        return locations(q, model); }});
+    }
     for (const lang of LSP_LANGS) monaco.languages.registerCompletionItemProvider(lang, {triggerCharacters:['.',':','>'],
       async provideCompletionItems(model, position) {
         const tab = [...tabs.values()].find(t => t.model === model); if (!tab) return {suggestions:[]};
@@ -300,6 +331,16 @@
   });
   // ---- Act work: its own worktree and grant; its model writes the file, AXX applies, tests and integrates (CODE-04..10) ----
   let actWork = null;
+  const ALL_STEPS = ['worktree','patch','test','review','integrate'];
+  // The step strip only advances on backend results (worktree created, changeset applied, receipt, review, integration).
+  function flow(done, current = '') {
+    for (const li of host.querySelectorAll('.axx-code-flow li'))
+      li.dataset.state = done.includes(li.dataset.step) ? 'done' : li.dataset.step === current ? 'current' : '';
+  }
+  ui('toggle-acts').onclick = () => {
+    const hidden = host.classList.toggle('axx-code-acts-hidden');
+    ui('toggle-acts').setAttribute('aria-pressed', String(!hidden)); Axx.resident?.schedule?.();
+  };
   // Team progress is written into the existing chat as AXX notes; only results AXX verified are reported there.
   function chatNote(text) { const c = Axx.companion; if (!c?.message) return; c.message('assistant', text, 'local'); c.renderChat(); c.save(); }
   function syncActs() {
@@ -340,6 +381,7 @@
     const passed = !!work.test_receipt?.passed, approved = (work.reviews || []).at(-1)?.verdict === 'approved';
     actWork = {act: lead, tab, workspace_id: work.worktree.workspace_id, changeset_id: work.changeset_id,
       report_id: passed ? work.test_receipt.report_id : null, approved};
+    flow(['worktree','patch', ...(passed ? ['test'] : []), ...(approved ? ['review'] : [])], passed ? (approved ? 'integrate' : 'review') : 'test');
     output(res.consolidated_text + '\n\nDiff aplicado en ' + work.worktree.worktree_path + ':\n' + view.diffs.files.map(f => f.diff_text).join('\n'));
     ui('act-test').hidden = false;
     ui('act-integrate').hidden = !passed || (!!lead.collaboration?.review_required && !approved);
@@ -358,7 +400,7 @@
     const disk = await api('POST','documents/read',{project_id:tab.project_id,path:tab.path});
     if (disk.content.length > 12000) throw new Error('El archivo supera 12.000 caracteres; delega una parte más pequeña.');
     const id = crypto.randomUUID().slice(0, 12), base = {act_id:act.agent_id, project_id:tab.project_id};
-    status(act.name + ' prepara su worktree…');
+    status(act.name + ' prepara su worktree…'); flow([], 'worktree');
     const wt = (await api('POST','worktrees/create',{...base,agent_id:act.agent_id,workspace_id:'act-' + id,task_slug:'task-' + id})).worktree;
     status(act.name + ' está escribiendo el cambio con su modelo…');
     const lang = language(tab.path);
@@ -379,7 +421,7 @@
       + wt.worktree_path + '\n\n' + view.diffs.files.map(f => f.diff_text).join('\n'));
     ui('act-test').hidden = false; ui('act-integrate').hidden = true; ui('act-review').hidden = true; ui('review-row').hidden = true;
     chatNote('〔' + act.name + '〕 Cambio en ' + tab.path + ' aplicado en su worktree (' + changeset + '). El proyecto no ha cambiado.');
-    status('Revisa el diff. El proyecto no ha cambiado; prueba el cambio en el worktree del Act.');
+    status('Revisa el diff. El proyecto no ha cambiado; prueba el cambio en el worktree del Act.'); flow(['worktree','patch'], 'test');
   });
   ui('act-test').onclick = () => attempt(async () => {
     if (!actWork) return;
@@ -389,6 +431,8 @@
     const result = await api('POST','tests/run',{act_id:actWork.act.agent_id,project_id:actWork.tab.project_id,workspace_id:actWork.workspace_id,
       report_id:report,command:['python','-m','unittest','discover','-v']});
     actWork.report_id = result.receipt.passed ? report : null; actWork.approved = false;
+    flow(result.receipt.passed ? ['worktree','patch','test'] : ['worktree','patch'],
+      result.receipt.passed ? (actWork.act.collaboration?.review_required ? 'review' : 'integrate') : 'test');
     output('Salida: ' + result.receipt.exit_code + '\n' + result.receipt.stdout_preview + '\n' + result.receipt.stderr_preview);
     const reviewers = (Axx.acts?.acts || []).filter(a => a.enabled && a.agent_id !== actWork.act.agent_id);
     ui('reviewer').replaceChildren(...reviewers.map(a => new Option(a.name, a.agent_id)));
@@ -406,6 +450,7 @@
     const {review} = await api('POST','changesets/review',{act_id:reviewer.agent_id,changeset_id:actWork.changeset_id,
       conversation_id:Axx.chatWorkspace?.active?.id});
     actWork.approved = review.verdict === 'approved';
+    flow(['worktree','patch','test', ...(actWork.approved ? ['review'] : [])], actWork.approved ? 'integrate' : 'review');
     const label = {approved:'APROBADO', changes:'CAMBIOS', unclear:'SIN VEREDICTO CLARO'}[review.verdict];
     output('Revisión de ' + reviewer.name + ' (' + review.model + ', modelo verificado): ' + label + '\n\n' + review.summary);
     chatNote('〔' + reviewer.name + '〕 ' + review.summary);
@@ -420,8 +465,17 @@
     if (tabs.get(active) === tab && !tab.dirty) ui('reload').click();
     ui('act-review').hidden = ui('review-row').hidden = true;
     chatNote('Cambio integrado en ' + tab.path + ' tras pruebas superadas.');
-    status('Cambio integrado y verificado contra el disco.');
+    status('Cambio integrado y verificado contra el disco.'); flow(ALL_STEPS);
   });
+  // Launcher/dock entry: opens the agent view and Code Studio in one step.
+  const companion = Axx.companion, openFeature = companion?.openFeature?.bind(companion);
+  if (openFeature) companion.openFeature = id => {
+    if (id !== 'codestudio') return openFeature(id);
+    const res = openFeature('agent');
+    if (host.hidden) entry.click();
+    requestAnimationFrame(() => host.scrollIntoView({block:'start', behavior:'smooth'}));
+    return res;
+  };
   window.addEventListener('beforeunload', event => { if ([...tabs.values()].some(tab => tab.dirty)) { event.preventDefault(); event.returnValue = ''; } });
-  Axx.codeStudio = {flushDrafts:() => Promise.all([...tabs.values()].filter(t=>!t.read_only_degraded).map(t=>persistDraft(t))),open:() => entry.click(), openFile, browse, teamWork, showTeamResult, get activeFile(){const t=tabs.get(active);return t&&!t.read_only_degraded?t:null;}, get editor(){return editor;}, get diffEditor(){return diffEditor;}, get tabs(){return tabs;}};
+  Axx.codeStudio = {flushDrafts:() => Promise.all([...tabs.values()].filter(t=>!t.read_only_degraded).map(t=>persistDraft(t))),open:() => entry.click(), close:() => { if (!host.hidden) setOpen(false); }, openFile, browse, teamWork, showTeamResult, get activeFile(){const t=tabs.get(active);return t&&!t.read_only_degraded?t:null;}, get editor(){return editor;}, get diffEditor(){return diffEditor;}, get tabs(){return tabs;}};
 })(window.Axx);

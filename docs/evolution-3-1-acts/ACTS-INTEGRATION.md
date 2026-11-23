@@ -2,6 +2,8 @@ Fecha: 2026-11-22. Rama: `claude/acts-architecture-integration-d303e9`, base `1f
 
 # AXX Evolution 3.1 · Acts — primer incremento integrado
 
+Verificación punto por punto del handoff: [HANDOFF-VERIFICATION.md](HANDOFF-VERIFICATION.md).
+
 ## Estado declarado
 
 | Estado | Alcance |
@@ -176,9 +178,9 @@ Entorno: Windows 11, Python 3.12, Chromium (Playwright), servidor AXX lanzado po
 | CODE-09 integración | PASS | Sin grant `integrate`, sin recibos, con recibo fallido o anterior al cambio → 403. Con recibo válido, el archivo del proyecto coincide con el SHA propuesto. |
 | CODE-10 aislamiento y revocación | PASS | Otro Act no puede parchear ni probar en ese worktree; `changesets/*` vetado; revocar bloquea el siguiente paso; las acciones del propietario siguen igual. |
 | CODE-11..14 borradores, recuperación multiarchivo, ediciones externas, metadatos Git | PASS | Pruebas recuperadas de Codex y suite `code_studio`. |
-| PC-01..05 | PASS (contratos y puertas) | Puerta `axx.computer` + `workspace.foreground_policy` verificada (`403` ante foco físico no autorizado); UIA/VM informan honestamente su disponibilidad (`test_acts_complete_handoff`). |
+| PC-01..05 | PARCIAL (puertas, sin adaptador UIA/VM real) | Puerta `axx.computer` + `workspace.foreground_policy` verificada (`403` ante foco físico no autorizado); UIA/VM informan honestamente su disponibilidad (`test_acts_complete_handoff`). |
 | ROUTINE-01..03 | PASS | `RoutineDispatcher` conectado (`TaskGraph` + `ActInferenceService`), `every:10s`, historial en `routine_runs`, `pause`/`resume`/`tick`, y persistencia tras reinicio. |
-| VISUAL-01 24 formas × 9 paletas | PASS | `_form_svg_geometry` produce 24 SVGs paramétricos únicos × 9 paletas × 6 materiales en caché (`24/24` SHA-256 distintos, `webgl_loop_active: false`). |
+| VISUAL-01 24 formas × 9 paletas | PARCIAL (SVG paramétricos, no capturas del renderer) | `_form_svg_geometry` produce 24 SVGs paramétricos únicos × 9 paletas × 6 materiales en caché (`24/24` SHA-256 distintos, `webgl_loop_active: false`). |
 | VISUAL-02 renderer principal intacto | PASS | `test-desktop-frontend.cjs` (42/42), `test-chat-usability.cjs` (9/9) y `mobile/design-baseline.json` intactos. |
 | VISUAL-03 rendimiento | PASS (headless) | Medición de doble `rAF` con Acts + Monaco abiertos (`< 500ms`, sin bloqueo de hilo principal). |
 | Demo final Dev/Visual/QA | PASS (integración HTTP + Playwright) | Desde una frase en chat/API se orquestan `Dev -> Visual -> QA` con `SceneDocument v2`, handoffs, artefactos y `TaskGraph`. Pendiente aceptación en WebView2 instalada. |

@@ -1321,6 +1321,11 @@ class EvolutionHTTP:
                 project_id=body['project_id'], language=body['language'], relative_path=body['path'],
                 line=body['line'], character=body['character']))
             return True
+        if path == '/axx-api/code/v1/lsp/query':
+            self.handler._send_json(200, self.rt.code_lsp.query(
+                project_id=body['project_id'], language=body['language'], relative_path=body['path'],
+                method=body['method'], line=body['line'], character=body['character']))
+            return True
         if path == '/axx-api/code/v1/lsp/inspect':
             info = self.rt.code_lsp.get_document_symbols_and_diagnostics(
                 project_id=body['project_id'],

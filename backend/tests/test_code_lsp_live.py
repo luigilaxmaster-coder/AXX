@@ -44,6 +44,13 @@ class LiveLspTests(unittest.TestCase):
         code, comp = self.srv.api.request('POST', '/axx-api/code/v1/lsp/completion',
                                           {'project_id': 'proj', 'path': 'main.py', 'language': 'python', 'line': 0, 'character': 2})
         self.assertEqual((code, [i['label'] for i in comp['items']]), (200, ['axx_fixture_item']))
+        def q(method):
+            return self.srv.api.request('POST', '/axx-api/code/v1/lsp/query', {'project_id': 'proj', 'path': 'main.py',
+                                        'language': 'python', 'method': method, 'line': 0, 'character': 0})
+        self.assertEqual(q('hover')[1]['result'], {'markdown': '**x**: int'})
+        self.assertEqual([loc['path'] for loc in q('definition')[1]['result']], ['main.py'])  # outside-root location dropped
+        self.assertEqual(len(q('references')[1]['result']), 1)
+        self.assertEqual(q('rename')[0], 400)  # only hover/definition/references are forwarded
 
         self.assertGreaterEqual(self.sync('x = 1\n', path='../outside.py')[0], 400)  # never leaves the project root
         self.lsp.processes[('proj', 'python')].proc.kill()  # crash: the editor keeps working on the AST fallback
