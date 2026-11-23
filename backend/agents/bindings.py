@@ -198,6 +198,55 @@ class ConversationBindingService:
                 })
             return result
 
+    def list_agent_conversations(self, agent_id: str) -> list[dict[str, Any]]:
+        """Return membership metadata only; ChatStore still owns history, TTL and groups."""
+        self.registry.get_profile(_check_id(agent_id, 'agent_id'))
+        with self.lock, self._connect() as db:
+            rows = db.execute('SELECT conversation_id, membership_role, created_at_ms '
+                              'FROM agent_conversation_links WHERE agent_id=? ORDER BY created_at_ms DESC',
+                              (agent_id,)).fetchall()
+        result = []
+        for row in rows:
+            try:
+                chat = self._assert_chat_exists_and_active(row['conversation_id'])
+            except LookupError:
+                continue
+            result.append({**dict(row), **({'title': chat['title'], 'group_id': chat['group_id'],
+                                          'archived': bool(chat['archived'])} if chat else {})})
+        return result
+
+    def switch_agent(self, conversation_id: str, new_agent_id: str, *, has_active_run: bool = False,
+                     actor: str = 'user') -> dict[str, Any]:
+        """Atomically change the lead for future turns, keeping old participants/runs and all chat data."""
+        _check_id(conversation_id, 'conversation_id')
+        _check_id(new_agent_id, 'agent_id')
+        chat = self._assert_chat_exists_and_active(conversation_id)
+        if chat and chat.get('archived'):
+            raise PermissionError('Unarchive the conversation before switching Acts')
+        profile = self.registry.get_profile(new_agent_id)
+        if not profile['enabled'] or profile.get('draining'):
+            raise PermissionError('The selected Act is disabled or draining')
+        with self.lock, self._connect() as db:
+            with db:
+                previous = [r[0] for r in db.execute('SELECT agent_id FROM agent_conversation_links '
+                                                   "WHERE conversation_id=? AND membership_role='lead'", (conversation_id,))]
+                db.execute("UPDATE agent_conversation_links SET membership_role='member' "
+                           "WHERE conversation_id=? AND membership_role='lead'", (conversation_id,))
+                db.execute('INSERT INTO agent_conversation_links VALUES (?, ?, ?, ?) '
+                           'ON CONFLICT(conversation_id,agent_id) DO UPDATE SET membership_role=excluded.membership_role',
+                           (conversation_id, new_agent_id, 'lead', self.clock()))
+        return {'conversation_id': conversation_id, 'agent_id': new_agent_id, 'previous_agent_ids': previous,
+                'draining': bool(has_active_run), 'chat_preserved': True, 'actor': actor}
+
+    def clear_lead(self, conversation_id: str) -> dict[str, Any]:
+        _check_id(conversation_id, 'conversation_id')
+        self._assert_chat_exists_and_active(conversation_id)
+        with self.lock, self._connect() as db:
+            with db:
+                db.execute("UPDATE agent_conversation_links SET membership_role='member' "
+                           "WHERE conversation_id=? AND membership_role='lead'", (conversation_id,))
+        return {'conversation_id': conversation_id, 'chat_preserved': True}
+
     def resolve_authorized_conversation_context(
         self,
         *,
@@ -304,6 +353,15 @@ class ConversationBindingService:
                         'DELETE FROM task_graph_runs WHERE conversation_id=?',
                         (conversation_id,),
                     )
+                if 'act_team_run_receipts' in tables:
+                    db.execute("UPDATE act_team_run_receipts SET status='forgotten', response_json=NULL, error_code=NULL "
+                               'WHERE conversation_id=?', (conversation_id,))
+                if 'autonomous_routines' in tables:
+                    if 'routine_runs' in tables:
+                        db.execute("UPDATE routine_runs SET result_summary=NULL, status='forgotten' WHERE routine_id IN "
+                                   '(SELECT routine_id FROM autonomous_routines WHERE conversation_id=?)',(conversation_id,))
+                    db.execute("UPDATE autonomous_routines SET prompt_text='', enabled=0, status='forgotten' WHERE conversation_id=?",
+                               (conversation_id,))
                 db.execute('COMMIT')
             except Exception:
                 db.execute('ROLLBACK')

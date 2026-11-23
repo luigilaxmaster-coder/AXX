@@ -1156,7 +1156,14 @@ class MagicPenService:
             source_id=capture_id,
             source_revision=int(q.get('revision', 1)),
         )
-        return self.scenes_v2.create_document(doc_v2, operation_id=f'op-import-{query_id[:16]}')
+        from backend.spatial.scene_document import SceneDocumentError
+        try:
+            return self.scenes_v2.create_document(doc_v2, operation_id=f'op-import-{query_id[:16]}')
+        except SceneDocumentError:
+            existing = self.scenes_v2.get_document(doc_id)
+            if existing['source'] != doc_v2['source']:
+                raise SceneDocumentError('The scene ID belongs to a different source') from None
+            return existing
 
     def patch_scene_v2(self, patch: dict) -> dict:
         """Apply an incremental CAS ScenePatch to a SceneDocument v2 (requires magic_scene_v2)."""

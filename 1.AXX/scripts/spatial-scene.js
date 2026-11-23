@@ -2,6 +2,7 @@
 // Loaded on demand by Magic Pen. It renders only after a change, so it never runs a
 // continuous loop next to the avatar, and dispose() releases every GPU resource.
 import * as THREE from './three.module.min.js';
+import {GLTFLoader} from './vendor/three-r162/GLTFLoader.js';
 
 let live = 0;
 export const liveScenes = () => live;
@@ -9,7 +10,7 @@ export const liveScenes = () => live;
 const scaled=(g,x,y,z)=>{g.scale(x,y,z);return g;};
 // Physically based presets (roughness, metalness, base opacity). Environment reflections make the metals read as metal.
 const MATERIALS={metal_brushed:{r:.38,m:.92},metal_polished:{r:.14,m:1},metal_anodized:{r:.34,m:.8},plastic:{r:.46,m:0},rubber:{r:.92,m:0},glass:{r:.06,m:0,a:.32},ceramic:{r:.18,m:0},wood:{r:.72,m:0},fabric:{r:.96,m:0},stone:{r:.88,m:0},paint:{r:.38,m:.12},emissive:{r:.5,m:0,glow:true}};
-const sceneSignature=o=>JSON.stringify([o.size,o.param??null,o.material??null]);
+const sceneSignature=o=>JSON.stringify([o.size,o.param??null,o.material??null,o.assetId,o.assetNode,o.normalizeGlb]);
 
 function geometry(shape, [x, y, z], param) {
     switch (shape) {
@@ -224,7 +225,7 @@ function studioEnvironment(renderer){
     const target=pm.fromScene(env,.04);pm.dispose();disposables.forEach(d=>d.dispose());return target;
 }
 
-function objectMesh(o, fallbackExplode) {
+function objectMesh(o, fallbackExplode, glbRoot=null) {
     const [x,y,z]=o.size, engineered=['piston','connecting_rod','crankshaft','engine_cylinder'].includes(o.shape);
     const preset=MATERIALS[o.material]||{r:engineered?.32:.42,m:engineered?.45:.28};
     const material=new THREE.MeshStandardMaterial({color:o.color,roughness:preset.r,metalness:preset.m,transparent:true,opacity:preset.a??1,envMapIntensity:.7,side:['engine_cylinder','tube','dome','pipe_elbow','flange','u_channel','l_bracket','rect_tube','arc'].includes(o.shape)?THREE.DoubleSide:THREE.FrontSide}), geometries=[],materials=[material];
@@ -242,7 +243,18 @@ function objectMesh(o, fallbackExplode) {
         addContour(m,g);root.add(m);geometries.push(g);
     };
     let root;
-    if(['piston','connecting_rod','crankshaft','engine_cylinder'].includes(o.shape)){
+    if(o.assetId){
+        if(!glbRoot)throw Error('El GLB validado todavía no se ha cargado.');
+        const source=o.assetNode?glbRoot.getObjectByName(o.assetNode):glbRoot;
+        if(!source)throw Error('La pieza CAD no existe en el GLB verificado.');
+        glbRoot.updateMatrixWorld(true);const loaded=source.clone(true);loaded.matrixAutoUpdate=false;loaded.matrix.copy(source.matrixWorld);
+        root=new THREE.Group();root.add(loaded);
+        loaded.traverse(child=>{if(child.isMesh){child.userData.id=o.id;child.geometry=child.geometry.clone();geometries.push(child.geometry);
+            const clone=m=>{const next=m.clone();next.userData={...next.userData,base:next.opacity};materials.push(next);return next;};
+            child.material=Array.isArray(child.material)?child.material.map(clone):clone(child.material);
+        }});
+        root.scale.fromArray(o.scale||[1,1,1]);
+    }else if(['piston','connecting_rod','crankshaft','engine_cylinder'].includes(o.shape)){
         root=new THREE.Group();
         if(o.shape==='piston'){
             part(root,new THREE.CylinderGeometry(x*.46,x*.48,y*.82,48));
@@ -269,7 +281,8 @@ function objectMesh(o, fallbackExplode) {
         addContour(root,g);
     }
     root.position.fromArray(o.position);if(o.rotation)root.rotation.set(...o.rotation.map(THREE.MathUtils.degToRad));
-    root.userData={id:o.id,base:root.position.clone(),explode:new THREE.Vector3(...(o.explode||fallbackExplode||[0,1.5,0])),material,materials,geometries,shape:o.shape,size:sceneSignature(o)};
+    if(o.assetId)material.dispose();
+    root.userData={id:o.id,base:root.position.clone(),explode:new THREE.Vector3(...(o.explode||fallbackExplode||[0,1.5,0])),material:o.assetId?materials[1]:material,materials:o.assetId?materials.slice(1):materials,geometries,shape:o.shape,size:sceneSignature(o)};
     return root;
 }
 
@@ -314,6 +327,9 @@ export function mountScene(container, scene, {reducedMotion = false, onPick = ()
     container.append(canvas,annotations,tooltip); live++;
 
     const world = new THREE.Scene(), camera = new THREE.PerspectiveCamera(40, 1, .1, 200), meshes = new Map(), arrows = [];
+    const glbRoots=new Map(),glbMetadata=new Map();let glbBytes=0,glbTexturePixels=0;
+    const releaseGlb=root=>{const textures=new Set();root.traverse(m=>{if(m.geometry)m.geometry.dispose();for(const material of m.material?(Array.isArray(m.material)?m.material:[m.material]):[]){
+        for(const value of Object.values(material))if(value?.isTexture)textures.add(value);material.dispose();}});for(const texture of textures){texture.source?.data?.close?.();texture.dispose();}};
     const environment=studioEnvironment(renderer);world.environment=environment.texture;
     world.add(new THREE.HemisphereLight(0xf2f7ff, 0x182434, 0.95));
     const sun = new THREE.DirectionalLight(0xffffff, 2.2); sun.position.set(6, 10, 8); world.add(sun);
@@ -420,12 +436,45 @@ export function mountScene(container, scene, {reducedMotion = false, onPick = ()
     };
 
     return {
+        hasGlb(assetId){return glbRoots.has(assetId);},
+        async loadGlb(assetId,content,verification){
+            if(glbRoots.has(assetId))return;
+            if(disposed)throw Error('Visor cerrado');
+            if(glbRoots.size>=8||glbBytes+verification.size_bytes>32*1024*1024||glbTexturePixels+verification.texture_pixels>32*1024*1024)
+                throw Error('Presupuesto de GLB/texturas del visor agotado. Cierra y vuelve a abrir la escena.');
+            const bytes=Uint8Array.from(atob(content),c=>c.charCodeAt(0));
+            const digest=[...new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))].map(v=>v.toString(16).padStart(2,'0')).join('');
+            if(digest!==verification.sha256)throw Error('El GLB cambió durante la transferencia.');
+            const manager=new THREE.LoadingManager();manager.setURLModifier(url=>{if(!url.startsWith('blob:')&&!url.startsWith('data:'))throw Error('Recurso externo bloqueado en GLB');return url;});
+            const result=await new GLTFLoader(manager).parseAsync(bytes.buffer,'');
+            if(disposed){releaseGlb(result.scene);throw Error('Visor cerrado durante la carga');}
+            glbRoots.set(assetId,result.scene);glbMetadata.set(assetId,verification);glbBytes+=verification.size_bytes;glbTexturePixels+=verification.texture_pixels;
+        },
+        geometrySnapshot() {
+            const encode = array => {
+                const bytes=new Uint8Array(array.buffer,array.byteOffset,array.byteLength);let binary='';
+                for(let i=0;i<bytes.length;i+=8192)binary+=String.fromCharCode(...bytes.subarray(i,i+8192));
+                return btoa(binary);
+            };
+            world.updateMatrixWorld(true);const parts=[];
+            for(const [id,root] of meshes)root.traverse(mesh=>{
+                if(!mesh.isMesh||!mesh.geometry?.attributes?.position)return;
+                const attr=mesh.geometry.attributes.position, positions=new Float32Array(attr.count*3), point=new THREE.Vector3();
+                for(let i=0;i<attr.count;i++)point.fromBufferAttribute(attr,i).applyMatrix4(mesh.matrixWorld).toArray(positions,i*3);
+                const indices=mesh.geometry.index?new Uint32Array(mesh.geometry.index.array):Uint32Array.from({length:attr.count},(_,i)=>i);
+                const mat=Array.isArray(mesh.material)?mesh.material[0]:mesh.material;
+                parts.push({object_id:id,positions_b64:encode(positions),indices_b64:encode(indices),material:{
+                    color:mat.color.toArray(),roughness:mat.roughness??.5,metalness:mat.metalness??0,opacity:mat.userData.base??mat.opacity}});
+            });
+            return parts;
+        },
         focus(ids,isolated=false) {
             focused = ids.filter(id => meshes.has(id));
             for (const [id, mesh] of meshes) {
                 const on = !focused.length || focused.includes(id);
-                const material=mesh.userData.material,shell=mesh.userData.shape==='engine_cylinder',base=material.userData.base??1;material.opacity = shell ? .48 : on ? base : base*.58; material.depthWrite = on&&!shell&&base>=1; mesh.visible = !hidden.has(id)&&(!isolated||on);
-                if(!material.userData.glow)material.emissive.set(focused.includes(id) ? 0x11182a : 0x000000);
+                const shell=mesh.userData.shape==='engine_cylinder';for(const material of mesh.userData.materials){const base=material.userData.base??1;material.opacity = shell ? .48 : on ? base : base*.58; material.depthWrite = on&&!shell&&base>=1;
+                    if(material.emissive&&!material.userData.glow)material.emissive.set(focused.includes(id) ? 0x11182a : 0x000000);}
+                mesh.visible = !hidden.has(id)&&(!isolated||on);
             }
             const visibleFocus = focused.filter(id => !hidden.has(id));
             if (focused.length && !visibleFocus.length) return;
@@ -455,6 +504,13 @@ export function mountScene(container, scene, {reducedMotion = false, onPick = ()
             const mesh=meshes.get(id);if(!mesh)return false;
             if(value)separated.add(id);else separated.delete(id);mesh.position.copy(goal(mesh));showArrows();schedule();onChange();return true;
         },
+        setSection(axis,offset){
+            if(!['x','y','z','none'].includes(axis)||!Number.isFinite(offset))throw Error('Sección no válida');
+            const normal=new THREE.Vector3(axis==='x'?1:0,axis==='y'?1:0,axis==='z'?1:0);
+            const plane=new THREE.Plane(normal,offset);renderer.localClippingEnabled=axis!=='none';
+            for(const mesh of meshes.values())for(const material of mesh.userData.materials)material.clippingPlanes=axis==='none'?[]:[plane];
+            schedule();
+        },
         update(next){
             if(disposed)return;
             for(const key of Object.keys(animations)){cancelAnimationFrame(animations[key]);delete animations[key];}
@@ -464,11 +520,19 @@ export function mountScene(container, scene, {reducedMotion = false, onPick = ()
             for(const o of next.objects){
                 let mesh=meshes.get(o.id);
                 if(!mesh||mesh.userData.shape!==o.shape||mesh.userData.size!==sceneSignature(o)){
-                    if(mesh)releaseObject(mesh);mesh=objectMesh(o,nextExplode.get(o.id));meshes.set(o.id,mesh);world.add(mesh);
+                    if(mesh)releaseObject(mesh);
+                    let glb=glbRoots.get(o.assetId);
+                    if(glb&&o.normalizeGlb){glb=glb.clone(true);const box=new THREE.Box3().setFromObject(glb),extent=box.getSize(new THREE.Vector3());
+                        const scale=2/Math.max(extent.x,extent.y,extent.z,1e-6),center=box.getCenter(new THREE.Vector3());
+                        glb.scale.multiplyScalar(scale);glb.position.addScaledVector(center,-scale);glb.updateMatrixWorld(true);}
+                    mesh=objectMesh(o,nextExplode.get(o.id),glb);meshes.set(o.id,mesh);world.add(mesh);
                 }
                 mesh.userData.base.fromArray(o.position);mesh.userData.explode.fromArray(o.explode||nextExplode.get(o.id)||[0,1.5,0]);
                 mesh.position.copy(goal(mesh));mesh.rotation.set(...(o.rotation||[0,0,0]).map(THREE.MathUtils.degToRad));
-                mesh.userData.material.color.set(o.color);mesh.visible=!hidden.has(o.id);
+                if(o.assetId)mesh.scale.fromArray(o.scale||[1,1,1]);
+                for(const material of mesh.userData.materials){if(o.color&&!o.preserveColor&&material.color)material.color.set(o.color);
+                    if(o.assetId&&o.material&&MATERIALS[o.material]){material.roughness=MATERIALS[o.material].r;material.metalness=MATERIALS[o.material].m;}}
+                mesh.visible=!hidden.has(o.id);
             }
             for(const arrow of arrows)if(arrow){arrow.removeFromParent();arrow.dispose();}arrows.length=0;scene=next;setHover(null);
             for(const a of scene.arrows||[]){
@@ -478,16 +542,23 @@ export function mountScene(container, scene, {reducedMotion = false, onPick = ()
                 arrow.visible=!exploded&&!hidden.has(a.from)&&!hidden.has(a.to)&&!separated.has(a.from)&&!separated.has(a.to);world.add(arrow);arrows.push(arrow);
             }
             bounds.makeEmpty();meshes.forEach(m=>bounds.expandByObject(m));bounds.getCenter(center);radius=Math.max(.5,bounds.getSize(new THREE.Vector3()).length()/2);syncLabels();schedule();
+            const usedAssets=new Set(next.objects.map(o=>o.assetId));for(const [id,root] of glbRoots)if(!usedAssets.has(id)){
+                releaseGlb(root);glbBytes-=glbMetadata.get(id).size_bytes;glbTexturePixels-=glbMetadata.get(id).texture_pixels;glbMetadata.delete(id);glbRoots.delete(id);}
         },
         qa(){render();return {objects:meshes.size,triangles:renderer.info.render.triangles,webgl:!renderer.getContext().isContextLost(),finite:[...camera.position.toArray(),...view.target.toArray()].every(Number.isFinite)};},
-        snapshot() { render(); return canvas.toDataURL('image/png'); },
+        snapshot(options={}) {
+            render();if(!options.maxWidth)return canvas.toDataURL('image/png');
+            const scale=Math.min(1,options.maxWidth/canvas.width,(options.maxHeight||1080)/canvas.height),out=document.createElement('canvas');
+            out.width=Math.max(2,Math.floor(canvas.width*scale/2)*2);out.height=Math.max(2,Math.floor(canvas.height*scale/2)*2);
+            out.getContext('2d').drawImage(canvas,0,0,out.width,out.height);return out.toDataURL('image/png');
+        },
         getView() { return {target: view.target.toArray(), theta: view.theta, phi: view.phi, distance: view.distance}; },
         getSeparated(){return [...separated];},
         dispose() {
             if (disposed) return;
             disposed = true; live--; abort.abort(); observer.disconnect(); cancelAnimationFrame(frame);
             Object.values(animations).forEach(cancelAnimationFrame);
-            cancelAnimationFrame(hoverFrame);meshes.forEach(releaseObject);arrows.forEach(a=>a?.dispose());environment.dispose();renderer.dispose(); renderer.forceContextLoss(); canvas.remove();annotations.remove();tooltip.remove();
+            cancelAnimationFrame(hoverFrame);meshes.forEach(releaseObject);glbRoots.forEach(releaseGlb);glbRoots.clear();arrows.forEach(a=>a?.dispose());environment.dispose();renderer.dispose(); renderer.forceContextLoss(); canvas.remove();annotations.remove();tooltip.remove();
         },
     };
 }

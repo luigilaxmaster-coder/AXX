@@ -1,0 +1,4 @@
+# Optional local language/debug providers. They are processes, not Monaco extensions.
+# Install only on machines that enable Code Studio language/debug tools.
+python-lsp-server[pyflakes]==1.15.0
+debugpy==1.8.22

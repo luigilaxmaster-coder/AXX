@@ -203,7 +203,7 @@
 
   function renderLibrary() {
     library.replaceChildren(...state.acts.map(act => {
-      const img = el('img', {alt: '', width: 64, height: 64, src: 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(act.thumbnail?.svg || '')});
+      const img = el('img', {alt: 'Vista aproximada de ' + act.name, title:'Vista SVG aproximada; no es una captura del avatar 3D', width: 64, height: 64, src: 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(act.thumbnail?.svg || '')});
       const live = actLiveStatus(act);
       const badge = el('span', {className: 'axx-acts-badge axx-acts-state', textContent: STATE_LABEL[live] || live});
       badge.dataset.state = live;
@@ -375,7 +375,8 @@
     const base = blank(templateKey);
     if (act) for (const k of EDITABLE) if (act[k] !== undefined) base[k] = structuredClone(act[k]);
     if (act && !duplicate) { base.agent_id = act.agent_id; base.revision = act.revision; }
-    if (duplicate) { base.name = (act.name + ' (copia)').slice(0, 80); base.enabled = false; }  // copies never inherit grants
+    if (duplicate) { base.name = (act.name + ' (copia)').slice(0, 80); base.enabled = false;
+      if(base.collaboration)delete base.collaboration.mention; }  // copies never inherit grants or mention aliases
     state.grants = act && !duplicate ? (await api('GET', 'profiles/permissions?agent_id=' + encodeURIComponent(act.agent_id))).permissions : [];
     state.toolGrant = state.grants.some(g => g.tool_id === TOOL && g.approval_mode !== 'deny');
     base.toolGrant = state.toolGrant;
@@ -505,7 +506,7 @@
           el('p', {textContent: 'Conectado al motor TTS local de AXX. El micrófono nunca se activa sin tu permiso explícito.'})];
       }
       case 'memory': return [field('Alcance', control('memory_scope', 'select', {pairs: [['conversation', 'Solo esta conversación'], ['agent', 'Privada del Act'],
-        ['project', 'Proyecto'], ['explicit_shared', 'Compartida explícitamente']]}))];
+        ['project', 'Proyecto'], ['explicit_shared', 'Compartida explícitamente']]})), privateMemoryPanel()];
       case 'tools': return [field('Comandos AXX (cada acción sigue pidiendo su aprobación)', control('toolGrant', 'checkbox')),
         el('p', {textContent: 'Sin este permiso el Act conversa y propone, pero no recibe herramientas. Revocarlo bloquea la siguiente acción.'}),
         el('fieldset', {}, el('legend', {textContent: 'Code Studio (siempre en el worktree propio del Act)'}),
@@ -564,6 +565,28 @@
         el('button', {type: 'button', textContent: 'Descartar', onclick: () => { if (!dirty() || confirm('¿Descartar los cambios?')) { state.draft = null; editor.hidden = true; } }}),
         el('span', {className: 'axx-acts-dirty', role: 'status'})));
     markDirty();
+  }
+
+  function privateMemoryPanel(){
+    const aid=state.draft.agent_id,box=el('section',{}),list=el('div',{}),note=el('textarea',{maxLength:2000,rows:3}),message=el('p',{role:'status'});
+    box.append(el('p',{textContent:'Notas privadas explícitas, hasta 90 días. Solo este Act las recibe cuando el alcance es Privada del Act. No se exportan ni se copian al duplicar.'}));
+    if(!state.acts.some(a=>a.agent_id===aid)){box.append(el('p',{textContent:'Guarda primero el Act para gestionar sus recuerdos.'}));return box;}
+    async function refresh(){
+      const {memories}=await api('GET','profiles/memory?agent_id='+encodeURIComponent(aid));
+      if(state.draft?.agent_id!==aid)return;
+      list.replaceChildren(...memories.map(memory=>el('article',{className:'axx-chat-act-card'},
+        el('p',{textContent:memory.content}),el('small',{textContent:'Revisión '+memory.revision+' · vence '+new Date(memory.expires_at_ms).toLocaleDateString()}),
+        el('button',{type:'button',textContent:'Corregir recuerdo',onclick:attempt(async()=>{
+          const content=prompt('Corregir recuerdo privado:',memory.content);if(!content?.trim())return;
+          await api('POST','profiles/memory/save',{agent_id:aid,memory_id:memory.memory_id,expected_revision:memory.revision,content});await refresh();
+        })}),el('button',{type:'button',textContent:'Olvidar recuerdo',onclick:attempt(async()=>{
+          await api('POST','profiles/memory/forget',{agent_id:aid,memory_id:memory.memory_id,expected_revision:memory.revision});await refresh();
+        })}))));
+    }
+    box.append(field('Recuerdo privado del Act',note),el('button',{type:'button',textContent:'Guardar recuerdo',onclick:attempt(async()=>{
+      await api('POST','profiles/memory/save',{agent_id:aid,content:note.value});note.value='';await refresh();message.textContent='Recuerdo guardado solo para este Act.';
+    })}),message,list);
+    void refresh().catch(e=>message.textContent=e.message);return box;
   }
 
   async function syncOpsGrant(actId, toolId, ops, allowedList) {
@@ -700,27 +723,32 @@
     const convId = Axx.chatWorkspace?.active?.id;
     if (!convId || !state.acts.length) return;
     const data = await api('GET', 'bindings?conversation_id=' + encodeURIComponent(convId)).catch(() => null);
+    if (!data || Axx.chatWorkspace?.active?.id !== convId) return;
     const lead = (data?.bindings || []).find(b => b.membership_role === 'lead');
     if (lead?.agent_id && state.acts.some(a => a.enabled && a.agent_id === lead.agent_id)) {
       localStorage.setItem(chatKey(), lead.agent_id);
       syncChatSelect();
-    }
+    } else { localStorage.removeItem(chatKey()); syncChatSelect(); }
   }
 
   async function chooseForChat(actId) {
-    if (actId) localStorage.setItem(chatKey(), actId); else localStorage.removeItem(chatKey());
-    syncChatSelect();
     const convId = Axx.chatWorkspace?.active?.id;
+    const key = chatKey();
     if (convId && actId) {
       const existing = await api('GET', 'bindings?conversation_id=' + encodeURIComponent(convId)).catch(() => ({bindings: []}));
       const endpoint = (existing.bindings || []).length ? 'bindings/switch' : 'bindings/convert';
       const body = endpoint === 'bindings/convert'
         ? {conversation_id: convId, lead_agent_id: actId, member_agent_ids: []}
         : {conversation_id: convId, new_agent_id: actId, has_active_run: false, actor: 'user'};
-      await api('POST', endpoint, body).catch(() => {});
+      try { await api('POST', endpoint, body); }
+      catch (error) { syncChatSelect(); throw error; }
+    } else if (convId) {
+      await api('POST','bindings/clear-lead',{conversation_id:convId});
     }
+    if (actId) localStorage.setItem(key, actId); else localStorage.removeItem(key);
+    if (Axx.chatWorkspace?.active?.id === convId) syncChatSelect();
   }
-  chatSelect.onchange = () => { void chooseForChat(chatSelect.value); };
+  chatSelect.onchange = () => { void chooseForChat(chatSelect.value).catch(e => c.sayStatus?.(e.message)); };
   document.getElementById('chat-input')?.addEventListener('focus', () => syncChatSelect());
   if (Axx.chatWorkspace?.select) {
     const origSelect = Axx.chatWorkspace.select;
@@ -736,6 +764,96 @@
     const enabledActs = state.acts.filter(a => a.enabled);
     activityBtn.hidden = !enabledActs.length;
     chatSelect.replaceChildren(...options([['', 'AXX'], ...enabledActs.map(a => [a.agent_id, a.name])], chosen));
+  }
+
+  // Acts live inside the existing Chats y grupos browser. All conversations are the
+  // original ChatStore records: this view only filters their N:N Act memberships.
+  const chatBrowser = document.getElementById('cw-browser');
+  const chatActs = el('section', {className:'axx-chat-acts', hidden:true, ariaLabel:'Acts en Chats y grupos'});
+  const chatActsStatus = el('p', {role:'status', ariaLive:'polite'});
+  const chatActsBody = el('div', {className:'axx-chat-acts-body'});
+  let chatActsTab = 'library', chatActsEpoch = 0;
+  const chatActsTabs = el('nav', {className:'axx-acts-segments', ariaLabel:'Secciones de Acts en chats'});
+  const chatActsSearch = el('input', {type:'search', placeholder:'Buscar Act', ariaLabel:'Buscar Act'});
+  const chatActsAgent = el('select', {ariaLabel:'Act para ver conversaciones'});
+  for (const [id, label] of [['library','Mis Acts'],['chats','Chats por Act'],['teams','Equipos'],['activity','Actividad']]) {
+    const b = el('button', {type:'button', textContent:label, onclick:() => {chatActsTab=id;void renderChatActs();}});
+    b.dataset.actTab=id;chatActsTabs.append(b);
+  }
+  chatActs.append(chatActsTabs, el('div',{className:'quick-row'},
+    el('button',{type:'button',textContent:'Crear / configurar Act',onclick:attempt(async()=>{
+      c.openFeature('acts');await toggleStudio(true);await edit(null);
+    })})),chatActsSearch,chatActsAgent,chatActsStatus,chatActsBody);
+  if (chatBrowser) {
+    const nav = el('div',{className:'cw-heading axx-chat-act-navigation',role:'tablist',ariaLabel:'Historial y Acts'});
+    const all = el('button',{type:'button',role:'tab',textContent:'Todos los chats'});
+    const acts = el('button',{type:'button',role:'tab',textContent:'Acts'});
+    const show = async enabled => {
+      chatBrowser.dataset.actsView=String(enabled);chatActs.hidden=!enabled;
+      all.setAttribute('aria-selected',String(!enabled));acts.setAttribute('aria-selected',String(enabled));
+      if(enabled){await load();await renderChatActs();}
+    };
+    all.onclick=()=>void show(false);acts.onclick=()=>void show(true).catch(e=>{chatActsStatus.textContent=e.message;});
+    nav.append(all,acts);chatBrowser.insertBefore(nav,chatBrowser.children[1]);chatBrowser.append(chatActs);
+    all.setAttribute('aria-selected','true');acts.setAttribute('aria-selected','false');
+  }
+  chatActsSearch.oninput=()=>void renderChatActs();chatActsAgent.onchange=()=>void renderChatActs();
+
+  async function renderChatActs() {
+    const epoch=++chatActsEpoch;
+    const fail=err=>{if(epoch===chatActsEpoch)chatActsStatus.textContent=err.message||String(err);};
+    try {
+      chatActsStatus.textContent='';chatActsBody.replaceChildren();
+      for(const b of chatActsTabs.children)b.setAttribute('aria-pressed',String(b.dataset.actTab===chatActsTab));
+      chatActsSearch.hidden=chatActsTab!=='library';chatActsAgent.hidden=chatActsTab!=='chats';
+      if(chatActsTab==='library') {
+        const query=chatActsSearch.value.trim().toLocaleLowerCase();
+        for(const act of state.acts.filter(a=>(a.name+' '+a.role).toLocaleLowerCase().includes(query))) {
+          const row=el('article',{className:'axx-chat-act-card'},
+            el('img',{alt:'Vista aproximada de '+act.name,width:40,height:40,
+              src:'data:image/svg+xml;charset=utf-8,'+encodeURIComponent(act.thumbnail?.svg||'')}),
+            el('strong',{textContent:act.name}),el('small',{textContent:modelLabel(act)+' · '+(STATE_LABEL[actLiveStatus(act)]||actLiveStatus(act))}));
+          row.append(el('small',{textContent:'Vista SVG aproximada'}),
+            el('button',{type:'button',textContent:'Abrir chat de '+act.name,disabled:!act.enabled,
+              onclick:()=>void openActChat(act).catch(fail)}),
+            el('button',{type:'button',textContent:'Configurar '+act.name,onclick:attempt(async()=>{
+              c.openFeature('acts');await toggleStudio(true);await edit(act);
+            })}));
+          chatActsBody.append(row);
+        }
+        if(!chatActsBody.childElementCount)chatActsStatus.textContent='No hay Acts en esta vista. Crea uno y elige su modelo.';
+      } else if(chatActsTab==='chats') {
+        const selected=chatActsAgent.value;
+        chatActsAgent.replaceChildren(...options(state.acts.map(a=>[a.agent_id,a.name]),selected));
+        if(!chatActsAgent.value)return;
+        const result=await api('GET','conversations?agent_id='+encodeURIComponent(chatActsAgent.value));
+        if(epoch!==chatActsEpoch)return;
+        for(const thread of result.conversations)chatActsBody.append(el('button',{type:'button',
+          textContent:(thread.title||thread.conversation_id)+(thread.archived?' · archivado':''),
+          onclick:()=>void Axx.chatWorkspace.select(thread.conversation_id).catch(fail)}));
+        if(!result.conversations.length)chatActsStatus.textContent='Este Act todavía no tiene conversaciones.';
+      } else if(chatActsTab==='teams') {
+        for(const team of state.teams)chatActsBody.append(el('article',{className:'axx-chat-act-card'},
+          el('strong',{textContent:team.name||team.team_id}),
+          el('small',{textContent:(team.members||[]).map(m=>state.acts.find(a=>a.agent_id===m.agent_id)?.name||m.agent_id).join(' → ')}),
+          el('button',{type:'button',textContent:'Configurar equipo',onclick:attempt(async()=>{
+            c.openFeature('acts');await toggleStudio(true);state.subview='teams';renderSubview();
+          })})));
+        if(!state.teams.length)chatActsStatus.textContent='No hay equipos. Configúralos en Acts Studio.';
+      } else {
+        await refreshActivity();if(epoch!==chatActsEpoch)return;
+        for(const event of state.events.slice(-30).reverse())chatActsBody.append(el('p',{
+          textContent:[event.agent_id,event.type||event.event_type,event.run_id].filter(Boolean).join(' · ')}));
+        if(!state.events.length)chatActsStatus.textContent='No hay actividad registrada en este chat.';
+      }
+    } catch(error){fail(error);}
+  }
+  async function openActChat(act) {
+    const {conversations}=await api('GET','conversations?agent_id='+encodeURIComponent(act.agent_id));
+    const existing=conversations.find(t=>!t.archived);
+    if(existing)await Axx.chatWorkspace.select(existing.conversation_id);
+    else await Axx.chatWorkspace.create();
+    await chooseForChat(act.agent_id);c.openFeature('chat');document.getElementById('chat-input')?.focus();
   }
 
   function findAllMentions(text) {
@@ -768,32 +886,31 @@
   if (origRead) {
     c.read = function (text) {
       const reader = Axx.symbiosis?.reader;
-      const av = pendingActVoice;
+      const author = /^〔([^〕]+)〕/.exec(String(text||''));
+      const av = (author && state.acts.find(a=>a.name===author[1])?.voice) || pendingActVoice;
       pendingActVoice = null;
-      if (!av || !reader) return origRead(text);
-      const prevURI = reader.voiceURI, prevRate = reader.rate, prevLang = reader.lang;
-      try {
-        if (av.tts_profile_id) reader.voiceURI = av.tts_profile_id;
-        if (av.speed) reader.rate = Number(av.speed);
-        if (av.language) reader.lang = av.language;
-        return origRead(text);
-      } finally {
-        reader.voiceURI = prevURI;
-        reader.rate = prevRate;
-        reader.lang = prevLang;
-      }
+      if(reader)reader.nextTurnVoiceProfile=av?Object.freeze({voiceURI:av.tts_profile_id||reader.voiceURI,
+        rate:Number(av.speed)||reader.rate,lang:av.language||reader.lang}):null;
+      return origRead(text);
     };
   }
 
-  async function runTeamFromChat(promptText, teamId = null) {
+  async function runTeamFromChat(promptText, teamId = null, signal = null) {
     c.sayStatus?.('Coordinando equipo de Acts…');
+    if (signal?.aborted) throw new DOMException('Equipo cancelado', 'AbortError');
+    const runId = 'teamrun-' + crypto.randomUUID();
+    const cancel = () => { void api('POST', 'teams/cancel', {run_id:runId}).catch(() => {}); };
+    signal?.addEventListener('abort', cancel, {once:true});
     const file = Axx.codeStudio?.activeFile;  // with a file open in Code Studio the lead Act patches it in its worktree
-    const res = await api('POST', 'teams/run', {
+    let res;
+    try { res = await api('POST', 'teams/run', {
+      run_id: runId,
       conversation_id: activeConvId(),
       prompt: promptText,
       ...(teamId ? {team_id: teamId} : {}),
       ...(file ? Axx.codeStudio.teamWork(file) : {}),
-    });
+    }); } finally { signal?.removeEventListener('abort', cancel); }
+    if (signal?.aborted) throw new DOMException('Equipo cancelado; revisa los efectos en Actividad', 'AbortError');
     if (file && res.work) await Axx.codeStudio.showTeamResult(res, file, true).catch(() => {});
     await refreshActivity();
     if (c.message && teamId) {
@@ -810,7 +927,7 @@
     const lastUser = [...messages].reverse().find(m => m.role === 'user');
     const multi = findAllMentions(lastUser?.content);
     if (multi.length >= 2) {
-      const teamRes = await runTeamFromChat(lastUser.content);
+      const teamRes = await runTeamFromChat(lastUser.content, null, signal);
       onDelta(teamRes.consolidated_text);
       return {text: teamRes.consolidated_text, reason: 'stop', route: {model: multi.map(a => a.intelligence?.model_id).join(' + '), act_team_run: teamRes.run_id}};
     }

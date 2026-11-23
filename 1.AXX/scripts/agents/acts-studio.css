@@ -80,3 +80,10 @@
 .axx-acts-activity-item { padding:5px 8px; border-left:3px solid var(--state, var(--accent,#58a6ff)); background:rgba(128,150,180,0.08); border-radius:6px; }
 @media (prefers-reduced-motion:reduce) { .axx-acts-studio .axx-acts-state::before { animation:none!important; } .axx-acts-studio .axx-acts-card { transition:none; } }
 @media (max-width:640px) { .axx-acts-studio .axx-acts-library { grid-template-columns:minmax(0,1fr); } }
+/* Scoped additions within the existing chat history; main avatar/styles remain owned by their baseline. */
+#cw-browser[data-acts-view="true"] > :not(.cw-heading):not(.axx-chat-acts) { display:none; }
+.axx-chat-acts [hidden] { display:none !important; }
+.axx-chat-acts-body { display:grid; gap:8px; }
+.axx-chat-act-card { display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:10px; border:1px solid var(--line,#8884); border-radius:12px; }
+.axx-chat-act-card small { flex-basis:100%; }
+.axx-chat-acts input,.axx-chat-acts select { max-width:100%; }

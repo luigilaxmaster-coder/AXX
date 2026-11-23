@@ -60,6 +60,23 @@ class CapabilityProviderTests(unittest.TestCase):
         self.assertEqual(results['error'].code,'CAPABILITY_TOOLS_FORBIDDEN')
         self.assertEqual(self.dispatched,[])
 
+    def test_act_inference_has_its_own_response_contract_and_no_tools(self):
+        previous=self.provider.selected_model
+        thread,results=self.background(request(model='gpt-6.1-terra'),purpose='act_inference')
+        run=self.wait_started()
+        self.assertEqual(run['purpose'],'act_inference')
+        start=next(params for method,params in self.provider.rpc_calls if method=='thread/start')
+        self.assertEqual(start['dynamicTools'],[])
+        self.assertTrue(start['ephemeral'])
+        self.assertEqual(self.provider.selected_model,previous)
+        self.assertIn('context_sha256',start['developerInstructions'])
+        self.assertNotIn('python_transform must obey',start['developerInstructions'])
+        self.provider._server_request({'id':89,'method':'item/tool/call','params':{
+            'threadId':'thread-test','turnId':'turn-test','tool':'axx_execute_action','arguments':{}}})
+        thread.join(2)
+        self.assertEqual(results['error'].code,'CAPABILITY_TOOLS_FORBIDDEN')
+        self.assertEqual(self.dispatched,[])
+
     def finish(self, text='{"unavailable":"fixture"}', status='completed'):
         self.provider._notification({'method': 'item/agentMessage/delta', 'params': {
             'threadId': 'thread-test', 'turnId': 'turn-test', 'delta': text}})

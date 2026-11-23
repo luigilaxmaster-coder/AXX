@@ -657,6 +657,9 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
         # JSON escaping can expand each bounded 2 MiB document to 12 MiB.
         limit = {'/axx-api/code/v1/drafts/save': 32 * 1024 * 1024,
                  '/axx-api/code/v1/documents/save': 16 * 1024 * 1024,
+                 '/axx-api/spatial/v2/scenes/export-geometry': 20 * 1024 * 1024,
+                 '/axx-api/spatial/v2/assets/register': 22 * 1024 * 1024,
+                 '/axx-api/spatial/v2/motion/encode-rendered': 34 * 1024 * 1024,
                  '/axx-api/screen/save': 8 * 1024 * 1024}.get(req_path, MAX_BODY)
         if length > limit:
             self._send_json(413, {'error': {'code': 'INVALID_REQUEST', 'message': 'Body exceeds size limit'}})
@@ -1777,9 +1780,12 @@ def run_server(host='127.0.0.1', port=4173, config_path='providers.json', state_
             magic_pen=magic_pen,
             speech_service=speech,
             identity_store=identity,
+            inference_adapter=adapter,
+            inference_provider=provider,
         )
         services.append(server.evolution_runtime)
-        server.evolution_runtime.routines.reconcile_on_startup()
+        server.evolution_runtime.routines.reconcile_on_startup(recover_running=True)
+        server.evolution_runtime.routines.start_scheduler()
         from backend.mobile.gateway import MobileGateway
         server.mobile = MobileGateway.for_backend(server, state_path, state_dir)
         executor.input_control = server.mobile.control

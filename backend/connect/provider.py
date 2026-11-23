@@ -742,7 +742,7 @@ class CodexProvider:
                 params.get('turnId') and run.get('turn_id') and params['turnId'] != run['turn_id']):
             self._write({'id': message['id'], 'error': {'code': -32000, 'message': 'No active Axx execution'}})
             return
-        if run.get('purpose') in {'capability','planning'}:
+        if run.get('purpose') in {'capability','planning','act_inference'}:
             # This generation thread has no authority to request any tool,
             # permission, file, shell or external interaction, even if the
             # runtime unexpectedly exposes a built-in outside dynamicTools.
@@ -1076,14 +1076,14 @@ class CodexProvider:
         if not isinstance(body, dict):
             raise ProviderError('INVALID_INPUT', 'La solicitud debe ser un objeto.')
         purpose = body.get('purpose', 'chat')
-        if not isinstance(purpose, str) or purpose not in {'chat', 'voice', 'translation', 'capability', 'planning'}:
+        if not isinstance(purpose, str) or purpose not in {'chat', 'voice', 'translation', 'capability', 'planning', 'act_inference'}:
             raise ProviderError('INVALID_INPUT', 'Propósito de inferencia no permitido.')
         turn_timeout = TURN_TIMEOUT if turn_timeout is None else turn_timeout
         if type(turn_timeout) not in (int, float) or not 0 < turn_timeout <= (SPATIAL_TIMEOUT if purpose == 'planning' else TURN_TIMEOUT):
             raise ProviderError('INVALID_INPUT', 'Plazo interno de inferencia inválido.')
         images = self._planning_images(images, purpose)
         message = body.get('message', body.get('text'))
-        message_limit = MAX_CAPABILITY_MESSAGE if purpose in {'capability','planning'} else 32000
+        message_limit = MAX_CAPABILITY_MESSAGE if purpose in {'capability','planning','act_inference'} else 32000
         if not isinstance(message, str) or not 1 <= len(message.strip()) <= message_limit:
             raise ProviderError('INVALID_INPUT', 'La instrucción excede el límite de ' + str(message_limit) + ' caracteres.')
         if turn_input is not None:
@@ -1118,13 +1118,13 @@ class CodexProvider:
         elif source_language is not None or target_language is not None:
             raise ProviderError('INVALID_INPUT', 'Los idiomas sólo se admiten para traducción.')
         mode = {'chat': 'conversation', 'voice': 'voice', 'translation': 'translation',
-                'capability': 'capability', 'planning': 'planning'}[purpose]
+                'capability': 'capability', 'planning': 'planning', 'act_inference': 'act_inference'}[purpose]
         try:
             prompt = compose(mode, connect=True, preferences=body.get('preferences'),
                              source_language=source_language, target_language=target_language)
         except ValueError as exc:
             raise ProviderError('INVALID_INPUT', str(exc)) from exc
-        if purpose in {'capability','planning'}:
+        if purpose in {'capability','planning','act_inference'}:
             if not isinstance(request_id, str): raise ProviderError('INVALID_INPUT', 'request_id inválido.')
             conversation_id = 'axx-'+purpose+'-' + hashlib.sha256(request_id.encode()).hexdigest()[:32]
         for value, name in ((request_id, 'request_id'), (conversation_id, 'conversation_id'), (model, 'model')):
@@ -1183,7 +1183,7 @@ class CodexProvider:
             if turn_input is not None:
                 run['_turn_input'], run['_turn_effort'], run['_turn_schema'] = turn_input, turn_effort, turn_schema
             self.live[request_id] = run
-            if act_thread is None:  # An Act's model never replaces AXX's own selected model.
+            if act_thread is None and purpose != 'act_inference':  # Act proposals never replace AXX's selected model.
                 self.selected_model = model
                 with self.db:
                     self.db.execute("INSERT OR REPLACE INTO connect_settings(key,value_json) VALUES('selected_model',?)",
@@ -1220,7 +1220,7 @@ class CodexProvider:
                 run['usage_permission'] = usage_permission
             with self.lock:
                 # Legacy threads retain their old tool schema; preserve them under their original key.
-                saved = None if run['purpose'] in {'capability','planning'} else self.db.execute(
+                saved = None if run['purpose'] in {'capability','planning','act_inference'} else self.db.execute(
                     'SELECT * FROM connect_conversations WHERE conversation_id=?',
                     (self._thread_key(run),)).fetchone()
                 if saved is not None and saved['model'] != run['model']:
@@ -1235,7 +1235,7 @@ class CodexProvider:
                                  'web_search': 'disabled', 'mcp_servers': self.disabled_mcp,
                                  'plugins': self.disabled_plugins}}
             prompt = run['_prompt']
-            ephemeral = run['purpose'] in {'capability', 'planning'}
+            ephemeral = run['purpose'] in {'capability', 'planning', 'act_inference'}
             if ephemeral: common['ephemeral'] = True
             common['developerInstructions'] = prompt['text']
             with self.lock:
@@ -1244,7 +1244,7 @@ class CodexProvider:
                 result = self._rpc('thread/resume', dict(common, threadId=saved['thread_id']))
             else:
                 # Cold planning threads can exceed 20 s; the total admission deadline still caps this wait.
-                no_tools = run['purpose'] in {'translation', 'capability', 'planning'} or run['conversation_id'] == 'axx-connect-health'
+                no_tools = run['purpose'] in {'translation', 'capability', 'planning', 'act_inference'} or run['conversation_id'] == 'axx-connect-health'
                 result = self._rpc('thread/start', dict(common, dynamicTools=[] if no_tools else self._tool_specs(),
                                        environments=[], allowProviderModelFallback=False),
                                    timeout=45 if run['purpose'] == 'planning' else 20)
@@ -1460,7 +1460,7 @@ class CodexProvider:
 
     def generate_capability(self, request, *, purpose='capability', cancel_event=None):
         """Bounded adapter-shaped generation using the selected Codex account only."""
-        if (purpose not in ('capability','planning') or not isinstance(request, dict) or request.get('provider_name') != '@codex'
+        if (purpose not in ('capability','planning','act_inference') or not isinstance(request, dict) or request.get('provider_name') != '@codex'
                 or request.get('allow_paid') is not False or not request.get('model')
                 or request.get('task') not in {'code', 'plan'}):
             raise ProviderError('INVALID_INPUT', 'Selecciona @codex y un modelo explícito, con allow_paid=false.')

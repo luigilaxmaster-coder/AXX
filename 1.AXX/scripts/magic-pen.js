@@ -535,7 +535,7 @@
                 const previous=this.player,inherit=q.base_query_id===previous?.queryId,state=q.view_state,ids=new Set(q.presentation.scene?.objects.map(o=>o.id)||[]);
                 const view=state?.camera||(inherit?previous?.scene?.getView():null),picked=state?.selected||(inherit?previous?.picked:null);
                 this.stopPresentation();
-                if(inherit&&previous?.scene&&q.presentation.scene){previous.scene.update(q.presentation.scene);previous.qa=previous.scene.qa();previous.queryId=q.id;previous.index=Math.min(previous.index,q.presentation.steps.length-1);previous.picked=ids.has(picked)?picked:null;previous.hidden=new Set([...previous.hidden].filter(id=>ids.has(id)));previous.separated=new Set(previous.scene.getSeparated().filter(id=>ids.has(id)));}
+                if(inherit&&previous?.scene&&q.presentation.scene){previous.scene.update(q.presentation.scene);previous.qa=previous.scene.qa();previous.queryId=q.id;previous.v2Scene=null;previous.v2Loaded=false;previous.index=Math.min(previous.index,q.presentation.steps.length-1);previous.picked=ids.has(picked)?picked:null;previous.hidden=new Set([...previous.hidden].filter(id=>ids.has(id)));previous.separated=new Set(previous.scene.getSeparated().filter(id=>ids.has(id)));}
                 else{this.disposeScene();this.player={queryId:q.id,index:Math.max(0,state?q.presentation.steps.findIndex(s=>s.id===state.step_id):0),playing:false,timer:null,token:0,spoke:false,
                     exploded:state?.exploded||false,picked:ids.has(picked)?picked:null,overview:state?.overview??!!q.presentation.scene,isolated:state?.isolated||false,
                     hidden:new Set(state?.hidden||[]),separated:new Set(state?.separated||[]),initialView:view};}
@@ -580,6 +580,7 @@
         sceneBlock(p,player,el,button){
             // The host survives re-renders so seeking never rebuilds the WebGL context.
             const block=el('div',null,'mp-scene'),objects=new Map(p.scene.objects.map(o=>[o.id,o]));
+            if(!player.v2Loaded){player.v2Loaded=true;void this.ensureSceneV2(false).catch(e=>this.status('No se pudo reabrir la escena editable: '+e.message));}
             block.append(el('small',(p.scene.fidelity==='illustrative'?'Escena ilustrativa':'Escena conceptual')+' · no es una simulación ni geometría exacta','mp-visual-fidelity'));
             if(player.sceneFailed){
                 const list=el('ul',null,'mp-scene-fallback');block.append(el('p',player.sceneFailed));
@@ -614,6 +615,26 @@
                 tools.append(button(separated?'Unir '+picked.label:'Separar '+picked.label,separated?'Unir pieza':'Separar pieza',()=>{player.scene?.setObjectExploded(picked.id,!separated);this.renderAnswers();},!player.scene));
             }
             tools.append(button('Guardar la escena como PNG','PNG',()=>this.run(()=>this.exportScene()),!player.scene));
+            tools.append(button('Guardar geometría 3D verificable como GLB','GLB',()=>this.run(()=>this.exportSceneGeometry()),!player.scene));
+            tools.append(button('Buscar assets y componentes locales o consultar Asset Gate','Assets y piezas',()=>this.run(async()=>{
+                await this.ensureSceneV2();player.showAssets=!player.showAssets;this.renderAnswers();
+            }),!player.scene));
+            tools.append(button('Crear sólidos CAD con medidas explícitas en mm','CAD paramétrico',()=>this.run(()=>this.buildCadV2()),!player.scene));
+            const sectionAxis=el('select'),sectionOffset=el('input');sectionAxis.setAttribute('aria-label','Eje de sección');
+            for(const [axis,label] of [['none','Sin sección'],['x','Sección X'],['y','Sección Y'],['z','Sección Z']])sectionAxis.append(new Option(label,axis));
+            sectionAxis.value=player.sectionAxis||'none';sectionOffset.type='range';sectionOffset.min='-10';sectionOffset.max='10';sectionOffset.step='.05';sectionOffset.value=String(player.sectionOffset||0);sectionOffset.setAttribute('aria-label','Desplazamiento de sección');
+            const sectionChange=()=>{player.sectionAxis=sectionAxis.value;player.sectionOffset=Number(sectionOffset.value);player.scene?.setSection(player.sectionAxis,player.sectionOffset);};
+            sectionAxis.onchange=sectionChange;sectionOffset.oninput=sectionChange;tools.append(sectionAxis,sectionOffset);
+            if(player.v2Scene?.timeline.tracks.length){const preview=el('input');preview.type='range';preview.min='0';preview.max=String(player.v2Scene.timeline.duration_seconds);preview.step='.05';preview.value=String(player.timelineTime||0);preview.setAttribute('aria-label','Tiempo de animación');
+                preview.onchange=()=>this.run(async()=>{player.timelineTime=Number(preview.value);const snapshot=await A.backendRequest('POST','/axx-api/spatial/v2/motion/freeze',{
+                    scene:player.v2Scene,t_seconds:player.timelineTime});
+                    if(this.player===player)player.scene?.update(this.frozenSceneV2(player.v2Scene,snapshot,p.scene));});tools.append(preview);}
+            tools.append(button('Renderizar la animación 3D y guardar cinco segundos como MP4','Vídeo 3D · 5 s',()=>this.run(()=>this.exportSceneVideo()),!player.scene));
+            if(player.v2Scene){
+                tools.append(button('Deshacer cambio de geometría o material','Deshacer 3D',()=>this.run(()=>this.sceneHistoryV2('undo'))),
+                    button('Rehacer cambio de geometría o material','Rehacer 3D',()=>this.run(()=>this.sceneHistoryV2('redo'))));
+                block.append(el('small','Escena editable · revisión '+player.v2Scene.revision+' · '+player.v2Scene.document_id,'mp-visual-fidelity'));
+            }
             tools.append(button('Comparar el modelo 3D con la imagen original y corregir las diferencias','Comparar y corregir',()=>void this.compareAndFix(),!player.scene));
             tools.append(button('Generar una versión con más detalle técnico','Más detalle',()=>this.ask({fresh:false,format:'presentation',question:'Genera otra versión del modelo 3D de esta selección, con más detalle técnico útil: piezas funcionales, conexiones y anotaciones explicativas. Conserva proporciones plausibles sin inventar medidas ni componentes que la imagen no permita inferir.'})));
             const colors=[...new Set(p.scene.objects.map(item=>item.color.toLowerCase()))].slice(0,8),saved=this.sceneStyle(),same=JSON.stringify(saved?.colors)===JSON.stringify(colors)&&saved?.detail===p.scene.objects.length;
@@ -632,10 +653,230 @@
                 if(step)info.append(el('p',step.body,'mp-scene-step-note'),el('small','En el paso «'+step.title+'»','mp-scene-source'));
                 if(!role&&!step)info.append(el('p','Esta pieza forma parte de la escena conceptual. Pregunta para ampliar su función.','mp-scene-role'));
                 info.append(button('Preguntar sobre '+picked.label,'Preguntar sobre esta pieza',()=>{const input=$('mp-question');input.value='Sobre «'+picked.label+'»: ';input.focus();}));
+                if(!player.v2Scene)info.append(button('Editar geometría y material de '+picked.label,'Editar pieza',()=>this.run(()=>this.ensureSceneV2(true))));
+                else {
+                    const part=player.v2Scene.objects.find(o=>o.id===picked.id);
+                    if(part){
+                        const controls=el('div',null,'mp-scene-tools'),color=el('input'),material=el('select'),scales=[];
+                        color.type='color';color.value=part.properties.color||'#438ee8';color.setAttribute('aria-label','Color de '+picked.label);
+                        material.setAttribute('aria-label','Material de '+picked.label);
+                        for(const id of ['plastic','metal_brushed','metal_polished','metal_anodized','rubber','glass','ceramic','wood','fabric','stone','paint','emissive']){
+                            const option=new Option(id,id);option.selected=id===part.properties.material;material.append(option);
+                        }
+                        controls.append(color,material);
+                        for(const [index,axis] of ['X','Y','Z'].entries()){
+                            const label=el('label','Escala '+axis+' '),input=el('input');input.type='number';input.step='.1';input.min='.01';input.max='100';input.value=part.transform.scale[index];
+                            input.setAttribute('aria-label','Escala '+axis+' de '+picked.label);label.append(input);controls.append(label);scales.push(input);
+                        }
+                        controls.append(button('Aplicar material y escala a '+picked.label,'Aplicar pieza',()=>this.run(async()=>{
+                            const scale=scales.map(input=>Number(input.value));if(scale.some(x=>!Number.isFinite(x)||x<.01||x>100))throw Error('La escala debe estar entre 0,01 y 100.');
+                            await this.patchScenePartV2(part.id,{properties:{color:color.value,material:material.value},transform:{...part.transform,scale}});
+                        })));
+                        controls.append(button('Animar un giro de cinco segundos de '+picked.label,'Animar giro',()=>this.run(()=>this.addRotationV2(part.id))));
+                        if(part.properties.cad_task){const dimensions={};for(const [key,value] of Object.entries(part.properties.dimensions)){
+                            const label=el('label',key+' (mm)'),input=el('input');input.type='number';input.min='.01';input.max='10000';input.step='.1';input.value=String(value);input.setAttribute('aria-label','Cota '+key+' de '+part.name);label.append(input);controls.append(label);dimensions[key]=input;}
+                            controls.append(button('Regenerar sólidos CAD con estas cotas y verificar STEP / GLB','Aplicar cotas CAD',()=>this.run(()=>this.buildCadV2(part,Object.fromEntries(Object.entries(dimensions).map(([k,i])=>[k,Number(i.value)]))))));}
+                        const acts=(A.acts?.acts||[]).filter(a=>a.enabled);
+                        if(acts.length){const select=el('select');select.setAttribute('aria-label','Act para modificar la pieza');for(const act of acts)select.append(new Option(act.name,act.agent_id));
+                            controls.append(select,button('Pedir un cambio real al Act seleccionado','Cambiar con Act',()=>this.run(()=>this.editSceneWithAct(select.value,part.id))));}
+                        info.append(controls);
+                    }
+                }
                 block.append(info);
             }
             block.append(tools,parts);
+            if(player.showAssets){
+                if(!player.assetPanel)player.assetPanel=this.createAssetPanel();
+                block.append(player.assetPanel);
+            }
             return block;
+        }
+        createAssetPanel(){
+            const panel=document.createElement('section'),query=document.createElement('input'),results=document.createElement('div'),status=document.createElement('p');
+            query.type='search';query.maxLength=240;query.placeholder='Tornillo, bisagra, engranaje…';query.setAttribute('aria-label','Buscar asset o componente');status.setAttribute('role','status');
+            const search=remote=>this.run(async()=>{
+                const requestedQuery=query.value.trim();
+                const {flags}=await A.backendRequest('GET','/axx-api/agents/v1/flags'),flag=flags.find(f=>f.flag_id==='asset_gate_mcp_v1');
+                if(flag&&!flag.enabled)await A.evolution3.setFlag(flag.flag_id,true,flag.revision,'user_asset_discovery_opt_in','manual-opt-in');
+                const response=await A.backendRequest('POST','/axx-api/spatial/v2/assets/resolve',{
+                    query:requestedQuery,use_asset_gate:remote,conversation_id:A.chatWorkspace?.active?.id});
+                results.replaceChildren();status.textContent=response.remote_reason||'Catálogo local. Las piezas procedurales son conceptuales; cada asset conserva su licencia.';
+                for(const item of response.local_shape_matches){
+                    const button=document.createElement('button');button.type='button';button.textContent='Insertar '+item.label+' · '+item.license;
+                    button.onclick=()=>this.run(async()=>{const doc=await this.ensureSceneV2();const result=await A.backendRequest('POST','/axx-api/spatial/v2/assets/insert-component',{
+                        document_id:doc.document_id,base_revision:doc.revision,component_id:item.component_id,operation_id:'insert-'+crypto.randomUUID()});
+                        await this.applySceneV2(result.document);this.status('Componente local insertado con procedencia '+result.provenance.license+'.');});
+                    results.append(button);
+                }
+                for(const item of response.registered_assets){const line=document.createElement('p');line.textContent=item.logical_name+' · '+item.license+' · SHA256 '+item.sha256.slice(0,12);results.append(line);
+                    if(item.mime_type==='model/gltf-binary'){const insert=document.createElement('button');insert.type='button';insert.textContent='Insertar '+item.logical_name;insert.onclick=()=>this.run(()=>this.insertGlbV2(item.asset_id));results.append(insert);}}
+                if(response.remote_status==='awaiting_approval'){
+                    const review=document.createElement('button');review.type='button';review.textContent='Revisar y consultar '+response.connection.name;
+                    review.onclick=()=>this.run(async()=>{
+                        if(!confirm('¿Consultar '+response.connection.endpoint+'?\nBúsqueda: '+requestedQuery+'\nOperación: '+response.operation.operation_id))return;
+                        const receipt=await A.backendRequest('POST','/axx-api/commands/execute',{operation_id:response.operation.operation_id,approved:true});
+                        const output=document.createElement('pre');output.textContent=JSON.stringify(receipt,null,2).slice(0,16000);results.append(output);
+                        status.textContent=receipt.state==='succeeded'?'Respuesta externa recibida. Comprueba la licencia por asset antes de importarlo.':'Consulta sin efecto verificado: '+receipt.state+'. Puedes usar el catálogo local.';
+                    });results.append(review);
+                }
+                if(!response.local_shape_matches.length&&!response.registered_assets.length&&!remote)status.textContent='Sin coincidencias locales. Prueba un nombre de pieza o consulta Asset Gate con aprobación.';
+            });
+            for(const [label,remote] of [['Buscar local',false],['Preparar consulta Asset Gate (MCP)',true]]){const button=document.createElement('button');button.type='button';button.textContent=label;button.onclick=()=>search(remote);panel.append(button);}
+            const local=document.createElement('input');local.type='file';local.accept='.glb';local.setAttribute('aria-label','Importar GLB local');
+            local.onchange=()=>this.run(async()=>{const file=local.files?.[0];if(!file)return;if(file.size>15*1024*1024)throw Error('El GLB supera 15 MiB.');
+                const license=prompt('Licencia SPDX del archivo (o internal si es propio):');if(!license?.trim())return;
+                const credit=prompt('Créditos requeridos por la licencia (autor y origen):','')||'';
+                await this.enableAssetsV2();const bytes=new Uint8Array(await file.arrayBuffer());let binary='';for(let i=0;i<bytes.length;i+=8192)binary+=String.fromCharCode(...bytes.subarray(i,i+8192));
+                const {asset}=await A.backendRequest('POST','/axx-api/spatial/v2/assets/register',{filename:file.name,content_b64:btoa(binary),license_id:license.trim(),credit_line:credit,redistribution_allowed:false});
+                await this.insertGlbV2(asset.asset_id);status.textContent='GLB local verificado y añadido con licencia '+asset.license;});panel.append(local);
+            panel.prepend(query);panel.append(status,results);return panel;
+        }
+        async ensureSceneV2(enable=true){
+            const player=this.player,q=this.presentationQuery(),capture=this.doc?.id;if(!q||!player||!capture)return null;
+            if(player.v2Scene)return player.v2Scene;
+            const flags=await A.backendRequest('GET','/axx-api/agents/v1/flags'),flag=flags.flags.find(f=>f.flag_id==='magic_scene_v2');
+            if(!flag?.enabled){if(!enable)return null;await A.evolution3.setFlag(flag.flag_id,true,flag.revision,'user_scene_edit_opt_in','manual-opt-in');}
+            const doc=await A.backendRequest('POST','/axx-api/spatial/v2/scenes/import-query',{capture_id:capture,query_id:q.id});
+            if(this.player!==player||player.queryId!==q.id)return null;
+            await this.applySceneV2(doc);return doc;
+        }
+        async enableAssetsV2(){
+            const {flags}=await A.backendRequest('GET','/axx-api/agents/v1/flags'),flag=flags.find(f=>f.flag_id==='asset_gate_mcp_v1');
+            if(flag&&!flag.enabled)await A.evolution3.setFlag(flag.flag_id,true,flag.revision,'user_local_asset_opt_in','manual-opt-in');
+        }
+        async buildCadV2(part=null,dimensions=null){
+            const player=this.player,doc=await this.ensureSceneV2();if(!doc)return;
+            if(dimensions&&Object.values(dimensions).some(x=>!Number.isFinite(x)||x<=0||x>10000))throw Error('Las cotas deben ser positivas y menores que 10.000 mm.');
+            const task=part?clone(part.properties.cad_task):{units:'mm',tolerance_mm:.05,parts:[
+                {part_id:'base',kind:'box',name:'Base',dimensions:{width:30,height:10,depth:20},position:[0,0,0]},
+                {part_id:'shaft',kind:'cylinder',name:'Eje',dimensions:{diameter:8,height:30},position:[0,0,20]},
+                {part_id:'head',kind:'box',name:'Cabezal',dimensions:{width:20,height:8,depth:12},position:[0,0,40]}]};
+            task.task_id='cad-'+crypto.randomUUID();
+            if(part){const target=task.parts.find(p=>p.part_id===part.properties.cad_part_id);target.dimensions=dimensions;
+                target.dimension_sources={...target.dimension_sources,...Object.fromEntries(Object.keys(dimensions).map(k=>[k,'documented']))};}
+            else{for(const p of task.parts)p.dimension_sources=Object.fromEntries(Object.keys(p.dimensions).map(k=>[k,'assumed']));
+                if(!confirm('Crear un ensamblaje CAD de tres sólidos en mm con cotas iniciales supuestas? Podrás editar y documentar sus cotas. Se guardarán STEP y GLB; no acredita validación estructural.'))return;}
+            await this.enableAssetsV2();const {flags}=await A.backendRequest('GET','/axx-api/agents/v1/flags'),flag=flags.find(f=>f.flag_id==='cad_worker_v1');
+            if(flag&&!flag.enabled)await A.evolution3.setFlag(flag.flag_id,true,flag.revision,'user_cad_opt_in','manual-opt-in');
+            this.status('Construyendo y reimportando sólidos STEP con OpenCascade…');
+            const result=await A.backendRequest('POST','/axx-api/spatial/v2/cad/build',{task,document_id:doc.document_id,base_revision:doc.revision,
+                operation_id:'cad-'+crypto.randomUUID(),...(part?{replace_assembly_id:part.properties.cad_assembly_id}:{})});
+            if(this.player!==player)return;await this.applySceneV2(result.document);
+            $('mp-export').textContent='STEP verificado: '+result.step_path+'\nGLB: '+result.glb_path+'\nSHA256 STEP '+result.congruence.step_sha256;
+            this.status('Sólidos CAD y mallas verificados. Las cotas iniciales son supuestas; sin validación estructural.');return result;
+        }
+        async insertGlbV2(assetId){
+            const player=this.player,doc=await this.ensureSceneV2();await this.enableAssetsV2();
+            const result=await A.backendRequest('POST','/axx-api/spatial/v2/assets/insert-glb',{asset_id:assetId,document_id:doc.document_id,
+                base_revision:doc.revision,operation_id:'glb-'+crypto.randomUUID()});
+            if(this.player===player)await this.applySceneV2(result.document);return result;
+        }
+        async applySceneV2(doc){
+            const player=this.player,q=this.presentationQuery();if(!player||!q?.presentation?.scene)return;
+            const isCurrent=()=>this.player===player&&player.queryId===q.id;
+            for(const id of new Set(doc.objects.map(o=>o.properties.preview_glb_asset_id).filter(Boolean))){
+                if(player.scene?.hasGlb(id))continue;
+                await this.enableAssetsV2();const asset=await A.backendRequest('POST','/axx-api/spatial/v2/assets/load',{asset_id:id});
+                if(!isCurrent()||!player.scene)return;
+                await player.scene.loadGlb(id,asset.content_b64,asset.verification);
+            }
+            if(!isCurrent()||(player.v2Scene?.document_id===doc.document_id&&player.v2Scene.revision>doc.revision))return;
+            player.v2Scene=doc;
+            const oldById=new Map(q.presentation.scene.objects.map(o=>[o.id,o]));
+            q.presentation.scene.objects=doc.objects.filter(part=>part.representation==='primitive'||part.properties.preview_glb_asset_id).map(part=>{
+                const old=oldById.get(part.id)||{};
+                if(part.properties.preview_glb_asset_id)return {...old,id:part.id,label:part.name,shape:'mesh',size:[2,2,2],
+                    assetId:part.properties.preview_glb_asset_id,assetNode:part.properties.glb_node_name,normalizeGlb:!!part.properties.normalize_glb,
+                    position:part.transform.position,rotation:part.transform.rotation,scale:part.transform.scale,
+                    color:part.properties.color||'#cccccc',preserveColor:!part.properties.color,material:part.properties.material};
+                return {...old,...part.properties,id:part.id,label:part.name,position:part.transform.position,rotation:part.transform.rotation,
+                    size:part.properties.size.map((x,i)=>x*part.transform.scale[i])};
+            });
+            const ids=new Set(q.presentation.scene.objects.map(o=>o.id));
+            q.presentation.scene.arrows=(q.presentation.scene.arrows||[]).filter(a=>ids.has(a.from)&&ids.has(a.to));
+            if(player.picked&&!ids.has(player.picked))player.picked=null;
+            player.scene?.update(q.presentation.scene);if(player.scene)player.qa=player.scene.qa();
+            if(player.sectionAxis)player.scene?.setSection(player.sectionAxis,player.sectionOffset||0);
+            this.renderAnswers();this.queueView();
+        }
+        async patchScenePartV2(objectId,fields,actId=null){
+            const player=this.player,doc=await this.ensureSceneV2();if(!doc)return;
+            if(fields.transform)fields={...fields,transform:{...doc.objects.find(o=>o.id===objectId).transform,...fields.transform}};
+            const patch={document_id:doc.document_id,base_revision:doc.revision,operation_id:'edit-'+crypto.randomUUID(),
+                target_object_ids:[objectId],allowed_paths:['properties','transform'],changes:[{op:'object.update',object_id:objectId,fields}]};
+            const result=await A.backendRequest('POST','/axx-api/spatial/v2/scenes/patch',{patch,...(actId?{act_id:actId}:{}),conversation_id:A.chatWorkspace?.active?.id});
+            if(this.player!==player)return;await this.applySceneV2(result.document);this.status('Pieza actualizada y guardada · revisión '+result.revision);
+        }
+        async sceneHistoryV2(action){
+            const player=this.player,doc=await this.ensureSceneV2();if(!doc)return;
+            const result=await A.backendRequest('POST','/axx-api/spatial/v2/scenes/'+action,{document_id:doc.document_id,operation_id:action+'-'+crypto.randomUUID()});
+            if(this.player===player)await this.applySceneV2(result.document);
+        }
+        async editSceneWithAct(actId,objectId){
+            const act=A.acts.acts.find(a=>a.agent_id===actId),player=this.player,doc=await this.ensureSceneV2();if(!doc)return;
+            const instruction=prompt('Cambio para '+act.name+' en la pieza seleccionada:');if(!instruction?.trim())return;
+            const part=doc.objects.find(o=>o.id===objectId);
+            const reply=await A.acts.chatAs(act,{...A.companion.data.prefs,prompt_mode:'conversation'},[{role:'user',content:
+                'Modifica solo esta pieza conceptual. Devuelve un JSON {"properties":{"color":"#rrggbb","material":"plastic"},"transform":{"position":[0,0,0],"rotation":[0,0,0],"scale":[1,1,1]}} con los campos que deban cambiar. '
+                +'No afirmes que lo has aplicado. Pieza actual (datos): '+JSON.stringify(part)+'\nPetición: '+instruction}],new AbortController().signal);
+            const text=String(reply.text).replace(/^〔[^〕]*〕\s*/,''),block=/```(?:json)?\s*\n([\s\S]*?)```/.exec(text);
+            const fields=JSON.parse(block?block[1]:text);
+            if(Object.keys(fields).some(k=>!['properties','transform'].includes(k)))throw Error('El Act propuso campos fuera del alcance.');
+            if(fields.properties&&Object.keys(fields.properties).some(k=>!['color','material','size'].includes(k)))throw Error('Solo se permiten color, material y tamaño en esta operación.');
+            if(fields.properties?.material&&!['plastic','metal_brushed','metal_polished','metal_anodized','rubber','glass','ceramic','wood','fabric','stone','paint','emissive'].includes(fields.properties.material))throw Error('Material no disponible en este visor.');
+            if(this.player!==player||player.v2Scene.revision!==doc.revision)throw Error('La escena cambió durante la consulta. Revisa el estado antes de repetir.');
+            if(!confirm('Aplicar propuesta de '+act.name+' a '+part.name+'?\n'+JSON.stringify(fields,null,2)))return;
+            await this.patchScenePartV2(objectId,fields,actId);
+        }
+        async exportSceneGeometry(){
+            const player=this.player,doc=await this.ensureSceneV2();if(!doc||!player?.scene)return;
+            const result=await A.backendRequest('POST','/axx-api/spatial/v2/scenes/export-geometry',{
+                document_id:doc.document_id,revision:doc.revision,parts:player.scene.geometrySnapshot()});
+            $('mp-export').textContent='GLB guardado y verificado: '+result.path+'\nSHA256 '+result.verification.sha256;
+            this.status('Geometría conceptual exportada · '+result.verification.triangle_count+' triángulos. No acredita medidas CAD.');
+            return result;
+        }
+        async enableMotionV2(){
+            const {flags}=await A.backendRequest('GET','/axx-api/agents/v1/flags'),flag=flags.find(f=>f.flag_id==='motion_worker_v1');
+            if(flag&&!flag.enabled)await A.evolution3.setFlag(flag.flag_id,true,flag.revision,'user_motion_opt_in','manual-opt-in');
+        }
+        async addRotationV2(objectId){
+            const player=this.player,doc=await this.ensureSceneV2();if(!doc)return;
+            await this.enableMotionV2();const part=doc.objects.find(o=>o.id===objectId);
+            const tracks=doc.timeline.tracks.filter(t=>!(t.kind==='transform'&&t.target_object_id===objectId));
+            tracks.push({track_id:'turn-'+objectId,kind:'transform',target_object_id:objectId,start_time:0,duration:5,
+                from_rotation:part.transform.rotation,to_rotation:part.transform.rotation.map((x,i)=>i===1?x+360:x)});
+            const result=await A.backendRequest('POST','/axx-api/spatial/v2/scenes/patch',{patch:{document_id:doc.document_id,
+                base_revision:doc.revision,operation_id:'animate-'+crypto.randomUUID(),target_object_ids:[objectId],allowed_paths:['timeline'],
+                changes:[{op:'timeline.update',timeline:{duration_seconds:Math.max(5,doc.timeline.duration_seconds),tracks}}]}});
+            if(this.player===player)await this.applySceneV2(result.document);this.status('Giro de cinco segundos guardado. Usa Vídeo 3D para renderizarlo.');
+        }
+        frozenSceneV2(doc,snapshot,base){
+            const poses=new Map(snapshot.objects.map(o=>[o.id,o])),objects=new Map(doc.objects.map(o=>[o.id,o]));
+            return {...base,objects:base.objects.map(old=>{const pose=poses.get(old.id),part=objects.get(old.id);if(!pose||!part)return old;
+                return {...old,position:pose.position,rotation:pose.rotation,...(old.assetId?{scale:pose.scale}:{size:part.properties.size.map((x,i)=>x*pose.scale[i])})};})};
+        }
+        async exportSceneVideo(){
+            const player=this.player,doc=await this.ensureSceneV2();if(!doc||!player.scene)return;
+            await this.enableMotionV2();
+            const base=clone(this.presentationQuery().presentation.scene),frames=[];
+            const {samples}=await A.backendRequest('POST','/axx-api/spatial/v2/motion/sample',{
+                document_id:doc.document_id,revision:doc.revision,fps:10,frame_count:50});
+            const wasInert=player.sceneHost.inert;player.sceneHost.inert=true;
+            try{
+                for(const [index,snapshot] of samples.entries()){
+                    if(this.player!==player||!player.scene||!this.active)throw Error('Exportación cancelada al cerrar o cambiar la escena.');
+                    player.scene.update(this.frozenSceneV2(doc,snapshot,base));
+                    await new Promise(resolve=>requestAnimationFrame(resolve));
+                    frames.push({state_sha256:snapshot.state_sha256,png:player.scene.snapshot({maxWidth:960,maxHeight:540})});
+                    if(index%10===0)this.status('Renderizando escena 3D: '+(index+1)+' / 50 fotogramas…');
+                }
+                const result=await A.backendRequest('POST','/axx-api/spatial/v2/motion/encode-rendered',{
+                    document_id:doc.document_id,revision:doc.revision,fps:10,frames});
+                $('mp-export').textContent='MP4 3D guardado y decodificado: '+result.output_path+'\nSHA256 '+result.mp4_sha256;
+                this.status(result.frame_count+' fotogramas 3D verificados · '+(result.motion_observed?'movimiento observado.':'escena estática; añade una animación.'));
+                return result;
+            }finally{if(this.player===player&&player.scene){player.scene.update(base);player.sceneHost.inert=wasInert;this.queueView();}}
         }
         disposeScene(){this.stage.hidden=true;this.render();this.syncInput();const player=this.player;if(!player)return;player.scene?.dispose();player.scene=null;player.sceneHost?.remove();player.sceneHost=null;}
         async compareAndFix(){

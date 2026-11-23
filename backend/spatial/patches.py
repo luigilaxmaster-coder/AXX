@@ -45,6 +45,7 @@ def apply_scene_patch(
     *,
     record_undo: bool = True,
     clear_redo: bool = True,
+    _history_action: str | None = None,
 ) -> dict[str, Any]:
     """Validate and apply an incremental ScenePatch with CAS revision checking."""
     if not isinstance(patch, dict):
@@ -77,6 +78,18 @@ def apply_scene_patch(
     with store.lock, store._connect() as db:
         db.execute('BEGIN IMMEDIATE')
         try:
+            request_json = json.dumps(patch, sort_keys=True, ensure_ascii=False, allow_nan=False)
+            prior = db.execute('SELECT kind, request_json, response_json FROM spatial_scene_operations '
+                               'WHERE document_id=? AND operation_id=?', (doc_id, op_id)).fetchone()
+            kind = _history_action or 'patch'
+            if prior is not None:
+                if prior['kind'] != kind or prior['request_json'] != request_json:
+                    raise SceneDocumentError('operation_id already used with different scene arguments')
+                db.execute('COMMIT')
+                return json.loads(prior['response_json'])
+            if db.execute('SELECT 1 FROM spatial_scene_revisions_v2 WHERE document_id=? AND operation_id=?',
+                          (doc_id, op_id)).fetchone():
+                raise SceneDocumentError('operation_id belongs to a historical scene operation; inspect its revision')
             row = db.execute(
                 'SELECT current_revision, document_json FROM spatial_scenes_v2 WHERE document_id=?',
                 (doc_id,),
@@ -124,6 +137,8 @@ def apply_scene_patch(
                         inverse_changes.append({'op': 'asset.unregister', 'asset_id': aid})
 
                 elif op == 'asset.unregister':
+                    if 'assets' not in allowed_set:
+                        raise SceneDocumentError("Change 'asset.unregister' requires 'assets' in allowed_paths")
                     aid = _check_id(change.get('asset_id'), 'asset_id')
                     if aid in existing_assets:
                         old_asset = copy.deepcopy(existing_assets.pop(aid))
@@ -143,15 +158,18 @@ def apply_scene_patch(
                     old_fields: dict[str, Any] = {}
                     for k, v in fields.items():
                         if k == 'properties' and isinstance(v, dict):
-                            if 'properties' not in allowed_set and not any(
+                            if 'properties' not in allowed_set and not all(
                                 f'properties.{pk}' in allowed_set for pk in v
                             ):
                                 raise SceneDocumentError(f'Property update not in allowed_paths for {oid}')
                             old_props = copy.deepcopy(target_obj.get('properties', {}))
                             old_fields['properties'] = old_props
-                            target_obj.setdefault('properties', {}).update(copy.deepcopy(v))
+                            if _history_action == 'undo':
+                                target_obj['properties'] = copy.deepcopy(v)
+                            else:
+                                target_obj.setdefault('properties', {}).update(copy.deepcopy(v))
                         elif k == 'transform' and isinstance(v, dict):
-                            if 'transform' not in allowed_set and not any(
+                            if 'transform' not in allowed_set and not all(
                                 f'transform.{tk}' in allowed_set for tk in v
                             ):
                                 raise SceneDocumentError(f'Transform update not in allowed_paths for {oid}')
@@ -232,7 +250,7 @@ def apply_scene_patch(
                 'base_revision': next_rev,
                 'operation_id': f'inv-{op_id}',
                 'target_object_ids': sorted(target_set),
-                'allowed_paths': sorted(allowed_set | {'assets'}),
+                'allowed_paths': sorted(allowed_set | {'assets', 'properties', 'transform'}),
                 'changes': list(reversed(inverse_changes)),
             }
 
@@ -278,6 +296,15 @@ def apply_scene_patch(
             ).fetchone()
             undo_stack = json.loads(stack_row['undo_stack_json']) if stack_row else []
             redo_stack = json.loads(stack_row['redo_stack_json']) if stack_row else []
+            if _history_action == 'undo':
+                if not undo_stack:
+                    raise SceneDocumentError('Nothing to undo')
+                entry = undo_stack.pop()
+                redo_stack.append({'forward_patch': entry['forward_patch'], 'inverse_patch': entry['inverse_patch']})
+            elif _history_action == 'redo':
+                if not redo_stack:
+                    raise SceneDocumentError('Nothing to redo')
+                redo_stack.pop()
             if record_undo:
                 undo_stack.append({
                     'forward_patch': patch,
@@ -295,6 +322,14 @@ def apply_scene_patch(
                     doc_id,
                 ),
             )
+            outcome = {
+                'document': validated_next, 'revision': next_rev, 'document_sha256': doc_sha,
+                'inverse_patch': inverse_patch,
+                'render_invalidation': {'full_rebuild': False, 'invalidated_object_ids': sorted(invalidated_objects),
+                                        'invalidated_timeline': invalidated_timeline, 'invalidated_diagram': invalidated_diagram},
+            }
+            db.execute('INSERT INTO spatial_scene_operations VALUES (?, ?, ?, ?, ?)',
+                       (doc_id, op_id, kind, request_json, json.dumps(outcome, ensure_ascii=False, allow_nan=False)))
             db.execute('COMMIT')
         except Exception:
             if db.in_transaction:
@@ -315,64 +350,34 @@ def apply_scene_patch(
     }
 
 
-def undo_scene_patch(store: SceneDocumentStore, document_id: str, *, operation_id: str) -> dict[str, Any]:
-    """Pop the latest reversible operation from undo_stack and apply its inverse patch."""
+def _history_scene_patch(store: SceneDocumentStore, document_id: str, operation_id: str, action: str) -> dict[str, Any]:
+    """Serialize stack selection, scene mutation and stack commit; retries replay their durable receipt."""
     _check_id(document_id, 'document_id')
     _check_id(operation_id, 'operation_id')
-    with store.lock, store._connect() as db:
-        row = db.execute(
-            'SELECT undo_stack_json, redo_stack_json FROM spatial_scene_undo_stack WHERE document_id=?',
-            (document_id,),
-        ).fetchone()
-        if not row:
-            raise SceneDocumentError(f'SceneDocument {document_id} not found')
-        undo_stack = json.loads(row['undo_stack_json'])
-        redo_stack = json.loads(row['redo_stack_json'])
-        if not undo_stack:
-            raise SceneDocumentError(f'Nothing to undo for SceneDocument {document_id}')
-        entry = undo_stack.pop()
-        current_doc = store.get_document(document_id)
-        inv = copy.deepcopy(entry['inverse_patch'])
-        inv['base_revision'] = current_doc['revision']
-        inv['operation_id'] = operation_id
+    with store.lock:
+        with store._connect() as db:
+            prior = db.execute('SELECT kind, response_json FROM spatial_scene_operations '
+                               'WHERE document_id=? AND operation_id=?', (document_id, operation_id)).fetchone()
+            if prior is not None:
+                if prior['kind'] != action:
+                    raise SceneDocumentError('operation_id already used for another action')
+                return json.loads(prior['response_json'])
+            row = db.execute('SELECT undo_stack_json, redo_stack_json FROM spatial_scene_undo_stack WHERE document_id=?',
+                             (document_id,)).fetchone()
+            if row is None:
+                raise SceneDocumentError(f'SceneDocument {document_id} not found')
+            stack = json.loads(row['undo_stack_json'] if action == 'undo' else row['redo_stack_json'])
+            if not stack:
+                raise SceneDocumentError(f'Nothing to {action} for SceneDocument {document_id}')
+            patch = copy.deepcopy(stack[-1]['inverse_patch'] if action == 'undo' else stack[-1]['forward_patch'])
+            patch['base_revision'] = store.get_document(document_id)['revision']
+            patch['operation_id'] = operation_id
+        return apply_scene_patch(store, patch, record_undo=action == 'redo', clear_redo=False, _history_action=action)
 
-    outcome = apply_scene_patch(store, inv, record_undo=False, clear_redo=False)
-    redo_entry = {
-        'forward_patch': entry['forward_patch'],
-        'inverse_patch': entry['inverse_patch'],
-    }
-    redo_stack.append(redo_entry)
-    with store.lock, store._connect() as db:
-        with db:
-            db.execute(
-                'UPDATE spatial_scene_undo_stack SET undo_stack_json=?, redo_stack_json=? WHERE document_id=?',
-                (json.dumps(undo_stack, ensure_ascii=False), json.dumps(redo_stack, ensure_ascii=False), document_id),
-            )
-    return outcome
+
+def undo_scene_patch(store: SceneDocumentStore, document_id: str, *, operation_id: str) -> dict[str, Any]:
+    return _history_scene_patch(store, document_id, operation_id, 'undo')
 
 
 def redo_scene_patch(store: SceneDocumentStore, document_id: str, *, operation_id: str) -> dict[str, Any]:
-    """Re-apply the most recently undone patch from redo_stack."""
-    _check_id(document_id, 'document_id')
-    _check_id(operation_id, 'operation_id')
-    with store.lock, store._connect() as db:
-        row = db.execute(
-            'SELECT undo_stack_json, redo_stack_json FROM spatial_scene_undo_stack WHERE document_id=?',
-            (document_id,),
-        ).fetchone()
-        if not row:
-            raise SceneDocumentError(f'SceneDocument {document_id} not found')
-        redo_stack = json.loads(row['redo_stack_json'])
-        if not redo_stack:
-            raise SceneDocumentError(f'Nothing to redo for SceneDocument {document_id}')
-        entry = redo_stack.pop()
-        current_doc = store.get_document(document_id)
-        fwd = copy.deepcopy(entry['forward_patch'])
-        fwd['base_revision'] = current_doc['revision']
-        fwd['operation_id'] = operation_id
-        with db:
-            db.execute(
-                'UPDATE spatial_scene_undo_stack SET redo_stack_json=? WHERE document_id=?',
-                (json.dumps(redo_stack, ensure_ascii=False), document_id),
-            )
-    return apply_scene_patch(store, fwd, record_undo=True, clear_redo=False)
+    return _history_scene_patch(store, document_id, operation_id, 'redo')

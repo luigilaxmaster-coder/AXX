@@ -11,6 +11,7 @@ Enforces Invariants:
 from __future__ import annotations
 
 from contextlib import closing
+import hashlib
 import json
 from pathlib import Path
 import re
@@ -319,27 +320,43 @@ class AutonomousRoutineService:
                     'activated_host_input': False,
                 }
 
-        run_id = f'r-{routine_id}-{now}'
         with self.lock, self._connect() as db:
-            with db:
+            db.execute('BEGIN IMMEDIATE')
+            try:
+                current=db.execute('SELECT * FROM autonomous_routines WHERE routine_id=?',(routine_id,)).fetchone()
+                if not current['enabled'] or current['status']!='scheduled':
+                    db.execute('COMMIT')
+                    return {'routine_id':routine_id,'executed':False,'status':current['status']}
+                slot=current['next_run_at_ms'] if current['next_run_at_ms'] is not None else now
+                run_id='r-'+hashlib.sha256(f'{routine_id}:{slot}'.encode()).hexdigest()[:32]
+                if db.execute('SELECT 1 FROM routine_runs WHERE run_id=?',(run_id,)).fetchone():
+                    db.execute('COMMIT')
+                    return {'routine_id':routine_id,'run_id':run_id,'executed':False,'status':'already_recorded'}
                 db.execute(
                     'INSERT INTO routine_runs (run_id, routine_id, agent_id, status, started_at_ms) VALUES (?, ?, ?, ?, ?)',
                     (run_id, routine_id, routine['agent_id'], 'running', now),
                 )
+                db.execute("UPDATE autonomous_routines SET status='running' WHERE routine_id=?",(routine_id,))
+                db.execute('COMMIT')
+            except Exception:
+                if db.in_transaction: db.execute('ROLLBACK')
+                raise
         try:
             dispatch_res = self.dispatcher(routine, run_id)
             summary = str((dispatch_res or {}).get('summary', 'ok'))[:1000]
             finished = self.clock()
             nxt = self._compute_next_run_ms(routine['schedule_spec'], finished)
+            if routine['schedule_spec'].lower().startswith('at:'):
+                nxt=None
             with self.lock, self._connect() as db:
                 with db:
                     db.execute(
-                        'UPDATE routine_runs SET status=?, result_summary=?, finished_at_ms=? WHERE run_id=?',
+                        "UPDATE routine_runs SET status=?, result_summary=?, finished_at_ms=? WHERE run_id=? AND status='running'",
                         ('completed', summary, finished, run_id),
                     )
                     db.execute(
-                        'UPDATE autonomous_routines SET last_run_at_ms=?, next_run_at_ms=?, retry_count=0, status=? WHERE routine_id=?',
-                        (now, nxt, 'scheduled', routine_id),
+                        "UPDATE autonomous_routines SET last_run_at_ms=?, next_run_at_ms=?, retry_count=0, status=? WHERE routine_id=? AND status='running'",
+                        (now, nxt, 'scheduled' if nxt is not None else 'completed', routine_id),
                     )
             if self.event_hub is not None:
                 self.event_hub.publish_event(
@@ -369,12 +386,12 @@ class AutonomousRoutineService:
             with self.lock, self._connect() as db:
                 with db:
                     db.execute(
-                        'UPDATE routine_runs SET status=?, result_summary=?, finished_at_ms=? WHERE run_id=?',
+                        "UPDATE routine_runs SET status=?, result_summary=?, finished_at_ms=? WHERE run_id=? AND status='running'",
                         ('failed', str(exc)[:1000], finished, run_id),
                     )
                     db.execute(
-                        'UPDATE autonomous_routines SET last_run_at_ms=?, retry_count=?, status=? WHERE routine_id=?',
-                        (now, retries, 'failed' if exhausted else 'scheduled', routine_id),
+                        "UPDATE autonomous_routines SET last_run_at_ms=?, retry_count=?, status=?, next_run_at_ms=? WHERE routine_id=? AND status='running'",
+                        (now, retries, 'failed' if exhausted else 'scheduled', finished+min(60_000,5000*retries), routine_id),
                     )
             return {
                 'routine_id': routine_id,
@@ -449,8 +466,13 @@ class AutonomousRoutineService:
                 )
         return self.get_routine(routine_id)
 
-    def reconcile_on_startup(self) -> dict[str, Any]:
+    def reconcile_on_startup(self, *, recover_running: bool = False) -> dict[str, Any]:
         """Reconcile persisted routines on service startup without auto-executing pending mutations."""
+        if recover_running:
+            with self.lock, self._connect() as db:
+                with db:
+                    db.execute("UPDATE autonomous_routines SET status='interrupted', enabled=0 WHERE status='running'")
+                    db.execute("UPDATE routine_runs SET status='interrupted' WHERE status='running'")
         routines = self.list_routines()
         scheduled = [r['routine_id'] for r in routines if r['enabled'] and r['status'] == 'scheduled']
         awaiting = [r['routine_id'] for r in routines if r['status'] == 'awaiting_approval']

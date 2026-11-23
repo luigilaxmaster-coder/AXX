@@ -56,7 +56,11 @@ class LiveLspTests(unittest.TestCase):
         self.lsp.processes[('proj', 'python')].proc.kill()  # crash: the editor keeps working on the AST fallback
         self.lsp.processes[('proj', 'python')].proc.wait(5)
         self.lsp.commands.pop('pylsp')
-        code, res = self.sync('def broken(:\n')
+        # The optional real pylsp may be installed on the QA machine. This case
+        # tests an unavailable provider after the controlled process crashes.
+        from unittest.mock import patch
+        with patch('backend.code_studio.language_servers._works',return_value=False):
+            code, res = self.sync('def broken(:\n')
         self.assertEqual((code, res['lsp_status']), (200, 'degraded_syntax_only'), res)
         self.assertTrue(res['editor_usable'])
 

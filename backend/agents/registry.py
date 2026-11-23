@@ -15,6 +15,8 @@ from pathlib import Path
 import sqlite3
 import threading
 import time
+import unicodedata
+import uuid
 from typing import Any
 
 from backend.agents.policy import apply_provider_switch_policy
@@ -155,6 +157,16 @@ class AgentRegistry:
                         created_at_ms INTEGER NOT NULL
                     );
                     CREATE INDEX IF NOT EXISTS idx_act_artifacts_run ON act_artifacts(run_id);
+                    CREATE TABLE IF NOT EXISTS agent_memory_entries (
+                        memory_id TEXT PRIMARY KEY,
+                        agent_id TEXT NOT NULL REFERENCES agent_profiles(agent_id) ON DELETE CASCADE,
+                        content TEXT NOT NULL,
+                        source_ref TEXT NOT NULL,
+                        revision INTEGER NOT NULL DEFAULT 1,
+                        created_at_ms INTEGER NOT NULL,
+                        expires_at_ms INTEGER NOT NULL
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_agent_memory_owner ON agent_memory_entries(agent_id, expires_at_ms);
                     '''
                 )
                 # Acts 3.1 additive migrations
@@ -169,6 +181,16 @@ class AgentRegistry:
                 self._persistent_conn.close()
                 self._persistent_conn = None
 
+    @staticmethod
+    def _check_identity_unique(db, profile):
+        normalize = lambda value: unicodedata.normalize('NFKC', value or '').strip().casefold()
+        keys = {normalize(profile['name']), normalize((profile.get('collaboration') or {}).get('mention'))} - {''}
+        for row in db.execute('SELECT agent_id, name, behavior_json FROM agent_profiles WHERE agent_id!=?', (profile['agent_id'],)):
+            mention = (json.loads(row['behavior_json']).get('collaboration') or {}).get('mention')
+            occupied = {normalize(row['name']), normalize(mention)} - {''}
+            if keys & occupied:
+                raise AgentProfileValidationError('El nombre o alias ya pertenece a otro Act; elige uno único.')
+
     def create_profile(self, profile_spec: dict[str, Any]) -> dict[str, Any]:
         spec = copy.deepcopy(profile_spec)
         spec.setdefault('schema_version', '1.0')
@@ -182,6 +204,7 @@ class AgentRegistry:
             try:
                 if db.execute('SELECT 1 FROM agent_profiles WHERE agent_id=?', (validated['agent_id'],)).fetchone():
                     raise AgentProfileValidationError(f"AgentProfile '{validated['agent_id']}' already exists")
+                self._check_identity_unique(db, validated)
                 db.execute(
                     '''
                     INSERT INTO agent_profiles
@@ -234,6 +257,84 @@ class AgentRegistry:
             rows = db.execute(query).fetchall()
             return [self._row_to_profile(r) for r in rows]
 
+    def list_private_memories(self, agent_id: str) -> list[dict[str, Any]]:
+        self.get_profile(agent_id)
+        with self.lock, self._connect() as db:
+            with db:
+                db.execute('DELETE FROM agent_memory_entries WHERE agent_id=? AND expires_at_ms<=?', (agent_id, self.clock()))
+                return [dict(r) for r in db.execute('SELECT * FROM agent_memory_entries WHERE agent_id=? '
+                                                   'ORDER BY created_at_ms, memory_id', (agent_id,))]
+
+    def save_private_memory(self, agent_id: str, *, content: str, source_ref: str = 'owner_note',
+                            memory_id: str | None = None, expected_revision: int = 0, ttl_days: int = 90) -> dict[str, Any]:
+        from backend.agents.profiles import SECRET_LEAK_RE
+        self.get_profile(agent_id)
+        if (not isinstance(content, str) or not 1 <= len(content.strip()) <= 2000
+                or not isinstance(source_ref, str) or not 1 <= len(source_ref) <= 160
+                or type(ttl_days) is not int or not 1 <= ttl_days <= 90 or type(expected_revision) is not int):
+            raise AgentProfileValidationError('Memory needs 1..2000 characters, a source and a TTL of 1..90 days')
+        if SECRET_LEAK_RE.search(content) or SECRET_LEAK_RE.search(source_ref):
+            raise AgentProfileValidationError('No guardes credenciales o tokens en la memoria del Act.')
+        memory_id = _check_id(memory_id or 'mem-' + uuid.uuid4().hex, 'memory_id')
+        now = self.clock()
+        with self.lock, self._connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            try:
+                db.execute('DELETE FROM agent_memory_entries WHERE agent_id=? AND expires_at_ms<=?', (agent_id, now))
+                old = db.execute('SELECT * FROM agent_memory_entries WHERE memory_id=?', (memory_id,)).fetchone()
+                if old and old['agent_id'] != agent_id:
+                    raise PermissionError('This memory belongs to another Act')
+                if (old['revision'] if old else 0) != expected_revision:
+                    raise StaleAgentRevisionError('The memory changed; reload it before editing')
+                if not old and db.execute('SELECT count(*) FROM agent_memory_entries WHERE agent_id=?', (agent_id,)).fetchone()[0] >= 32:
+                    raise AgentProfileValidationError('Each Act supports up to 32 explicit private memories')
+                db.execute('INSERT INTO agent_memory_entries VALUES (?, ?, ?, ?, ?, ?, ?) '
+                           'ON CONFLICT(memory_id) DO UPDATE SET content=excluded.content, source_ref=excluded.source_ref, '
+                           'revision=excluded.revision, expires_at_ms=excluded.expires_at_ms',
+                           (memory_id, agent_id, content.strip(), source_ref, expected_revision + 1,
+                            old['created_at_ms'] if old else now, now + ttl_days * 86400000))
+                result = dict(db.execute('SELECT * FROM agent_memory_entries WHERE memory_id=?', (memory_id,)).fetchone())
+                db.execute('COMMIT')
+                return result
+            except Exception:
+                db.execute('ROLLBACK')
+                raise
+
+    def forget_private_memory(self, agent_id: str, memory_id: str, *, expected_revision: int) -> dict[str, Any]:
+        self.get_profile(agent_id)
+        _check_id(memory_id, 'memory_id')
+        with self.lock, self._connect() as db:
+            with db:
+                row = db.execute('SELECT agent_id, revision FROM agent_memory_entries WHERE memory_id=?', (memory_id,)).fetchone()
+                if row is not None and (row['agent_id'] != agent_id or row['revision'] != expected_revision):
+                    raise StaleAgentRevisionError('The memory changed or belongs to another Act')
+                db.execute('DELETE FROM agent_memory_entries WHERE memory_id=? AND agent_id=?', (memory_id, agent_id))
+        return {'memory_id': memory_id, 'forgotten': True}
+
+    def export_agent_package(self, agent_id: str) -> dict[str, Any]:
+        from backend.agents.profiles import export_agent_package
+        return export_agent_package(self.get_profile(agent_id))
+
+    def import_agent_package(self, package_data: dict[str, Any], *, new_agent_id: str | None = None) -> dict[str, Any]:
+        from backend.agents.profiles import import_agent_package
+        clean = import_agent_package(package_data)['profile']
+        clean['agent_id'] = new_agent_id or 'act-import-' + uuid.uuid4().hex[:12]
+        _check_id(clean['agent_id'], 'new_agent_id')
+        clean['enabled'] = False
+        original = clean['name']
+        # Importing alongside the source creates an independently addressable Act.
+        with self.lock, self._connect() as db:
+            for index in range(100):
+                try:
+                    self._check_identity_unique(db, clean)
+                    break
+                except AgentProfileValidationError:
+                    clean.setdefault('collaboration', {}).pop('mention', None)
+                    clean['name'] = original[:55] + f' (importado {index + 1})'
+            else:
+                raise AgentProfileValidationError('No unique name available for imported Act')
+        return self.create_profile(clean)
+
     def update_profile(
         self,
         agent_id: str,
@@ -272,6 +373,9 @@ class AgentRegistry:
                 next_rev = current_rev + 1
                 merged['revision'] = next_rev
                 validated = validate_agent_profile(merged)
+                if (validated['name'] != current['name'] or (validated.get('collaboration') or {}).get('mention')
+                        != (current.get('collaboration') or {}).get('mention')):
+                    self._check_identity_unique(db, validated)
                 now = self.clock()
 
                 if validated['appearance'] != current['appearance']:

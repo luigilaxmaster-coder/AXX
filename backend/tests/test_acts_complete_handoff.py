@@ -62,6 +62,7 @@ class ActsCompleteHandoffTests(unittest.TestCase):
             root = Path(tmp)
             srv1 = _Server(root, self.providers)
             try:
+                srv1.rt.flags.set_flag('agent_profiles_v1', True, reason='real routine model dispatch')
                 srv1.rt.registry.create_profile(act_spec('act-ops', 'Ops', 'Orbit', 'loop-dev', 'model-dev'))
                 c, res = srv1.api.request('POST', '/axx-api/agents/v1/routines', {
                     'routine_id': 'rout-every-10s',
@@ -84,6 +85,7 @@ class ActsCompleteHandoffTests(unittest.TestCase):
                 self.assertTrue(trig['dispatcher_connected'])
                 self.assertTrue(trig['executed'])
                 self.assertEqual(trig['status'], 'completed')
+                self.assertTrue(_EchoModel.seen, 'The scheduler must actually invoke the configured model')
                 self.assertFalse(trig['activated_microphone'])
                 self.assertFalse(trig['activated_host_input'])
 

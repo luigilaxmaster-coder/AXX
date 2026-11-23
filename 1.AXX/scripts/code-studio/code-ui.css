@@ -62,3 +62,4 @@
   .axx-code-side, .axx-code-acts { max-height:220px; }
 }
 @media (max-width:480px) { .axx-code-studio .axx-code-editor { height:280px; } }
+.axx-code-debug-line { background:rgba(255,190,55,.2); }
