@@ -58,6 +58,57 @@ def _check_id(value: Any, field: str) -> str:
     return value
 
 
+def checked_team_graph(graph: Any, member_ids: list[str]) -> dict[str, Any] | None:
+    """Act Team graph: nodes are the members (with canvas position and an optional task), edges are handoffs.
+
+    Edges must form a DAG over members; the pipeline runs it in topological order and each Act only receives the
+    verified output of the Acts connected upstream of it."""
+    if graph is None:
+        return None
+    if not isinstance(graph, dict) or not isinstance(graph.get('nodes'), list) or not isinstance(graph.get('edges', []), list):
+        raise AgentProfileValidationError('team graph must be {nodes: [...], edges: [...]}')
+    members = set(member_ids)
+    nodes: dict[str, dict[str, Any]] = {}
+    for raw in graph['nodes']:
+        aid = _check_id((raw or {}).get('agent_id'), 'graph.node.agent_id')
+        if aid not in members or aid in nodes:
+            raise AgentProfileValidationError(f'graph node {aid!r} must be one team member, once')
+        x, y = raw.get('x', 0), raw.get('y', 0)
+        if not all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in (x, y)):
+            raise AgentProfileValidationError('graph node position must be numeric')
+        instruction = raw.get('instruction', '')
+        if not isinstance(instruction, str):
+            raise AgentProfileValidationError('graph node instruction must be text')
+        nodes[aid] = {'agent_id': aid, 'x': round(max(0.0, min(float(x), 4000.0)), 1),
+                      'y': round(max(0.0, min(float(y), 4000.0)), 1), 'instruction': instruction.strip()[:600]}
+    if set(nodes) != members:
+        raise AgentProfileValidationError('every team member needs exactly one graph node')
+    edges: list[dict[str, str]] = []
+    incoming: dict[str, int] = {aid: 0 for aid in nodes}
+    outgoing: dict[str, list[str]] = {aid: [] for aid in nodes}
+    for raw in graph.get('edges', []):
+        src, dst = (raw or {}).get('from'), (raw or {}).get('to')
+        if src not in nodes or dst not in nodes or src == dst:
+            raise AgentProfileValidationError('graph edges must join two different team members')
+        if any(e['from'] == src and e['to'] == dst for e in edges):
+            raise AgentProfileValidationError('duplicate graph edge')
+        edges.append({'from': src, 'to': dst})
+        incoming[dst] += 1
+        outgoing[src].append(dst)
+    if len(edges) > 64:
+        raise AgentProfileValidationError('a team graph allows at most 64 connections')
+    queue, seen = [aid for aid, n in incoming.items() if n == 0], 0
+    while queue:  # Kahn: a cycle leaves nodes that are never released
+        aid = queue.pop(); seen += 1
+        for nxt in outgoing[aid]:
+            incoming[nxt] -= 1
+            if incoming[nxt] == 0:
+                queue.append(nxt)
+    if seen != len(nodes):
+        raise AgentProfileValidationError('team graph connections must not form a cycle')
+    return {'nodes': list(nodes.values()), 'edges': edges}
+
+
 class AgentRegistry:
     """Thread-safe SQLite repository for individual AgentProfiles, grants, and reusable teams."""
 
@@ -586,10 +637,37 @@ class AgentRegistry:
         shared_memory_policy: str = 'explicit_shared',
         workspace_scope: str = '',
         review_criteria: str = '',
+        graph: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         _check_id(team_id, 'team_id')
+        meta = self._team_meta(members, coordinator_agent_id, budget_usd, max_concurrency, delegation_rules,
+                               shared_memory_policy, workspace_scope, review_criteria, graph)
         if mode not in ('consultation', 'collaboration'):
             raise AgentProfileValidationError("team mode must be 'consultation' or 'collaboration'")
+        if not isinstance(members, list) or not members:
+            raise AgentProfileValidationError('Team requires at least one member')
+        now = self.clock()
+        with self.lock, self._connect() as db:
+            db.execute('PRAGMA foreign_keys=ON')
+            db.execute('BEGIN IMMEDIATE')
+            try:
+                db.execute(
+                    '''
+                    INSERT INTO agent_teams (team_id, title, purpose, mode, revision, created_at_ms, disabled, team_meta_json)
+                    VALUES (?, ?, ?, ?, 1, ?, 0, ?)
+                    ''',
+                    (team_id, str(title).strip()[:120], str(purpose).strip()[:500], mode, now, json.dumps(meta, ensure_ascii=False)),
+                )
+                self._insert_team_members(db, team_id, members)
+                db.execute('COMMIT')
+            except Exception:
+                db.execute('ROLLBACK')
+                raise
+        return self.get_team(team_id)
+
+    @staticmethod
+    def _team_meta(members, coordinator_agent_id, budget_usd, max_concurrency, delegation_rules,
+                   shared_memory_policy, workspace_scope, review_criteria, graph) -> dict[str, Any]:
         if not isinstance(members, list) or not members:
             raise AgentProfileValidationError('Team requires at least one member')
         if coordinator_agent_id is not None:
@@ -603,32 +681,54 @@ class AgentRegistry:
             'workspace_scope': str(workspace_scope)[:400],
             'review_criteria': str(review_criteria)[:1000],
         }
-        now = self.clock()
+        checked = checked_team_graph(graph, [(m or {}).get('agent_id') for m in members])
+        if checked is not None:
+            meta['graph'] = checked
+        return meta
+
+    @staticmethod
+    def _insert_team_members(db, team_id: str, members: list[dict[str, str]]) -> None:
+        for m in members:
+            aid = _check_id(m.get('agent_id'), 'member.agent_id')
+            mrole = m.get('role', 'member')
+            if mrole not in ('lead', 'member', 'reviewer'):
+                raise AgentProfileValidationError(f'Invalid team member role: {mrole!r}')
+            db.execute('INSERT INTO agent_team_members (team_id, agent_id, role) VALUES (?, ?, ?)', (team_id, aid, mrole))
+
+    def update_team(self, *, team_id: str, expected_revision: int, title: str, members: list[dict[str, str]],
+                    purpose: str = '', coordinator_agent_id: str | None = None, budget_usd: float = 5.0,
+                    max_concurrency: int = 2, delegation_rules: str = '', shared_memory_policy: str = 'explicit_shared',
+                    workspace_scope: str = '', review_criteria: str = '', graph: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Replace a team's members, settings and graph; a stale editor (revision mismatch) is rejected, never merged."""
+        _check_id(team_id, 'team_id')
+        meta = self._team_meta(members, coordinator_agent_id, budget_usd, max_concurrency, delegation_rules,
+                               shared_memory_policy, workspace_scope, review_criteria, graph)
         with self.lock, self._connect() as db:
             db.execute('PRAGMA foreign_keys=ON')
             db.execute('BEGIN IMMEDIATE')
             try:
-                db.execute(
-                    '''
-                    INSERT INTO agent_teams (team_id, title, purpose, mode, revision, created_at_ms, disabled, team_meta_json)
-                    VALUES (?, ?, ?, ?, 1, ?, 0, ?)
-                    ''',
-                    (team_id, str(title).strip()[:120], str(purpose).strip()[:500], mode, now, json.dumps(meta, ensure_ascii=False)),
-                )
-                for m in members:
-                    aid = _check_id(m.get('agent_id'), 'member.agent_id')
-                    mrole = m.get('role', 'member')
-                    if mrole not in ('lead', 'member', 'reviewer'):
-                        raise AgentProfileValidationError(f'Invalid team member role: {mrole!r}')
-                    db.execute(
-                        'INSERT INTO agent_team_members (team_id, agent_id, role) VALUES (?, ?, ?)',
-                        (team_id, aid, mrole),
-                    )
+                row = db.execute('SELECT revision FROM agent_teams WHERE team_id=?', (team_id,)).fetchone()
+                if not row:
+                    raise AgentNotFoundError(f'Team not found: {team_id}')
+                if int(row['revision']) != int(expected_revision):
+                    raise StaleAgentRevisionError(f"Team {team_id} changed (revision {row['revision']}); reload it before saving")
+                db.execute('UPDATE agent_teams SET title=?, purpose=?, team_meta_json=?, revision=revision+1 WHERE team_id=?',
+                           (str(title).strip()[:120], str(purpose).strip()[:500], json.dumps(meta, ensure_ascii=False), team_id))
+                db.execute('DELETE FROM agent_team_members WHERE team_id=?', (team_id,))
+                self._insert_team_members(db, team_id, members)
                 db.execute('COMMIT')
             except Exception:
                 db.execute('ROLLBACK')
                 raise
         return self.get_team(team_id)
+
+    def delete_team(self, team_id: str) -> bool:
+        """Remove the team definition only; its past runs, artifacts and events stay recorded."""
+        _check_id(team_id, 'team_id')
+        with self.lock, self._connect() as db:
+            db.execute('PRAGMA foreign_keys=ON')
+            with db:
+                return db.execute('DELETE FROM agent_teams WHERE team_id=?', (team_id,)).rowcount > 0
 
     def get_team(self, team_id: str) -> dict[str, Any]:
         _check_id(team_id, 'team_id')
@@ -704,7 +804,7 @@ class AgentRegistry:
                         now,
                     ),
                 )
-        return self.list_artifacts(run_id=run_id)[0]
+        return next(a for a in self.list_artifacts(run_id=run_id) if a['artifact_id'] == artifact_id)
 
     def list_artifacts(self, *, run_id: str | None = None, act_id: str | None = None) -> list[dict[str, Any]]:
         with self.lock, self._connect() as db:

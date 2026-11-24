@@ -64,6 +64,7 @@ from backend.anticipation import AnticipationService
 from backend.telegram.http_api import TelegramHTTP
 from backend.agents.http_api import EvolutionHTTP, EvolutionHttpRuntime
 from backend.agents.act_inference import ActInferenceError
+from backend.agents.registry import StaleAgentRevisionError
 from backend.code_studio.projects import CodeConflictError
 from backend.spatial.scene_document import StaleSceneRevisionError
 from backend.evolution_flags import StaleFlagRevisionError
@@ -1613,7 +1614,7 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
         except ActInferenceError as exc:
             self._send_json({'ACT_NOT_FOUND': 404, 'ACT_STALE_REVISION': 409, 'ACT_DISABLED': 403}.get(exc.code, 400),
                             {'error': {'code': exc.code, 'message': str(exc)}})
-        except (CodeConflictError, StaleSceneRevisionError, StaleFlagRevisionError) as exc:
+        except (CodeConflictError, StaleSceneRevisionError, StaleFlagRevisionError, StaleAgentRevisionError) as exc:
             self._send_json(409, {'error': {'code': 'STALE_REVISION', 'message': str(exc)}})
         except PermissionError as exc:
             self._send_json(403, {'error': {'code': 'FORBIDDEN', 'message': str(exc)}})

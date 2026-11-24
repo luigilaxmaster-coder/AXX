@@ -172,8 +172,9 @@ class EvolutionHttpRuntime:
         http = object.__new__(EvolutionHTTP)
         http.rt = self
         http.handler = SimpleNamespace(adapter=self.inference_adapter, provider=self.inference_provider)
+        target = {'team_id': routine['team_id']} if routine.get('team_id') else {'act_ids': [routine['agent_id']]}
         result = http._run_team_pipeline({'run_id':run_id, 'conversation_id':routine['conversation_id'],
-            'act_ids':[routine['agent_id']], 'prompt':prompt, 'budget_usd':routine.get('budget_usd', .5),
+            **target, 'prompt':prompt, 'budget_usd':routine.get('budget_usd', .5),
             'scheduled_routine':True})
         return {'run_id':run_id, 'summary':result['consolidated_text'], 'artifacts':result['artifacts']}
 
@@ -314,6 +315,10 @@ class EvolutionHTTP:
                 'telemetry': dict(self.rt.governor.telemetry),
                 'active_by_act': self.rt.acts.active_counts(),
             })
+            return True
+        if path == '/axx-api/agents/v1/routines/preview':
+            spec = query.get('schedule_spec', [''])[0]
+            self.handler._send_json(200, {'schedule_spec': spec, 'next_runs_ms': self.rt.routines.preview_schedule(spec)})
             return True
         if path == '/axx-api/agents/v1/routines/history':
             self.handler._send_json(200, {'runs': self.rt.routines.list_runs(routine_id=query.get('routine_id', [None])[0])})
@@ -621,6 +626,15 @@ class EvolutionHTTP:
             {'kind': 'act_workspace', 'tool_id': 'axx.computer', 'operation': op, 'route': path, 'scope': scope},
         )
 
+    def _routine_team(self, body: dict[str, Any]) -> str:
+        """A routine may run a whole team; its Act must belong to that team (it is the routine's accountable owner)."""
+        team_id = body.get('team_id') or ''
+        if team_id:
+            team = self.rt.registry.get_team(team_id)
+            if body['agent_id'] not in {m['agent_id'] for m in team['members']}:
+                raise ValueError('El Act responsable de la rutina debe pertenecer al equipo.')
+        return team_id
+
     def _resolve_team_participants(self, body: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
         """Resolve ordered participants from team_id, explicit act_ids, or @mentions in the prompt."""
         all_acts = self.rt.registry.list_profiles(include_disabled=False)
@@ -740,7 +754,7 @@ class EvolutionHTTP:
             raise ActInferenceError('CANCELLED', 'Trabajo cancelado antes del despacho.')
         run_id = str(body.get('run_id') or f'teamrun-{uuid.uuid4().hex[:12]}')
         lead_id = next((a['agent_id'] for r, a in participants if r == 'lead'), participants[0][1]['agent_id'])
-        ordered = sorted(participants, key=lambda x: (0 if x[0] == 'lead' else (2 if x[0] == 'reviewer' else 1)))
+        ordered, preds, ancestors, node_tasks = self._team_flow(body, participants)
 
         # apply_in_worktree: the lead Act's file goes into its own worktree through the same axx.code gate as Code Studio,
         # before any handoff; later Acts receive the real diff and test receipt instead of free text.
@@ -767,17 +781,13 @@ class EvolutionHTTP:
                 work['worktree'] = self.rt.code_git.create_agent_worktree(
                     workspace_id=wt_body['workspace_id'], project_id=body['project_id'], agent_id=author, task_slug=wt_body['task_slug'])
 
-        nodes: list[dict[str, Any]] = []
-        prev_tid: str | None = None
-        for idx, (mrole, act_prof) in enumerate(ordered):
-            tid = f'{run_id}-t{idx + 1}'
-            nodes.append({
-                'task_id': tid,
-                'agent_id': act_prof['agent_id'],
-                'role': mrole,
-                'depends_on': [prev_tid] if prev_tid else [],
-            })
-            prev_tid = tid
+        task_of = {act['agent_id']: f'{run_id}-t{idx + 1}' for idx, (_, act) in enumerate(ordered)}
+        nodes: list[dict[str, Any]] = [{
+            'task_id': task_of[act_prof['agent_id']],
+            'agent_id': act_prof['agent_id'],
+            'role': mrole,
+            'depends_on': [task_of[p] for p in preds[act_prof['agent_id']]],
+        } for mrole, act_prof in ordered]
 
         self.rt.orchestrator.start_run(
             run_id=run_id,
@@ -813,27 +823,28 @@ class EvolutionHTTP:
 
         steps_output: list[dict[str, Any]] = []
         artifacts: list[dict[str, Any]] = []
-        prior_summary = ''
+        outputs: dict[str, str] = {}  # verified handoff text per Act, read only by the Acts connected downstream
         for idx, ((mrole, act_prof), node) in enumerate(zip(ordered, nodes)):
             self._check_team_active(cancel_event)
             act_id = act_prof['agent_id']
             task_id = node['task_id']
+            upstream = [a for _, a in ordered if a['agent_id'] in ancestors[act_id]]
+            prior_summary = '\n\n'.join(outputs[a['agent_id']] for a in upstream if a['agent_id'] in outputs)
             req_id = f'{run_id}-req-{idx + 1}'
             resolved = self._resolve_act(act_id)
             self.rt.acts.begin_execution(act_id, req_id, job_class='multiagent_background_batch' if body.get('scheduled_routine') else 'interactive_chat')
             try:
                 self.rt.task_graph.ready_tasks(run_id)
                 self.rt.task_graph.lease_and_start_task(task_id, lease_id=f'lease-{task_id}', operation_id=f'op-{task_id}')
-                if idx > 0:
-                    prev_act_id = ordered[idx - 1][1]['agent_id']
-                    handoff_id = f'ho-{run_id[:12]}-{idx}'
+                next_grants = {g['grant_id'] for g in self.rt.registry.list_permissions(act_id) if g['approval_mode'] != 'deny'}
+                for k, prev_act_id in enumerate(preds[act_id]):  # one Handoff v1 per incoming connection
+                    handoff_id = f'ho-{run_id[:12]}-{idx}' + (f'-{k + 1}' if k else '')
                     prev_grants = {g['grant_id'] for g in self.rt.registry.list_permissions(prev_act_id) if g['approval_mode'] != 'deny'}
-                    next_grants = {g['grant_id'] for g in self.rt.registry.list_permissions(act_id) if g['approval_mode'] != 'deny'}
                     shared_grants = sorted(prev_grants & next_grants)
                     prev_artifacts = [
                         {'artifact_id': a['artifact_id'], 'sha256': a['sha256'], 'revision': a['revision']}
-                        for a in artifacts[-4:] if a.get('sha256')
-                    ]
+                        for a in artifacts if a.get('sha256') and a.get('act_id') in ancestors[act_id]
+                    ][-4:]
                     self.rt.orchestrator.delegate_handoff(
                         handoff_payload={
                             'schema_version': '1.0',
@@ -861,6 +872,8 @@ class EvolutionHTTP:
                 if code_context and idx == 0:
                     extra_ctx += code_context
                 msg_content = f"Objetivo del equipo: {prompt_text}\nTu rol asignado en esta tarea: {mrole}.{extra_ctx}"
+                if node_tasks.get(act_id):
+                    msg_content += f"\nTu parte en este flujo: {node_tasks[act_id]}"
                 if apply and idx == 0:
                     msg_content += ('\n\nDevuelve JSON con context_sha256 igual a packet_sha256 y file_edits: '
                                     '[{path, expected_base_sha256, hunks:[{old_text,new_text}]}]. '
@@ -875,7 +888,7 @@ class EvolutionHTTP:
                             self.rt.acts.authorize_code(act_id,'review' if mrole=='reviewer' else 'worktree',body['project_id'])
                         except PermissionError:
                             shared_summary='\n'.join(f"[{step['act_name']} · {step['model']}]: artefacto {step['artifact_id']} verificado; contenido de código fuera de los permisos de este Act."
-                                                     for step in steps_output)
+                                                     for step in steps_output if step['act_id'] in ancestors[act_id])
                     msg_content += f"\n\nResumen previo verificado del equipo:\n{shared_summary}"
                 envelope = {
                     'provider_name': '',
@@ -889,7 +902,7 @@ class EvolutionHTTP:
                         {'role': 'user', 'content': msg_content},
                     ],
                 }
-                self.rt.acts.record(conversation_id, req_id, resolved, 'run.started', {'team_run_id': run_id, 'role': mrole})
+                self.rt.acts.record(conversation_id, req_id, resolved, 'run.started', {'team_run_id': run_id, 'role': mrole, 'task_id': task_id})
                 res, route_receipt = self._infer_act(resolved, envelope, conversation_id, cancel_event)
                 self._check_team_active(cancel_event, task_id)
                 if not res.get('ok') or not route_receipt or not route_receipt['model_verified']:
@@ -933,8 +946,9 @@ class EvolutionHTTP:
                 verifier_id = f'verifier:{act_id}'
                 verdict = self.rt.verifier.verify_task(sub, verifier_agent_id=verifier_id)
                 self.rt.task_graph.complete_verified_task(task_id, verifier_evidence=verdict)
-                self.rt.acts.record(conversation_id, req_id, resolved, 'run.completed', route_receipt)
-                if idx > 0:
+                self.rt.acts.record(conversation_id, req_id, resolved, 'run.completed',
+                                    {**route_receipt, 'team_run_id': run_id, 'task_id': task_id})
+                if preds[act_id]:
                     self.rt.event_hub.publish_event(
                         conversation_id=conversation_id,
                         run_id=run_id,
@@ -942,7 +956,7 @@ class EvolutionHTTP:
                         event_type='handoff.completed',
                         payload={'task_id': task_id, 'artifact_id': art['artifact_id'], 'model': resolved['model']},
                     )
-                prior_summary = (prior_summary + f"\n\n[{act_prof['name']} · {resolved['model']}]:\n{handoff_text}").strip()
+                outputs[act_id] = f"[{act_prof['name']} · {resolved['model']}]:\n{handoff_text}"
                 steps_output.append({
                     'task_id': task_id,
                     'act_id': act_id,
@@ -974,8 +988,38 @@ class EvolutionHTTP:
             'artifacts': artifacts,
             'consolidated_text': consolidated,
             'graph': self.rt.task_graph.get_graph(run_id),
+            'edges': [{'from': p, 'to': a['agent_id']} for _, a in ordered for p in preds[a['agent_id']]],
             **({'work': work} if apply else {}),
         }
+
+    def _team_flow(self, body, participants):
+        """Execution order, direct inputs, upstream set and per-node task.
+
+        A saved team graph runs in topological order (left to right on the canvas breaks ties) and each Act sees only
+        the Acts connected upstream of it; without a graph the legacy chain lead -> members -> reviewer applies."""
+        graph = None
+        if body.get('team_id'):
+            graph = self.rt.registry.get_team(body['team_id']).get('graph')
+        if not graph:
+            ordered = sorted(participants, key=lambda x: (0 if x[0] == 'lead' else (2 if x[0] == 'reviewer' else 1)))
+            ids = [a['agent_id'] for _, a in ordered]
+            return (ordered, {aid: ids[i - 1:i] for i, aid in enumerate(ids)},
+                    {aid: set(ids[:i]) for i, aid in enumerate(ids)}, {})
+        by_id = {a['agent_id']: (r, a) for r, a in participants}
+        off = [n['agent_id'] for n in graph['nodes'] if n['agent_id'] not in by_id]
+        if off:
+            raise ValueError('El grafo del equipo incluye Acts deshabilitados o inexistentes: ' + ', '.join(off))
+        pos = {n['agent_id']: (n['x'], n['y']) for n in graph['nodes']}
+        preds = {aid: [e['from'] for e in graph['edges'] if e['to'] == aid] for aid in pos}
+        order: list[str] = []
+        while len(order) < len(pos):  # registry guarantees a DAG; pick the leftmost released node each time
+            ready = [aid for aid in pos if aid not in order and all(p in order for p in preds[aid])]
+            order.append(min(ready, key=lambda aid: (pos[aid], aid)))
+        ancestors: dict[str, set[str]] = {}
+        for aid in order:
+            ancestors[aid] = set(preds[aid]).union(*(ancestors[p] for p in preds[aid]))
+        return ([by_id[aid] for aid in order], preds, ancestors,
+                {n['agent_id']: n.get('instruction', '') for n in graph['nodes']})
 
     def _apply_team_patch(self, body, work, act_prof, text, conversation_id, run_id, test_command,
                           cancel_event, task_id) -> str:
@@ -1123,8 +1167,27 @@ class EvolutionHTTP:
                 shared_memory_policy=str(body.get('shared_memory_policy', 'explicit_shared')),
                 workspace_scope=str(body.get('workspace_scope', '')),
                 review_criteria=str(body.get('review_criteria', '')),
+                graph=body.get('graph'),
             )
             self.handler._send_json(200, {'team': team})
+            return True
+        if path == '/axx-api/agents/v1/teams/update':
+            team = self.rt.registry.update_team(
+                team_id=body['team_id'], expected_revision=int(body['expected_revision']), title=str(body.get('title', '')),
+                members=body['members'], purpose=str(body.get('purpose', '')),
+                coordinator_agent_id=body.get('coordinator_agent_id'),
+                budget_usd=float(body.get('budget_usd', 5.0)),
+                max_concurrency=int(body.get('max_concurrency', 2)),
+                delegation_rules=str(body.get('delegation_rules', '')),
+                shared_memory_policy=str(body.get('shared_memory_policy', 'explicit_shared')),
+                workspace_scope=str(body.get('workspace_scope', '')),
+                review_criteria=str(body.get('review_criteria', '')),
+                graph=body.get('graph'),
+            )
+            self.handler._send_json(200, {'team': team})
+            return True
+        if path == '/axx-api/agents/v1/teams/delete':
+            self.handler._send_json(200, {'team_id': body['team_id'], 'deleted': self.rt.registry.delete_team(body['team_id'])})
             return True
         if path == '/axx-api/agents/v1/teams/run':
             self.handler._send_json(200, self._run_team_pipeline(body))
@@ -1261,7 +1324,10 @@ class EvolutionHTTP:
                 approved=bool(body['approved']),
                 actor=str(body.get('actor', 'user')),
             )
-            self.handler._send_json(200, {'approval': resolved})
+            result = {'approval': resolved}
+            if resolved.get('tool_name') == 'routine.execute':  # the approved slot runs now; a denied one is skipped
+                result['routine'] = self.rt.routines.resolve_approval(resolved['parameters']['routine_id'], resolved['status'] == 'approved')
+            self.handler._send_json(200, result)
             return True
 
         # 4. Autonomous Routines & ResourceGovernor
@@ -1278,8 +1344,19 @@ class EvolutionHTTP:
                 prompt_text=str(body.get('prompt_text', '')),
                 max_retries=int(body.get('max_retries', 1)),
                 budget_usd=float(body.get('budget_usd', 0.5)),
+                team_id=self._routine_team(body),
             )
             self.handler._send_json(200, {'routine': routine})
+            return True
+        if path == '/axx-api/agents/v1/routines/approve':
+            if type(body.get('approved')) is not bool:
+                raise ValueError('approved must be a boolean')
+            for card in list(self.rt.orchestrator.pending_approvals.values()):
+                if (card.get('tool_name') == 'routine.execute' and card.get('status') == 'pending'
+                        and (card.get('parameters') or {}).get('routine_id') == body['routine_id']):
+                    self.rt.orchestrator.resolve_human_approval(operation_id=card['operation_id'], approved=body['approved'],
+                                                                actor=str(body.get('actor', 'user')))
+            self.handler._send_json(200, self.rt.routines.resolve_approval(body['routine_id'], body['approved']))
             return True
         if path == '/axx-api/agents/v1/routines/trigger':
             trig = self.rt.routines.trigger_routine(

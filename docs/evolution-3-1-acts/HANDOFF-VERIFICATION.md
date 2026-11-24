@@ -74,6 +74,8 @@ ChatGPT/Codex del propietario.
 |---|---|---|
 | Teams con coordinador, TaskGraph, revisor | CUMPLE | `teams/run`, `test_acts_complete_handoff`, real Ollama. |
 | Rutinas con dispatcher y reinicio | CUMPLE | `RoutineDispatcher` (`test_acts_complete_handoff`, ROUTINE-01..03). Sin worker remoto con el equipo apagado. |
+| Equipos como grafo de nodos (Acts conectados) | CUMPLE (navegador) | `team.graph` validado (miembros, sin ciclos, revisión CAS); `teams/run` en orden topológico, un Handoff v1 por conexión y cada Act lee solo lo conectado aguas arriba (`test_team_graph`). Editor con arrastre real de conexiones, ejecución en vivo por eventos y resultado por nodo (`test_team_flow_ui`, Chromium). Falta recorrido en la app instalada (WebView2). |
+| Rutinas: horario real, equipo y aprobación | CUMPLE (navegador) | Cron de 5 campos real (antes `0 9 * * *` se trataba como «cada 60 s»), vista previa del planificador, rutina de equipo completo, aprobar/omitir reanuda la ranura (antes quedaba en `awaiting_approval` para siempre). `test_team_graph`, `test_team_flow_ui`. |
 | Act visual con SceneDocument y Diorama QA | PARCIAL | Lee la escena y su QA en el equipo; edición de escena por un Act: puerta `axx.spatial`, sin prueba nativa. |
 
 ## Parte XIII–XV — Aceptación y demostración

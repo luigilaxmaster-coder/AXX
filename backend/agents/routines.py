@@ -11,6 +11,7 @@ Enforces Invariants:
 from __future__ import annotations
 
 from contextlib import closing
+from datetime import datetime, timedelta
 import hashlib
 import json
 from pathlib import Path
@@ -22,6 +23,56 @@ from typing import Any
 
 ID_RE = re.compile(r'^[A-Za-z0-9_.:-]{1,160}$')
 FORBIDDEN_ROUTINE_CAPABILITIES = frozenset({'microphone', 'host_input', 'audio_capture', 'sendinput_physical'})
+
+
+def _cron_field(text: str, lo: int, hi: int) -> set[int]:
+    values: set[int] = set()
+    for part in text.split(','):
+        step = 1
+        if '/' in part:
+            part, raw_step = part.split('/', 1)
+            step = int(raw_step)
+            if step < 1:
+                raise ValueError('cron step must be positive')
+        if part == '*':
+            a, b = lo, hi
+        elif '-' in part:
+            a, b = (int(v) for v in part.split('-', 1))
+        else:
+            a = b = int(part)
+        if a < lo or b > hi or a > b:
+            raise ValueError('cron value out of range')
+        values.update(range(a, b + 1, step))
+    return values
+
+
+def next_cron_ms(spec: str, now_ms: int) -> int | None:
+    """Next local time matching a 5-field cron (minute hour day-of-month month day-of-week), after now.
+
+    Vixie semantics: when both day fields are restricted, either one matching is enough."""
+    fields = spec.split()
+    if len(fields) != 5:
+        return None
+    try:
+        minutes, hours = sorted(_cron_field(fields[0], 0, 59)), sorted(_cron_field(fields[1], 0, 23))
+        doms, months = _cron_field(fields[2], 1, 31), _cron_field(fields[3], 1, 12)
+        dows = {d % 7 for d in _cron_field(fields[4], 0, 7)}
+    except ValueError:
+        return None
+    start = datetime.fromtimestamp(now_ms / 1000).replace(second=0, microsecond=0) + timedelta(minutes=1)
+    day = start.replace(hour=0, minute=0)
+    either = fields[2] != '*' and fields[4] != '*'
+    for _ in range(366 * 5):  # five years always contains a 29 February
+        if day.month in months:
+            dom_ok, dow_ok = day.day in doms, day.isoweekday() % 7 in dows
+            if (dom_ok or dow_ok) if either else (dom_ok and dow_ok):
+                for h in hours:
+                    for m in minutes:
+                        t = day.replace(hour=h, minute=m)
+                        if t >= start:
+                            return int(t.timestamp() * 1000)
+        day += timedelta(days=1)
+    return None
 
 
 class RoutineSecurityError(PermissionError):
@@ -95,7 +146,8 @@ class AutonomousRoutineService:
                 )
                 cols = {r[1] for r in db.execute('PRAGMA table_info(autonomous_routines)')}
                 for col_name, col_def in (('prompt_text', "TEXT NOT NULL DEFAULT ''"), ('max_retries', 'INTEGER NOT NULL DEFAULT 1'),
-                                          ('retry_count', 'INTEGER NOT NULL DEFAULT 0'), ('budget_usd', 'REAL NOT NULL DEFAULT 0.5')):
+                                          ('retry_count', 'INTEGER NOT NULL DEFAULT 0'), ('budget_usd', 'REAL NOT NULL DEFAULT 0.5'),
+                                          ('team_id', "TEXT NOT NULL DEFAULT ''")):
                     if col_name not in cols:
                         db.execute(f'ALTER TABLE autonomous_routines ADD COLUMN {col_name} {col_def}')
 
@@ -119,7 +171,21 @@ class AutonomousRoutineService:
                 return int(spec[3:])
             except ValueError:
                 return None
-        return now_ms + 60_000 if spec else None
+        return next_cron_ms(spec, now_ms)
+
+    def preview_schedule(self, schedule_spec: str, count: int = 3) -> list[int]:
+        """The next run times the scheduler would use, so the editor shows exactly what will happen."""
+        now, runs = self.clock(), []
+        while len(runs) < count:
+            nxt = self._compute_next_run_ms(schedule_spec, runs[-1] if runs else now)
+            if nxt is None:
+                if not runs:
+                    raise ValueError(f'Programación no válida: {schedule_spec!r}')
+                break
+            runs.append(nxt)
+            if str(schedule_spec).strip().lower().startswith('at:'):
+                break
+        return runs
 
     def register_routine(
         self,
@@ -135,10 +201,15 @@ class AutonomousRoutineService:
         prompt_text: str = '',
         max_retries: int = 1,
         budget_usd: float = 0.5,
+        team_id: str = '',
     ) -> dict[str, Any]:
         for field, val in (('routine_id', routine_id), ('agent_id', agent_id), ('conversation_id', conversation_id)):
             if not isinstance(val, str) or not ID_RE.fullmatch(val):
                 raise ValueError(f'Invalid {field}: {val!r}')
+        if team_id and not ID_RE.fullmatch(str(team_id)):
+            raise ValueError(f'Invalid team_id: {team_id!r}')
+        if self._compute_next_run_ms(schedule_spec, self.clock()) is None:
+            raise ValueError(f'Programación no válida: {schedule_spec!r} (usa every:30m, at:<ms> o cron de 5 campos)')
 
         caps = [str(c).strip().lower() for c in (requested_capabilities or [])]
         forbidden = [c for c in caps if c in FORBIDDEN_ROUTINE_CAPABILITIES]
@@ -162,8 +233,8 @@ class AutonomousRoutineService:
                     '''
                     INSERT OR REPLACE INTO autonomous_routines
                         (routine_id, agent_id, conversation_id, schedule_spec, enabled,
-                         requires_approval, capabilities_json, next_run_at_ms, status, prompt_text, max_retries, budget_usd)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                         requires_approval, capabilities_json, next_run_at_ms, status, prompt_text, max_retries, budget_usd, team_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ''',
                     (
                         routine_id,
@@ -178,6 +249,7 @@ class AutonomousRoutineService:
                         str(prompt_text)[:4000],
                         max(0, min(int(max_retries), 5)),
                         max(0.0, float(budget_usd)),
+                        str(team_id or ''),
                     ),
                 )
         return self.get_routine(routine_id)
@@ -221,6 +293,7 @@ class AutonomousRoutineService:
             'max_retries': int(row['max_retries']) if 'max_retries' in keys else 1,
             'retry_count': int(row['retry_count']) if 'retry_count' in keys else 0,
             'budget_usd': float(row['budget_usd']) if 'budget_usd' in keys else 0.5,
+            'team_id': row['team_id'] if 'team_id' in keys else '',
         }
 
     def list_runs(self, routine_id: str | None = None, limit: int = 50) -> list[dict[str, Any]]:
@@ -242,6 +315,7 @@ class AutonomousRoutineService:
         routine_id: str,
         *,
         proposes_mutation: bool = True,
+        approved: bool = False,
     ) -> dict[str, Any]:
         """Trigger a scheduled routine; pauses in awaiting_approval if it proposes any mutation (E2E-07)."""
         routine = self.get_routine(routine_id)
@@ -256,7 +330,7 @@ class AutonomousRoutineService:
             }
 
         now = self.clock()
-        if proposes_mutation or routine['requires_approval']:
+        if not approved and (proposes_mutation or routine['requires_approval']):
             next_status = 'awaiting_approval'
             approval_created = False
             if self.orchestrator is not None:
@@ -403,6 +477,23 @@ class AutonomousRoutineService:
                 'activated_microphone': False,
                 'activated_host_input': False,
             }
+
+    def resolve_approval(self, routine_id: str, approved: bool) -> dict[str, Any]:
+        """The owner's decision on a routine slot waiting for approval: run it once now, or skip to the next slot."""
+        routine = self.get_routine(routine_id)
+        if routine['status'] != 'awaiting_approval':
+            return {'routine_id': routine_id, 'executed': False, 'status': routine['status'], 'reason': 'not_awaiting_approval'}
+        nxt = None if routine['schedule_spec'].lower().startswith('at:') else self._compute_next_run_ms(routine['schedule_spec'], self.clock())
+        with self.lock, self._connect() as db:
+            with db:
+                if approved:
+                    db.execute("UPDATE autonomous_routines SET status='scheduled' WHERE routine_id=? AND status='awaiting_approval'", (routine_id,))
+                else:
+                    db.execute("UPDATE autonomous_routines SET status=?, next_run_at_ms=? WHERE routine_id=? AND status='awaiting_approval'",
+                               ('scheduled' if nxt is not None else 'completed', nxt, routine_id))
+        if not approved:
+            return {'routine_id': routine_id, 'executed': False, 'status': self.get_routine(routine_id)['status'], 'reason': 'denied_by_owner'}
+        return self.trigger_routine(routine_id, proposes_mutation=False, approved=True)
 
     def tick_due_routines(self, *, now_ms: int | None = None) -> list[dict[str, Any]]:
         """Evaluate all enabled scheduled routines whose next_run_at_ms <= now and trigger them."""

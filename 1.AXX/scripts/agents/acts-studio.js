@@ -339,98 +339,618 @@
     }
   }
 
+  // ---- Equipos: node editor over the real team graph ----
+  // A node is an Act of the team; a connection salida ● → ● entrada is a handoff: the target runs after the source and
+  // receives its verified output. Saved as team.graph; teams/run executes it in topological order and each Act reads only
+  // what is connected upstream. During a run, node and connection states come only from that run's EventHub events.
+  const withData = (node, data) => (Object.assign(node.dataset, data), node);
+  const ROLE_LABEL = {lead: 'Coordinador', member: 'Miembro', reviewer: 'Revisor'};
+  const ROLE_NEXT = {lead: 'member', member: 'reviewer', reviewer: 'lead'};
+  const NODE_W = 220, NODE_H = 104, GAP_X = 270, GAP_Y = 128;
+  const flow = {draft: null, base: '', sel: null, run: null, els: null};
+  const flowDirty = () => !!flow.draft && JSON.stringify(flow.draft) !== flow.base;
+  const actOf = id => state.acts.find(a => a.agent_id === id);
+  const nodeOf = id => flow.draft?.nodes.find(n => n.agent_id === id);
+  const guessRole = a => /qa|revis|review/i.test(a.name + ' ' + a.role) ? 'reviewer' : 'member';
+
+  function draftFromTeam(t) {
+    const roles = Object.fromEntries((t.members || []).map(m => [m.agent_id, m.role]));
+    let nodes, edges;
+    if (t.graph?.nodes?.length) {
+      nodes = t.graph.nodes.map(n => ({...n, instruction: n.instruction || '', role: roles[n.agent_id] || 'member'}));
+      edges = t.graph.edges.map(e => ({from: e.from, to: e.to}));
+    } else {  // a team saved before graphs runs as lead -> members -> reviewer; draw exactly that chain
+      const rank = r => (r === 'lead' ? 0 : r === 'reviewer' ? 2 : 1);
+      const ordered = [...(t.members || [])].sort((a, b) => rank(a.role) - rank(b.role));
+      nodes = ordered.map((m, i) => ({agent_id: m.agent_id, role: m.role, x: 40 + i * GAP_X, y: 60, instruction: ''}));
+      edges = ordered.slice(1).map((m, i) => ({from: ordered[i].agent_id, to: m.agent_id}));
+    }
+    return {team_id: t.team_id, revision: t.revision, title: t.title, purpose: t.purpose || '', budget_usd: t.budget_usd ?? 5,
+      review_criteria: t.review_criteria || '', nodes, edges, legacy: !t.graph};
+  }
+  function openDraft(d) {
+    flow.draft = d; flow.base = d.legacy ? '' : JSON.stringify(d); flow.sel = null; flow.run = null;
+    renderTeams();
+  }
+  // Same rule as the backend (_team_flow): topological, the leftmost (then highest) released node first.
+  function execOrder(d) {
+    const order = [], preds = id => d.edges.filter(e => e.to === id).map(e => e.from);
+    while (order.length < d.nodes.length) {
+      const ready = d.nodes.filter(n => !order.includes(n.agent_id) && preds(n.agent_id).every(p => order.includes(p)));
+      if (!ready.length) return order;  // only possible for an invalid draft; the backend rejects cycles
+      ready.sort((a, b) => a.x - b.x || a.y - b.y || (a.agent_id < b.agent_id ? -1 : 1));
+      order.push(ready[0].agent_id);
+    }
+    return order;
+  }
+  const reaches = (d, from, to) => {
+    const seen = new Set(), stack = [from];
+    while (stack.length) { const id = stack.pop(); if (id === to) return true;
+      if (!seen.has(id)) { seen.add(id); stack.push(...d.edges.filter(e => e.from === id).map(e => e.to)); } }
+    return false;
+  };
+  function connectProblem(d, from, to) {
+    if (from === to) return 'Un Act no puede conectarse consigo mismo.';
+    if (d.edges.some(e => e.from === from && e.to === to)) return 'Esa conexión ya existe.';
+    if (reaches(d, to, from)) return 'Esa conexión cerraría un ciclo: el flujo debe avanzar siempre hacia delante.';
+    return '';
+  }
+  function connect(from, to) {
+    const problem = connectProblem(flow.draft, from, to);
+    if (problem) return say(problem);
+    flow.draft.edges.push({from, to}); flow.sel = {edge: from + '>' + to};
+    say(`Conectado: ${actOf(from)?.name || from} entrega su resultado a ${actOf(to)?.name || to}.`);
+    renderFlow();
+  }
+  function autoLayout(d) {
+    const depth = {};
+    for (const id of execOrder(d)) depth[id] = Math.max(0, ...d.edges.filter(e => e.to === id).map(e => (depth[e.from] ?? 0) + 1));
+    const rows = {};
+    for (const n of [...d.nodes].sort((a, b) => a.y - b.y)) {
+      const col = depth[n.agent_id] ?? 0; rows[col] = (rows[col] ?? -1) + 1;
+      n.x = 40 + col * GAP_X; n.y = 30 + rows[col] * GAP_Y;
+    }
+  }
+  const byX = d => [...d.nodes].sort((a, b) => a.x - b.x || a.y - b.y);
+  const PATTERNS = {
+    chain: ['Cadena', 'Cada Act recibe el resultado del anterior (de izquierda a derecha).', d => {
+      const n = byX(d); d.edges = n.slice(1).map((m, i) => ({from: n[i].agent_id, to: m.agent_id})); }],
+    fan: ['Abanico y revisión', 'El primero reparte, los del medio trabajan en ramas separadas y el último junta todo.', d => {
+      const n = byX(d); if (n.length < 3) throw new Error('El abanico necesita al menos 3 Acts en el lienzo.');
+      const [first, last, mid] = [n[0], n.at(-1), n.slice(1, -1)];
+      d.edges = [...mid.map(m => ({from: first.agent_id, to: m.agent_id})), ...mid.map(m => ({from: m.agent_id, to: last.agent_id}))];
+      first.x = 40; last.x = 40 + 2 * GAP_X; mid.forEach((m, i) => { m.x = 40 + GAP_X; m.y = 20 + i * GAP_Y; });
+      first.y = last.y = 20 + (mid.length - 1) * GAP_Y / 2; }],
+    clear: ['Sin conexiones', 'Todos trabajan por separado sobre el mismo objetivo; nadie lee a otro.', d => { d.edges = []; }],
+  };
+  const edgePath = (a, b) => {
+    const x1 = a.x + NODE_W, y1 = a.y + NODE_H / 2, x2 = b.x, y2 = b.y + NODE_H / 2, k = Math.max(50, Math.abs(x2 - x1) / 2);
+    return `M${x1},${y1} C${x1 + k},${y1} ${x2 - k},${y2} ${x2},${y2}`;
+  };
+  const svgEl = (tag, attrs = {}) => { const n = document.createElementNS('http://www.w3.org/2000/svg', tag);
+    for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v); return n; };
+
   function renderTeams() {
     teamsBox.replaceChildren();
-    teamsBox.append(el('h4', {textContent: 'Equipos de Acts (Act Teams)'}));
-    const form = el('form', {className: 'axx-acts-subbox'});
-    const titleIn = el('input', {required: true, placeholder: 'Ej. Equipo Engineering & Visual'});
-    const purposeIn = el('input', {placeholder: 'Objetivo del equipo (opcional)'});
-    const budgetIn = el('input', {type: 'number', value: '5', min: '0.1', step: '0.5'});
-    const membersWrap = el('div', {});
-    const memberChecks = state.acts.filter(a => a.enabled).map(a => {
-      const cb = el('input', {type: 'checkbox', value: a.agent_id});
-      const roleSel = el('select', {}, ...options([['lead', 'Coordinador (lead)'], ['member', 'Miembro'], ['reviewer', 'Revisor (QA)']],
-        a.name.toLowerCase().includes('qa') ? 'reviewer' : (a.name.toLowerCase().includes('dev') ? 'lead' : 'member')));
-      membersWrap.append(el('div', {className: 'quick-row'}, el('label', {}, cb, ' ' + a.name + ' (' + a.role + ') '), roleSel));
-      return {cb, roleSel, agent_id: a.agent_id};
-    });
-    form.append(field('Nombre del equipo', titleIn), field('Objetivo', purposeIn), field('Presupuesto máximo (USD)', budgetIn),
-      el('div', {}, el('strong', {textContent: 'Miembros (sin herencia automática de permisos):'}), membersWrap),
-      el('button', {type: 'submit', textContent: 'Crear equipo'}));
-    form.onsubmit = attempt(async e => {
-      e.preventDefault();
-      const chosen = memberChecks.filter(m => m.cb.checked).map(m => ({agent_id: m.agent_id, role: m.roleSel.value}));
-      if (!chosen.length) throw new Error('Elige al menos un Act habilitado para el equipo.');
-      const tid = 'team-' + crypto.randomUUID().slice(0, 8);
-      const lead = chosen.find(m => m.role === 'lead')?.agent_id || chosen[0].agent_id;
-      await api('POST', 'teams', {team_id: tid, title: titleIn.value.trim(), purpose: purposeIn.value.trim(),
-        members: chosen, coordinator_agent_id: lead, budget_usd: Number(budgetIn.value || 5)});
-      say('Equipo creado sin elevar permisos individuales.');
-      await load();
-    });
-    teamsBox.append(form);
+    const help = el('details', {className: 'axx-flow-help', open: !state.teams.length},
+      el('summary', {textContent: 'Cómo funcionan los equipos'}),
+      el('ol', {className: 'axx-acts-steps'},
+        ...[['Añade Acts al lienzo', 'Cada nodo es un Act con su propio modelo, permisos y estilo.'],
+          ['Conecta salida ● → ● entrada', 'Arrastra desde el punto derecho de un Act hasta otro. El segundo trabaja después y recibe el resultado verificado del primero.'],
+          ['Asigna la parte de cada uno', 'Cada nodo puede tener su propia tarea; el objetivo general se da al ejecutar.'],
+          ['Ejecuta y observa', 'El flujo corre en orden (los números de cada nodo). Cada Act solo lee lo que tiene conectado antes; las ramas no se mezclan.']]
+          .map(([t, d], i) => el('li', {}, el('span', {className: 'axx-acts-step-n', textContent: String(i + 1)}),
+            el('div', {}, el('strong', {textContent: t}), el('span', {textContent: d}))))));
+    const list = el('nav', {className: 'axx-flow-teams', ariaLabel: 'Equipos guardados'},
+      el('button', {type: 'button', className: 'primary', textContent: '+ Nuevo equipo', onclick: () => {
+        if (flowDirty() && !confirm('Hay cambios sin guardar en el equipo abierto. ¿Descartarlos?')) return;
+        openDraft({team_id: null, revision: 0, title: '', purpose: '', budget_usd: 5, review_criteria: '', nodes: [], edges: []});
+      }}));
     for (const t of state.teams) {
-      const membersText = (t.members || []).map(m => (state.acts.find(a => a.agent_id === m.agent_id)?.name || m.agent_id) + ' (' + m.role + ')').join(', ');
-      const promptIn = el('input', {placeholder: 'Objetivo para ejecutar este equipo…'});
-      const runBtn = el('button', {type: 'button', textContent: 'Ejecutar equipo', onclick: attempt(async () => {
-        const goal = promptIn.value.trim() || t.purpose || 'Revisar estado actual';
-        const res = await runTeamFromChat(goal, t.team_id);
-        say(`Equipo «${t.title}» completado (${res.steps.length} pasos). Resultado enviado al chat.`);
-      })});
-      teamsBox.append(el('article', {className: 'axx-acts-card'}, el('div', {style: 'grid-column:1 / -1'},
-        el('strong', {textContent: t.title}), el('small', {textContent: membersText + ' · pres. $' + (t.budget_usd ?? 5)}),
-        el('div', {className: 'quick-row'}, promptIn, runBtn))));
+      const active = flow.draft?.team_id === t.team_id;
+      const faces = el('span', {className: 'axx-flow-faces'}, ...(t.members || []).slice(0, 5).map(m => {
+        const a = actOf(m.agent_id); return a ? lookImg(a.appearance, 22, {title: a.name}) : el('span', {textContent: '?'}); }));
+      const links = t.graph ? t.graph.edges.length : Math.max(0, (t.members || []).length - 1);
+      const b = el('button', {type: 'button', className: 'axx-flow-team', onclick: () => {
+        if (flowDirty() && !confirm('Hay cambios sin guardar en el equipo abierto. ¿Descartarlos?')) return;
+        openDraft(draftFromTeam(t));
+      }}, el('strong', {textContent: t.title || t.team_id}), faces,
+        el('small', {textContent: `${(t.members || []).length} Acts · ${links} conexiones${t.graph ? '' : ' · cadena clásica'}`}));
+      b.setAttribute('aria-current', String(active));
+      list.append(b);
+    }
+    const main = el('div', {className: 'axx-flow-main'});
+    teamsBox.append(help, el('div', {className: 'axx-flow-shell'}, list, main));
+    flow.els = {main};
+    if (!state.acts.some(a => a.enabled)) {
+      main.append(el('div', {className: 'axx-flow-empty'}, el('strong', {textContent: 'Primero crea al menos un Act'}),
+        el('span', {textContent: 'Los equipos conectan Acts existentes. Crea uno en la Biblioteca y vuelve aquí.'})));
+      return;
+    }
+    if (!flow.draft) {
+      main.append(el('div', {className: 'axx-flow-empty'}, el('strong', {textContent: state.teams.length ? 'Elige un equipo o crea uno nuevo' : 'Crea tu primer equipo'}),
+        el('span', {textContent: 'Un equipo es un flujo de Acts conectados: por ejemplo Plan → (Front, Back) → QA.'})));
+      return;
+    }
+    renderFlow();
+  }
+
+  function renderFlow() {
+    const d = flow.draft, main = flow.els?.main;
+    if (!d || !main) return;
+    main.replaceChildren();
+    const order = execOrder(d), step = Object.fromEntries(order.map((id, i) => [id, i + 1]));
+    // header: identity and persistence
+    const titleIn = el('input', {value: d.title, placeholder: 'Nombre del equipo', ariaLabel: 'Nombre del equipo', required: true,
+      oninput: () => { d.title = titleIn.value; markFlow(); }});
+    const purposeIn = el('input', {value: d.purpose, placeholder: 'Para qué sirve (opcional)', ariaLabel: 'Propósito',
+      oninput: () => { d.purpose = purposeIn.value; markFlow(); }});
+    const budgetIn = el('input', {type: 'number', min: '0.1', step: '0.5', value: String(d.budget_usd), ariaLabel: 'Presupuesto máximo (USD)',
+      title: 'Presupuesto máximo por ejecución (USD)', oninput: () => { d.budget_usd = Number(budgetIn.value || 5); markFlow(); }});
+    const saveBtn = el('button', {type: 'button', textContent: d.team_id ? 'Guardar cambios' : 'Crear equipo', onclick: attempt(() => saveFlow())});
+    saveBtn.dataset.flow = 'save';
+    const delBtn = el('button', {type: 'button', textContent: 'Eliminar', hidden: !d.team_id, onclick: attempt(async () => {
+      if (!confirm(`¿Eliminar el equipo «${d.title}»? Sus ejecuciones pasadas se conservan en Actividad.`)) return;
+      await api('POST', 'teams/delete', {team_id: d.team_id}); flow.draft = null; say('Equipo eliminado.'); await load();
+    })});
+    const head = el('div', {className: 'axx-flow-head'}, titleIn, purposeIn,
+      el('label', {className: 'axx-flow-budget'}, '$', budgetIn), saveBtn, delBtn);
+    // tools: palette of Acts and connection patterns
+    const inTeam = new Set(d.nodes.map(n => n.agent_id));
+    const palette = el('div', {className: 'axx-flow-palette', ariaLabel: 'Acts disponibles'},
+      el('small', {textContent: 'Añadir:'}),
+      ...state.acts.filter(a => a.enabled && !inTeam.has(a.agent_id)).map(a => el('button', {type: 'button', className: 'axx-flow-chip',
+        title: `${a.name} · ${a.role}`, onclick: () => addNode(a)}, lookImg(a.appearance, 20), ' ' + a.name)));
+    if (palette.children.length === 1) palette.append(el('small', {textContent: 'todos tus Acts habilitados ya están en el lienzo'}));
+    const tools = el('div', {className: 'axx-flow-tools'},
+      ...Object.entries(PATTERNS).map(([k, [label, tip, fn]]) => el('button', {type: 'button', textContent: label, title: tip,
+        disabled: d.nodes.length < 2, onclick: attempt(() => { fn(d); flow.sel = null; say(tip); renderFlow(); })})),
+      el('button', {type: 'button', textContent: 'Ordenar', title: 'Coloca cada Act en columnas según el orden de ejecución',
+        disabled: !d.nodes.length, onclick: () => { autoLayout(d); renderFlow(); }}));
+    // canvas
+    const w = Math.max(760, ...d.nodes.map(n => n.x + NODE_W + 60)), h = Math.max(300, ...d.nodes.map(n => n.y + NODE_H + 40));
+    const plane = el('div', {className: 'axx-flow-plane'});
+    plane.style.width = w + 'px'; plane.style.height = h + 'px';
+    const svg = svgEl('svg', {class: 'axx-flow-edges', width: w, height: h, 'aria-hidden': 'true'});
+    const defs = svgEl('defs'), marker = svgEl('marker', {id: 'axx-flow-arrow', viewBox: '0 0 10 10', refX: '9', refY: '5', markerWidth: '7', markerHeight: '7', orient: 'auto-start-reverse'});
+    marker.append(svgEl('path', {d: 'M0,0 L10,5 L0,10 z', fill: 'currentColor'})); defs.append(marker); svg.append(defs);
+    const canvas = el('div', {className: 'axx-flow-canvas', tabIndex: 0, ariaLabel: 'Lienzo del equipo. Supr borra la selección.'}, plane);
+    canvas.style.height = Math.max(240, Math.min(h + 24, 540)) + 'px';  // fits the flow; scrolls beyond that
+    plane.append(svg);
+    const edgeEls = {};
+    for (const e of d.edges) {
+      const a = nodeOf(e.from), b = nodeOf(e.to); if (!a || !b) continue;
+      const key = e.from + '>' + e.to, g = svgEl('g', {class: 'axx-flow-edge', 'data-from': e.from, 'data-to': e.to});
+      const p = svgEl('path', {d: edgePath(a, b), class: 'axx-flow-line', 'marker-end': 'url(#axx-flow-arrow)', id: 'axx-flow-e-' + order.indexOf(e.from) + '-' + order.indexOf(e.to)});
+      const hit = svgEl('path', {d: edgePath(a, b), class: 'axx-flow-hit'});
+      hit.addEventListener('click', ev => { ev.stopPropagation(); flow.sel = {edge: key}; renderFlow(); });
+      g.append(p, hit);
+      const st = flow.run?.edges[key];
+      if (st) g.dataset.state = st;
+      if (st === 'flowing') {
+        const dot = svgEl('circle', {r: '5', class: 'axx-flow-dot'}), anim = svgEl('animateMotion', {dur: '1.4s', repeatCount: 'indefinite'});
+        const mp = svgEl('mpath'); mp.setAttribute('href', '#' + p.id); anim.append(mp); dot.append(anim); g.append(dot);
+      }
+      if (flow.sel?.edge === key) g.classList.add('axx-flow-selected');
+      svg.append(g); edgeEls[key] = {g, p, hit};
+    }
+    for (const n of d.nodes) plane.append(nodeCard(n, step[n.agent_id], edgeEls));
+    if (!d.nodes.length) plane.append(el('div', {className: 'axx-flow-hint', textContent: 'Añade Acts con los botones de arriba. Después une la salida ● de uno con la entrada ● de otro.'}));
+    canvas.addEventListener('pointerdown', ev => { if (ev.target === canvas || ev.target === plane || ev.target === svg) { flow.sel = null; renderFlow(); } });
+    canvas.addEventListener('keydown', ev => {
+      if ((ev.key === 'Delete' || ev.key === 'Backspace') && flow.sel && !/^(INPUT|TEXTAREA|SELECT)$/.test(ev.target.tagName)) {
+        ev.preventDefault(); removeSelection();
+      }
+    });
+    main.append(head, el('div', {className: 'axx-flow-toolbar'}, palette, tools), canvas, inspector(order), runBar());
+    canvas.scrollLeft = flow.scroll?.[0] || 0; canvas.scrollTop = flow.scroll?.[1] || 0;
+    canvas.addEventListener('scroll', () => { flow.scroll = [canvas.scrollLeft, canvas.scrollTop]; });
+    if (flow.focus) { main.querySelector(`.axx-flow-node[data-agent="${flow.focus}"]`)?.focus({preventScroll: true}); flow.focus = null; }
+    saveBtn.classList.toggle('primary', flowDirty() || !d.team_id);
+  }
+
+  function nodeCard(n, order, edgeEls) {
+    const a = actOf(n.agent_id), run = flow.run, st = run ? (run.states[n.agent_id] || 'queued') : (a?.enabled === false ? 'disabled' : 'idle');
+    const inPort = el('span', {className: 'axx-flow-port axx-flow-in', title: 'Entrada: recibe el resultado de los Acts conectados'});
+    const outPort = el('span', {className: 'axx-flow-port axx-flow-out', title: 'Salida: arrastra hasta otro Act para conectarlo'});
+    const role = el('button', {type: 'button', className: 'axx-flow-role', textContent: ROLE_LABEL[n.role], title: 'Cambiar rol',
+      onclick: ev => { ev.stopPropagation(); n.role = ROLE_NEXT[n.role]; markFlow(); renderFlow(); }});
+    role.dataset.role = n.role;
+    const card = el('div', {className: 'axx-flow-node', tabIndex: 0, role: 'group',
+      ariaLabel: `${a?.name || n.agent_id}, paso ${order}, ${ROLE_LABEL[n.role]}`},
+      inPort,
+      el('div', {className: 'axx-flow-node-head'}, a ? lookImg(a.appearance, 34, {className: 'axx-flow-face'}) : el('span'),
+        el('div', {className: 'axx-flow-node-name'}, el('strong', {textContent: a?.name || n.agent_id}), el('small', {textContent: a ? modelLabel(a) : 'Act no disponible'})),
+        el('span', {className: 'axx-flow-order', title: 'Orden de ejecución', textContent: String(order)})),
+      el('div', {className: 'axx-flow-node-meta'}, role,
+        el('span', {className: 'axx-acts-badge axx-acts-state', textContent: run ? (RUN_LABEL[st] || st) : (st === 'disabled' ? 'Deshabilitado' : 'Listo')})),
+      el('p', {className: 'axx-flow-task', textContent: n.instruction || 'Sin tarea propia: trabaja sobre el objetivo general.'}),
+      outPort,
+      el('button', {type: 'button', className: 'axx-flow-x', ariaLabel: 'Quitar del equipo', textContent: '×',
+        onclick: ev => { ev.stopPropagation(); flow.sel = {node: n.agent_id}; removeSelection(); }}));
+    card.dataset.agent = n.agent_id; card.dataset.state = st;
+    card.querySelector('.axx-acts-badge').dataset.state = st;
+    if (a) { const [main, light] = paletteColors(a.appearance?.palette_id); card.style.setProperty('--act', main); card.style.setProperty('--act-light', light); }
+    if (run?.started?.[n.agent_id] && st === 'working') card.querySelector('.axx-flow-task').textContent = 'Trabajando… ' + fmtMs(performance.now() - run.started[n.agent_id]);
+    card.style.left = n.x + 'px'; card.style.top = n.y + 'px';
+    if (flow.sel?.node === n.agent_id) card.classList.add('axx-flow-selected');
+    // drag to move (redraws only the touching connections)
+    card.addEventListener('pointerdown', ev => {
+      if (ev.button !== 0 || ev.target.closest('button,.axx-flow-port')) return;
+      const sx = ev.clientX, sy = ev.clientY, ox = n.x, oy = n.y; let moved = false;
+      card.setPointerCapture(ev.pointerId);
+      const move = e => {
+        const dx = e.clientX - sx, dy = e.clientY - sy; if (!moved && Math.abs(dx) + Math.abs(dy) < 4) return; moved = true;
+        n.x = Math.max(0, Math.round((ox + dx) / 10) * 10); n.y = Math.max(0, Math.round((oy + dy) / 10) * 10);
+        card.style.left = n.x + 'px'; card.style.top = n.y + 'px';
+        for (const [key, els] of Object.entries(edgeEls)) {
+          const [f, t] = key.split('>'); if (f !== n.agent_id && t !== n.agent_id) continue;
+          const path = edgePath(nodeOf(f), nodeOf(t)); els.p.setAttribute('d', path); els.hit.setAttribute('d', path);
+        }
+      };
+      const up = () => { card.removeEventListener('pointermove', move); card.removeEventListener('pointerup', up);
+        if (moved) markFlow(); flow.sel = {node: n.agent_id}; flow.focus = n.agent_id; renderFlow(); };
+      card.addEventListener('pointermove', move); card.addEventListener('pointerup', up);
+    });
+    // drag from the output port to another Act to connect them
+    outPort.addEventListener('pointerdown', ev => {
+      ev.stopPropagation(); ev.preventDefault();
+      const plane = card.parentElement, svg = plane.querySelector('.axx-flow-edges');
+      const ghost = svgEl('path', {class: 'axx-flow-ghost'}); svg.append(ghost);
+      outPort.setPointerCapture(ev.pointerId);
+      const rect = () => plane.getBoundingClientRect();
+      const move = e => {
+        const r = rect(), x = e.clientX - r.left, y = e.clientY - r.top;
+        ghost.setAttribute('d', edgePath(n, {x, y: y - NODE_H / 2}));
+        for (const c of plane.querySelectorAll('.axx-flow-node')) c.classList.toggle('axx-flow-target',
+          c !== card && c.contains(document.elementFromPoint(e.clientX, e.clientY)));
+      };
+      const up = e => {
+        outPort.removeEventListener('pointermove', move); outPort.removeEventListener('pointerup', up); ghost.remove();
+        const target = document.elementFromPoint(e.clientX, e.clientY)?.closest('.axx-flow-node');
+        plane.querySelectorAll('.axx-flow-target').forEach(c => c.classList.remove('axx-flow-target'));
+        if (target && target !== card) connect(n.agent_id, target.dataset.agent);
+      };
+      outPort.addEventListener('pointermove', move); outPort.addEventListener('pointerup', up);
+    });
+    card.addEventListener('keydown', ev => {  // keyboard: Enter selects, arrows nudge (Shift = bigger steps)
+      if (ev.target !== card) return;
+      const step = ev.shiftKey ? 50 : 10, move = {ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step]}[ev.key];
+      if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); flow.sel = {node: n.agent_id}; flow.focus = n.agent_id; renderFlow(); }
+      else if (move) { ev.preventDefault(); n.x = Math.max(0, n.x + move[0]); n.y = Math.max(0, n.y + move[1]); flow.focus = n.agent_id; markFlow(); renderFlow(); }
+    });
+    return card;
+  }
+
+  function addNode(a) {
+    const d = flow.draft, y = d.nodes.length ? Math.max(...d.nodes.map(n => n.y)) : 0;
+    const role = !d.nodes.length ? 'lead' : guessRole(a);
+    d.nodes.push({agent_id: a.agent_id, role, x: d.nodes.length ? 40 + GAP_X * Math.min(2, d.nodes.length) : 40, y: d.nodes.length ? y + (d.nodes.length > 2 ? GAP_Y : 0) : 40, instruction: ''});
+    flow.sel = {node: a.agent_id}; markFlow(); renderFlow();
+    say(`${a.name} añadido. Arrastra desde su salida ● hasta otro Act para conectarlos.`);
+  }
+  function removeSelection() {
+    const d = flow.draft, sel = flow.sel; if (!sel) return;
+    if (sel.edge) d.edges = d.edges.filter(e => e.from + '>' + e.to !== sel.edge);
+    if (sel.node) { d.nodes = d.nodes.filter(n => n.agent_id !== sel.node); d.edges = d.edges.filter(e => e.from !== sel.node && e.to !== sel.node); }
+    flow.sel = null; markFlow(); renderFlow();
+  }
+  function markFlow() { flow.els?.main.querySelector('[data-flow=save]')?.classList.add('primary'); }
+
+  const RUN_LABEL = {queued: 'En cola', working: 'Trabajando', completed: 'Completado', failed: 'Error', cancelled: 'Detenido'};
+  function inspector(order) {
+    const d = flow.draft, box = el('aside', {className: 'axx-flow-inspector', ariaLive: 'polite'});
+    if (flow.sel?.edge) {
+      const [f, t] = flow.sel.edge.split('>');
+      box.append(el('strong', {textContent: `${actOf(f)?.name || f} → ${actOf(t)?.name || t}`}),
+        el('p', {textContent: `${actOf(t)?.name || t} trabaja después de ${actOf(f)?.name || f} y recibe su resultado verificado como entrada (Handoff v1: solo los permisos que ambos ya tienen; nada se hereda).`}),
+        el('button', {type: 'button', textContent: 'Quitar conexión', onclick: () => removeSelection()}));
+      return box;
+    }
+    const n = flow.sel?.node && nodeOf(flow.sel.node);
+    if (!n) {
+      box.append(el('strong', {textContent: d.nodes.length ? `Orden de ejecución: ${order.map(id => actOf(id)?.name || id).join(' → ')}` : 'Lienzo vacío'}),
+        el('p', {textContent: d.edges.length ? 'Selecciona un Act para darle su parte del trabajo o conectarlo; selecciona una línea para ver o quitar la conexión.'
+          : d.nodes.length > 1 ? 'Aún no hay conexiones: cada Act trabajará por separado. Conéctalos para que uno use el resultado del otro.' : ''}));
+      return box;
+    }
+    const a = actOf(n.agent_id), task = el('textarea', {rows: 2, value: n.instruction, maxLength: 600, placeholder: 'Ej. Escribe las pruebas; revisa solo seguridad…',
+      oninput: () => { n.instruction = task.value; markFlow();  // in place: a re-render here would swallow the next click
+        const p = flow.els.main.querySelector(`.axx-flow-node[data-agent="${n.agent_id}"] .axx-flow-task`);
+        if (p) p.textContent = n.instruction || 'Sin tarea propia: trabaja sobre el objetivo general.'; }});
+    const targets = d.nodes.filter(m => m.agent_id !== n.agent_id && !connectProblem(d, n.agent_id, m.agent_id));
+    const pick = el('select', {ariaLabel: 'Conectar salida a'}, new Option('Conectar su salida a…', ''),
+      ...targets.map(m => new Option(actOf(m.agent_id)?.name || m.agent_id, m.agent_id)));
+    pick.onchange = () => pick.value && connect(n.agent_id, pick.value);
+    const ins = d.edges.filter(e => e.to === n.agent_id).map(e => actOf(e.from)?.name || e.from);
+    const outs = d.edges.filter(e => e.from === n.agent_id).map(e => actOf(e.to)?.name || e.to);
+    box.append(el('div', {className: 'axx-flow-insp-head'}, a ? lookImg(a.appearance, 40) : el('span'),
+      el('div', {}, el('strong', {textContent: a?.name || n.agent_id}), el('small', {textContent: (a?.role || '') + ' · ' + (a ? modelLabel(a) : '')}))),
+      field('Su parte en este flujo', task),
+      el('p', {className: 'axx-flow-io', textContent: `Recibe de: ${ins.join(', ') || 'nadie (empieza con el objetivo)'} · Entrega a: ${outs.join(', ') || 'resultado final'}`}),
+      el('div', {className: 'quick-row'}, pick,
+        el('button', {type: 'button', textContent: 'Rol: ' + ROLE_LABEL[n.role], onclick: () => { n.role = ROLE_NEXT[n.role]; markFlow(); renderFlow(); }}),
+        el('button', {type: 'button', textContent: 'Quitar del equipo', onclick: () => removeSelection()})));
+    const out = flow.run?.outputs?.[n.agent_id];
+    if (out) box.append(el('details', {className: 'axx-flow-output', open: true}, el('summary', {textContent: `Resultado de ${a?.name} · ${out.model}`}),
+      el('pre', {textContent: out.text})));
+    return box;
+  }
+
+  function runBar() {
+    const d = flow.draft, run = flow.run;
+    const goal = el('input', {placeholder: 'Objetivo para este equipo (ej. «Prepara la página de precios y revísala»)', ariaLabel: 'Objetivo de la ejecución',
+      value: run?.goal || d.purpose || ''});
+    const go = el('button', {type: 'button', className: 'primary', textContent: run?.active ? 'Ejecutando…' : 'Ejecutar flujo', disabled: !!run?.active || !d.nodes.length,
+      onclick: attempt(() => runFlow(goal.value.trim() || d.purpose || ''))});
+    go.dataset.flow = 'run';
+    const stop = el('button', {type: 'button', textContent: 'Detener', hidden: !run?.active, onclick: () => run?.abort.abort()});
+    const info = el('small', {className: 'axx-flow-runinfo', textContent: run ? (run.active ? `Ejecución en curso · ${fmtMs(performance.now() - run.t0)}` : run.summary || '') : 'El resultado consolidado también se envía al chat activo.'});
+    return el('div', {className: 'axx-flow-run'}, goal, go, stop, info);
+  }
+
+  async function saveFlow() {
+    const d = flow.draft;
+    if (!d.title.trim()) throw new Error('Ponle nombre al equipo.');
+    if (!d.nodes.length) throw new Error('Añade al menos un Act al lienzo.');
+    const off = d.nodes.filter(n => !actOf(n.agent_id)?.enabled).map(n => actOf(n.agent_id)?.name || n.agent_id);
+    if (off.length) throw new Error('Quita o habilita estos Acts antes de guardar: ' + off.join(', '));
+    if (!d.nodes.some(n => n.role === 'lead')) d.nodes[0].role = 'lead';
+    const lead = d.nodes.find(n => n.role === 'lead').agent_id;
+    const body = {title: d.title.trim(), purpose: d.purpose.trim(), budget_usd: d.budget_usd, coordinator_agent_id: lead, review_criteria: d.review_criteria,
+      members: d.nodes.map(n => ({agent_id: n.agent_id, role: n.role})),
+      graph: {nodes: d.nodes.map(({agent_id, x, y, instruction}) => ({agent_id, x, y, instruction})), edges: d.edges}};
+    const res = d.team_id ? await api('POST', 'teams/update', {...body, team_id: d.team_id, expected_revision: d.revision})
+      : await api('POST', 'teams', {...body, team_id: 'team-' + crypto.randomUUID().slice(0, 8)});
+    await load();
+    openDraft(draftFromTeam(res.team));
+    say(`Equipo «${res.team.title}» guardado (revisión ${res.team.revision}). Ningún Act recibió permisos nuevos.`);
+    return res.team;
+  }
+
+  async function runFlow(goal) {
+    if (!goal) throw new Error('Escribe el objetivo que el equipo debe cumplir.');
+    if (flowDirty() || !flow.draft.team_id) await saveFlow();
+    const d = flow.draft, conv = activeConvId(), abort = new AbortController();
+    const run = flow.run = {goal, t0: performance.now(), active: true, states: {}, edges: {}, outputs: {}, started: {}, abort};
+    let seq = (await api('GET', 'events/sse?conversation_id=' + encodeURIComponent(conv)).catch(() => ({latest_seq: 0}))).latest_seq || 0;
+    let runId = null;
+    renderFlow();
+    const absorb = ev => {
+      const p = ev.payload || {}, mine = runId && (p.team_run_id === runId || ev.run_id === runId);
+      if (!mine) return;
+      if (ev.type === 'run.started' && p.team_run_id) { run.states[ev.agent_id] = 'working'; run.started[ev.agent_id] = performance.now();
+        for (const e of d.edges) if (e.to === ev.agent_id && run.edges[e.from + '>' + e.to] !== 'done') run.edges[e.from + '>' + e.to] = 'flowing'; }
+      if (ev.type === 'run.completed' && p.team_run_id) { run.states[ev.agent_id] = 'completed';
+        for (const e of d.edges) if (e.to === ev.agent_id) run.edges[e.from + '>' + e.to] = 'done'; }
+      if (ev.type === 'run.failed') run.states[ev.agent_id] = 'failed';
+    };
+    let polling = true;
+    const poll = (async () => {
+      while (polling) {
+        await new Promise(r => setTimeout(r, 600));
+        const res = await api('GET', `events/sse?conversation_id=${encodeURIComponent(conv)}&last_event_id=${seq}`).catch(() => null);
+        if (!res) continue;
+        for (const ev of res.events || []) { seq = Math.max(seq, ev.seq || 0); absorb(ev); }
+        if (flow.run === run && flow.draft === d) renderFlow();
+      }
+    })();
+    try {
+      const res = await runTeamFromChat(goal, d.team_id, abort.signal, id => { runId = id; });
+      for (const s of res.steps) { run.states[s.act_id] = 'completed'; run.outputs[s.act_id] = {text: s.text, model: s.model}; }
+      for (const e of d.edges) run.edges[e.from + '>' + e.to] = 'done';
+      run.summary = `Completado en ${fmtMs(performance.now() - run.t0)} · ${res.steps.length} Acts · ${(res.edges || []).length} handoffs verificados. Resultado enviado al chat.`;
+      say(`Equipo «${d.title}» completado. Selecciona un Act para leer su resultado.`);
+    } catch (e) {
+      for (const id of Object.keys(run.states)) if (run.states[id] === 'working') run.states[id] = abort.signal.aborted ? 'cancelled' : 'failed';
+      run.summary = (abort.signal.aborted ? 'Detenido: ' : 'Falló: ') + (e?.message || e);
+      throw e;
+    } finally {
+      polling = false; await poll; run.active = false;
+      if (flow.run === run) renderFlow();
     }
   }
 
+  // ---- Rutinas: schedules the backend scheduler really fires ----
+  const DAYS = [['1', 'L', 'Lunes'], ['2', 'M', 'Martes'], ['3', 'X', 'Miércoles'], ['4', 'J', 'Jueves'], ['5', 'V', 'Viernes'], ['6', 'S', 'Sábado'], ['0', 'D', 'Domingo']];
+  const ROUTINE_STATE = {scheduled: ['Programada', 'idle'], running: ['Ejecutando', 'working'], awaiting_approval: ['Espera tu aprobación', 'awaiting_approval'],
+    paused: ['En pausa', 'paused'], paused_on_import: ['En pausa (importada)', 'paused'], failed: ['Falló', 'failed'], cancelled: ['Desactivada', 'disabled'],
+    completed: ['Terminada', 'completed'], blocked_dispatcher_unavailable: ['Sin modelo conectado', 'blocked'], queued_for_pressure: ['Esperando recursos', 'paused']};
+  const RUN_STATUS = {completed: 'Completada', failed: 'Falló', running: 'En curso', retry_pending: 'Reintentará', awaiting_approval: 'Espera tu aprobación',
+    already_recorded: 'Ya registrada', queued_for_pressure: 'Esperando recursos', blocked_dispatcher_unavailable: 'Sin modelo conectado', scheduled: 'Programada'};
+  const runStatus = v => RUN_STATUS[v] || ROUTINE_STATE[v]?.[0] || v;
+  const routineName = id => String(id).replace(/-/g, ' ');
+  const pad = n => String(n).padStart(2, '0');
+  function describeSchedule(spec) {
+    const s = String(spec || '').trim(), every = /^every:(\d+)(ms|s|m|h)$/i.exec(s);
+    if (every) return `Cada ${every[1]} ${{ms: 'ms', s: 's', m: 'min', h: 'h'}[every[2].toLowerCase()]}`;
+    if (/^at:\d+$/.test(s)) return 'Una vez · ' + new Date(Number(s.slice(3))).toLocaleString();
+    const f = s.split(/\s+/);
+    if (f.length === 5 && /^\d+$/.test(f[0]) && /^\d+$/.test(f[1]) && f[2] === '*' && f[3] === '*') {
+      const at = `${pad(f[1])}:${pad(f[0])}`;
+      if (f[4] === '*') return 'Cada día a las ' + at;
+      if (f[4] === '1-5') return 'De lunes a viernes a las ' + at;
+      const names = f[4].split(',').map(v => DAYS.find(d => d[0] === String(Number(v) % 7))?.[2]).filter(Boolean);
+      if (names.length) return names.join(', ') + ' a las ' + at;
+    }
+    if (f.length === 5 && /^\*\/(\d+)$/.test(f[0]) && f.slice(1).every(v => v === '*')) return `Cada ${f[0].slice(2)} min`;
+    return 'Cron: ' + s;
+  }
+  function relTime(ms) {
+    if (!ms) return '—';
+    const dt = ms - Date.now(), abs = Math.abs(dt), m = Math.round(abs / 60000);
+    const txt = abs < 60000 ? 'menos de 1 min' : m < 60 ? m + ' min' : m < 1440 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${Math.floor(m / 1440)} d ${Math.floor(m % 1440 / 60)} h`;
+    return dt >= 0 ? 'en ' + txt : 'hace ' + txt;
+  }
+  const rt = {editing: null, history: {}};
   function renderRoutines() {
     routinesBox.replaceChildren();
-    routinesBox.append(el('h4', {textContent: 'Rutinas programadas (Scheduler real)'}));
-    const form = el('form', {className: 'axx-acts-subbox'});
-    const idIn = el('input', {required: true, placeholder: 'Ej. rutina-qa-diaria'});
-    const actSel = el('select', {}, ...options(state.acts.filter(a => a.enabled).map(a => [a.agent_id, a.name])));
-    const schedIn = el('input', {required: true, value: 'every:60s', placeholder: 'every:60s o 0 9 * * *'});
-    const promptIn = el('input', {placeholder: 'Tarea a ejecutar'});
-    const reqApp = el('input', {type: 'checkbox', checked: false});
-    form.append(field('ID de rutina', idIn), field('Act asignado', actSel), field('Programación', schedIn),
-      field('Instrucción', promptIn), field('Pedir aprobación antes de mutar', reqApp),
-      el('button', {type: 'submit', textContent: 'Programar rutina'}));
+    const awaiting = state.routines.filter(r => r.status === 'awaiting_approval').length;
+    const top = el('div', {className: 'axx-rt-top'},
+      el('div', {}, el('h4', {textContent: 'Rutinas'}),
+        el('small', {textContent: `${state.routines.filter(r => r.enabled).length} activas${awaiting ? ` · ${awaiting} esperan tu aprobación` : ''} · las ejecuta el planificador de AXX aunque esta vista esté cerrada; nunca usan micrófono ni entrada física.`})),
+      el('button', {type: 'button', className: 'primary', textContent: '+ Nueva rutina', onclick: () => { rt.editing = {}; renderRoutines(); }}));
+    routinesBox.append(top);
+    if (rt.editing) routinesBox.append(routineEditor(rt.editing));
+    if (!state.routines.length && !rt.editing)
+      routinesBox.append(el('div', {className: 'axx-flow-empty'}, el('strong', {textContent: 'Sin rutinas todavía'}),
+        el('span', {textContent: 'Una rutina hace que un Act o un equipo trabaje solo según un horario: «cada día a las 9 revisa los tickets nuevos», «los viernes resume la semana».'})));
+    const grid = el('div', {className: 'axx-rt-list'});
+    for (const r of [...state.routines].sort((a, b) => (b.status === 'awaiting_approval') - (a.status === 'awaiting_approval') || (a.next_run_at_ms || 9e15) - (b.next_run_at_ms || 9e15)))
+      grid.append(routineCard(r));
+    routinesBox.append(grid);
+  }
+  function routineCard(r) {
+    const [label, st] = ROUTINE_STATE[r.status] || [r.status, 'idle'], team = r.team_id && state.teams.find(t => t.team_id === r.team_id);
+    const act = actOf(r.agent_id);
+    const who = team ? el('span', {className: 'axx-flow-faces', title: 'Equipo ' + team.title}, ...(team.members || []).slice(0, 4).map(m => actOf(m.agent_id) ? lookImg(actOf(m.agent_id).appearance, 26) : el('span')))
+      : act ? lookImg(act.appearance, 40) : el('span');
+    const act1 = (text, fn, cls) => el('button', {type: 'button', textContent: text, className: cls || '', onclick: attempt(async () => { await fn(); await load(); })});
+    const actions = el('div', {className: 'quick-row'});
+    if (r.status === 'awaiting_approval') actions.append(
+      act1('Aprobar y ejecutar', async () => { const res = await api('POST', 'routines/approve', {routine_id: r.routine_id, approved: true});
+        say(`«${routineName(r.routine_id)}»: ${runStatus(res.status)}${res.summary ? ' — resultado en su historial y en Actividad' : ''}${res.error ? ' — ' + res.error : ''}`); }, 'primary'),
+      act1('Omitir esta vez', async () => { await api('POST', 'routines/approve', {routine_id: r.routine_id, approved: false}); say('Ejecución omitida; sigue programada.'); }));
+    else if (r.enabled) actions.append(act1('Ejecutar ahora', async () => {
+      const trig = await api('POST', 'routines/trigger', {routine_id: r.routine_id, proposes_mutation: r.requires_approval});
+      say(trig.status === 'awaiting_approval' ? 'Pide aprobación: apruébala en esta tarjeta.' : `«${routineName(r.routine_id)}»: ${runStatus(trig.status)}${trig.error ? ' — ' + trig.error : ''}`); }));
+    if (!['cancelled', 'completed'].includes(r.status))
+      actions.append(act1(r.enabled ? 'Pausar' : 'Reanudar', () => api('POST', r.enabled ? 'routines/pause' : 'routines/resume', {routine_id: r.routine_id})));
+    actions.append(
+      el('button', {type: 'button', textContent: 'Editar', onclick: () => { rt.editing = r; renderRoutines(); routinesBox.querySelector('.axx-rt-editor')?.scrollIntoView({block: 'nearest'}); }}),
+      el('button', {type: 'button', textContent: rt.history[r.routine_id] ? 'Ocultar historial' : 'Historial', onclick: attempt(async () => {
+        rt.history[r.routine_id] = rt.history[r.routine_id] ? null : (await api('GET', 'routines/history?routine_id=' + encodeURIComponent(r.routine_id))).runs;
+        renderRoutines(); })}));
+    if (r.status !== 'cancelled') actions.append(act1('Desactivar', async () => {
+      if (!confirm(`¿Desactivar la rutina «${r.routine_id}»? Se detiene si está corriendo y no volverá a ejecutarse.`)) throw new Error('Sin cambios.');
+      await api('POST', 'routines/cancel', {routine_id: r.routine_id}); }));
+    const card = el('article', {className: 'axx-rt-card'},
+      el('div', {className: 'axx-rt-who'}, who),
+      el('div', {className: 'axx-rt-body'},
+        el('div', {className: 'axx-acts-title'}, el('strong', {textContent: routineName(r.routine_id)}),
+          withData(el('span', {className: 'axx-acts-badge axx-acts-state', textContent: label}), {state: st})),
+        el('small', {textContent: (team ? `Equipo ${team.title}` : act ? act.name : r.agent_id) + ' · ' + describeSchedule(r.schedule_spec)
+          + (r.requires_approval ? ' · pide aprobación' : ' · sin aprobación')}),
+        el('p', {className: 'axx-rt-prompt', textContent: r.prompt_text || 'Sin instrucción'}),
+        el('div', {className: 'axx-rt-times'},
+          el('span', {}, 'Próxima: ', withData(el('b', {className: 'axx-rt-next', textContent: r.enabled ? relTime(r.next_run_at_ms) : '—'}), {at: String(r.next_run_at_ms || '')})),
+          el('span', {textContent: 'Última: ' + (r.last_run_at_ms ? relTime(r.last_run_at_ms) : 'nunca')}),
+          el('span', {textContent: `Reintentos ${r.retry_count}/${r.max_retries} · $${r.budget_usd}`})),
+        actions));
+    card.dataset.state = st; card.dataset.routine = r.routine_id;
+    const runs = rt.history[r.routine_id];
+    if (runs) card.querySelector('.axx-rt-body').append(el('ol', {className: 'axx-rt-history'}, ...(runs.length ? runs.slice(0, 8).map(run => el('li', {},
+      withData(el('span', {className: 'axx-acts-badge axx-acts-state', textContent: runStatus(run.status)}), {state: run.status === 'completed' ? 'completed' : run.status === 'running' ? 'working' : 'failed'}),
+      ` ${new Date(run.started_at_ms).toLocaleString()}` + (run.finished_at_ms ? ` · ${Math.max(0, Math.round((run.finished_at_ms - run.started_at_ms) / 100) / 10)} s` : ''),
+      run.result_summary ? el('details', {}, el('summary', {textContent: 'Resultado'}), el('pre', {textContent: run.result_summary})) : ''))
+      : [el('li', {textContent: 'Aún no se ha ejecutado.'})])));
+    return card;
+  }
+  function parseSpec(spec) {  // existing spec -> editor fields
+    const s = String(spec || 'every:1h'), every = /^every:(\d+)(m|h)$/.exec(s), f = s.split(/\s+/);
+    if (every) return {mode: 'interval', n: every[1], unit: every[2]};
+    if (/^at:\d+$/.test(s)) { const d = new Date(Number(s.slice(3))); return {mode: 'once', when: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`}; }
+    if (f.length === 5 && /^\d+$/.test(f[0]) && /^\d+$/.test(f[1]) && f[2] === '*' && f[3] === '*') {
+      const time = `${pad(f[1])}:${pad(f[0])}`;
+      if (f[4] === '*') return {mode: 'daily', time};
+      const days = f[4] === '1-5' ? ['1', '2', '3', '4', '5'] : f[4].split(',').map(v => String(Number(v) % 7));
+      if (days.every(v => /^[0-6]$/.test(v))) return {mode: 'weekly', time, days};
+    }
+    return {mode: 'cron', cron: s};
+  }
+  function routineEditor(r) {
+    const isNew = !r.routine_id, sp = parseSpec(r.schedule_spec), form = el('form', {className: 'axx-rt-editor'});
+    const nameIn = el('input', {required: true, value: r.routine_id ? r.routine_id.replace(/-/g, ' ') : '', disabled: !isNew, placeholder: 'Ej. Resumen diario de tickets'});
+    let target = r.team_id ? 'team' : 'act';
+    const actSel = el('select', {}, ...options(state.acts.filter(a => a.enabled).map(a => [a.agent_id, a.name]), r.agent_id));
+    const teamSel = el('select', {}, ...options(state.teams.map(t => [t.team_id, t.title || t.team_id]), r.team_id));
+    const targetSeg = el('div', {className: 'axx-acts-segments', role: 'tablist'});
+    const modes = [['interval', 'Cada cierto tiempo'], ['daily', 'Diario'], ['weekly', 'Días de la semana'], ['once', 'Una vez'], ['cron', 'Avanzado (cron)']];
+    let mode = sp.mode;
+    const nIn = el('input', {type: 'number', min: '1', value: sp.n || '1', ariaLabel: 'Cantidad'});
+    const unitSel = el('select', {ariaLabel: 'Unidad'}, ...options([['m', 'minutos'], ['h', 'horas']], sp.unit || 'h'));
+    const timeIn = el('input', {type: 'time', value: sp.time || '09:00', ariaLabel: 'Hora'});
+    const days = new Set(sp.days || ['1', '2', '3', '4', '5']);
+    const dayRow = el('div', {className: 'axx-rt-days'}, ...DAYS.map(([v, short, long]) => { const b = el('button', {type: 'button', textContent: short, title: long, ariaLabel: long,
+      onclick: () => { days.has(v) ? days.delete(v) : days.add(v); b.setAttribute('aria-pressed', String(days.has(v))); refresh(); }});
+      b.setAttribute('aria-pressed', String(days.has(v))); return b; }));
+    const whenIn = el('input', {type: 'datetime-local', value: sp.when || '', ariaLabel: 'Fecha y hora'});
+    const cronIn = el('input', {value: sp.cron || '0 9 * * 1-5', ariaLabel: 'Expresión cron', placeholder: 'min hora día mes día-semana'});
+    const modeSeg = el('div', {className: 'axx-acts-segments', role: 'tablist'});
+    const modeBox = el('div', {className: 'axx-rt-mode'});
+    const preview = el('div', {className: 'axx-rt-preview', ariaLive: 'polite'});
+    const promptIn = el('textarea', {rows: 3, required: true, value: r.prompt_text || '', placeholder: 'Qué debe hacer en cada ejecución'});
+    const examples = el('div', {className: 'quick-row axx-rt-examples'}, el('small', {textContent: 'Ideas:'}),
+      ...['Resume los cambios del día y lista riesgos', 'Revisa el estado del proyecto y propone los 3 siguientes pasos', 'Prepara el informe semanal para el equipo']
+        .map(t => el('button', {type: 'button', textContent: t, onclick: () => { promptIn.value = t; }})));
+    const approve = el('input', {type: 'checkbox', checked: r.requires_approval ?? true});
+    const retries = el('input', {type: 'number', min: '0', max: '5', value: String(r.max_retries ?? 1)});
+    const budget = el('input', {type: 'number', min: '0', step: '0.1', value: String(r.budget_usd ?? 0.5)});
+    const spec = () => mode === 'interval' ? `every:${Math.max(1, Number(nIn.value) || 1)}${unitSel.value}`
+      : mode === 'daily' ? `${Number(timeIn.value.slice(3, 5))} ${Number(timeIn.value.slice(0, 2))} * * *`
+      : mode === 'weekly' ? `${Number(timeIn.value.slice(3, 5))} ${Number(timeIn.value.slice(0, 2))} * * ${[...days].sort().join(',') || '*'}`
+      : mode === 'once' ? `at:${whenIn.value ? new Date(whenIn.value).getTime() : ''}` : cronIn.value.trim();
+    let previewSeq = 0;
+    async function refresh() {
+      for (const b of targetSeg.children) b.setAttribute('aria-selected', String(b.dataset.v === target));
+      for (const b of modeSeg.children) b.setAttribute('aria-selected', String(b.dataset.v === mode));
+      actSel.closest('.setting').hidden = target !== 'act'; teamSel.closest('.setting').hidden = target !== 'team';
+      modeBox.replaceChildren(...(mode === 'interval' ? [el('span', {textContent: 'Cada'}), nIn, unitSel]
+        : mode === 'daily' ? [el('span', {textContent: 'Todos los días a las'}), timeIn]
+        : mode === 'weekly' ? [dayRow, el('span', {textContent: 'a las'}), timeIn]
+        : mode === 'once' ? [whenIn] : [cronIn, el('small', {textContent: 'min hora día-del-mes mes día-de-semana · ej. «*/30 8-18 * * 1-5»'})]));
+      const mySeq = ++previewSeq, s = spec();
+      preview.textContent = 'Calculando próximas ejecuciones…';
+      try {
+        const res = await api('GET', 'routines/preview?schedule_spec=' + encodeURIComponent(s).replace(/\*/g, '%2A'));
+        if (mySeq !== previewSeq) return;
+        preview.replaceChildren(el('strong', {textContent: describeSchedule(s)}), el('span', {textContent: ' · próximas: '}),
+          ...res.next_runs_ms.map((ms, i) => el('span', {className: 'axx-acts-chip', textContent: (i ? '' : '① ') + new Date(ms).toLocaleString() + ` (${relTime(ms)})`})));
+        preview.dataset.valid = 'true';
+      } catch (e) { if (mySeq === previewSeq) { preview.textContent = 'Programación no válida: ' + (e?.message || e); preview.dataset.valid = 'false'; } }
+    }
+    for (const [v, l] of [['act', 'Un Act'], ['team', 'Un equipo']]) { const b = el('button', {type: 'button', role: 'tab', textContent: l, disabled: v === 'team' && !state.teams.length,
+      onclick: () => { target = v; refresh(); }}); b.dataset.v = v; targetSeg.append(b); }
+    for (const [v, l] of modes) { const b = el('button', {type: 'button', role: 'tab', textContent: l, onclick: () => { mode = v; refresh(); }}); b.dataset.v = v; modeSeg.append(b); }
+    for (const input of [nIn, unitSel, timeIn, whenIn, cronIn]) input.addEventListener('input', () => refresh());
+    form.append(el('h4', {textContent: isNew ? 'Nueva rutina' : 'Editar rutina'}),
+      el('div', {className: 'axx-rt-grid'},
+        el('section', {}, el('strong', {textContent: '1 · Quién'}), field('Nombre', nameIn), targetSeg, field('Act', actSel), field('Equipo (lo ejecuta entero, en el orden de su flujo)', teamSel)),
+        el('section', {}, el('strong', {textContent: '2 · Cuándo'}), modeSeg, modeBox, preview),
+        el('section', {}, el('strong', {textContent: '3 · Qué'}), field('Instrucción', promptIn), examples),
+        el('section', {}, el('strong', {textContent: '4 · Seguridad'}), field('Pedir mi aprobación antes de cada ejecución', approve),
+          field('Reintentos si falla (0–5)', retries), field('Presupuesto por ejecución (USD)', budget),
+          el('small', {textContent: 'Las rutinas no pueden usar micrófono ni entrada física; sus herramientas siguen siendo las que concediste a cada Act.'}))),
+      el('div', {className: 'quick-row'}, el('button', {type: 'submit', className: 'primary', textContent: isNew ? 'Programar rutina' : 'Guardar rutina'}),
+        el('button', {type: 'button', textContent: 'Cancelar', onclick: () => { rt.editing = null; renderRoutines(); }})));
     form.onsubmit = attempt(async e => {
       e.preventDefault();
-      if (!actSel.value) throw new Error('Crea y habilita primero un Act.');
-      await api('POST', 'routines', {
-        routine_id: idIn.value.trim().replace(/[^A-Za-z0-9_.:-]/g, '-'),
-        agent_id: actSel.value,
-        conversation_id: activeConvId(),
-        schedule_spec: schedIn.value.trim(),
-        requested_capabilities: ['read_workspace'],
-        requires_approval: reqApp.checked,
-        prompt_text: promptIn.value.trim(),
-        enabled: true,
-      });
-      say('Rutina programada (micrófono y entrada física bloqueados automáticamente).');
+      if (preview.dataset.valid === 'false') throw new Error('Corrige la programación antes de guardar.');
+      const team = target === 'team' && state.teams.find(t => t.team_id === teamSel.value);
+      if (target === 'team' && !team) throw new Error('Elige un equipo.');
+      const agent = team ? (team.coordinator_agent_id || team.members[0].agent_id) : actSel.value;
+      if (!agent) throw new Error('Crea y habilita primero un Act.');
+      const slug = (r.routine_id || nameIn.value.normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase().replace(/[^a-z0-9_.:-]+/g, '-').replace(/^-+|-+$/g, '')).slice(0, 80);
+      if (!slug) throw new Error('Ponle nombre a la rutina.');
+      if (isNew && state.routines.some(x => x.routine_id === slug)) throw new Error('Ya existe una rutina con ese nombre.');
+      await api('POST', 'routines', {routine_id: slug, agent_id: agent, team_id: team ? team.team_id : '', conversation_id: r.conversation_id || activeConvId(),
+        schedule_spec: spec(), requested_capabilities: ['read_workspace'], requires_approval: approve.checked, prompt_text: promptIn.value.trim(),
+        max_retries: Number(retries.value || 0), budget_usd: Number(budget.value || 0), enabled: true});
+      rt.editing = null;
+      say(`Rutina «${slug.replace(/-/g, ' ')}» programada: ${describeSchedule(spec())}.`);
       await load();
     });
-    routinesBox.append(form);
-    for (const r of state.routines) {
-      const row = el('div', {className: 'quick-row'},
-        el('span', {textContent: `${r.routine_id} (${r.agent_id}) · ${r.schedule_spec} · ${r.status}`}),
-        el('button', {type: 'button', textContent: 'Ejecutar ahora', onclick: attempt(async () => {
-          const trig = await api('POST', 'routines/trigger', {routine_id: r.routine_id, proposes_mutation: r.requires_approval});
-          say(`Rutina ${r.routine_id}: ${trig.status}${trig.summary ? ' — ' + trig.summary : ''}`);
-          await load();
-        })}),
-        el('button', {type: 'button', textContent: r.enabled ? 'Pausar' : 'Reanudar', onclick: attempt(async () => {
-          await api('POST', r.enabled ? 'routines/pause' : 'routines/resume', {routine_id: r.routine_id});
-          await load();
-        })}),
-        el('button', {type: 'button', textContent: 'Cancelar', onclick: attempt(async () => {
-          await api('POST', 'routines/cancel', {routine_id: r.routine_id});
-          await load();
-        })}));
-      routinesBox.append(el('article', {className: 'axx-acts-card'}, el('div', {style: 'grid-column:1 / -1'}, row)));
-    }
+    void refresh();
+    return form;
   }
+  setInterval(() => {  // countdowns stay honest; when a slot passes, reload what the scheduler did
+    if (host.hidden || routinesBox.hidden) return;
+    let due = false;
+    for (const b of routinesBox.querySelectorAll('.axx-rt-next[data-at]')) {
+      const at = Number(b.dataset.at); if (!at) continue; b.textContent = relTime(at); if (at < Date.now() - 3000) due = true;
+    }
+    if (due && !rt.editing) void load().catch(() => {});
+  }, 15000);
 
   function blank(templateKey = 'scratch') {
     const t = TEMPLATES[templateKey] || TEMPLATES.scratch;
@@ -1092,10 +1612,23 @@
     };
   }
 
-  async function runTeamFromChat(promptText, teamId = null, signal = null) {
+  // A long flow can outlive the native request timeout; the backend keeps working and records a durable receipt.
+  async function awaitTeamReceipt(runId, signal, err) {
+    for (;;) {
+      if (signal?.aborted) throw err;
+      const r = await api('GET', 'teams/result?run_id=' + encodeURIComponent(runId)).catch(() => null);
+      if (r?.status === 'completed' && r.result) return r.result;
+      if (r?.status !== 'running') throw err;
+      c.sayStatus?.('El equipo sigue trabajando…');
+      await new Promise(f => setTimeout(f, 1500));
+    }
+  }
+
+  async function runTeamFromChat(promptText, teamId = null, signal = null, onRunId = null) {
     c.sayStatus?.('Coordinando equipo de Acts…');
     if (signal?.aborted) throw new DOMException('Equipo cancelado', 'AbortError');
     const runId = 'teamrun-' + crypto.randomUUID();
+    onRunId?.(runId);  // live canvases follow this run's events
     const cancel = () => { void api('POST', 'teams/cancel', {run_id:runId}).catch(() => {}); };
     signal?.addEventListener('abort', cancel, {once:true});
     const file = Axx.codeStudio?.activeFile;  // with a file open in Code Studio the lead Act patches it in its worktree
@@ -1106,7 +1639,9 @@
       prompt: promptText,
       ...(teamId ? {team_id: teamId} : {}),
       ...(file ? Axx.codeStudio.teamWork(file) : {}),
-    }); } finally { signal?.removeEventListener('abort', cancel); }
+    }); } catch (err) {
+      res = await awaitTeamReceipt(runId, signal, err);
+    } finally { signal?.removeEventListener('abort', cancel); }
     if (signal?.aborted) throw new DOMException('Equipo cancelado; revisa los efectos en Actividad', 'AbortError');
     if (file && res.work) await Axx.codeStudio.showTeamResult(res, file, true).catch(() => {});
     await refreshActivity();
