@@ -386,7 +386,8 @@
     if (!presenceBox && Axx.acts?.presenceBox) { presenceBox = Axx.acts.presenceBox(); ui('act-presence-slot').append(presenceBox); }
     return presenceBox;
   }
-  const actPresence = (act, st, text) => { if (act && codePresence()) Axx.acts.presence(act, st, text, presenceBox); };
+  const actPresence = (act, st, text, meta) => { if (act && codePresence()) Axx.acts.presence(act, st, text, presenceBox, meta); };
+  const since = t0 => ({detail: ((performance.now() - t0) / 1000).toFixed(1).replace('.', ',') + ' s'});
   function syncActs() {
     const acts = (Axx.acts?.acts || []).filter(a => a.enabled), current = ui('act').value;
     ui('act').replaceChildren(...(acts.length ? acts : [{agent_id:'',name:'Sin Acts'}]).map(a => new Option(a.name, a.agent_id, false, a.agent_id === current)));
@@ -406,8 +407,9 @@
     status('Ejecutando equipo de Acts sobre ' + tab.path + '…');
     const git = await api('GET','git/status?project_id=' + encodeURIComponent(tab.project_id));
     if (git.dirty_files.includes(tab.path)) throw new Error('El archivo tiene cambios sin confirmar en Git; el equipo trabaja sobre la última versión confirmada.');
-    const team = enabled.slice(0, 3);
-    actPresence(team[0], 'working', 'coordina a ' + team.slice(1).map(a => a.name).join(', ') + ' en ' + tab.path + '…');
+    const team = enabled.slice(0, 3), t0 = performance.now();
+    actPresence(team[0], 'working', 'coordina a ' + team.slice(1).map(a => a.name).join(', ') + ' en ' + tab.path + '…',
+      {startedAt: t0, model: team.map(a => a.intelligence?.model_id).filter(Boolean).join(' + ')});
     let res;
     try {
       res = await Axx.backendRequest('POST', '/axx-api/agents/v1/teams/run', {
@@ -417,8 +419,8 @@
         ...teamWork(tab),
         prompt: goal.trim(),
       });
-    } catch (error) { actPresence(team[0], 'failed', 'el equipo no pudo terminar'); throw error; }
-    actPresence(team[0], 'completed', 'equipo terminado');
+    } catch (error) { actPresence(team[0], 'failed', 'el equipo no pudo terminar', since(t0)); throw error; }
+    actPresence(team[0], 'completed', 'equipo terminado', {detail: since(t0).detail + ' · ' + (res.steps?.length || 0) + ' pasos verificados'});
     showTeamResult(res, tab);
   });
   // The lead Act's patch lands in its own worktree; tests/review results come from AXX, not from model text.
@@ -509,11 +511,13 @@
     if (!actWork?.report_id || !reviewer) return;
     status(actWork.act.name + ' pasa el cambio a ' + reviewer.name + ' para revisión…');
     chatNote('〔' + actWork.act.name + '〕 → 〔' + reviewer.name + '〕 Revisión de ' + actWork.changeset_id + ' con diff y resultado de pruebas.');
-    actPresence(reviewer, 'working', 'revisa el cambio de ' + actWork.act.name + '…');
+    const t0 = performance.now();
+    actPresence(reviewer, 'working', 'revisa el cambio de ' + actWork.act.name + '…', {startedAt: t0, model: reviewer.intelligence?.model_id});
     const {review} = await api('POST','changesets/review',{act_id:reviewer.agent_id,changeset_id:actWork.changeset_id,
       conversation_id:Axx.chatWorkspace?.active?.id});
     actWork.approved = review.verdict === 'approved';
-    actPresence(reviewer, actWork.approved ? 'completed' : 'awaiting_approval', actWork.approved ? 'aprobó el cambio' : 'pide cambios');
+    actPresence(reviewer, actWork.approved ? 'completed' : 'awaiting_approval', actWork.approved ? 'aprobó el cambio' : 'pide cambios',
+      {detail: since(t0).detail + ' · veredicto ' + review.verdict + ' · ' + (review.model || '')});
     flow(['worktree','patch','test', ...(actWork.approved ? ['review'] : [])], actWork.approved ? 'integrate' : 'review');
     const label = {approved:'APROBADO', changes:'CAMBIOS', unclear:'SIN VEREDICTO CLARO'}[review.verdict];
     output('Revisión de ' + reviewer.name + ' (' + review.model + ', modelo verificado): ' + label + '\n\n' + review.summary);

@@ -114,6 +114,16 @@ class ActsUiTests(unittest.TestCase):
                             return {state:b?.dataset.state, text:b?.textContent, live:!!b?.querySelector('canvas.axx-act-live')};})()""")
                         self.assertEqual((presence['state'], presence['live']), ('completed', True), presence)
                         self.assertIn('Dev', presence['text'])
+                        self.assertIn('modelo verificado: model-alpha', presence['text'])
+                        # Technical sheet: stored profile, live grants and the exact render spec.
+                        page.evaluate("Axx.companion.openFeature('acts')")
+                        card = page.locator('.axx-acts-card', has_text='Dev')
+                        card.locator('summary', has_text='Ficha técnica').click()
+                        page.wait_for_function("document.querySelector('.axx-acts-spec-body')?.textContent.includes('Último turno')")
+                        spec = card.locator('.axx-acts-spec-body').text_content()
+                        for expected in ('model-alpha', 'completado en', 'modelo verificado por AXX', 'Helix', '#057dff',
+                                         'brushed_titanium', 'acabado obsidian', '"exposure":1.4', 'working→orbit', 'Ninguno', '@Dev'):
+                            self.assertIn(expected, spec)
                         # The main AXX avatar/profile/model selection is untouched by Act turns (ACT-07).
                         self.assertEqual(page.evaluate('JSON.stringify([Axx.companion.data.prefs.provider, Axx.companion.data.prefs.model])'), global_prefs)
                     finally:

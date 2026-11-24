@@ -192,3 +192,18 @@
 #chat-form .axx-acts-chat-face { width:22px; height:22px; border-radius:50%; margin-left:-6px; object-fit:contain; }
 @media (max-width:760px) { .axx-acts-studio .axx-acts-look { grid-template-columns:minmax(0,1fr); } .axx-acts-studio .axx-acts-look-preview { position:static; max-width:320px; } }
 @media (prefers-reduced-motion:reduce) { .axx-act-presence, .axx-acts-studio .axx-acts-thumb img { animation:none!important; } }
+/* Technical sheet on each card and live metrics in the presence strip. */
+.axx-acts-studio .axx-acts-spec { grid-column:1 / -1; border-top:1px dashed var(--acts-line); padding-top:6px; font-size:12px; }
+.axx-acts-studio .axx-acts-spec > summary { cursor:pointer; font-weight:700; font-size:12px; opacity:.85; list-style:none; display:flex; align-items:center; gap:6px; }
+.axx-acts-studio .axx-acts-spec > summary::before { content:'▸'; transition:transform .15s; }
+.axx-acts-studio .axx-acts-spec[open] > summary::before { transform:rotate(90deg); }
+.axx-acts-studio .axx-acts-spec-body { display:grid; gap:8px; margin-top:6px; animation:axx-acts-in .2s ease both; }
+.axx-acts-studio .axx-acts-spec-body section { display:grid; gap:3px; }
+.axx-acts-studio .axx-acts-spec-body h6 { margin:0; font-size:10.5px; letter-spacing:.06em; text-transform:uppercase; opacity:.6; }
+.axx-acts-studio .axx-acts-spec-body dl { margin:0; display:grid; grid-template-columns:max-content minmax(0,1fr); gap:3px 10px; }
+.axx-acts-studio .axx-acts-spec-body dt { opacity:.65; }
+.axx-acts-studio .axx-acts-spec-body dd { margin:0; overflow-wrap:anywhere; }
+.axx-acts-studio .axx-acts-spec-body code { font:11px ui-monospace,'Cascadia Code',Consolas,monospace; padding:0 4px; border-radius:5px; background:rgba(127,140,170,.13); }
+.axx-acts-studio .axx-acts-hex { display:inline-flex; align-items:center; gap:3px; margin-right:6px; font:10.5px ui-monospace,'Cascadia Code',Consolas,monospace; }
+.axx-acts-studio .axx-acts-hex::before { content:''; width:10px; height:10px; border-radius:3px; background:var(--hex); box-shadow:0 0 0 1px rgba(255,255,255,.25); }
+.axx-act-presence-meta { flex-basis:100%; font:11px ui-monospace,'Cascadia Code',Consolas,monospace; opacity:.75; font-variant-numeric:tabular-nums; }

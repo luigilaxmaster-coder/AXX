@@ -53,7 +53,7 @@
 
   const state = {
     acts: [], teams: [], routines: [], providers: [], voices: [], governor: null,
-    actStates: {}, events: [], pendingApprovals: [],
+    actStates: {}, events: [], pendingApprovals: [], lastRun: {},
     draft: null, base: '', grants: [], toolGrant: false, tab: 'identity', subview: 'library',
   };
   const host = el('section', {className: 'axx-acts-studio', hidden: true});
@@ -214,6 +214,56 @@
     return state.actStates[act.agent_id] || ((state.governor?.active_by_act?.[act.agent_id] > 0) ? 'working' : 'idle');
   }
 
+  // ---- Technical sheet: everything AXX enforces for this Act, read from the stored profile and live grants ----
+  const TOOL_LABEL = {[TOOL]: 'Comandos AXX', [CODE]: 'Code Studio', [SPATIAL]: 'Escena 3D', [COMP]: 'Computadora'};
+  const MEMORY_LABEL = {conversation: 'Solo esta conversación', agent: 'Privada del Act', project: 'Proyecto', explicit_shared: 'Compartida explícitamente'};
+  const fmtMs = ms => ms < 1000 ? Math.round(ms) + ' ms' : (ms / 1000).toFixed(ms < 10000 ? 1 : 0).replace('.', ',') + ' s';
+  function specSheet(act) {
+    const body = el('div', {className: 'axx-acts-spec-body'});
+    const box = el('details', {className: 'axx-acts-spec'}, el('summary', {textContent: 'Ficha técnica'}), body);
+    box.addEventListener('toggle', () => { if (box.open) void fillSpec(act, body).catch(e => body.replaceChildren(el('p', {textContent: e.message}))); });
+    return box;
+  }
+  async function fillSpec(act, body) {
+    const row = (k, ...v) => [el('dt', {textContent: k}), el('dd', {}, ...v)];
+    const code = t => el('code', {textContent: String(t)});
+    const i = act.intelligence || {}, a = act.appearance || {}, lim = act.limits || {}, run = state.lastRun[act.agent_id];
+    const pal = Axx.PALETTES?.[a.palette_id];
+    const finish = Axx.actAvatar?.FINISH?.[a.material_preset] || a.material_preset;
+    const section = (title, ...rows) => el('section', {}, el('h6', {textContent: title}), el('dl', {}, ...rows.flat()));
+    body.replaceChildren(el('p', {className: 'axx-acts-spec-loading', textContent: 'Leyendo permisos…'}));
+    const grants = (await api('GET', 'profiles/permissions?agent_id=' + encodeURIComponent(act.agent_id))).permissions || [];
+    const active = state.governor?.active_by_act?.[act.agent_id] || 0;
+    body.replaceChildren(
+      section('Inteligencia',
+        row('Proveedor', code(i.provider_profile_ref === CONNECT ? 'axx-connect (ChatGPT)' : i.provider_profile_ref || '—')),
+        row('Modelo', code(i.model_id || '—'), ' · ruta ', code(i.route || 'manual'), ' · alternativa ', code(i.fallback || 'none')),
+        row('Salida máxima', i.max_tokens_per_turn ? code(i.max_tokens_per_turn + ' tokens/turno') : 'la del proveedor'),
+        row('Último turno', run ? el('span', {textContent: (run.ok ? 'completado' : 'falló') + ' en ' + fmtMs(run.ms) + ' · ' + new Date(run.at).toLocaleTimeString()
+          + ' · ' + (run.verified ? 'modelo verificado por AXX: ' : 'modelo sin verificar: ') + (run.model || '—')}) : 'sin turnos en esta sesión')),
+      section('Permisos (concedidos por ti)',
+        ...(grants.length ? grants.map(g => row(TOOL_LABEL[g.tool_id] || g.tool_id,
+          code((g.operation_kinds || []).join(', ') || 'sin operaciones'), ' · alcance ', code(g.resource_pattern || '*'),
+          ' · ', g.approval_mode === 'deny' ? 'denegado' : 'aprobación ' + (g.approval_mode || '—'),
+          g.expires_at_ms ? ' · vence ' + new Date(g.expires_at_ms).toLocaleDateString() : ''))
+          : [row('Ninguno', 'conversa y propone; no ejecuta herramientas')])),
+      section('Trabajo',
+        row('Autonomía', AUTONOMY_LABEL[act.autonomy?.mode] || 'Manual'),
+        row('Memoria', MEMORY_LABEL[act.memory_scope] || act.memory_scope || '—'),
+        row('Límites', code((lim.max_concurrent_jobs ?? 1) + ' trabajo(s) a la vez'), ' · ', code((lim.max_retries ?? 0) + ' reintento(s)'), ' · ahora activos: ', code(active)),
+        row('Colaboración', act.collaboration?.mention ? code('@' + act.collaboration.mention) : '—',
+          act.collaboration?.review_required ? ' · exige revisión de otro Act antes de integrar' : ''),
+        row('Entorno', code(act.workspace?.runtime || 'none'), ' · primer plano ', code(act.workspace?.foreground_policy || 'deny'))),
+      section('Apariencia (renderizador de AXX)',
+        row('Forma', code('#' + a.form_id), ' ', (Axx.FORMS?.[a.form_id]?.name || a.form_name || ''), ' — ', Axx.FORMS?.[a.form_id]?.detail || ''),
+        row('Paleta', (pal?.name || a.palette_name || ''), ' ', ...(pal?.colors || []).map(c => el('span', {className: 'axx-acts-hex', style: '--hex:' + c, textContent: c}))),
+        row('Material', code(a.material_preset || 'obsidian'), ' → acabado ', code(finish)),
+        row('Ajustes', code(JSON.stringify({scale: a.scale ?? 1, energy: a.animation_intensity ?? 1, ...(a.studio || {})}))),
+        row('Reacciones', Object.keys(a.reactions || {}).length ? code(Object.entries(a.reactions).map(([k, v]) => k + '→' + v).join(' · ')) : 'sin gestos')),
+      section('Identificación',
+        row('ID', code(act.agent_id)), row('Revisión', code(act.revision), ' (cada cambio se guarda con comprobación de revisión)')));
+  }
+
   function renderLibrary() {
     library.replaceChildren(...state.acts.map(act => {
       const img = lookImg(act.appearance, 64, {svg: act.thumbnail?.svg, alt: act.name + ': ' + (FORMS[act.appearance.form_id] || '') + ' ' + (PALETTES[act.appearance.palette_id] || ''),
@@ -259,7 +309,7 @@
             chip(FORMS[act.appearance.form_id] + ' / ' + PALETTES[act.appearance.palette_id], 'Forma y paleta'),
             chip('Autonomía: ' + (AUTONOMY_LABEL[act.autonomy?.mode] || 'Manual'), 'Modo de autonomía'),
             chip('rev. ' + act.revision, 'Revisión del perfil (CAS)'))),
-        actions);
+        actions, specSheet(act));
       card.dataset.state = live; card.dataset.agentId = act.agent_id;
       if (!seenCards.has(act.agent_id)) {  // staggered entrance only the first time a card appears, not on every reload
         seenCards.add(act.agent_id); card.classList.add('axx-acts-enter'); card.style.setProperty('--i', String(state.acts.indexOf(act)));
@@ -766,13 +816,19 @@
   }
   const chatPresence = presenceBox();
   if (chatForm) chatForm.before(chatPresence);
-  const presenceTimers = new WeakMap();
-  function presence(act, st, text, box = chatPresence) {
+  const presenceTimers = new WeakMap(), presenceClocks = new WeakMap();
+  // meta: {startedAt, model} shows the model and a running clock; {detail} shows a final technical line.
+  function presence(act, st, text, box = chatPresence, meta = null) {
     if (!box) return;
-    clearTimeout(presenceTimers.get(box));
+    clearTimeout(presenceTimers.get(box)); clearInterval(presenceClocks.get(box));
     if (!act) { box.hidden = true; AV?.hide(box.firstChild); return; }
     box.hidden = false; box.dataset.state = st;
-    box.lastChild.replaceChildren(el('strong', {textContent: act.name}), ' ', el('span', {textContent: text || STATE_LABEL[st] || st}));
+    const metaLine = el('small', {className: 'axx-act-presence-meta'});
+    box.lastChild.replaceChildren(el('strong', {textContent: act.name}), ' ', el('span', {textContent: text || STATE_LABEL[st] || st}), metaLine);
+    if (meta?.startedAt) {
+      const clock = () => { metaLine.textContent = (meta.model ? meta.model + ' · ' : '') + fmtMs(performance.now() - meta.startedAt); };
+      clock(); presenceClocks.set(box, setInterval(clock, 250));
+    } else if (meta?.detail) metaLine.textContent = meta.detail;
     if (AV) AV.show(box.firstChild, act.appearance, st, 1.8);
     else box.firstChild.replaceChildren(lookImg(act.appearance, 48));
     if (st === 'completed' || st === 'failed') presenceTimers.set(box, setTimeout(() => presence(null, '', '', box), st === 'failed' ? 6000 : 2600));
@@ -1060,11 +1116,14 @@
     const lastUser = [...messages].reverse().find(m => m.role === 'user');
     const multi = findAllMentions(lastUser?.content);
     if (multi.length >= 2) {
-      presence(multi[0], 'working', 'coordina a ' + multi.slice(1).map(a => a.name).join(', ') + '…');
+      const t0 = performance.now();
+      presence(multi[0], 'working', 'coordina a ' + multi.slice(1).map(a => a.name).join(', ') + '…', chatPresence,
+        {startedAt: t0, model: multi.map(a => a.intelligence?.model_id).filter(Boolean).join(' + ')});
       let teamRes;
       try { teamRes = await runTeamFromChat(lastUser.content, null, signal); }
-      catch (err) { presence(multi[0], 'failed', signal?.aborted ? 'equipo detenido' : 'el equipo no pudo terminar'); throw err; }
-      presence(multi[0], 'completed', 'equipo terminado (' + multi.map(a => a.name).join(' → ') + ')');
+      catch (err) { presence(multi[0], 'failed', signal?.aborted ? 'equipo detenido' : 'el equipo no pudo terminar', chatPresence, {detail: fmtMs(performance.now() - t0)}); throw err; }
+      presence(multi[0], 'completed', 'equipo terminado (' + multi.map(a => a.name).join(' → ') + ')', chatPresence,
+        {detail: fmtMs(performance.now() - t0) + ' · ' + (teamRes.steps?.length || 0) + ' pasos · ' + (teamRes.run_id || '')});
       onDelta(teamRes.consolidated_text);
       return {text: teamRes.consolidated_text, reason: 'stop', route: {model: multi.map(a => a.intelligence?.model_id).join(' + '), act_team_run: teamRes.run_id}};
     }
@@ -1079,22 +1138,32 @@
     const label = '〔' + act.name + '〕 ';
     state.actStates[act.agent_id] = 'working'; markCard(act.agent_id, 'working');
     c.sayStatus?.(act.name + ' está trabajando con ' + modelLabel(act) + '…');
-    presence(act, 'planning', 'piensa con ' + modelLabel(act) + '…', box);
-    let speaking = false;
+    const clock = {startedAt: performance.now(), model: modelLabel(act)};
+    presence(act, 'planning', 'piensa…', box, clock);
+    let speaking = false, firstToken = 0;
     try {
       const result = await brainChat({...p, act_id: act.agent_id, act_revision: act.revision, provider: connect ? 'chatgpt' : 'bridge',
         selection_mode: 'manual', model: act.intelligence?.model_id || p.model},
-        messages, signal, text => { if (!speaking) { speaking = true; presence(act, 'speaking', 'responde…', box); } onDelta(label + text); });
+        messages, signal, text => {
+          if (!speaking) { speaking = true; firstToken = performance.now() - clock.startedAt; presence(act, 'speaking', 'responde…', box, clock); }
+          onDelta(label + text);
+        });
+      const ms = performance.now() - clock.startedAt, routed = result.route?.act || {};
+      state.lastRun[act.agent_id] = {at: Date.now(), ms, ok: true, verified: !!routed.model_verified, model: routed.model || result.route?.model || act.intelligence?.model_id};
       state.actStates[act.agent_id] = 'completed'; markCard(act.agent_id, 'completed');
-      presence(act, 'completed', 'respondió', box);
+      presence(act, 'completed', 'respondió', box, {detail: fmtMs(ms) + (firstToken ? ' (primer texto ' + fmtMs(firstToken) + ')' : '')
+        + ' · ' + (routed.model_verified ? 'modelo verificado: ' : 'modelo sin verificar: ') + (state.lastRun[act.agent_id].model || '—')});
       if (act.voice && (act.voice.auto_speak || c.data?.prefs?.voiceRead)) {
         pendingActVoice = act.voice;
         if (act.voice.auto_speak && !c.data?.prefs?.mutedAll) c._forceVoiceReplyOnce = true;
       }
       return {...result, text: label + result.text};
     } catch (err) {
+      const ms = performance.now() - clock.startedAt;
+      state.lastRun[act.agent_id] = {at: Date.now(), ms, ok: false, verified: false, model: act.intelligence?.model_id};
       state.actStates[act.agent_id] = 'failed'; markCard(act.agent_id, 'failed');
-      presence(act, 'failed', signal?.aborted ? 'se detuvo' : 'no pudo responder', box);
+      presence(act, 'failed', signal?.aborted ? 'se detuvo' : 'no pudo responder', box,
+        {detail: fmtMs(ms) + ' · ' + String(err?.message || err).slice(0, 140)});
       throw err;
     }
   }
