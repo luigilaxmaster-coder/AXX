@@ -87,7 +87,9 @@
     status, el('div', {className: 'axx-acts-toolbar'}, quickRow, subTabsRow), library, teamsBox, routinesBox, editor, preview, importInput);
   document.getElementById('view-agent').append(entry, host);
   document.head.append(el('link', {rel: 'stylesheet', href: 'scripts/agents/acts-studio.css'}));
-  const say = text => { status.textContent = text; };
+  const seenCards = new Set();
+  // Re-trigger a short highlight so each new status is noticed.
+  const say = text => { status.textContent = text; status.classList.remove('axx-acts-flash'); void status.offsetWidth; status.classList.add('axx-acts-flash'); };
   const attempt = task => async (...args) => { try { await task(...args); } catch (e) { say(e?.message || String(e)); } };
   const dirty = () => !!state.draft && JSON.stringify(state.draft) !== state.base;
 
@@ -124,6 +126,12 @@
     Axx.resident?.schedule?.();
   }
   entry.onclick = attempt(() => toggleStudio());
+  // Axx closes the panel on Escape (document capture). With unsaved Act edits, Escape only leaves the field.
+  window.addEventListener('keydown', e => {
+    if (e.key !== 'Escape' || host.hidden || editor.hidden || !dirty() || !host.contains(document.activeElement)) return;
+    e.preventDefault(); e.stopImmediatePropagation(); document.activeElement.blur();
+    say('Cambios sin guardar: pulsa «Aplicar y verificar» o «Descartar».');
+  }, true);
   window.addEventListener('beforeunload', e => { if (dirty()) { e.preventDefault(); e.returnValue = ''; } });
 
   // Radial / companion menu hook (no permanent rectangular toolbar added)
@@ -173,9 +181,19 @@
     for (const b of [createButton, importButton]) { b.disabled = state.actsOff; b.title = state.actsOff ? 'Activa Acts primero' : ''; }
     if (flag) {
       flagButton.textContent = flag.enabled ? 'Desactivar Acts' : 'Activar Acts';
+      // Busy until the reload finishes: a second click on a slow reload used to toggle the flag straight back.
       flagButton.onclick = attempt(async () => {
-        await api('POST', 'flags/set', {flag_id: flag.flag_id, enabled: !flag.enabled, expected_revision: flag.revision, reason: 'owner_acts_studio'});
-        await load(); say(flag.enabled ? 'Acts desactivados: el chat vuelve a responder solo como AXX.' : 'Acts activados.');
+        if (flagButton.getAttribute('aria-busy') === 'true') return;
+        const label = flagButton.textContent;
+        flagButton.setAttribute('aria-busy', 'true'); flagButton.disabled = true;
+        flagButton.textContent = flag.enabled ? 'Desactivando…' : 'Activando…';
+        try {
+          await api('POST', 'flags/set', {flag_id: flag.flag_id, enabled: !flag.enabled, expected_revision: flag.revision, reason: 'owner_acts_studio'});
+          await load(); say(flag.enabled ? 'Acts desactivados: el chat vuelve a responder solo como AXX.' : 'Acts activados. Crea tu primer Act.');
+        } finally {
+          flagButton.removeAttribute('aria-busy'); flagButton.disabled = false;
+          if (flagButton.textContent.endsWith('…')) flagButton.textContent = label;  // failed: load() never relabelled it
+        }
       });
       if (!flag.enabled) say('Acts está desactivado. Actívalo para crear Acts y conversar con ellos.');
     }
@@ -225,7 +243,10 @@
         preview.scrollIntoView({block: 'nearest', behavior: 'smooth'});
       })});
       const actions = el('div', {className: 'quick-row'},
-        el('button', {type: 'button', className: 'primary', textContent: 'Usar en el chat', disabled: !act.enabled, onclick: attempt(async () => { await chooseForChat(act.agent_id); say(act.name + ' responderá en este chat (conversación conservada).'); })}),
+        el('button', {type: 'button', className: 'primary', textContent: 'Usar en el chat', disabled: !act.enabled, onclick: attempt(async () => {
+          await chooseForChat(act.agent_id); say(act.name + ' responderá en este chat (conversación conservada).');
+          c.openFeature?.('chat'); document.getElementById('chat-input')?.focus();
+        })}),
         el('button', {type: 'button', textContent: 'Personalizar', onclick: attempt(() => edit(act))}),
         el('button', {type: 'button', textContent: 'Duplicar', onclick: attempt(() => edit(act, true))}),
         el('button', {type: 'button', textContent: act.enabled ? 'Deshabilitar' : 'Habilitar', onclick: attempt(() => toggle(act))}),
@@ -244,6 +265,9 @@
             chip('rev. ' + act.revision, 'Revisión del perfil (CAS)'))),
         actions);
       card.dataset.state = live;
+      if (!seenCards.has(act.agent_id)) {  // staggered entrance only the first time a card appears, not on every reload
+        seenCards.add(act.agent_id); card.classList.add('axx-acts-enter'); card.style.setProperty('--i', String(state.acts.indexOf(act)));
+      }
       return card;
     }));
     if (!state.acts.length) {
@@ -388,6 +412,8 @@
     base.compOps = Object.fromEntries(COMP_OPS.map(op => [op, !!compGrant?.operation_kinds.includes(op)]));
     state.draft = base; state.base = JSON.stringify(base); state.tab = 'identity';
     preview.hidden = true; renderEditor();
+    editor.scrollIntoView({block: 'start', behavior: 'smooth'});  // it opens below the library, out of view
+    editor.querySelector('input, select, textarea')?.focus({preventScroll: true});
   }
 
   function control(path, kind, extra = {}) {
@@ -407,8 +433,11 @@
       if (extra.number && v !== '') v = Number(v);
       if (extra.csv) v = String(v).split(',').map(s => s.trim()).filter(Boolean);
       set(state.draft, path, (Array.isArray(v) && !v.length) ? undefined : v);
-      if (path === 'intelligence.provider_profile_ref' && v !== CONNECT) {
-        const p = state.providers.find(x => x.name === v); if (p) set(state.draft, 'intelligence.model_id', p.model);
+      if (path === 'intelligence.provider_profile_ref') {
+        // Router profiles fix the model; ChatGPT starts from the model chosen in Conectar IA and stays editable.
+        const p = state.providers.find(x => x.name === v);
+        if (v === CONNECT) set(state.draft, 'intelligence.model_id', document.getElementById('ai-model')?.value || undefined);
+        else if (p) set(state.draft, 'intelligence.model_id', p.model);
         renderEditor();
       } else if (path.startsWith('appearance.')) renderSwatch();
       markDirty();
@@ -481,6 +510,9 @@
         return [field('Selección', control('intelligence.route', 'select', {pairs: [['manual', 'Manual: este proveedor y modelo'], ['policy', 'Automática gratuita del router']]})),
           field('Proveedor', control('intelligence.provider_profile_ref', 'select', {pairs: [['', '—'], ...router, [CONNECT, 'Axx Connect · ChatGPT']]})),
           field('Modelo', control('intelligence.model_id', 'text', {attrs: {readOnly: !isConnect, list: 'axx-acts-connect-models', maxLength: 180}})), models,
+          el('p', {className: 'axx-acts-hint', textContent: isConnect
+            ? 'Escribe o elige el modelo de ChatGPT que usará este Act; el modelo global de AXX no cambia.'
+            : d.intelligence.provider_profile_ref ? 'El modelo lo fija este perfil en Conectar IA. Si no está instalado (por ejemplo en Ollama), cambia el perfil allí o elige ChatGPT.' : 'Elige un proveedor para ver su modelo.'}),
           field('Alternativa si falla', control('intelligence.fallback', 'select', {pairs: [['none', 'Ninguna: no cambiar de proveedor'], ['ask', 'Preguntar']]})),
           field('Límite de salida (tokens por turno)', control('intelligence.max_tokens_per_turn', 'number', {number: true, attrs: {min: 128, max: 1000000}})),
           el('p', {textContent: 'Las credenciales siguen en Conectar IA; el Act solo referencia la conexión. Nunca se cambia a una ruta de pago.'})];
@@ -561,7 +593,7 @@
     });
     const body = el('fieldset', {className: 'axx-acts-panel', role: 'tabpanel'}, el('legend', {textContent: TABS.find(t => t[0] === state.tab)[1]}), ...panel(state.tab));
     editor.replaceChildren(el('h4', {textContent: state.draft.agent_id ? 'Personalizar ' + state.draft.name : 'Nuevo Act'}), list, body,
-      el('div', {className: 'quick-row'}, el('button', {type: 'submit', textContent: 'Aplicar y verificar'}),
+      el('div', {className: 'quick-row'}, el('button', {type: 'submit', className: 'primary', textContent: 'Aplicar y verificar'}),
         el('button', {type: 'button', textContent: 'Descartar', onclick: () => { if (!dirty() || confirm('¿Descartar los cambios?')) { state.draft = null; editor.hidden = true; } }}),
         el('span', {className: 'axx-acts-dirty', role: 'status'})));
     markDirty();
@@ -665,7 +697,8 @@
   const activityBtn = el('button', {type: 'button', className: 'axx-acts-chat-btn', textContent: 'Actividad Acts', hidden: true, title: 'Ver progreso, handoffs y artefactos en este chat'});
   const activityDrawer = el('section', {className: 'axx-acts-activity-drawer', hidden: true, ariaLabel: 'Actividad y Handoffs de Acts'});
   const composerControls = document.querySelector('#chat-form .composer-bottom > div');
-  if (composerControls) composerControls.append(chatSelect, activityBtn);
+  const chatWho = el('label', {className: 'axx-acts-chat-who', hidden: true}, el('span', {textContent: 'Responde', ariaHidden: 'true'}), chatSelect);
+  if (composerControls) composerControls.append(chatWho, activityBtn);
   const chatForm = document.getElementById('chat-form');
   if (chatForm) chatForm.before(activityDrawer);
 
@@ -673,6 +706,26 @@
     activityDrawer.hidden = !activityDrawer.hidden;
     if (!activityDrawer.hidden) await refreshActivity();
   });
+
+  const EVENT_LABEL = {'run.started': 'empezó a trabajar', 'run.completed': 'terminó', 'run.failed': 'falló',
+    'handoff.created': 'pasó el trabajo', 'handoff.completed': 'recibió el traspaso', 'tool.dispatched': 'usó una herramienta',
+    'approval.requested': 'pide tu aprobación', 'approval.resolved': 'aprobación resuelta'};
+  const EVENT_STATE = {'run.started': 'working', 'run.completed': 'completed', 'run.failed': 'failed', 'approval.requested': 'awaiting_approval'};
+  // One readable row per event: who, what (in words), when; the raw type stays visible for diagnosis.
+  function eventRow(ev) {
+    const type = ev.type || ev.event_type || 'evento';
+    const p = ev.payload || {};
+    const name = state.acts.find(a => a.agent_id === ev.agent_id)?.name || ev.agent_id || 'AXX';
+    const to = p.to_agent_id && (state.acts.find(a => a.agent_id === p.to_agent_id)?.name || p.to_agent_id);
+    const detail = to ? '→ ' + to : (p.model || p.tool_id || p.verdict || p.kind || '');
+    const ms = ev.ts_ms || ev.created_at_ms || ev.timestamp_ms;
+    const row = el('div', {className: 'axx-acts-activity-item'},
+      el('strong', {textContent: name}), ' ', el('span', {textContent: EVENT_LABEL[type] || type}),
+      detail ? el('span', {className: 'axx-acts-activity-detail', textContent: ' ' + detail}) : '',
+      el('code', {textContent: type}), ms ? el('time', {textContent: new Date(ms).toLocaleTimeString()}) : '');
+    row.dataset.state = EVENT_STATE[type] || (type.startsWith('handoff') ? 'planning' : 'idle');
+    return row;
+  }
 
   async function refreshActivity() {
     const convId = activeConvId();
@@ -692,11 +745,8 @@
     activityDrawer.replaceChildren(el('strong', {textContent: `Actividad y Handoffs (${state.events.length} eventos · ${(arts.artifacts || []).length} artefactos)`}));
     for (const ev of state.events.slice(-12).reverse()) {
       const evType = ev.type || ev.event_type;
-      const actName = state.acts.find(a => a.agent_id === ev.agent_id)?.name || ev.agent_id;
       const p = ev.payload || {};
-      const detail = evType === 'handoff.created' ? `Handoff → ${p.to_agent_id}` : (p.model || p.tool_id || p.verdict || p.kind || '');
-      const row = el('div', {className: 'axx-acts-activity-item'}, el('strong', {textContent: `${actName} · ${evType}`}),
-        el('span', {textContent: detail ? ' — ' + detail : ''}));
+      const row = eventRow(ev);
       if (evType === 'approval.requested' && p.operation_id) {
         row.append(' ',
           el('button', {type: 'button', textContent: 'Aprobar', onclick: attempt(async () => {
@@ -762,8 +812,9 @@
   function syncChatSelect() {
     const chosen = localStorage.getItem(chatKey()) || '';
     const enabledActs = state.acts.filter(a => a.enabled);
-    activityBtn.hidden = !enabledActs.length;
+    activityBtn.hidden = chatWho.hidden = !enabledActs.length;  // no Acts: the composer stays exactly as before
     chatSelect.replaceChildren(...options([['', 'AXX'], ...enabledActs.map(a => [a.agent_id, a.name])], chosen));
+    chatWho.dataset.act = chosen ? 'true' : 'false';
   }
 
   // Acts live inside the existing Chats y grupos browser. All conversations are the
@@ -809,16 +860,21 @@
       if(chatActsTab==='library') {
         const query=chatActsSearch.value.trim().toLocaleLowerCase();
         for(const act of state.acts.filter(a=>(a.name+' '+a.role).toLocaleLowerCase().includes(query))) {
+          const live=actLiveStatus(act);
+          const badge=el('span',{className:'axx-acts-badge axx-acts-state',textContent:STATE_LABEL[live]||live});badge.dataset.state=live;
           const row=el('article',{className:'axx-chat-act-card'},
-            el('img',{alt:'Vista aproximada de '+act.name,width:40,height:40,
+            el('img',{alt:'Vista aproximada de '+act.name,title:'Vista SVG aproximada; no es una captura del avatar 3D',width:40,height:40,
               src:'data:image/svg+xml;charset=utf-8,'+encodeURIComponent(act.thumbnail?.svg||'')}),
-            el('strong',{textContent:act.name}),el('small',{textContent:modelLabel(act)+' · '+(STATE_LABEL[actLiveStatus(act)]||actLiveStatus(act))}));
-          row.append(el('small',{textContent:'Vista SVG aproximada'}),
-            el('button',{type:'button',textContent:'Abrir chat de '+act.name,disabled:!act.enabled,
-              onclick:()=>void openActChat(act).catch(fail)}),
-            el('button',{type:'button',textContent:'Configurar '+act.name,onclick:attempt(async()=>{
-              c.openFeature('acts');await toggleStudio(true);await edit(act);
-            })}));
+            el('div',{className:'axx-chat-act-meta'},
+              el('div',{className:'axx-acts-title'},el('strong',{textContent:act.name}),badge),
+              el('small',{textContent:(act.collaboration?.mention?'@'+act.collaboration.mention+' · ':'')+modelLabel(act)})),
+            el('div',{className:'axx-chat-act-actions'},
+              el('button',{type:'button',className:'primary',textContent:'Chatear',ariaLabel:'Abrir chat de '+act.name,disabled:!act.enabled,
+                onclick:()=>void openActChat(act).catch(fail)}),
+              el('button',{type:'button',textContent:'Configurar',ariaLabel:'Configurar '+act.name,onclick:attempt(async()=>{
+                c.openFeature('acts');await toggleStudio(true);await edit(act);
+              })})));
+          row.dataset.state=live;row.style.setProperty('--i',String(chatActsBody.childElementCount));
           chatActsBody.append(row);
         }
         if(!chatActsBody.childElementCount)chatActsStatus.textContent='No hay Acts en esta vista. Crea uno y elige su modelo.';
@@ -828,7 +884,7 @@
         if(!chatActsAgent.value)return;
         const result=await api('GET','conversations?agent_id='+encodeURIComponent(chatActsAgent.value));
         if(epoch!==chatActsEpoch)return;
-        for(const thread of result.conversations)chatActsBody.append(el('button',{type:'button',
+        for(const thread of result.conversations)chatActsBody.append(el('button',{type:'button',className:'axx-chat-act-thread',
           textContent:(thread.title||thread.conversation_id)+(thread.archived?' · archivado':''),
           onclick:()=>void Axx.chatWorkspace.select(thread.conversation_id).catch(fail)}));
         if(!result.conversations.length)chatActsStatus.textContent='Este Act todavía no tiene conversaciones.';
@@ -842,8 +898,7 @@
         if(!state.teams.length)chatActsStatus.textContent='No hay equipos. Configúralos en Acts Studio.';
       } else {
         await refreshActivity();if(epoch!==chatActsEpoch)return;
-        for(const event of state.events.slice(-30).reverse())chatActsBody.append(el('p',{
-          textContent:[event.agent_id,event.type||event.event_type,event.run_id].filter(Boolean).join(' · ')}));
+        for(const event of state.events.slice(-30).reverse())chatActsBody.append(eventRow(event));
         if(!state.events.length)chatActsStatus.textContent='No hay actividad registrada en este chat.';
       }
     } catch(error){fail(error);}

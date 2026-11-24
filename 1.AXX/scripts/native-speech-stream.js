@@ -47,8 +47,8 @@
                 for (let frame = 0; frame < frames; frame++) output[frame] = view.getInt16((frame * channels + channel) * 2, true) / 32768;
             }
             const source = this.context.createBufferSource(); source.buffer = buffer;
-            const rate=this.turnRate??this.reader.rate, speed = Axx.voiceAudio?.speed(this.voice.name, rate)
-                || Math.max(.75, Math.min(1.3, Number(rate) || 1));
+            const voiceRate = this.turnRate ?? this.reader.rate, speed = Axx.voiceAudio?.speed(this.voice.name, voiceRate)
+                || Math.max(.75, Math.min(1.3, Number(voiceRate) || 1));  // `rate` above is the PCM sample rate
             source.playbackRate.value = speed; source.connect(this.audioChain?.input || this.context.destination);
             const now = this.context.currentTime;
             if (this.nextTime && this.nextTime < now) this.evidence.underruns++;
