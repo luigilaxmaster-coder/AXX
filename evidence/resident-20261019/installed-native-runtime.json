@@ -1,6 +1,6 @@
 {
-  "backendInstance": "6c62a8a2-a8d9-4ae3-b4c0-6d230b404f78",
-  "backendPort": 50625,
+  "backendInstance": "c197e6e5-f75a-4f18-9a1d-cbfba0680291",
+  "backendPort": 54704,
   "backendReady": true,
   "dataDirectory": "C:\\Users\\luigi\\AppData\\Local\\Axx",
   "desktop": {
@@ -22,10 +22,10 @@
   },
   "executable": "C:\\Users\\luigi\\AppData\\Local\\Programs\\Axx\\Axx.exe",
   "mouseHookReady": true,
-  "pid": 30068,
+  "pid": 34020,
   "schemaVersion": 1,
-  "timestampUtc": "1795546978Z",
-  "version": "0.23.1",
+  "timestampUtc": "1795550283Z",
+  "version": "0.23.2",
   "windowPosition": {
     "x": 0,
     "y": 0

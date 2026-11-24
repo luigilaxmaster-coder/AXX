@@ -147,11 +147,12 @@
                     let remaining = text || '';
                     while (remaining && this.valid()) {
                         let length = Axx.voiceConversation?.phraseLength(remaining, true) || remaining.length;
-                        if (length < 38 && length < remaining.length) {
+                        const firstSlice = remaining.slice(0, length).trim();
+                        const isCompleteSentence = /[.!?]$/.test(firstSlice);
+                        if (!isCompleteSentence && length < 38 && length < remaining.length) {
                             const tail = remaining.slice(length).trimStart();
                             const skip = remaining.length - length - tail.length;
                             const nextLen = Axx.voiceConversation?.phraseLength(tail, true) || 0;
-                            const firstSlice = remaining.slice(0, length);
                             const nextSlice = tail.slice(0, nextLen);
                             const sameLang = !(/[¿¡ñáéíóú]/i.test(firstSlice) !== /[¿¡ñáéíóú]/i.test(nextSlice)
                                 || /\b(?:hello|please|thank|with|this)\b/i.test(nextSlice) !== /\b(?:hello|please|thank|with|this)\b/i.test(firstSlice));

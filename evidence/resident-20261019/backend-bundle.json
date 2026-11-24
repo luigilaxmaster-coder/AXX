@@ -5428,7 +5428,7 @@
     },
     {
       "path": "_internal/base_library.zip",
-      "sha256": "39d9553cee848cbebcb8690be0e55b2a3e763c1235c2bdc87cd18deb6cd1344c",
+      "sha256": "3622fdd6b3a59b6245b1d511c85238b2922e5f7a84295446c24b5cda8c8a9021",
       "bytes": 1333717
     },
     {
@@ -6758,7 +6758,7 @@
     },
     {
       "path": "_internal/mobile/www/js/desktop-avatar.js",
-      "sha256": "47464b7c8b91d4f592a315f8bfc14d2bf9ee2e3a73450f086fdd1be1046bffbe",
+      "sha256": "21fe309d126a65a910b8a2147581195ff8582d3e98dc01af5148c93ebece18a5",
       "bytes": 215126
     },
     {
@@ -8353,8 +8353,8 @@
     },
     {
       "path": "_internal/speech/moss_worker.py",
-      "sha256": "9e855a9f0367c49914809a1b61b8f072c8d971bfc28b35c398f495fd27e7f40c",
-      "bytes": 17701
+      "sha256": "6cfe261dbee628e3f5e1d2fc2b135042327d23ab938cba84bc554a1ff86bb241",
+      "bytes": 18483
     },
     {
       "path": "_internal/speech/piper_worker.py",
@@ -13463,9 +13463,9 @@
     },
     {
       "path": "axx-backend.exe",
-      "sha256": "ddc047f93275111939d2f8ea9bc184b49d51bee882811d3cc09e4e9d66b6425c",
-      "bytes": 44075600
+      "sha256": "f8a4fb2e82211bf9fc64e196b52252f1e9569fb3dfb0b7a1b8bcab1c87ca9915",
+      "bytes": 44076954
     }
   ],
-  "manifest_sha256": "0da85f5b8da4243eeb838447289d4968ddfa8b6228ab6d5ebaed6807149486a3"
+  "manifest_sha256": "bf75b85cff5597339a9b9b42029826503812a2e1b738a18ad366cf201f7c471a"
 }

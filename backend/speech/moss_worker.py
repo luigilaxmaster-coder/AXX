@@ -52,6 +52,31 @@ def create_runtime(model_root, cache_root):
     import onnxruntime as ort
     from onnx_tts_runtime import OnnxTtsRuntime
 
+    class LazySession:
+        def __init__(self, factory):
+            self._factory = factory
+            self._session = None
+
+        def _get(self):
+            if self._session is None:
+                self._session = self._factory()
+            return self._session
+
+        def run(self, *args, **kwargs):
+            return self._get().run(*args, **kwargs)
+
+        def get_outputs(self, *args, **kwargs):
+            return self._get().get_outputs(*args, **kwargs)
+
+        def get_inputs(self, *args, **kwargs):
+            return self._get().get_inputs(*args, **kwargs)
+
+        def get_providers(self, *args, **kwargs):
+            return self._get().get_providers(*args, **kwargs)
+
+        def __getattr__(self, name):
+            return getattr(self._get(), name)
+
     class StreamingRuntime(OnnxTtsRuntime):
         def __init__(self, **kwargs):
             self.reference_codes = {}
@@ -72,15 +97,17 @@ def create_runtime(model_root, cache_root):
 
         def _create_sessions(self):
             tts, codec = self.tts_meta_path.parent, self.codec_meta_path.parent
-            # Fixed sampling is the supplied model's default; other decoder
-            # variants need not be loaded just to synthesize this mode.
-            return {name: self._session(folder / files[key]) for name, folder, files, key in (
-                ('prefill', tts, self.tts_meta['files'], 'prefill'),
-                ('decode', tts, self.tts_meta['files'], 'decode_step'),
-                ('local_fixed_sampled_frame', tts, self.tts_meta['files'], 'local_fixed_sampled_frame'),
-                ('codec_encode', codec, self.codec_meta['files'], 'encode'),
-                ('codec_decode_step', codec, self.codec_meta['files'], 'decode_step'),
-            )}
+            configs = {
+                'prefill': (tts, self.tts_meta['files'], 'prefill'),
+                'decode': (tts, self.tts_meta['files'], 'decode_step'),
+                'local_fixed_sampled_frame': (tts, self.tts_meta['files'], 'local_fixed_sampled_frame'),
+                'codec_encode': (codec, self.codec_meta['files'], 'encode'),
+                'codec_decode_step': (codec, self.codec_meta['files'], 'decode_step'),
+            }
+            return {
+                name: LazySession(lambda f=folder, fl=files, k=key: self._session(f / fl[k]))
+                for name, (folder, files, key) in configs.items()
+            }
 
         def encode_reference_audio(self, reference_audio_path):
             path = Path(reference_audio_path).resolve()

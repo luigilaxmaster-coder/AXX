@@ -1,37 +1,37 @@
 ﻿{
-    "started":  "2026-11-24T14:37:44.4239555-04:00",
+    "started":  "2026-11-24T15:33:35.7810951-04:00",
     "source_tree_clean":  false,
     "artifacts":  [
                       {
                           "architecture":  "x86_64",
-                          "path":  "C:\\Users\\luigi\\Desktop\\axx2\\src-tauri\\target\\release\\bundle\\nsis\\Axx_0.23.1_x64-setup.exe",
-                          "sha256":  "F9405EAA31FAA3443E72DF502F600B8A710265336597E1644A39B197A746BF80",
-                          "bytes":  394143715,
-                          "version":  "0.23.1"
+                          "path":  "C:\\Users\\luigi\\Desktop\\axx2\\src-tauri\\target\\release\\bundle\\nsis\\Axx_0.23.2_x64-setup.exe",
+                          "sha256":  "3CE8D346EF106BC514043526F4525BA0FA086CDA600E276AAB472D9346389C2A",
+                          "bytes":  394195521,
+                          "version":  "0.23.2"
                       },
                       {
                           "architecture":  "x86_64",
                           "path":  "C:\\Users\\luigi\\Desktop\\axx2\\src-tauri\\target\\release\\Axx.exe",
-                          "sha256":  "80446251CD5A5062EDDFF9215868ABDD54374E0CD3AB41A0E4CF269694C64EFB",
-                          "bytes":  17433088,
-                          "version":  "0.23.1"
+                          "sha256":  "43E85B70D35E1BB4D42F565F459965B7811556D8957B8C713930490A0AB978D9",
+                          "bytes":  17432576,
+                          "version":  "0.23.2"
                       },
                       {
                           "architecture":  "x86_64",
                           "path":  "C:\\Users\\luigi\\Desktop\\axx2\\dist\\axx-backend\\axx-backend.exe",
-                          "sha256":  "DDC047F93275111939D2F8EA9BC184B49D51BEE882811D3CC09E4E9D66B6425C",
-                          "bytes":  44075600,
-                          "version":  "0.23.1"
+                          "sha256":  "F8A4FB2E82211BF9FC64E196B52252F1E9569FB3DFB0B7A1B8BCAB1C87CA9915",
+                          "bytes":  44076954,
+                          "version":  "0.23.2"
                       },
                       {
                           "architecture":  "x86_64",
                           "path":  "C:\\Users\\luigi\\Desktop\\axx2\\workers\\dictation-asr\\target\\release\\axx-dictation-asr.exe",
                           "sha256":  "63860EC4DADCBAABB1D095C6DE8545DF29061A0BAAFCB77B958E9479BBED7C11",
                           "bytes":  3707392,
-                          "version":  "0.23.1"
+                          "version":  "0.23.2"
                       }
                   ],
-    "source_commit":  "da7ae39af0b3ec23ff1c15851b6e75cd1e4dce3d",
+    "source_commit":  "50b3733ebc85f4715416600a24773248275a4541",
     "steps":  [
                   {
                       "exit_code":  0,
@@ -58,7 +58,7 @@
                       "command":  "node_modules\\.bin\\tauri.cmd build --bundles nsis"
                   }
               ],
-    "completed":  "2026-11-24T14:59:08.8933000-04:00",
+    "completed":  "2026-11-24T15:54:55.9388723-04:00",
     "backend_bundle":  {
                            "layout":  "onedir",
                            "files":  [
@@ -5489,7 +5489,7 @@
                                          },
                                          {
                                              "path":  "_internal/base_library.zip",
-                                             "sha256":  "39d9553cee848cbebcb8690be0e55b2a3e763c1235c2bdc87cd18deb6cd1344c",
+                                             "sha256":  "3622fdd6b3a59b6245b1d511c85238b2922e5f7a84295446c24b5cda8c8a9021",
                                              "bytes":  1333717
                                          },
                                          {
@@ -6819,7 +6819,7 @@
                                          },
                                          {
                                              "path":  "_internal/mobile/www/js/desktop-avatar.js",
-                                             "sha256":  "47464b7c8b91d4f592a315f8bfc14d2bf9ee2e3a73450f086fdd1be1046bffbe",
+                                             "sha256":  "21fe309d126a65a910b8a2147581195ff8582d3e98dc01af5148c93ebece18a5",
                                              "bytes":  215126
                                          },
                                          {
@@ -8414,8 +8414,8 @@
                                          },
                                          {
                                              "path":  "_internal/speech/moss_worker.py",
-                                             "sha256":  "9e855a9f0367c49914809a1b61b8f072c8d971bfc28b35c398f495fd27e7f40c",
-                                             "bytes":  17701
+                                             "sha256":  "6cfe261dbee628e3f5e1d2fc2b135042327d23ab938cba84bc554a1ff86bb241",
+                                             "bytes":  18483
                                          },
                                          {
                                              "path":  "_internal/speech/piper_worker.py",
@@ -13524,11 +13524,11 @@
                                          },
                                          {
                                              "path":  "axx-backend.exe",
-                                             "sha256":  "ddc047f93275111939d2f8ea9bc184b49d51bee882811d3cc09e4e9d66b6425c",
-                                             "bytes":  44075600
+                                             "sha256":  "f8a4fb2e82211bf9fc64e196b52252f1e9569fb3dfb0b7a1b8bcab1c87ca9915",
+                                             "bytes":  44076954
                                          }
                                      ],
-                           "manifest_sha256":  "0da85f5b8da4243eeb838447289d4968ddfa8b6228ab6d5ebaed6807149486a3"
+                           "manifest_sha256":  "bf75b85cff5597339a9b9b42029826503812a2e1b738a18ad366cf201f7c471a"
                        },
     "source_hashes":  {
                           "C:\\Users\\luigi\\Desktop\\axx2\\docs\\phase-8\\licenses\\transcribe.cpp-THIRD-PARTY.md":  "50AC7ADB98BCB26099D4CA4EC03CE4AE5860F5EDFD61FC97082DECC35DFA42EB",
@@ -13659,7 +13659,7 @@
                           "C:\\Users\\luigi\\Desktop\\axx2\\backend\\inference\\router.py":  "8A16DEEA976D07F85029C807CDE21E0908C524AC36AF8D49607D9659CC197678",
                           "C:\\Users\\luigi\\Desktop\\axx2\\1.AXX\\scripts\\vendor\\monaco-0.57.0-esm\\pascaligo-RJJF7DY6.js":  "1012524DD3B8736000EBA589965147659F5EB65D067CC5C568A47A79487DEAFE",
                           "C:\\Users\\luigi\\Desktop\\axx2\\backend\\workspaces\\leases.py":  "B7452A79837F9450DB18EFA8002B19EE4A611AAA6B512A13420FB2B69C464482",
-                          "C:\\Users\\luigi\\Desktop\\axx2\\1.AXX\\scripts\\native-speech-stream.js":  "FEE80D2EB61DB004F7A205408DE0AEB17BFF758BF138AF537D632190D0D6FFCB",
+                          "C:\\Users\\luigi\\Desktop\\axx2\\1.AXX\\scripts\\native-speech-stream.js":  "C9468A87F7BE8DC2404069915DD302612D48A5D4EB5C7F23BDBBDA5C4F979F48",
                           "C:\\Users\\luigi\\Desktop\\axx2\\src-tauri\\resources\\license-notices\\numpy\\numpy-2.4.4.dist-info\\licenses\\numpy\\_core\\src\\highway\\LICENSE":  "D208152E2777FFD0126EACC1BD21C0320D69E4E6B622D21A2A12A47E8EF73763",
                           "C:\\Users\\luigi\\Desktop\\axx2\\backend\\memory\\ai_memory_adapter.py":  "C3901553B7A914852105A7B3CB9D5C68013DAAE983CB3820F143C7A61024BC5C",
                           "C:\\Users\\luigi\\Desktop\\axx2\\1.AXX\\scripts\\vendor\\monaco-0.57.0-esm\\rust-XEKPYUM2.js":  "E8C4649B274FA96262141CDFC906E8099ABCEDAE7510EBD5EFD052D3DC586AEF",
@@ -13684,9 +13684,9 @@
                           "C:\\Users\\luigi\\Desktop\\axx2\\1.AXX\\scripts\\model-profile.js":  "CF9C7923C36B76925522603EB0683C7926E74CB78E906C80D5C4778AE76E5571",
                           "C:\\Users\\luigi\\Desktop\\axx2\\backend\\spatial\\diorama_engine.py":  "71CAD6E8AD9B760AB014F0A04D49D2B87E9641C702807DD6F7EBA97C187A94A4",
                           "C:\\Users\\luigi\\Desktop\\axx2\\backend\\inference\\model_candidates.py":  "4434530A24B51561D0C75A914CDD02D792EA1C4A0CC698EA9097F48EA133369B",
-                          "src-tauri\\Cargo.toml":  "CDC5ADE5C893B71CA51F07347BFB6F67B04B855C03D8A5056D5B970D16D3C4B9",
+                          "src-tauri\\Cargo.toml":  "5A84800E4B6AE46766CEE719BF388648FB4049FDFEAF42A6BD1B0A67D5C1EFBF",
                           "C:\\Users\\luigi\\Desktop\\axx2\\src-tauri\\resources\\license-notices\\numpy\\numpy-2.4.4.dist-info\\licenses\\LICENSE.txt":  "9A7C3FDDD888D6DD3A9E20361910C01EB5E00C92513BF159C2CEE48E8A853A06",
-                          "package-lock.json":  "9AF5B347CBDDFB7D368FCF24E234D4C659566D9824DC86F895575EB0A9B9F720",
+                          "package-lock.json":  "D0BAE6988ADC60FAA2C881A05E234C728B8ADF993746F7A3E4047EC973CA65FF",
                           "C:\\Users\\luigi\\Desktop\\axx2\\1.AXX\\scripts\\vendor\\monaco-0.57.0-esm\\st-NUIGCQIJ.js":  "32E93CB2C607C7110E6065F7CCED5224860F8AC7C93EE45B73C22F6137A7D2C1",
                           "C:\\Users\\luigi\\Desktop\\axx2\\1.AXX\\scripts\\vendor\\monaco-0.57.0-esm\\typescript-FPHYLFYA.css":  "5D0885540DAECC3A05F4C649C658D9A3851987F8E19D4AFE6129435D5CD2DADE",
                           "C:\\Users\\luigi\\Desktop\\axx2\\backend\\code_studio\\projects.py":  "6F859B24F8E8817408B532C52C5E7AC3AABE3DE6EC67303296ABF3844B4C58BF",
@@ -13694,7 +13694,7 @@
                           "C:\\Users\\luigi\\Desktop\\axx2\\backend\\telegram\\__init__.py":  "033A851D80949C3D9010CE115E6B200F136A56121C118241F9C782E3F4E8C663",
                           "C:\\Users\\luigi\\Desktop\\axx2\\backend\\agents\\registry.py":  "6F50469A33336B74ED85FDCFD3CCB6ED0EE31D545AFA34627DAB790817250AD5",
                           "C:\\Users\\luigi\\Desktop\\axx2\\backend\\agents\\resource_governor.py":  "0A242640B2F036DA1E73E9EA0822EBF093E814B183DFCE897C068126D0905C0C",
-                          "mobile\\www\\js\\desktop-avatar.js":  "47464B7C8B91D4F592A315F8BFC14D2BF9EE2E3A73450F086FDD1BE1046BFFBE",
+                          "mobile\\www\\js\\desktop-avatar.js":  "21FE309D126A65A910B8A2147581195FF8582D3E98DC01AF5148C93EBECE18A5",
                           "C:\\Users\\luigi\\Desktop\\axx2\\backend\\agents\\handoffs.py":  "31D410B67041116B2336F9DD6AB10AA453492E299575C893841D5A2499FAC96D",
                           "C:\\Users\\luigi\\Desktop\\axx2\\1.AXX\\scripts\\workspaces\\browser-stage.js":  "7D220335E15AB244398229F76F0AC47BEB20C039B81ADE46852D7E8B19D15290",
                           "C:\\Users\\luigi\\Desktop\\axx2\\backend\\capability_workshop.py":  "5D2847206B9A5EB43F9DC30714C5594E54CF9DDE23CDE59F2D25CB5BC6C0E35C",
@@ -13816,7 +13816,7 @@
                           "C:\\Users\\luigi\\Desktop\\axx2\\vendor\\cli_anything_blender\\cli_anything\\blender\\core\\render.py":  "89C8AC6A4DD13983A140DA8DA1A3519031B76CCCFC9E7506D010A9A82063F3FE",
                           "C:\\Users\\luigi\\Desktop\\axx2\\backend\\actions\\desktop_input.py":  "0E1A836132049E40978B5DC91591196446C76E47DE10992D03A4325D434DF479",
                           "C:\\Users\\luigi\\Desktop\\axx2\\backend\\computer_use.py":  "07BADAC8890A7B76BFF273DA9E488201DBF4054CBA98296BF8EAF86A8EDC60D2",
-                          "C:\\Users\\luigi\\Desktop\\axx2\\1.AXX\\Axx.html":  "3B991ACE2C60092BAC4DAD8EC5CA4DF6E02D1DE66AA69B5F21B8E7F3C40CA66A",
+                          "C:\\Users\\luigi\\Desktop\\axx2\\1.AXX\\Axx.html":  "F0F4D482F9B85E11192FEEE13E8A9659CE6F27574FFA91B3D91A95918AB3AA66",
                           "C:\\Users\\luigi\\Desktop\\axx2\\1.AXX\\scripts\\vendor\\monaco-0.57.0-esm\\javascript-2SOHW7RQ.css":  "5D0885540DAECC3A05F4C649C658D9A3851987F8E19D4AFE6129435D5CD2DADE",
                           "C:\\Users\\luigi\\Desktop\\axx2\\1.AXX\\scripts\\vendor\\monaco-0.57.0-esm\\perl-BWIN5OGN.js":  "E52EE4B895CCB75A3765EEA8D044A7ADABCA11FFF32A8CB7A245491E7F5FFA37",
                           "C:\\Users\\luigi\\Desktop\\axx2\\backend\\telegram\\worker.py":  "E6F6EFB1B83414FA82036C0E7FA1310B147957C7E0A64A496866F8B37538A560",
@@ -13833,7 +13833,7 @@
                           "C:\\Users\\luigi\\Desktop\\axx2\\1.AXX\\scripts\\evolution3-runtime.js":  "E95875B64FF496E9ECC3B04027B3E9F641274FACDE07E033969810FB916DDBA2",
                           "C:\\Users\\luigi\\Desktop\\axx2\\1.AXX\\scripts\\three.module.min.js":  "9026E4A7E3774C68653EB178E200BCB79C50E894581774C683EC6D631BE2C259",
                           "C:\\Users\\luigi\\Desktop\\axx2\\backend\\spatial\\asset_registry.py":  "839CA83908DE8FE428CADDE2F8DEFE3120BD9CB85A40EEF8434A63E8DFF4D064",
-                          "C:\\Users\\luigi\\Desktop\\axx2\\backend\\speech\\moss_worker.py":  "9E855A9F0367C49914809A1B61B8F072C8D971BFC28B35C398F495FD27E7F40C",
+                          "C:\\Users\\luigi\\Desktop\\axx2\\backend\\speech\\moss_worker.py":  "6CFE261DBEE628E3F5E1D2FC2B135042327D23AB938CBA84BC554A1FF86BB241",
                           "C:\\Users\\luigi\\Desktop\\axx2\\1.AXX\\scripts\\voice-phrases.js":  "CFAEFC6C589DF4A0E650E4CEB435379075FBCF827D672B826040BEE5986DC973",
                           "C:\\Users\\luigi\\Desktop\\axx2\\1.AXX\\scripts\\agents\\agent-timeline.js":  "224AB94611D474D798706B921F129ED51DFA0918E24D66F764F73F73968C2231",
                           "C:\\Users\\luigi\\Desktop\\axx2\\1.AXX\\scripts\\evolution-theme.css":  "2982A9F8098A82EDB2EBCA84740A792F240CCC72B12077D46BE66297E6F7A679",
@@ -13869,7 +13869,7 @@
                           "C:\\Users\\luigi\\Desktop\\axx2\\1.AXX\\scripts\\native-music.js":  "4D88EA2BAB54D5758FEFFCB485C1F8F88431CBCF0B0790ABCB332EBB0E2FD6AC",
                           "C:\\Users\\luigi\\Desktop\\axx2\\backend\\speech\\dictation_models.py":  "F6E87E43C76118830F6CE020CEAD2B9C155782A62C7D8E09ED324E9589E8166D",
                           "C:\\Users\\luigi\\Desktop\\axx2\\1.AXX\\scripts\\vendor\\monaco-0.57.0-esm\\cypher-UIVVGCZ3.js":  "A9C780FF23CAB4406D4110ED556A3026CBE58D0E264C2B763A56BBFFC86550A5",
-                          "src-tauri\\tauri.conf.json":  "995490D1E2FB54DC6DB74EE2595FD15E72DBA7AE711CA04FB581B870060E5481",
+                          "src-tauri\\tauri.conf.json":  "92B9B1FC0B6EC32B0D5647B1411053C9233B38A5DCA69BE255A63C9B1BA58D1C",
                           "C:\\Users\\luigi\\Desktop\\axx2\\src-tauri\\resources\\license-notices\\ifcopenshell\\COPYING.LESSER":  "7D3A95E5E06978064ED3F8E2B7C8F845E7FD8A405294727CC708F94CB83B8059",
                           "C:\\Users\\luigi\\Desktop\\axx2\\backend\\actions\\desktop.py":  "54D0B72EA5BA1945AFDDA74C66BFC71D2EB20ABE77A06E3B49970A7BAFCA6389",
                           "C:\\Users\\luigi\\Desktop\\axx2\\backend\\actions\\__init__.py":  "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
@@ -13879,7 +13879,7 @@
                           "C:\\Users\\luigi\\Desktop\\axx2\\backend\\auth\\callback_page.py":  "644FF6448ADD7DB9596F5F26E95BF84ABE1F4F275999D44EF29F88C36C815641",
                           "C:\\Users\\luigi\\Desktop\\axx2\\1.AXX\\scripts\\vendor\\monaco-0.57.0-esm\\DOMPURIFY-LICENSE":  "CFC7749B96F63BD31C3C42B5C471BF756814053E847C10F3EB003417BC523D30",
                           "C:\\Users\\luigi\\Desktop\\axx2\\1.AXX\\scripts\\computer-use.js":  "8BE8B6D10DC399E6FBA79D6EBCF39C9282C04A68A805D531BBEB4B11F15745BA",
-                          "C:\\Users\\luigi\\Desktop\\axx2\\backend\\speech\\moss_tts.py":  "E4B3C4968AA4D67196B700D6AFA67F374CC4BE9776F1DFEA3DB04598B38671F9",
+                          "C:\\Users\\luigi\\Desktop\\axx2\\backend\\speech\\moss_tts.py":  "3D6E2DA28AB24C46B46C65F368387A4A7BBCE8BFA9414FBF2FA2762E228BA99F",
                           "C:\\Users\\luigi\\Desktop\\axx2\\backend\\spatial_assets.py":  "7CB782E7218659DA6BEB7634B6FC155E155CA87B1196EC5504538854E4016BF4",
                           "C:\\Users\\luigi\\Desktop\\axx2\\backend\\auth\\chatgpt_auth.py":  "B540FFC6F74FAF9DAF0BCA6DE07BAE94FA42369410BFE3B5E7BE3F94CA57BD1D",
                           "C:\\Users\\luigi\\Desktop\\axx2\\1.AXX\\scripts\\vendor\\monaco-0.57.0-esm\\bat-IBZJH46G.js":  "9C9E594F121E8BB4E7AF11FFA8E17C595ECBA9A884338CD3EC64B356D60C0234",

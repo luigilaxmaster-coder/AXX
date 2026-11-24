@@ -1,24 +1,24 @@
 ﻿{
     "result":  "INSTALLED_RUNTIME_STARTED",
-    "version":  "0.23.1",
-    "exe_version":  "0.23.1",
-    "source_commit":  "da7ae39af0b3ec23ff1c15851b6e75cd1e4dce3d",
+    "version":  "0.23.2",
+    "exe_version":  "0.23.2",
+    "source_commit":  "50b3733ebc85f4715416600a24773248275a4541",
     "source_tree_clean":  false,
-    "executable_sha256":  "A94EDECB12DF2AE722C30FE7D767AA4E78D2F6951B361BB0B0535C4279205971",
-    "started":  "2026-11-24T14:59:40.0620603-04:00",
-    "completed":  "2026-11-24T15:03:01.9051529-04:00",
-    "installer":  "C:\\Users\\luigi\\Desktop\\axx2\\src-tauri\\target\\release\\bundle\\nsis\\Axx_0.23.1_x64-setup.exe",
-    "installer_sha256":  "F9405EAA31FAA3443E72DF502F600B8A710265336597E1644A39B197A746BF80",
+    "executable_sha256":  "1FFAAC429DCAC276914DA847CD472F633A44BE4354AAF60AFF3A0B1166F57E48",
+    "started":  "2026-11-24T15:55:26.7891632-04:00",
+    "completed":  "2026-11-24T15:58:06.0398894-04:00",
+    "installer":  "C:\\Users\\luigi\\Desktop\\axx2\\src-tauri\\target\\release\\bundle\\nsis\\Axx_0.23.2_x64-setup.exe",
+    "installer_sha256":  "3CE8D346EF106BC514043526F4525BA0FA086CDA600E276AAB472D9346389C2A",
     "installer_exit":  0,
     "executable":  "C:\\Users\\luigi\\AppData\\Local\\Programs\\Axx\\Axx.exe",
-    "pid":  30068,
+    "pid":  34020,
     "launch":  "Installed EXE; UseShellExecute=false; closed launcher streams; PATH limited to Windows; Python environment overrides removed",
-    "launched_at":  "2026-11-24T15:02:41.6240039-04:00",
+    "launched_at":  "2026-11-24T15:57:47.1459696-04:00",
     "working_directory":  "C:\\Users\\luigi\\AppData\\Local\\Programs\\Axx",
     "backend":  {
-                    "port":  50625,
-                    "instance_id":  "6c62a8a2-a8d9-4ae3-b4c0-6d230b404f78",
-                    "pid":  22320,
+                    "port":  54704,
+                    "instance_id":  "c197e6e5-f75a-4f18-9a1d-cbfba0680291",
+                    "pid":  33780,
                     "unauthenticated_http_status":  401,
                     "authenticated_by_native_host":  true,
                     "executable":  "C:\\Users\\luigi\\AppData\\Local\\Programs\\Axx\\resources\\axx-backend.exe"
@@ -44,7 +44,7 @@
     "registry":  {
                      "install_location":  "\"C:\\Users\\luigi\\AppData\\Local\\Programs\\Axx\"",
                      "uninstall":  "\"C:\\Users\\luigi\\AppData\\Local\\Programs\\Axx\\uninstall.exe\"",
-                     "display_version":  "0.23.1"
+                     "display_version":  "0.23.2"
                  },
     "shortcuts":  [
                       {
