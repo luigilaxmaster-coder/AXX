@@ -357,13 +357,21 @@ export function mountScene(container, scene, {reducedMotion = false, onPick = ()
         view.distance = Math.min(radius * 8, Math.max(radius * .8, initialView.distance));
     }
     let frame = 0, focused = [], exploded = false, disposed = false;
+    // Labels exist for every part; render() shows only what fits (guided/focused first) so complex scenes never saturate.
     const labels=new Map();
-    const syncLabels=()=>{annotations.replaceChildren();labels.clear();for(const [index,o] of scene.objects.slice(0,8).entries()){
+    const syncLabels=()=>{annotations.replaceChildren();labels.clear();for(const [index,o] of scene.objects.entries()){
         const label=document.createElement('button');label.type='button';label.className='mp-part-label';label.setAttribute('aria-label','Seleccionar '+o.label);
         const number=document.createElement('span');number.textContent=String(index+1).padStart(2,'0');const name=document.createElement('span');name.textContent=o.label;
-        label.append(number,name);label.onclick=()=>onPick(o.id);annotations.append(label);labels.set(o.id,label);
+        label.append(number,name);label.onclick=()=>onPick(o.id);label.hidden=true;annotations.append(label);labels.set(o.id,label);
     }};
     syncLabels();
+    // Guide layer: connectors from a callout to the part's projected anchor and motion arrows, recomputed every frame.
+    const SVGNS='http://www.w3.org/2000/svg',guideLayer=document.createElementNS(SVGNS,'svg');guideLayer.setAttribute('class','mp-scene-guide');guideLayer.setAttribute('aria-hidden','true');
+    container.append(guideLayer);
+    const guide={targets:new Set(),callouts:new Map(),motions:new Map(),onFrame:null};
+    const anchorOf=id=>{const m=meshes.get(id);if(!m?.visible)return null;const box=new THREE.Box3().setFromObject(m);if(box.isEmpty())return null;
+        const c=box.getCenter(new THREE.Vector3());c.y=Math.min(box.max.y,c.y+(box.max.y-c.y)*.6);return c;};  // a visible point on the upper body, not the hidden centre
+    const projectPoint=p=>{const v=p.clone().project(camera);return {x:(v.x+1)*canvas.clientWidth/2,y:(1-v.y)*canvas.clientHeight/2,depth:v.z,visible:v.z>=-1&&v.z<=1&&Math.abs(v.x)<=1.02&&Math.abs(v.y)<=1.02};};
     const hidden = new Set(), separated = new Set();
     const animations = {};
     const render = () => {
@@ -371,12 +379,41 @@ export function mountScene(container, scene, {reducedMotion = false, onPick = ()
         const {target, theta, phi, distance} = view;
         camera.position.set(target.x + distance * Math.sin(phi) * Math.sin(theta), target.y + distance * Math.cos(phi), target.z + distance * Math.sin(phi) * Math.cos(theta));
         camera.lookAt(target);camera.updateMatrixWorld();renderer.render(world, camera);
-        const placed=[];
-        for(const [id,label] of labels){const mesh=meshes.get(id);if(!mesh?.visible){label.hidden=true;continue;}const p=mesh.getWorldPosition(new THREE.Vector3()).project(camera);
-            label.hidden=p.z< -1||p.z>1||Math.abs(p.x)>.9||Math.abs(p.y)>.9;
-            if(!label.hidden){const x=Math.max(76,Math.min(canvas.clientWidth-76,(p.x+1)*canvas.clientWidth/2)),anchor=(1-p.y)*canvas.clientHeight/2;let y=Math.max(34,anchor-12);
-                while(placed.some(other=>Math.abs(other.x-x)<140&&Math.abs(other.y-y)<32)&&y>42)y-=34;
-                placed.push({x,y});label.style.left=x+'px';label.style.top=y+'px';label.style.setProperty('--mp-leader',Math.max(10,anchor-y)+'px');label.dataset.focused=String(focused.includes(id));}}
+        // Priority: guided targets, then focused parts, then everything else by projected size; only what fits is shown.
+        const W=canvas.clientWidth,H=canvas.clientHeight,budget=Math.max(6,Math.min(32,Math.floor(W*H/14000))),placed=[],shown=[];
+        const rank=id=>guide.targets.has(id)?0:focused.includes(id)?1:2;
+        const candidates=[];
+        for(const [id,label] of labels){label.hidden=true;const anchor=anchorOf(id);if(!anchor)continue;const p=projectPoint(anchor);
+            if(!p.visible||p.x<0||p.y<0||p.x>W||p.y>H)continue;
+            const size=new THREE.Box3().setFromObject(meshes.get(id)).getSize(new THREE.Vector3()).length()/Math.max(.1,camera.position.distanceTo(anchor));
+            candidates.push({id,label,p,rank:rank(id),size});}
+        candidates.sort((a,b)=>a.rank-b.rank||b.size-a.size);
+        for(const c of candidates){
+            if(shown.length>=budget&&c.rank===2)break;
+            const x=Math.max(76,Math.min(W-76,c.p.x));let y=Math.max(34,c.p.y-(c.rank===0?46:12)),ok=true;
+            while(placed.some(o=>Math.abs(o.x-x)<140&&Math.abs(o.y-y)<32)){y-=34;if(y<34){ok=false;break;}}
+            if(!ok&&c.rank===2)continue;  // never stack unrelated labels on top of each other
+            placed.push({x,y});shown.push(c);c.label.hidden=false;c.label.style.left=x+'px';c.label.style.top=y+'px';
+            c.label.style.setProperty('--mp-leader',Math.max(10,c.p.y-y)+'px');c.label.dataset.focused=String(focused.includes(c.id));
+            c.label.dataset.guided=String(c.rank===0);c.label.dataset.anchorX=String(Math.round(c.p.x));c.label.dataset.anchorY=String(Math.round(c.p.y));
+            const callout=guide.callouts.get(c.id);if(callout)c.label.title=callout;
+        }
+        drawGuide(shown);
+        guide.onFrame?.();
+    };
+    // Connectors for guided labels (label -> exact projected anchor) and arrows for illustrative motions.
+    const drawGuide=shown=>{
+        guideLayer.setAttribute('viewBox',`0 0 ${canvas.clientWidth} ${canvas.clientHeight}`);guideLayer.setAttribute('width',canvas.clientWidth);guideLayer.setAttribute('height',canvas.clientHeight);
+        const parts=[];
+        for(const c of shown)if(c.rank===0){const lx=parseFloat(c.label.style.left),ly=parseFloat(c.label.style.top)+14;
+            parts.push(`<line class="mp-guide-leader" x1="${lx}" y1="${ly}" x2="${c.p.x.toFixed(1)}" y2="${c.p.y.toFixed(1)}"/><circle class="mp-guide-dot" cx="${c.p.x.toFixed(1)}" cy="${c.p.y.toFixed(1)}" r="5"/><circle class="mp-guide-pulse" cx="${c.p.x.toFixed(1)}" cy="${c.p.y.toFixed(1)}" r="5"/>`);}
+        for(const [id,motion] of guide.motions){const m=meshes.get(id);if(!m?.visible)continue;const a=anchorOf(id);if(!a)continue;const p=projectPoint(a);if(!p.visible)continue;
+            if(motion.kind==='rotate'){const r=Math.max(18,Math.min(60,40*motion.scale||40));
+                parts.push(`<path class="mp-guide-motion" d="M ${(p.x+r).toFixed(1)} ${p.y.toFixed(1)} A ${r} ${r*.45} 0 1 1 ${(p.x-r*.7).toFixed(1)} ${(p.y-r*.32).toFixed(1)}" marker-end="url(#mp-arrow)"/>`);}
+            else{const axis=new THREE.Vector3(...motion.axisVector),q=projectPoint(a.clone().addScaledVector(axis,motion.amplitude||.6));
+                parts.push(`<line class="mp-guide-motion" x1="${p.x.toFixed(1)}" y1="${p.y.toFixed(1)}" x2="${q.x.toFixed(1)}" y2="${q.y.toFixed(1)}" marker-end="url(#mp-arrow)" marker-start="url(#mp-arrow-back)"/>`);}}
+        guideLayer.innerHTML='<defs><marker id="mp-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker>'
+            +'<marker id="mp-arrow-back" viewBox="0 0 10 10" refX="2" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker></defs>'+parts.join('');
     };
     const schedule = () => { if (!frame && !disposed) frame = requestAnimationFrame(() => { frame = 0; render(); }); };
     const tween = (key, apply) => {
@@ -435,7 +472,41 @@ export function mountScene(container, scene, {reducedMotion = false, onPick = ()
         return chosen.reduce((sum, m) => sum.add(goal(m)), new THREE.Vector3()).divideScalar(chosen.length);
     };
 
+    // Illustrative motion (not a physics simulation): rotation about the part's own axis or a back-and-forth stroke.
+    let motionFrame=0,motionLast=0;
+    const AXES={x:new THREE.Vector3(1,0,0),y:new THREE.Vector3(0,1,0),z:new THREE.Vector3(0,0,1)};
+    const motionTick=now=>{motionFrame=0;if(disposed||!guide.motions.size)return;
+        const dt=Math.min(.05,(now-(motionLast||now))/1000);motionLast=now;
+        if(!document.hidden&&canvas.isConnected&&canvas.getClientRects().length){for(const [id,m] of guide.motions){const mesh=meshes.get(id);if(!mesh)continue;m.t+=dt;
+            if(m.kind==='rotate')mesh.quaternion.copy(m.baseQuat).multiply(new THREE.Quaternion().setFromAxisAngle(AXES[m.axis],m.t*m.speed));
+            else mesh.position.copy(goal(mesh)).addScaledVector(new THREE.Vector3(...m.axisVector),m.amplitude*Math.sin(m.t*2*Math.PI/m.period));}
+            render();}
+        motionFrame=requestAnimationFrame(motionTick);};
+    const stopMotion=id=>{const m=guide.motions.get(id),mesh=meshes.get(id);if(!m)return;guide.motions.delete(id);
+        if(mesh){mesh.quaternion.copy(m.baseQuat);mesh.position.copy(goal(mesh));}};
+
     return {
+        /** Screen point (CSS px inside the canvas) of a part's visible anchor, or null when it cannot be shown. */
+        project(id){const a=anchorOf(id);if(!a)return null;const p=projectPoint(a);return p.visible?{x:p.x,y:p.y,depth:p.depth}:null;},
+        flyTo(goalView={}){const from={...view,target:view.target.clone()};const to={theta:goalView.theta??view.theta,phi:Math.min(Math.PI-.15,Math.max(.15,goalView.phi??view.phi)),
+            distance:Math.min(radius*8,Math.max(radius*.5,goalView.distance??view.distance)),target:goalView.target?new THREE.Vector3(...goalView.target):view.target.clone()};
+            tween('camera',k=>{view.theta=from.theta+(to.theta-from.theta)*k;view.phi=from.phi+(to.phi-from.phi)*k;view.distance=from.distance+(to.distance-from.distance)*k;view.target.lerpVectors(from.target,to.target,k);});},
+        /** Frame the given parts: target their centre and back off just enough to fit them. */
+        frame(ids){const box=new THREE.Box3();for(const id of ids){const m=meshes.get(id);if(m?.visible)box.union(new THREE.Box3().setFromObject(m));}if(box.isEmpty())return false;
+            const size=box.getSize(new THREE.Vector3()).length();this.flyTo({target:box.getCenter(new THREE.Vector3()).toArray(),distance:Math.max(size*1.9,radius*.6)});return true;},
+        animateObject(id,motion){const mesh=meshes.get(id);if(!mesh||reducedMotion)return false;stopMotion(id);
+            const axis=['x','y','z'].includes(motion.axis)?motion.axis:'y';
+            guide.motions.set(id,{kind:motion.kind==='translate'?'translate':'rotate',axis,t:0,baseQuat:mesh.quaternion.clone(),speed:Number(motion.speed)||Math.PI,
+                amplitude:Number(motion.amplitude)||.5,period:Number(motion.period)||1.6,scale:Number(motion.scale)||1,
+                axisVector:AXES[axis].clone().applyQuaternion(mesh.quaternion).toArray()});
+            motionLast=0;if(!motionFrame)motionFrame=requestAnimationFrame(motionTick);return true;},
+        stopMotions(){for(const id of [...guide.motions.keys()])stopMotion(id);cancelAnimationFrame(motionFrame);motionFrame=0;schedule();},
+        motions(){return [...guide.motions].map(([id,m])=>({id,kind:m.kind,axis:m.axis,illustrative:true}));},
+        /** Guided step: anchored callouts on targets (unique ids that exist), optional per-frame hook for external overlays. */
+        setGuide({targets=[],callouts={},onFrame=null}={}){guide.targets=new Set(targets.filter(id=>meshes.has(id)));
+            guide.callouts=new Map(Object.entries(callouts).filter(([id])=>meshes.has(id)));guide.onFrame=onFrame;schedule();return [...guide.targets];},
+        guideState(){return {targets:[...guide.targets],labels:[...labels].filter(([,l])=>!l.hidden).map(([id,l])=>({id,guided:l.dataset.guided==='true',
+            x:+l.dataset.anchorX,y:+l.dataset.anchorY})),motions:this.motions()};},
         hasGlb(assetId){return glbRoots.has(assetId);},
         async loadGlb(assetId,content,verification){
             if(glbRoots.has(assetId))return;
@@ -513,6 +584,7 @@ export function mountScene(container, scene, {reducedMotion = false, onPick = ()
         },
         update(next){
             if(disposed)return;
+            for(const id of [...guide.motions.keys()])stopMotion(id);  // meshes may be rebuilt: motions restart from the new rest pose
             for(const key of Object.keys(animations)){cancelAnimationFrame(animations[key]);delete animations[key];}
             const ids=new Set(next.objects.map(o=>o.id));
             for(const [id,mesh] of meshes)if(!ids.has(id)){releaseObject(mesh);meshes.delete(id);hidden.delete(id);separated.delete(id);}
@@ -557,7 +629,7 @@ export function mountScene(container, scene, {reducedMotion = false, onPick = ()
         dispose() {
             if (disposed) return;
             disposed = true; live--; abort.abort(); observer.disconnect(); cancelAnimationFrame(frame);
-            Object.values(animations).forEach(cancelAnimationFrame);
+            Object.values(animations).forEach(cancelAnimationFrame);cancelAnimationFrame(motionFrame);guide.motions.clear();guide.onFrame=null;guideLayer.remove();
             cancelAnimationFrame(hoverFrame);meshes.forEach(releaseObject);glbRoots.forEach(releaseGlb);glbRoots.clear();arrows.forEach(a=>a?.dispose());environment.dispose();renderer.dispose(); renderer.forceContextLoss(); canvas.remove();annotations.remove();tooltip.remove();
         },
     };

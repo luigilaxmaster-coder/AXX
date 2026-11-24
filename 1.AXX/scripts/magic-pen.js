@@ -150,7 +150,15 @@
             const modeCaption=document.createElement('p');modeCaption.id='mp-model-caption';modeCaption.className='mp-model-caption';modeCaption.setAttribute('aria-live','polite');
             const locate=document.createElement('button'),model=document.createElement('button');locate.type=model.type='button';locate.id='mp-spatial-locate';model.id='mp-spatial-model';locate.innerHTML=this.icon('point')+'<span><strong>Señalar</strong><small>En la captura</small></span>';model.innerHTML=this.icon('capture')+'<span><strong>Modelo 3D</strong><small>Vista conceptual</small></span>';create.innerHTML=this.icon('rect')+'<span><strong>Diagrama</strong><small>Pasos y relaciones</small></span>';
             locate.title='Señalar en la captura lo que describes en la pregunta';create.title='Explicar la selección con un diagrama';model.title='Crear una vista 3D conceptual de la selección';
-            locate.onclick=()=>{void this.spatialAction('locate');};model.onclick=()=>{void this.spatialAction('model');};spatialActions.append(locate,create,model);chatDock.append(modeCaption,spatialActions,this.view.querySelector('.mp-composer'),this.view.querySelector('#mp-question-help'));
+            locate.onclick=()=>{void this.spatialAction('locate');};model.onclick=()=>{void this.spatialAction('model');};spatialActions.append(locate,create,model);
+            // «Explicación señalizada»: when on, the question alone decides drawing guides, a real-window tutorial, or a guided 2D/3D explanation.
+            const signaled=document.createElement('button');signaled.type='button';signaled.id='mp-signaled';signaled.className='mp-signaled-toggle';
+            this.signaled=localStorage.getItem('axx.magicPen.signaled')==='1';
+            const syncSignaled=()=>{signaled.setAttribute('aria-pressed',String(this.signaled));signaled.textContent='Explicación señalizada: '+(this.signaled?'ACTIVADO':'DESACTIVADO');
+                signaled.title=this.signaled?'AXX elige cómo señalar: guías de dibujo, tutorial sobre la ventana real o explicación 2D/3D anclada':'Activa para que AXX señale y guíe automáticamente';};
+            signaled.onclick=()=>{this.signaled=!this.signaled;localStorage.setItem('axx.magicPen.signaled',this.signaled?'1':'0');syncSignaled();if(!this.signaled){this.drawingGuide=null;this.player?.scene?.stopMotions?.();this.player?.scene?.setGuide?.({});if(this.ctx)this.render();}};
+            syncSignaled();
+            chatDock.append(modeCaption,signaled,spatialActions,this.view.querySelector('.mp-composer'),this.view.querySelector('#mp-question-help'));
             for(const selector of ['#mp-answers','#mp-status'])this.widget.append(this.view.querySelector(selector));
             this.widget.append(chatDock,settings,ranking,spatialStatus,this.view.querySelector('.mp-save-section'));
             const saved=this.widget.querySelector('.mp-save-section');saved.querySelector('summary').after($('mp-meta'));saved.append($('mp-capability'));
@@ -524,8 +532,8 @@
         undo(redo){if(!this.doc)return;const from=redo?this.redoStack:this.undoStack,to=redo?this.undoStack:this.redoStack;if(!from.length)return;this.cancelAnalysis();to.push(this.inkSnapshot());const snapshot=from.pop();this.doc.strokes=snapshot.strokes;this.doc.selection=snapshot.selection;this.selectionOrigin=snapshot.origin;this.inkBaseSelection=snapshot.base;this.answerDirty=true;this.queueSave();this.render();this.renderAnswers();this.paintPreview();this.scheduleAnalysis(650,true);}
         path(points,close=false){const c=this.ctx;c.beginPath();points.forEach((p,i)=>i?c.lineTo(...p):c.moveTo(...p));if(close)c.closePath();}
         stroke(s){const c=this.ctx;c.save();c.globalAlpha=s.tool==='marker'?.33:1;c.strokeStyle=s.color;c.fillStyle=s.color;c.lineWidth=s.width;c.lineCap='round';c.lineJoin='round';this.path(s.points);c.stroke();if(s.points.length===1){c.beginPath();c.arc(...s.points[0],s.width/2,0,Math.PI*2);c.fill();}c.restore();}
-        render(){const c=this.ctx;c.clearRect(0,0,this.canvas.width,this.canvas.height);if(!this.doc)return;this.doc.strokes.forEach(s=>this.stroke(s));const g=this.gesture;if(g&&['pen','marker'].includes(g.tool))this.stroke(g);c.save();c.strokeStyle='#9274ff';c.fillStyle='#b8aaff22';c.lineWidth=Math.max(2,this.canvas.width/450);c.setLineDash([c.lineWidth*3,c.lineWidth*2]);const s=this.pendingLasso||this.stage.hidden&&this.doc.selection;if(s){if(s.shape==='lasso'){this.path(s.points,true);c.fill('evenodd');c.stroke();}else{const [x,y,r,b]=s.bounds;c.strokeRect(x,y,r-x,b-y);}if(s.anchor){c.beginPath();c.arc(...s.anchor,6,0,Math.PI*2);c.stroke();}}if(g){if(g.tool==='rect'){const a=g.points[0],b=g.points.at(-1);c.strokeRect(...a,b[0]-a[0],b[1]-a[1]);}else if(g.tool==='lasso'){this.path(g.points);c.stroke();}else if(g.tool==='pointer'){c.setLineDash([]);c.beginPath();c.arc(...g.points.at(-1),12,0,Math.PI*2);c.stroke();}}c.restore();this.paintGuide();this.paintVisual();$('mp-close-lasso').hidden=!this.pendingLasso;this.updateMetadata();$('mp-undo').disabled=!this.undoStack.length;$('mp-redo').disabled=!this.redoStack.length;}
-        renderAnswers(){const root=$('mp-answers');root.replaceChildren();if(this.answerDirty){this.disposeScene();return;}const current=this.presentationQuery(),guided=this.guideQuery();const sameSel=(s1,s2)=>{if(!s1||!s2)return !s1&&!s2;if(s1.shape!==s2.shape)return false;if(s1.bounds&&s2.bounds)return s1.bounds.every((v,i)=>Math.abs(v-s2.bounds[i])<2.0);return ['points','anchor'].every(k=>JSON.stringify(s1[k])===JSON.stringify(s2[k]));};const docSel=this.doc?.selection;const matches=(this.doc?.queries||[]).filter(q=>q.revision===this.doc.revision&&(q===current||q===guided||(docSel&&sameSel(q.selection,docSel)))).slice(-5);if(current&&!matches.includes(current))matches.push(current);if(guided&&!matches.includes(guided))matches.push(guided);for(const q of matches){const visual=q===current||q===guided,card=q===current?this.presentationCard(q):q===guided?this.guideCard(q):document.createElement('p');card.classList.add('mp-answer');if(!visual)card.textContent=(q.format==='presentation'?q.presentation?.summary||q.error:q.format==='guide'?q.guide?.goal||q.error:q.response||q.error)||(q.state==='running'?'Analizando...':'Interrumpido; vuelve a preguntar.');card.title='Captura '+q.source_id.slice(0,6)+' · revisión '+q.revision;root.append(card);}this.queueView();}
+        render(){const c=this.ctx;c.clearRect(0,0,this.canvas.width,this.canvas.height);if(!this.doc)return;this.doc.strokes.forEach(s=>this.stroke(s));const g=this.gesture;if(g&&['pen','marker'].includes(g.tool))this.stroke(g);c.save();c.strokeStyle='#9274ff';c.fillStyle='#b8aaff22';c.lineWidth=Math.max(2,this.canvas.width/450);c.setLineDash([c.lineWidth*3,c.lineWidth*2]);const s=this.pendingLasso||this.stage.hidden&&this.doc.selection;if(s){if(s.shape==='lasso'){this.path(s.points,true);c.fill('evenodd');c.stroke();}else{const [x,y,r,b]=s.bounds;c.strokeRect(x,y,r-x,b-y);}if(s.anchor){c.beginPath();c.arc(...s.anchor,6,0,Math.PI*2);c.stroke();}}if(g){if(g.tool==='rect'){const a=g.points[0],b=g.points.at(-1);c.strokeRect(...a,b[0]-a[0],b[1]-a[1]);}else if(g.tool==='lasso'){this.path(g.points);c.stroke();}else if(g.tool==='pointer'){c.setLineDash([]);c.beginPath();c.arc(...g.points.at(-1),12,0,Math.PI*2);c.stroke();}}c.restore();this.paintGuide();this.paintVisual();this.paintDrawing();$('mp-close-lasso').hidden=!this.pendingLasso;this.updateMetadata();$('mp-undo').disabled=!this.undoStack.length;$('mp-redo').disabled=!this.redoStack.length;}
+        renderAnswers(){const root=$('mp-answers');root.replaceChildren();if(this.drawingGuide&&this.signaled)root.append(this.drawingCard());if(this.answerDirty){this.disposeScene();return;}const current=this.presentationQuery(),guided=this.guideQuery();const sameSel=(s1,s2)=>{if(!s1||!s2)return !s1&&!s2;if(s1.shape!==s2.shape)return false;if(s1.bounds&&s2.bounds)return s1.bounds.every((v,i)=>Math.abs(v-s2.bounds[i])<2.0);return ['points','anchor'].every(k=>JSON.stringify(s1[k])===JSON.stringify(s2[k]));};const docSel=this.doc?.selection;const matches=(this.doc?.queries||[]).filter(q=>q.revision===this.doc.revision&&(q===current||q===guided||(docSel&&sameSel(q.selection,docSel)))).slice(-5);if(current&&!matches.includes(current))matches.push(current);if(guided&&!matches.includes(guided))matches.push(guided);for(const q of matches){const visual=q===current||q===guided,card=q===current?this.presentationCard(q):q===guided?this.guideCard(q):document.createElement('p');card.classList.add('mp-answer');if(!visual)card.textContent=(q.format==='presentation'?q.presentation?.summary||q.error:q.format==='guide'?q.guide?.goal||q.error:q.response||q.error)||(q.state==='running'?'Analizando...':'Interrumpido; vuelve a preguntar.');card.title='Captura '+q.source_id.slice(0,6)+' · revisión '+q.revision;root.append(card);}this.queueView();}
         presentationQuery(){
             const d=this.doc,last=this.answerDirty?null:d?.queries?.findLast(q=>q.revision===d.revision&&q.state==='completed');
             return last?.presentation?last:null;
@@ -575,6 +583,7 @@
                 button('Guíame para hacerlo en la aplicación','Guíame',()=>{void this.ask({fresh:false,format:'guide',base:q.id,question:$('mp-question').value.trim()||'Guíame paso a paso para hacer esto en la aplicación: '+p.title});}),el('span',(player.index+1)+' / '+p.steps.length,'mp-visual-progress'));
             card.append(list,controls);
             if(player.scene){for(const id of player.hidden)player.scene.setHidden(id,true);player.scene.focus(player.picked?[player.picked]:player.overview?[]:p.steps[player.index].focus||[],player.isolated);}
+            this.applyGuideStep(q,player);
             return card;
         }
         sceneBlock(p,player,el,button){
@@ -915,6 +924,7 @@
             const base=this.presentationQuery(),question=$('mp-question').value.trim();
             if(base&&this.localSceneCommand(question))return;
             const normalized=question.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+            if(this.signaled&&this.signaledRoute(question,normalized))return;
             const locate=/\b(donde (esta|queda|se encuentra|puedo encontrar)|senala|senalame|marca|marcame|ubica|ubicame|indica|indicame|encuentra|encuentrame|resalta|resaltame)\b/.test(normalized),diagram=/\b(diagrama|esquema|flujo)\b/.test(normalized),model=/\b(3d|modelo tridimensional|en tres dimensiones|maqueta|isometrica|isometria|despiece|explotad[oa]|perspectiva 3d)\b/.test(normalized)||/\b(crea|genera|generame|haz|construye|muestrame|ensename|dame)\b.{0,35}\b(modelo|isometric[oa]|vista 3d|escena 3d)\b/.test(normalized),visual=/\b(analiza|explica|explicame|como funciona|funcionamiento|visualiza|ilustra|muestrame|desglosa|ensena)\b/.test(normalized);
             const spatial=this.spatialRoute(),advanced=this.spatialProviders?.get($('mp-spatial-provider').value)?.spatial_3d;
             if(model&&!advanced)return this.status(this.threeDHint());
@@ -1030,6 +1040,94 @@
             if(r.monitors&&!r.monitors.some(m=>m.x===s.x&&m.y===s.y&&m.width===s.width&&m.height===s.height))return 'stale';
             const x=b.x-s.x,y=b.y-s.y;
             return x+b.width<=0||y+b.height<=0||x>=s.width||y>=s.height?null:{x,y,width:b.width,height:b.height,label:step.target.name};
+        }
+        // Guided 3D/diagram step from the persisted GuideSession: applied once per step; labels then follow the camera every frame.
+        applyGuideStep(q,player){
+            if(!this.signaled||!player?.scene||!q?.presentation?.scene)return;
+            const session=q.guide_session;
+            if(!session){if(!player.sessionLoading){player.sessionLoading=true;
+                void api('guide_session',{id:q.source_id,query_id:q.id}).then(s=>{q.guide_session=s;
+                    const resume=q.presentation.steps.findIndex(st=>st.id===s.current_step_id);  // 3D-07: continue where the session stopped
+                    if(resume>0&&player.index===0&&!player.resumed){player.resumed=true;player.index=resume;}this.renderAnswers();})
+                    .catch(e=>{player.sessionLoading=false;this.status('Guía: '+(e.message||e));});}return;}
+            const step=session.steps.find(s=>s.step_id===q.presentation.steps[player.index]?.id);if(!step)return;
+            const key=q.id+':'+step.step_id;if(player.guideKey===key)return;player.guideKey=key;
+            const anchors=new Map(session.anchors.map(a=>[a.anchor_id,a]));
+            const ids=step.target_anchor_ids.map(a=>anchors.get(a)).filter(a=>a?.type==='object3d').map(a=>a.target_ref.object_id);
+            const labels=new Map(q.presentation.scene.objects.map(o=>[o.id,o.label]));
+            player.scene.stopMotions();player.scene.setGuide({targets:ids,callouts:Object.fromEntries(ids.map(id=>[id,labels.get(id)||id]))});
+            if(step.camera_action==='frame_targets'&&ids.length)player.scene.frame(ids);
+            if(step.scene_action==='explode'&&!player.exploded){player.exploded=true;player.scene.setExploded(true);}
+            else if(step.scene_action==='assemble'&&player.exploded){player.exploded=false;player.scene.setExploded(false);}
+            const motion=step.motion&&anchors.get(step.motion.anchor_id);
+            if(motion)player.scene.animateObject(motion.target_ref.object_id,{kind:step.motion.kind,axis:step.motion.axis});
+            if(session.current_step_id!==step.step_id)void api('guide_session',{id:q.source_id,query_id:q.id,step_id:step.step_id,expected_revision:session.revision})
+                .then(s=>{q.guide_session=s;}).catch(()=>{});
+        }
+        // ---- Explicación señalizada ----
+        // The system picks the representation from the question: drawing guides on the canvas, a tutorial on the real
+        // window (UIA, verified per step), or a guided 2D/3D explanation. Model text never supplies coordinates here.
+        signaledRoute(question,normalized){
+            const drawing=/\b(dibuj|colore|pint|traz|bocet|sombre)\w*/.test(normalized)&&!/\b(3d|diagrama|esquema)\b/.test(normalized);
+            const screen=!drawing&&/\b(inici\w* (de )?sesion|login|registr\w*|crea\w* (una )?cuenta|contrasena|descarg\w*|sub\w* (una )?(foto\w*|archivo|imagen)|formula|import\w*|menu|boton|pestana|configuracion|ajustes|como (hago|creo|cambio|activo|abro|guardo|exporto|uso)|donde (esta|queda|cambio|descargo|subo|activo|encuentro)|ensename a usar|paso a paso)\b/.test(normalized);
+            if(drawing){const color=(normalized.match(/\b(rojo|naranja|amarillo|verde|cian|celeste|azul|morado|violeta|rosa|negro|blanco|gris)\b/)||[])[1];void this.startDrawingGuide(color);return true;}
+            if(screen){void this.ask({fresh:false,format:'guide',question});return true;}
+            return false;  // diagrams and 3D keep their route; applyGuideStep anchors and animates their steps
+        }
+        async startDrawingGuide(color){
+            if(!this.doc)return this.status('Captura primero la figura que quieres dibujar.');
+            this.status('Analizando la figura…');
+            const previous=this.drawingGuide;
+            try{const r=await api('drawing_guide',{id:this.doc.id,...(color?{color}:{}),...(previous?.id&&previous.id!==this.doc.id?{compare_id:previous.id}:{})});
+                const stage=color?Math.max(0,r.stages.findIndex(s=>s.stage==='color')):previous?.stage||0;
+                this.drawingGuide={...r,stage:Math.min(stage,Math.max(0,r.stages.length-1)),opacity:previous?.opacity??.55,visible:true,color:color||null};
+                if(!r.analysis.regions.length)this.status('No distingo formas en la selección; selecciona solo la figura.');
+                else if(color&&!r.color_regions?.length)this.status('No encuentro zonas de color '+color+' en la figura; no marco ninguna.');
+                else this.status(r.comparison?.changed?'Tu dibujo cambió: guías actualizadas ('+r.comparison.changes.length+' cambio/s).':'');
+                this.render();this.renderAnswers();this.showWidget();
+            }catch(e){this.status('No pude analizar el dibujo: '+(e.message||e));}
+        }
+        drawingCard(){
+            const g=this.drawingGuide,stage=g.stages[g.stage],card=document.createElement('section');card.className='mp-answer mp-drawing-guide';
+            const el=(tag,text,cls)=>{const n=document.createElement(tag);if(text!=null)n.textContent=text;if(cls)n.className=cls;return n;};
+            const button=(label,text,onclick,disabled=false)=>{const b=el('button',text);b.type='button';b.setAttribute('aria-label',label);b.onclick=onclick;b.disabled=disabled;return b;};
+            card.append(el('h3','Guía de dibujo · '+(g.stages.length?(g.stage+1)+' / '+g.stages.length:'sin formas')));
+            if(stage){card.append(el('strong',stage.title),el('p',stage.narration));
+                if(stage.palette){const pal=el('div',null,'mp-drawing-palette');
+                    for(const c of stage.palette){const sw=el('span',c.name,'mp-drawing-swatch');sw.style.setProperty('--swatch',c.hex);pal.append(sw);}card.append(pal);}
+                if(stage.assumed)card.append(el('small','La dirección de la luz es una suposición: la imagen no la indica.','mp-visual-basis'));}
+            const steps=el('ol',null,'mp-drawing-stages');g.stages.forEach((s,i)=>{const li=el('li',s.title);if(i===g.stage)li.setAttribute('aria-current','step');li.onclick=()=>{g.stage=i;this.render();this.renderAnswers();};steps.append(li);});
+            const opacity=el('input');opacity.type='range';opacity.min='0.15';opacity.max='0.9';opacity.step='0.05';opacity.value=String(g.opacity);opacity.setAttribute('aria-label','Opacidad de las guías');
+            opacity.oninput=()=>{g.opacity=Number(opacity.value);this.render();};
+            const controls=el('div',null,'mp-player');
+            controls.append(button('Etapa anterior','‹',()=>{g.stage--;this.render();this.renderAnswers();},g.stage<=0),
+                button('Narrar esta etapa','Narrar',()=>stage&&A.companion?.read?.(stage.narration)),
+                button('Etapa siguiente','›',()=>{g.stage++;this.render();this.renderAnswers();},g.stage>=g.stages.length-1),
+                button(g.visible?'Ocultar guías':'Mostrar guías',g.visible?'Ocultar guías':'Mostrar guías',()=>{g.visible=!g.visible;this.render();this.renderAnswers();}),
+                button('Volver a analizar tras tus cambios (captura de nuevo la figura antes)','Actualizar guías',()=>void this.startDrawingGuide(g.color)));
+            card.append(steps,el('label','Opacidad'),opacity,controls);
+            return card;
+        }
+        paintDrawing(){
+            const g=this.drawingGuide;if(!g?.visible||!this.signaled)return;const stage=g.stages[g.stage];if(!stage)return;
+            const c=this.ctx,[fx,fy,fw,fh]=g.frame,X=n=>fx+n*fw,Y=n=>fy+n*fh,w=Math.max(2,this.canvas.width/600),regions=new Map(g.analysis.regions.map(r=>[r.region_id,r]));
+            const only=stage.stage==='color'&&g.color?new Set(g.color_regions||[]):null;
+            const poly=pts=>{c.beginPath();pts.forEach(([x,y],i)=>i?c.lineTo(X(x),Y(y)):c.moveTo(X(x),Y(y)));c.closePath();};
+            c.save();c.globalAlpha=g.opacity;c.lineWidth=w;c.font=`600 ${Math.round(w*6)}px "Segoe UI",sans-serif`;
+            for(const m of stage.marks){const r=m.region_id?regions.get(m.region_id):null;if(m.region_id&&!r)continue;if(only&&m.kind==='color_zone'&&!only.has(m.region_id))continue;
+                if(m.kind==='guide_line'){c.setLineDash([w*4,w*3]);c.strokeStyle='#7fd4ff';c.beginPath();c.moveTo(X(m.points[0][0]),Y(m.points[0][1]));c.lineTo(X(m.points[1][0]),Y(m.points[1][1]));c.stroke();c.setLineDash([]);}
+                else if(m.kind==='highlight_box'){c.setLineDash([w*3,w*3]);c.strokeStyle='#7fd4ff';c.strokeRect(X(m.bbox[0]),Y(m.bbox[1]),m.bbox[2]*fw,m.bbox[3]*fh);c.setLineDash([]);}
+                else if(m.kind==='outline'){c.strokeStyle='#ffcf6e';poly(r.contour);c.stroke();if(m.label){c.fillStyle='#ffcf6e';c.fillText(m.label,X(r.bbox[0]),Y(r.bbox[1])-w*2);}}
+                else if(m.kind==='path'){c.strokeStyle='#ff8fd0';c.setLineDash([w*5,w*3]);poly(r.contour);c.stroke();c.setLineDash([]);
+                    const [ax,ay]=r.contour[0],[bx,by]=r.contour[Math.min(3,r.contour.length-1)],ang=Math.atan2(Y(by)-Y(ay),X(bx)-X(ax));c.fillStyle='#ff8fd0';c.beginPath();
+                    c.moveTo(X(ax),Y(ay));c.lineTo(X(ax)-w*6*Math.cos(ang-.5),Y(ay)-w*6*Math.sin(ang-.5));c.lineTo(X(ax)-w*6*Math.cos(ang+.5),Y(ay)-w*6*Math.sin(ang+.5));c.fill();
+                    c.fillText(String(m.order),X(r.centroid[0]),Y(r.centroid[1]));}
+                else if(m.kind==='color_zone'){c.fillStyle=m.color;c.globalAlpha=g.opacity*.6;poly(r.contour);c.fill();c.globalAlpha=g.opacity;c.strokeStyle='#ffffff';c.stroke();
+                    c.fillStyle='#fff';c.fillText(String(m.order),X(r.centroid[0]),Y(r.centroid[1]));}
+                else if(m.kind==='region_mask'){c.save();poly(r.contour);c.clip();c.fillStyle='#000';c.globalAlpha=g.opacity*.35;
+                    c.fillRect(X(r.centroid[0]),Y(r.centroid[1]),X(r.bbox[0]+r.bbox[2])-X(r.centroid[0]),Y(r.bbox[1]+r.bbox[3])-Y(r.centroid[1]));c.restore();}
+                else if(m.kind==='motion_direction'){c.strokeStyle='#ffe08a';c.beginPath();c.moveTo(X(m.points[0][0]),Y(m.points[0][1]));c.lineTo(X(m.points[1][0]),Y(m.points[1][1]));c.stroke();}}
+            c.restore();
         }
         paintGuide(){
             const m=this.guide?.mark;if(!m||typeof m!=='object')return;

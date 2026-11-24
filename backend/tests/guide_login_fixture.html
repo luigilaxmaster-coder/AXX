@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><title>Portal de prueba AXX</title>
+<style>body{font:16px system-ui;margin:24px}label{display:block;margin-top:12px}#spacer{height:900px}button{margin-top:16px;padding:8px 16px}</style></head>
+<body>
+<!-- Local fixture for Visual Guidance tests: no network, no real account. -->
+<main id="login">
+  <h1>Acceso</h1>
+  <label for="user">Usuario</label><input id="user" autocomplete="off">
+  <label for="pass">Contraseña</label><input id="pass" type="password" autocomplete="off">
+  <div id="spacer"></div>
+  <button id="go" type="button">Iniciar sesión</button>
+</main>
+<main id="home" hidden><h1>Bienvenido</h1><p>Has iniciado sesión en el portal de prueba.</p></main>
+<script>
+user.oninput=()=>{document.title='Portal de prueba AXX · '+user.value.length;};
+document.getElementById('go').onclick=()=>{if(!user.value||!pass.value)return;login.hidden=true;home.hidden=false;document.title='Bienvenido · Portal de prueba AXX';};
+</script>
+</body></html>

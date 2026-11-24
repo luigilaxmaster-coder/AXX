@@ -225,6 +225,23 @@ def _windows_api():
     return user, kernel
 
 
+_dwm = None
+
+
+def _cloaked(hwnd):
+    """DWM-cloaked windows (Widgets board, suspended UWP apps, other virtual desktops) report visible but are not on screen."""
+    global _dwm
+    try:
+        if _dwm is None:
+            _dwm = ctypes.WinDLL('dwmapi')
+            _dwm.DwmGetWindowAttribute.argtypes = [wintypes.HWND, wintypes.DWORD, ctypes.c_void_p, wintypes.DWORD]
+            _dwm.DwmGetWindowAttribute.restype = ctypes.c_long
+        value = wintypes.DWORD()
+        return _dwm.DwmGetWindowAttribute(hwnd, 14, ctypes.byref(value), ctypes.sizeof(value)) == 0 and value.value != 0  # DWMWA_CLOAKED
+    except (OSError, AttributeError):
+        return False
+
+
 def list_windows(*, include_untitled=False, include_titles=True):
     """Return visible top-level windows with ephemeral HWND/PID identity."""
     if type(include_untitled) is not bool or type(include_titles) is not bool:raise ValueError('Alcance de ventanas inválido.')
@@ -234,7 +251,7 @@ def list_windows(*, include_untitled=False, include_titles=True):
     callback_type = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
 
     def visit(hwnd, _):
-        if not user.IsWindowVisible(hwnd):
+        if not user.IsWindowVisible(hwnd) or _cloaked(hwnd):
             return True
         title_value = ''
         if include_titles:
