@@ -17,7 +17,7 @@ ChatGPT/Codex del propietario.
 |---|---|---|
 | 3.1 Identidad, plantillas sin permisos, duplicar | CUMPLE | Acts Studio; duplicar crea copia deshabilitada sin grants (`test_acts_inference`). |
 | 3.2 Personalidad → instrucciones del modelo | CUMPLE | `persona_prompt`; la persona llega al modelo (prueba UI y real). |
-| 3.3 24 formas, 9 paletas, material | PARCIAL | Validado y seleccionable; miniaturas SVG paramétricas en caché, no capturas del renderer 3D real. Reacciones por estado: no implementadas. |
+| 3.3 24 formas, 9 paletas, material | CUMPLE | `act-avatar.js` dibuja cada Act con el `SoftwareRenderer` de AXX (mismas 24 formas y colores de `Axx.PALETTES`, materiales → acabados), con un renderer oculto para retratos en caché y uno vivo para el Act editado o trabajando. Ajustes por Act (`appearance.studio`, tamaño, energía) y gesto por estado; `test_act_appearance`, `test_acts_ui`. |
 | 3.4 Modelo por Act con el router existente | CUMPLE | `ActInferenceService`; `model_verified` en cada turno; real Ollama + real Codex (`gpt-6.1-terra` sin tocar `gpt-6.1-sol`). |
 | 3.5 Voz por Act | PARCIAL | Voz/velocidad/idioma aplicados al lector existente (`502182a`); sin clonación ni micrófono automático. Sin prueba de audio nativa. |
 | 3.6 Memoria por alcance | PARCIAL | `memory_scope` persistido y aplicado al chat; sin almacén de memoria privado por Act separado del existente. |
@@ -33,7 +33,8 @@ ChatGPT/Codex del propietario.
 | Estados idle…disabled | PARCIAL | Se muestran los nueve; `planning`/`paused`/`blocked` solo si el backend los emite. |
 | Editar → previsualizar → aplicar → verificar | CUMPLE | «Aplicar y verificar» relee el perfil y muestra la persona servida. |
 | Modo de trabajo amplio | CUMPLE | Panel de 1240×860 (ajustado al área real) con Acts o Code Studio abiertos; uno a la vez. |
-| Sin renderizadores 3D por tarjeta | CUMPLE | Miniaturas SVG. |
+| Sin renderizadores 3D por tarjeta | CUMPLE | Dos instancias en total (retratos + vivo), nunca una por tarjeta; el avatar principal no se toca. |
+| Act visible mientras trabaja | CUMPLE | Franja de presencia en el chat y en Code Studio con la forma animada por estado, modelo, reloj, duración y modelo verificado; ficha técnica por Act. |
 
 ## Parte IV — Acts en el chat existente
 | Punto | Estado | Evidencia |
