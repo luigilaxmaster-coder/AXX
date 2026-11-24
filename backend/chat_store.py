@@ -409,7 +409,10 @@ class ChatStore:
                         or (ref is not None and not isinstance(ref, dict))
                         or (isinstance(ref, dict) and (ref.get('task_id') != task_id or ref.get('generation') != current['generation']))
                         or (ref is None and type(created) not in (int, float))
-                        or (type(created) in (int, float) and forgotten is not None and created <= forgotten)):
+                        # An explicit current generation/context is authoritative.
+                        # Legacy receipts need the wall-clock boundary; a fresh
+                        # scoped receipt may legitimately share its clock tick.
+                        or (ref is None and type(created) in (int, float) and forgotten is not None and created <= forgotten)):
                     result['memory_forgotten'] = True
             return results[:learning_start] + [ActionLearning._memory_view(result, db) for result in results[learning_start:]]
 

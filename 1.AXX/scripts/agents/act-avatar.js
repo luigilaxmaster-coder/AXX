@@ -91,6 +91,24 @@
 
   // ---- Live: a single animated renderer that moves to whichever host shows the working/edited Act ----
   const live = {renderer: null, canvas: null, host: null, key: '', look: null};
+  // A panel can hide its connected subtree without removing the canvas. Stop
+  // rendering while hidden, retaining the host/state so reopening resumes it.
+  const visibilityObserver = new MutationObserver(syncVisibility);
+  function observeVisibility() {
+    visibilityObserver.disconnect();
+    for (let node = live.host; node; node = node.parentElement)
+      visibilityObserver.observe(node, {attributes: true, attributeFilter: ['hidden', 'class', 'style'], childList: true});
+  }
+  function syncVisibility() {
+    const r = live.renderer;
+    if (!r || !live.host) return;
+    if (!live.canvas.isConnected) { hide(); return; }
+    const visible = !document.hidden && live.canvas.getClientRects().length > 0
+      && getComputedStyle(live.canvas).visibility !== 'hidden';
+    if (!visible) { r.stop(); r.hidden = true; }
+    else if (r.hidden || !r.frameHandle) { r.setHidden(false); r.startLoop(); }
+  }
+  document.addEventListener('visibilitychange', syncVisibility);
   function show(host, rawLook, state = 'working', zoom = 1) {
     if (!host) return;
     const look = normal(rawLook), key = keyOf(look, zoom);
@@ -98,15 +116,16 @@
       live.canvas = Object.assign(document.createElement('canvas'), {className: 'axx-act-live'});
       live.canvas.setAttribute('role', 'img');
     }
-    if (live.host !== host) { host.append(live.canvas); live.host = host; }
+    if (live.canvas.parentElement !== host) host.append(live.canvas);
+    live.host = host;
     if (!live.renderer) {
       live.renderer = makeRenderer(live.canvas, look, false);
-      live.renderer.onFrame = () => { if (!live.canvas.isConnected) hide(); };  // host re-rendered away: stop drawing
+      live.renderer.onFrame = syncVisibility;
     }
     if (live.key !== key) { apply(live.renderer, look, false, zoom); live.key = key; }
     live.look = look;
     live.canvas.setAttribute('aria-label', Axx.FORMS[look.form_id].name + ' · ' + Axx.PALETTES[look.palette_id].name);
-    live.renderer.setHidden(false); setState(state); live.renderer.startLoop();
+    setState(state); observeVisibility(); syncVisibility();
   }
   function setState(state) {
     const r = live.renderer; if (!r) return;
@@ -116,6 +135,7 @@
   }
   function hide(host) {
     if (!live.renderer || (host && live.host !== host)) return;
+    visibilityObserver.disconnect();
     live.renderer.stop(); live.canvas.remove(); live.host = null; live.renderer.hidden = true;
   }
   // Drag to turn the live preview, like the main avatar.

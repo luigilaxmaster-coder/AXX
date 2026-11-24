@@ -744,7 +744,7 @@ class SkillMemory:
     def _lesson_receipt(self, operation_id, state):
         if not isinstance(operation_id, str) or not re.fullmatch(r'[A-Za-z0-9_.-]{1,128}', operation_id):
             raise ValueError('Selecciona una operación real del diario')
-        row = self.db.execute('SELECT state,result_json,created_at FROM command_runs WHERE operation_id=?', (operation_id,)).fetchone()
+        row = self.db.execute('SELECT state,result_json,created_at,rowid FROM command_runs WHERE operation_id=?', (operation_id,)).fetchone()
         if not row: raise ValueError('La operación no existe en el diario')
         receipt = json.loads(row[1])
         if row[0] != state or receipt.get('state') != state:
@@ -765,7 +765,7 @@ class SkillMemory:
                 (SELECT 1 FROM json_each(json_extract(payload,'$.step_records')) r
                  WHERE json_extract(r.value,'$.operation_id')=?) LIMIT 1""", (operation_id,)).fetchone()
             if found: parent = json.loads(found[0])
-        return receipt, row[2], parent
+        return receipt, row[2], parent, row[3]
 
     def record_lesson(self, body):
         body = bounded_object(body, 8000)
@@ -778,7 +778,7 @@ class SkillMemory:
         if not isinstance(correction, str) or len(correction) > 1000:
             raise ValueError('Corrección humana inválida')
         with self._write():
-            failure, failure_at, parent = self._lesson_receipt(body.get('operation_id'), 'failed')
+            failure, failure_at, parent, failure_sequence = self._lesson_receipt(body.get('operation_id'), 'failed')
             sources = [failure, parent or {}]
             documents = self.inherit_document_references({}, *sources)
             project = project_key(body.get('project_id', parent.get('project_id', '') if parent else ''))
@@ -804,8 +804,11 @@ class SkillMemory:
             except ValueError: environment = 'unknown'
             verification = None
             if body.get('verification_operation_id') is not None:
-                trial, trial_at, trial_parent = self._lesson_receipt(body['verification_operation_id'], 'succeeded')
-                if (trial['command_id'] != command or trial_at <= failure_at
+                trial, trial_at, trial_parent, trial_sequence = self._lesson_receipt(body['verification_operation_id'], 'succeeded')
+                # Windows clocks can assign the same timestamp to consecutive
+                # receipts. Persisted journal order breaks that tie without
+                # accepting an earlier verification or trusting client timing.
+                if (trial['command_id'] != command or (trial_at, trial_sequence) <= (failure_at, failure_sequence)
                         or trial.get('conversation_id') != failure.get('conversation_id')
                         or trial_parent and trial_parent.get('project_id', '') != project):
                     raise ValueError('La prueba debe ser posterior, del mismo comando y ámbito')

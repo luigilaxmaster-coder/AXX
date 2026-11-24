@@ -2,6 +2,7 @@ import json
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 from backend.chat_store import ChatStore, TTL
@@ -378,6 +379,13 @@ class ChatForgettingTests(unittest.TestCase):
         self.assertEqual([m['text'] for m in self.store.get(cid)['messages']], ['FRESH'])
 
     def test_effect_receipts_are_preserved_and_only_old_a_projection_is_forgotten(self):
+        self._check_effect_receipts_projection()
+
+    def test_equal_clock_ticks_preserve_fresh_scoped_receipts_after_forget(self):
+        with patch('time.time', return_value=self.now / 1000):
+            self._check_effect_receipts_projection()
+
+    def _check_effect_receipts_projection(self):
         a, b, c = self.chat(), self.chat(), self.chat()
         self.save(a, 'a-source', 'PRIVATE_A')
         self.store.mutate('link', {'id': c, 'source_id': a})

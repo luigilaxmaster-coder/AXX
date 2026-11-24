@@ -1,9 +1,11 @@
 """Real Git/files/SQLite coverage for bounded context and incremental Act changes."""
 import hashlib
+import os
 import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from backend.agents.http_api import EvolutionHttpRuntime
 from backend.code_studio.context import incremental_content, parse_model_edits
@@ -12,6 +14,11 @@ from backend.tests.test_acts_code_tools import git_repo
 
 
 class CodeContextTests(unittest.TestCase):
+    def test_git_keeps_empty_environment_config_after_a_windows_environment_roundtrip(self):
+        with patch.dict(os.environ, {'GIT_CONFIG_COUNT':'1','GIT_CONFIG_KEY_0':'core.fsmonitor','GIT_CONFIG_VALUE_0':''}):
+            with patch.dict(os.environ, {'AXX_TEST_ROUNDTRIP':'yes'}):
+                pass
+            self.assertEqual(len(self.rt.code_git.get_head_commit(self.repo)),40)
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         root = Path(self.tmp.name)

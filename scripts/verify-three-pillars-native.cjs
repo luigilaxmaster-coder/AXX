@@ -55,7 +55,7 @@ async function main(){
  try{
   await launch(fixture);await flags();
   const originals=await page.evaluate(()=>({avatar:localStorage.getItem('axx-studio-v2'),reader:{voice:Axx.symbiosis.reader.voiceURI,rate:Axx.symbiosis.reader.rate}}));
-  const voices=await api('GET','/axx-api/speech/voices'),voice=voices.voices.find(v=>v.engine==='windows-sapi');assert(voice,'Windows SAPI voice required for native TTS acceptance');
+  const voices=await api('GET','/axx-api/speech/voices'),voice=voices.voices.find(v=>!v.engine||v.engine==='windows-sapi');assert(voice,'Windows SAPI voice required for native TTS acceptance');
   for(const [i,name] of ['Native Dev','Native Visual','Native QA'].entries())await api('POST','/axx-api/agents/v1/profiles',{
    schema_version:'1.0',revision:1,agent_id:'native-'+i,name,role:i===2?'QA':'Assistant',instructions:'Responde solamente al alcance de tu turno.',
    enabled:true,appearance:{form_id:i,palette_id:i,material_preset:'optical_glass'},
