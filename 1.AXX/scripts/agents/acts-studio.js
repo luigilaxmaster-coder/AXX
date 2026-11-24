@@ -14,11 +14,6 @@
   const FORMS = ['Core', 'Flow', 'Pearl', 'Torus', 'Split', 'Wave', 'Bloom', 'Fold', 'Spike', 'Drift', 'Orbit', 'Morph',
     'Cushion', 'Trefoil', 'Nova', 'Heart', 'Infinity', 'Helix', 'Knot', 'Petal', 'Prism', 'Capsule', 'Crescent', 'Ripple'];
   const PALETTES = ['Obsidian', 'Nebula', 'Ocean', 'Sunset', 'Amethyst', 'Emerald', 'Champagne', 'Silver', 'Void'];
-  const PALETTE_COLORS = [
-    ['#0d1117', '#58a6ff', '#1f6feb'], ['#1a1025', '#c084fc', '#9333ea'], ['#081c24', '#38bdf8', '#0284c7'],
-    ['#231115', '#fb7185', '#e11d48'], ['#191326', '#a78bfa', '#7c3aed'], ['#071f18', '#34d399', '#059669'],
-    ['#211d16', '#fbbf24', '#d97706'], ['#18181b', '#e4e4e7', '#a1a1aa'], ['#050507', '#818cf8', '#4f46e5'],
-  ];
   const MATERIALS = ['obsidian', 'optical_glass', 'iridescent_pearl', 'brushed_titanium', 'velvet_matte', 'bioluminescent_gel'];
   const TEMPLATES = {
     scratch: {label: 'Desde cero', role: 'Asistente especializado', form: 0, palette: 0, mention: '', instructions: ''},
@@ -221,7 +216,8 @@
 
   function renderLibrary() {
     library.replaceChildren(...state.acts.map(act => {
-      const img = el('img', {alt: 'Vista aproximada de ' + act.name, title:'Vista SVG aproximada; no es una captura del avatar 3D', width: 64, height: 64, src: 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(act.thumbnail?.svg || '')});
+      const img = lookImg(act.appearance, 64, {svg: act.thumbnail?.svg, alt: act.name + ': ' + (FORMS[act.appearance.form_id] || '') + ' ' + (PALETTES[act.appearance.palette_id] || ''),
+        title: 'Forma de AXX dibujada por su renderizador'});
       const live = actLiveStatus(act);
       const badge = el('span', {className: 'axx-acts-badge axx-acts-state', textContent: STATE_LABEL[live] || live});
       badge.dataset.state = live;
@@ -264,7 +260,7 @@
             chip('Autonomía: ' + (AUTONOMY_LABEL[act.autonomy?.mode] || 'Manual'), 'Modo de autonomía'),
             chip('rev. ' + act.revision, 'Revisión del perfil (CAS)'))),
         actions);
-      card.dataset.state = live;
+      card.dataset.state = live; card.dataset.agentId = act.agent_id;
       if (!seenCards.has(act.agent_id)) {  // staggered entrance only the first time a card appears, not on every reload
         seenCards.add(act.agent_id); card.classList.add('axx-acts-enter'); card.style.setProperty('--i', String(state.acts.indexOf(act)));
       }
@@ -446,25 +442,93 @@
     return input;
   }
 
-  let swatch = null;
-  function miniFormSvg(formId, paletteId, mat) {
-    const [p0, acc, glw] = PALETTE_COLORS[paletteId] || PALETTE_COLORS[0];
-    const name = FORMS[formId] || 'Core';
-    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
-      <rect width="64" height="64" rx="14" fill="${p0}"/>
-      <circle cx="32" cy="28" r="18" fill="${glw}" fill-opacity="0.25" stroke="${acc}" stroke-width="2"/>
-      <circle cx="32" cy="28" r="${7 + (formId % 9)}" fill="${acc}" fill-opacity="0.85"/>
-      <text x="32" y="57" fill="${acc}" font-size="8" text-anchor="middle">${name}</text></svg>`;
+  // ---- Appearance: AXX's own 24 forms, 9 palettes and finishes, drawn by its renderer (act-avatar.js) ----
+  const AV = Axx.actAvatar;
+  const paletteColors = id => (Axx.PALETTES?.[id] || Axx.PALETTES?.[0])?.colors || ['#157eff', '#79e7ff', '#a14dff', '#edb58c'];
+  // Fallback when the renderer is unavailable: the backend's cached SVG, else a small swatch in AXX's real colours.
+  function fallbackSvg(look) {
+    const [main, light, deep] = paletteColors(look.palette_id);
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64"><rect width="64" height="64" rx="14" fill="#0b0f17"/>`
+      + `<circle cx="32" cy="32" r="18" fill="${deep}" fill-opacity=".35" stroke="${light}" stroke-width="2"/><circle cx="32" cy="32" r="${8 + (look.form_id % 9)}" fill="${main}"/></svg>`;
   }
-  function renderSwatch() {
-    if (!swatch) return;
-    const a = state.draft.appearance;
-    const cached = state.acts.find(x => x.agent_id === state.draft.agent_id && x.appearance.form_id === a.form_id
-      && x.appearance.palette_id === a.palette_id && x.appearance.material_preset === a.material_preset)?.thumbnail?.svg;
-    swatch.replaceChildren(
-      el('div', {innerHTML: cached || miniFormSvg(a.form_id, a.palette_id, a.material_preset)}),
-      el('div', {}, el('strong', {textContent: FORMS[a.form_id] + ' · ' + PALETTES[a.palette_id] + ' · ' + a.material_preset}),
-        el('small', {textContent: ' Escala ' + (a.scale ?? 1) + '× · El avatar global de AXX no cambia al editar este Act.'})));
+  // <img> for an Act look: SVG first (instant), then the real AXX render replaces it.
+  function lookImg(look, size, {svg, ...props} = {}) {
+    const img = el('img', {alt: '', width: size, height: size, decoding: 'async', ...props,
+      src: 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg || fallbackSvg(look))});
+    return AV ? AV.paint(img, look, size * 2) : img;
+  }
+  const STUDIO_SLIDERS = [['exposure', 'Brillo', .35, 2.2, .05, 1], ['roughness', 'Rugosidad del acabado', .015, .45, .005, .07],
+    ['light_angle', 'Ángulo de luz (°)', -180, 180, 5, 0], ['fluidity', 'Fluidez', 0, 2.3, .05, 1]];
+  const REACTION_SLOTS = [['thinking', 'Al pensar', 'planning'], ['working', 'Al trabajar', 'working'], ['approval', 'Al pedir aprobación', 'awaiting_approval'],
+    ['completed', 'Al completar', 'completed'], ['error', 'Si falla', 'failed']];
+  let look = null;  // live parts of the open Appearance tab
+  function renderSwatch() { look?.refresh(); }
+  function appearancePanel() {
+    const d = state.draft, a = d.appearance;
+    const change = (path, value) => { set(state.draft, path, value); refresh(); markDirty(); };
+    const stage = el('div', {className: 'axx-acts-look-stage', title: 'Arrastra para girar'});
+    if (AV) AV.rotatable(stage);
+    const caption = el('div', {className: 'axx-acts-look-caption'});
+    const tryRow = el('div', {className: 'axx-acts-look-try'}, el('small', {textContent: 'Probar:'}),
+      ...[['idle', 'Reposo'], ['planning', 'Pensando'], ['working', 'Trabajando'], ['speaking', 'Hablando'], ['completed', 'Listo'], ['failed', 'Error']]
+        .map(([st, label]) => el('button', {type: 'button', textContent: label, onclick: () => AV?.setState(st)})));
+    const radio = (label, checked, onclick, ...kids) => {
+      const b = el('button', {type: 'button', role: 'radio', ariaLabel: label, onclick}, ...kids);
+      b.setAttribute('aria-checked', String(checked)); return b;
+    };
+    const formGrid = el('div', {className: 'axx-acts-form-grid', role: 'radiogroup', ariaLabel: 'Forma'});
+    const paletteRow = el('div', {className: 'axx-acts-palette-row', role: 'radiogroup', ariaLabel: 'Paleta'});
+    const materialRow = el('div', {className: 'axx-acts-material-row', role: 'radiogroup', ariaLabel: 'Material'});
+    function paintGalleries() {
+      formGrid.replaceChildren(...Axx.FORMS.map((f, i) => radio(f.name, i === a.form_id, () => change('appearance.form_id', i),
+        lookImg({...a, form_id: i}, 56), el('span', {textContent: f.name}))));
+      for (const [i, b] of [...formGrid.children].entries()) b.title = Axx.FORMS[i].detail;
+      paletteRow.replaceChildren(...Axx.PALETTES.map((p, i) => radio(p.name, i === a.palette_id, () => change('appearance.palette_id', i),
+        el('span', {className: 'axx-acts-palette-dot', style: `background:conic-gradient(${p.colors.join(',')},${p.colors[0]})`}), el('span', {textContent: p.name}))));
+      materialRow.replaceChildren(...MATERIALS.map(m => radio(AV?.MATERIAL_LABEL[m] || m, m === (a.material_preset || 'obsidian'),
+        () => change('appearance.material_preset', m), lookImg({...a, material_preset: m}, 36), el('span', {textContent: AV?.MATERIAL_LABEL[m] || m}))));
+    }
+    const slider = (path, label, min, max, step, fallback) => {
+      const out = el('output');
+      const input = el('input', {type: 'range', min, max, step, value: get(d, path) ?? fallback});
+      const show = () => { out.textContent = Number(input.value).toFixed(step < .01 ? 3 : step < 1 ? 2 : 0); };
+      input.oninput = () => { show(); set(state.draft, path, Number(input.value)); refresh(false); markDirty(); };
+      input.id = 'axx-act-field-' + (++fieldSeq);  // the label names the range input itself, not its wrapper
+      show(); return el('div', {className: 'setting'}, el('label', {htmlFor: input.id, textContent: label}), el('div', {className: 'axx-acts-slider'}, input, out));
+    };
+    const reactions = REACTION_SLOTS.map(([key, label, st]) => {
+      const sel = el('select', {}, ...options([['', 'Sin gesto'], ...Object.entries(AV?.GESTURES || {})], get(d, 'appearance.reactions.' + key)));
+      sel.onchange = () => { set(state.draft, 'appearance.reactions.' + key, sel.value || undefined); refresh(false); markDirty(); AV?.setState(st); };
+      return field(label, sel);
+    });
+    const motionBox = control('appearance.reduce_motion', 'checkbox');
+    motionBox.addEventListener('change', () => refresh(false));
+    function refresh(galleries = true) {
+      if (!state.draft) return;
+      if (galleries) paintGalleries();
+      const f = Axx.FORMS[a.form_id], p = Axx.PALETTES[a.palette_id];
+      caption.replaceChildren(el('strong', {textContent: f.name + ' · ' + p.name}), el('span', {textContent: f.detail}),
+        el('small', {textContent: (AV?.MATERIAL_LABEL[a.material_preset] || a.material_preset) + ' · El avatar principal de AXX no cambia.'}));
+      if (AV) AV.show(stage, a, 'idle'); else stage.innerHTML = fallbackSvg(a);
+    }
+    look = {refresh};
+    setTimeout(() => refresh());
+    return [
+      el('div', {className: 'axx-acts-look'}, el('div', {className: 'axx-acts-look-preview'}, stage, caption, tryRow),
+        el('div', {className: 'axx-acts-look-pickers'},
+          el('h5', {textContent: 'Forma de AXX'}), formGrid,
+          el('h5', {textContent: 'Paleta'}), paletteRow,
+          el('h5', {textContent: 'Material'}), materialRow)),
+      el('fieldset', {className: 'axx-acts-look-tune'}, el('legend', {textContent: 'Ajustar la forma'}),
+        slider('appearance.scale', 'Tamaño', .6, 1.3, .05, 1), slider('appearance.animation_intensity', 'Energía de animación', 0, 2, .1, 1),
+        ...STUDIO_SLIDERS.map(([k, label, min, max, step, def]) => slider('appearance.studio.' + k, label, min, max, step, def)),
+        field('Reducir animación de este Act', motionBox),
+        el('button', {type: 'button', textContent: 'Restablecer ajustes', onclick: () => {
+          for (const k of ['studio', 'scale', 'animation_intensity']) delete state.draft.appearance[k];
+          markDirty(); renderEditor(); }})),
+      el('fieldset', {className: 'axx-acts-look-tune'}, el('legend', {textContent: 'Cómo reacciona mientras trabaja'}), ...reactions,
+        el('p', {textContent: 'El gesto se ve en la vista previa, en el chat y en Code Studio cuando el Act cambia de estado.'})),
+    ];
   }
   const markDirty = () => { const d = editor.querySelector('.axx-acts-dirty'); if (d) d.textContent = dirty() ? 'Cambios sin guardar' : 'Sin cambios'; };
 
@@ -494,15 +558,7 @@
         );
         return out;
       }
-      case 'appearance': swatch = el('div', {className: 'axx-acts-swatch-box'}); setTimeout(renderSwatch);
-        return [field('Forma', control('appearance.form_id', 'select', {pairs: FORMS.map((f, i) => [i, f]), number: true})),
-          field('Paleta', control('appearance.palette_id', 'select', {pairs: PALETTES.map((p, i) => [i, p]), number: true})),
-          field('Material', control('appearance.material_preset', 'select', {pairs: MATERIALS.map(m => [m, m.replace(/_/g, ' ')])})),
-          field('Escala', control('appearance.scale', 'number', {number: true, attrs: {min: 0.1, max: 2, step: 0.1}})),
-          field('Intensidad de animación', control('appearance.animation_intensity', 'number', {number: true, attrs: {min: 0, max: 2, step: 0.1}})),
-          field('Reacción al pensar', control('appearance.reactions.thinking', 'text', {attrs: {placeholder: 'pulse_focus'}})),
-          field('Reacción ejecutando herramientas', control('appearance.reactions.working', 'text', {attrs: {placeholder: 'orbit_spin'}})),
-          field('Reducir animación', control('appearance.reduce_motion', 'checkbox')), swatch];
+      case 'appearance': return appearancePanel();
       case 'intelligence': {
         const router = state.providers.map(p => [p.name, p.name + ' · ' + p.model]);
         const isConnect = d.intelligence.provider_profile_ref === CONNECT;
@@ -702,6 +758,26 @@
   const chatForm = document.getElementById('chat-form');
   if (chatForm) chatForm.before(activityDrawer);
 
+  // Presence: the working Act's own AXX form, animated by its state (one live renderer, moved between boxes).
+  function presenceBox() {
+    const stage = el('div', {className: 'axx-act-presence-stage', title: 'Arrastra para girar'});
+    if (AV) AV.rotatable(stage);
+    return el('div', {className: 'axx-act-presence', hidden: true}, stage, el('div', {className: 'axx-act-presence-text', role: 'status', ariaLive: 'polite'}));
+  }
+  const chatPresence = presenceBox();
+  if (chatForm) chatForm.before(chatPresence);
+  const presenceTimers = new WeakMap();
+  function presence(act, st, text, box = chatPresence) {
+    if (!box) return;
+    clearTimeout(presenceTimers.get(box));
+    if (!act) { box.hidden = true; AV?.hide(box.firstChild); return; }
+    box.hidden = false; box.dataset.state = st;
+    box.lastChild.replaceChildren(el('strong', {textContent: act.name}), ' ', el('span', {textContent: text || STATE_LABEL[st] || st}));
+    if (AV) AV.show(box.firstChild, act.appearance, st, 1.8);
+    else box.firstChild.replaceChildren(lookImg(act.appearance, 48));
+    if (st === 'completed' || st === 'failed') presenceTimers.set(box, setTimeout(() => presence(null, '', '', box), st === 'failed' ? 6000 : 2600));
+  }
+
   activityBtn.onclick = attempt(async () => {
     activityDrawer.hidden = !activityDrawer.hidden;
     if (!activityDrawer.hidden) await refreshActivity();
@@ -814,7 +890,10 @@
     const enabledActs = state.acts.filter(a => a.enabled);
     activityBtn.hidden = chatWho.hidden = !enabledActs.length;  // no Acts: the composer stays exactly as before
     chatSelect.replaceChildren(...options([['', 'AXX'], ...enabledActs.map(a => [a.agent_id, a.name])], chosen));
-    chatWho.dataset.act = chosen ? 'true' : 'false';
+    const chosenAct = enabledActs.find(a => a.agent_id === chosen);
+    chatWho.dataset.act = chosenAct ? 'true' : 'false';
+    chatWho.querySelector('img')?.remove();
+    if (chosenAct) chatWho.prepend(lookImg(chosenAct.appearance, 22, {className: 'axx-acts-chat-face'}));
   }
 
   // Acts live inside the existing Chats y grupos browser. All conversations are the
@@ -863,8 +942,7 @@
           const live=actLiveStatus(act);
           const badge=el('span',{className:'axx-acts-badge axx-acts-state',textContent:STATE_LABEL[live]||live});badge.dataset.state=live;
           const row=el('article',{className:'axx-chat-act-card'},
-            el('img',{alt:'Vista aproximada de '+act.name,title:'Vista SVG aproximada; no es una captura del avatar 3D',width:40,height:40,
-              src:'data:image/svg+xml;charset=utf-8,'+encodeURIComponent(act.thumbnail?.svg||'')}),
+            lookImg(act.appearance,40,{svg:act.thumbnail?.svg,alt:act.name}),
             el('div',{className:'axx-chat-act-meta'},
               el('div',{className:'axx-acts-title'},el('strong',{textContent:act.name}),badge),
               el('small',{textContent:(act.collaboration?.mention?'@'+act.collaboration.mention+' · ':'')+modelLabel(act)})),
@@ -982,7 +1060,11 @@
     const lastUser = [...messages].reverse().find(m => m.role === 'user');
     const multi = findAllMentions(lastUser?.content);
     if (multi.length >= 2) {
-      const teamRes = await runTeamFromChat(lastUser.content, null, signal);
+      presence(multi[0], 'working', 'coordina a ' + multi.slice(1).map(a => a.name).join(', ') + '…');
+      let teamRes;
+      try { teamRes = await runTeamFromChat(lastUser.content, null, signal); }
+      catch (err) { presence(multi[0], 'failed', signal?.aborted ? 'equipo detenido' : 'el equipo no pudo terminar'); throw err; }
+      presence(multi[0], 'completed', 'equipo terminado (' + multi.map(a => a.name).join(' → ') + ')');
       onDelta(teamRes.consolidated_text);
       return {text: teamRes.consolidated_text, reason: 'stop', route: {model: multi.map(a => a.intelligence?.model_id).join(' + '), act_team_run: teamRes.run_id}};
     }
@@ -992,26 +1074,37 @@
     return chatAs(act, p, messages, signal, onDelta);
   };
 
-  async function chatAs(act, p, messages, signal, onDelta = () => {}) {
+  async function chatAs(act, p, messages, signal, onDelta = () => {}, box = chatPresence) {
     const connect = act.intelligence?.provider_profile_ref === CONNECT;
     const label = '〔' + act.name + '〕 ';
-    state.actStates[act.agent_id] = 'working';
+    state.actStates[act.agent_id] = 'working'; markCard(act.agent_id, 'working');
     c.sayStatus?.(act.name + ' está trabajando con ' + modelLabel(act) + '…');
+    presence(act, 'planning', 'piensa con ' + modelLabel(act) + '…', box);
+    let speaking = false;
     try {
       const result = await brainChat({...p, act_id: act.agent_id, act_revision: act.revision, provider: connect ? 'chatgpt' : 'bridge',
         selection_mode: 'manual', model: act.intelligence?.model_id || p.model},
-        messages, signal, text => onDelta(label + text));
-      state.actStates[act.agent_id] = 'completed';
+        messages, signal, text => { if (!speaking) { speaking = true; presence(act, 'speaking', 'responde…', box); } onDelta(label + text); });
+      state.actStates[act.agent_id] = 'completed'; markCard(act.agent_id, 'completed');
+      presence(act, 'completed', 'respondió', box);
       if (act.voice && (act.voice.auto_speak || c.data?.prefs?.voiceRead)) {
         pendingActVoice = act.voice;
         if (act.voice.auto_speak && !c.data?.prefs?.mutedAll) c._forceVoiceReplyOnce = true;
       }
       return {...result, text: label + result.text};
     } catch (err) {
-      state.actStates[act.agent_id] = 'failed';
+      state.actStates[act.agent_id] = 'failed'; markCard(act.agent_id, 'failed');
+      presence(act, 'failed', signal?.aborted ? 'se detuvo' : 'no pudo responder', box);
       throw err;
     }
   }
-  Axx.acts = {load, mentioned, findAllMentions, runTeamFromChat, chatAs, get acts() { return state.acts; }, chooseForChat, open: () => toggleStudio(true), close: () => toggleStudio(false)};
+  // Live state on an existing card without re-rendering the library.
+  function markCard(agentId, live) {
+    const card = [...library.children].find(n => n.dataset?.agentId === agentId); if (!card) return;
+    card.dataset.state = live;
+    const badge = card.querySelector('.axx-acts-state'); if (badge) { badge.dataset.state = live; badge.textContent = STATE_LABEL[live] || live; }
+  }
+  Axx.acts = {load, mentioned, findAllMentions, runTeamFromChat, chatAs, presence, presenceBox, lookImg, get acts() { return state.acts; }, chooseForChat,
+    open: () => toggleStudio(true), close: () => toggleStudio(false)};
   void load().catch(() => {});
 })(window.Axx);
