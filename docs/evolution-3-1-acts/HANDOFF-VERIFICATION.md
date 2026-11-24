@@ -66,7 +66,8 @@ ChatGPT/Codex del propietario.
 | Punto | Estado | Evidencia / límite |
 |---|---|---|
 | PC-01 archivos sin ratón físico | CUMPLE | Operaciones de Code Studio y artefactos por API. |
-| PC-02..05 navegador aislado, UIA real, VM | PARCIAL | Puerta `axx.computer` y política de foco (403 sin permiso); sin adaptador UIA/VM ejecutando acciones reales en esta rama. |
+| PC-03 Act usando una aplicación real (UIA) | CUMPLE | `act_computer.py`: AXX observa la ventana autorizada, el modelo del Act elige un gesto sobre un control real y AXX lo ejecuta y verifica por `ComputerUse` + `ConnectService` + ejecutor; exige la autorización «Controlar PC» con entrada y el permiso `axx.computer/uia` del Act, releído antes de cada gesto. Cursor propio del Act desde pasos ejecutados e indicador nativo con su material. `test_act_computer` (controlado, UI y nativo real con `AXX_REAL_COMPUTER=1`: botón Win32 real pulsado y verificado). |
+| PC-02/04/05 navegador aislado, VM, primer plano | PARCIAL | Puerta `axx.computer` y política de foco (403 sin permiso); sin adaptador de navegador aislado ni VM ejecutando acciones reales en esta rama. |
 
 ## Partes VIII–X — Equipos, rutinas, Magic Pen
 | Punto | Estado | Evidencia |
