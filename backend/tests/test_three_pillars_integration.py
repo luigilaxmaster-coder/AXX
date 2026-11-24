@@ -172,12 +172,16 @@ class ThreePillarsTests(unittest.TestCase):
                                       directory=str(ROOT / '1.AXX')))
         try:
             with sync_playwright() as p:
-                browser = p.chromium.launch(headless=True)
+                # GPU-less CI runners: request Chromium's software WebGL explicitly (it is no longer an automatic fallback).
+                browser = p.chromium.launch(headless=True, args=['--use-angle=swiftshader', '--enable-unsafe-swiftshader'])
                 try:
                     page = open_axx(browser, srv, web)
                     page.evaluate('''async id=>{const pen=Axx.magicPen;pen.active=true;pen.root.hidden=false;pen.state='reviewing';
                         const doc=await Axx.backendRequest('POST','/axx-api/pen/get',{id});await pen.load(doc,true);pen.showWidget();}''', capture['id'])
-                    page.wait_for_function('Axx.magicPen.player?.scene && Axx.magicPen.player?.v2Scene', timeout=30000)
+                    # Wait for the real scene or for Magic Pen's own failure reason, never a blind timeout.
+                    page.wait_for_function('(Axx.magicPen.player?.scene && Axx.magicPen.player?.v2Scene) || Axx.magicPen.player?.sceneFailed', timeout=60000)
+                    self.assertFalse(page.evaluate('Axx.magicPen.player.sceneFailed || ""'),
+                                     page.evaluate("JSON.stringify({webgl2: !!document.createElement('canvas').getContext('webgl2')})"))
                     initial = page.evaluate('Axx.magicPen.player.scene.geometrySnapshot()')
                     page.evaluate("Axx.magicPen.player.picked='a';Axx.magicPen.renderAnswers()")
                     page.get_by_label('Color de A', exact=True).fill('#ff0000')
