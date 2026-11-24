@@ -64,16 +64,7 @@
     if (!cache.has(key)) {
       const job = queue.then(() => new Promise(resolve => tick(() => {
         try {
-          if (!shot || shot.size !== size) {
-            shot?.stage.remove();
-            const stage = Object.assign(document.createElement('div'), {className: 'axx-act-avatar-stage'});
-            stage.setAttribute('aria-hidden', 'true');
-            stage.style.cssText = `position:fixed;left:${-4 * size}px;top:0;width:${size}px;height:${size}px;pointer-events:none;opacity:0;contain:strict`;
-            const canvas = document.createElement('canvas'); canvas.style.cssText = 'width:100%;height:100%;display:block';
-            stage.append(canvas); document.body.append(stage);
-            shot = {size, stage, renderer: makeRenderer(canvas, look, true)};
-          }
-          const r = shot.renderer; apply(r, look, true, 1.7); r.resize(); r.draw(0);
+          const r = stillRenderer(look, size); apply(r, look, true, 1.7); r.resize(); r.draw(0);
           resolve(r.canvas.toDataURL('image/png'));
         } catch { resolve(null); }  // renderer unavailable: callers keep their SVG fallback
       })));
@@ -81,6 +72,29 @@
       if (cache.size > 400) cache.delete(cache.keys().next().value);
     }
     return cache.get(key);
+  }
+  // AXX's native input indicator (windows_input) draws the renderer's shading LUT around the real cursor. While an Act
+  // controls the mouse it lends its own palette/finish here; the key changes with the look so the table is re-sent.
+  function material(rawLook) {
+    const look = normal(rawLook);
+    try {
+      const r = stillRenderer(look, shot?.size || 128); apply(r, look, true, 1.7);
+      const table = r.materialTable();
+      return table ? {table, key: ('act:' + r.lutKey).slice(0, 300)} : null;
+    } catch { return null; }  // renderer unavailable: the indicator keeps AXX's own material
+  }
+  // The single hidden still renderer (portraits and indicator material); recreated only when the size changes.
+  function stillRenderer(look, size) {
+    if (!shot || shot.size !== size) {
+      shot?.stage.remove();
+      const stage = Object.assign(document.createElement('div'), {className: 'axx-act-avatar-stage'});
+      stage.setAttribute('aria-hidden', 'true');
+      stage.style.cssText = `position:fixed;left:${-4 * size}px;top:0;width:${size}px;height:${size}px;pointer-events:none;opacity:0;contain:strict`;
+      const canvas = document.createElement('canvas'); canvas.style.cssText = 'width:100%;height:100%;display:block';
+      stage.append(canvas); document.body.append(stage);
+      shot = {size, stage, renderer: makeRenderer(canvas, look, true)};
+    }
+    return shot.renderer;
   }
   // Fill an <img> with the real portrait; the existing src (SVG fallback) stays if rendering is unavailable.
   function paint(img, look, size) {
@@ -148,6 +162,6 @@
     return host;
   }
 
-  Axx.actAvatar = {portrait, paint, show, hide, setState, rotatable, normal, FINISH, MATERIAL_LABEL, GESTURES, MOTION,
+  Axx.actAvatar = {portrait, paint, show, hide, setState, rotatable, normal, material, FINISH, MATERIAL_LABEL, GESTURES, MOTION,
     get liveHost() { return live.host; }};
 })(window.Axx);

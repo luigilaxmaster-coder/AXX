@@ -157,6 +157,7 @@ class ThreePillarsTests(unittest.TestCase):
 
     def test_magic_pen_edits_real_mesh_exports_glb_and_reopens_revision(self):
         srv = self.srv
+        srv.api.timeout = 180  # the real CAD worker (3 solids + STEP + GLB) exceeds the 25 s harness default on a loaded machine
         capture = srv.magic_pen.acquire(Image.new('RGB', (400, 300), 'white'), {'id': 'fixture'})
         plan = {'schema_version': '1.0', 'kind': 'presentation', 'title': 'Mecanismo', 'summary': 'Tres piezas',
                 'fidelity': 'conceptual', 'steps': [{'id': 's1', 'title': 'Piezas', 'body': 'Tres piezas relacionadas.',
@@ -180,8 +181,9 @@ class ThreePillarsTests(unittest.TestCase):
                         const doc=await Axx.backendRequest('POST','/axx-api/pen/get',{id});await pen.load(doc,true);pen.showWidget();}''', capture['id'])
                     # Wait for the real scene or for Magic Pen's own failure reason, never a blind timeout.
                     page.wait_for_function('(Axx.magicPen.player?.scene && Axx.magicPen.player?.v2Scene) || Axx.magicPen.player?.sceneFailed', timeout=60000)
-                    self.assertFalse(page.evaluate('Axx.magicPen.player.sceneFailed || ""'),
-                                     page.evaluate("JSON.stringify({webgl2: !!document.createElement('canvas').getContext('webgl2')})"))
+                    failed = page.evaluate('Axx.magicPen.player.sceneFailed || ""')
+                    if failed:  # probe only on failure: an extra WebGL context next to a live software scene can stall
+                        self.fail(failed + ' ' + page.evaluate("JSON.stringify({webgl2: !!document.createElement('canvas').getContext('webgl2')})"))
                     initial = page.evaluate('Axx.magicPen.player.scene.geometrySnapshot()')
                     page.evaluate("Axx.magicPen.player.picked='a';Axx.magicPen.renderAnswers()")
                     page.get_by_label('Color de A', exact=True).fill('#ff0000')

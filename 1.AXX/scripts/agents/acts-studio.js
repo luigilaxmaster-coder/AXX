@@ -293,6 +293,14 @@
           await chooseForChat(act.agent_id); say(act.name + ' responderá en este chat (conversación conservada).');
           c.openFeature?.('chat'); document.getElementById('chat-input')?.focus();
         })}),
+        el('button', {type: 'button', textContent: 'Usar la computadora', disabled: !act.enabled,
+          title: 'El Act opera la ventana autorizada en «Controlar PC», un gesto verificado a la vez', onclick: attempt(async () => {
+            const task = prompt('¿Qué debe hacer ' + act.name + ' en la ventana autorizada de este chat?');
+            if (!task?.trim()) return;
+            c.openFeature?.('chat');
+            const result = await computerTask(act, task.trim());
+            c.message?.('assistant', computerReport(act, result), 'local'); c.renderChat?.(); c.save?.();
+          })}),
         el('button', {type: 'button', textContent: 'Personalizar', onclick: attempt(() => edit(act))}),
         el('button', {type: 'button', textContent: 'Duplicar', onclick: attempt(() => edit(act, true))}),
         el('button', {type: 'button', textContent: act.enabled ? 'Deshabilitar' : 'Habilitar', onclick: attempt(() => toggle(act))}),
@@ -1109,11 +1117,96 @@
     return res;
   }
 
+  // ---- Acts using the computer (backend: agents/v1/computer/act-task) ----
+  // AXX observes the window the owner authorized, the Act's own model proposes ONE gesture on a real control, and AXX
+  // executes and verifies it through the existing Computer Use executor. The cursor below is drawn only from those
+  // executed steps (real screen points); the native input indicator wears the Act's own material meanwhile.
+  const ACTION_LABEL = {click: 'clic en', double_click: 'doble clic en', right_click: 'clic derecho en', scroll: 'desplaza',
+    hotkey: 'atajo en', type_text: 'escribe en', move: 'se mueve a'};
+  const cursorLayer = el('div', {className: 'axx-act-cursor-layer'});
+  cursorLayer.setAttribute('aria-hidden', 'true');
+  document.body.append(cursorLayer);
+  function actCursor(act) {
+    const [main, light] = paletteColors(act.appearance?.palette_id);
+    const arrow = el('div', {className: 'axx-act-cursor-arrow'});
+    arrow.innerHTML = `<svg viewBox="0 0 24 24" width="28" height="28"><path d="M3 2l7.2 19 2.7-7.7L21 10.6z" fill="${main}" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/></svg>`;
+    const cursor = el('div', {className: 'axx-act-cursor', hidden: true}, el('span', {className: 'axx-act-cursor-ring'}), arrow,
+      el('div', {className: 'axx-act-cursor-tag'}, lookImg(act.appearance, 28, {className: 'axx-act-cursor-face'}),
+        el('span', {className: 'axx-act-cursor-label'})));
+    cursor.style.setProperty('--act', main); cursor.style.setProperty('--act-light', light);
+    cursorLayer.append(cursor);
+    return cursor;
+  }
+  // Physical screen pixels (UI Automation) -> CSS pixels of this resident window.
+  function placeCursor(cursor, act, step) {
+    if (!Number.isFinite(step.x) || !Number.isFinite(step.y)) return;
+    const dpr = window.devicePixelRatio || 1, x = step.x / dpr - (window.screenX || 0), y = step.y / dpr - (window.screenY || 0);
+    cursor.hidden = x < -60 || y < -60 || x > innerWidth + 60 || y > innerHeight + 60;
+    cursor.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`;
+    cursor.dataset.state = step.state || 'dispatched';
+    cursor.querySelector('.axx-act-cursor-label').textContent = act.name + ' · ' + (ACTION_LABEL[step.action] || step.action) + ' «' + step.label + '»';
+    if (step.state === 'succeeded') { cursor.classList.remove('axx-act-click'); void cursor.offsetWidth; cursor.classList.add('axx-act-click'); }
+  }
+  async function computerTask(act, instruction, {box = chatPresence, signal = null, maxSteps = 8} = {}) {
+    const convId = Axx.chatWorkspace?.active?.id;
+    if (!convId) throw new Error('Abre un chat: la autorización de la computadora es por chat.');
+    const status = await Axx.backendRequest('GET', '/axx-api/computer/status?conversation_id=' + encodeURIComponent(convId));
+    if (!status?.active || !status.allow_input)
+      throw new Error('Primero autoriza «Controlar PC» con entrada en este chat; después ' + act.name + ' podrá usar esa ventana.');
+    const {run} = await api('POST', 'computer/act-task', {act_id: act.agent_id, conversation_id: convId, instruction, max_steps: maxSteps});
+    const t0 = performance.now(), clock = {startedAt: t0, model: modelLabel(act)}, cursor = actCursor(act);
+    const stop = () => void api('POST', 'computer/act-task/cancel', {run_id: run.run_id}).catch(() => {});
+    signal?.addEventListener('abort', stop, {once: true});
+    const show = text => {
+      presence(act, 'working', text, box, clock);
+      box?.lastChild.append(el('button', {type: 'button', className: 'axx-act-stop', textContent: 'Detener', onclick: stop}));
+    };
+    Axx.inputMaterialOverride = () => AV?.material(act.appearance) || null;
+    state.actStates[act.agent_id] = 'working'; markCard(act.agent_id, 'working');
+    show('observa ' + (run.target || 'la aplicación') + '…');
+    let last = run, shown = 0;
+    try {
+      do {  // the last poll may already be terminal: its final step is still drawn before leaving
+        await new Promise(r => setTimeout(r, 350));
+        last = (await api('GET', 'computer/act-task?run_id=' + encodeURIComponent(run.run_id))).run;
+        const step = last.steps.at(-1);
+        if (step && (last.steps.length !== shown || step.state !== cursor.dataset.state)) {
+          shown = last.steps.length; placeCursor(cursor, act, step);
+          if (last.state === 'running') show(`paso ${step.step}: ${ACTION_LABEL[step.action] || step.action} «${step.label}»` + (step.say ? ' — ' + step.say : ''));
+        }
+      } while (last.state === 'running');
+    } finally {
+      Axx.inputMaterialOverride = null;
+      signal?.removeEventListener('abort', stop);
+      cursor.classList.add('axx-act-cursor-leaving'); setTimeout(() => cursor.remove(), 2600);
+    }
+    const ok = last.state === 'completed', verified = last.steps.filter(s => s.state === 'succeeded').length;
+    state.actStates[act.agent_id] = ok ? 'completed' : 'failed'; markCard(act.agent_id, ok ? 'completed' : 'failed');
+    state.lastRun[act.agent_id] = {at: Date.now(), ms: performance.now() - t0, ok, verified: true, model: last.model || act.intelligence?.model_id};
+    presence(act, ok ? 'completed' : 'failed', ok ? (last.summary || 'terminó') : (last.error || 'se detuvo'), box,
+      {detail: fmtMs(performance.now() - t0) + ' · ' + verified + ' gesto(s) verificado(s) por AXX · ' + (last.target || '')});
+    return last;
+  }
+  function computerReport(act, runResult) {
+    return '〔' + act.name + '〕 ' + (runResult.state === 'completed' ? runResult.summary : 'Se detuvo: ' + runResult.error)
+      + (runResult.steps.length ? '\n' + runResult.steps.map(s => `${s.step}. ${ACTION_LABEL[s.action] || s.action} «${s.label}» → `
+        + (s.state === 'succeeded' ? 'verificado' : s.state) + (s.error ? ' (' + s.error + ')' : '')).join('\n') : '');
+  }
+
   const brainChat = c.brain.chat.bind(c.brain);
   c.brain.chat = async function (p, messages, signal, onDelta = () => {}) {
     if (!p.prompt_mode || p.act_id) return brainChat(p, messages, signal, onDelta);
     if (!state.acts.length) await load().catch(() => {});
     const lastUser = [...messages].reverse().find(m => m.role === 'user');
+    // "@Dev pc: abre Archivo y guarda" → that Act operates the window authorized in this chat.
+    const pc = /^\s*@([A-Za-z0-9_-]{1,32})\s+(?:pc|computadora)\s*[:,]\s*([\s\S]{1,2000})$/i.exec(String(lastUser?.content || ''));
+    const pcAct = pc && state.acts.find(a => a.enabled && [a.collaboration?.mention, a.name].some(n => (n || '').toLowerCase() === pc[1].toLowerCase()));
+    if (pcAct) {
+      const result = await computerTask(pcAct, pc[2].trim(), {signal});
+      const text = computerReport(pcAct, result);
+      onDelta(text);
+      return {text, reason: 'stop', route: {model: result.model || pcAct.intelligence?.model_id, act_computer_run: result.run_id}};
+    }
     const multi = findAllMentions(lastUser?.content);
     if (multi.length >= 2) {
       const t0 = performance.now();
@@ -1173,7 +1266,7 @@
     card.dataset.state = live;
     const badge = card.querySelector('.axx-acts-state'); if (badge) { badge.dataset.state = live; badge.textContent = STATE_LABEL[live] || live; }
   }
-  Axx.acts = {load, mentioned, findAllMentions, runTeamFromChat, chatAs, presence, presenceBox, lookImg, get acts() { return state.acts; }, chooseForChat,
+  Axx.acts = {load, mentioned, findAllMentions, runTeamFromChat, chatAs, computerTask, presence, presenceBox, lookImg, get acts() { return state.acts; }, chooseForChat,
     open: () => toggleStudio(true), close: () => toggleStudio(false)};
   void load().catch(() => {});
 })(window.Axx);

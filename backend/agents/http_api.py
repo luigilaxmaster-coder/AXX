@@ -302,6 +302,12 @@ class EvolutionHTTP:
             self.handler._send_json(200, {'artifacts': self.rt.registry.list_artifacts(
                 run_id=query.get('run_id', [None])[0], act_id=query.get('act_id', [None])[0])})
             return True
+        if path == '/axx-api/agents/v1/computer/act-task':
+            try:
+                self.handler._send_json(200, {'run': self._act_computer().get(str(query.get('run_id', [''])[0]))})
+            except KeyError as exc:
+                self.handler._send_json(404, {'error': {'code': 'RUN_NOT_FOUND', 'message': str(exc)}})
+            return True
         if path == '/axx-api/agents/v1/governor/status':
             self.handler._send_json(200, {
                 'profile': self.rt.governor.profile_name,
@@ -509,6 +515,17 @@ class EvolutionHTTP:
             metadata={'verdict': verdict, 'model': act['model']},
         )
         return {**review, 'route': model}
+
+    def _act_computer(self):
+        """One runner per runtime; it reaches the computer only through the server's ComputerUse and ConnectService."""
+        runner = getattr(self.rt, 'act_computer', None)
+        if runner is None:
+            from backend.agents.act_computer import ActComputerRunner
+            runner = self.rt.act_computer = ActComputerRunner(
+                self.rt, infer=self._infer_act, resolve=self._resolve_act,
+                computer_use=getattr(self.handler, 'computer_use', None), connect=getattr(self.handler, 'connect', None),
+                chats=getattr(self.handler, 'chats', None))
+        return runner
 
     def _resolve_act(self, act_id: str) -> dict[str, Any]:
         profile = self.rt.registry.get_profile(act_id)
@@ -1111,6 +1128,13 @@ class EvolutionHTTP:
             return True
         if path == '/axx-api/agents/v1/teams/run':
             self.handler._send_json(200, self._run_team_pipeline(body))
+            return True
+        if path == '/axx-api/agents/v1/computer/act-task':
+            self.handler._send_json(200, {'run': self._act_computer().start(body)})
+            return True
+        if path == '/axx-api/agents/v1/computer/act-task/cancel':
+            run_id = str(body.get('run_id') or '')
+            self.handler._send_json(200, {'run_id': run_id, 'cancel_requested': self._act_computer().cancel(run_id)})
             return True
         if path == '/axx-api/agents/v1/teams/cancel':
             run_id=body['run_id']

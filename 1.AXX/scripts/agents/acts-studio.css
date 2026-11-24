@@ -207,3 +207,22 @@
 .axx-acts-studio .axx-acts-hex { display:inline-flex; align-items:center; gap:3px; margin-right:6px; font:10.5px ui-monospace,'Cascadia Code',Consolas,monospace; }
 .axx-acts-studio .axx-acts-hex::before { content:''; width:10px; height:10px; border-radius:3px; background:var(--hex); box-shadow:0 0 0 1px rgba(255,255,255,.25); }
 .axx-act-presence-meta { flex-basis:100%; font:11px ui-monospace,'Cascadia Code',Consolas,monospace; opacity:.75; font-variant-numeric:tabular-nums; }
+/* Act cursors: drawn on the resident full-screen layer only from executed, real screen points. */
+.axx-act-cursor-layer { position:fixed; inset:0; pointer-events:none; z-index:2147483000; overflow:hidden; }
+.axx-act-cursor { --act:#7c6cf5; --act-light:#d8a5ff; position:absolute; left:0; top:0; pointer-events:none;
+  transition:transform .55s cubic-bezier(.2,.8,.2,1), opacity .4s; will-change:transform; filter:drop-shadow(0 4px 10px rgba(0,0,0,.35)); }
+.axx-act-cursor[hidden] { display:none!important; }
+.axx-act-cursor-arrow { position:absolute; left:-3px; top:-2px; }
+.axx-act-cursor-ring { position:absolute; left:-18px; top:-18px; width:36px; height:36px; border-radius:50%;
+  border:2px solid var(--act-light); opacity:0; }
+.axx-act-cursor.axx-act-click .axx-act-cursor-ring { animation:axx-act-ripple .7s ease-out; }
+@keyframes axx-act-ripple { 0% { opacity:.9; transform:scale(.3); } 100% { opacity:0; transform:scale(1.6); } }
+.axx-act-cursor-tag { position:absolute; left:22px; top:20px; display:flex; align-items:center; gap:6px; padding:3px 10px 3px 3px;
+  border-radius:999px; background:color-mix(in srgb, var(--act) 82%, #000 18%); color:#fff; font:600 12px/1.2 system-ui, sans-serif;
+  white-space:nowrap; box-shadow:0 0 0 1px rgba(255,255,255,.35), 0 0 18px color-mix(in srgb, var(--act) 55%, transparent); }
+.axx-act-cursor-face { width:26px; height:26px; border-radius:50%; background:#0b0f17; object-fit:contain; }
+.axx-act-cursor[data-state=unknown] .axx-act-cursor-tag, .axx-act-cursor[data-state=failed] .axx-act-cursor-tag { background:#b4352e; }
+.axx-act-cursor.axx-act-cursor-leaving { opacity:0; transition-delay:1.6s; }
+.axx-act-presence .axx-act-stop { margin-left:auto; min-height:26px; padding:2px 10px; font-size:11.5px; border-radius:999px;
+  border:1px solid #d6453d; color:#d6453d; background:transparent; font-weight:700; }
+@media (prefers-reduced-motion:reduce) { .axx-act-cursor { transition:none; } .axx-act-cursor.axx-act-click .axx-act-cursor-ring { animation:none; } }
