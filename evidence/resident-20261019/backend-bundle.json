@@ -12,6 +12,11 @@
       "bytes": 35768
     },
     {
+      "path": "_internal/OCP/OCP.cp312-win_amd64.pyd",
+      "sha256": "285e628782ce9f26e1574a0edb728df605efc1b9485ff5cd32e93ae92f1651f0",
+      "bytes": 94209024
+    },
+    {
       "path": "_internal/PIL/_avif.cp312-win_amd64.pyd",
       "sha256": "cffe39c00f3e6b0413b75e1af040f3ce78ff285cbee43e190b0d31b226ed6cfe",
       "bytes": 7834112
@@ -70,6 +75,11 @@
       "path": "_internal/Shapely.libs/msvcp140-0fa7eb792d3fbcf2233e4ea47e9144b9.dll",
       "sha256": "0fa7eb792d3fbcf2233e4ea47e9144b9b1309ba8ed5d4731a72fffa8f4f556d6",
       "bytes": 557416
+    },
+    {
+      "path": "_internal/VCOMP140.DLL",
+      "sha256": "95d4ce4a6802d1e18b5e0e1722cc30ea72ca7e033f83828f05c0b7b993fe7cbf",
+      "bytes": 212920
     },
     {
       "path": "_internal/_asyncio.pyd",
@@ -5418,13 +5428,428 @@
     },
     {
       "path": "_internal/base_library.zip",
-      "sha256": "7172ed5d530515a083ff4b021212c599b751714c7613bbe81f5f392fde8ea80c",
+      "sha256": "39d9553cee848cbebcb8690be0e55b2a3e763c1235c2bdc87cd18deb6cd1344c",
       "bytes": 1333717
     },
     {
       "path": "_internal/bcrypt/_bcrypt.pyd",
       "sha256": "898d1fe05e287d66bd379f26eb49d27a260f14666c7dc8b1719dae8c489abff0",
       "bytes": 305152
+    },
+    {
+      "path": "_internal/cadquery-2.8.0.dist-info/INSTALLER",
+      "sha256": "ceebae7b8927a3227e5303cf5e0f1f7b34bb542ad7250ac03fbcde36ec2f1508",
+      "bytes": 4
+    },
+    {
+      "path": "_internal/cadquery-2.8.0.dist-info/METADATA",
+      "sha256": "968b7a83a5642212b4032c5fba9a8b61624387fd6ad8b7c56d5aa4a0cd9af6ae",
+      "bytes": 14420
+    },
+    {
+      "path": "_internal/cadquery-2.8.0.dist-info/RECORD",
+      "sha256": "cc1ba658623eca15909d7d64a3edc00bb920e01b24d1afa5e311166c542d98fb",
+      "bytes": 5731
+    },
+    {
+      "path": "_internal/cadquery-2.8.0.dist-info/REQUESTED",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "path": "_internal/cadquery-2.8.0.dist-info/WHEEL",
+      "sha256": "69e6228a0d35958183cc1812f07c565ce837b95eb51bd8a33acba9fa4f68d6c9",
+      "bytes": 91
+    },
+    {
+      "path": "_internal/cadquery-2.8.0.dist-info/licenses/LICENSE",
+      "sha256": "7f598e7f729c8fde66f0e0a660e53d784d04cfd028d3a74478c0d58730da0fbe",
+      "bytes": 11691
+    },
+    {
+      "path": "_internal/cadquery-2.8.0.dist-info/top_level.txt",
+      "sha256": "2e33ca909bc4e2389b624fb586827b364467d3474293020cdc18de30d9a635fc",
+      "bytes": 9
+    },
+    {
+      "path": "_internal/cadquery_ocp.libs/FreeImage-cdc93a325d5d072e5fb5e9d45cff8d2e.dll",
+      "sha256": "670ad2bf7cf19d05a739bc7fc508d27205dade420375a475c0f9437096a37850",
+      "bytes": 1125376
+    },
+    {
+      "path": "_internal/cadquery_ocp.libs/Iex-fae5e0881fcdc423b6db34b2e97d9dd0.dll",
+      "sha256": "454ff06ae67c59ebc072ca2d323cb86dc662a350027e31f880e7de0d462b630f",
+      "bytes": 292864
+    },
+    {
+      "path": "_internal/cadquery_ocp.libs/IlmThread-765b26b0caa5ec89c300feae4fd8d0e0.dll",
+      "sha256": "7fc67d74ea0686d8d3a48a4379766738b02e508771b288188aa789d0368a7a82",
+      "bytes": 45568
+    },
+    {
+      "path": "_internal/cadquery_ocp.libs/Imath-93e5719ce25c27e234d7d3cfef1a30c5.dll",
+      "sha256": "5a6f13d69d70f8342d86affed788f8ff882afc14ff4acb0ad25da6da78ae84c1",
+      "bytes": 338432
+    },
+    {
+      "path": "_internal/cadquery_ocp.libs/Lerc-8e574cd1bc0b7f8e260d4530daa7446d.dll",
+      "sha256": "27385d40523237cf998f5c5030c2c1673e5dbb94872b44f21959175d98aee51e",
+      "bytes": 540672
+    },
+    {
+      "path": "_internal/cadquery_ocp.libs/OpenEXR-bf6fe40a5b675f43bf836498a2ac2d38.dll",
+      "sha256": "503835435d1a94b1a72aaf9c9fc37be097e3f46a8354d913110d07227cee88a7",
+      "bytes": 850432
+    },
+    {
+      "path": "_internal/cadquery_ocp.libs/OpenEXRCore-43a3d1e6dcf808d3b52c6aa1d1b3149b.dll",
+      "sha256": "ff9bec06b9b37952cbc4fbcf176a04ac4a36fe5d2df9131b84099b64313d2392",
+      "bytes": 311296
+    },
+    {
+      "path": "_internal/cadquery_ocp.libs/TKBO-c84f1b6c16180f7839820c331d4ad1f9.dll",
+      "sha256": "f8895395796323cc7d94a9b3b363331e94a52dfc4341024d55973787b4afd6e7",
+      "bytes": 1971712
+    },
+    {
+      "path": "_internal/cadquery_ocp.libs/TKBRep-8c7311fc72689a305d5fb6d914b716bc.dll",
+      "sha256": "62065f3e8155421cf9fd7c7433f582b13556d8b23a05450cce9e4774449e449a",
+      "bytes": 925696
+    },
+    {
+      "path": "_internal/cadquery_ocp.libs/TKBin-19fce514f1bda984a16b4166db96b98c.dll",
+      "sha256": "a62fd04d71dd58317281c4bbd13924b4ce6f887b4393056985f1c2d208fa7fbf",
+      "bytes": 114688
+    },
+    {
+      "path": "_internal/cadquery_ocp.libs/TKBinL-f278c65b68aec8ecc3ff65c907d825ea.dll",
+      "sha256": "f556a4e96c1f0404416256267c26ffab1104683195c4d0614b48ddf1cf2e4309",
+      "bytes": 259072
+    },
+    {
+      "path": "_internal/cadquery_ocp.libs/TKBinTObj-80a7c3f1f62711770f3cef553f6adc96.dll",
+      "sha256": "8b32bb9649f61f2541dda6b71d6ff89f2c9d923357025366960a6713a82c5beb",
+      "bytes": 56832
+    },
+    {
+      "path": "_internal/cadquery_ocp.libs/TKBinXCAF-28f16b060b7cdb6dc711345cf012ab5e.dll",
+      "sha256": "773a1d157dab90b503283b2cb1db56adb06e67fe406ea69f263c5803cce0b6d7",
+      "bytes": 117760
+    },
+    {
+      "path": "_internal/cadquery_ocp.libs/TKBool-007b34898926686967dc5e2198e15f6b.dll",
+      "sha256": "2ee46d5ec73b978ca490c774ca78f39c97a1a7de619f8f4b3a6ca6f04769b378",
+      "bytes": 3739136
+    },
+    {
+      "path": "_internal/cadquery_ocp.libs/TKCAF-1c90ec0e83be6a7c1db9b643f4ea7611.dll",
+      "sha256": "f30295e948df4e23c7d29b192d9fa05e9c39b6f33b0e0056b7acd29fcd6cf4e8",
+      "bytes": 527872
+    },
+    {
+      "path": "_internal/cadquery_ocp.libs/TKCDF-d1e138f0f8c296d2c1c77da3f1783bbb.dll",
+      "sha256": "7aa2a70a03a706cf07ab54590c8f5c08b5247a90cbbaba5a13ca4f5c3e8cd0c3",
+      "bytes": 283136
+    },
+    {
+      "path": "_internal/cadquery_ocp.libs/TKDE-6fb18023fd34d7e86ce1c8784392e7b2.dll",
+      "sha256": "7a7e6da6d585deceafbd9617d2c5c4c683cf38ce3fd3f8417fe231ae26260ff7",
+      "bytes": 142848
+    },
+    {
+      "path": "_internal/cadquery_ocp.libs/TKDEGLTF-709640c69fb6be1bd80b0a87e3a966ae.dll",
+      "sha256": "7130a7506f5e18d6178cc335cb7c5794bd811b6db6dce2a5445a8ef92defd5ac",
+      "bytes": 460800
+    },
+    {
+      "path": "_internal/cadquery_ocp.libs/TKDEIGES-f1ef2888bc3f4940ab8b669fc3545966.dll",
+      "sha256": "97071de8f165aae24b9afb7d9f4fb7534262139d41831a7ec7ee46bf3604a4e1",
+      "bytes": 3267584
+    },
+    {
+      "path": "_internal/cadquery_ocp.libs/TKDESTEP-3b6cbd266d70018d74de66353afc4421.dll",
+      "sha256": "9cdb806c7b94ca0127932b8cc200377375fcfa1cba40585adff0f02b79bf87a7",
+      "bytes": 5988352
+    },
+    {
+      "path": "_internal/cadquery_ocp.libs/TKDESTL-c6aafdf288df5845abba5b5b52a2a1fe.dll",
+      "sha256": "b1a7f879af761de6513823c560d050a267c8c47c6341070c0dc9afeee1c56e70",
+      "bytes": 120320
+    },
+    {
+      "path": "_internal/cadquery_ocp.libs/TKDEVRML-36d4cc52d62bb01c58452cd28e978c2c.dll",
+      "sha256": "270c3d067325c337bb2668517e5547e51dc425f8586cc3e2114ad0936e9f4dfb",
+      "bytes": 512512
+    },
+    {
+      "path": "_internal/cadquery_ocp.libs/TKExpress-54963997344179661d9db82c8fe861ac.dll",
+      "sha256": "51f4ed84d6bc090f44fa62ecf099c0584b42779d63a174eda4cc435c015fea85",
+      "bytes": 501248
+    },
+    {
+      "path": "_internal/cadquery_ocp.libs/TKFeat-1921fdfdbfd64f4e7996a3f5d8eef005.dll",
+      "sha256": "59a2c2d683f180137db24b61a0b71e5f09e2d6ea2a7e4b8cc10d009198c2ce7d",
+      "bytes": 1084416
+    },
+    {
+      "path": "_internal/cadquery_ocp.libs/TKFillet-e947317f6ab487710fed853550c5ef82.dll",
+      "sha256": "30dc3d9e468ac76c4eb1b81d74546ee62c4f7e353eacfe9a6a50726ef73d62c8",
+      "bytes": 2292224
+    },
+    {
+      "path": "_internal/cadquery_ocp.libs/TKG2d-18c19f30d271bde90cc154a46ff9462b.dll",
+      "sha256": "df3d19da6a4a803bd2cdebe8e9f16a636aac023f10f9112c3a755649ee8083d7",
+      "bytes": 287744
+    },
+    {
+      "path": "_internal/cadquery_ocp.libs/TKG3d-48b1338efcff88b8bedc336d67d600c0.dll",
+      "sha256": "38b58a769b80829a60e569d66f2eaaf04a4cde5f1bdcdf458ea18d47804114a0",
+      "bytes": 914432
+    },
+    {
+      "path": "_internal/cadquery_ocp.libs/TKGeomAlgo-550728fcf92cbddabda6e6451ed83842.dll",
+      "sha256": "3bf51c844d1e03ad07f9cc0a38314681bc8806ef8a2673e05df9ea032f05ff17",
+      "bytes": 4301312
+    },
+    {
+      "path": "_internal/cadquery_ocp.libs/TKGeomBase-8fc85285f54b38dc20e83806f0c4d18e.dll",
+      "sha256": "b731301b7ab0d7ffd9535e61385e06203cdad5015e96568a4d17ae31541eb5d2",
+      "bytes": 4072448
+    },
+    {
+      "path": "_internal/cadquery_ocp.libs/TKHLR-19e23b80576261824fce86474e924793.dll",
+      "sha256": "3fe4107272b39fbd6632edec8afa055d48c9da318b270acfb23b19e761af4df9",
+      "bytes": 992256
+    },
+    {
+      "path": "_internal/cadquery_ocp.libs/TKIVtk-9a979cfa5c26dd16069397f8760edae0.dll",
+      "sha256": "d7743812420d1a72bd67543197eb84ef837ca4983b68e3bb0df8fcb8e7774ca9",
+      "bytes": 207872
+    },
+    {
+      "path": "_internal/cadquery_ocp.libs/TKLCAF-181df30dce4e7782a02dce730e6aca0b.dll",
+      "sha256": "5abbda89b284d4c125e355f1d53738ef57cc351a01fe0740f47fc022ca2a8cad",
+      "bytes": 694272
+    },
+    {
+      "path": "_internal/cadquery_ocp.libs/TKMath-1767a51b1d40676e46719efc947fec48.dll",
+      "sha256": "56dff973e95c93f629b1c9cfaada4f623da488fc8507a0c5660eab4fcc750b16",
+      "bytes": 1366528
+    },
+    {
+      "path": "_internal/cadquery_ocp.libs/TKMesh-9efb1a5010e57874592168e741b3f036.dll",
+      "sha256": "d867f262de53c19072e6ede5caae3b9f3163b6f8a38341b02b53419a76427b3f",
+      "bytes": 617984
+    },
+    {
+      "path": "_internal/cadquery_ocp.libs/TKMeshVS-40ea3ec0fb6263b1a384244c06b94206.dll",
+      "sha256": "201bdc63fd435a305747e1969f86f81e94702ed127f23d145d7a5877e9ce06ac",
+      "bytes": 306176
+    },
+    {
+      "path": "_internal/cadquery_ocp.libs/TKOffset-9060e78c3c34373e433433ef1d4b46e8.dll",
+      "sha256": "8cca2d03a482c1149fbee17f1f68355d63d535c445edbe69eda73d407dd03964",
+      "bytes": 1904128
+    },
+    {
+      "path": "_internal/cadquery_ocp.libs/TKOpenGl-c3ff5467e3b59458d6cda3cf8f7c50c6.dll",
+      "sha256": "f0674809a01335cda8d86db39cde0edcf3f0cb7b769055d9d0cf41f07b93035f",
+      "bytes": 1337344
+    },
+    {
+      "path": "_internal/cadquery_ocp.libs/TKPrim-e506153986164d1ed31e131e34157c8b.dll",
+      "sha256": "c21a0c57eee8fc94d67f28a08077a18498f69e5caca1754162dedbce0356967c",
+      "bytes": 312320
+    },
+    {
+      "path": "_internal/cadquery_ocp.libs/TKRWMesh-cf06ba955300926ad115c5b87c6dcdc2.dll",
+      "sha256": "72a3b61b49f8c88c8225fe652b372f87b3da0cfbc0d7857db625ff6870419e62",
+      "bytes": 154112
+    },
+    {
+      "path": "_internal/cadquery_ocp.libs/TKService-7d8d3d734f57948f3859748a24d03c49.dll",
+      "sha256": "ca8f49b35544dac8da063c3e72d094c4e65400054c4c99a2ec0e62db159a2f46",
+      "bytes": 1015808
+    },
+    {
+      "path": "_internal/cadquery_ocp.libs/TKShHealing-4f155252d6566ba5272a14a6bf6d2816.dll",
+      "sha256": "8606f85e9073a7b2ee4d3fdf9a99918316481b7530be7e797eb17c31e35b4041",
+      "bytes": 2599936
+    },
+    {
+      "path": "_internal/cadquery_ocp.libs/TKStd-dae52fac99b4dc67e49bf47f29f5957f.dll",
+      "sha256": "05bd6eb6c5f0b9406a1436297d0c65a3cbe501dca418ee4c5e7061bb977dcfb6",
+      "bytes": 616960
+    },
+    {
+      "path": "_internal/cadquery_ocp.libs/TKStdL-7960bc2ce9c34001884414af5476c7f7.dll",
+      "sha256": "c3568a46d076a04ed890b3737086bc60e10c3e2c07a229ff572e35ff1e23951f",
+      "bytes": 235520
+    },
+    {
+      "path": "_internal/cadquery_ocp.libs/TKTObj-53206b9eb2d4dda5c98a87e267370ad8.dll",
+      "sha256": "5f9cb82a83e6284c747e25753c6cae9232528ba94a7dc0de08f2671c2196ea4b",
+      "bytes": 217600
+    },
+    {
+      "path": "_internal/cadquery_ocp.libs/TKTopAlgo-de3c4c9d4ebe455706afea1bd74bd249.dll",
+      "sha256": "abb6b832a879b41aed5fe4b3aaaac5c9681be9bd229769d03f0aa47a4cbe9aca",
+      "bytes": 2401280
+    },
+    {
+      "path": "_internal/cadquery_ocp.libs/TKV3d-2a4c196a3b7bf1137097387454480fee.dll",
+      "sha256": "a318b7cf22b6a3ccfcc6ce6fe20c3d0bdf15577ad9ea63f3873e253bbb93f216",
+      "bytes": 2502656
+    },
+    {
+      "path": "_internal/cadquery_ocp.libs/TKVCAF-8a749d01a8e71077214d12a2eaf4d68f.dll",
+      "sha256": "aa8eb4959373859685d1529a448649ee22892ff8aa9ca3826cc2933f223a2052",
+      "bytes": 193536
+    },
+    {
+      "path": "_internal/cadquery_ocp.libs/TKXCAF-7cf3940fe49e9aec3a9b40dfad406db2.dll",
+      "sha256": "67ef84ef590f843f5b36ed5e2f1f61f0dd68efbb521d9ad9ad0ac9e7fbd5301b",
+      "bytes": 845824
+    },
+    {
+      "path": "_internal/cadquery_ocp.libs/TKXSBase-88c690ecd4cc93fb029ca7b044f400e5.dll",
+      "sha256": "548899d46daea89104e94a0142ab385313a9d19f398b043ce904edd0250fa1f1",
+      "bytes": 1753600
+    },
+    {
+      "path": "_internal/cadquery_ocp.libs/TKXml-4ead9a8f31b74f656adbc42691649b97.dll",
+      "sha256": "c5961fadd2124898fe3ef8db4068f72d5f6d2ce4ad0ef353fe65ed0a196c9879",
+      "bytes": 171008
+    },
+    {
+      "path": "_internal/cadquery_ocp.libs/TKXmlL-f4ca4c4ae4538a3fdd449e473c730e9a.dll",
+      "sha256": "47f8b441ba1d8c8859e3c643f2abc4437e23b6e953ba023e4c17b226b37324ca",
+      "bytes": 344576
+    },
+    {
+      "path": "_internal/cadquery_ocp.libs/TKXmlTObj-b11216df9314f021aa9d1461bd8f135c.dll",
+      "sha256": "39bde915499bbd120dec1019249f2f6d5fb51d4d022a5471e674c353d4a1545d",
+      "bytes": 55808
+    },
+    {
+      "path": "_internal/cadquery_ocp.libs/TKXmlXCAF-b8047885f3635d113eca9c50457f2085.dll",
+      "sha256": "a6deae0c5000cff374e7057b0525c562ed44bad3d5fead16e0303d7628c087a4",
+      "bytes": 148480
+    },
+    {
+      "path": "_internal/cadquery_ocp.libs/TKernel-7f537ebf992290773c03ef7f618dd6bb.dll",
+      "sha256": "952aa46e2b3abc5d24e080d8c52f15f0835edf6e65017d1c16d6153b6631c112",
+      "bytes": 1742848
+    },
+    {
+      "path": "_internal/cadquery_ocp.libs/deflate-0c8d7e40b4512d86969e2003a7d8bede.dll",
+      "sha256": "0c8d7e40b4512d86969e2003a7d8bede601cfb9bc0a2d2472056a08a769769d5",
+      "bytes": 177664
+    },
+    {
+      "path": "_internal/cadquery_ocp.libs/freetype-111bbfd18798ec20698ad64fb25a600c.dll",
+      "sha256": "f22aff08a7088afca5fbac8f60ff9b4f0f8ece2d09e8e7ed5f6807597f23387b",
+      "bytes": 670720
+    },
+    {
+      "path": "_internal/cadquery_ocp.libs/jpeg8-77bef8b5257987800e01806f64a189e3.dll",
+      "sha256": "77bef8b5257987800e01806f64a189e312ba057e138356e69dc4367555bd0d93",
+      "bytes": 686592
+    },
+    {
+      "path": "_internal/cadquery_ocp.libs/lcms2-7ba64f6e0c66e90b06b6fdda7ed89f37.dll",
+      "sha256": "7ba64f6e0c66e90b06b6fdda7ed89f37da5988d876860d407965a87fde6b8292",
+      "bytes": 581632
+    },
+    {
+      "path": "_internal/cadquery_ocp.libs/liblzma-64eb6567bead1a5b7386bd7acd1cdd9d.dll",
+      "sha256": "64eb6567bead1a5b7386bd7acd1cdd9db8f9a03133eef7ae8208ae555738d680",
+      "bytes": 188416
+    },
+    {
+      "path": "_internal/cadquery_ocp.libs/libpng16-c3f4406bf6331f0eb2bdd3c3323d921a.dll",
+      "sha256": "10429b82f82ac04dbc0633ed61616e5c5057812e30e2a9fcb12b598b4d2fb7d5",
+      "bytes": 198656
+    },
+    {
+      "path": "_internal/cadquery_ocp.libs/libsharpyuv-c910eeed9d8f2bbf76ba6edf2e292ff7.dll",
+      "sha256": "c910eeed9d8f2bbf76ba6edf2e292ff7534a2674e2fb284a40514fe4e5f0a653",
+      "bytes": 25600
+    },
+    {
+      "path": "_internal/cadquery_ocp.libs/libwebp-d04c2bb4fae02ef22f9f33389e8fa295.dll",
+      "sha256": "6ccb85825bff74d705ee5ac491a30a6555afb69d5e2ca8aec63e73c00929a3be",
+      "bytes": 383488
+    },
+    {
+      "path": "_internal/cadquery_ocp.libs/libwebpmux-91ab52d47d455f8c682d0bb688b4702f.dll",
+      "sha256": "13204ad8022e8022eaab8fba417de3208f5485ba474187ce5844ab3c076d00e5",
+      "bytes": 43008
+    },
+    {
+      "path": "_internal/cadquery_ocp.libs/msvcp140-639342ea9a67c0009122238ce070a825.dll",
+      "sha256": "639342ea9a67c0009122238ce070a8257e2e04d367d627509fec29f8442afb42",
+      "bytes": 642720
+    },
+    {
+      "path": "_internal/cadquery_ocp.libs/openjp2-274e6a200cd564b014389546f6472d38.dll",
+      "sha256": "274e6a200cd564b014389546f6472d387717dece95b7d03db5f99195bd1d6e03",
+      "bytes": 360448
+    },
+    {
+      "path": "_internal/cadquery_ocp.libs/openjph-c9b5711ab6c6a22bd06855ce333ce0ce.dll",
+      "sha256": "c9b5711ab6c6a22bd06855ce333ce0ce6a2f11b7c578786f79c1a84c93d43bfa",
+      "bytes": 344064
+    },
+    {
+      "path": "_internal/cadquery_ocp.libs/raw-45784079ff4d194ec274ed36f7b6b205.dll",
+      "sha256": "23efe5297b755d4fedf0ddb1ce36b51fd2e6ada5409e4ac5696d91757b2dbe4a",
+      "bytes": 1132544
+    },
+    {
+      "path": "_internal/cadquery_ocp.libs/tiff-36f0745325765f7bfe29a721cde40b8e.dll",
+      "sha256": "e143c6d3d2f6240d7259f0f8a7c28d027333e8ce731b99db377e08ab1e9228d1",
+      "bytes": 497152
+    },
+    {
+      "path": "_internal/cadquery_ocp.libs/vcomp140-f96f3a14d88d8846f31f3ab38a490304.dll",
+      "sha256": "f96f3a14d88d8846f31f3ab38a490304ce7d6e4f70fae4304c63e59c7aea2d30",
+      "bytes": 213072
+    },
+    {
+      "path": "_internal/cadquery_ocp.libs/zlib-85c711c83f96bed93184bede15be6b5a.dll",
+      "sha256": "85c711c83f96bed93184bede15be6b5a3e5444df09dfffef00564107189dc722",
+      "bytes": 90624
+    },
+    {
+      "path": "_internal/cadquery_ocp.libs/zstd-ca228f0f33b8296d6650b4694bb38ba9.dll",
+      "sha256": "ca228f0f33b8296d6650b4694bb38ba9ea8796c523b6b5e0682fcc05a5edab0a",
+      "bytes": 658432
+    },
+    {
+      "path": "_internal/casadi/_casadi.pyd",
+      "sha256": "8d7973239322805130f82ba0fb5d64cb5f738e394983394a35820d3791958603",
+      "bytes": 7398972
+    },
+    {
+      "path": "_internal/casadi/libcasadi.dll",
+      "sha256": "a034179a80e77949caeda6da66be2f86a9f94278622e73242d67b2083d254ad5",
+      "bytes": 14603605
+    },
+    {
+      "path": "_internal/casadi/libgcc_s_seh-1.dll",
+      "sha256": "c55dcb8de1216463fb637c64981bfb5a47bc683090fc670d7e718e715cdeafc9",
+      "bytes": 657651
+    },
+    {
+      "path": "_internal/casadi/libstdc++-6.dll",
+      "sha256": "b107fe0af7b88f9d095ddbea85ff0013ad87a8effd8f2eb34af1f3d3e8abcda5",
+      "bytes": 1909454
+    },
+    {
+      "path": "_internal/casadi/libwinpthread-1.dll",
+      "sha256": "00bb38eddc3b166f2e79ca887714f4722c8aa34175fa6c440123ca5d250d4f36",
+      "bytes": 84862
     },
     {
       "path": "_internal/certifi/cacert.pem",
@@ -5470,6 +5895,11 @@
       "path": "_internal/click-8.3.2.dist-info/licenses/LICENSE.txt",
       "sha256": "9a8ad106a394e853bfe21f42f4e72d592819a22805d991b5f3275029292b658d",
       "bytes": 1475
+    },
+    {
+      "path": "_internal/coverage/tracer.cp312-win_amd64.pyd",
+      "sha256": "49d4b57c6d9a77287d6eb4719bc9aad69ac5feffc1e5381315781e6049c7afd7",
+      "bytes": 22528
     },
     {
       "path": "_internal/cryptography-49.0.0.dist-info/INSTALLER",
@@ -5617,6 +6047,61 @@
       "bytes": 96
     },
     {
+      "path": "_internal/dateutil/zoneinfo/dateutil-zoneinfo.tar.gz",
+      "sha256": "d3ea52e7b6e968de0d884df1288193596fa95b803db4f92a18279a7398004475",
+      "bytes": 156400
+    },
+    {
+      "path": "_internal/ezdxf/acc/bezier3p.cp312-win_amd64.pyd",
+      "sha256": "fdcfed78e0836f63601a7decc621182d1b5d723ccee8a80c60db285ad5da1963",
+      "bytes": 76288
+    },
+    {
+      "path": "_internal/ezdxf/acc/bezier4p.cp312-win_amd64.pyd",
+      "sha256": "871929dcc43ed4f68db22560490bf1989383a5f63ffa2d1827c1e2cee180cf74",
+      "bytes": 106496
+    },
+    {
+      "path": "_internal/ezdxf/acc/bspline.cp312-win_amd64.pyd",
+      "sha256": "3439805abac00f230d756e8a468e39ff93d5beb806d9e105866132c39014cdf7",
+      "bytes": 117248
+    },
+    {
+      "path": "_internal/ezdxf/acc/construct.cp312-win_amd64.pyd",
+      "sha256": "0c572f900c960b1ffb3215fd53a74e9abb5b01e4def923db78dee877b9f6a675",
+      "bytes": 72192
+    },
+    {
+      "path": "_internal/ezdxf/acc/mapbox_earcut.cp312-win_amd64.pyd",
+      "sha256": "8c3bacb4b384de0a042d81d5a068110d2cfd5bb334b93380ec3b97bafe1ad34f",
+      "bytes": 78336
+    },
+    {
+      "path": "_internal/ezdxf/acc/matrix44.cp312-win_amd64.pyd",
+      "sha256": "31ff49ec1f233f52f354a2df218252266ac0248186eeb4173d6875f8fd8a676d",
+      "bytes": 263168
+    },
+    {
+      "path": "_internal/ezdxf/acc/np_support.cp312-win_amd64.pyd",
+      "sha256": "3774f3fa89ea9313447e5f1556a50dbc6f7d9539c4f26d1b516ba6487d0e1716",
+      "bytes": 154624
+    },
+    {
+      "path": "_internal/ezdxf/acc/vector.cp312-win_amd64.pyd",
+      "sha256": "8f85190fbadbbf7b30cbc966079a52009c4022b1c539f979be5e861a87aa5f4e",
+      "bytes": 179200
+    },
+    {
+      "path": "_internal/fontTools/misc/bezierTools.cp312-win_amd64.pyd",
+      "sha256": "0f29afaca47e893f7e4b2a1147cf31150dffa0ee09fa99fe9544a364cc548d32",
+      "bytes": 316416
+    },
+    {
+      "path": "_internal/fontTools/varLib/iup.cp312-win_amd64.pyd",
+      "sha256": "d7b32d4349f68210c3c1676fb62a401b884c2186968703e32895e278feefcaa5",
+      "bytes": 130048
+    },
+    {
       "path": "_internal/frozenlist/_frozenlist.cp312-win_amd64.pyd",
       "sha256": "ac03ce4d67b103af56efa5a436954c6c5e4da0eafec878a31298f2b8ce9c6f96",
       "bytes": 69632
@@ -5745,6 +6230,131 @@
       "path": "_internal/importlib_metadata-8.7.1.dist-info/top_level.txt",
       "sha256": "08eddf0fdcb29403625e4acca38a872d5fe6a972f6b02e4914a82dd725804fe0",
       "bytes": 19
+    },
+    {
+      "path": "_internal/jaxlib/_ifrt_proxy.pyd",
+      "sha256": "2c7d9fd6459581ecd77b7c81eabb6ad008d11daf9101a83f8a50ec205a551d62",
+      "bytes": 8704
+    },
+    {
+      "path": "_internal/jaxlib/_jax.pyd",
+      "sha256": "a960ad4fe939940f680ed9a6b2a7cf43601f57d790225d7b2cecc2a2c82d7aef",
+      "bytes": 8704
+    },
+    {
+      "path": "_internal/jaxlib/_pretty_printer.pyd",
+      "sha256": "7267a2e3801e393c77219d7b8e492dc9cfc4a0fbc01169f7f9d0e5a0829ddb30",
+      "bytes": 8704
+    },
+    {
+      "path": "_internal/jaxlib/_profile_data.pyd",
+      "sha256": "dead43bb7bee8ca8c55b2c1903c61dd909875c24c1bfff309e1d567e2cfd59b3",
+      "bytes": 8704
+    },
+    {
+      "path": "_internal/jaxlib/_profiler.pyd",
+      "sha256": "b995d5088f90d96c4789723e1c7c534b44ec502d506d9b732e6c0ff7b003b633",
+      "bytes": 8704
+    },
+    {
+      "path": "_internal/jaxlib/cpu/_lapack.pyd",
+      "sha256": "fec8da17cb2a39d09937b95bf755a138b4cd4c85e9b66951c9a69acb4b85cab3",
+      "bytes": 1441792
+    },
+    {
+      "path": "_internal/jaxlib/cpu/_sparse.pyd",
+      "sha256": "b78bb4c4dc9b25e4bf56035215abc998b838794889c950410fe2fcd21ff77de6",
+      "bytes": 241664
+    },
+    {
+      "path": "_internal/jaxlib/cpu_feature_guard.pyd",
+      "sha256": "d192388d036990930dc64065e7e00059d5d04db8e2a97b73d8dee94e6d6b6a87",
+      "bytes": 9728
+    },
+    {
+      "path": "_internal/jaxlib/jax_common.dll",
+      "sha256": "7f1868d41bb35054e59f5a13d45f25577d714aa4cbf62b8aa3e418f81726510f",
+      "bytes": 230066176
+    },
+    {
+      "path": "_internal/jaxlib/mlir/_mlir_libs/_chlo.pyd",
+      "sha256": "18b76d3c89e3f8b186d14d3d2fcefaa9761fa69d7a0bcb7e60cad057c5cadf90",
+      "bytes": 8704
+    },
+    {
+      "path": "_internal/jaxlib/mlir/_mlir_libs/_jax_mlir_ext.pyd",
+      "sha256": "d04dba62b6173eae88889726067b3dd866fc1feea78245116476d585c652fbf8",
+      "bytes": 8704
+    },
+    {
+      "path": "_internal/jaxlib/mlir/_mlir_libs/_mlir.pyd",
+      "sha256": "7b0fd25b99c415e7cf91806973fe995f8532c92c6633bfa80478a0acdbea9334",
+      "bytes": 8704
+    },
+    {
+      "path": "_internal/jaxlib/mlir/_mlir_libs/_mlirDialectsGPU.pyd",
+      "sha256": "36d3f03d4fda9616655ed32bfadea451ca64fda30acb5ca7b10c4d6b51efb1e6",
+      "bytes": 8704
+    },
+    {
+      "path": "_internal/jaxlib/mlir/_mlir_libs/_mlirDialectsLLVM.pyd",
+      "sha256": "25671326e6382ba1e0a3d609e8aa99b6acc21079be4f7f6e40cf62f00a4d930f",
+      "bytes": 8704
+    },
+    {
+      "path": "_internal/jaxlib/mlir/_mlir_libs/_mlirDialectsNVGPU.pyd",
+      "sha256": "94de1292b5093661523be45b6836725fac3ec5e8cb21116e84c257df562546a7",
+      "bytes": 8704
+    },
+    {
+      "path": "_internal/jaxlib/mlir/_mlir_libs/_mlirDialectsSparseTensor.pyd",
+      "sha256": "f320107107c7a1d60f3ddad49ea9b6c08f7bd20f9ee4c8833c188f2643d52428",
+      "bytes": 8704
+    },
+    {
+      "path": "_internal/jaxlib/mlir/_mlir_libs/_mlirHlo.pyd",
+      "sha256": "953d748a061c086026d65e27bff52637d9b77e4b22a6ab98423fcb532a0b8ed3",
+      "bytes": 8704
+    },
+    {
+      "path": "_internal/jaxlib/mlir/_mlir_libs/_mlirSparseTensorPasses.pyd",
+      "sha256": "715e3456300dcef3f1cf8585c49a4adf942b3977fd9d7510a24772fe3f44c964",
+      "bytes": 8704
+    },
+    {
+      "path": "_internal/jaxlib/mlir/_mlir_libs/_mosaic_gpu_ext.pyd",
+      "sha256": "9640269419de790e606e00b1795304e2a2195fe61c9508e9f3bb0f036d527bb7",
+      "bytes": 8704
+    },
+    {
+      "path": "_internal/jaxlib/mlir/_mlir_libs/_sdy.pyd",
+      "sha256": "ccafccc14da987b826041ae080ce758304f4ecba1aae75120c7672cb3e8e6ad6",
+      "bytes": 8704
+    },
+    {
+      "path": "_internal/jaxlib/mlir/_mlir_libs/_sdyMpmd.pyd",
+      "sha256": "e0584b835883e97426c16ad977b6a6253614d126255c05ecbc72b53a2c906770",
+      "bytes": 8704
+    },
+    {
+      "path": "_internal/jaxlib/mlir/_mlir_libs/_stablehlo.pyd",
+      "sha256": "dc67a392e71d645a182e8ec0b96e6574143d5e68a415964c2b783541dba20c84",
+      "bytes": 8704
+    },
+    {
+      "path": "_internal/jaxlib/mlir/_mlir_libs/_tpu_ext.pyd",
+      "sha256": "4b4a3675624f016363dc9bce905a8b76e777a52dbc645dad3f58a2f50e1afb54",
+      "bytes": 8704
+    },
+    {
+      "path": "_internal/jaxlib/utils.pyd",
+      "sha256": "2a874ad95a9109768d8d233ffdb1235f9a1ce1b43687774421442a765f7e2dcc",
+      "bytes": 8704
+    },
+    {
+      "path": "_internal/jaxlib/weakref_lru_cache.pyd",
+      "sha256": "a336aeaa2a4c5f2ae3028e2dca5e2f39c16fce7ba64e114655b3bd25708d6629",
+      "bytes": 8704
     },
     {
       "path": "_internal/jsonschema-4.26.0.dist-info/INSTALLER",
@@ -5922,6 +6532,21 @@
       "bytes": 794992
     },
     {
+      "path": "_internal/licenses/cad/cadquery-ocp/LICENSE",
+      "sha256": "a13caea71627202ad33cc4cafafdd18e667e16716488f8d9c568127121fb89fd",
+      "bytes": 11346
+    },
+    {
+      "path": "_internal/licenses/cad/cadquery/LICENSE",
+      "sha256": "7f598e7f729c8fde66f0e0a660e53d784d04cfd028d3a74478c0d58730da0fbe",
+      "bytes": 11691
+    },
+    {
+      "path": "_internal/licenses/cad/vtk/LICENSE",
+      "sha256": "fb3c1d41b57425cf3026c4bb4cd244c982a7a9475596424de5d1b7f32ea78285",
+      "bytes": 1795
+    },
+    {
       "path": "_internal/licenses/cli-anything/LICENSE",
       "sha256": "aeef9ee70be439d6649469132590aa6a13f70ae7827ca806b267bd9410311d2d",
       "bytes": 11558
@@ -5950,6 +6575,16 @@
       "path": "_internal/licenses/telegram/telethon/LICENSE",
       "sha256": "7d5282900d8e9ebe0f3d3742178a1d236e76d81184f4fc8290e221135f2b0b2a",
       "bytes": 1075
+    },
+    {
+      "path": "_internal/llvmlite.libs/msvcp140-8f141b4454fa78db34bc1f28c571b4da.dll",
+      "sha256": "8f141b4454fa78db34bc1f28c571b4da0e00cd2c43f7ad0e282f313036826aae",
+      "bytes": 557648
+    },
+    {
+      "path": "_internal/llvmlite/binding/llvmlite.dll",
+      "sha256": "a3500f4ffd7c4b47ec785c5964af7ed01fb95dd125c0d7efcdb680920821da6f",
+      "bytes": 120369664
     },
     {
       "path": "_internal/lxml/_elementpath.cp312-win_amd64.pyd",
@@ -6112,14 +6747,24 @@
       "bytes": 0
     },
     {
+      "path": "_internal/ml_dtypes/_ml_dtypes_ext.cp312-win_amd64.pyd",
+      "sha256": "4948495f24678c35b88edb7d484572cd7ac638dd73b2140776f501b6f148df81",
+      "bytes": 818176
+    },
+    {
       "path": "_internal/mobile/js/avatar-renderer.js",
       "sha256": "1ca600123fc70740535679dfcb02664ad8fc48012e313dcf0e60271c98c64d46",
       "bytes": 10223
     },
     {
       "path": "_internal/mobile/www/js/desktop-avatar.js",
-      "sha256": "c4f45c1ddcd39f5ea15ba7d9feb52eb40263d287c62704536f3609d1983c40fd",
-      "bytes": 215127
+      "sha256": "47464b7c8b91d4f592a315f8bfc14d2bf9ee2e3a73450f086fdd1be1046bffbe",
+      "bytes": 215126
+    },
+    {
+      "path": "_internal/msvcp140-a4c2229bdc2a2a630acdc095b4d86008.dll",
+      "sha256": "a4c2229bdc2a2a630acdc095b4d86008e5c3e3bc7773174354f3da4f5beb9cde",
+      "bytes": 575056
     },
     {
       "path": "_internal/msvcp140.dll",
@@ -6130,6 +6775,11 @@
       "path": "_internal/multidict/_multidict.cp312-win_amd64.pyd",
       "sha256": "a7411fadf931b119427b537fcc6467f63179a7a7c29c603b89b1bc8be0733f8f",
       "bytes": 80896
+    },
+    {
+      "path": "_internal/nlopt/_nlopt.pyd",
+      "sha256": "d1d86bf668d509ecd6e08ca9bb9fe54fc961545f7c9694d0ca046e2b40cd9c5a",
+      "bytes": 765440
     },
     {
       "path": "_internal/ntgcalls-3.0.5.dist-info/INSTALLER",
@@ -6175,6 +6825,71 @@
       "path": "_internal/ntgcalls.cp312-win_amd64.pyd",
       "sha256": "6989491c8717c7eb5c3f21e420e0f3f79a55415d70c30e6a7f926d4989d73e45",
       "bytes": 27373056
+    },
+    {
+      "path": "_internal/numba/_devicearray.cp312-win_amd64.pyd",
+      "sha256": "82177de965dce158cc2a51889546b55f9b6b863191b11596c55b795eb8ab2271",
+      "bytes": 12288
+    },
+    {
+      "path": "_internal/numba/_dispatcher.cp312-win_amd64.pyd",
+      "sha256": "8ba51b83b2a8e84fec7f9b0a193634e6abcb3f20d3832ab9d4226848ddd2bcec",
+      "bytes": 41472
+    },
+    {
+      "path": "_internal/numba/_dynfunc.cp312-win_amd64.pyd",
+      "sha256": "ae62e32560d17cc00b15dfefde43cbec02f679dc3e38b0e1e25dfe94f2174885",
+      "bytes": 16896
+    },
+    {
+      "path": "_internal/numba/_helperlib.cp312-win_amd64.pyd",
+      "sha256": "2ac658f841a7ddcc64a64681fee58cb36344d0abaefbf2e73973c9faafe552b9",
+      "bytes": 203776
+    },
+    {
+      "path": "_internal/numba/core/runtime/_nrt_python.cp312-win_amd64.pyd",
+      "sha256": "5a044e0895626101b1724f751bedb27555fe698a848fb54a911dc180f2cb0b88",
+      "bytes": 25088
+    },
+    {
+      "path": "_internal/numba/core/typeconv/_typeconv.cp312-win_amd64.pyd",
+      "sha256": "c2e48c185e1c0e0a5be75ddbc142fb0bf7ad445be4d8467750236b4ec21ae965",
+      "bytes": 20480
+    },
+    {
+      "path": "_internal/numba/cuda/cudadrv/_extras.cp312-win_amd64.pyd",
+      "sha256": "74d5756b2fd1b9f26ec41da69b17d0b0551100bf009382ca182ca90d63dfd9e8",
+      "bytes": 10752
+    },
+    {
+      "path": "_internal/numba/experimental/jitclass/_box.cp312-win_amd64.pyd",
+      "sha256": "c0e6a6fe53e0fb5b8ea782f7a2202ad409d9d7fa469042703571f6a7b1404a59",
+      "bytes": 12800
+    },
+    {
+      "path": "_internal/numba/mviewbuf.cp312-win_amd64.pyd",
+      "sha256": "8804d711ee3da92a037f6b7c0a270cc8acf3e40f7c88fef339af8269ec53be79",
+      "bytes": 14848
+    },
+    {
+      "path": "_internal/numba/np/ufunc/_internal.cp312-win_amd64.pyd",
+      "sha256": "c3ce2d31f1422132127c581acfca4217fa90af54e9fe5b5b919844ff67aa7510",
+      "bytes": 23552
+    },
+    {
+      "path": "_internal/numba/np/ufunc/omppool.cp312-win_amd64.pyd",
+      "sha256": "6a623b7ecf5cfb362890a19c5e7b834c3e830030fcb82c0c71e382cb603ee27d",
+      "bytes": 36352
+    },
+    {
+      "path": "_internal/numba/np/ufunc/tbbpool.cp312-win_amd64.pyd",
+      "sha256": "307a170a3b9f392d56f62f8183d342aa0994eaa63d8a19714757cb815d1c055f",
+      "bytes": 46592
+    },
+    {
+      "path": "_internal/numba/np/ufunc/workqueue.cp312-win_amd64.pyd",
+      "sha256": "3359c82c12b6912086887423a44777b9b4ff53288772014964cf456e6b9c6aae",
+      "bytes": 38400
     },
     {
       "path": "_internal/numpy-2.4.4.dist-info/DELVEWHEEL",
@@ -7137,6 +7852,466 @@
       "bytes": 738304
     },
     {
+      "path": "_internal/scipy.libs/libscipy_openblas-64eda39e79589aedb16f58e5547eb599.dll",
+      "sha256": "64eda39e79589aedb16f58e5547eb599f0b5855505d56b9d40022e2eee354a0b",
+      "bytes": 20260864
+    },
+    {
+      "path": "_internal/scipy/_cyutility.cp312-win_amd64.pyd",
+      "sha256": "1990a1fbef9f2f75556db35b81d7180c903fc54db3f8fd08c14ac2cbc805c61b",
+      "bytes": 186368
+    },
+    {
+      "path": "_internal/scipy/_lib/_ccallback_c.cp312-win_amd64.pyd",
+      "sha256": "509d2e681897f4253263c063ad8a2aa0c2459b85ce3d86754b401d42ab26dc9a",
+      "bytes": 105472
+    },
+    {
+      "path": "_internal/scipy/_lib/_fpumode.cp312-win_amd64.pyd",
+      "sha256": "f00f7a238a65d40eb6939bac18ef8c407dd345cf26c7e83bb0a185ab03756814",
+      "bytes": 15872
+    },
+    {
+      "path": "_internal/scipy/_lib/_uarray/_uarray.cp312-win_amd64.pyd",
+      "sha256": "2fa9cd0fca336b35fca629e2ceedde50fdeed9d6d6ea3575a2bc4889222bc2d6",
+      "bytes": 235008
+    },
+    {
+      "path": "_internal/scipy/_lib/messagestream.cp312-win_amd64.pyd",
+      "sha256": "b4679bc7cc58c3dd7cb29689ae96ab295fff3412b1724baa7d2b7c6cf86f6c15",
+      "bytes": 60416
+    },
+    {
+      "path": "_internal/scipy/fft/_pocketfft/pypocketfft.cp312-win_amd64.pyd",
+      "sha256": "dd089b853dd1382b4ce73a138076efa8dda9391efa6090ee31fe607e2bdee313",
+      "bytes": 1097216
+    },
+    {
+      "path": "_internal/scipy/integrate/_dop.cp312-win_amd64.pyd",
+      "sha256": "cf340c300760f60abf1f734e30869a4caf5e975d5355d177a009bfefc55fb156",
+      "bytes": 95232
+    },
+    {
+      "path": "_internal/scipy/integrate/_odepack.cp312-win_amd64.pyd",
+      "sha256": "b87d527753a64e761ea8de0ea98da5f9fb37d4749905e07841c75e7f355c8c96",
+      "bytes": 228352
+    },
+    {
+      "path": "_internal/scipy/integrate/_quadpack.cp312-win_amd64.pyd",
+      "sha256": "cb28ae63f88e3ecf211bf8f5f27323a9295f30aaa0ff1bfbeb7d62bf434329c2",
+      "bytes": 143360
+    },
+    {
+      "path": "_internal/scipy/integrate/_vode.cp312-win_amd64.pyd",
+      "sha256": "9455a7ae1a8e85a8008a4fcd6e4460b583bea0cd0860253f6309e2806a020814",
+      "bytes": 278528
+    },
+    {
+      "path": "_internal/scipy/interpolate/_dfitpack.cp312-win_amd64.pyd",
+      "sha256": "351b13a45d45b01736350911ba9aa10ba4ea236a4b33875da70f01df89347288",
+      "bytes": 675328
+    },
+    {
+      "path": "_internal/scipy/interpolate/_dierckx.cp312-win_amd64.pyd",
+      "sha256": "36e8ab8e5aa64f735c68e380e3d17b3f8fef9c7d871a658d3915f0b7cbe16a0a",
+      "bytes": 1016832
+    },
+    {
+      "path": "_internal/scipy/interpolate/_fitpack.cp312-win_amd64.pyd",
+      "sha256": "e017d57aa95ac206befa452fbf1b8e35aff05f6a22205fcec96804e8911f1c95",
+      "bytes": 420864
+    },
+    {
+      "path": "_internal/scipy/interpolate/_interpnd.cp312-win_amd64.pyd",
+      "sha256": "d7a4ad815dfa5f533354b825783a26b320d2f167f1e142f36d15aa36137ba0bb",
+      "bytes": 228864
+    },
+    {
+      "path": "_internal/scipy/interpolate/_ppoly.cp312-win_amd64.pyd",
+      "sha256": "cdac95584e8dd9056ba64b38a13f50feacdacfb5c0a0a38c2e90175646092391",
+      "bytes": 231424
+    },
+    {
+      "path": "_internal/scipy/interpolate/_rbfinterp_pythran.cp312-win_amd64.pyd",
+      "sha256": "bfefea84ca4f6adf1a5de7d113360d30e643e0a2b94a99beaa8ed0bf6e3536c5",
+      "bytes": 1165312
+    },
+    {
+      "path": "_internal/scipy/interpolate/_rgi_cython.cp312-win_amd64.pyd",
+      "sha256": "c3e7e6243a3b7a64aedc4291852bad2e3fc64caa51e611ce866ce68e2991cb2f",
+      "bytes": 122880
+    },
+    {
+      "path": "_internal/scipy/linalg/_batched_linalg.cp312-win_amd64.pyd",
+      "sha256": "c6df23588eba47a89edeed4474974d6ea816060d7749a2821a564a857d79a255",
+      "bytes": 1057792
+    },
+    {
+      "path": "_internal/scipy/linalg/_cythonized_array_utils.cp312-win_amd64.pyd",
+      "sha256": "5a88e80730755f2577ac1826ccc567b4a524fe2b30052f99c87311f755c8f74e",
+      "bytes": 312832
+    },
+    {
+      "path": "_internal/scipy/linalg/_decomp_interpolative.cp312-win_amd64.pyd",
+      "sha256": "3600e8ec1622c6977125638fee701558609dc2d372dbc118a66becbee20c1db1",
+      "bytes": 749056
+    },
+    {
+      "path": "_internal/scipy/linalg/_decomp_lu_cython.cp312-win_amd64.pyd",
+      "sha256": "3005373a7d19051fc61d451f140bf961e0caaf2f95ea0fb442908c57345bc1a0",
+      "bytes": 120832
+    },
+    {
+      "path": "_internal/scipy/linalg/_decomp_update.cp312-win_amd64.pyd",
+      "sha256": "10b7ee93b4a18bef35182b844eb54457ceaad866ef9aa76d6fc1e4b9fc71b59d",
+      "bytes": 282624
+    },
+    {
+      "path": "_internal/scipy/linalg/_fblas.cp312-win_amd64.pyd",
+      "sha256": "3c6e3904bdfb3849a94db9e21863b5ce98516d7df41764afb8c27bde7c387e34",
+      "bytes": 737792
+    },
+    {
+      "path": "_internal/scipy/linalg/_flapack.cp312-win_amd64.pyd",
+      "sha256": "0de0eb87b20daaeb54f26abf23d54a02215cbdc19c8245aadb3fa86e96804328",
+      "bytes": 2273280
+    },
+    {
+      "path": "_internal/scipy/linalg/_linalg_pythran.cp312-win_amd64.pyd",
+      "sha256": "cdf6e618ef2ad73ae92e843600a70d4c87078561ebb4375f26402958b8f714e1",
+      "bytes": 1061888
+    },
+    {
+      "path": "_internal/scipy/linalg/_matfuncs_expm.cp312-win_amd64.pyd",
+      "sha256": "65e2c40301818e461f81d35b4cd7a282c9502d9beb0599d4b6a330826a3309bd",
+      "bytes": 229376
+    },
+    {
+      "path": "_internal/scipy/linalg/_matfuncs_schur_sqrtm.cp312-win_amd64.pyd",
+      "sha256": "a30c2700d337cee784c08d4ea7fff536ab3b881b3f535c0b0b68babde2e5c4f0",
+      "bytes": 211456
+    },
+    {
+      "path": "_internal/scipy/linalg/_matfuncs_sqrtm_triu.cp312-win_amd64.pyd",
+      "sha256": "539fd829f3f86f20f78838a3d2080c61292c6d0fbd748036751c04b8eb464478",
+      "bytes": 103424
+    },
+    {
+      "path": "_internal/scipy/linalg/_solve_toeplitz.cp312-win_amd64.pyd",
+      "sha256": "ab6049fe4ae0ae781e6562d78fee3e9c1715cf3dd4686428fedbaaf99c4dab4f",
+      "bytes": 122880
+    },
+    {
+      "path": "_internal/scipy/linalg/cython_blas.cp312-win_amd64.pyd",
+      "sha256": "7cb7d97da1cdcdbce9af4adb83638ee5185a857918c5e0b7e1696e527c3c0d81",
+      "bytes": 119296
+    },
+    {
+      "path": "_internal/scipy/linalg/cython_lapack.cp312-win_amd64.pyd",
+      "sha256": "84cc424fa42d3a2c1abaaf20107930c327f585599ca47fa4540d4f9a9f5d53a4",
+      "bytes": 199168
+    },
+    {
+      "path": "_internal/scipy/ndimage/_nd_image.cp312-win_amd64.pyd",
+      "sha256": "7a5bfe894a43b761f2042f2a35c1e799aaa964b60e33b1acc55bf8062636f191",
+      "bytes": 177664
+    },
+    {
+      "path": "_internal/scipy/ndimage/_ni_label.cp312-win_amd64.pyd",
+      "sha256": "b7dd341165d5ca1960ff96b1d6600822cdd50614f1328537d9311e219ae38d12",
+      "bytes": 205312
+    },
+    {
+      "path": "_internal/scipy/ndimage/_rank_filter_1d.cp312-win_amd64.pyd",
+      "sha256": "eb419d67ee29fa9615f01d288b43b8c0288da67043aa494b481c93b24d92b9d9",
+      "bytes": 124416
+    },
+    {
+      "path": "_internal/scipy/optimize/_bglu_dense.cp312-win_amd64.pyd",
+      "sha256": "3168df9f9c5a3ba0ef428c1c5ca13a6fced1a164b4d31cc4d71aca1baf58f50f",
+      "bytes": 173568
+    },
+    {
+      "path": "_internal/scipy/optimize/_direct.cp312-win_amd64.pyd",
+      "sha256": "6ea9f33c61aa3009eb557db94bc80c74b8b25947553a9950bf4ef1e4c4cc372e",
+      "bytes": 70656
+    },
+    {
+      "path": "_internal/scipy/optimize/_group_columns.cp312-win_amd64.pyd",
+      "sha256": "a3ee6c6801009f84b3aa8a980c83a0b1983d33fcf944144cda3cda691ecca43b",
+      "bytes": 1033216
+    },
+    {
+      "path": "_internal/scipy/optimize/_highspy/_core.cp312-win_amd64.pyd",
+      "sha256": "99d5c437bca5ee91c8785721fe69b235b6b348cff9c27a7436501f4cc419baad",
+      "bytes": 6443520
+    },
+    {
+      "path": "_internal/scipy/optimize/_highspy/_highs_options.cp312-win_amd64.pyd",
+      "sha256": "98acb3f762673688fc402e893d3313d267733135f0e1c07ef508cbcdb4b2ad8f",
+      "bytes": 1278464
+    },
+    {
+      "path": "_internal/scipy/optimize/_lbfgsb.cp312-win_amd64.pyd",
+      "sha256": "9d087101aadc47b4ac09332433edcc3be64de36a135acc7c728f079c3af9ebea",
+      "bytes": 171520
+    },
+    {
+      "path": "_internal/scipy/optimize/_lsap.cp312-win_amd64.pyd",
+      "sha256": "f8ff7561bd1ea3027c809fc804c8b1316376e589d12aef3a1ebcb2a6d2c3d18d",
+      "bytes": 177664
+    },
+    {
+      "path": "_internal/scipy/optimize/_lsq/givens_elimination.cp312-win_amd64.pyd",
+      "sha256": "22553b97f9e3c32f5fbbc1b8b9c5c4a4e0251f441366472844a824f01ae63021",
+      "bytes": 70656
+    },
+    {
+      "path": "_internal/scipy/optimize/_minpack.cp312-win_amd64.pyd",
+      "sha256": "95b27adf583cb4c0d660141adba5d179b9df4a42474b2ff230d598673794fab4",
+      "bytes": 124928
+    },
+    {
+      "path": "_internal/scipy/optimize/_moduleTNC.cp312-win_amd64.pyd",
+      "sha256": "0e57c01521068abf89c818e42693ffb20612ff9319d6942d490c4fd6a48873e2",
+      "bytes": 145920
+    },
+    {
+      "path": "_internal/scipy/optimize/_pava_pybind.cp312-win_amd64.pyd",
+      "sha256": "03cfa01ef5ed5829057e629497cc052e83eb9729a95a244e6fdbea66eb8dadd0",
+      "bytes": 317952
+    },
+    {
+      "path": "_internal/scipy/optimize/_slsqplib.cp312-win_amd64.pyd",
+      "sha256": "0174a3e1849cb4312b17fa6d6fe55de618a02c94ec9f7d9b12199270c6faac75",
+      "bytes": 172544
+    },
+    {
+      "path": "_internal/scipy/optimize/_trlib/_trlib.cp312-win_amd64.pyd",
+      "sha256": "ec5edbbfa97f3dc4a1f2e155bcf350ca6b25ad238e486ba72da2fef46ea42ff1",
+      "bytes": 206848
+    },
+    {
+      "path": "_internal/scipy/optimize/_zeros.cp312-win_amd64.pyd",
+      "sha256": "001213b4192a7427197626c5a7ac86d9e2c1fd7512be56a495cb192a66bbd4ed",
+      "bytes": 23040
+    },
+    {
+      "path": "_internal/scipy/signal/_max_len_seq_inner.cp312-win_amd64.pyd",
+      "sha256": "687669b40d0da549bf08e6313ca075cab60a4467e0d7ad2cf72ce48d696e14a9",
+      "bytes": 1006592
+    },
+    {
+      "path": "_internal/scipy/signal/_peak_finding_utils.cp312-win_amd64.pyd",
+      "sha256": "8a7a0344794f64468036af28767f601c9b42421c44dbea271e885bd752e92f97",
+      "bytes": 148480
+    },
+    {
+      "path": "_internal/scipy/signal/_sigtools.cp312-win_amd64.pyd",
+      "sha256": "6a28e8ab89bfbf6d1ad7a53aadad4f21407b82553f1cc46adc1994f51a84afcd",
+      "bytes": 126976
+    },
+    {
+      "path": "_internal/scipy/signal/_sosfilt.cp312-win_amd64.pyd",
+      "sha256": "e83c7db9488406099a1e6727de2f85eeb4aea67ab00e1a9a998513a5ad067c55",
+      "bytes": 106496
+    },
+    {
+      "path": "_internal/scipy/signal/_spline.cp312-win_amd64.pyd",
+      "sha256": "ed3e2c3b7dcaf74539455d432c0200d2f72698d6190671301c83e8e067d716e6",
+      "bytes": 63488
+    },
+    {
+      "path": "_internal/scipy/signal/_upfirdn_apply.cp312-win_amd64.pyd",
+      "sha256": "6e630a041fe96ede5c855705b1d56f1a0aa4e35fbc717bca9d19c003fb3ade39",
+      "bytes": 199680
+    },
+    {
+      "path": "_internal/scipy/sparse/_csparsetools.cp312-win_amd64.pyd",
+      "sha256": "356e21967b04d9d9c97fdd602be3e6b94f208511d6b86fe2caf5464ea87bddd8",
+      "bytes": 483840
+    },
+    {
+      "path": "_internal/scipy/sparse/_sparsetools.cp312-win_amd64.pyd",
+      "sha256": "1d507be93679e2a8dc12c2b64a3a59a074c140460ab5ba8d40a7b5bdf36202fb",
+      "bytes": 4114944
+    },
+    {
+      "path": "_internal/scipy/sparse/csgraph/_flow.cp312-win_amd64.pyd",
+      "sha256": "e512929f71f152921590077ea3f6cb2598fbe68a0d5cea0f328da738d1cac7ce",
+      "bytes": 168960
+    },
+    {
+      "path": "_internal/scipy/sparse/csgraph/_matching.cp312-win_amd64.pyd",
+      "sha256": "d6c4fd5d1c7c31efaea8fdf5f72e887de90beb8f6b33b2f1afec79abe60436ef",
+      "bytes": 175104
+    },
+    {
+      "path": "_internal/scipy/sparse/csgraph/_min_spanning_tree.cp312-win_amd64.pyd",
+      "sha256": "5e116133bf8cebf1de481cb2dcad3e1c4eaa1483b2c09e8ebf061cd30e988fe9",
+      "bytes": 104448
+    },
+    {
+      "path": "_internal/scipy/sparse/csgraph/_reordering.cp312-win_amd64.pyd",
+      "sha256": "4e3333df00b90c717c37b1a3ebe14d8c99bce8826b2b8b3c98f53b2dd8240b79",
+      "bytes": 150528
+    },
+    {
+      "path": "_internal/scipy/sparse/csgraph/_shortest_path.cp312-win_amd64.pyd",
+      "sha256": "d2d2817f778f160420ab56ff9f727321795bb8dcce2276fe9af43dcd51cceda2",
+      "bytes": 544256
+    },
+    {
+      "path": "_internal/scipy/sparse/csgraph/_tools.cp312-win_amd64.pyd",
+      "sha256": "bbe80ea9f718dc39cc4b18654371c6e924fafaf74c8cba588ba2723ce30ae9cd",
+      "bytes": 155136
+    },
+    {
+      "path": "_internal/scipy/sparse/csgraph/_traversal.cp312-win_amd64.pyd",
+      "sha256": "1817674c68d6db6f67b7b0343cae803fb789b9410d13db53b3d6b64a1ced6715",
+      "bytes": 344576
+    },
+    {
+      "path": "_internal/scipy/sparse/linalg/_dsolve/_superlu.cp312-win_amd64.pyd",
+      "sha256": "075d7ab28c49252f4ee5980ce9ae5ca804c6859649f650405813ff8649368e17",
+      "bytes": 542208
+    },
+    {
+      "path": "_internal/scipy/sparse/linalg/_eigen/arpack/_arpacklib.cp312-win_amd64.pyd",
+      "sha256": "f532cab33e8ee89eef19e8a3e2bd31485487c4b172beaf52446f2bd2af3b110c",
+      "bytes": 339968
+    },
+    {
+      "path": "_internal/scipy/sparse/linalg/_propack.cp312-win_amd64.pyd",
+      "sha256": "7f8f73cc897677ef5825214f3a26d56f266c55efa45fdeceb0c733a1956db096",
+      "bytes": 288768
+    },
+    {
+      "path": "_internal/scipy/spatial/_ckdtree.cp312-win_amd64.pyd",
+      "sha256": "8894f6d534e6d514926a8272eb3a1088c02502a921e1cd890390865097ed4813",
+      "bytes": 1523200
+    },
+    {
+      "path": "_internal/scipy/spatial/_distance_pybind.cp312-win_amd64.pyd",
+      "sha256": "d42a4996f4aa38699d8f148571a5360704801f3c0525fae4489f6d040a283b51",
+      "bytes": 1382912
+    },
+    {
+      "path": "_internal/scipy/spatial/_distance_wrap.cp312-win_amd64.pyd",
+      "sha256": "4f46b39f8da613b30e99174ce294069e8f14f86df38e6bb2a0c0d5481d92dfbe",
+      "bytes": 107008
+    },
+    {
+      "path": "_internal/scipy/spatial/_hausdorff.cp312-win_amd64.pyd",
+      "sha256": "f2cd4ab4bdd825a5672a83df4f0b71fd80cf19954373c692a1e4916622bb14a9",
+      "bytes": 95744
+    },
+    {
+      "path": "_internal/scipy/spatial/_qhull.cp312-win_amd64.pyd",
+      "sha256": "28f1c8b17398c7066e30ea40c6b035e47ef65039c503eb635307d0337144e333",
+      "bytes": 846336
+    },
+    {
+      "path": "_internal/scipy/spatial/_voronoi.cp312-win_amd64.pyd",
+      "sha256": "5609f28d114b61cf12e1613da4c9072ed5ebbe400d65d38f17c79d8d9b835c1a",
+      "bytes": 85504
+    },
+    {
+      "path": "_internal/scipy/spatial/transform/_rigid_transform_cy.cp312-win_amd64.pyd",
+      "sha256": "8de630dfc038d90734a7f027bceb530bcd4cd41f713ca1a06ecade83511041ad",
+      "bytes": 242688
+    },
+    {
+      "path": "_internal/scipy/spatial/transform/_rotation_cy.cp312-win_amd64.pyd",
+      "sha256": "4f68115dad53da6a532a54d81e334931f14455e523a3fe78caf1523f1fead01e",
+      "bytes": 557568
+    },
+    {
+      "path": "_internal/scipy/special/_comb.cp312-win_amd64.pyd",
+      "sha256": "82ada506eca2932774300cc9012eadf31875da5ba1ad8cd6e096621ac881d16a",
+      "bytes": 46080
+    },
+    {
+      "path": "_internal/scipy/special/_ellip_harm_2.cp312-win_amd64.pyd",
+      "sha256": "d543824c8e47d5c0ab9097d590425845099b6cbae5e293630375d36ce8e286e0",
+      "bytes": 139264
+    },
+    {
+      "path": "_internal/scipy/special/_gufuncs.cp312-win_amd64.pyd",
+      "sha256": "2ba405a2ecd205798bedc38cde6245eceff1555939d3405c71a5c773a4a76caa",
+      "bytes": 1515008
+    },
+    {
+      "path": "_internal/scipy/special/_specfun.cp312-win_amd64.pyd",
+      "sha256": "92f64cc95773ea0b05c570004ab74d85415e513949536f874a4d7b214ad40794",
+      "bytes": 294400
+    },
+    {
+      "path": "_internal/scipy/special/_special_ufuncs.cp312-win_amd64.pyd",
+      "sha256": "b8ab31cc0efdc8edb2b54051344d36eeddbf45b326a462f20666e33369e626a5",
+      "bytes": 2292224
+    },
+    {
+      "path": "_internal/scipy/special/_ufuncs.cp312-win_amd64.pyd",
+      "sha256": "6eca0912fdbc826e8779e604c08f19cdffbb6d6b60f1b198ad31cdc99e58d339",
+      "bytes": 1398784
+    },
+    {
+      "path": "_internal/scipy/special/_ufuncs_cxx.cp312-win_amd64.pyd",
+      "sha256": "f89da2936994df638b028977e664f50aad6a48a999d18ae5f7bf519d5b5a2479",
+      "bytes": 2404864
+    },
+    {
+      "path": "_internal/scipy/special/cython_special.cp312-win_amd64.pyd",
+      "sha256": "7708b736984c88478ae991d5a71c649fd93b50f868f793b455b141cd1f2c0976",
+      "bytes": 2196480
+    },
+    {
+      "path": "_internal/scipy/stats/_ansari_swilk_statistics.cp312-win_amd64.pyd",
+      "sha256": "145cfe092095639cf1dbaa516f999dbb04bbd05a997858563bcce8b9c84bd37e",
+      "bytes": 107008
+    },
+    {
+      "path": "_internal/scipy/stats/_biasedurn.cp312-win_amd64.pyd",
+      "sha256": "ebfdf10213b9d76455807f767d614b9d5dbbe1d2070cda62a69df6156959e934",
+      "bytes": 349696
+    },
+    {
+      "path": "_internal/scipy/stats/_levy_stable/levyst.cp312-win_amd64.pyd",
+      "sha256": "2de6bcecfee01e58636c7b081810c25aac7d8d05933111e90afdd8b2c4a07b4f",
+      "bytes": 51200
+    },
+    {
+      "path": "_internal/scipy/stats/_qmc_cy.cp312-win_amd64.pyd",
+      "sha256": "1cf44a4b588797fd7d60bbdd51cdd9edde76bdc792d6179e6f69cb42490c308e",
+      "bytes": 278528
+    },
+    {
+      "path": "_internal/scipy/stats/_qmvnt_cy.cp312-win_amd64.pyd",
+      "sha256": "555de14acbde9924146c2b20e8ddabdbcb86e88591d7a3cc6a4b3b34310150c0",
+      "bytes": 128000
+    },
+    {
+      "path": "_internal/scipy/stats/_rcont/rcont.cp312-win_amd64.pyd",
+      "sha256": "3f757ef287d8171155cd0557b13ad1e8c9b3f05cc3885b3aaceb9dbdc4a0ef15",
+      "bytes": 109568
+    },
+    {
+      "path": "_internal/scipy/stats/_sobol.cp312-win_amd64.pyd",
+      "sha256": "eb481e44503e8b1720102539a6d6b93fcc8bbc63e570851dc5a6a08ca3cf0287",
+      "bytes": 192512
+    },
+    {
+      "path": "_internal/scipy/stats/_stats.cp312-win_amd64.pyd",
+      "sha256": "d32a2011e311b1e269ec5277c14c1e6e8a88a973c9915f8cdea739e362074bd0",
+      "bytes": 484352
+    },
+    {
+      "path": "_internal/scipy/stats/_stats_pythran.cp312-win_amd64.pyd",
+      "sha256": "60a27e71341812d0ffa05cbb3b35167b5429d9db90ac28063f1abdf76dfe028a",
+      "bytes": 1107968
+    },
+    {
       "path": "_internal/scripts/anythingmcp-local.py",
       "sha256": "1ac554849ee525863444ef8f520fb370d5087eaccfb88f70b4d7b8bf894bdce0",
       "bytes": 14332
@@ -7178,8 +8353,8 @@
     },
     {
       "path": "_internal/speech/moss_worker.py",
-      "sha256": "5aaacfad4b06a6cb95f763e6880e54b89f3a3a2a5d7a9200546267ec3ba0e838",
-      "bytes": 18479
+      "sha256": "9e855a9f0367c49914809a1b61b8f072c8d971bfc28b35c398f495fd27e7f40c",
+      "bytes": 17701
     },
     {
       "path": "_internal/speech/piper_worker.py",
@@ -7193,8 +8368,8 @@
     },
     {
       "path": "_internal/speech/speech_text.py",
-      "sha256": "566bb9e07b173e3fce04c8aa0f80da89b2b0d990d8527f6dc73488e5c6e52302",
-      "bytes": 9048
+      "sha256": "bbb53753716753b361008d0fcc71afee581aa4126b3140cbd599e0ab33595b4c",
+      "bytes": 10368
     },
     {
       "path": "_internal/sqlite3.dll",
@@ -10342,6 +11517,11 @@
       "bytes": 1124192
     },
     {
+      "path": "_internal/ujson.cp312-win_amd64.pyd",
+      "sha256": "0510ccbd4c5d097abcaed09ab8b765b8b354d34e62d3bb321ffa3b4c718beea6",
+      "bytes": 66048
+    },
+    {
       "path": "_internal/unicodedata.pyd",
       "sha256": "208ee1cd3cbad0828433ca7246b05be2b1ff5569983d27d296c0b38888585488",
       "bytes": 1140592
@@ -10355,6 +11535,1816 @@
       "path": "_internal/vcruntime140_1.dll",
       "sha256": "f226a7747d216cbded9ffee8d1b438b65ed224412e9c7628b3c37f9e2974e76e",
       "bytes": 39224
+    },
+    {
+      "path": "_internal/vtk.libs/msvcp140-ba05f997e25eac0cb10acfddf6513d26.dll",
+      "sha256": "ba05f997e25eac0cb10acfddf6513d2682bc7a88fffe110dfb322012c0a3744d",
+      "bytes": 579960
+    },
+    {
+      "path": "_internal/vtk.libs/openxr_loader-47d29b2f0e7df7fb367af5ce36fd428d.dll",
+      "sha256": "47d29b2f0e7df7fb367af5ce36fd428df0511f86fab6a279c4971f20237e0d2d",
+      "bytes": 2036224
+    },
+    {
+      "path": "_internal/vtk.libs/viskores_cont-9.6.2.dll",
+      "sha256": "7d748f93141c23d52e15a0c636afc95748e5e9d9e197c88e4c4b9f2d32ed94c3",
+      "bytes": 8126976
+    },
+    {
+      "path": "_internal/vtk.libs/viskores_filter_clean_grid-9.6.2.dll",
+      "sha256": "53e343bc6907fa46e6ec612fbfa472e85176d6cf8d2a0c8756cb5ee5478d887b",
+      "bytes": 227328
+    },
+    {
+      "path": "_internal/vtk.libs/viskores_filter_connected_components-9.6.2.dll",
+      "sha256": "d1ab0fa463407e152df07c3bfe8cd54c75b574822d9c0d215ff2106413b94ccd",
+      "bytes": 254976
+    },
+    {
+      "path": "_internal/vtk.libs/viskores_filter_contour-9.6.2.dll",
+      "sha256": "2acd5285594a9ce4de573951855f1079bed3a949c99d5c0c00f9e71a5ce04a09",
+      "bytes": 8188928
+    },
+    {
+      "path": "_internal/vtk.libs/viskores_filter_core-9.6.2.dll",
+      "sha256": "a430417fc649d43cbee9c4b23e989e600d0680a454d5eb4a662e28b9ecdb3f9d",
+      "bytes": 261120
+    },
+    {
+      "path": "_internal/vtk.libs/viskores_filter_density_estimate-9.6.2.dll",
+      "sha256": "6d35f7f9b855b03de74a5880366e80792d0e0951b37f4e8d2290afa4f58d6d52",
+      "bytes": 783872
+    },
+    {
+      "path": "_internal/vtk.libs/viskores_filter_entity_extraction-9.6.2.dll",
+      "sha256": "1bfadd94813d591393a5563de18a977fb71945cd1d929915530083334fe470cd",
+      "bytes": 1764352
+    },
+    {
+      "path": "_internal/vtk.libs/viskores_filter_field_conversion-9.6.2.dll",
+      "sha256": "eef3fc2ce6a4f0405deeb29ef022f5b3edef4ad10813927fd5ebff778e96ce1c",
+      "bytes": 658432
+    },
+    {
+      "path": "_internal/vtk.libs/viskores_filter_field_transform-9.6.2.dll",
+      "sha256": "2f40812462c532f07a21decdf1122dd52dc321f927c05d3ff50a2eccb0fc5a71",
+      "bytes": 821248
+    },
+    {
+      "path": "_internal/vtk.libs/viskores_filter_geometry_refinement-9.6.2.dll",
+      "sha256": "7b9847dd324a491d8d93e7cf4bc68b9a044d4a9f82f476fd74d0123c6637d7e0",
+      "bytes": 4354048
+    },
+    {
+      "path": "_internal/vtk.libs/viskores_filter_mesh_info-9.6.2.dll",
+      "sha256": "66ef861465ad203c4a9109b3c3a42cd3a821bcdd688e87ec057f413a159adf9b",
+      "bytes": 5183488
+    },
+    {
+      "path": "_internal/vtk.libs/viskores_filter_multi_block-9.6.2.dll",
+      "sha256": "d1d4fe87ec73cbf50b1a9c491c924ff2c35de21ea2acb800beb5e938879f7909",
+      "bytes": 112128
+    },
+    {
+      "path": "_internal/vtk.libs/viskores_filter_resampling-9.6.2.dll",
+      "sha256": "e401849835bd887221e223d25ee3c4ede7d32bee4632ca8ea4c101dbc1839523",
+      "bytes": 1527808
+    },
+    {
+      "path": "_internal/vtk.libs/viskores_filter_vector_analysis-9.6.2.dll",
+      "sha256": "2c6ab389e9e45306f540465243c7d49a9a44985a3e94083b521f219af83476f7",
+      "bytes": 8266240
+    },
+    {
+      "path": "_internal/vtk.libs/viskores_worklet-9.6.2.dll",
+      "sha256": "cdb279199d2b10f495a7c7bf2729510bfe98186de9da7aca9104ae8a1891727b",
+      "bytes": 328192
+    },
+    {
+      "path": "_internal/vtk.libs/viskoresdiympi_nompi.dll",
+      "sha256": "7f3ea72fe2477dfa230c752291e779d945e0c074e01921af13e48c387a623559",
+      "bytes": 21504
+    },
+    {
+      "path": "_internal/vtk.libs/vtkAcceleratorsVTKmCore-9.6.2.dll",
+      "sha256": "1551fdc779c8b8209a6eadc8ee6910088f46350b59b905044185e10404ad96cf",
+      "bytes": 1188352
+    },
+    {
+      "path": "_internal/vtk.libs/vtkAcceleratorsVTKmDataModel-9.6.2.dll",
+      "sha256": "fb79ad35b7eef038841746c3e2d884a4a87f0dd7ac3dce249be995d25a519989",
+      "bytes": 1075200
+    },
+    {
+      "path": "_internal/vtk.libs/vtkAcceleratorsVTKmFilters-9.6.2.dll",
+      "sha256": "ffd0c08917034e83c1163e40660ab15867d58c0490570374e55ca7e4ecf87c60",
+      "bytes": 665600
+    },
+    {
+      "path": "_internal/vtk.libs/vtkChartsCore-9.6.2.dll",
+      "sha256": "fc0c3e25036917110e68424aa0153c9c74b697f4b940020ab804b77ab590212d",
+      "bytes": 5894656
+    },
+    {
+      "path": "_internal/vtk.libs/vtkCommonColor-9.6.2.dll",
+      "sha256": "e1154d280251b3d9a032e87f0f59d5b244eaebdbb9de020ac547d62bf910b861",
+      "bytes": 300032
+    },
+    {
+      "path": "_internal/vtk.libs/vtkCommonComputationalGeometry-9.6.2.dll",
+      "sha256": "ae8f84eed85e4f22ccecda0145a32c66706338c748abfb526d8ac75937ab71c0",
+      "bytes": 168448
+    },
+    {
+      "path": "_internal/vtk.libs/vtkCommonCore-9.6.2.dll",
+      "sha256": "5073b879590c0f3d38a5d4761caf2b90e8202d45158e9ac4028c824184e4a9a1",
+      "bytes": 48741376
+    },
+    {
+      "path": "_internal/vtk.libs/vtkCommonDataModel-9.6.2.dll",
+      "sha256": "839c23837a1faacec3bdb59abc16124058cd33f1677b12db3b7904d5a1ba2cf4",
+      "bytes": 7895552
+    },
+    {
+      "path": "_internal/vtk.libs/vtkCommonExecutionModel-9.6.2.dll",
+      "sha256": "c72781de2efbea203950a72ee571998ead6f7710ae796cc8eefa20bab881f1c7",
+      "bytes": 1875456
+    },
+    {
+      "path": "_internal/vtk.libs/vtkCommonMath-9.6.2.dll",
+      "sha256": "b60602d777c5ed729a90a767df0a55da781e6a5d5ae66814ea8afc1a08fedd6a",
+      "bytes": 320000
+    },
+    {
+      "path": "_internal/vtk.libs/vtkCommonMisc-9.6.2.dll",
+      "sha256": "c7fd264b0346f23dc248db146cf997210b4997dfb273273da8a0f9bf2d610d4f",
+      "bytes": 3059712
+    },
+    {
+      "path": "_internal/vtk.libs/vtkCommonPython-9.6.2.dll",
+      "sha256": "f5b9b1d27bb9ee9c1d329d1e6c00a492fa092b6af15598116563321717e91ea1",
+      "bytes": 27136
+    },
+    {
+      "path": "_internal/vtk.libs/vtkCommonSystem-9.6.2.dll",
+      "sha256": "1b17f2125bb06d860c678301fc74b1cb0bafb0a8957509871ad4550f30f3cbd4",
+      "bytes": 126976
+    },
+    {
+      "path": "_internal/vtk.libs/vtkCommonTransforms-9.6.2.dll",
+      "sha256": "057633d9046bc1c542e4257bc96a294e4a1a30b7bf01cce5cb1fe9a732c6219e",
+      "bytes": 623616
+    },
+    {
+      "path": "_internal/vtk.libs/vtkDICOMParser-9.6.2.dll",
+      "sha256": "7b2b92ce003ddb6ce25bc111ffb0d743e598dd9043d347922062b9bb854dce02",
+      "bytes": 101888
+    },
+    {
+      "path": "_internal/vtk.libs/vtkDomainsChemistry-9.6.2.dll",
+      "sha256": "67166f511cc8f23dc33bd985b5ac95e4a4815d86357831677b044d66256041ea",
+      "bytes": 244736
+    },
+    {
+      "path": "_internal/vtk.libs/vtkDomainsChemistryOpenGL2-9.6.2.dll",
+      "sha256": "7f59e4faa18c86a1e1fecd3a1308ff548eb8616c3005db407981511e8a99e53d",
+      "bytes": 43520
+    },
+    {
+      "path": "_internal/vtk.libs/vtkFiltersAMR-9.6.2.dll",
+      "sha256": "096159392ac0a130e6c7773d99f93992f62b8e5c151c783e8b94fbfa509bd25e",
+      "bytes": 144896
+    },
+    {
+      "path": "_internal/vtk.libs/vtkFiltersCellGrid-9.6.2.dll",
+      "sha256": "ecf2f9c8328f8a6519128b2e572fefd6cb6f58e3ce5fbd3d04cb4e4070aa719c",
+      "bytes": 1065472
+    },
+    {
+      "path": "_internal/vtk.libs/vtkFiltersCore-9.6.2.dll",
+      "sha256": "81531ed55e1669d99f203977afc14e0e3ee32e52d4ef6cf6b44ebef48340a37e",
+      "bytes": 22253056
+    },
+    {
+      "path": "_internal/vtk.libs/vtkFiltersExtraction-9.6.2.dll",
+      "sha256": "574d7af99bb616c4ac78c57b1ee2c2a17b8aed879e95eac455a4b8b1bc5dfa8f",
+      "bytes": 1465344
+    },
+    {
+      "path": "_internal/vtk.libs/vtkFiltersFlowPaths-9.6.2.dll",
+      "sha256": "a2b898c25ad14c599d3844301829efabde4e300d3060ecfb192962f9ab52ca82",
+      "bytes": 1899008
+    },
+    {
+      "path": "_internal/vtk.libs/vtkFiltersGeneral-9.6.2.dll",
+      "sha256": "f3c6531883ba67345e49baaff41cb829c7501240f3e7a90f884558921fb8b860",
+      "bytes": 10159616
+    },
+    {
+      "path": "_internal/vtk.libs/vtkFiltersGeneric-9.6.2.dll",
+      "sha256": "899c448e740ec19af1e45a910ca49e4ec06c5096d65863b321c63d0dbaa62a67",
+      "bytes": 152064
+    },
+    {
+      "path": "_internal/vtk.libs/vtkFiltersGeometry-9.6.2.dll",
+      "sha256": "f49b8100f840896d195bf6dfc69e070f2facb3c4a4a7dcb0c26deb08540c7b92",
+      "bytes": 1315328
+    },
+    {
+      "path": "_internal/vtk.libs/vtkFiltersGeometryPreview-9.6.2.dll",
+      "sha256": "3909596e6cafe1abf86db050de05802cca675e7b350885111c3293babda72615",
+      "bytes": 400896
+    },
+    {
+      "path": "_internal/vtk.libs/vtkFiltersHybrid-9.6.2.dll",
+      "sha256": "90f1214accd96ce121ee622d0e814c6d587c00764a7eaa64ca62a94e9690e1b0",
+      "bytes": 3376128
+    },
+    {
+      "path": "_internal/vtk.libs/vtkFiltersHyperTree-9.6.2.dll",
+      "sha256": "bc0d4b2082dd0050507a0fe0ac825a1c76362ec4125550e6d035a2bca1d50b59",
+      "bytes": 455680
+    },
+    {
+      "path": "_internal/vtk.libs/vtkFiltersImaging-9.6.2.dll",
+      "sha256": "1d954d6cebac8f3cbe49802cc2711cee817c03ad0697d43c36053d975391bae7",
+      "bytes": 94208
+    },
+    {
+      "path": "_internal/vtk.libs/vtkFiltersModeling-9.6.2.dll",
+      "sha256": "ac2d95235654dcb92bf80a6e3e8b2de0c6dd63c97ce2e4eb2c2c378747141c71",
+      "bytes": 1316352
+    },
+    {
+      "path": "_internal/vtk.libs/vtkFiltersParallel-9.6.2.dll",
+      "sha256": "d53a5d71ba453ab5c51981d9ee529530b8f093a5f79ae7b07321b8e03dca2465",
+      "bytes": 904704
+    },
+    {
+      "path": "_internal/vtk.libs/vtkFiltersParallelDIY2-9.6.2.dll",
+      "sha256": "e504497e9ef14adfa9272905ef2b610fd69daf513483b5d43fd48379a4ea1977",
+      "bytes": 874496
+    },
+    {
+      "path": "_internal/vtk.libs/vtkFiltersParallelImaging-9.6.2.dll",
+      "sha256": "b8e62d3dc01cd47bb4d23ef59b85e46bd7d9d9d86b3bfd3edbdd34f106da79f0",
+      "bytes": 86528
+    },
+    {
+      "path": "_internal/vtk.libs/vtkFiltersParallelStatistics-9.6.2.dll",
+      "sha256": "2746477166ad8a5a8166440e7295d57ebbf02254a2786122bfc27b73916d3256",
+      "bytes": 256512
+    },
+    {
+      "path": "_internal/vtk.libs/vtkFiltersPoints-9.6.2.dll",
+      "sha256": "664f60808b87e83b0653efc4f93367f87a8a48ce943b51ef508417a5c5d18e2f",
+      "bytes": 1431552
+    },
+    {
+      "path": "_internal/vtk.libs/vtkFiltersProgrammable-9.6.2.dll",
+      "sha256": "80c5df4cfa46dd09c4a16fb875855e911e90dfa892a5733c5f270b373ac58ad8",
+      "bytes": 52736
+    },
+    {
+      "path": "_internal/vtk.libs/vtkFiltersPython-9.6.2.dll",
+      "sha256": "89626369573927539305c2b0fc7a103221ffc5b604bec9702aa0e47c86e3bbd5",
+      "bytes": 32768
+    },
+    {
+      "path": "_internal/vtk.libs/vtkFiltersReduction-9.6.2.dll",
+      "sha256": "f4e0f908ceaa61f7598948f10b1cc24b1b8b1ae9c8b65a46b15bc334e150085a",
+      "bytes": 1431552
+    },
+    {
+      "path": "_internal/vtk.libs/vtkFiltersSMP-9.6.2.dll",
+      "sha256": "06690cf62849270d6858daaced66100d5f0f9d7ff7bfd9b452a6885a78945ddc",
+      "bytes": 133120
+    },
+    {
+      "path": "_internal/vtk.libs/vtkFiltersSelection-9.6.2.dll",
+      "sha256": "48def47b5b949c74b373bcfe70fd35ae405cd681df52b500d8407d77e6fddb82",
+      "bytes": 69632
+    },
+    {
+      "path": "_internal/vtk.libs/vtkFiltersSources-9.6.2.dll",
+      "sha256": "aae6c1c7db0f9a78f26b8e9791705bd186c2f5385d5be602e9e455beebe61ffd",
+      "bytes": 4049408
+    },
+    {
+      "path": "_internal/vtk.libs/vtkFiltersStatistics-9.6.2.dll",
+      "sha256": "5f850aabb69fb7a65ed08e30120f681123bc4f3f38521cd9c4d20ac744c934b9",
+      "bytes": 892928
+    },
+    {
+      "path": "_internal/vtk.libs/vtkFiltersTemporal-9.6.2.dll",
+      "sha256": "4b44cb12963bf9c78585acd9ee9ac8d7e0f51ad3c770c9436e5f5aeb9c2cc23f",
+      "bytes": 386560
+    },
+    {
+      "path": "_internal/vtk.libs/vtkFiltersTensor-9.6.2.dll",
+      "sha256": "aa53a77e441db039524f4449594b5fa1aa1c3ccf13dbdc69064f5567f91d1a29",
+      "bytes": 65536
+    },
+    {
+      "path": "_internal/vtk.libs/vtkFiltersTexture-9.6.2.dll",
+      "sha256": "4af10f1383e741d9f6b07e40d5ba8618d1f1cfc30c8f3a9be192de0cacb59ef1",
+      "bytes": 97792
+    },
+    {
+      "path": "_internal/vtk.libs/vtkFiltersTopology-9.6.2.dll",
+      "sha256": "1e05a9cc03963f3a671d9252f70f9d245d087bfc95ebe1e08f895cc52845e681",
+      "bytes": 39936
+    },
+    {
+      "path": "_internal/vtk.libs/vtkFiltersVerdict-9.6.2.dll",
+      "sha256": "77813fc2f99f807af31c81f21f5b0585690dd6f2c47b5ba3c0af25121add1650",
+      "bytes": 202240
+    },
+    {
+      "path": "_internal/vtk.libs/vtkGeovisCore-9.6.2.dll",
+      "sha256": "efcf6ee34e526b37a860ed1813dcef24219227683e7435ce90c4b5c32c6f5b32",
+      "bytes": 56320
+    },
+    {
+      "path": "_internal/vtk.libs/vtkIOAMR-9.6.2.dll",
+      "sha256": "97642beea5916d8afcd7aaf366df3bd5adf904287d47d131fe66cb73741e29d8",
+      "bytes": 402432
+    },
+    {
+      "path": "_internal/vtk.libs/vtkIOAsynchronous-9.6.2.dll",
+      "sha256": "004cebeca317b7ecd6384cf20c08f208169d4f59c137fe70306dd5b35c4e5680",
+      "bytes": 66560
+    },
+    {
+      "path": "_internal/vtk.libs/vtkIOAvmesh-9.6.2.dll",
+      "sha256": "beb72f3d76fe89f888246e40f7230a10327759b9c72e903017c083ea94634de5",
+      "bytes": 74240
+    },
+    {
+      "path": "_internal/vtk.libs/vtkIOCGNSReader-9.6.2.dll",
+      "sha256": "2670b598549057301e5a99b70ed89eca24e1523e49f1145ba42a1e507c56aba6",
+      "bytes": 502272
+    },
+    {
+      "path": "_internal/vtk.libs/vtkIOCONVERGECFD-9.6.2.dll",
+      "sha256": "c225201b7fd9086d4912edaa43b8b7481b6f85da4aa252008835a2af669d8e58",
+      "bytes": 123904
+    },
+    {
+      "path": "_internal/vtk.libs/vtkIOCellGrid-9.6.2.dll",
+      "sha256": "abc77b7b4f4fc37db05f7fdb21da2162a0d1e1f830dd016496179f0fbee34c2c",
+      "bytes": 502272
+    },
+    {
+      "path": "_internal/vtk.libs/vtkIOCesium3DTiles-9.6.2.dll",
+      "sha256": "a0be91503efe172d679758682435f9e1dca0a60645fe177e15174c173c3b7eb8",
+      "bytes": 313344
+    },
+    {
+      "path": "_internal/vtk.libs/vtkIOChemistry-9.6.2.dll",
+      "sha256": "d4eb9c101ef6c4f8502d537541ca598b636076e9c5fc4e9029bdd503d3f0f06e",
+      "bytes": 249344
+    },
+    {
+      "path": "_internal/vtk.libs/vtkIOCityGML-9.6.2.dll",
+      "sha256": "69f8426ea341b3e09ba42dda8a99f65da896b9ad48f10b08602524ee71494952",
+      "bytes": 117760
+    },
+    {
+      "path": "_internal/vtk.libs/vtkIOCore-9.6.2.dll",
+      "sha256": "890c88c5befb0b9c36cb2ec2b3474d1e8ff673265d7383e502ce2be8f3da6d1c",
+      "bytes": 435200
+    },
+    {
+      "path": "_internal/vtk.libs/vtkIOERF-9.6.2.dll",
+      "sha256": "969afa8ab237fe7929369774b61c7ad4a3c50b76ad61c1fc6dfe8e8b9500bedc",
+      "bytes": 111616
+    },
+    {
+      "path": "_internal/vtk.libs/vtkIOEnSight-9.6.2.dll",
+      "sha256": "e13fbe683e4ee5624a75909091b20fa60fd4642bb156ff1ed8f92ec16f6354ed",
+      "bytes": 868352
+    },
+    {
+      "path": "_internal/vtk.libs/vtkIOEngys-9.6.2.dll",
+      "sha256": "e99be7cb221d86ff60649a24cbd43c1232921b83fa08738b0c68a9216b45fe98",
+      "bytes": 50688
+    },
+    {
+      "path": "_internal/vtk.libs/vtkIOExodus-9.6.2.dll",
+      "sha256": "1bc05deea2167a5dc1c513c483f7599b743376a0b3006b4e0160e3e24cfc980a",
+      "bytes": 529920
+    },
+    {
+      "path": "_internal/vtk.libs/vtkIOExport-9.6.2.dll",
+      "sha256": "31400bb4201d0d2d11f5f9684007f0284a0f20ae150d44f374db173ebbde4920",
+      "bytes": 653312
+    },
+    {
+      "path": "_internal/vtk.libs/vtkIOExportGL2PS-9.6.2.dll",
+      "sha256": "33f6c2c427508d8ef3259d4423c07dd182bd852619f24cb20363257e4eb17935",
+      "bytes": 58880
+    },
+    {
+      "path": "_internal/vtk.libs/vtkIOExportPDF-9.6.2.dll",
+      "sha256": "d60d45543ff90d5d44a95ec77ccfc7137bbcce4ee390fae09a628c155234243b",
+      "bytes": 106496
+    },
+    {
+      "path": "_internal/vtk.libs/vtkIOFDS-9.6.2.dll",
+      "sha256": "decb5340449cf9507c091d2b88a7fa0913a19536ad11601cece08a16bbfd0bf8",
+      "bytes": 151552
+    },
+    {
+      "path": "_internal/vtk.libs/vtkIOFLUENTCFF-9.6.2.dll",
+      "sha256": "453858c1cad7293380e1e9e2a44e02688872f81f785a4333c3b9ed57be9e2a8b",
+      "bytes": 148992
+    },
+    {
+      "path": "_internal/vtk.libs/vtkIOGeoJSON-9.6.2.dll",
+      "sha256": "c92083b8fb5c996a1ebf36813f6e2213374e6f00d938bdf8d0d4f9703e989a75",
+      "bytes": 132096
+    },
+    {
+      "path": "_internal/vtk.libs/vtkIOGeometry-9.6.2.dll",
+      "sha256": "12c225594347daec2daaa3c93d0482d2723ff9fab64f6c20a0dc167fc9e981a5",
+      "bytes": 1991680
+    },
+    {
+      "path": "_internal/vtk.libs/vtkIOH5Rage-9.6.2.dll",
+      "sha256": "0756714d351fee9fc349e6527292c318e438ccad0fe6e56cf11351037f24dfc6",
+      "bytes": 101888
+    },
+    {
+      "path": "_internal/vtk.libs/vtkIOH5part-9.6.2.dll",
+      "sha256": "9e856438c48cf7731af3b299fe5cd0a3dd4486e32b38a82fbb6379a786a42f7e",
+      "bytes": 66048
+    },
+    {
+      "path": "_internal/vtk.libs/vtkIOHDF-9.6.2.dll",
+      "sha256": "9645af213edf36022967b4f1c078c6e6081e55c1d7bb14ab76e18bb1df019ebc",
+      "bytes": 520192
+    },
+    {
+      "path": "_internal/vtk.libs/vtkIOIOSS-9.6.2.dll",
+      "sha256": "cd3211aeb9b27bdf27360daac60a2a0ae474c8047fce29dbf44391068f3a3349",
+      "bytes": 853504
+    },
+    {
+      "path": "_internal/vtk.libs/vtkIOImage-9.6.2.dll",
+      "sha256": "bdaa24c8733ecb02c251c3215eb0694bdeb84a1d77c38b342d81629557993353",
+      "bytes": 1195520
+    },
+    {
+      "path": "_internal/vtk.libs/vtkIOImport-9.6.2.dll",
+      "sha256": "8fa1c3313493548942b71b0de08f03951db1e0d8db94e73ffe71995c269a46c8",
+      "bytes": 369664
+    },
+    {
+      "path": "_internal/vtk.libs/vtkIOInfovis-9.6.2.dll",
+      "sha256": "d1a322883dfba6aa057b55892c393eb6ee3532047518d91bc411e0b3e705cddd",
+      "bytes": 425984
+    },
+    {
+      "path": "_internal/vtk.libs/vtkIOLANLX3D-9.6.2.dll",
+      "sha256": "fb4b48b46544975953c905a058b3cf6c4d89cfe54e25158d4f64eff75cf62b7b",
+      "bytes": 158208
+    },
+    {
+      "path": "_internal/vtk.libs/vtkIOLSDyna-9.6.2.dll",
+      "sha256": "57cd6ad0967c1921152e722bb85b883c10f01bee00ffadc0c0fcc803adcfa187",
+      "bytes": 282624
+    },
+    {
+      "path": "_internal/vtk.libs/vtkIOLegacy-9.6.2.dll",
+      "sha256": "8c9f65236279b7003aa439b3931b02aeceb274c4bc8c010974926e44dfaefa44",
+      "bytes": 744448
+    },
+    {
+      "path": "_internal/vtk.libs/vtkIOMINC-9.6.2.dll",
+      "sha256": "bd0345bbbcc1891fdb4674a0fd374d924d41362f7707eec3078b18e091c7cd0b",
+      "bytes": 422400
+    },
+    {
+      "path": "_internal/vtk.libs/vtkIOMotionFX-9.6.2.dll",
+      "sha256": "e3e118ce13f5c16af1197e4692b0758bc41e92787cd20f449026b1de14c6c1e2",
+      "bytes": 182784
+    },
+    {
+      "path": "_internal/vtk.libs/vtkIOMovie-9.6.2.dll",
+      "sha256": "734963c406a3cbb48bd05078c7d37e20a7c31d5c2ee6db4565dc1456d0bac0ef",
+      "bytes": 28160
+    },
+    {
+      "path": "_internal/vtk.libs/vtkIONetCDF-9.6.2.dll",
+      "sha256": "71203a24b569bfd17fd160d9c728a27726100d55e80ca1616965d6c1cddcbfb4",
+      "bytes": 1047040
+    },
+    {
+      "path": "_internal/vtk.libs/vtkIOOMF-9.6.2.dll",
+      "sha256": "0cc259983758154a28dc5086ebb7c1049cd2f2201cbd4c51b0092a24c62085b1",
+      "bytes": 128512
+    },
+    {
+      "path": "_internal/vtk.libs/vtkIOOggTheora-9.6.2.dll",
+      "sha256": "74bd322f4e0ff605e3c03202bae365cdd5b03a276cfcf6e2982e50ebd4b11a3c",
+      "bytes": 46592
+    },
+    {
+      "path": "_internal/vtk.libs/vtkIOPIO-9.6.2.dll",
+      "sha256": "d2daf5cb913327d9e79e2d391334891762b220d59ccaca30f1470ab06962a80a",
+      "bytes": 217088
+    },
+    {
+      "path": "_internal/vtk.libs/vtkIOPLY-9.6.2.dll",
+      "sha256": "1a401adc4d40c2b7705c872c63c23bffb70aee770f2c83d08d38daf94f6c3a8f",
+      "bytes": 145408
+    },
+    {
+      "path": "_internal/vtk.libs/vtkIOParallel-9.6.2.dll",
+      "sha256": "17bac0454069a71523a59a6d8203d8da9d5eae4f9da927bd59debad325777e55",
+      "bytes": 433664
+    },
+    {
+      "path": "_internal/vtk.libs/vtkIOParallelExodus-9.6.2.dll",
+      "sha256": "3d50cc5599e912a3a3f06a9e6ea0a8fceeaa3e4f1b2399e257804057c8265317",
+      "bytes": 108544
+    },
+    {
+      "path": "_internal/vtk.libs/vtkIOParallelLSDyna-9.6.2.dll",
+      "sha256": "f49ab65d8cb7df82fba56395d597b285c7d1b44edbfa1e67a7f1836bfb712ce1",
+      "bytes": 39936
+    },
+    {
+      "path": "_internal/vtk.libs/vtkIOParallelXML-9.6.2.dll",
+      "sha256": "dd831c03f5b7d5707ade0c97dc806ef8ae8ef5e3938116e63aae44db9ee0c035",
+      "bytes": 212480
+    },
+    {
+      "path": "_internal/vtk.libs/vtkIOSQL-9.6.2.dll",
+      "sha256": "1a15c64f1011357e06d3f6a8c6d12d2a3a43068a085c1130d90a6904301432ac",
+      "bytes": 273920
+    },
+    {
+      "path": "_internal/vtk.libs/vtkIOSegY-9.6.2.dll",
+      "sha256": "72c838c30b4e8e2e1e61dfc2f762d70b42f521e99836a6433b9dab86b890c06e",
+      "bytes": 61440
+    },
+    {
+      "path": "_internal/vtk.libs/vtkIOTRUCHAS-9.6.2.dll",
+      "sha256": "e7f49db6d8c9ed29b66daeaf302e5d1a246c55bab882723a53530d17a642ba09",
+      "bytes": 66048
+    },
+    {
+      "path": "_internal/vtk.libs/vtkIOTecplotTable-9.6.2.dll",
+      "sha256": "5e8bba00b3fb958cecb7df9c4de8c76c23fd0c26f7ad93de081c52c916bb04ce",
+      "bytes": 62976
+    },
+    {
+      "path": "_internal/vtk.libs/vtkIOVPIC-9.6.2.dll",
+      "sha256": "34f90ce440def1c261e029c23d63639925ebce131c3c11062ba7928d9315e95b",
+      "bytes": 45056
+    },
+    {
+      "path": "_internal/vtk.libs/vtkIOVeraOut-9.6.2.dll",
+      "sha256": "8deb929fbd5cd2dfe8166e1ba70246e7896a56b4be2dc2161e5c6fc25cea0ac1",
+      "bytes": 69120
+    },
+    {
+      "path": "_internal/vtk.libs/vtkIOVideo-9.6.2.dll",
+      "sha256": "e1e65a364107da2b1502929c4ffd60bd00e184e6b26aa4d0dc6ff33cdcf63890",
+      "bytes": 51200
+    },
+    {
+      "path": "_internal/vtk.libs/vtkIOXML-9.6.2.dll",
+      "sha256": "f43adcd3ed21f027b12b5f91d6c7881507b77a34431b1d1f41a8ed91b2f51cde",
+      "bytes": 1010688
+    },
+    {
+      "path": "_internal/vtk.libs/vtkIOXMLParser-9.6.2.dll",
+      "sha256": "be82ed027986400b4aa8930a185c1ed24d4acea80a3be2a93c83d3c5c32af2e8",
+      "bytes": 136704
+    },
+    {
+      "path": "_internal/vtk.libs/vtkIOXdmf2-9.6.2.dll",
+      "sha256": "e95deb3519d1b8c133103b5fd4d25ada42fbe2dca1ee7d42fce30c68e8aeffec",
+      "bytes": 338944
+    },
+    {
+      "path": "_internal/vtk.libs/vtkImagingColor-9.6.2.dll",
+      "sha256": "ead10e478f61abecf2c680aef5aa0c31d83f4c1d17645247f286198001593575",
+      "bytes": 316928
+    },
+    {
+      "path": "_internal/vtk.libs/vtkImagingCore-9.6.2.dll",
+      "sha256": "f00f7e85a77dea43349528d6645cf9079fd76b6ffb2aa2f4db86f1db949455ba",
+      "bytes": 3257344
+    },
+    {
+      "path": "_internal/vtk.libs/vtkImagingFourier-9.6.2.dll",
+      "sha256": "b75eb3f90d7c5ecfe452af55912e9372d92824aa2a905dd95df145a6d9093e04",
+      "bytes": 117248
+    },
+    {
+      "path": "_internal/vtk.libs/vtkImagingGeneral-9.6.2.dll",
+      "sha256": "18ba263783b8fbef9feaabc00a102953035328bc46d2afc8c7284fa767596d39",
+      "bytes": 947200
+    },
+    {
+      "path": "_internal/vtk.libs/vtkImagingHybrid-9.6.2.dll",
+      "sha256": "ae90feed9aed33df26aa3354d4fe7f54d0285fedc47e151cbbb19c808025d682",
+      "bytes": 792576
+    },
+    {
+      "path": "_internal/vtk.libs/vtkImagingMath-9.6.2.dll",
+      "sha256": "116558f608e673e5c7b5813e1756ae2cc1eb65dc1b850c69d9d6b10fb0e8ed2f",
+      "bytes": 207360
+    },
+    {
+      "path": "_internal/vtk.libs/vtkImagingMorphological-9.6.2.dll",
+      "sha256": "82d8cbf3a7ad6efa234673f3e3e03a71db4eeeb022e0730afd3ae455d6e18379",
+      "bytes": 972288
+    },
+    {
+      "path": "_internal/vtk.libs/vtkImagingOpenGL2-9.6.2.dll",
+      "sha256": "05b5bd316963db3940852dbdfd403ba2bf3a224c62e615f1b7e1b485f62604df",
+      "bytes": 38400
+    },
+    {
+      "path": "_internal/vtk.libs/vtkImagingSources-9.6.2.dll",
+      "sha256": "13c9f4b6047288b462aa8ff1f85bb8c75c2e260f605f49b93994a1309ea0cfc4",
+      "bytes": 183808
+    },
+    {
+      "path": "_internal/vtk.libs/vtkImagingStatistics-9.6.2.dll",
+      "sha256": "2832b02ab21be3c09a1b196ba257c8d985d540c440ea9abc13eefce4e5167297",
+      "bytes": 139776
+    },
+    {
+      "path": "_internal/vtk.libs/vtkImagingStencil-9.6.2.dll",
+      "sha256": "44c142415c35b4f9836c8583658c7e8aa3ccf3a47c4194d10265d9b50f0501a7",
+      "bytes": 141312
+    },
+    {
+      "path": "_internal/vtk.libs/vtkInfovisCore-9.6.2.dll",
+      "sha256": "a3fc359763fedb3548f6a9b5ab998164c765aff638bf8ffd9f553609ea9f00fa",
+      "bytes": 1345536
+    },
+    {
+      "path": "_internal/vtk.libs/vtkInfovisLayout-9.6.2.dll",
+      "sha256": "7df2a489ce25c2d1e2bd2fd560d0521daf934f4fa15fb5db5c8b6c91f018cc80",
+      "bytes": 417792
+    },
+    {
+      "path": "_internal/vtk.libs/vtkInteractionImage-9.6.2.dll",
+      "sha256": "ad75f8cb8b8f476b4ec25cd155507ff79a73706855e0509825097fd16a930321",
+      "bytes": 73728
+    },
+    {
+      "path": "_internal/vtk.libs/vtkInteractionStyle-9.6.2.dll",
+      "sha256": "fd9ded6c6da7e482bd4d2f683c69ae2f918470eeadc5392c2788a4092a5ebb57",
+      "bytes": 810496
+    },
+    {
+      "path": "_internal/vtk.libs/vtkInteractionWidgets-9.6.2.dll",
+      "sha256": "236a468cc7cb46ec95a119fc338c8ef8d772f7af6abec2e3615ba53ec05dc0a4",
+      "bytes": 10077696
+    },
+    {
+      "path": "_internal/vtk.libs/vtkParallelCore-9.6.2.dll",
+      "sha256": "548a27ee4738be5ddbb02c1af220e5a77d2aadaf53ac4a49c55d7168f34372d6",
+      "bytes": 421888
+    },
+    {
+      "path": "_internal/vtk.libs/vtkParallelDIY-9.6.2.dll",
+      "sha256": "4668f1e79f874fdedad583bd0a84cb31989bc463f20b7d53f7607bd4f86b2d17",
+      "bytes": 990720
+    },
+    {
+      "path": "_internal/vtk.libs/vtkPythonContext2D-9.6.2.dll",
+      "sha256": "79e8cae2add2e717cf7772070b6183ad15c88a6a0c46a4c766471d1980cd9f1f",
+      "bytes": 30208
+    },
+    {
+      "path": "_internal/vtk.libs/vtkRenderingAnnotation-9.6.2.dll",
+      "sha256": "db424a25aca270d2fac78a407bc3c00c0c86ba978f22a1bccf9441aced7f3a99",
+      "bytes": 6415360
+    },
+    {
+      "path": "_internal/vtk.libs/vtkRenderingCellGrid-9.6.2.dll",
+      "sha256": "2e389e7d974e8c088920d62ef957fc9618f4c3d40f0dbfddee193ed7d24cf78c",
+      "bytes": 211968
+    },
+    {
+      "path": "_internal/vtk.libs/vtkRenderingContext2D-9.6.2.dll",
+      "sha256": "221f1d2aafdbbf032c3938ec0e9b77656caf3dadb497044dc2819c72ac50a498",
+      "bytes": 1081344
+    },
+    {
+      "path": "_internal/vtk.libs/vtkRenderingContextOpenGL2-9.6.2.dll",
+      "sha256": "4bd2d9299f9ff1ac0744c34db78625f0f65c15123f6818939817769e4df163e0",
+      "bytes": 250368
+    },
+    {
+      "path": "_internal/vtk.libs/vtkRenderingCore-9.6.2.dll",
+      "sha256": "4ed65e9be1f6bb748d8f57d9a42c40bfa1185ae15fb88fed91715d850446ec18",
+      "bytes": 11108864
+    },
+    {
+      "path": "_internal/vtk.libs/vtkRenderingExternal-9.6.2.dll",
+      "sha256": "92fcfe24dd0bcdb7acfde90b2a5d73f298393be9b2d0bd43d4e62c37235cee73",
+      "bytes": 106496
+    },
+    {
+      "path": "_internal/vtk.libs/vtkRenderingFreeType-9.6.2.dll",
+      "sha256": "c6489f3a98fd4542398874283bbaa3cc322b6554fe9faaff1c25e27252899790",
+      "bytes": 655360
+    },
+    {
+      "path": "_internal/vtk.libs/vtkRenderingGL2PSOpenGL2-9.6.2.dll",
+      "sha256": "b36568a60b773dc8dc4fcad6f8d8ee5a0a44fa64db9d36644287ec8f524ed8db",
+      "bytes": 69632
+    },
+    {
+      "path": "_internal/vtk.libs/vtkRenderingGridAxes-9.6.2.dll",
+      "sha256": "53b1ac01c7f7ce75ebaa18e931ebf8b09943bd4b37b99078f2186981fe18a0e9",
+      "bytes": 521216
+    },
+    {
+      "path": "_internal/vtk.libs/vtkRenderingHyperTreeGrid-9.6.2.dll",
+      "sha256": "901b00b19c78492f71c9d3c3bd9d79d8d48a92ebec8110bef225fdfeaa4f6847",
+      "bytes": 45568
+    },
+    {
+      "path": "_internal/vtk.libs/vtkRenderingImage-9.6.2.dll",
+      "sha256": "c043c2d36bd259bfd23700bacc94d125f8c4c91b8e4caa37bccc2a74400fb96b",
+      "bytes": 488960
+    },
+    {
+      "path": "_internal/vtk.libs/vtkRenderingLICOpenGL2-9.6.2.dll",
+      "sha256": "df064d94732d449c2735b9a0185fcbe4959872629128b5625c7beb1226777ef4",
+      "bytes": 738816
+    },
+    {
+      "path": "_internal/vtk.libs/vtkRenderingLOD-9.6.2.dll",
+      "sha256": "9e8867b02d068339501b465be70196dce1f14c25f4871a4eee98d7f150be325a",
+      "bytes": 50176
+    },
+    {
+      "path": "_internal/vtk.libs/vtkRenderingLabel-9.6.2.dll",
+      "sha256": "23786a8cee239b85b984b80338c3849352915cca0a285a41a9ea23f3337ee48e",
+      "bytes": 1232896
+    },
+    {
+      "path": "_internal/vtk.libs/vtkRenderingMatplotlib-9.6.2.dll",
+      "sha256": "09eae5b6c80595f57b5137d1fb5380556b0c6151ade08ea3e8526a200f5fd892",
+      "bytes": 104448
+    },
+    {
+      "path": "_internal/vtk.libs/vtkRenderingOpenGL2-9.6.2.dll",
+      "sha256": "e037a32f068f5a4c9e846cd4bd6871d432adc2cec2cf5f981c56f4a9e402e981",
+      "bytes": 4813312
+    },
+    {
+      "path": "_internal/vtk.libs/vtkRenderingOpenXR-9.6.2.dll",
+      "sha256": "e7b01f697ef4133ea877a56a2e46b63352aa533f753b9d605e50133860c2d291",
+      "bytes": 374784
+    },
+    {
+      "path": "_internal/vtk.libs/vtkRenderingOpenXRRemoting-9.6.2.dll",
+      "sha256": "5856a9adf747c25928002f4ffc873ff79400dd649bc12ae94eee9e2e44701cde",
+      "bytes": 75776
+    },
+    {
+      "path": "_internal/vtk.libs/vtkRenderingParallel-9.6.2.dll",
+      "sha256": "f4cb36a2987898e25473ebc7a336dc3ab6fe5803c8efe297919b3fa5bf0fe493",
+      "bytes": 425984
+    },
+    {
+      "path": "_internal/vtk.libs/vtkRenderingSceneGraph-9.6.2.dll",
+      "sha256": "ffd9c7b750fcd38d46a11bb968969ff8e51de22e3de93030d0d60b97ef52af5d",
+      "bytes": 72192
+    },
+    {
+      "path": "_internal/vtk.libs/vtkRenderingUI-9.6.2.dll",
+      "sha256": "77ceeabb6e3abd9af26f565c02a34dd8f54dac566e1e71a076348122d367e32f",
+      "bytes": 193024
+    },
+    {
+      "path": "_internal/vtk.libs/vtkRenderingVR-9.6.2.dll",
+      "sha256": "02ed78b9b56694624944d1ee95696ed64d97319e4a7e7cee594c9ecd13e6a349",
+      "bytes": 285184
+    },
+    {
+      "path": "_internal/vtk.libs/vtkRenderingVRModels-9.6.2.dll",
+      "sha256": "da3d91177762edda28258e62285ad528b455b93d20b9a9e1f6b155d820744bd6",
+      "bytes": 284672
+    },
+    {
+      "path": "_internal/vtk.libs/vtkRenderingVolume-9.6.2.dll",
+      "sha256": "7ad882c2199012080be4b7cb1e0c8fbcdc190d80aebf2505619b52d84509a8ff",
+      "bytes": 12602368
+    },
+    {
+      "path": "_internal/vtk.libs/vtkRenderingVolumeAMR-9.6.2.dll",
+      "sha256": "046c13ab364427c7eea46d81398a5ba37e4cf111b79a5c394ad9eaa26457c5b0",
+      "bytes": 49664
+    },
+    {
+      "path": "_internal/vtk.libs/vtkRenderingVolumeOpenGL2-9.6.2.dll",
+      "sha256": "56c4878749a570beb198f1a76a235649b0ed57eba27c3d595991fb7844445a9f",
+      "bytes": 1046016
+    },
+    {
+      "path": "_internal/vtk.libs/vtkRenderingVtkJS-9.6.2.dll",
+      "sha256": "a290bf81771a10ae82343508dae37777b7c85683a962625626213370202b06e1",
+      "bytes": 124416
+    },
+    {
+      "path": "_internal/vtk.libs/vtkSerializationManager-9.6.2.dll",
+      "sha256": "8a8ff48341f3e4719b87ed61664c4cb0cef303185d08a1dd6b9f874aece9c58b",
+      "bytes": 335360
+    },
+    {
+      "path": "_internal/vtk.libs/vtkTestingRendering-9.6.2.dll",
+      "sha256": "a734c78f68dd20e8c611a6c9cdd3cc97d70b88ab9cf069157ee565006df9b297",
+      "bytes": 107008
+    },
+    {
+      "path": "_internal/vtk.libs/vtkTestingSerialization-9.6.2.dll",
+      "sha256": "476447e0cb66c4dc9fe6ef0503c4446ce4904c170120b558cf15c198cc927c92",
+      "bytes": 230400
+    },
+    {
+      "path": "_internal/vtk.libs/vtkViewsContext2D-9.6.2.dll",
+      "sha256": "dc0f64d8d32bfc76ae90844c6c172c03114c9dce84fae2520e0ab9ac41d62c3a",
+      "bytes": 143872
+    },
+    {
+      "path": "_internal/vtk.libs/vtkViewsCore-9.6.2.dll",
+      "sha256": "e7b36f00a5549e9ccaf08e799ea63ba47138949f80cc4745143bffa626184a6c",
+      "bytes": 634880
+    },
+    {
+      "path": "_internal/vtk.libs/vtkViewsInfovis-9.6.2.dll",
+      "sha256": "47532a3c4ce93f4a6a37f3704a270b2f5cc639f84e354d14bf85d76b9d66a331",
+      "bytes": 987136
+    },
+    {
+      "path": "_internal/vtk.libs/vtkWebCore-9.6.2.dll",
+      "sha256": "25b1b586355801efa045f79318906db398a054dc2b45fbcb7baba9c61b950533",
+      "bytes": 199168
+    },
+    {
+      "path": "_internal/vtk.libs/vtkWebGLExporter-9.6.2.dll",
+      "sha256": "c69036a1d16827c33a11562281b50fba25dc4055c8ddc5a2c8db180ed98d1b9d",
+      "bytes": 196096
+    },
+    {
+      "path": "_internal/vtk.libs/vtkWrappingPythonCore3.12-9.6.2.dll",
+      "sha256": "098301a31cc2a139fbb82d8d97ede0b95248ede952b29258c913e90d55a0f182",
+      "bytes": 223232
+    },
+    {
+      "path": "_internal/vtk.libs/vtkcgns-9.6.2.dll",
+      "sha256": "909a7b910cf6fa9076e5810d9d5ba00809bb8c4438cdaca8a2cd7a1f48cd5d6a",
+      "bytes": 658432
+    },
+    {
+      "path": "_internal/vtk.libs/vtkexodusII-9.6.2.dll",
+      "sha256": "6efaac278463ae53f865062286a74f66e242601454967850dce9f419b6e79439",
+      "bytes": 386048
+    },
+    {
+      "path": "_internal/vtk.libs/vtkexpat-9.6.2.dll",
+      "sha256": "33f85924c35312c54c95511fefe46b9a409d14819d7e3454ddfbaade6ae8b4f4",
+      "bytes": 153600
+    },
+    {
+      "path": "_internal/vtk.libs/vtkfmt-9.6.2.dll",
+      "sha256": "037f012166ce8b0bfa7bc21daab6ff91da70ffe9283f2782ba79d971347ff136",
+      "bytes": 122368
+    },
+    {
+      "path": "_internal/vtk.libs/vtkfreetype-9.6.2.dll",
+      "sha256": "7012c8b9607b9c861f61834e5e8899f3ec821c199130768a7cef1e572cebc050",
+      "bytes": 592384
+    },
+    {
+      "path": "_internal/vtk.libs/vtkgl2ps-9.6.2.dll",
+      "sha256": "512355a8bca8a71cfa657fab1f03bcd0a6e2a972e28511044ef13d62004b2c75",
+      "bytes": 99840
+    },
+    {
+      "path": "_internal/vtk.libs/vtkglad-9.6.2.dll",
+      "sha256": "081f8bff16dab0b4f5888600951a66fafee6c331838afff8f173b6e9f3dcc988",
+      "bytes": 387072
+    },
+    {
+      "path": "_internal/vtk.libs/vtkh5hut-9.6.2.dll",
+      "sha256": "2390b152e957ed88aa7e334ef2b91d912a260e9ecf283ae548e0b97b8d5a8495",
+      "bytes": 142848
+    },
+    {
+      "path": "_internal/vtk.libs/vtkhdf5-9.6.2.dll",
+      "sha256": "62c3913e561b14d0bb74b8c42e536185d0663a622d1a1eb9851ea1046701418b",
+      "bytes": 3379200
+    },
+    {
+      "path": "_internal/vtk.libs/vtkhdf5_hl-9.6.2.dll",
+      "sha256": "80cfc5c37751b5fdf8c5f5a625ab7e4fda5851275a867ba4785a5e7f287b59d8",
+      "bytes": 123392
+    },
+    {
+      "path": "_internal/vtk.libs/vtkioss-9.6.2.dll",
+      "sha256": "2bf983d117002d98345110880795f3c1a7a015cac3f5e669ffbb261947e4f54c",
+      "bytes": 2442752
+    },
+    {
+      "path": "_internal/vtk.libs/vtkjpeg-9.6.2.dll",
+      "sha256": "3aedcae92bf22a560b28eaa3ae30ad5f15bc17507211a1f842aab26bfd775c3c",
+      "bytes": 438784
+    },
+    {
+      "path": "_internal/vtk.libs/vtkjsoncpp-9.6.2.dll",
+      "sha256": "ed6f15d9728f14222680ef980e610e8347d98c929cd2c88faa2b1531c6710e75",
+      "bytes": 217088
+    },
+    {
+      "path": "_internal/vtk.libs/vtkkissfft-9.6.2.dll",
+      "sha256": "d00d7717338f97732e7bb36bbb4acd6155afdfbf9c4290b3334297eb08c57f1b",
+      "bytes": 22016
+    },
+    {
+      "path": "_internal/vtk.libs/vtklibharu-9.6.2.dll",
+      "sha256": "55f5cd3ea15eedd8bba5420a0ceb5becc9a3813d1ca8707343b54972f3c3b8e2",
+      "bytes": 747520
+    },
+    {
+      "path": "_internal/vtk.libs/vtklibproj-9.6.2.dll",
+      "sha256": "17b9697bbab2da4f3290f2946dd614ba9130038b2198783666952e6d4be49477",
+      "bytes": 2808320
+    },
+    {
+      "path": "_internal/vtk.libs/vtklibxml2-9.6.2.dll",
+      "sha256": "105b5bb009a0158de2e068bb3fb5169a53238121fd8d7cf10fd12044c651a199",
+      "bytes": 1255936
+    },
+    {
+      "path": "_internal/vtk.libs/vtkloguru-9.6.2.dll",
+      "sha256": "e289c145c4bd912a02a594bee461b12bef583fbd356616501565c8a1a83f48f2",
+      "bytes": 66048
+    },
+    {
+      "path": "_internal/vtk.libs/vtklz4-9.6.2.dll",
+      "sha256": "48cb1647d82864b575edcd6df64e9058e62bb3c69a626f02505a1a462f201d7c",
+      "bytes": 126976
+    },
+    {
+      "path": "_internal/vtk.libs/vtklzma-9.6.2.dll",
+      "sha256": "33eb6b6df8bc36452a76f436dd3f2dd2edb1b22e888a3cbfda536dc42e732b50",
+      "bytes": 156160
+    },
+    {
+      "path": "_internal/vtk.libs/vtkmetaio-9.6.2.dll",
+      "sha256": "5139736382b8f498acc6b345cb741a5a32ba2a5b0e2d20cd0d69243dbcfb6bfe",
+      "bytes": 529920
+    },
+    {
+      "path": "_internal/vtk.libs/vtknetcdf-9.6.2.dll",
+      "sha256": "a8f61a6b90f12c446b1652dd50e9699c8e71419ebf5c9b1e44e2122a2852f736",
+      "bytes": 1259520
+    },
+    {
+      "path": "_internal/vtk.libs/vtkogg-9.6.2.dll",
+      "sha256": "efe673ec960d84e24e60a2c6ec35bd454f6f8d89e2635bd503f2486727594c39",
+      "bytes": 31232
+    },
+    {
+      "path": "_internal/vtk.libs/vtkpng-9.6.2.dll",
+      "sha256": "060901363537fc1d260ce3901538a7f0f354c157b6f26b70ea02c165cd1d4fb0",
+      "bytes": 198656
+    },
+    {
+      "path": "_internal/vtk.libs/vtkpugixml-9.6.2.dll",
+      "sha256": "1b8403d1cb02b7ad1d410a5bf24eaa8c06f5c0a31e0aba4cd3fa772007a030c7",
+      "bytes": 224256
+    },
+    {
+      "path": "_internal/vtk.libs/vtkscn-9.6.2.dll",
+      "sha256": "cc23b9ea104b0006555f0550f7a4237bcb035b3f70c3edf9a84ca354be6c5cc0",
+      "bytes": 1438720
+    },
+    {
+      "path": "_internal/vtk.libs/vtksqlite-9.6.2.dll",
+      "sha256": "d4a1c41187dfed46ad815a499c6d0d13a18100e379814a43bb64485a3010721f",
+      "bytes": 1064448
+    },
+    {
+      "path": "_internal/vtk.libs/vtksys-9.6.2.dll",
+      "sha256": "5231a08274c9175acc16be67922567f238b6a461964269357235e96fbc902e8b",
+      "bytes": 308736
+    },
+    {
+      "path": "_internal/vtk.libs/vtktheora-9.6.2.dll",
+      "sha256": "0bae56620a736237ba5279259faf14b4d6c36984bd3c181ff571142c31f13b6c",
+      "bytes": 209408
+    },
+    {
+      "path": "_internal/vtk.libs/vtktiff-9.6.2.dll",
+      "sha256": "6c25073a0d28f3b75ae311fa792f3ae1463e8eff63adff1c260881512d930118",
+      "bytes": 416768
+    },
+    {
+      "path": "_internal/vtk.libs/vtktoken-9.6.2.dll",
+      "sha256": "7707fd93425b0652570dcbd7d9702b11b38810d131f8c18d2ad09f1139b991c1",
+      "bytes": 101376
+    },
+    {
+      "path": "_internal/vtk.libs/vtkverdict-9.6.2.dll",
+      "sha256": "ecf2ae0af851d0235e4281fab3b3fa9c573917462198579932dc191c4c3ccb83",
+      "bytes": 232448
+    },
+    {
+      "path": "_internal/vtk.libs/vtkvpic-9.6.2.dll",
+      "sha256": "d2f91572444e5d1455985daa9a06b079e8e5a13e104bebc5fd2f11aedada2c03",
+      "bytes": 109056
+    },
+    {
+      "path": "_internal/vtk.libs/vtkxdmf2-9.6.2.dll",
+      "sha256": "7d658ebe9fd0bba912f0b740303f4322d04366d770a8609db0626e4c8cfaa56c",
+      "bytes": 382464
+    },
+    {
+      "path": "_internal/vtk.libs/vtkzlib-9.6.2.dll",
+      "sha256": "1a6e0678e03db099772b9c437de4aecdb16c54c9edb02f5e5e623caddd614628",
+      "bytes": 89088
+    },
+    {
+      "path": "_internal/vtkmodules/vtkAcceleratorsVTKmCore.cp312-win_amd64.pyd",
+      "sha256": "0aaeb502bbfa04902d01eeafe8bac142a88ac3eac78744456a8194582660f1f4",
+      "bytes": 11776
+    },
+    {
+      "path": "_internal/vtkmodules/vtkAcceleratorsVTKmDataModel.cp312-win_amd64.pyd",
+      "sha256": "fcaff923c4dccc8f3b6afcd5faa09058e629ee21b9ac239b7d6ab05a49bb4144",
+      "bytes": 37376
+    },
+    {
+      "path": "_internal/vtkmodules/vtkAcceleratorsVTKmFilters.cp312-win_amd64.pyd",
+      "sha256": "dedba8a99c57bd03bf9fc3b70dda6aa16c359ad2d7549f5fa01cf6ff807d9adf",
+      "bytes": 163328
+    },
+    {
+      "path": "_internal/vtkmodules/vtkChartsCore.cp312-win_amd64.pyd",
+      "sha256": "147f4678a0ebc2ba7d2d2f2323881e4d4beee91d21a0015ca93f3902869ae363",
+      "bytes": 807936
+    },
+    {
+      "path": "_internal/vtkmodules/vtkCommonColor.cp312-win_amd64.pyd",
+      "sha256": "52ce2f839b60e8c9eb4eab7662a1887c010fd99e4ff189a24a759c1684c35087",
+      "bytes": 72704
+    },
+    {
+      "path": "_internal/vtkmodules/vtkCommonComputationalGeometry.cp312-win_amd64.pyd",
+      "sha256": "a13b26a9376bae2645c9796edf7c75b99d0fde758d6cc50a33b05c3a8428963e",
+      "bytes": 275456
+    },
+    {
+      "path": "_internal/vtkmodules/vtkCommonCore.cp312-win_amd64.pyd",
+      "sha256": "48e887f02fa5d51c4b1376a887577f0b6a779e6f514791adbd7b23969a993e44",
+      "bytes": 5548544
+    },
+    {
+      "path": "_internal/vtkmodules/vtkCommonDataModel.cp312-win_amd64.pyd",
+      "sha256": "8c8c37bcbe63ea30326cb8163d4415a4730f3f7714fa47ac0222f90d97dfc144",
+      "bytes": 4895232
+    },
+    {
+      "path": "_internal/vtkmodules/vtkCommonExecutionModel.cp312-win_amd64.pyd",
+      "sha256": "a9a0c637a41c44d022cc9bf524e0d1bc79eafba165e424447312c9b8af842477",
+      "bytes": 702976
+    },
+    {
+      "path": "_internal/vtkmodules/vtkCommonMath.cp312-win_amd64.pyd",
+      "sha256": "348923c69db1c97951dbd2ef659a5ac0659092d6031fbaba7dfec1d907cf204a",
+      "bytes": 327680
+    },
+    {
+      "path": "_internal/vtkmodules/vtkCommonMisc.cp312-win_amd64.pyd",
+      "sha256": "a11ab83030bc6b697e4ce9fe48893d618ee38e5355d09b43de978140c31c49c3",
+      "bytes": 120832
+    },
+    {
+      "path": "_internal/vtkmodules/vtkCommonPython.cp312-win_amd64.pyd",
+      "sha256": "41824696b7634840519e9ef3974d707c46a55ce72f1eb4529def5c5783881e83",
+      "bytes": 23552
+    },
+    {
+      "path": "_internal/vtkmodules/vtkCommonSystem.cp312-win_amd64.pyd",
+      "sha256": "47f7f5bff868b67ff1e583c24a570cc5e0d0f9637ce09b9ad1ea1528158132c6",
+      "bytes": 92160
+    },
+    {
+      "path": "_internal/vtkmodules/vtkCommonTransforms.cp312-win_amd64.pyd",
+      "sha256": "27aa381b091b3bd2868279af708a51240491a0a604ee94fec99ae8a69e683fe0",
+      "bytes": 227840
+    },
+    {
+      "path": "_internal/vtkmodules/vtkDomainsChemistry.cp312-win_amd64.pyd",
+      "sha256": "0e3329e007d7ecb1a902c85953a8489aecf196c1a97ca5312f97a6c5cb4a557f",
+      "bytes": 142848
+    },
+    {
+      "path": "_internal/vtkmodules/vtkDomainsChemistryOpenGL2.cp312-win_amd64.pyd",
+      "sha256": "b50978a1ac595ec512bec138bab2f8a4ced003a06270a1e1652814b4a93db196",
+      "bytes": 27648
+    },
+    {
+      "path": "_internal/vtkmodules/vtkFiltersAMR.cp312-win_amd64.pyd",
+      "sha256": "ddc0871bffda7f03a6920d0e290dcadfdf4e2900fb1c2a0c130351c18faa6fcd",
+      "bytes": 92160
+    },
+    {
+      "path": "_internal/vtkmodules/vtkFiltersCellGrid.cp312-win_amd64.pyd",
+      "sha256": "b2538129e25f41d2717575c1bf290697ca3b5edcbbb51c9108bfa323ef890561",
+      "bytes": 331776
+    },
+    {
+      "path": "_internal/vtkmodules/vtkFiltersCore.cp312-win_amd64.pyd",
+      "sha256": "3090e673277cb5ebab7415cbbbc447cabff28a78d53008095e8f4264f45c4d8a",
+      "bytes": 2063360
+    },
+    {
+      "path": "_internal/vtkmodules/vtkFiltersExtraction.cp312-win_amd64.pyd",
+      "sha256": "fa6f54c3f994a77a5c362c6e13e79dab445dde3ce8aa049a12617a686d7d9474",
+      "bytes": 310784
+    },
+    {
+      "path": "_internal/vtkmodules/vtkFiltersFlowPaths.cp312-win_amd64.pyd",
+      "sha256": "f0ec724ea3334a26076ab7334761675cfdc89ba20d0479db4814e79b078bc0bc",
+      "bytes": 401408
+    },
+    {
+      "path": "_internal/vtkmodules/vtkFiltersGeneral.cp312-win_amd64.pyd",
+      "sha256": "4cc03bf6ea3c48bd9610c06fdc8c731ac643707b580af9f852237e5a6613965f",
+      "bytes": 1502720
+    },
+    {
+      "path": "_internal/vtkmodules/vtkFiltersGeneric.cp312-win_amd64.pyd",
+      "sha256": "b62a1ab9fa5a19489ea53d6d49e599883befc06d690837cf88dad59da8be2ad6",
+      "bytes": 191488
+    },
+    {
+      "path": "_internal/vtkmodules/vtkFiltersGeometry.cp312-win_amd64.pyd",
+      "sha256": "98463db80df5e4aa4daef2106aeeadb1a36e9412d572229ee56a17cde7d76e93",
+      "bytes": 328704
+    },
+    {
+      "path": "_internal/vtkmodules/vtkFiltersGeometryPreview.cp312-win_amd64.pyd",
+      "sha256": "70dd254b37b0797f46bd544730aca0d96982321be817b65e5d98387a0f361993",
+      "bytes": 56832
+    },
+    {
+      "path": "_internal/vtkmodules/vtkFiltersHybrid.cp312-win_amd64.pyd",
+      "sha256": "bed002f1c672765dccecb9a56cd05fa00fcd047c7419a0dd755c044c649bd358",
+      "bytes": 368128
+    },
+    {
+      "path": "_internal/vtkmodules/vtkFiltersHyperTree.cp312-win_amd64.pyd",
+      "sha256": "4fd47167a1e0ec6137ee2305ce9aa00df0891085b1c1a174dc86b409061dbe70",
+      "bytes": 233984
+    },
+    {
+      "path": "_internal/vtkmodules/vtkFiltersImaging.cp312-win_amd64.pyd",
+      "sha256": "1ae4355ef0fccbd88742cbd750df7062a0c2c23ffc14327624f426b5bf8cf56e",
+      "bytes": 68096
+    },
+    {
+      "path": "_internal/vtkmodules/vtkFiltersModeling.cp312-win_amd64.pyd",
+      "sha256": "515587a962fe4fc2e07ddfeb0ad78e006140661f6bca61f77690d2f7bdee69db",
+      "bytes": 519680
+    },
+    {
+      "path": "_internal/vtkmodules/vtkFiltersParallel.cp312-win_amd64.pyd",
+      "sha256": "54ff639c4154ac997dca164e233560573c0809874c5b7160cfb0563a10d1b64a",
+      "bytes": 448512
+    },
+    {
+      "path": "_internal/vtkmodules/vtkFiltersParallelDIY2.cp312-win_amd64.pyd",
+      "sha256": "48fe2dcbadc15c1ea83a4ec341faec6a97192a5260e5b3153c3c9b92c4e3a256",
+      "bytes": 168960
+    },
+    {
+      "path": "_internal/vtkmodules/vtkFiltersParallelImaging.cp312-win_amd64.pyd",
+      "sha256": "edc465faca9180f2f8299c3f6574f54f8975f3643c6f4bb7884c83aec850c694",
+      "bytes": 45568
+    },
+    {
+      "path": "_internal/vtkmodules/vtkFiltersParallelStatistics.cp312-win_amd64.pyd",
+      "sha256": "e0f0dae7e00d48d4dab7e5ff869545588343b7b508a49acc85c1fc9d0989d3ef",
+      "bytes": 97792
+    },
+    {
+      "path": "_internal/vtkmodules/vtkFiltersPoints.cp312-win_amd64.pyd",
+      "sha256": "de825f795ce6804bae3c25876a4166bed2f71b93b8a27358bae91a8701af164b",
+      "bytes": 614912
+    },
+    {
+      "path": "_internal/vtkmodules/vtkFiltersProgrammable.cp312-win_amd64.pyd",
+      "sha256": "0d49d2c4b48fc9af7a02f14f22742e8fb1cb547cedeafc8e48f5881c330151d9",
+      "bytes": 50176
+    },
+    {
+      "path": "_internal/vtkmodules/vtkFiltersPython.cp312-win_amd64.pyd",
+      "sha256": "e0d8e0e835e1e491c2c7223555f4b89b903e5e184bc19fd74f660436b8bfabbb",
+      "bytes": 22016
+    },
+    {
+      "path": "_internal/vtkmodules/vtkFiltersReduction.cp312-win_amd64.pyd",
+      "sha256": "cd1d37cf8a5a4ba3907fabb1b50d816e6a6d1c685adc5765a58d6fc470eecb24",
+      "bytes": 57856
+    },
+    {
+      "path": "_internal/vtkmodules/vtkFiltersSMP.cp312-win_amd64.pyd",
+      "sha256": "0d73d8876dc88927ecb03af7f1a869ebd810996759f40480ae0a71344545c8c7",
+      "bytes": 35840
+    },
+    {
+      "path": "_internal/vtkmodules/vtkFiltersSelection.cp312-win_amd64.pyd",
+      "sha256": "8de9ca7a22903abe9675c6aadca06b16444e40733157cc1bdb45c6ad065a7cd7",
+      "bytes": 55808
+    },
+    {
+      "path": "_internal/vtkmodules/vtkFiltersSources.cp312-win_amd64.pyd",
+      "sha256": "44fd100ffdae184d4e14cc0e5dacb350ea4d5e7c3871dd49d37a05d42293f299",
+      "bytes": 694784
+    },
+    {
+      "path": "_internal/vtkmodules/vtkFiltersStatistics.cp312-win_amd64.pyd",
+      "sha256": "427b8a3348bd4b6c23e79e01c4b6a022aab36cc5a2fcaafc7a874d764bf1a854",
+      "bytes": 283648
+    },
+    {
+      "path": "_internal/vtkmodules/vtkFiltersTemporal.cp312-win_amd64.pyd",
+      "sha256": "eb226eb87bac9d23f19eb4e442d000c11dec8e0a903fac20a759c0b6c1ddf4f2",
+      "bytes": 60928
+    },
+    {
+      "path": "_internal/vtkmodules/vtkFiltersTensor.cp312-win_amd64.pyd",
+      "sha256": "4c2c537e57a7b232b58959b545dbc80f1bdd9586afa89f397db11f3ed628ea03",
+      "bytes": 32768
+    },
+    {
+      "path": "_internal/vtkmodules/vtkFiltersTexture.cp312-win_amd64.pyd",
+      "sha256": "cb8b1b31d55e1e14c917a5468459332f3460380f021be06ee5ae672dd92a2e81",
+      "bytes": 105472
+    },
+    {
+      "path": "_internal/vtkmodules/vtkFiltersTopology.cp312-win_amd64.pyd",
+      "sha256": "84f76bdfa8d64e3fdc5a0229c13ebae4febea1e89a965068c5e8224555a7c185",
+      "bytes": 35328
+    },
+    {
+      "path": "_internal/vtkmodules/vtkFiltersVerdict.cp312-win_amd64.pyd",
+      "sha256": "1bdf78ae63b18f816499e9542570a061890f87909fbfd7236cac9adcac519cb9",
+      "bytes": 225792
+    },
+    {
+      "path": "_internal/vtkmodules/vtkGeovisCore.cp312-win_amd64.pyd",
+      "sha256": "c69938cf2ad78c3ae0a6c0cfb59d2eef7771f76c99421500a70588c6aa3e850b",
+      "bytes": 43520
+    },
+    {
+      "path": "_internal/vtkmodules/vtkIOAMR.cp312-win_amd64.pyd",
+      "sha256": "e1d4f478da8b9f7492b5c044718561c1b747ef6935ed7eb9add7ee7019d59dba",
+      "bytes": 95744
+    },
+    {
+      "path": "_internal/vtkmodules/vtkIOAsynchronous.cp312-win_amd64.pyd",
+      "sha256": "10aa5ccd0810c407ed31e865db49cd8bab2e6e2f3ac31f26aeca920c4c1b933f",
+      "bytes": 23040
+    },
+    {
+      "path": "_internal/vtkmodules/vtkIOAvmesh.cp312-win_amd64.pyd",
+      "sha256": "fa06b5fb9bed1f8aa0fba992751c0096d9e8cda44ebe5e5efaa1082d15892ec1",
+      "bytes": 24576
+    },
+    {
+      "path": "_internal/vtkmodules/vtkIOCGNSReader.cp312-win_amd64.pyd",
+      "sha256": "df9bfe13b0e84a1e668a2334ffbf8b427c3d57be8d1f0305468382e89b83a327",
+      "bytes": 88064
+    },
+    {
+      "path": "_internal/vtkmodules/vtkIOCONVERGECFD.cp312-win_amd64.pyd",
+      "sha256": "7cdad0dcd2bb65f84cfa553a001588d8e2827b604dfb150e4d827c4e2d1e11a5",
+      "bytes": 23552
+    },
+    {
+      "path": "_internal/vtkmodules/vtkIOCellGrid.cp312-win_amd64.pyd",
+      "sha256": "0306cf85bbb794a50c4b629e9d80f5ee72bd9289b7054eb1e6a3057093b296d8",
+      "bytes": 50176
+    },
+    {
+      "path": "_internal/vtkmodules/vtkIOCesium3DTiles.cp312-win_amd64.pyd",
+      "sha256": "456b076ffd5edc12861bd87ed4aaa6526cc5ae1c5d48bad93c7328f1f5d54fa5",
+      "bytes": 59392
+    },
+    {
+      "path": "_internal/vtkmodules/vtkIOChemistry.cp312-win_amd64.pyd",
+      "sha256": "4222fbcd756f161ac78965772f3e1af2f50101efdb29725109df2677f8fc3076",
+      "bytes": 64512
+    },
+    {
+      "path": "_internal/vtkmodules/vtkIOCityGML.cp312-win_amd64.pyd",
+      "sha256": "03d422d5bcbfebf9f3b6271ed3a48245abee6a93e40679f28f895919ffa6c3d2",
+      "bytes": 32768
+    },
+    {
+      "path": "_internal/vtkmodules/vtkIOCore.cp312-win_amd64.pyd",
+      "sha256": "602e06c8c2233c4006e5c3c4cc4aa0ba2112810d4a898200945dbf8d93b5cb51",
+      "bytes": 283648
+    },
+    {
+      "path": "_internal/vtkmodules/vtkIOERF.cp312-win_amd64.pyd",
+      "sha256": "331851049e22e6e2e4807e70740f26062d647cdbe8dff3d0064badcd2c64a723",
+      "bytes": 32768
+    },
+    {
+      "path": "_internal/vtkmodules/vtkIOEnSight.cp312-win_amd64.pyd",
+      "sha256": "8026bfdf8ba46e79c8609470bfd02d9b6e756c1ac1b834baf6ca8e8a4795473b",
+      "bytes": 115200
+    },
+    {
+      "path": "_internal/vtkmodules/vtkIOEngys.cp312-win_amd64.pyd",
+      "sha256": "df133cbee570d333bd6e9c149bbdb1019af2e123f1e050d2faef50081e5624c1",
+      "bytes": 22528
+    },
+    {
+      "path": "_internal/vtkmodules/vtkIOExodus.cp312-win_amd64.pyd",
+      "sha256": "df8e5eef0d612e74e67fe95f075f84495884e45c4db804ad742b42d1043c0abc",
+      "bytes": 294400
+    },
+    {
+      "path": "_internal/vtkmodules/vtkIOExport.cp312-win_amd64.pyd",
+      "sha256": "896703b57bbfe4724cfeab11f16af6c65feef6ae34becd66a3aa07045abd150f",
+      "bytes": 267776
+    },
+    {
+      "path": "_internal/vtkmodules/vtkIOExportGL2PS.cp312-win_amd64.pyd",
+      "sha256": "7c2c13dfd80a782c11ffdf5034a4a1393ca2806f6e3dd66fdf6b6a21fb929e41",
+      "bytes": 63488
+    },
+    {
+      "path": "_internal/vtkmodules/vtkIOExportPDF.cp312-win_amd64.pyd",
+      "sha256": "bf54359fdff0e9a97aa74ac645ab8bdbb1b1c1f566b10217542899b9f3a50b9b",
+      "bytes": 55808
+    },
+    {
+      "path": "_internal/vtkmodules/vtkIOFDS.cp312-win_amd64.pyd",
+      "sha256": "0983d0c80d7a69dd877f85e5d36c0ffe727907e91db82d13b77217b66f59d66f",
+      "bytes": 29696
+    },
+    {
+      "path": "_internal/vtkmodules/vtkIOFLUENTCFF.cp312-win_amd64.pyd",
+      "sha256": "efa69b692ff25f5c996985a65d33dd9995a1ae1762c55170ca96541bb82db4e8",
+      "bytes": 28672
+    },
+    {
+      "path": "_internal/vtkmodules/vtkIOGeoJSON.cp312-win_amd64.pyd",
+      "sha256": "472ec5cb597cd4a08adcc6a5889a8c765f4f53bb6fc585c460f4626583744e4c",
+      "bytes": 48128
+    },
+    {
+      "path": "_internal/vtkmodules/vtkIOGeometry.cp312-win_amd64.pyd",
+      "sha256": "f3fedcb60c9fe47835a2127cc2b1a8d2d6c5d5501b52b83168caf123e2e43a00",
+      "bytes": 386048
+    },
+    {
+      "path": "_internal/vtkmodules/vtkIOH5Rage.cp312-win_amd64.pyd",
+      "sha256": "969b2448009ea037b7644d26a9313d6d531921f5e7e7431717bf4d3d89fc9c89",
+      "bytes": 24576
+    },
+    {
+      "path": "_internal/vtkmodules/vtkIOH5part.cp312-win_amd64.pyd",
+      "sha256": "6ce68b86fa2c88e205fad3d4ff75c55e88e896bb30827ad7c794d558707fdf5a",
+      "bytes": 38400
+    },
+    {
+      "path": "_internal/vtkmodules/vtkIOHDF.cp312-win_amd64.pyd",
+      "sha256": "9875349b9d680974dc292ef07a3b9f4f308402a45ed53b2c518b1f88a2de0dff",
+      "bytes": 57344
+    },
+    {
+      "path": "_internal/vtkmodules/vtkIOIOSS.cp312-win_amd64.pyd",
+      "sha256": "ad930d24881d11a0b7a028deb902e885fd1d7a50dd7b58e2b9c575285bac0970",
+      "bytes": 153088
+    },
+    {
+      "path": "_internal/vtkmodules/vtkIOImage.cp312-win_amd64.pyd",
+      "sha256": "b4c419ec6e99479156be61bc7263666c962bf1d3df0f8f37a6eba5f7ce7b6b21",
+      "bytes": 512512
+    },
+    {
+      "path": "_internal/vtkmodules/vtkIOImport.cp312-win_amd64.pyd",
+      "sha256": "cbdd71fd53fcb36c502312e397e1c2b8342d247115ffe24ae6ad9cad2c6c10cf",
+      "bytes": 117760
+    },
+    {
+      "path": "_internal/vtkmodules/vtkIOInfovis.cp312-win_amd64.pyd",
+      "sha256": "c931a37c054677398d7c06545ea795bf2b03814fc45cf1caad52a840a675ced7",
+      "bytes": 185856
+    },
+    {
+      "path": "_internal/vtkmodules/vtkIOLANLX3D.cp312-win_amd64.pyd",
+      "sha256": "2aa9b2417d4c1bc80adb130ceccd6453188829a607134314b5193908981b6556",
+      "bytes": 20992
+    },
+    {
+      "path": "_internal/vtkmodules/vtkIOLSDyna.cp312-win_amd64.pyd",
+      "sha256": "79f3b04e5137a185c5ba70071611dd597c9877354efc1272d37262b75295967e",
+      "bytes": 98816
+    },
+    {
+      "path": "_internal/vtkmodules/vtkIOLegacy.cp312-win_amd64.pyd",
+      "sha256": "d8872852eb866a00f494b566c7e19c25e524989780dbde398cbd425583c32f2f",
+      "bytes": 301056
+    },
+    {
+      "path": "_internal/vtkmodules/vtkIOMINC.cp312-win_amd64.pyd",
+      "sha256": "c489ac5fb4ea6c10c414b09a29329744ad883d29d8511d0163f2f5da13dd5457",
+      "bytes": 130560
+    },
+    {
+      "path": "_internal/vtkmodules/vtkIOMotionFX.cp312-win_amd64.pyd",
+      "sha256": "f6c7cf2bfa6c500cccbd52e9586d89a7035fe9e86f1804d923041f622065526b",
+      "bytes": 23040
+    },
+    {
+      "path": "_internal/vtkmodules/vtkIOMovie.cp312-win_amd64.pyd",
+      "sha256": "cf266c8f119424143da40f6a1006f3e8511cdf74bb6ecc60905ae00b68f603ee",
+      "bytes": 23552
+    },
+    {
+      "path": "_internal/vtkmodules/vtkIONetCDF.cp312-win_amd64.pyd",
+      "sha256": "ce5addc74e98979099459a4bb317209d76d8d4899e21c3a1e7a09e256177f2dd",
+      "bytes": 203264
+    },
+    {
+      "path": "_internal/vtkmodules/vtkIOOMF.cp312-win_amd64.pyd",
+      "sha256": "84d7ea2387322ce9be5eddbf506122f4855978bf8bfc95ae7d36283554825df8",
+      "bytes": 26112
+    },
+    {
+      "path": "_internal/vtkmodules/vtkIOOggTheora.cp312-win_amd64.pyd",
+      "sha256": "3fe9f7fb68108f72ad6b7a1d1d1f51cbebab76f5088732a590e6cbd1546e03b6",
+      "bytes": 25088
+    },
+    {
+      "path": "_internal/vtkmodules/vtkIOPIO.cp312-win_amd64.pyd",
+      "sha256": "59c26e3baf19d86629619523cffda84afb83cb7296468f603f1fc20714d0d188",
+      "bytes": 30720
+    },
+    {
+      "path": "_internal/vtkmodules/vtkIOPLY.cp312-win_amd64.pyd",
+      "sha256": "210430f437bb08c91d22a2f21a907905388a7f96e74953df85c13e6c0852d07d",
+      "bytes": 73216
+    },
+    {
+      "path": "_internal/vtkmodules/vtkIOParallel.cp312-win_amd64.pyd",
+      "sha256": "21ea7e5419008b4f8546a445dd220a9dd4eddbf23ea7d79d156c82cb434880a3",
+      "bytes": 141312
+    },
+    {
+      "path": "_internal/vtkmodules/vtkIOParallelExodus.cp312-win_amd64.pyd",
+      "sha256": "7f49aab607045d3897ad933f72ac16ba1d0be8769c84b83963e775ac02b30771",
+      "bytes": 37376
+    },
+    {
+      "path": "_internal/vtkmodules/vtkIOParallelLSDyna.cp312-win_amd64.pyd",
+      "sha256": "f9789c3bcfc57ba565073a6806b2716b2e6ae969057473ad773075c288f8bdc0",
+      "bytes": 26112
+    },
+    {
+      "path": "_internal/vtkmodules/vtkIOParallelXML.cp312-win_amd64.pyd",
+      "sha256": "03e41e0e1f8a284f12ceabd5605d611cb6354924e47e1fb54896eba5ca6bb4db",
+      "bytes": 132608
+    },
+    {
+      "path": "_internal/vtkmodules/vtkIOSQL.cp312-win_amd64.pyd",
+      "sha256": "b524c67e39cc6c59b7ea4ff3e7be89f4ec72e1b1de3f59652d0a3466a32b366e",
+      "bytes": 167424
+    },
+    {
+      "path": "_internal/vtkmodules/vtkIOSegY.cp312-win_amd64.pyd",
+      "sha256": "7418ef7b6d99e7f11a6d98b54e46c0e961e39411ee8e1060f8922b882b2537c4",
+      "bytes": 32256
+    },
+    {
+      "path": "_internal/vtkmodules/vtkIOTRUCHAS.cp312-win_amd64.pyd",
+      "sha256": "47dcf9049314c4f0e002f3f94b6525e4afc318a4d7ebcaf5dc2bfc0684dea896",
+      "bytes": 27136
+    },
+    {
+      "path": "_internal/vtkmodules/vtkIOTecplotTable.cp312-win_amd64.pyd",
+      "sha256": "dbecb9a1ef1e1935e409e2c365532256b0ab9616c0beb622a627648f209081ce",
+      "bytes": 31744
+    },
+    {
+      "path": "_internal/vtkmodules/vtkIOVPIC.cp312-win_amd64.pyd",
+      "sha256": "d7168b569cad7215e74fb354dffee40e46b44a56c021c5837752c236d4fc29c6",
+      "bytes": 30208
+    },
+    {
+      "path": "_internal/vtkmodules/vtkIOVeraOut.cp312-win_amd64.pyd",
+      "sha256": "ff5e342d72289af9ac8f7f1fbbcd4acf8ab5056d77846a23e6ab42f0c1b7401a",
+      "bytes": 22528
+    },
+    {
+      "path": "_internal/vtkmodules/vtkIOVideo.cp312-win_amd64.pyd",
+      "sha256": "5d261e54ad3720f63380d75a9075bd43cdec52651ce67a0e41f1ee6fa32381a7",
+      "bytes": 47104
+    },
+    {
+      "path": "_internal/vtkmodules/vtkIOXML.cp312-win_amd64.pyd",
+      "sha256": "1a1ff30f40ab6449083ff98be25ca40dcdf7988595cf4205fe12a128e8eb5990",
+      "bytes": 364032
+    },
+    {
+      "path": "_internal/vtkmodules/vtkIOXMLParser.cp312-win_amd64.pyd",
+      "sha256": "7367bfb22a5a5c4904a664e4fa24ebba26c18af46be82a2fd3760cf758d3e509",
+      "bytes": 51200
+    },
+    {
+      "path": "_internal/vtkmodules/vtkIOXdmf2.cp312-win_amd64.pyd",
+      "sha256": "4a659868812ca1fe6c44c75b5665342a04d33a3e0c64057faf31726ec167b5ed",
+      "bytes": 72192
+    },
+    {
+      "path": "_internal/vtkmodules/vtkImagingColor.cp312-win_amd64.pyd",
+      "sha256": "7be9c44cf7f8012af0b5a46167fa8b67457b885d025ac11d9ab0a4132fa22271",
+      "bytes": 80896
+    },
+    {
+      "path": "_internal/vtkmodules/vtkImagingCore.cp312-win_amd64.pyd",
+      "sha256": "0aafbf9fb3b9d31182039187fa78efb3bd3037d266c116d92851f413f3de2a13",
+      "bytes": 553984
+    },
+    {
+      "path": "_internal/vtkmodules/vtkImagingFourier.cp312-win_amd64.pyd",
+      "sha256": "6829f7f36e69a78c27613a5b96cc9cc9dda3d57aa0cb93b4bdd37291f27abb60",
+      "bytes": 69632
+    },
+    {
+      "path": "_internal/vtkmodules/vtkImagingGeneral.cp312-win_amd64.pyd",
+      "sha256": "540a37b66b90efe2bed71dc1ff2aed2cc3f1036bad73679319b6343fe5c936a2",
+      "bytes": 194048
+    },
+    {
+      "path": "_internal/vtkmodules/vtkImagingHybrid.cp312-win_amd64.pyd",
+      "sha256": "2190fadb7c4618b375be32fdcb4c7a41d470af7d1a5b4739c47065b9b1f9635e",
+      "bytes": 230912
+    },
+    {
+      "path": "_internal/vtkmodules/vtkImagingMath.cp312-win_amd64.pyd",
+      "sha256": "2e8d784bbdc5d059aeec86ec931e86d7be2be591402bf6fba00f7b47bf123d0b",
+      "bytes": 84992
+    },
+    {
+      "path": "_internal/vtkmodules/vtkImagingMorphological.cp312-win_amd64.pyd",
+      "sha256": "3211207644493ca7614bc8784b03b703f986bade61e1f380358e1bde0d71eb7d",
+      "bytes": 150016
+    },
+    {
+      "path": "_internal/vtkmodules/vtkImagingOpenGL2.cp312-win_amd64.pyd",
+      "sha256": "e7d7f430ac91d4c73f7de39aab18361d1099598a6aafeb05f43dcfa9372e6853",
+      "bytes": 19968
+    },
+    {
+      "path": "_internal/vtkmodules/vtkImagingSources.cp312-win_amd64.pyd",
+      "sha256": "94cfb08d9bff5304b0c49bc863be912cc5bc267750a4c142b1c86e23a891ed44",
+      "bytes": 118272
+    },
+    {
+      "path": "_internal/vtkmodules/vtkImagingStatistics.cp312-win_amd64.pyd",
+      "sha256": "a966ad0eebce1b37a382fe3407331322f40ef72f8059f85b20196f18b583ddf2",
+      "bytes": 70656
+    },
+    {
+      "path": "_internal/vtkmodules/vtkImagingStencil.cp312-win_amd64.pyd",
+      "sha256": "601054b03b900542f01fa0f89eea369c5d67c40b53e5d9b27b71812646a5a0fb",
+      "bytes": 84992
+    },
+    {
+      "path": "_internal/vtkmodules/vtkInfovisCore.cp312-win_amd64.pyd",
+      "sha256": "eca0ad8ec87b5c25b13eddd27364290a4f49faa654238939f824fc7bc06bb434",
+      "bytes": 423424
+    },
+    {
+      "path": "_internal/vtkmodules/vtkInfovisLayout.cp312-win_amd64.pyd",
+      "sha256": "398f1a8dfecd72b043f51a51915165d100470ca2e4ad5312c185c3597fb0fab1",
+      "bytes": 419840
+    },
+    {
+      "path": "_internal/vtkmodules/vtkInteractionImage.cp312-win_amd64.pyd",
+      "sha256": "b03c086200195ac1e8a481c63c1cf15958ba6b6a51601ef81050a5ee87ed2483",
+      "bytes": 94208
+    },
+    {
+      "path": "_internal/vtkmodules/vtkInteractionStyle.cp312-win_amd64.pyd",
+      "sha256": "b69217b483a98121273d2ff780c08ffd40eee4570214e4f0c7bd0ec4f3ca9b37",
+      "bytes": 221184
+    },
+    {
+      "path": "_internal/vtkmodules/vtkInteractionWidgets.cp312-win_amd64.pyd",
+      "sha256": "f7b1a7aa02b3cb45d6bccaac6e402d20ef5c309528c8240910cffde600e53c37",
+      "bytes": 2996736
+    },
+    {
+      "path": "_internal/vtkmodules/vtkParallelCore.cp312-win_amd64.pyd",
+      "sha256": "2538d7f2ac5172510a1b327838ec331bca6aeedcc6ed45029e4d48e8be6bc8c6",
+      "bytes": 368128
+    },
+    {
+      "path": "_internal/vtkmodules/vtkPythonContext2D.cp312-win_amd64.pyd",
+      "sha256": "cbd0c05ee32a4011542dcf6f858dec322768f8a9b97d52bbce210d08567754c0",
+      "bytes": 20992
+    },
+    {
+      "path": "_internal/vtkmodules/vtkRenderingAnnotation.cp312-win_amd64.pyd",
+      "sha256": "ee824311f0824344678e7132c67e3bba8927da6f24f83d2011f4e1a23b8c5bef",
+      "bytes": 1096192
+    },
+    {
+      "path": "_internal/vtkmodules/vtkRenderingCellGrid.cp312-win_amd64.pyd",
+      "sha256": "2b56439a854f1b8155c1904caad6a17945c9a538df9cbd62fecd92271a5648bd",
+      "bytes": 42496
+    },
+    {
+      "path": "_internal/vtkmodules/vtkRenderingContext2D.cp312-win_amd64.pyd",
+      "sha256": "f260f2d4844344ecb5ea726d8c77df8bda6f69cba85d4842bb7a4fa488030739",
+      "bytes": 367616
+    },
+    {
+      "path": "_internal/vtkmodules/vtkRenderingContextOpenGL2.cp312-win_amd64.pyd",
+      "sha256": "6b2fab176a60fbb667bbc861d6f24bf0474de512eeb49b28bba5eba856177802",
+      "bytes": 90112
+    },
+    {
+      "path": "_internal/vtkmodules/vtkRenderingCore.cp312-win_amd64.pyd",
+      "sha256": "5ac107e1337cdb9de522454459361452c9f571eb5babf0f6282aa2765761b70f",
+      "bytes": 2776576
+    },
+    {
+      "path": "_internal/vtkmodules/vtkRenderingExternal.cp312-win_amd64.pyd",
+      "sha256": "98125bfada6f1f42976354167cf9199407f8b20585311a2dbdc2793a28889fd9",
+      "bytes": 71680
+    },
+    {
+      "path": "_internal/vtkmodules/vtkRenderingFreeType.cp312-win_amd64.pyd",
+      "sha256": "5c51a255d7437a7f50ca042d1fd58f7bae8cc5f88d82fe05985ddd431f7a65be",
+      "bytes": 87040
+    },
+    {
+      "path": "_internal/vtkmodules/vtkRenderingGL2PSOpenGL2.cp312-win_amd64.pyd",
+      "sha256": "f6ba0fc7bdbb28c7c5d54b9cfa65710777e4e32cc46890dfcd6f78b2792278dc",
+      "bytes": 30720
+    },
+    {
+      "path": "_internal/vtkmodules/vtkRenderingGridAxes.cp312-win_amd64.pyd",
+      "sha256": "8abcaa1e173eb20c9b87ac112d2760c1b3b9ae9e2bf160176f90ab2c3c27a81b",
+      "bytes": 123392
+    },
+    {
+      "path": "_internal/vtkmodules/vtkRenderingHyperTreeGrid.cp312-win_amd64.pyd",
+      "sha256": "30b96716288a3ffb5796c1647f17dd04c6cdfdbac87994c541dd7a972b889342",
+      "bytes": 33280
+    },
+    {
+      "path": "_internal/vtkmodules/vtkRenderingImage.cp312-win_amd64.pyd",
+      "sha256": "cfff362e12bfbb587641e92ce73919e6404c92cccace06af08dc7f3cb1efa613",
+      "bytes": 86528
+    },
+    {
+      "path": "_internal/vtkmodules/vtkRenderingLICOpenGL2.cp312-win_amd64.pyd",
+      "sha256": "3b0213333fe5836294aed0e08ae5913e54130976364652a071f2ad367b86c064",
+      "bytes": 178176
+    },
+    {
+      "path": "_internal/vtkmodules/vtkRenderingLOD.cp312-win_amd64.pyd",
+      "sha256": "500e2e2082413941f7db4b296fecfdc4e95a95a67e908d82131831e7162ba4d4",
+      "bytes": 52736
+    },
+    {
+      "path": "_internal/vtkmodules/vtkRenderingLabel.cp312-win_amd64.pyd",
+      "sha256": "64add0514bd4a08f36a789490c9f8809a97ab734e2340a5065e674edb6a92569",
+      "bytes": 233984
+    },
+    {
+      "path": "_internal/vtkmodules/vtkRenderingMatplotlib.cp312-win_amd64.pyd",
+      "sha256": "4ed2d26ec6422fc3cc8782bd63499c80f750fe918165bac6ea20129d6f2049fd",
+      "bytes": 27136
+    },
+    {
+      "path": "_internal/vtkmodules/vtkRenderingOpenGL2.cp312-win_amd64.pyd",
+      "sha256": "a91f2cd89abc7adc216b3501d31e4425916ea4c75a5363fa77b7cb27cc20bcb6",
+      "bytes": 1408512
+    },
+    {
+      "path": "_internal/vtkmodules/vtkRenderingOpenXR.cp312-win_amd64.pyd",
+      "sha256": "1e1e39109c48d2628385704a6f08d5fec24a4d2c0c5f0ce866f3ff06d58ef5d6",
+      "bytes": 89600
+    },
+    {
+      "path": "_internal/vtkmodules/vtkRenderingOpenXRRemoting.cp312-win_amd64.pyd",
+      "sha256": "3b885b365c80f99eb6e62415e11a99a445dc4a45ea8a7fb8d51eca4c78b9575e",
+      "bytes": 23552
+    },
+    {
+      "path": "_internal/vtkmodules/vtkRenderingParallel.cp312-win_amd64.pyd",
+      "sha256": "3562d461e1c3cd353cb4f9fff0cfabf8da17ad35da618b6c8ec44492a07793ff",
+      "bytes": 192000
+    },
+    {
+      "path": "_internal/vtkmodules/vtkRenderingSceneGraph.cp312-win_amd64.pyd",
+      "sha256": "c7ce2514f44d461b5ea0d3799832436911b6c57f022e775c83b856902a8a8543",
+      "bytes": 74240
+    },
+    {
+      "path": "_internal/vtkmodules/vtkRenderingUI.cp312-win_amd64.pyd",
+      "sha256": "4603f3087b3e512f06e585ff6d45befe10f7ee59fface58a6ee3204ddd29e6a5",
+      "bytes": 44544
+    },
+    {
+      "path": "_internal/vtkmodules/vtkRenderingVR.cp312-win_amd64.pyd",
+      "sha256": "00e6e47795ee7ab7bc40fe552731bf0d44d31992cea7a3f47fb1519c01f8cca4",
+      "bytes": 199680
+    },
+    {
+      "path": "_internal/vtkmodules/vtkRenderingVRModels.cp312-win_amd64.pyd",
+      "sha256": "e6338af73ee6e55ab98fcf71eab85dce49f7e803476b81e8992a37277b289e86",
+      "bytes": 35328
+    },
+    {
+      "path": "_internal/vtkmodules/vtkRenderingVolume.cp312-win_amd64.pyd",
+      "sha256": "4addd2bd28d36d9c8a6c22d1483623136d373b1ef5a600dfa4ef2384baed39ac",
+      "bytes": 500224
+    },
+    {
+      "path": "_internal/vtkmodules/vtkRenderingVolumeAMR.cp312-win_amd64.pyd",
+      "sha256": "aac56408f91e77a36becb193538f8cd80dd6e1e0adb36a9e0740de50bf956434",
+      "bytes": 52736
+    },
+    {
+      "path": "_internal/vtkmodules/vtkRenderingVolumeOpenGL2.cp312-win_amd64.pyd",
+      "sha256": "8cc4f4df20d042cdd94935ceac7cd33257301d2f70a24ce6a9708a632d316acf",
+      "bytes": 160256
+    },
+    {
+      "path": "_internal/vtkmodules/vtkRenderingVtkJS.cp312-win_amd64.pyd",
+      "sha256": "6162f053e9e340cf35ac9a4e27cf2d38bc649763905d7d436a5bfbb2b7c0e1a4",
+      "bytes": 34304
+    },
+    {
+      "path": "_internal/vtkmodules/vtkSerializationManager.cp312-win_amd64.pyd",
+      "sha256": "73736e7d52be98f9596660e72286f2d5d20880cecfede71215de60b906cbe5e1",
+      "bytes": 53248
+    },
+    {
+      "path": "_internal/vtkmodules/vtkTestingRendering.cp312-win_amd64.pyd",
+      "sha256": "51a45e4256e702cd8b2fbf56aaa8e084350d301c0168e0edaaf5026a3bdf1ca7",
+      "bytes": 55296
+    },
+    {
+      "path": "_internal/vtkmodules/vtkTestingSerialization.cp312-win_amd64.pyd",
+      "sha256": "c93257bb154724e529c65ce4df0deed689509920bb8dccff27b1659514285b88",
+      "bytes": 52224
+    },
+    {
+      "path": "_internal/vtkmodules/vtkViewsContext2D.cp312-win_amd64.pyd",
+      "sha256": "30bbe5195c91a27f4e7edecd0cf7468a217f29bf2c41f89440cce27620135d6d",
+      "bytes": 35840
+    },
+    {
+      "path": "_internal/vtkmodules/vtkViewsCore.cp312-win_amd64.pyd",
+      "sha256": "c788ba129a10c000899cf1ce9dc0495330c235f3bc9e5a43b5ed666b056c2ab0",
+      "bytes": 131072
+    },
+    {
+      "path": "_internal/vtkmodules/vtkViewsInfovis.cp312-win_amd64.pyd",
+      "sha256": "672512bc0372e88c028b2cefe6ec7b2f70ade8059fd786c2a3947329f3ede145",
+      "bytes": 574464
+    },
+    {
+      "path": "_internal/vtkmodules/vtkWebCore.cp312-win_amd64.pyd",
+      "sha256": "4722ad253102d8a6e68ea54eb9ab31aedaca600e80e4005dc32250151b4eb658",
+      "bytes": 77824
+    },
+    {
+      "path": "_internal/vtkmodules/vtkWebGLExporter.cp312-win_amd64.pyd",
+      "sha256": "b577a495d44e16fab9a6cff93b9d3fdb21f1591f52681046e2feb5f8e2342dc5",
+      "bytes": 84992
     },
     {
       "path": "_internal/watchfiles/_rust_notify.cp312-win_amd64.pyd",
@@ -10452,6 +13442,11 @@
       "bytes": 543232
     },
     {
+      "path": "_internal/workers/cad-worker/worker.py",
+      "sha256": "6b95c9b48ae95f1f44172ff1f147b77f1aa0031dee1dabfe95188dfe81798b4f",
+      "bytes": 1581
+    },
+    {
       "path": "_internal/yaml/_yaml.cp312-win_amd64.pyd",
       "sha256": "4fd0e84f50261ed0886cffcdd8008b055af3352546e649c3d741b50eae1f9b5f",
       "bytes": 253952
@@ -10468,9 +13463,9 @@
     },
     {
       "path": "axx-backend.exe",
-      "sha256": "350c9e187a260e5301f88dbb3c8456c605d045011bb4dbed04968c2084d3dde8",
-      "bytes": 23271831
+      "sha256": "ddc047f93275111939d2f8ea9bc184b49d51bee882811d3cc09e4e9d66b6425c",
+      "bytes": 44075600
     }
   ],
-  "manifest_sha256": "2f5e6e2887c4d934995db51f270d88084749df39b34098b9a3d01dd322266e6f"
+  "manifest_sha256": "0da85f5b8da4243eeb838447289d4968ddfa8b6228ab6d5ebaed6807149486a3"
 }

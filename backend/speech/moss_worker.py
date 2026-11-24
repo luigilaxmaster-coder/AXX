@@ -134,11 +134,6 @@ def create_runtime(model_root, cache_root):
             }
 
         def synthesize_single_chunk(self, *, text, prompt_audio_codes, streaming):
-            chunk_mood = ProsodyAnalyzer.detect_mood(text) if ProsodyAnalyzer is not None else 'neutral'
-            mood_vol = (
-                ProsodyAnalyzer.MOOD_PROFILES.get(chunk_mood, (0.0, 1.0))[1]
-                if ProsodyAnalyzer is not None else 1.0
-            )
             clean_text = re.sub(r'^[¡¿\s]+', '', text).strip() or text.strip()
             rate = int(self.codec_meta['codec_config']['sample_rate'])
             channels = int(self.codec_meta['codec_config']['channels'])
@@ -154,7 +149,7 @@ def create_runtime(model_root, cache_root):
 
             for attempt in range(3):
                 active_codes = (
-                    self.mood_reference_codes.get(chunk_mood, prompt_audio_codes)
+                    self.mood_reference_codes.get(clean_text, prompt_audio_codes)
                     if attempt == 0 else prompt_audio_codes
                 )
                 attempt_text = clean_text if attempt == 0 else (
@@ -168,7 +163,7 @@ def create_runtime(model_root, cache_root):
                 self.codec_streaming_session.reset()
                 defaults['max_new_frames'] = min(
                     int(old_max),
-                    max(28, min(len(tokens) * 4 + 12, int(char_len * 1.30) + 14))
+                    max(32, min(len(tokens) * 5 + 16, int(char_len * 1.40) + 16))
                 )
 
                 def decode(force=False):
@@ -186,9 +181,6 @@ def create_runtime(model_root, cache_root):
                         return
                     waveform = np.asarray(audio[0, :, :length].T, dtype=np.float32)
                     decoded_frames += len(frames_batch)
-
-                    if abs(mood_vol - 1.0) >= 0.02:
-                        waveform = waveform * mood_vol
 
                     if force and len(waveform) > 64:
                         fade_len = min(int(0.015 * rate), len(waveform) // 2)
@@ -311,18 +303,15 @@ def main():
 
             # Populate mood-specific reference codes for automatic contextual shifts on base axx-morcito
             runtime.mood_reference_codes = {}
-            if morcito:
-                for mood_names, style_file in (
-                    (('serious', 'analytical', 'affectionate', 'reflective'), personal_samples / 'axx-morcito-calma.wav'),
-                    (('question', 'intro'), personal_samples / 'axx-morcito-atencion.wav'),
-                    (('excited',), personal_samples / 'axx-morcito-emocion.wav'),
+            if morcito and request.get('prepare'):
+                for style_file in (
+                    personal_samples / 'axx-morcito-calma.wav',
+                    personal_samples / 'axx-morcito-atencion.wav',
+                    personal_samples / 'axx-morcito-emocion.wav',
                 ):
-                    if style_file.is_file() and (request.get('prepare') or (name == 'axx-morcito' and not is_english)):
+                    if style_file.is_file():
                         try:
-                            scodes = runtime.encode_reference_audio(style_file)
-                            if name == 'axx-morcito' and not is_english:
-                                for m_name in mood_names:
-                                    runtime.mood_reference_codes[m_name] = scodes
+                            runtime.encode_reference_audio(style_file)
                         except Exception:
                             pass
 
