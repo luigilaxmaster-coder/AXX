@@ -92,7 +92,19 @@ def checked_team_graph(graph: Any, member_ids: list[str]) -> dict[str, Any] | No
             raise AgentProfileValidationError('graph edges must join two different team members')
         if any(e['from'] == src and e['to'] == dst for e in edges):
             raise AgentProfileValidationError('duplicate graph edge')
-        edges.append({'from': src, 'to': dst})
+        label = (raw or {}).get('label', '')
+        if not isinstance(label, str):
+            raise AgentProfileValidationError('graph edge label must be text')
+        transfer = (raw or {}).get('transfer', 'full')
+        if transfer not in ('full', 'summary', 'artifact_only'):
+            raise AgentProfileValidationError('graph edge transfer must be full, summary or artifact_only')
+        edge: dict[str, str] = {'from': src, 'to': dst}
+        clean_label = label.strip()[:80]
+        if clean_label:
+            edge['label'] = clean_label
+        if transfer != 'full':
+            edge['transfer'] = transfer
+        edges.append(edge)
         incoming[dst] += 1
         outgoing[src].append(dst)
     if len(edges) > 64:

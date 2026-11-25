@@ -156,6 +156,21 @@ class GuidanceUiTests(unittest.TestCase):
                 self.assertTrue(page.evaluate("document.querySelector('.mp-drawing-guide')!==null"))
                 axis = page.evaluate('([x,y])=>[...Axx.magicPen.ctx.getImageData(x,y,1,1).data]', [40 + 420 * .5, 80])
                 self.assertGreater(axis[3], 0)
+                # DRAW-03: updated drawing + "Actualizar guías" button recalculates regions & reports comparison changes.
+                im2 = Image.new('RGB', (500, 360), 'white'); d2 = ImageDraw.Draw(im2)
+                d2.ellipse([80, 80, 200, 200], fill='#1e4fd8')
+                d2.rectangle([80, 220, 190, 310], fill='#1e4fd8')
+                d2.rectangle([260, 90, 400, 200], fill='#e03030')
+                cap2 = self.capture(im2)
+                self.srv.magic_pen.save({'id': cap2['id'], 'expected_revision': 1, 'selection': {'shape': 'rect', 'bounds': [40, 40, 460, 320]}, 'strokes': []})
+                page.evaluate('''async id=>{const doc=await Axx.backendRequest('POST','/axx-api/pen/get',{id});
+                    await Axx.magicPen.load(doc,true);}''', cap2['id'])
+                page.locator('.mp-drawing-guide button', has_text='Actualizar guías').click()
+                page.wait_for_function('Axx.magicPen.drawingGuide?.comparison?.changed === true', timeout=20000)
+                self.assertIn('Tu dibujo cambió: guías actualizadas', page.locator('#mp-status').text_content() or '')
+                self.assertGreaterEqual(len(page.evaluate('Axx.magicPen.drawingGuide.color_regions')), 2)
+                p_new = page.evaluate('([x,y])=>[...Axx.magicPen.ctx.getImageData(x,y,1,1).data]', [135, 265])
+                self.assertGreater(p_new[3], 0); self.assertGreater(p_new[2], p_new[0])
                 page.evaluate("Axx.magicPen.startDrawingGuide('morado')")
                 page.wait_for_function("Axx.magicPen.drawingGuide.color==='morado'", timeout=20000)
                 self.assertEqual(page.evaluate('Axx.magicPen.drawingGuide.color_regions.length'), 0)  # never an invented zone
@@ -194,6 +209,48 @@ class GuidanceUiTests(unittest.TestCase):
                 self.assertEqual(ranges, [[1, 'axx-code-guide-focus'], [2, 'axx-code-guide-error']])
                 page.locator('[data-code=guide-close]').click()
                 self.assertEqual(page.evaluate("Axx.codeStudio.editor.getModel().getAllDecorations().filter(d=>/axx-code-guide/.test(d.options.className)).length"), 0)
+                # Multi-file/folder context + all 4 visual marker classes (focus, reference, error, flow) rendered with distinct CSS.
+                page.locator('[data-code=context-folder]').click()
+                page.locator('[data-code=ask-act]').click()
+                raw_chat = page.locator('#chat-input').input_value()
+                packet_line = next(line for line in raw_chat.splitlines() if line.startswith('{'))
+                packet = json.loads(packet_line)
+                self.assertTrue({'calc.py', 'test_calc.py'}.issubset({f['path'] for f in packet['files']}))
+                page.evaluate("Axx.companion.openFeature('codestudio')")
+                page.locator('[data-code=browser]').get_by_role('button', name='test_calc.py', exact=True).click()
+                page.wait_for_function("Axx.codeStudio.editor.getValue().includes('test_add')")
+                full_guide = {'path': 'test_calc.py', 'steps': [
+                    {'lines': [1, 1], 'kind': 'focus', 'note': 'Importa unittest'},
+                    {'lines': [2, 2], 'kind': 'reference', 'note': 'Referencia a calc.add'},
+                    {'lines': [5, 5], 'kind': 'error', 'note': 'Clase de prueba'},
+                    {'lines': [7, 7], 'kind': 'flow', 'note': 'Ejecuta aserción final'},
+                ]}
+                page.evaluate("t=>{Axx.companion.message('assistant',t,'model');Axx.companion.renderChat();}",
+                              'Recorrido:\n```axx-guide ' + json.dumps(full_guide) + '```')
+                page.wait_for_selector('[data-code=guide]:not([hidden])')
+                # Step through all 4 steps so every kind becomes current and Monaco renders inline flow badges.
+                for expected_kind in ('Referencia', 'Error', 'Recorrido'):
+                    page.locator('[data-code=guide-next]').click()
+                    self.assertIn(expected_kind, page.locator('[data-code=guide-text]').text_content())
+                page.wait_for_function("Array.from(document.querySelectorAll('.axx-code-guide-focus,.axx-code-guide-reference,.axx-code-guide-error,.axx-code-guide-flow')).length >= 4")
+                styles = page.evaluate('''()=>{
+                    const kinds=['focus','reference','error','flow'];
+                    const out={};
+                    for(const k of kinds){
+                        const el=document.querySelector('.axx-code-guide-'+k);
+                        if(!el) continue;
+                        const cs=getComputedStyle(el);
+                        out[k]={bg:cs.backgroundColor, shadow:cs.boxShadow};
+                    }
+                    const decos=Axx.codeStudio.editor.getModel().getAllDecorations().filter(d=>d.options.before?.inlineClassName==='axx-code-guide-n');
+                    return {styles: out, flowDecos: decos.map(d=>d.options.before?.content)};
+                }''')
+                self.assertEqual(set(styles['styles']), {'focus', 'reference', 'error', 'flow'})
+                bgs = {v['bg'] for v in styles['styles'].values()}
+                shadows = {v['shadow'] for v in styles['styles'].values()}
+                self.assertEqual(len(bgs), 4)
+                self.assertEqual(len(shadows), 4)
+                self.assertEqual(styles['flowDecos'], ['1'])
             finally:
                 browser.close()
 

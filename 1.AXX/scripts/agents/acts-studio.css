@@ -306,6 +306,8 @@
 .axx-acts-studio .axx-flow-insp-head div { display:grid; }
 .axx-acts-studio .axx-flow-insp-head small { opacity:.7; }
 .axx-acts-studio .axx-flow-inspector textarea, #panel#panel .axx-acts-studio .axx-flow-inspector textarea { min-height:52px; width:100%; box-sizing:border-box; resize:vertical; }
+.axx-acts-studio .axx-flow-presets { display:flex; flex-wrap:wrap; gap:5px; }
+.axx-acts-studio .axx-flow-presets > button, #panel#panel .axx-acts-studio .axx-flow-presets > button { min-height:26px; padding:2px 9px; font-size:11.5px; border-radius:999px; }
 .axx-acts-studio .axx-flow-output pre, .axx-acts-studio .axx-rt-history pre { margin:6px 0 0; max-height:220px; overflow:auto; white-space:pre-wrap; font:12px/1.45 ui-monospace,'Cascadia Code',Consolas,monospace;
   padding:8px; border-radius:8px; background:rgba(0,0,0,.06); }
 .axx-acts-studio .axx-flow-run { display:flex; flex-wrap:wrap; gap:6px; align-items:center; padding:8px; border-radius:12px; border:1px solid var(--acts-line); }

@@ -754,7 +754,7 @@ class EvolutionHTTP:
             raise ActInferenceError('CANCELLED', 'Trabajo cancelado antes del despacho.')
         run_id = str(body.get('run_id') or f'teamrun-{uuid.uuid4().hex[:12]}')
         lead_id = next((a['agent_id'] for r, a in participants if r == 'lead'), participants[0][1]['agent_id'])
-        ordered, preds, ancestors, node_tasks = self._team_flow(body, participants)
+        ordered, preds, ancestors, node_tasks, edge_meta, team_meta = self._team_flow(body, participants)
 
         # apply_in_worktree: the lead Act's file goes into its own worktree through the same axx.code gate as Code Studio,
         # before any handoff; later Acts receive the real diff and test receipt instead of free text.
@@ -829,7 +829,28 @@ class EvolutionHTTP:
             act_id = act_prof['agent_id']
             task_id = node['task_id']
             upstream = [a for _, a in ordered if a['agent_id'] in ancestors[act_id]]
-            prior_summary = '\n\n'.join(outputs[a['agent_id']] for a in upstream if a['agent_id'] in outputs)
+            prior_parts: list[str] = []
+            for a in upstream:
+                up_id = a['agent_id']
+                if up_id not in outputs:
+                    continue
+                em = edge_meta.get((up_id, act_id), {})
+                transfer = em.get('transfer', 'full')
+                label = em.get('label', '')
+                tag = f' (entrega: {label})' if label else ''
+                if transfer == 'artifact_only':
+                    step_rec = next((s for s in steps_output if s['act_id'] == up_id), None)
+                    art = next((ar for ar in artifacts if ar.get('act_id') == up_id), None)
+                    prior_parts.append(
+                        f"[{a['name']}{tag}]: artefacto {step_rec['artifact_id'] if step_rec else ''}"
+                        + (f" sha256={art['sha256']}" if art and art.get('sha256') else '')
+                    )
+                elif transfer == 'summary':
+                    body_txt = outputs[up_id][:420] + ('…' if len(outputs[up_id]) > 420 else '')
+                    prior_parts.append(f"[{a['name']}{tag} · resumen]: {body_txt}" if tag else body_txt)
+                else:
+                    prior_parts.append(f"[Entrega{tag}]\n{outputs[up_id]}" if label else outputs[up_id])
+            prior_summary = '\n\n'.join(prior_parts)
             req_id = f'{run_id}-req-{idx + 1}'
             resolved = self._resolve_act(act_id)
             self.rt.acts.begin_execution(act_id, req_id, job_class='multiagent_background_batch' if body.get('scheduled_routine') else 'interactive_chat')
@@ -857,7 +878,10 @@ class EvolutionHTTP:
                             'operation_id': f'op-{handoff_id}',
                             'idempotency_key': f'idem-{handoff_id}',
                             'tool_grant_refs': shared_grants,
-                            'objective': f'Continuar objetivo: {prompt_text[:200]}',
+                            'objective': f'Continuar objetivo'
+                                         + (f' (entrega: {edge_meta[(prev_act_id, act_id)]["label"]})'
+                                            if edge_meta.get((prev_act_id, act_id), {}).get('label') else '')
+                                         + f': {prompt_text[:200]}',
                             'inputs': prev_artifacts,
                             'required_outputs': ['verified_response'],
                             'acceptance_criteria': ['Respuesta verificada del modelo asignado al Act'],
@@ -874,6 +898,10 @@ class EvolutionHTTP:
                 msg_content = f"Objetivo del equipo: {prompt_text}\nTu rol asignado en esta tarea: {mrole}.{extra_ctx}"
                 if node_tasks.get(act_id):
                     msg_content += f"\nTu parte en este flujo: {node_tasks[act_id]}"
+                if team_meta.get('delegation_rules'):
+                    msg_content += f"\nReglas de delegación del equipo: {team_meta['delegation_rules']}"
+                if mrole == 'reviewer' and team_meta.get('review_criteria'):
+                    msg_content += f"\nCriterios de revisión del equipo: {team_meta['review_criteria']}"
                 if apply and idx == 0:
                     msg_content += ('\n\nDevuelve JSON con context_sha256 igual a packet_sha256 y file_edits: '
                                     '[{path, expected_base_sha256, hunks:[{old_text,new_text}]}]. '
@@ -988,7 +1016,10 @@ class EvolutionHTTP:
             'artifacts': artifacts,
             'consolidated_text': consolidated,
             'graph': self.rt.task_graph.get_graph(run_id),
-            'edges': [{'from': p, 'to': a['agent_id']} for _, a in ordered for p in preds[a['agent_id']]],
+            'edges': [{'from': p, 'to': a['agent_id'],
+                       **({'label': edge_meta[(p, a['agent_id'])]['label']} if edge_meta.get((p, a['agent_id']), {}).get('label') else {}),
+                       **({'transfer': edge_meta[(p, a['agent_id'])]['transfer']} if edge_meta.get((p, a['agent_id']), {}).get('transfer', 'full') != 'full' else {})}
+                      for _, a in ordered for p in preds[a['agent_id']]],
             **({'work': work} if apply else {}),
         }
 
@@ -997,20 +1028,28 @@ class EvolutionHTTP:
 
         A saved team graph runs in topological order (left to right on the canvas breaks ties) and each Act sees only
         the Acts connected upstream of it; without a graph the legacy chain lead -> members -> reviewer applies."""
-        graph = None
+        graph, team_meta = None, {}
         if body.get('team_id'):
-            graph = self.rt.registry.get_team(body['team_id']).get('graph')
+            team = self.rt.registry.get_team(body['team_id'])
+            graph = team.get('graph')
+            team_meta = {
+                'delegation_rules': str(team.get('delegation_rules') or '').strip(),
+                'review_criteria': str(team.get('review_criteria') or '').strip(),
+                'shared_memory_policy': str(team.get('shared_memory_policy') or 'explicit_shared').strip(),
+            }
         if not graph:
             ordered = sorted(participants, key=lambda x: (0 if x[0] == 'lead' else (2 if x[0] == 'reviewer' else 1)))
             ids = [a['agent_id'] for _, a in ordered]
             return (ordered, {aid: ids[i - 1:i] for i, aid in enumerate(ids)},
-                    {aid: set(ids[:i]) for i, aid in enumerate(ids)}, {})
+                    {aid: set(ids[:i]) for i, aid in enumerate(ids)}, {}, {}, team_meta)
         by_id = {a['agent_id']: (r, a) for r, a in participants}
         off = [n['agent_id'] for n in graph['nodes'] if n['agent_id'] not in by_id]
         if off:
             raise ValueError('El grafo del equipo incluye Acts deshabilitados o inexistentes: ' + ', '.join(off))
         pos = {n['agent_id']: (n['x'], n['y']) for n in graph['nodes']}
         preds = {aid: [e['from'] for e in graph['edges'] if e['to'] == aid] for aid in pos}
+        edge_meta = {(e['from'], e['to']): {'label': e.get('label', ''), 'transfer': e.get('transfer', 'full')}
+                     for e in graph['edges']}
         order: list[str] = []
         while len(order) < len(pos):  # registry guarantees a DAG; pick the leftmost released node each time
             ready = [aid for aid in pos if aid not in order and all(p in order for p in preds[aid])]
@@ -1019,7 +1058,7 @@ class EvolutionHTTP:
         for aid in order:
             ancestors[aid] = set(preds[aid]).union(*(ancestors[p] for p in preds[aid]))
         return ([by_id[aid] for aid in order], preds, ancestors,
-                {n['agent_id']: n.get('instruction', '') for n in graph['nodes']})
+                {n['agent_id']: n.get('instruction', '') for n in graph['nodes']}, edge_meta, team_meta)
 
     def _apply_team_patch(self, body, work, act_prof, text, conversation_id, run_id, test_command,
                           cancel_event, task_id) -> str:

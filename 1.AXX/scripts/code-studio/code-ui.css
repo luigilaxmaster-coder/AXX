@@ -65,11 +65,15 @@
 .axx-code-debug-line { background:rgba(255,190,55,.2); }
 /* Code guides: line ranges from an Act's explanation (focus, reference, error, execution flow). */
 .axx-code-guide { background:rgba(120,140,255,.10); }
-.axx-code-guide-focus { box-shadow:inset 3px 0 0 #7f8cff; }
-.axx-code-guide-reference { background:rgba(80,200,160,.10); box-shadow:inset 3px 0 0 #3fbf95; }
-.axx-code-guide-error { background:rgba(230,70,60,.14); box-shadow:inset 3px 0 0 #e0483e; }
-.axx-code-guide-flow { background:rgba(255,190,55,.12); box-shadow:inset 3px 0 0 #e0a21e; }
-.axx-code-guide-current { background:rgba(120,140,255,.24); }
+.axx-code-guide-focus { background:rgba(127,140,255,.14); box-shadow:inset 3px 0 0 #7f8cff; }
+.axx-code-guide-reference { background:rgba(63,191,149,.14); box-shadow:inset 3px 0 0 #3fbf95; }
+.axx-code-guide-error { background:rgba(224,72,62,.16); box-shadow:inset 3px 0 0 #e0483e; }
+.axx-code-guide-flow { background:rgba(224,162,30,.15); box-shadow:inset 3px 0 0 #e0a21e; }
+.axx-code-guide-current { outline:1px solid rgba(127,140,255,.55); outline-offset:-1px; }
+.axx-code-guide-focus.axx-code-guide-current { background:rgba(127,140,255,.26); }
+.axx-code-guide-reference.axx-code-guide-current { background:rgba(63,191,149,.26); outline-color:rgba(63,191,149,.65); }
+.axx-code-guide-error.axx-code-guide-current { background:rgba(224,72,62,.28); outline-color:rgba(224,72,62,.7); }
+.axx-code-guide-flow.axx-code-guide-current { background:rgba(224,162,30,.27); outline-color:rgba(224,162,30,.7); }
 .axx-code-guide-n { display:inline-block; min-width:1.4em; margin-right:6px; border-radius:999px; text-align:center; font-weight:700; color:#1b1300; background:#e0a21e; }
 .axx-code-guidebar { display:flex; align-items:center; gap:6px; padding:6px 8px; border-top:1px solid var(--line,#5554); font-size:12.5px; }
 .axx-code-guidebar > span { flex:1; min-width:0; }

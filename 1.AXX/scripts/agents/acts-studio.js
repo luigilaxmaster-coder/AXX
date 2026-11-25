@@ -358,15 +358,16 @@
     let nodes, edges;
     if (t.graph?.nodes?.length) {
       nodes = t.graph.nodes.map(n => ({...n, instruction: n.instruction || '', role: roles[n.agent_id] || 'member'}));
-      edges = t.graph.edges.map(e => ({from: e.from, to: e.to}));
+      edges = t.graph.edges.map(e => ({from: e.from, to: e.to, label: e.label || '', transfer: e.transfer || 'full'}));
     } else {  // a team saved before graphs runs as lead -> members -> reviewer; draw exactly that chain
       const rank = r => (r === 'lead' ? 0 : r === 'reviewer' ? 2 : 1);
       const ordered = [...(t.members || [])].sort((a, b) => rank(a.role) - rank(b.role));
       nodes = ordered.map((m, i) => ({agent_id: m.agent_id, role: m.role, x: 40 + i * GAP_X, y: 60, instruction: ''}));
-      edges = ordered.slice(1).map((m, i) => ({from: ordered[i].agent_id, to: m.agent_id}));
+      edges = ordered.slice(1).map((m, i) => ({from: ordered[i].agent_id, to: m.agent_id, label: '', transfer: 'full'}));
     }
     return {team_id: t.team_id, revision: t.revision, title: t.title, purpose: t.purpose || '', budget_usd: t.budget_usd ?? 5,
-      review_criteria: t.review_criteria || '', nodes, edges, legacy: !t.graph};
+      review_criteria: t.review_criteria || '', delegation_rules: t.delegation_rules || '',
+      shared_memory_policy: t.shared_memory_policy || 'explicit_shared', nodes, edges, legacy: !t.graph};
   }
   function openDraft(d) {
     flow.draft = d; flow.base = d.legacy ? '' : JSON.stringify(d); flow.sel = null; flow.run = null;
@@ -642,8 +643,20 @@
     const d = flow.draft, box = el('aside', {className: 'axx-flow-inspector', ariaLive: 'polite'});
     if (flow.sel?.edge) {
       const [f, t] = flow.sel.edge.split('>');
+      const edgeObj = flow.draft.edges.find(e => e.from === f && e.to === t) || {from: f, to: t, label: '', transfer: 'full'};
+      const labelIn = el('input', {value: edgeObj.label || '', placeholder: 'Contrato de entrega (ej. Diff + resultados de pruebas)',
+        ariaLabel: 'Contrato de entrega', oninput: () => { edgeObj.label = labelIn.value.slice(0, 80); markFlow(); }});
+      const transferSel = el('select', {ariaLabel: 'Alcance de transferencia',
+        onchange: () => { edgeObj.transfer = transferSel.value; markFlow(); }},
+        ...options([['full', 'Salida completa verificada'], ['summary', 'Resumen conciso (≤420 chars)'], ['artifact_only', 'Solo referencia y SHA de artefacto']], edgeObj.transfer || 'full'));
+      const presetRow = el('div', {className: 'axx-flow-presets'},
+        ...['Diff + pruebas', 'Diagnóstico raíz', 'Criterios QA', 'Solo hallazgos'].map(text =>
+          el('button', {type: 'button', textContent: text, onclick: () => { labelIn.value = text; edgeObj.label = text; markFlow(); }})));
       box.append(el('strong', {textContent: `${actOf(f)?.name || f} → ${actOf(t)?.name || t}`}),
         el('p', {textContent: `${actOf(t)?.name || t} trabaja después de ${actOf(f)?.name || f} y recibe su resultado verificado como entrada (Handoff v1: solo los permisos que ambos ya tienen; nada se hereda).`}),
+        field('Contrato de entrega en esta conexión', labelIn),
+        presetRow,
+        field('Qué comparte hacia adelante', transferSel),
         el('button', {type: 'button', textContent: 'Quitar conexión', onclick: () => removeSelection()}));
       return box;
     }
@@ -697,9 +710,13 @@
     if (off.length) throw new Error('Quita o habilita estos Acts antes de guardar: ' + off.join(', '));
     if (!d.nodes.some(n => n.role === 'lead')) d.nodes[0].role = 'lead';
     const lead = d.nodes.find(n => n.role === 'lead').agent_id;
-    const body = {title: d.title.trim(), purpose: d.purpose.trim(), budget_usd: d.budget_usd, coordinator_agent_id: lead, review_criteria: d.review_criteria,
+    const body = {title: d.title.trim(), purpose: d.purpose.trim(), budget_usd: d.budget_usd, coordinator_agent_id: lead,
+      review_criteria: d.review_criteria || '', delegation_rules: d.delegation_rules || '',
+      shared_memory_policy: d.shared_memory_policy || 'explicit_shared',
       members: d.nodes.map(n => ({agent_id: n.agent_id, role: n.role})),
-      graph: {nodes: d.nodes.map(({agent_id, x, y, instruction}) => ({agent_id, x, y, instruction})), edges: d.edges}};
+      graph: {nodes: d.nodes.map(({agent_id, x, y, instruction}) => ({agent_id, x, y, instruction})),
+        edges: d.edges.map(e => ({from: e.from, to: e.to, ...(e.label?.trim() ? {label: e.label.trim()} : {}),
+          ...(e.transfer && e.transfer !== 'full' ? {transfer: e.transfer} : {})}))}};
     const res = d.team_id ? await api('POST', 'teams/update', {...body, team_id: d.team_id, expected_revision: d.revision})
       : await api('POST', 'teams', {...body, team_id: 'team-' + crypto.randomUUID().slice(0, 8)});
     await load();

@@ -60,7 +60,7 @@ ChatGPT/Codex del propietario.
 | LSP: completion, diagnostics, hover, definition, references | PARCIAL | Cliente JSON-RPC stdio real y Monaco conectado; probado con servidor stdio de prueba. **Ningún servidor LSP real funciona en este equipo** (falta instalar). Rename/formatting: no expuestos. |
 | DAP (breakpoints, variables) | PENDIENTE | Solo la guarda de loopback existente. |
 | GitHub (issues, PR, CI) | PENDIENTE | No conectado desde Acts. |
-| Varios archivos / carpeta como contexto | PARCIAL | Selección o archivo actual; varios archivos no. |
+| Varios archivos / carpeta como contexto | CUMPLE | Selección múltiple en `context-files` y botón `Añadir carpeta actual al contexto` (hasta 8 archivos sin credenciales vía `context/build`, usado en `ask-act`, `act-task` y `act-team-run`); probado en `test_guidance_ui`. |
 
 ## Parte VII — Windows
 | Punto | Estado | Evidencia / límite |
@@ -101,3 +101,21 @@ Navegador = Chromium headless con el `Axx.html` y el backend reales; no equivale
 | SYSTEM-01..04 | PENDIENTE | Requiere instalar la build en WebView2; no autorizado en este encargo. |
 | Demostraciones A/B/C con grabación | PENDIENTE | Capturas de prueba en `build/`; faltan grabaciones en la app instalada. |
 
+
+
+---
+
+## Actualización de verificación y mejoras (2026-11-24 · post-`6431433`)
+
+- **Code Studio — contexto multiarchivo/carpeta (`CUMPLE`)**: `1.AXX/scripts/code-studio/code-ui.js` integra selección múltiple y botón `Añadir carpeta actual al contexto` (`[data-code=context-folder]`, excluyendo credenciales y respetando el límite `MAX_FILES = 8` de `CodeContextService.build`) tanto para `ask-act` (`Pedir a un Act`) como para `act-task` y `act-team-run`; verificado en Chromium (`backend.tests.test_guidance_ui.GuidanceUiTests.test_code_guide_from_an_act_reply_marks_only_real_lines`).
+- **Code Studio — colores CSS de guías de línea (`CUMPLE`)**: `1.AXX/scripts/code-studio/code-ui.css` preserva tintes y bordes distintos cuando un paso está activo (`.axx-code-guide-{focus,reference,error,flow}.axx-code-guide-current`); verificado en Chromium comprobando 4 `backgroundColor` y 4 `boxShadow` computados distintos más decoración `axx-code-guide-n`.
+- **Magic Pen — `DRAW-03` botón «Actualizar guías» (`CUMPLE`)**: `backend.tests.test_guidance_ui.GuidanceUiTests.test_drawing_tutor_marks_colour_zones_from_the_image` ahora pulsa el botón visible `Actualizar guías` tras cambiar la figura capturada y comprueba `comparison.changed === true`, mensaje de estado y nuevas regiones pintadas en el canvas.
+- **Equipos — contratos por conexión y políticas aplicadas en ejecución (`CUMPLE`)**:
+  - `backend/agents/registry.py` (`checked_team_graph`) valida en cada arista `label` (`<= 80` chars) y `transfer` (`full | summary | artifact_only`).
+  - `backend/agents/http_api.py` (`_execute_team_pipeline` / `_team_flow`) propaga `label`, `transfer`, `delegation_rules` y `review_criteria` al `Handoff v1` y al turno del Act receptor.
+  - `1.AXX/scripts/agents/acts-studio.js` + `acts-studio.css` añaden en el inspector de conexiones campo `Contrato de entrega`, chips rápidos y selector `Qué comparte hacia adelante`; probado extremo a extremo en `backend.tests.test_acts_ux_improvements`.
+
+### Siguientes pasos pendientes para Claude / entrega nativa
+
+1. **WebView2 instalada (`SYSTEM-01..04`) y pruebas con modelos reales**: repetir `AXX_REAL_CODEX=1` y las pruebas locales de Ollama (`qwen2.5:7b-instruct`, `llama3.2:1b`) en entorno con sesión/Ollama activo, y validar en la aplicación desktop empaquetada tras autorización explícita del propietario (`scripts/validate_companion.py --output build/companion-validation.json` antes de cualquier build/release).
+2. **Code Studio DAP UI y edición visual `axx.spatial`**: conectar los controles visuales de depuración (`dap/*`) en el panel derecho de Code Studio y añadir prueba de UI/equipo para parche `ScenePatch` + `DioramaQA` aplicado sobre `axx.spatial`.
