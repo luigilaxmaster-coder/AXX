@@ -3212,16 +3212,16 @@ class AnticipationService:
         try:
             self.tick_started = (time.perf_counter(), time.process_time())
             self.tick_events = {}
+            self._recover()
+            self._observe()
+            self._poll_sources()
             with self.lock:
-                self._recover()
-                self._observe()
-                self._poll_sources()
                 if self.closed:
                     return []
                 config = self._config()
                 options = config['profiles'][config['profile']]
-                if self._within_budget(options):
-                    self._observe_preparations()
+            if self._within_budget(options):
+                self._observe_preparations()
             with self.lock, self.db:
                 cancelled = self._invalidate()
                 candidates = []
