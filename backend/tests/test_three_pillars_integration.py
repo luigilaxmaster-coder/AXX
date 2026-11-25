@@ -209,6 +209,10 @@ class ThreePillarsTests(unittest.TestCase):
                     page.evaluate('''async()=>{Axx.magicPen.player.v2Scene=null;await Axx.magicPen.ensureSceneV2(false);}''')
                     self.assertEqual(page.evaluate('Axx.magicPen.player.v2Scene.revision'), 4)
                     self.assertEqual(page.evaluate('Axx.magicPen.player.scene.geometrySnapshot()[0].material.color'), [1, 0, 0])
+                    # 3D-06: the GLB names every node by its scene object id, and the reopened scene has the same ids.
+                    glb = json.loads(raw[20:20 + int.from_bytes(raw[12:16], 'little')])
+                    self.assertEqual({n['extras']['object_id'] for n in glb['nodes']},
+                                     set(page.evaluate('Axx.magicPen.player.scene.geometrySnapshot().map(p=>p.object_id)')))
                     evidence = ROOT / 'build/three-pillars/screenshots'
                     evidence.mkdir(parents=True, exist_ok=True)
                     page.screenshot(path=str(evidence / 'magic-pen-edit.png'))

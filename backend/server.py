@@ -829,7 +829,7 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                     result = self.magic_pen.budget.configure(limit_usd=body.get('limit_usd'), reset=body.get('reset') is True)
                 elif operation == 'get':
                     result = self.magic_pen.get(body.get('id'), image=True)
-                elif operation in {'capture', 'save', 'export', 'analyze', 'start', 'query', 'cancel', 'guide_check', 'guide_session', 'drawing_guide'}:
+                elif operation in {'capture', 'save', 'export', 'analyze', 'start', 'query', 'cancel', 'guide_check', 'guide_session', 'drawing_guide', 'diagram_edit'}:
                     try:
                         result = getattr(self.magic_pen, operation)(body)
                     except OSError as exc:

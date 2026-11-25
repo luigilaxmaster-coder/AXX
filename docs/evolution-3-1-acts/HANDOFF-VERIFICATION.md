@@ -84,3 +84,20 @@ ChatGPT/Codex del propietario.
 | Regresión backend completa | CUMPLE (ver `ACTS-INTEGRATION.md` §5). |
 | Demostración Dev/Visual/QA | PARCIAL: integración HTTP + navegador real y equipo real con Ollama; falta recorrido completo en la app instalada (sin permiso para escribir en WebView2 durante la prueba nativa). |
 | `RELEASE_READY` | No se declara. |
+
+## Explicación señalizada (Visual Guidance Engine, guide.v1)
+
+Navegador = Chromium headless con el `Axx.html` y el backend reales; no equivale a WebView2 instalado.
+
+| Prueba | Estado | Evidencia |
+|---|---|---|
+| GUIDE-01..06 | CUMPLE (nativo, Edge) | `test_guide_native` (`AXX_REAL_GUIDE=1`): ventana Edge real, UI Automation y teclado/ratón reales; sin posición para elementos inexistentes; la contraseña no aparece en documento, sesión ni prompts. No es el overlay de la app instalada. |
+| DRAW-01, DRAW-02 | CUMPLE (navegador) | `test_guidance_ui`: regiones de color reales de la selección, «morado» devuelve cero zonas. |
+| DRAW-03 | PARCIAL | `test_guidance.DrawingGuideTests` compara antes/después; el botón «Actualizar guías» no tiene prueba de navegador. |
+| DIAGRAM-01, 02, 03 | CUMPLE (navegador) | Flujo animado en la conexión del paso; doble clic/F2 renombra un nodo validado por el mismo validador del plan, conserva ids, enlaces y el paso de la sesión, y persiste tras reabrir. |
+| 3D-01..05, 3D-07, 3D-08 | CUMPLE (navegador, SwiftShader) | 12 piezas con geometría propia, etiqueta anclada que sigue la cámara, movimiento ilustrativo, despiece/reensamblado, reanudación en el último paso, geometría marcada como conceptual. |
+| 3D-06 | CUMPLE (navegador) | `test_three_pillars_integration`: GLB exportado con `extras.object_id` por nodo, mismos ids que la escena reabierta. |
+| Code Studio: guías sobre líneas | CUMPLE (navegador) | Respuesta del Act con bloque `axx-guide`: solo rangos reales del archivo abierto (los inventados se descartan), tipos explicación/referencia/error/recorrido y navegación por pasos. |
+| SYSTEM-01..04 | PENDIENTE | Requiere instalar la build en WebView2; no autorizado en este encargo. |
+| Demostraciones A/B/C con grabación | PENDIENTE | Capturas de prueba en `build/`; faltan grabaciones en la app instalada. |
+

@@ -104,5 +104,32 @@ class DrawingGuideTests(unittest.TestCase):
         self.assertFalse(drawing_guide.compare(before, drawing_guide.analyze(self.figure()))['changed'])
 
 
+class DiagramEditTests(unittest.TestCase):  # DIAGRAM-02
+    def test_editing_a_node_keeps_the_document_ids_and_guide_place(self):
+        import copy, tempfile
+        from pathlib import Path
+        from backend.magic_pen import MagicPenService, write_json
+        tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True); self.addCleanup(tmp.cleanup)
+        pen = MagicPenService(Path(tmp.name)); self.addCleanup(pen.close)
+        doc = pen.acquire(Image.new('RGB', (200, 100), 'white'), {'id': 'fixture'})
+        doc['queries'] = [{'id': 'b' * 32, 'source_id': doc['id'], 'revision': 1, 'state': 'completed', 'format': 'presentation',
+                           'question': 'x', 'presentation': copy.deepcopy(PLAN)}]
+        write_json(pen.directory(doc['id']) / 'document.json', doc)
+        ref = {'id': doc['id'], 'query_id': 'b' * 32}
+        session = pen.guide_session({**ref, 'step_id': 's3', 'expected_revision': 1})
+        out = pen.diagram_edit({**ref, 'node_id': 'd2', 'label': '  Giro del eje  '})
+        self.assertEqual([(n['id'], n['label']) for n in out['diagram']['nodes']], [('d1', 'Combustión'), ('d2', 'Giro del eje')])
+        stored = pen.query(ref)
+        self.assertEqual(stored['presentation']['diagram']['edges'], PLAN['diagram']['edges'])
+        self.assertEqual(stored['presentation']['steps'], PLAN['steps'])
+        self.assertEqual(stored['guide_session']['current_step_id'], session['current_step_id'])
+        self.assertEqual(next(a['label'] for a in stored['guide_session']['anchors'] if a['anchor_id'] == 'a-d2'), 'Giro del eje')
+        for bad in ({**ref, 'node_id': 'd9', 'label': 'x'}, {**ref, 'node_id': 'd1', 'label': '   '},
+                    {**ref, 'node_id': 'd1', 'label': 'x' * 101}, {**ref, 'node_id': 'd1', 'label': 'x', 'object_id': 'o1'}):
+            with self.assertRaises(ValueError):
+                pen.diagram_edit(bad)
+        self.assertEqual(pen.query(ref)['presentation']['diagram']['nodes'][0]['label'], 'Combustión')
+
+
 if __name__ == '__main__':
     unittest.main()

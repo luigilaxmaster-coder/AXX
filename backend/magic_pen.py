@@ -830,6 +830,32 @@ class MagicPenService:
                 write_json(self.directory(d['id']) / 'document.json', d)
             return copy.deepcopy(session)
 
+    def diagram_edit(self, body):
+        """Relabel one node of an explanation's own diagram: ids, links, steps and the guide session's place are kept."""
+        from backend.presentation_plan import PlanError, _diagram
+        if not isinstance(body, dict) or set(body) != {'id', 'query_id', 'node_id', 'label'}:
+            raise ValueError('Edición de diagrama inválida.')
+        self.directory(body['query_id'])
+        with self.lock:
+            d = self.get(body['id'])
+            q = next((q for q in d.get('queries', []) if q['id'] == body['query_id']), None)
+            plan = (q or {}).get('presentation') or {}
+            diagram = copy.deepcopy(plan.get('diagram') or {'nodes': []})
+            node = next((n for n in diagram['nodes'] if n['id'] == body['node_id']), None)
+            if node is None:
+                raise ValueError('Ese nodo no existe en el diagrama de esta explicación.')
+            node['label'] = body['label']
+            try:  # the same validator the model's plan passed
+                plan['diagram'] = _diagram(diagram, {s['id'] for s in plan['steps']}, {o['id'] for o in (plan.get('scene') or {}).get('objects', [])})
+            except PlanError as exc:
+                raise ValueError(str(exc)) from None
+            label = next(n['label'] for n in plan['diagram']['nodes'] if n['id'] == body['node_id'])
+            for anchor in (q.get('guide_session') or {}).get('anchors', []):
+                if anchor.get('type') == 'diagram' and anchor.get('target_ref', {}).get('node_id') == body['node_id']:
+                    anchor['label'] = label[:120]
+            write_json(self.directory(d['id']) / 'document.json', d)
+            return {'diagram': copy.deepcopy(plan['diagram']), 'guide_session': copy.deepcopy(q.get('guide_session'))}
+
     def drawing_guide(self, body):
         """Regions, construction and colour zones computed from the capture itself (never model coordinates)."""
         from backend import drawing_guide

@@ -2,7 +2,7 @@
 const NS='http://www.w3.org/2000/svg';let sequence=0;
 const svg=(name,attrs={},text)=>{const n=document.createElementNS(NS,name);for(const [k,v] of Object.entries(attrs))n.setAttribute(k,String(v));if(text!==undefined)n.textContent=text;return n;};
 
-export function renderDiagram(host,diagram,stepId,onStep=()=>{}){
+export function renderDiagram(host,diagram,stepId,onStep=()=>{},onEdit=null){
     host.replaceChildren();const root=svg('svg',{viewBox:'0 0 1000 600',role:'group','aria-label':'Diagrama de la explicación'}),markerId='axx-diagram-arrow-'+(++sequence);
     const defs=svg('defs'),marker=svg('marker',{id:markerId,viewBox:'0 0 10 10',refX:9,refY:5,markerWidth:7,markerHeight:7,orient:'auto-start-reverse'});
     marker.append(svg('path',{d:'M 0 0 L 10 5 L 0 10 z',fill:'currentColor'}));defs.append(marker);root.append(defs);
@@ -32,7 +32,8 @@ export function renderDiagram(host,diagram,stepId,onStep=()=>{}){
         const words=node.label.split(/\s+/),lines=[];let line='';
         for(const word of words){if(line.length+word.length>Math.max(7,Math.floor(w/20))){lines.push(line);line='';}line+=(line?' ':'')+word;}if(line)lines.push(line);
         lines.slice(0,4).forEach((text,i)=>g.append(svg('text',{x:x+w/2,y:y+h/2+(i-(Math.min(lines.length,4)-1)/2)*36,'text-anchor':'middle','dominant-baseline':'middle','font-size':32,'font-weight':550,fill:'currentColor'},text)));
-        g.addEventListener('click',()=>onStep(node.step_id,node));g.addEventListener('keydown',e=>{if(['Enter',' '].includes(e.key)){e.preventDefault();onStep(node.step_id,node);}});root.append(g);
+        g.addEventListener('click',()=>onStep(node.step_id,node));g.addEventListener('keydown',e=>{if(['Enter',' '].includes(e.key)){e.preventDefault();onStep(node.step_id,node);}else if(e.key==='F2'&&onEdit){e.preventDefault();onEdit(node);}});
+        if(onEdit){g.addEventListener('dblclick',()=>onEdit(node));g.append(svg('title',{},'Doble clic o F2 para editar'));}root.append(g);
     }
     host.append(root);
 }

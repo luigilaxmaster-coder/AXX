@@ -4,6 +4,7 @@ These are browser integration receipts (3D-02..05, 3D-07, DIAGRAM-01/03, DRAW-01
 acceptance. The plan is a fixture; anchors, projection, motions, sessions and drawing regions are the real code.
 """
 import functools
+import json
 import http.server
 from pathlib import Path
 import tempfile
@@ -15,6 +16,7 @@ from playwright.sync_api import sync_playwright
 
 from backend.magic_pen import write_json
 from backend.tests.test_acts_inference import _Server
+from backend.tests.test_acts_code_tools import git_repo
 from backend.tests.test_acts_ui import ROOT, open_axx, serve
 
 LABELS = ['Pistón', 'Cigüeñal', 'Bloque', 'Culata', 'Biela', 'Bujía', 'Válvula de admisión', 'Válvula de escape', 'Cárter',
@@ -71,6 +73,8 @@ class GuidanceUiTests(unittest.TestCase):
                 page.wait_for_function(scene + '.guideState().labels.length>8', timeout=30000)
                 overview = page.evaluate(scene + '.guideState()')
                 self.assertGreater(len(overview['labels']), 8)  # C: no 8-label cap; budget-based, collision-free
+                # 3D-01: every component of the plan has its own rendered geometry
+                self.assertEqual(page.evaluate(scene + '.geometrySnapshot().map(p=>p.object_id).filter((v,i,a)=>a.indexOf(v)===i).length'), len(LABELS))
                 # 3D-02: the piston step targets o1, draws an anchored callout and frames it.
                 page.evaluate('Axx.magicPen.seekPresentation(1)')
                 page.wait_for_function(scene + ".guideState().targets.join()==='o1'", timeout=15000)
@@ -97,6 +101,11 @@ class GuidanceUiTests(unittest.TestCase):
                 # DIAGRAM-01/03: the narrated step's node is active and its connection carries the flow.
                 page.wait_for_function("document.querySelector('#mp-answers svg[data-active-nodes]')?.dataset.activeNodes==='d1'", timeout=15000)
                 self.assertEqual(page.evaluate("[...document.querySelectorAll('#mp-answers .mp-diagram-flow')].map(l=>l.dataset.from+'>'+l.dataset.to)"), ['d1>d2'])
+                # DIAGRAM-02: rename a node with a real double-click; ids, links and the document stay intact.
+                page.once('dialog', lambda dialog: dialog.accept('Giro del eje'))
+                page.locator('#mp-answers [data-node-id="d2"]').dblclick()
+                page.wait_for_function("document.querySelector('#mp-answers [data-node-id=\"d2\"]')?.getAttribute('aria-label')==='Giro del eje'", timeout=15000)
+                self.assertEqual(page.evaluate("[...document.querySelectorAll('#mp-answers [data-node-id]')].map(n=>n.dataset.nodeId)"), ['d1', 'd2'])
                 # crankshaft step rotates; explode then reassemble (3D-04)
                 page.evaluate('Axx.magicPen.seekPresentation(2)')
                 page.wait_for_function(scene + ".motions().some(m=>m.id==='o2'&&m.kind==='rotate')", timeout=15000)
@@ -113,6 +122,9 @@ class GuidanceUiTests(unittest.TestCase):
             stored = self.srv.magic_pen.query({'id': capture['id'], 'query_id': 'b' * 32})['guide_session']
             self.assertEqual(stored['current_step_id'], 's5')
             self.assertEqual(stored['verification_state']['geometry'], 'conceptual')  # 3D-08
+            doc = self.srv.magic_pen.query({'id': capture['id'], 'query_id': 'b' * 32})
+            self.assertEqual([n['label'] for n in doc['presentation']['diagram']['nodes']], ['Combustión', 'Giro del eje'])  # DIAGRAM-02 persisted
+            self.assertEqual(doc['presentation']['diagram']['edges'], PLAN['diagram']['edges'])
             browser = p.chromium.launch(headless=True, args=['--use-angle=swiftshader', '--enable-unsafe-swiftshader'])
             try:
                 page = self.open(browser, capture['id'])
@@ -147,6 +159,41 @@ class GuidanceUiTests(unittest.TestCase):
                 page.evaluate("Axx.magicPen.startDrawingGuide('morado')")
                 page.wait_for_function("Axx.magicPen.drawingGuide.color==='morado'", timeout=20000)
                 self.assertEqual(page.evaluate('Axx.magicPen.drawingGuide.color_regions.length'), 0)  # never an invented zone
+            finally:
+                browser.close()
+
+    def test_code_guide_from_an_act_reply_marks_only_real_lines(self):
+        repo = git_repo(Path(self.tmp.name))
+        self.srv.rt.flags.set_flag('code_studio_v1', True, reason='code guide ui')
+        guide = {'path': 'calc.py', 'steps': [{'lines': [1, 1], 'kind': 'focus', 'note': 'La firma recibe a y b'},
+                                              {'lines': [2, 2], 'kind': 'error', 'note': 'Resta en vez de sumar'},
+                                              {'lines': [40, 44], 'kind': 'reference', 'note': 'Línea inventada'}]}
+        reply = 'El error está en la resta.' + chr(10) + '```axx-guide ' + json.dumps(guide) + '```'
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            try:
+                page = open_axx(browser, self.srv, self.web)
+                page.evaluate("Axx.companion.openFeature('agent')")
+                page.get_by_role('button', name='Abrir Code Studio', exact=True).click()
+                page.wait_for_function('Axx.codeStudio.editor !== null', timeout=60000)
+                page.locator('[data-code=root]').fill(str(repo))
+                page.get_by_role('button', name='Abrir proyecto', exact=True).click()
+                page.locator('[data-code=browser]').get_by_role('button', name='calc.py', exact=True).click()
+                page.wait_for_function("Axx.codeStudio.editor.getValue().includes('a - b')")
+                page.locator('[data-code=ask-act]').click()  # the request tells the Act how to point at lines
+                self.assertIn('```axx-guide', page.locator('#chat-input').input_value())
+                # the Act's finished reply arrives in the chat; Code Studio draws its guide on the open file
+                page.evaluate("t=>{Axx.companion.message('assistant',t,'model');Axx.companion.renderChat();}", reply)
+                page.wait_for_selector('[data-code=guide]:not([hidden])')
+                self.assertIn('1 descartados', page.locator('[data-code=status]').text_content())  # never an invented line
+                self.assertIn('Paso 1/2 · Explicación · líneas 1–1', page.locator('[data-code=guide-text]').text_content())
+                page.locator('[data-code=guide-next]').click()
+                self.assertIn('Error · líneas 2–2: Resta en vez de sumar', page.locator('[data-code=guide-text]').text_content())
+                ranges = page.evaluate("""Axx.codeStudio.editor.getModel().getAllDecorations().filter(d=>/axx-code-guide/.test(d.options.className))
+                    .map(d=>[d.range.startLineNumber,d.options.className.split(' ')[1]])""")
+                self.assertEqual(ranges, [[1, 'axx-code-guide-focus'], [2, 'axx-code-guide-error']])
+                page.locator('[data-code=guide-close]').click()
+                self.assertEqual(page.evaluate("Axx.codeStudio.editor.getModel().getAllDecorations().filter(d=>/axx-code-guide/.test(d.options.className)).length"), 0)
             finally:
                 browser.close()
 
