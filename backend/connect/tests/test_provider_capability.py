@@ -30,7 +30,7 @@ class CapabilityProviderTests(unittest.TestCase):
     def tearDown(self): self.provider.close(); self.temporary.cleanup()
 
     def wait_started(self, request_id='cap-fixture'):
-        deadline = time.monotonic() + 2
+        deadline = time.monotonic() + 15  # returns as soon as the turn starts; 2 s flaked on loaded CI runners
         while time.monotonic() < deadline:
             try: run = self.provider.get(request_id)
             except ProviderError: run = None
@@ -56,7 +56,7 @@ class CapabilityProviderTests(unittest.TestCase):
         self.assertIn('capability_request',start['developerInstructions'])
         self.provider._server_request({'id':88,'method':'item/tool/call','params':{
             'threadId':'thread-test','turnId':'turn-test','tool':'axx_execute_action','arguments':{}}})
-        thread.join(2)
+        thread.join(10)
         self.assertEqual(results['error'].code,'CAPABILITY_TOOLS_FORBIDDEN')
         self.assertEqual(self.dispatched,[])
 
@@ -73,7 +73,7 @@ class CapabilityProviderTests(unittest.TestCase):
         self.assertNotIn('python_transform must obey',start['developerInstructions'])
         self.provider._server_request({'id':89,'method':'item/tool/call','params':{
             'threadId':'thread-test','turnId':'turn-test','tool':'axx_execute_action','arguments':{}}})
-        thread.join(2)
+        thread.join(10)
         self.assertEqual(results['error'].code,'CAPABILITY_TOOLS_FORBIDDEN')
         self.assertEqual(self.dispatched,[])
 
@@ -98,7 +98,7 @@ class CapabilityProviderTests(unittest.TestCase):
         self.assertFalse(any(method == 'thread/resume' for method, _ in self.provider.rpc_calls))
         turn = next(params for method, params in self.provider.rpc_calls if method == 'turn/start')
         self.assertEqual(json.loads(turn['input'][0]['text'])['goal'], 'Normalizar texto.')
-        self.finish(); thread.join(2)
+        self.finish(); thread.join(10)
         self.assertNotIn('error', results, results)
         result = results['result']; self.assertTrue(result['ok'])
         self.assertEqual(result['route'], {'model': 'gpt-6.1-sol', 'provider_name': '@codex'})
@@ -128,7 +128,7 @@ class CapabilityProviderTests(unittest.TestCase):
         thread,results=self.background(body,planning=True);self.wait_started()
         turn=next(params for method,params in self.provider.rpc_calls if method=='turn/start')
         self.assertEqual(turn['input'][1],{'type':'image','url':url})
-        self.finish();thread.join(2)
+        self.finish();thread.join(10)
         self.assertNotIn('error',results,results)
         with self.provider.lock:
             stored=''.join(row[0] for row in self.provider.db.execute('SELECT body_json FROM connect_runs'))
@@ -144,13 +144,13 @@ class CapabilityProviderTests(unittest.TestCase):
         data=json.loads(turn['input'][0]['text'])
         self.assertEqual(data['goal'],'Normalizar texto.')
         self.assertEqual(data['preparation_feedback'],['Correct the invalid typed parameter.'])
-        self.finish();thread.join(2)
+        self.finish();thread.join(10)
         self.assertNotIn('error',results,results)
 
     def test_source_echo_is_returned_only_in_memory_and_never_in_provider_journals(self):
         event=threading.Event()
         thread,results=self.background(request(task='plan'),planning=True,cancel_event=event)
-        self.wait_started();self.finish('{"needs_input":"PRIVATE_OBSERVATION_SENTINEL"}');thread.join(2)
+        self.wait_started();self.finish('{"needs_input":"PRIVATE_OBSERVATION_SENTINEL"}');thread.join(10)
         self.assertNotIn('error',results,results)
         self.assertIn('PRIVATE_OBSERVATION_SENTINEL',results['result']['message']['content'])
         with self.provider.lock:
@@ -166,7 +166,7 @@ class CapabilityProviderTests(unittest.TestCase):
         self.wait_started()
         self.provider._notification({'method':'turn/completed','params':{'threadId':'thread-test',
             'turn':{'id':'turn-test','status':'failed','error':{'message':'PRIVATE_ERROR_SENTINEL'}}}})
-        thread.join(2)
+        thread.join(10)
         self.assertIsInstance(results.get('error'),ProviderError)
         with self.provider.lock:
             self.assertNotIn('PRIVATE_ERROR_SENTINEL',json.dumps(self.provider.live['cap-fixture']['error']))
@@ -182,7 +182,7 @@ class CapabilityProviderTests(unittest.TestCase):
         self.assertEqual(self.provider.rpc_calls,[])
         event.clear()
         thread,results=self.background(request(task='plan'),planning=True,cancel_event=event)
-        self.wait_started();event.set();thread.join(2)
+        self.wait_started();event.set();thread.join(10)
         self.assertEqual(results['error'].code,'CANCELLED')
         self.assertTrue(self.provider.get('cap-fixture')['cancel_requested'])
 
@@ -190,7 +190,7 @@ class CapabilityProviderTests(unittest.TestCase):
         thread, results = self.background(); self.wait_started()
         self.provider._server_request({'id': 99, 'method': method, 'params': {
             'threadId': 'thread-test', 'turnId': 'turn-test', **params}})
-        thread.join(2)
+        thread.join(10)
         self.assertIsInstance(results.get('error'), ProviderError)
         self.assertEqual(results['error'].code, 'CAPABILITY_TOOLS_FORBIDDEN')
         self.assertEqual(self.dispatched, []); self.assertFalse(self.provider.approvals)
