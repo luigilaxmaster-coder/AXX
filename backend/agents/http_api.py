@@ -824,6 +824,16 @@ class EvolutionHTTP:
         steps_output: list[dict[str, Any]] = []
         artifacts: list[dict[str, Any]] = []
         outputs: dict[str, str] = {}  # verified handoff text per Act, read only by the Acts connected downstream
+        # What each upstream Act may pass on to each node: the strictest transfer along a path, and the loosest path wins.
+        levels = ('full', 'summary', 'artifact_only')
+        access: dict[str, dict[str, int]] = {}
+        for _, a in ordered:
+            reach: dict[str, int] = {}
+            for p in preds[a['agent_id']]:
+                edge = levels.index(edge_meta.get((p, a['agent_id']), {}).get('transfer', 'full'))
+                for up, lvl in [(p, 0), *access[p].items()]:
+                    reach[up] = min(reach.get(up, 2), max(lvl, edge))
+            access[a['agent_id']] = reach
         for idx, ((mrole, act_prof), node) in enumerate(zip(ordered, nodes)):
             self._check_team_active(cancel_event)
             act_id = act_prof['agent_id']
@@ -835,7 +845,7 @@ class EvolutionHTTP:
                 if up_id not in outputs:
                     continue
                 em = edge_meta.get((up_id, act_id), {})
-                transfer = em.get('transfer', 'full')
+                transfer = levels[access[act_id].get(up_id, 0)]
                 label = em.get('label', '')
                 tag = f' (entrega: {label})' if label else ''
                 if transfer == 'artifact_only':

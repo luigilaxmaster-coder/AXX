@@ -109,6 +109,18 @@ class TeamGraphTests(_Base):
         self.assertEqual(code, 400, res)
         self.assertIn('act-back', res['error']['message'])
 
+    def test_a_restricted_connection_also_restricts_what_flows_through_later_acts(self):
+        chain = {'nodes': [{'agent_id': 'act-plan', 'x': 40, 'y': 40}, {'agent_id': 'act-front', 'x': 300, 'y': 40},
+                           {'agent_id': 'act-qa', 'x': 560, 'y': 40}],
+                 'edges': [{'from': 'act-plan', 'to': 'act-front', 'transfer': 'artifact_only'}, {'from': 'act-front', 'to': 'act-qa'}]}
+        members = [m for m in MEMBERS if m['agent_id'] != 'act-back']
+        self.assertEqual(self.post('teams', self.team(members=members, graph=chain))[0], 200)
+        code, res = self.post('teams/run', {'run_id': 'chain-run', 'conversation_id': 'conv-g', 'team_id': 'team-graph', 'prompt': 'x'})
+        self.assertEqual(code, 200, res)
+        for act in ('act-front', 'act-qa'):  # Plan reaches both only as a verified artifact reference
+            self.assertNotIn('salida-de-act-plan', self.prompts[act])
+            self.assertIn('art-chain-run-t1', self.prompts[act])
+        self.assertIn('salida-de-act-front', self.prompts['act-qa'])
 
 class RoutineScheduleTests(_Base):
     def test_cron_preview_and_invalid_specs(self):
