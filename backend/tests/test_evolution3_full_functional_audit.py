@@ -8,6 +8,7 @@ and real Spanish voice normalization/prosody and Windows TTS service integration
 from __future__ import annotations
 
 import hashlib
+import os
 import http.client
 import json
 from pathlib import Path
@@ -489,9 +490,9 @@ class Evolution3FullFunctionalAuditTests(unittest.TestCase):
             state_db = tmp_path / 'state.db'
             repo_dir = tmp_path / 'sample_repo'
             repo_dir.mkdir()
-            subprocess.run(['git', 'init'], cwd=str(repo_dir), check=True, capture_output=True)
-            subprocess.run(['git', 'config', 'user.email', 'owner@example.com'], cwd=str(repo_dir), check=True)
-            subprocess.run(['git', 'config', 'user.name', 'Owner'], cwd=str(repo_dir), check=True)
+            subprocess.run(['git', 'init'], cwd=str(repo_dir), check=True, capture_output=True, env=os.environ.copy())
+            subprocess.run(['git', 'config', 'user.email', 'owner@example.com'], cwd=str(repo_dir), check=True, env=os.environ.copy())
+            subprocess.run(['git', 'config', 'user.name', 'Owner'], cwd=str(repo_dir), check=True, env=os.environ.copy())
             (repo_dir / 'math_ops.py').write_text('def multiply(x, y):\n    return x * y\n', encoding='utf-8')
             (repo_dir / 'test_math_ops.py').write_text(
                 'import unittest, math_ops\n'
@@ -502,8 +503,8 @@ class Evolution3FullFunctionalAuditTests(unittest.TestCase):
                 '    unittest.main()\n',
                 encoding='utf-8',
             )
-            subprocess.run(['git', 'add', '.'], cwd=str(repo_dir), check=True)
-            subprocess.run(['git', 'commit', '-m', 'init'], cwd=str(repo_dir), check=True, capture_output=True)
+            subprocess.run(['git', 'add', '.'], cwd=str(repo_dir), check=True, env=os.environ.copy())
+            subprocess.run(['git', 'commit', '-m', 'init'], cwd=str(repo_dir), check=True, capture_output=True, env=os.environ.copy())
 
             orig_sha = hashlib.sha256((repo_dir / 'math_ops.py').read_bytes()).hexdigest()
 

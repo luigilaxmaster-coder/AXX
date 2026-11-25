@@ -10,6 +10,7 @@ Covers:
 from __future__ import annotations
 
 import hashlib
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -242,14 +243,14 @@ class CodeStudioCoreTests(unittest.TestCase):
             wt_dir = Path(tmp) / 'worktrees'
             repo.mkdir()
 
-            subprocess.run(['git', 'init'], cwd=str(repo), check=True, capture_output=True)
-            subprocess.run(['git', 'config', 'user.email', 'owner@example.com'], cwd=str(repo), check=True)
-            subprocess.run(['git', 'config', 'user.name', 'Owner'], cwd=str(repo), check=True)
+            subprocess.run(['git', 'init'], cwd=str(repo), check=True, capture_output=True, env=os.environ.copy())
+            subprocess.run(['git', 'config', 'user.email', 'owner@example.com'], cwd=str(repo), check=True, env=os.environ.copy())
+            subprocess.run(['git', 'config', 'user.name', 'Owner'], cwd=str(repo), check=True, env=os.environ.copy())
 
             (repo / 'a.py').write_text('A = 1\n', encoding='utf-8')
             (repo / 'b.py').write_text('B = 1\n', encoding='utf-8')
-            subprocess.run(['git', 'add', 'a.py', 'b.py'], cwd=str(repo), check=True)
-            subprocess.run(['git', 'commit', '-m', 'Initial commit'], cwd=str(repo), check=True, capture_output=True)
+            subprocess.run(['git', 'add', 'a.py', 'b.py'], cwd=str(repo), check=True, env=os.environ.copy())
+            subprocess.run(['git', 'commit', '-m', 'Initial commit'], cwd=str(repo), check=True, capture_output=True, env=os.environ.copy())
 
             svc = CodeProjectService(':memory:')
             self.addCleanup(svc.close)
@@ -309,8 +310,8 @@ class CodeStudioCoreTests(unittest.TestCase):
             self.assertEqual((Path(wt_a['worktree_path']) / 'a.py').read_text(), 'A = 2\n')
             # Commit fixture edits before testing non-destructive removal.
             for wt in (wt_a, wt_b):
-                subprocess.run(['git', '-C', wt['worktree_path'], 'add', '.'], check=True, capture_output=True)
-                subprocess.run(['git', '-C', wt['worktree_path'], 'commit', '-m', 'Fixture edit'], check=True, capture_output=True)
+                subprocess.run(['git', '-C', wt['worktree_path'], 'add', '.'], check=True, capture_output=True, env=os.environ.copy())
+                subprocess.run(['git', '-C', wt['worktree_path'], 'commit', '-m', 'Fixture edit'], check=True, capture_output=True, env=os.environ.copy())
                 git_ws.remove_agent_worktree(wt['workspace_id'])
 
 

@@ -1,0 +1,259 @@
+"""Explicación señalizada in the real Axx.html over the real backend (Chromium + SwiftShader WebGL).
+
+These are browser integration receipts (3D-02..05, 3D-07, DIAGRAM-01/03, DRAW-01/02); they are NOT installed WebView2
+acceptance. The plan is a fixture; anchors, projection, motions, sessions and drawing regions are the real code.
+"""
+import functools
+import json
+import http.server
+from pathlib import Path
+import tempfile
+import time
+import unittest
+
+from PIL import Image, ImageDraw
+from playwright.sync_api import sync_playwright
+
+from backend.magic_pen import write_json
+from backend.tests.test_acts_inference import _Server
+from backend.tests.test_acts_code_tools import git_repo
+from backend.tests.test_acts_ui import ROOT, open_axx, serve
+
+LABELS = ['Pistón', 'Cigüeñal', 'Bloque', 'Culata', 'Biela', 'Bujía', 'Válvula de admisión', 'Válvula de escape', 'Cárter',
+          'Volante', 'Junta', 'Árbol de levas']
+PLAN = {'schema_version': '1.0', 'kind': 'presentation', 'title': 'Motor', 'summary': 'Cómo funciona', 'fidelity': 'conceptual',
+        'steps': [{'id': 's1', 'title': 'Qué se observa', 'body': 'Un motor de un cilindro.', 'narration': 'Vista general.', 'basis': 'observed'},
+                  {'id': 's2', 'title': 'El pistón', 'body': 'El pistón se desplaza dentro del cilindro.', 'narration': 'El pistón sube y baja.', 'basis': 'inferred', 'focus': ['o1']},
+                  {'id': 's3', 'title': 'El cigüeñal', 'body': 'El cigüeñal gira y transmite el movimiento.', 'narration': 'El cigüeñal gira.', 'basis': 'inferred', 'focus': ['o2']},
+                  {'id': 's4', 'title': 'Despiece', 'body': 'Vista explotada de las piezas.', 'narration': 'Separamos las piezas.', 'basis': 'inferred'},
+                  {'id': 's5', 'title': 'Reensamblado', 'body': 'Reensambla el conjunto.', 'narration': 'Volvemos a unir.', 'basis': 'inferred'}],
+        'scene': {'fidelity': 'conceptual', 'objects': [
+            {'id': f'o{i + 1}', 'label': label, 'shape': 'piston' if i == 0 else 'crankshaft' if i == 1 else 'box',
+             'size': [1, 1, 1], 'position': [(i % 4) * 2.2 - 3.3, (i // 4) * 2.2 - 2.2, 0], 'color': '#7799cc'} for i, label in enumerate(LABELS)],
+            'arrows': []},
+        'diagram': {'nodes': [{'id': 'd1', 'label': 'Combustión', 'step_id': 's2', 'bounds': [.1, .3, .25, .2]},
+                              {'id': 'd2', 'label': 'Giro', 'step_id': 's3', 'bounds': [.6, .3, .25, .2]}],
+                    'edges': [{'from': 'd1', 'to': 'd2', 'label': 'empuja'}]}}
+LOAD = '''async id=>{const pen=Axx.magicPen;pen.signaled=true;localStorage.setItem('axx.magicPen.signaled','1');pen.active=true;pen.root.hidden=false;
+    pen.state='reviewing';const doc=await Axx.backendRequest('POST','/axx-api/pen/get',{id});await pen.load(doc,true);pen.showWidget();}'''
+
+
+class GuidanceUiTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        self.srv = _Server(Path(self.tmp.name), [])
+        self.srv.rt.flags.set_flag('magic_scene_v2', True, reason='guidance ui')
+        self.srv.api.timeout = 120
+        self.web = serve(functools.partial(http.server.SimpleHTTPRequestHandler, directory=str(ROOT / '1.AXX')))
+
+    def tearDown(self):
+        self.web.shutdown(); self.web.server_close(); self.srv.close(); self.tmp.cleanup()
+
+    def capture(self, image, plan=None):
+        capture = self.srv.magic_pen.acquire(image, {'id': 'fixture'})
+        if plan:
+            capture['queries'] = [{'id': 'b' * 32, 'source_id': capture['id'], 'revision': 1, 'state': 'completed', 'format': 'presentation',
+                                   'question': 'Explícame este motor señalando cada pieza', 'presentation': plan}]
+            write_json(self.srv.magic_pen.directory(capture['id']) / 'document.json', capture)
+        return capture
+
+    def open(self, browser, capture_id):
+        page = open_axx(browser, self.srv, self.web)
+        page.evaluate(LOAD, capture_id)
+        return page
+
+    def test_3d_steps_are_anchored_animated_and_resumable(self):
+        capture = self.capture(Image.new('RGB', (400, 300), 'white'), PLAN)
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True, args=['--use-angle=swiftshader', '--enable-unsafe-swiftshader'])
+            try:
+                page = self.open(browser, capture['id'])
+                page.wait_for_function('Axx.magicPen.player?.scene && Axx.magicPen.presentationQuery()?.guide_session', timeout=60000)
+                scene = 'Axx.magicPen.player.scene'
+                page.wait_for_function(scene + '.guideState().labels.length>8', timeout=30000)
+                overview = page.evaluate(scene + '.guideState()')
+                self.assertGreater(len(overview['labels']), 8)  # C: no 8-label cap; budget-based, collision-free
+                # 3D-01: every component of the plan has its own rendered geometry
+                self.assertEqual(page.evaluate(scene + '.geometrySnapshot().map(p=>p.object_id).filter((v,i,a)=>a.indexOf(v)===i).length'), len(LABELS))
+                # 3D-02: the piston step targets o1, draws an anchored callout and frames it.
+                page.evaluate('Axx.magicPen.seekPresentation(1)')
+                page.wait_for_function(scene + ".guideState().targets.join()==='o1'", timeout=15000)
+                same_frame = '(()=>{const s=' + scene + ';s.qa();return {state:s.guideState(),anchor:s.project("o1")};})()'  # label and projection from one render
+                page.wait_for_function(scene + ".qa()&&" + scene + ".guideState().labels.some(l=>l.guided)", timeout=30000)
+                frame = page.evaluate(same_frame); state, anchor = frame['state'], frame['anchor']
+                guided = [l for l in state['labels'] if l['guided']]
+                self.assertEqual([l['id'] for l in guided], ['o1'])
+                self.assertLessEqual(abs(guided[0]['x'] - anchor['x']) + abs(guided[0]['y'] - anchor['y']), 3)
+                self.assertEqual(page.evaluate("document.querySelectorAll('.mp-scene-guide .mp-guide-leader').length"), 1)
+                # 3D-05: an illustrative motion actually moves the piston's geometry.
+                self.assertEqual(state['motions'], [{'id': 'o1', 'kind': 'translate', 'axis': 'y', 'illustrative': True}])
+                first = page.evaluate(scene + ".geometrySnapshot().find(p=>p.object_id==='o1').positions_b64")
+                page.wait_for_timeout(2000)  # SwiftShader runs requestAnimationFrame at ~2 fps in headless
+                self.assertNotEqual(page.evaluate(scene + ".geometrySnapshot().find(p=>p.object_id==='o1').positions_b64"), first)
+                # 3D-03: turn the camera; the callout follows the part's projected anchor (no stale arrow).
+                page.evaluate(scene + '.flyTo({theta:2.4,phi:.8})')
+                page.wait_for_function('(()=>{const v=' + scene + '.getView();return Math.abs(v.theta-2.4)<.01;})()', timeout=30000)
+                frame = page.evaluate(same_frame)
+                label = next(l for l in frame['state']['labels'] if l['id'] == 'o1')
+                now = frame['anchor']
+                self.assertLessEqual(abs(label['x'] - now['x']) + abs(label['y'] - now['y']), 3)
+                self.assertGreater(abs(now['x'] - anchor['x']) + abs(now['y'] - anchor['y']), 10)
+                # DIAGRAM-01/03: the narrated step's node is active and its connection carries the flow.
+                page.wait_for_function("document.querySelector('#mp-answers svg[data-active-nodes]')?.dataset.activeNodes==='d1'", timeout=15000)
+                self.assertEqual(page.evaluate("[...document.querySelectorAll('#mp-answers .mp-diagram-flow')].map(l=>l.dataset.from+'>'+l.dataset.to)"), ['d1>d2'])
+                # DIAGRAM-02: rename a node with a real double-click; ids, links and the document stay intact.
+                page.once('dialog', lambda dialog: dialog.accept('Giro del eje'))
+                page.locator('#mp-answers [data-node-id="d2"]').dblclick()
+                page.wait_for_function("document.querySelector('#mp-answers [data-node-id=\"d2\"]')?.getAttribute('aria-label')==='Giro del eje'", timeout=15000)
+                self.assertEqual(page.evaluate("[...document.querySelectorAll('#mp-answers [data-node-id]')].map(n=>n.dataset.nodeId)"), ['d1', 'd2'])
+                # crankshaft step rotates; explode then reassemble (3D-04)
+                page.evaluate('Axx.magicPen.seekPresentation(2)')
+                page.wait_for_function(scene + ".motions().some(m=>m.id==='o2'&&m.kind==='rotate')", timeout=15000)
+                page.wait_for_function("document.querySelector('#mp-answers svg[data-active-nodes]')?.dataset.activeNodes==='d2'", timeout=15000)
+                page.evaluate('Axx.magicPen.seekPresentation(3)')
+                page.wait_for_function('Axx.magicPen.player.exploded===true', timeout=15000)
+                self.assertEqual(page.evaluate(scene + '.motions().length'), 0)
+                page.evaluate('Axx.magicPen.seekPresentation(4)')
+                page.wait_for_function('Axx.magicPen.player.exploded===false', timeout=15000)
+                page.wait_for_timeout(800)
+            finally:
+                browser.close()
+            # 3D-07: the session is persisted; a fresh page resumes at the last step.
+            stored = self.srv.magic_pen.query({'id': capture['id'], 'query_id': 'b' * 32})['guide_session']
+            self.assertEqual(stored['current_step_id'], 's5')
+            self.assertEqual(stored['verification_state']['geometry'], 'conceptual')  # 3D-08
+            doc = self.srv.magic_pen.query({'id': capture['id'], 'query_id': 'b' * 32})
+            self.assertEqual([n['label'] for n in doc['presentation']['diagram']['nodes']], ['Combustión', 'Giro del eje'])  # DIAGRAM-02 persisted
+            self.assertEqual(doc['presentation']['diagram']['edges'], PLAN['diagram']['edges'])
+            browser = p.chromium.launch(headless=True, args=['--use-angle=swiftshader', '--enable-unsafe-swiftshader'])
+            try:
+                page = self.open(browser, capture['id'])
+                page.wait_for_function('Axx.magicPen.player?.scene && Axx.magicPen.player.index===4', timeout=60000)
+            finally:
+                browser.close()
+
+    def test_drawing_tutor_marks_colour_zones_from_the_image(self):
+        im = Image.new('RGB', (500, 360), 'white'); d = ImageDraw.Draw(im)
+        d.ellipse([80, 80, 200, 200], fill='#1e4fd8'); d.rectangle([260, 90, 400, 200], fill='#e03030')
+        capture = self.capture(im)
+        self.srv.magic_pen.save({'id': capture['id'], 'expected_revision': 1, 'selection': {'shape': 'rect', 'bounds': [40, 40, 460, 320]}, 'strokes': []})
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            try:
+                page = self.open(browser, capture['id'])
+                page.evaluate("Axx.magicPen.startDrawingGuide('azul')")
+                page.wait_for_function('Axx.magicPen.drawingGuide?.stages?.length', timeout=20000)
+                g = page.evaluate('({stage:Axx.magicPen.drawingGuide.stages[Axx.magicPen.drawingGuide.stage].stage,'
+                                  'regions:Axx.magicPen.drawingGuide.color_regions,frame:Axx.magicPen.drawingGuide.frame})')
+                self.assertEqual((g['stage'], len(g['regions']), g['frame']), ('color', 1, [40, 40, 420, 280]))
+                # DRAW-02: the blue zone is painted translucent over the canvas at the circle; the red one is not.
+                pixel = page.evaluate('([x,y])=>[...Axx.magicPen.ctx.getImageData(x,y,1,1).data]', [140, 140])
+                other = page.evaluate('([x,y])=>[...Axx.magicPen.ctx.getImageData(x,y,1,1).data]', [330, 145])
+                self.assertGreater(pixel[3], 0); self.assertGreater(pixel[2], pixel[0])
+                self.assertEqual(other[3], 0)
+                # DRAW-01: construction stage draws guide lines (centre axis pixel is non-transparent).
+                page.evaluate('Axx.magicPen.drawingGuide.stage=0;Axx.magicPen.render()')
+                self.assertTrue(page.evaluate("document.querySelector('.mp-drawing-guide')!==null"))
+                axis = page.evaluate('([x,y])=>[...Axx.magicPen.ctx.getImageData(x,y,1,1).data]', [40 + 420 * .5, 80])
+                self.assertGreater(axis[3], 0)
+                # DRAW-03: updated drawing + "Actualizar guías" button recalculates regions & reports comparison changes.
+                im2 = Image.new('RGB', (500, 360), 'white'); d2 = ImageDraw.Draw(im2)
+                d2.ellipse([80, 80, 200, 200], fill='#1e4fd8')
+                d2.rectangle([80, 220, 190, 310], fill='#1e4fd8')
+                d2.rectangle([260, 90, 400, 200], fill='#e03030')
+                cap2 = self.capture(im2)
+                self.srv.magic_pen.save({'id': cap2['id'], 'expected_revision': 1, 'selection': {'shape': 'rect', 'bounds': [40, 40, 460, 320]}, 'strokes': []})
+                page.evaluate('''async id=>{const doc=await Axx.backendRequest('POST','/axx-api/pen/get',{id});
+                    await Axx.magicPen.load(doc,true);}''', cap2['id'])
+                page.locator('.mp-drawing-guide button', has_text='Actualizar guías').click()
+                page.wait_for_function('Axx.magicPen.drawingGuide?.comparison?.changed === true', timeout=20000)
+                self.assertIn('Tu dibujo cambió: guías actualizadas', page.locator('#mp-status').text_content() or '')
+                self.assertGreaterEqual(len(page.evaluate('Axx.magicPen.drawingGuide.color_regions')), 2)
+                p_new = page.evaluate('([x,y])=>[...Axx.magicPen.ctx.getImageData(x,y,1,1).data]', [135, 265])
+                self.assertGreater(p_new[3], 0); self.assertGreater(p_new[2], p_new[0])
+                page.evaluate("Axx.magicPen.startDrawingGuide('morado')")
+                page.wait_for_function("Axx.magicPen.drawingGuide.color==='morado'", timeout=20000)
+                self.assertEqual(page.evaluate('Axx.magicPen.drawingGuide.color_regions.length'), 0)  # never an invented zone
+            finally:
+                browser.close()
+
+    def test_code_guide_from_an_act_reply_marks_only_real_lines(self):
+        repo = git_repo(Path(self.tmp.name))
+        self.srv.rt.flags.set_flag('code_studio_v1', True, reason='code guide ui')
+        guide = {'path': 'calc.py', 'steps': [{'lines': [1, 1], 'kind': 'focus', 'note': 'La firma recibe a y b'},
+                                              {'lines': [2, 2], 'kind': 'error', 'note': 'Resta en vez de sumar'},
+                                              {'lines': [40, 44], 'kind': 'reference', 'note': 'Línea inventada'}]}
+        reply = 'El error está en la resta.' + chr(10) + '```axx-guide ' + json.dumps(guide) + '```'
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            try:
+                page = open_axx(browser, self.srv, self.web)
+                page.evaluate("Axx.companion.openFeature('agent')")
+                page.get_by_role('button', name='Abrir Code Studio', exact=True).click()
+                page.wait_for_function('Axx.codeStudio.editor !== null', timeout=60000)
+                page.locator('[data-code=root]').fill(str(repo))
+                page.get_by_role('button', name='Abrir proyecto', exact=True).click()
+                page.locator('[data-code=browser]').get_by_role('button', name='calc.py', exact=True).click()
+                page.wait_for_function("Axx.codeStudio.editor.getValue().includes('a - b')")
+                page.locator('[data-code=ask-act]').click()  # the request tells the Act how to point at lines
+                self.assertIn('```axx-guide', page.locator('#chat-input').input_value())
+                # the Act's finished reply arrives in the chat; Code Studio draws its guide on the open file
+                page.evaluate("t=>{Axx.companion.message('assistant',t,'model');Axx.companion.renderChat();}", reply)
+                page.wait_for_selector('[data-code=guide]:not([hidden])')
+                self.assertIn('1 descartados', page.locator('[data-code=status]').text_content())  # never an invented line
+                self.assertIn('Paso 1/2 · Explicación · líneas 1–1', page.locator('[data-code=guide-text]').text_content())
+                page.locator('[data-code=guide-next]').click()
+                self.assertIn('Error · líneas 2–2: Resta en vez de sumar', page.locator('[data-code=guide-text]').text_content())
+                ranges = page.evaluate("""Axx.codeStudio.editor.getModel().getAllDecorations().filter(d=>/axx-code-guide/.test(d.options.className))
+                    .map(d=>[d.range.startLineNumber,d.options.className.split(' ')[1]])""")
+                self.assertEqual(ranges, [[1, 'axx-code-guide-focus'], [2, 'axx-code-guide-error']])
+                page.locator('[data-code=guide-close]').click()
+                self.assertEqual(page.evaluate("Axx.codeStudio.editor.getModel().getAllDecorations().filter(d=>/axx-code-guide/.test(d.options.className)).length"), 0)
+                # Multi-file/folder context + all 4 visual marker classes (focus, reference, error, flow) rendered with distinct CSS.
+                page.locator('[data-code=context-folder]').click()
+                page.locator('[data-code=ask-act]').click()
+                raw_chat = page.locator('#chat-input').input_value()
+                packet_line = next(line for line in raw_chat.splitlines() if line.startswith('{'))
+                packet = json.loads(packet_line)
+                self.assertTrue({'calc.py', 'test_calc.py'}.issubset({f['path'] for f in packet['files']}))
+                page.evaluate("Axx.companion.openFeature('codestudio')")
+                page.locator('[data-code=browser]').get_by_role('button', name='test_calc.py', exact=True).click()
+                page.wait_for_function("Axx.codeStudio.editor.getValue().includes('test_add')")
+                full_guide = {'path': 'test_calc.py', 'steps': [
+                    {'lines': [1, 1], 'kind': 'focus', 'note': 'Importa unittest'},
+                    {'lines': [2, 2], 'kind': 'reference', 'note': 'Referencia a calc.add'},
+                    {'lines': [5, 5], 'kind': 'error', 'note': 'Clase de prueba'},
+                    {'lines': [7, 7], 'kind': 'flow', 'note': 'Ejecuta aserción final'},
+                ]}
+                page.evaluate("t=>{Axx.companion.message('assistant',t,'model');Axx.companion.renderChat();}",
+                              'Recorrido:\n```axx-guide ' + json.dumps(full_guide) + '```')
+                page.wait_for_selector('[data-code=guide]:not([hidden])')
+                # Step through all 4 steps so every kind becomes current and Monaco renders inline flow badges.
+                for expected_kind in ('Referencia', 'Error', 'Recorrido'):
+                    page.locator('[data-code=guide-next]').click()
+                    self.assertIn(expected_kind, page.locator('[data-code=guide-text]').text_content())
+                page.wait_for_function("Array.from(document.querySelectorAll('.axx-code-guide-focus,.axx-code-guide-reference,.axx-code-guide-error,.axx-code-guide-flow')).length >= 4")
+                styles = page.evaluate('''()=>{
+                    const kinds=['focus','reference','error','flow'];
+                    const out={};
+                    for(const k of kinds){
+                        const el=document.querySelector('.axx-code-guide-'+k);
+                        if(!el) continue;
+                        const cs=getComputedStyle(el);
+                        out[k]={bg:cs.backgroundColor, shadow:cs.boxShadow};
+                    }
+                    const decos=Axx.codeStudio.editor.getModel().getAllDecorations().filter(d=>d.options.before?.inlineClassName==='axx-code-guide-n');
+                    return {styles: out, flowDecos: decos.map(d=>d.options.before?.content)};
+                }''')
+                self.assertEqual(set(styles['styles']), {'focus', 'reference', 'error', 'flow'})
+                bgs = {v['bg'] for v in styles['styles'].values()}
+                shadows = {v['shadow'] for v in styles['styles'].values()}
+                self.assertEqual(len(bgs), 4)
+                self.assertEqual(len(shadows), 4)
+                self.assertEqual(styles['flowDecos'], ['1'])
+            finally:
+                browser.close()
+
+
+if __name__ == '__main__':
+    unittest.main()

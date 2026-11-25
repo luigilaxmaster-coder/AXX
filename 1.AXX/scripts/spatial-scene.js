@@ -2,6 +2,7 @@
 // Loaded on demand by Magic Pen. It renders only after a change, so it never runs a
 // continuous loop next to the avatar, and dispose() releases every GPU resource.
 import * as THREE from './three.module.min.js';
+import {GLTFLoader} from './vendor/three-r162/GLTFLoader.js';
 
 let live = 0;
 export const liveScenes = () => live;
@@ -9,7 +10,7 @@ export const liveScenes = () => live;
 const scaled=(g,x,y,z)=>{g.scale(x,y,z);return g;};
 // Physically based presets (roughness, metalness, base opacity). Environment reflections make the metals read as metal.
 const MATERIALS={metal_brushed:{r:.38,m:.92},metal_polished:{r:.14,m:1},metal_anodized:{r:.34,m:.8},plastic:{r:.46,m:0},rubber:{r:.92,m:0},glass:{r:.06,m:0,a:.32},ceramic:{r:.18,m:0},wood:{r:.72,m:0},fabric:{r:.96,m:0},stone:{r:.88,m:0},paint:{r:.38,m:.12},emissive:{r:.5,m:0,glow:true}};
-const sceneSignature=o=>JSON.stringify([o.size,o.param??null,o.material??null]);
+const sceneSignature=o=>JSON.stringify([o.size,o.param??null,o.material??null,o.assetId,o.assetNode,o.normalizeGlb]);
 
 function geometry(shape, [x, y, z], param) {
     switch (shape) {
@@ -224,7 +225,7 @@ function studioEnvironment(renderer){
     const target=pm.fromScene(env,.04);pm.dispose();disposables.forEach(d=>d.dispose());return target;
 }
 
-function objectMesh(o, fallbackExplode) {
+function objectMesh(o, fallbackExplode, glbRoot=null) {
     const [x,y,z]=o.size, engineered=['piston','connecting_rod','crankshaft','engine_cylinder'].includes(o.shape);
     const preset=MATERIALS[o.material]||{r:engineered?.32:.42,m:engineered?.45:.28};
     const material=new THREE.MeshStandardMaterial({color:o.color,roughness:preset.r,metalness:preset.m,transparent:true,opacity:preset.a??1,envMapIntensity:.7,side:['engine_cylinder','tube','dome','pipe_elbow','flange','u_channel','l_bracket','rect_tube','arc'].includes(o.shape)?THREE.DoubleSide:THREE.FrontSide}), geometries=[],materials=[material];
@@ -242,7 +243,18 @@ function objectMesh(o, fallbackExplode) {
         addContour(m,g);root.add(m);geometries.push(g);
     };
     let root;
-    if(['piston','connecting_rod','crankshaft','engine_cylinder'].includes(o.shape)){
+    if(o.assetId){
+        if(!glbRoot)throw Error('El GLB validado todavía no se ha cargado.');
+        const source=o.assetNode?glbRoot.getObjectByName(o.assetNode):glbRoot;
+        if(!source)throw Error('La pieza CAD no existe en el GLB verificado.');
+        glbRoot.updateMatrixWorld(true);const loaded=source.clone(true);loaded.matrixAutoUpdate=false;loaded.matrix.copy(source.matrixWorld);
+        root=new THREE.Group();root.add(loaded);
+        loaded.traverse(child=>{if(child.isMesh){child.userData.id=o.id;child.geometry=child.geometry.clone();geometries.push(child.geometry);
+            const clone=m=>{const next=m.clone();next.userData={...next.userData,base:next.opacity};materials.push(next);return next;};
+            child.material=Array.isArray(child.material)?child.material.map(clone):clone(child.material);
+        }});
+        root.scale.fromArray(o.scale||[1,1,1]);
+    }else if(['piston','connecting_rod','crankshaft','engine_cylinder'].includes(o.shape)){
         root=new THREE.Group();
         if(o.shape==='piston'){
             part(root,new THREE.CylinderGeometry(x*.46,x*.48,y*.82,48));
@@ -269,7 +281,8 @@ function objectMesh(o, fallbackExplode) {
         addContour(root,g);
     }
     root.position.fromArray(o.position);if(o.rotation)root.rotation.set(...o.rotation.map(THREE.MathUtils.degToRad));
-    root.userData={id:o.id,base:root.position.clone(),explode:new THREE.Vector3(...(o.explode||fallbackExplode||[0,1.5,0])),material,materials,geometries,shape:o.shape,size:sceneSignature(o)};
+    if(o.assetId)material.dispose();
+    root.userData={id:o.id,base:root.position.clone(),explode:new THREE.Vector3(...(o.explode||fallbackExplode||[0,1.5,0])),material:o.assetId?materials[1]:material,materials:o.assetId?materials.slice(1):materials,geometries,shape:o.shape,size:sceneSignature(o)};
     return root;
 }
 
@@ -314,6 +327,9 @@ export function mountScene(container, scene, {reducedMotion = false, onPick = ()
     container.append(canvas,annotations,tooltip); live++;
 
     const world = new THREE.Scene(), camera = new THREE.PerspectiveCamera(40, 1, .1, 200), meshes = new Map(), arrows = [];
+    const glbRoots=new Map(),glbMetadata=new Map();let glbBytes=0,glbTexturePixels=0;
+    const releaseGlb=root=>{const textures=new Set();root.traverse(m=>{if(m.geometry)m.geometry.dispose();for(const material of m.material?(Array.isArray(m.material)?m.material:[m.material]):[]){
+        for(const value of Object.values(material))if(value?.isTexture)textures.add(value);material.dispose();}});for(const texture of textures){texture.source?.data?.close?.();texture.dispose();}};
     const environment=studioEnvironment(renderer);world.environment=environment.texture;
     world.add(new THREE.HemisphereLight(0xf2f7ff, 0x182434, 0.95));
     const sun = new THREE.DirectionalLight(0xffffff, 2.2); sun.position.set(6, 10, 8); world.add(sun);
@@ -341,13 +357,21 @@ export function mountScene(container, scene, {reducedMotion = false, onPick = ()
         view.distance = Math.min(radius * 8, Math.max(radius * .8, initialView.distance));
     }
     let frame = 0, focused = [], exploded = false, disposed = false;
+    // Labels exist for every part; render() shows only what fits (guided/focused first) so complex scenes never saturate.
     const labels=new Map();
-    const syncLabels=()=>{annotations.replaceChildren();labels.clear();for(const [index,o] of scene.objects.slice(0,8).entries()){
+    const syncLabels=()=>{annotations.replaceChildren();labels.clear();for(const [index,o] of scene.objects.entries()){
         const label=document.createElement('button');label.type='button';label.className='mp-part-label';label.setAttribute('aria-label','Seleccionar '+o.label);
         const number=document.createElement('span');number.textContent=String(index+1).padStart(2,'0');const name=document.createElement('span');name.textContent=o.label;
-        label.append(number,name);label.onclick=()=>onPick(o.id);annotations.append(label);labels.set(o.id,label);
+        label.append(number,name);label.onclick=()=>onPick(o.id);label.hidden=true;annotations.append(label);labels.set(o.id,label);
     }};
     syncLabels();
+    // Guide layer: connectors from a callout to the part's projected anchor and motion arrows, recomputed every frame.
+    const SVGNS='http://www.w3.org/2000/svg',guideLayer=document.createElementNS(SVGNS,'svg');guideLayer.setAttribute('class','mp-scene-guide');guideLayer.setAttribute('aria-hidden','true');
+    container.append(guideLayer);
+    const guide={targets:new Set(),callouts:new Map(),motions:new Map(),onFrame:null};
+    const anchorOf=id=>{const m=meshes.get(id);if(!m?.visible)return null;const box=new THREE.Box3().setFromObject(m);if(box.isEmpty())return null;
+        const c=box.getCenter(new THREE.Vector3());c.y=Math.min(box.max.y,c.y+(box.max.y-c.y)*.6);return c;};  // a visible point on the upper body, not the hidden centre
+    const projectPoint=p=>{const v=p.clone().project(camera);return {x:(v.x+1)*canvas.clientWidth/2,y:(1-v.y)*canvas.clientHeight/2,depth:v.z,visible:v.z>=-1&&v.z<=1&&Math.abs(v.x)<=1.02&&Math.abs(v.y)<=1.02};};
     const hidden = new Set(), separated = new Set();
     const animations = {};
     const render = () => {
@@ -355,12 +379,41 @@ export function mountScene(container, scene, {reducedMotion = false, onPick = ()
         const {target, theta, phi, distance} = view;
         camera.position.set(target.x + distance * Math.sin(phi) * Math.sin(theta), target.y + distance * Math.cos(phi), target.z + distance * Math.sin(phi) * Math.cos(theta));
         camera.lookAt(target);camera.updateMatrixWorld();renderer.render(world, camera);
-        const placed=[];
-        for(const [id,label] of labels){const mesh=meshes.get(id);if(!mesh?.visible){label.hidden=true;continue;}const p=mesh.getWorldPosition(new THREE.Vector3()).project(camera);
-            label.hidden=p.z< -1||p.z>1||Math.abs(p.x)>.9||Math.abs(p.y)>.9;
-            if(!label.hidden){const x=Math.max(76,Math.min(canvas.clientWidth-76,(p.x+1)*canvas.clientWidth/2)),anchor=(1-p.y)*canvas.clientHeight/2;let y=Math.max(34,anchor-12);
-                while(placed.some(other=>Math.abs(other.x-x)<140&&Math.abs(other.y-y)<32)&&y>42)y-=34;
-                placed.push({x,y});label.style.left=x+'px';label.style.top=y+'px';label.style.setProperty('--mp-leader',Math.max(10,anchor-y)+'px');label.dataset.focused=String(focused.includes(id));}}
+        // Priority: guided targets, then focused parts, then everything else by projected size; only what fits is shown.
+        const W=canvas.clientWidth,H=canvas.clientHeight,budget=Math.max(6,Math.min(32,Math.floor(W*H/14000))),placed=[],shown=[];
+        const rank=id=>guide.targets.has(id)?0:focused.includes(id)?1:2;
+        const candidates=[];
+        for(const [id,label] of labels){label.hidden=true;const anchor=anchorOf(id);if(!anchor)continue;const p=projectPoint(anchor);
+            if(!p.visible||p.x<0||p.y<0||p.x>W||p.y>H)continue;
+            const size=new THREE.Box3().setFromObject(meshes.get(id)).getSize(new THREE.Vector3()).length()/Math.max(.1,camera.position.distanceTo(anchor));
+            candidates.push({id,label,p,rank:rank(id),size});}
+        candidates.sort((a,b)=>a.rank-b.rank||b.size-a.size);
+        for(const c of candidates){
+            if(shown.length>=budget&&c.rank===2)break;
+            const x=Math.max(76,Math.min(W-76,c.p.x));let y=Math.max(34,c.p.y-(c.rank===0?46:12)),ok=true;
+            while(placed.some(o=>Math.abs(o.x-x)<140&&Math.abs(o.y-y)<32)){y-=34;if(y<34){ok=false;break;}}
+            if(!ok&&c.rank===2)continue;  // never stack unrelated labels on top of each other
+            placed.push({x,y});shown.push(c);c.label.hidden=false;c.label.style.left=x+'px';c.label.style.top=y+'px';
+            c.label.style.setProperty('--mp-leader',Math.max(10,c.p.y-y)+'px');c.label.dataset.focused=String(focused.includes(c.id));
+            c.label.dataset.guided=String(c.rank===0);c.label.dataset.anchorX=String(Math.round(c.p.x));c.label.dataset.anchorY=String(Math.round(c.p.y));
+            const callout=guide.callouts.get(c.id);if(callout)c.label.title=callout;
+        }
+        drawGuide(shown);
+        guide.onFrame?.();
+    };
+    // Connectors for guided labels (label -> exact projected anchor) and arrows for illustrative motions.
+    const drawGuide=shown=>{
+        guideLayer.setAttribute('viewBox',`0 0 ${canvas.clientWidth} ${canvas.clientHeight}`);guideLayer.setAttribute('width',canvas.clientWidth);guideLayer.setAttribute('height',canvas.clientHeight);
+        const parts=[];
+        for(const c of shown)if(c.rank===0){const lx=parseFloat(c.label.style.left),ly=parseFloat(c.label.style.top)+14;
+            parts.push(`<line class="mp-guide-leader" x1="${lx}" y1="${ly}" x2="${c.p.x.toFixed(1)}" y2="${c.p.y.toFixed(1)}"/><circle class="mp-guide-dot" cx="${c.p.x.toFixed(1)}" cy="${c.p.y.toFixed(1)}" r="5"/><circle class="mp-guide-pulse" cx="${c.p.x.toFixed(1)}" cy="${c.p.y.toFixed(1)}" r="5"/>`);}
+        for(const [id,motion] of guide.motions){const m=meshes.get(id);if(!m?.visible)continue;const a=anchorOf(id);if(!a)continue;const p=projectPoint(a);if(!p.visible)continue;
+            if(motion.kind==='rotate'){const r=Math.max(18,Math.min(60,40*motion.scale||40));
+                parts.push(`<path class="mp-guide-motion" d="M ${(p.x+r).toFixed(1)} ${p.y.toFixed(1)} A ${r} ${r*.45} 0 1 1 ${(p.x-r*.7).toFixed(1)} ${(p.y-r*.32).toFixed(1)}" marker-end="url(#mp-arrow)"/>`);}
+            else{const axis=new THREE.Vector3(...motion.axisVector),q=projectPoint(a.clone().addScaledVector(axis,motion.amplitude||.6));
+                parts.push(`<line class="mp-guide-motion" x1="${p.x.toFixed(1)}" y1="${p.y.toFixed(1)}" x2="${q.x.toFixed(1)}" y2="${q.y.toFixed(1)}" marker-end="url(#mp-arrow)" marker-start="url(#mp-arrow-back)"/>`);}}
+        guideLayer.innerHTML='<defs><marker id="mp-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker>'
+            +'<marker id="mp-arrow-back" viewBox="0 0 10 10" refX="2" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker></defs>'+parts.join('');
     };
     const schedule = () => { if (!frame && !disposed) frame = requestAnimationFrame(() => { frame = 0; render(); }); };
     const tween = (key, apply) => {
@@ -419,13 +472,80 @@ export function mountScene(container, scene, {reducedMotion = false, onPick = ()
         return chosen.reduce((sum, m) => sum.add(goal(m)), new THREE.Vector3()).divideScalar(chosen.length);
     };
 
+    // Illustrative motion (not a physics simulation): rotation about the part's own axis or a back-and-forth stroke.
+    let motionFrame=0,motionLast=0;
+    const AXES={x:new THREE.Vector3(1,0,0),y:new THREE.Vector3(0,1,0),z:new THREE.Vector3(0,0,1)};
+    const motionTick=now=>{motionFrame=0;if(disposed||!guide.motions.size)return;
+        const dt=Math.min(.05,(now-(motionLast||now))/1000);motionLast=now;
+        if(!document.hidden&&canvas.isConnected&&canvas.getClientRects().length){for(const [id,m] of guide.motions){const mesh=meshes.get(id);if(!mesh)continue;m.t+=dt;
+            if(m.kind==='rotate')mesh.quaternion.copy(m.baseQuat).multiply(new THREE.Quaternion().setFromAxisAngle(AXES[m.axis],m.t*m.speed));
+            else mesh.position.copy(goal(mesh)).addScaledVector(new THREE.Vector3(...m.axisVector),m.amplitude*Math.sin(m.t*2*Math.PI/m.period));}
+            render();}
+        motionFrame=requestAnimationFrame(motionTick);};
+    const stopMotion=id=>{const m=guide.motions.get(id),mesh=meshes.get(id);if(!m)return;guide.motions.delete(id);
+        if(mesh){mesh.quaternion.copy(m.baseQuat);mesh.position.copy(goal(mesh));}};
+
     return {
+        /** Screen point (CSS px inside the canvas) of a part's visible anchor, or null when it cannot be shown. */
+        project(id){const a=anchorOf(id);if(!a)return null;const p=projectPoint(a);return p.visible?{x:p.x,y:p.y,depth:p.depth}:null;},
+        flyTo(goalView={}){const from={...view,target:view.target.clone()};const to={theta:goalView.theta??view.theta,phi:Math.min(Math.PI-.15,Math.max(.15,goalView.phi??view.phi)),
+            distance:Math.min(radius*8,Math.max(radius*.5,goalView.distance??view.distance)),target:goalView.target?new THREE.Vector3(...goalView.target):view.target.clone()};
+            tween('camera',k=>{view.theta=from.theta+(to.theta-from.theta)*k;view.phi=from.phi+(to.phi-from.phi)*k;view.distance=from.distance+(to.distance-from.distance)*k;view.target.lerpVectors(from.target,to.target,k);});},
+        /** Frame the given parts: target their centre and back off just enough to fit them. */
+        frame(ids){const box=new THREE.Box3();for(const id of ids){const m=meshes.get(id);if(m?.visible)box.union(new THREE.Box3().setFromObject(m));}if(box.isEmpty())return false;
+            const size=box.getSize(new THREE.Vector3()).length();this.flyTo({target:box.getCenter(new THREE.Vector3()).toArray(),distance:Math.max(size*1.9,radius*.6)});return true;},
+        animateObject(id,motion){const mesh=meshes.get(id);if(!mesh||reducedMotion)return false;stopMotion(id);
+            const axis=['x','y','z'].includes(motion.axis)?motion.axis:'y';
+            guide.motions.set(id,{kind:motion.kind==='translate'?'translate':'rotate',axis,t:0,baseQuat:mesh.quaternion.clone(),speed:Number(motion.speed)||Math.PI,
+                amplitude:Number(motion.amplitude)||.5,period:Number(motion.period)||1.6,scale:Number(motion.scale)||1,
+                axisVector:AXES[axis].clone().applyQuaternion(mesh.quaternion).toArray()});
+            motionLast=0;if(!motionFrame)motionFrame=requestAnimationFrame(motionTick);return true;},
+        stopMotions(){for(const id of [...guide.motions.keys()])stopMotion(id);cancelAnimationFrame(motionFrame);motionFrame=0;schedule();},
+        motions(){return [...guide.motions].map(([id,m])=>({id,kind:m.kind,axis:m.axis,illustrative:true}));},
+        /** Guided step: anchored callouts on targets (unique ids that exist), optional per-frame hook for external overlays. */
+        setGuide({targets=[],callouts={},onFrame=null}={}){guide.targets=new Set(targets.filter(id=>meshes.has(id)));
+            guide.callouts=new Map(Object.entries(callouts).filter(([id])=>meshes.has(id)));guide.onFrame=onFrame;schedule();return [...guide.targets];},
+        guideState(){return {targets:[...guide.targets],labels:[...labels].filter(([,l])=>!l.hidden).map(([id,l])=>({id,guided:l.dataset.guided==='true',
+            x:+l.dataset.anchorX,y:+l.dataset.anchorY})),motions:this.motions()};},
+        hasGlb(assetId){return glbRoots.has(assetId);},
+        async loadGlb(assetId,content,verification){
+            if(glbRoots.has(assetId))return;
+            if(disposed)throw Error('Visor cerrado');
+            if(glbRoots.size>=8||glbBytes+verification.size_bytes>32*1024*1024||glbTexturePixels+verification.texture_pixels>32*1024*1024)
+                throw Error('Presupuesto de GLB/texturas del visor agotado. Cierra y vuelve a abrir la escena.');
+            const bytes=Uint8Array.from(atob(content),c=>c.charCodeAt(0));
+            const digest=[...new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))].map(v=>v.toString(16).padStart(2,'0')).join('');
+            if(digest!==verification.sha256)throw Error('El GLB cambió durante la transferencia.');
+            const manager=new THREE.LoadingManager();manager.setURLModifier(url=>{if(!url.startsWith('blob:')&&!url.startsWith('data:'))throw Error('Recurso externo bloqueado en GLB');return url;});
+            const result=await new GLTFLoader(manager).parseAsync(bytes.buffer,'');
+            if(disposed){releaseGlb(result.scene);throw Error('Visor cerrado durante la carga');}
+            glbRoots.set(assetId,result.scene);glbMetadata.set(assetId,verification);glbBytes+=verification.size_bytes;glbTexturePixels+=verification.texture_pixels;
+        },
+        geometrySnapshot() {
+            const encode = array => {
+                const bytes=new Uint8Array(array.buffer,array.byteOffset,array.byteLength);let binary='';
+                for(let i=0;i<bytes.length;i+=8192)binary+=String.fromCharCode(...bytes.subarray(i,i+8192));
+                return btoa(binary);
+            };
+            world.updateMatrixWorld(true);const parts=[];
+            for(const [id,root] of meshes)root.traverse(mesh=>{
+                if(!mesh.isMesh||!mesh.geometry?.attributes?.position)return;
+                const attr=mesh.geometry.attributes.position, positions=new Float32Array(attr.count*3), point=new THREE.Vector3();
+                for(let i=0;i<attr.count;i++)point.fromBufferAttribute(attr,i).applyMatrix4(mesh.matrixWorld).toArray(positions,i*3);
+                const indices=mesh.geometry.index?new Uint32Array(mesh.geometry.index.array):Uint32Array.from({length:attr.count},(_,i)=>i);
+                const mat=Array.isArray(mesh.material)?mesh.material[0]:mesh.material;
+                parts.push({object_id:id,positions_b64:encode(positions),indices_b64:encode(indices),material:{
+                    color:mat.color.toArray(),roughness:mat.roughness??.5,metalness:mat.metalness??0,opacity:mat.userData.base??mat.opacity}});
+            });
+            return parts;
+        },
         focus(ids,isolated=false) {
             focused = ids.filter(id => meshes.has(id));
             for (const [id, mesh] of meshes) {
                 const on = !focused.length || focused.includes(id);
-                const material=mesh.userData.material,shell=mesh.userData.shape==='engine_cylinder',base=material.userData.base??1;material.opacity = shell ? .48 : on ? base : base*.58; material.depthWrite = on&&!shell&&base>=1; mesh.visible = !hidden.has(id)&&(!isolated||on);
-                if(!material.userData.glow)material.emissive.set(focused.includes(id) ? 0x11182a : 0x000000);
+                const shell=mesh.userData.shape==='engine_cylinder';for(const material of mesh.userData.materials){const base=material.userData.base??1;material.opacity = shell ? .48 : on ? base : base*.58; material.depthWrite = on&&!shell&&base>=1;
+                    if(material.emissive&&!material.userData.glow)material.emissive.set(focused.includes(id) ? 0x11182a : 0x000000);}
+                mesh.visible = !hidden.has(id)&&(!isolated||on);
             }
             const visibleFocus = focused.filter(id => !hidden.has(id));
             if (focused.length && !visibleFocus.length) return;
@@ -455,8 +575,16 @@ export function mountScene(container, scene, {reducedMotion = false, onPick = ()
             const mesh=meshes.get(id);if(!mesh)return false;
             if(value)separated.add(id);else separated.delete(id);mesh.position.copy(goal(mesh));showArrows();schedule();onChange();return true;
         },
+        setSection(axis,offset){
+            if(!['x','y','z','none'].includes(axis)||!Number.isFinite(offset))throw Error('Sección no válida');
+            const normal=new THREE.Vector3(axis==='x'?1:0,axis==='y'?1:0,axis==='z'?1:0);
+            const plane=new THREE.Plane(normal,offset);renderer.localClippingEnabled=axis!=='none';
+            for(const mesh of meshes.values())for(const material of mesh.userData.materials)material.clippingPlanes=axis==='none'?[]:[plane];
+            schedule();
+        },
         update(next){
             if(disposed)return;
+            for(const id of [...guide.motions.keys()])stopMotion(id);  // meshes may be rebuilt: motions restart from the new rest pose
             for(const key of Object.keys(animations)){cancelAnimationFrame(animations[key]);delete animations[key];}
             const ids=new Set(next.objects.map(o=>o.id));
             for(const [id,mesh] of meshes)if(!ids.has(id)){releaseObject(mesh);meshes.delete(id);hidden.delete(id);separated.delete(id);}
@@ -464,11 +592,19 @@ export function mountScene(container, scene, {reducedMotion = false, onPick = ()
             for(const o of next.objects){
                 let mesh=meshes.get(o.id);
                 if(!mesh||mesh.userData.shape!==o.shape||mesh.userData.size!==sceneSignature(o)){
-                    if(mesh)releaseObject(mesh);mesh=objectMesh(o,nextExplode.get(o.id));meshes.set(o.id,mesh);world.add(mesh);
+                    if(mesh)releaseObject(mesh);
+                    let glb=glbRoots.get(o.assetId);
+                    if(glb&&o.normalizeGlb){glb=glb.clone(true);const box=new THREE.Box3().setFromObject(glb),extent=box.getSize(new THREE.Vector3());
+                        const scale=2/Math.max(extent.x,extent.y,extent.z,1e-6),center=box.getCenter(new THREE.Vector3());
+                        glb.scale.multiplyScalar(scale);glb.position.addScaledVector(center,-scale);glb.updateMatrixWorld(true);}
+                    mesh=objectMesh(o,nextExplode.get(o.id),glb);meshes.set(o.id,mesh);world.add(mesh);
                 }
                 mesh.userData.base.fromArray(o.position);mesh.userData.explode.fromArray(o.explode||nextExplode.get(o.id)||[0,1.5,0]);
                 mesh.position.copy(goal(mesh));mesh.rotation.set(...(o.rotation||[0,0,0]).map(THREE.MathUtils.degToRad));
-                mesh.userData.material.color.set(o.color);mesh.visible=!hidden.has(o.id);
+                if(o.assetId)mesh.scale.fromArray(o.scale||[1,1,1]);
+                for(const material of mesh.userData.materials){if(o.color&&!o.preserveColor&&material.color)material.color.set(o.color);
+                    if(o.assetId&&o.material&&MATERIALS[o.material]){material.roughness=MATERIALS[o.material].r;material.metalness=MATERIALS[o.material].m;}}
+                mesh.visible=!hidden.has(o.id);
             }
             for(const arrow of arrows)if(arrow){arrow.removeFromParent();arrow.dispose();}arrows.length=0;scene=next;setHover(null);
             for(const a of scene.arrows||[]){
@@ -478,16 +614,23 @@ export function mountScene(container, scene, {reducedMotion = false, onPick = ()
                 arrow.visible=!exploded&&!hidden.has(a.from)&&!hidden.has(a.to)&&!separated.has(a.from)&&!separated.has(a.to);world.add(arrow);arrows.push(arrow);
             }
             bounds.makeEmpty();meshes.forEach(m=>bounds.expandByObject(m));bounds.getCenter(center);radius=Math.max(.5,bounds.getSize(new THREE.Vector3()).length()/2);syncLabels();schedule();
+            const usedAssets=new Set(next.objects.map(o=>o.assetId));for(const [id,root] of glbRoots)if(!usedAssets.has(id)){
+                releaseGlb(root);glbBytes-=glbMetadata.get(id).size_bytes;glbTexturePixels-=glbMetadata.get(id).texture_pixels;glbMetadata.delete(id);glbRoots.delete(id);}
         },
         qa(){render();return {objects:meshes.size,triangles:renderer.info.render.triangles,webgl:!renderer.getContext().isContextLost(),finite:[...camera.position.toArray(),...view.target.toArray()].every(Number.isFinite)};},
-        snapshot() { render(); return canvas.toDataURL('image/png'); },
+        snapshot(options={}) {
+            render();if(!options.maxWidth)return canvas.toDataURL('image/png');
+            const scale=Math.min(1,options.maxWidth/canvas.width,(options.maxHeight||1080)/canvas.height),out=document.createElement('canvas');
+            out.width=Math.max(2,Math.floor(canvas.width*scale/2)*2);out.height=Math.max(2,Math.floor(canvas.height*scale/2)*2);
+            out.getContext('2d').drawImage(canvas,0,0,out.width,out.height);return out.toDataURL('image/png');
+        },
         getView() { return {target: view.target.toArray(), theta: view.theta, phi: view.phi, distance: view.distance}; },
         getSeparated(){return [...separated];},
         dispose() {
             if (disposed) return;
             disposed = true; live--; abort.abort(); observer.disconnect(); cancelAnimationFrame(frame);
-            Object.values(animations).forEach(cancelAnimationFrame);
-            cancelAnimationFrame(hoverFrame);meshes.forEach(releaseObject);arrows.forEach(a=>a?.dispose());environment.dispose();renderer.dispose(); renderer.forceContextLoss(); canvas.remove();annotations.remove();tooltip.remove();
+            Object.values(animations).forEach(cancelAnimationFrame);cancelAnimationFrame(motionFrame);guide.motions.clear();guide.onFrame=null;guideLayer.remove();
+            cancelAnimationFrame(hoverFrame);meshes.forEach(releaseObject);glbRoots.forEach(releaseGlb);glbRoots.clear();arrows.forEach(a=>a?.dispose());environment.dispose();renderer.dispose(); renderer.forceContextLoss(); canvas.remove();annotations.remove();tooltip.remove();
         },
     };
 }

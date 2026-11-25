@@ -73,9 +73,16 @@ class ActsUiTests(unittest.TestCase):
                         form.get_by_label('Nombre corto para @menciones').fill('Dev')
                         form.get_by_label('Especialidad / rol').fill('Programador')
                         form.get_by_label('Instrucciones persistentes').fill('Conserva los contratos públicos.')
+                        global_look = page.evaluate('JSON.stringify([Axx.app.store.data.settings.form, Axx.app.store.data.settings.palette])')
                         form.get_by_role('tab', name='Apariencia').click()
-                        form.get_by_label('Forma').select_option(label='Helix')
-                        form.get_by_label('Paleta').select_option(label='Ocean')
+                        self.assertEqual(form.get_by_role('radiogroup', name='Forma').get_by_role('radio').count(), 24)
+                        form.get_by_role('radio', name='Helix', exact=True).click()
+                        form.get_by_role('radio', name='Ocean', exact=True).click()
+                        form.get_by_role('radio', name='Titanio cepillado', exact=True).click()
+                        page.wait_for_function("document.querySelector('.axx-acts-look-stage canvas.axx-act-live')?.width > 2")
+                        page.wait_for_function("[...document.querySelectorAll('.axx-acts-form-grid img')].every(i => i.dataset.real === 'true')", timeout=30000)
+                        form.get_by_label('Brillo').fill('1.4')
+                        form.get_by_label('Al trabajar').select_option('orbit')
                         form.get_by_role('tab', name='Inteligencia').click()
                         form.get_by_label('Proveedor').select_option('loop-a')
                         self.assertEqual(form.get_by_label('Modelo').input_value(), 'model-alpha')
@@ -88,6 +95,11 @@ class ActsUiTests(unittest.TestCase):
                         stored = srv.rt.registry.list_profiles()[0]
                         self.assertEqual((stored['appearance']['form_name'], stored['personality'], stored['collaboration']['mention']),
                                          ('Helix', {'formality': 'formal'}, 'Dev'))
+                        self.assertEqual((stored['appearance']['palette_name'], stored['appearance']['material_preset'],
+                                          stored['appearance']['studio'], stored['appearance']['reactions']),
+                                         ('Ocean', 'brushed_titanium', {'exposure': 1.4}, {'working': 'orbit'}))
+                        self.assertEqual(page.evaluate('JSON.stringify([Axx.app.store.data.settings.form, Axx.app.store.data.settings.palette])'), global_look)
+                        page.wait_for_function("document.querySelector('.axx-acts-card .axx-acts-thumb img')?.dataset.real === 'true'", timeout=30000)
 
                         result = page.evaluate("""(async()=>{const r=await Axx.companion.brain.chat(
                             {...Axx.companion.data.prefs, prompt_mode:'conversation'},
@@ -97,6 +109,21 @@ class ActsUiTests(unittest.TestCase):
                         self.assertTrue(result['act']['model_verified'])
                         self.assertEqual(_EchoModel.seen[-1]['model'], 'model-alpha')
                         self.assertIn('Conserva los contratos públicos.', str(_EchoModel.seen[-1]['messages']))
+                        # The turn showed Dev's own form live in the chat presence, then reported completion.
+                        presence = page.evaluate("""(()=>{const b=document.querySelector('#view-chat .axx-act-presence, .axx-act-presence');
+                            return {state:b?.dataset.state, text:b?.textContent, live:!!b?.querySelector('canvas.axx-act-live')};})()""")
+                        self.assertEqual((presence['state'], presence['live']), ('completed', True), presence)
+                        self.assertIn('Dev', presence['text'])
+                        self.assertIn('modelo verificado: model-alpha', presence['text'])
+                        # Technical sheet: stored profile, live grants and the exact render spec.
+                        page.evaluate("Axx.companion.openFeature('acts')")
+                        card = page.locator('.axx-acts-card', has_text='Dev')
+                        card.locator('summary', has_text='Ficha técnica').click()
+                        page.wait_for_function("document.querySelector('.axx-acts-spec-body')?.textContent.includes('Último turno')")
+                        spec = card.locator('.axx-acts-spec-body').text_content()
+                        for expected in ('model-alpha', 'completado en', 'modelo verificado por AXX', 'Helix', '#057dff',
+                                         'brushed_titanium', 'acabado obsidian', '"exposure":1.4', 'working→orbit', 'Ninguno', '@Dev'):
+                            self.assertIn(expected, spec)
                         # The main AXX avatar/profile/model selection is untouched by Act turns (ACT-07).
                         self.assertEqual(page.evaluate('JSON.stringify([Axx.companion.data.prefs.provider, Axx.companion.data.prefs.model])'), global_prefs)
                     finally:

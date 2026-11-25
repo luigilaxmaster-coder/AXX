@@ -4,6 +4,7 @@ The model proposes semantic targets and postconditions. Axx resolves targets onl
 against a fresh UI Automation observation of the same window and process, abstains
 on ambiguity, and never treats a click, a drawn overlay or elapsed time as success.
 """
+import hashlib
 import json
 import math
 import re
@@ -108,8 +109,13 @@ def resolve(observed, target):
 
 
 def snapshot(control):
-    """The comparable state of one control: value text plus UIA pattern state."""
-    return {'value': control.get('value'), 'state': control.get('state') or {}}
+    """The comparable state of one control: a digest of its value (what the user typed is never persisted) plus UIA state."""
+    value = control.get('value')
+    return {'value_sha256': hashlib.sha256(str(value).encode('utf-8')).hexdigest() if value not in (None, '') else '',
+            'state': control.get('state') or {}}
+
+
+NEEDS_READING = ('value_changed', 'value_equals')  # structure-only observations carry no values
 
 
 def _number(value):

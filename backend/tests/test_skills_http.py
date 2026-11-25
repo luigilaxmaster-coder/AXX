@@ -4,10 +4,13 @@ from pathlib import Path
 import tempfile
 import threading
 import unittest
+from unittest.mock import patch
+import time
 import urllib.error
 import urllib.request
 
 from backend.action_learning import ActionLearning
+from backend.agents.http_api import EvolutionHttpRuntime
 from backend.actions.executor import ActionExecutor
 from backend.commands import CommandService
 from backend.demonstration import DemonstrationService, planning_reference
@@ -35,11 +38,17 @@ class SkillsHttpTests(unittest.TestCase):
         handler = type('SkillsHandler', (AxxBridgeHandler,), {'executor': self.executor, 'commands': self.commands,
             'learning': self.learning, 'adapter': self.model, 'demonstration': self.demonstration})
         self.server = ThreadedHTTPServer(('127.0.0.1', 0), handler)
+        self.server.daemon_threads = False  # server_close joins every accepted request before SQLite cleanup.
+        self.runtime = EvolutionHttpRuntime(self.executor.db_path, storage_dir=Path(self.tmp.name) / 'evolution3',
+            action_executor=self.executor, command_service=self.commands, inference_adapter=self.model)
+        self.server.evolution_runtime = self.runtime
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
 
     def tearDown(self):
         self.server.shutdown(); self.server.server_close(); self.thread.join(2)
+        self.assertFalse(self.thread.is_alive())
+        self.runtime.close()
         self.demonstration.close(); self.learning.close(); self.commands.close(); self.executor.close(); self.tmp.cleanup()
 
     def request(self, path, body=None, auth=True):
@@ -101,6 +110,31 @@ class SkillsHttpTests(unittest.TestCase):
         self.assertEqual(self.request('learning/forget-lesson', {'id':lesson['id']})[0], 200)
         self.assertEqual(self.request('learning/lessons?task_id=trial-chat')[1]['lessons'], [])
         self.assertEqual(self.commands.get(success['operation_id'])['state'], 'succeeded')
+
+    def test_equal_timestamps_use_persisted_journal_order_for_verification(self):
+        path = self.executor.workspace_root / 'same-tick.txt'
+        with patch('time.time', return_value=time.time()):
+            def prepare():
+                return self.commands.prepare('axx.file.sha256', {'path':str(path)}, conversation_id='same-tick')
+            path.write_text('synthetic earlier result')
+            earlier = self.commands.execute(prepare()['operation_id'], True)
+            failed = prepare()
+            path.unlink()
+            failed = self.commands.execute(failed['operation_id'], True)
+            path.write_text('synthetic correction')
+            later = self.commands.execute(prepare()['operation_id'], True)
+            receipts = [earlier, failed, later]
+            self.assertEqual([r['state'] for r in receipts], ['succeeded','failed','succeeded'])
+            times = [self.commands.db.execute('SELECT created_at FROM command_runs WHERE operation_id=?',
+                                             (r['operation_id'],)).fetchone()[0] for r in receipts]
+            self.assertEqual(len(set(times)), 1)
+            body = {'operation_id':failed['operation_id'], 'hypothesis':'El archivo faltaba', 'task_id':'same-tick'}
+            code, _ = self.request('learning/lesson', body | {'verification_operation_id':earlier['operation_id']})
+            self.assertEqual(code, 400)
+            code, lesson = self.request('learning/lesson', body | {'verification_operation_id':later['operation_id']})
+            self.assertEqual(code, 200, lesson)
+            self.assertEqual(lesson['verification']['status'], 'verified_test')
+            self.assertFalse(lesson['cause_confirmed'])
 
     def test_parameterized_skill_context_and_resume_cross_http_without_duplicate_effects(self):
         code, plan = self.request('learning/propose', {'text':'crear informe', 'operation_id':'first', 'project_id':'office', 'selection_mode':'automatic_free'})

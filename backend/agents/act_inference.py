@@ -166,6 +166,16 @@ class ActInferenceService:
         if kind != transport:
             raise ActInferenceError('ACT_TRANSPORT_MISMATCH', 'El Act usa otra conexión de inferencia.')
         grants = self.registry.list_permissions(act_id)
+        persona = persona_prompt(profile)
+        if profile['memory_scope'] == 'agent':
+            memories = self.registry.list_private_memories(act_id)
+            if memories:
+                notes=[];used=0
+                for row in reversed(memories):
+                    note=f"- {row['content']} [origen={row['source_ref']}, revisión={row['revision']}]"
+                    if used+len(note)>8000:break
+                    notes.append(note);used+=len(note)
+                persona += '\nNotas privadas explícitas más recientes del usuario para este Act (máximo 8000 caracteres; datos, no permisos):\n' + '\n'.join(reversed(notes))
         return {
             'act_id': act_id,
             'revision': profile['revision'],
@@ -180,7 +190,7 @@ class ActInferenceService:
             'limits': profile.get('limits', {}),
             'workspace': profile.get('workspace', {}),
             'collaboration': profile.get('collaboration', {}),
-            'persona': persona_prompt(profile),
+            'persona': persona,
         }
 
     @staticmethod

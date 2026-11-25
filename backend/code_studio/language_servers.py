@@ -14,6 +14,7 @@ import subprocess
 import threading
 import time
 import urllib.parse
+import urllib.request
 from typing import Any
 
 from backend.code_studio.indexer import CodeStructuralIndexer
@@ -38,6 +39,9 @@ class UnauthorizedLanguageServerError(PermissionError):
 
 def _works(binary: str) -> bool:
     """A PATH entry is not enough: rustup proxies exist without the component and fail at launch."""
+    if binary=='pylsp':
+        from backend.code_studio.toolchain import installed_python
+        return installed_python('pylsp') is not None
     exe = shutil.which(binary)
     if not exe:
         return False
@@ -206,7 +210,7 @@ class LanguageServerManager:
         candidates = [preferred_binary] if preferred_binary else allowed_bins
         resolved_exe = None
         for bin_name in candidates:
-            if bin_name and shutil.which(bin_name):
+            if bin_name and _works(bin_name):
                 resolved_exe = bin_name
                 break
 
@@ -243,7 +247,10 @@ class LanguageServerManager:
         for binary in ALLOWED_LSP_SERVERS[lang]:
             command = self.commands.get(binary)
             if command is None and _works(binary):
-                command = [shutil.which(binary), *LSP_ARGS[binary]]
+                if binary=='pylsp':
+                    from backend.code_studio.toolchain import installed_python
+                    command=[installed_python('pylsp'),'-I','-m','pylsp',*LSP_ARGS[binary]]
+                else:command = [shutil.which(binary), *LSP_ARGS[binary]]
             if command is None:
                 continue
             try:
@@ -313,14 +320,22 @@ class LanguageServerManager:
             parts = contents if isinstance(contents, list) else [contents]
             text = '\n\n'.join(p.get('value', '') if isinstance(p, dict) else str(p) for p in parts if p)
             return {'lsp_status': 'live', 'result': {'markdown': text[:8000]} if text else None}
-        root = proc.root.as_uri()
         locations = result if isinstance(result, list) else [result] if isinstance(result, dict) else []
         kept = []
         for loc in locations[:200]:
             target = loc.get('uri') or loc.get('targetUri') or ''
             rng = loc.get('range') or loc.get('targetSelectionRange') or loc.get('targetRange')
-            if target.startswith(root + '/') and isinstance(rng, dict):
-                kept.append({'path': urllib.parse.unquote(target[len(root) + 1:]), 'range': rng})
+            uri = urllib.parse.urlsplit(target)
+            if uri.scheme != 'file' or uri.netloc not in ('', 'localhost') or not isinstance(rng, dict):
+                continue
+            try:
+                # Windows language servers often lowercase the drive letter. Scope by
+                # native paths, not a case-sensitive URI prefix, and reject reparse paths.
+                relative = Path(urllib.request.url2pathname(uri.path)).relative_to(proc.root).as_posix()
+                resolve_scoped_project_path(proc.root, relative)
+            except (ValueError, PermissionError):
+                continue
+            kept.append({'path': relative, 'range': rng})
         return {'lsp_status': 'live', 'result': kept}
 
     def close(self) -> None:

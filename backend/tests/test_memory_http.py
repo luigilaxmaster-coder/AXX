@@ -12,6 +12,7 @@ from unittest.mock import Mock, patch
 
 from backend.actions.executor import ActionExecutor
 from backend.action_learning import ActionLearning
+from backend.agents.http_api import EvolutionHttpRuntime
 from backend.chat_store import ChatStore
 from backend.commands import CommandService
 from backend.memory.procedural_memory import ProceduralMemory
@@ -31,12 +32,22 @@ class MemoryHttpTests(unittest.TestCase):
         handler=type('MemoryHandler',(AxxBridgeHandler,),{'executor':self.executor,'commands':self.commands,
             'learning':self.learning,'chats':self.chats,'adapter':self.adapter,'provider':self.provider})
         self.server=ThreadedHTTPServer(('127.0.0.1',0),handler)
+        # Match normal application startup: initialize additive services before
+        # serving requests, rather than racing a cold schema setup with the
+        # first HTTP deadline or another test-owned SQLite transaction.
+        self.server.daemon_threads=False
+        self.runtime=EvolutionHttpRuntime(self.executor.db_path,storage_dir=root/'evolution3',
+            chat_store=self.chats,action_executor=self.executor,command_service=self.commands,
+            inference_adapter=self.adapter,inference_provider=self.provider)
+        self.server.evolution_runtime=self.runtime
         self.thread=threading.Thread(target=self.server.serve_forever,daemon=True);self.thread.start()
         self.a=self.chats.mutate('create',{'title':'Synthetic A'})['id']
         self.b=self.chats.mutate('create',{'title':'Synthetic B'})['id']
 
     def tearDown(self):
         self.server.shutdown();self.server.server_close();self.thread.join(3)
+        self.assertFalse(self.thread.is_alive())
+        self.runtime.close()
         self.chats.close();self.learning.close();self.commands.close();self.executor.close();self.temp.cleanup()
 
     def request(self,route,body=None,auth=True):

@@ -7,6 +7,7 @@ write the fix and is skipped, never passed, when Ollama is not reachable.
 from __future__ import annotations
 
 import hashlib
+import os
 import http.server
 import json
 from pathlib import Path
@@ -51,7 +52,9 @@ def git_repo(root: Path) -> Path:
     # Local to this temporary repo: keeps worktree checkouts byte-identical to the LF files written above.
     for args in (['init', '-q'], ['config', 'core.autocrlf', 'false'], ['add', '.'],
                  ['-c', 'user.name=t', '-c', 'user.email=t@example.invalid', 'commit', '-qm', 'base']):
-        subprocess.run(['git', *args], cwd=repo, check=True, capture_output=True)
+        result=subprocess.run(['git', *args], cwd=repo, capture_output=True, env=os.environ.copy())
+        if result.returncode:
+            raise AssertionError('Temporary Git fixture failed: '+result.stderr.decode('utf-8',errors='replace'))
     return repo
 
 

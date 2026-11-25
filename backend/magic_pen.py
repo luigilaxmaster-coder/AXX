@@ -24,7 +24,7 @@ from backend.spend_budget import SpendBudget
 from backend.spatial_pipeline import COMPARE_CONTRACT, IDENTIFY_CONTRACT, blueprint_context, catalog_matches, parse_blueprint, repair_message
 from backend.presentation_plan import PATCH_CONTRACT, PLAN_CONTRACT, PLAN_2D_CONTRACT, PlanError, apply_patch, normalize_model_focus, normalize_model_object_ids, normalize_strict_output, output_schema, parse_json, plain_text_diagram, validate_2d_plan, validate_plan, expand_components, learn_groups, plan_contract, patch_contract, check_plan, diagram_overlaps, prune_invalid_overlays
 from backend.inference.provider_settings import anthropic_efforts
-from backend.guide_plan import GUIDE_CONTRACT, evaluate, prompt_controls, resolve, snapshot as control_snapshot, validate_guide
+from backend.guide_plan import GUIDE_CONTRACT, NEEDS_READING, evaluate, prompt_controls, resolve, snapshot as control_snapshot, validate_guide
 
 MAX_QUERY_HISTORY = 100
 MAX_RESPONSE_CHARS = 32000
@@ -773,6 +773,9 @@ class MagicPenService:
             if uia.process_started(window['pid']) != window['process_started']:
                 raise ValueError('process restarted')
             observed = uia.inspect_controls(window['window_id'], window['pid'])
+            if step['postcondition']['kind'] in NEEDS_READING:  # values are only read in reading mode; they stay in memory
+                observed = uia.read_window_content(window['window_id'], window['pid'], observed.get('window_title') or window['title'],
+                                                   full_window=True, timeout=5)
         except (ValueError, OSError):  # Closed, restarted or unobservable window: never guess.
             record = self._guide_record(q['source_id'], q['id'], step['id'], {**previous, 'state': 'STALE', 'at': time.time()})
             return {**result, 'state': record['state'], 'record': record}
@@ -797,6 +800,87 @@ class MagicPenService:
         record = self._guide_record(q['source_id'], q['id'], step['id'], {
             'state': state, 'baseline': baseline, 'observation_id': observed['observation']['observation_id'], 'at': time.time()})
         return {**result, 'state': record['state'], 'record': record}
+
+    def guide_session(self, body):
+        """Unified GuideSession for a completed query: derived from its validated plan, persisted, resumable (CAS)."""
+        from backend import guidance
+        if not isinstance(body, dict) or set(body) - {'id', 'query_id', 'step_id', 'status', 'expected_revision'} or not {'id', 'query_id'} <= set(body):
+            raise ValueError('Sesión de guía inválida.')
+        self.directory(body['query_id'])
+        with self.lock:
+            d = self.get(body['id'])
+            q = next((q for q in d.get('queries', []) if q['id'] == body['query_id']), None)
+            if not q or q.get('state') != 'completed':
+                raise ValueError('La consulta no existe o no ha terminado.')
+            session = q.get('guide_session')
+            if session is None:
+                if q.get('presentation'):
+                    session = guidance.from_presentation(q['presentation'], source_ref=q['id'], user_goal=q.get('question', ''))
+                elif q.get('guide'):
+                    session = guidance.from_guide_plan(q['guide'], source_ref=q['id'], window=q.get('guide_window'))
+                else:
+                    raise ValueError('Esta consulta no tiene pasos que guiar.')
+            else:
+                session = guidance.validate_session(session)
+            if body.get('step_id') is not None or body.get('status') is not None:
+                session = guidance.advance(session, step_id=body.get('step_id'), status=body.get('status'),
+                                           expected_revision=body.get('expected_revision'))
+            if q.get('guide_session') != session:
+                q['guide_session'] = session
+                write_json(self.directory(d['id']) / 'document.json', d)
+            return copy.deepcopy(session)
+
+    def diagram_edit(self, body):
+        """Relabel one node of an explanation's own diagram: ids, links, steps and the guide session's place are kept."""
+        from backend.presentation_plan import PlanError, _diagram
+        if not isinstance(body, dict) or set(body) != {'id', 'query_id', 'node_id', 'label'}:
+            raise ValueError('Edición de diagrama inválida.')
+        self.directory(body['query_id'])
+        with self.lock:
+            d = self.get(body['id'])
+            q = next((q for q in d.get('queries', []) if q['id'] == body['query_id']), None)
+            plan = (q or {}).get('presentation') or {}
+            diagram = copy.deepcopy(plan.get('diagram') or {'nodes': []})
+            node = next((n for n in diagram['nodes'] if n['id'] == body['node_id']), None)
+            if node is None:
+                raise ValueError('Ese nodo no existe en el diagrama de esta explicación.')
+            node['label'] = body['label']
+            try:  # the same validator the model's plan passed
+                plan['diagram'] = _diagram(diagram, {s['id'] for s in plan['steps']}, {o['id'] for o in (plan.get('scene') or {}).get('objects', [])})
+            except PlanError as exc:
+                raise ValueError(str(exc)) from None
+            label = next(n['label'] for n in plan['diagram']['nodes'] if n['id'] == body['node_id'])
+            for anchor in (q.get('guide_session') or {}).get('anchors', []):
+                if anchor.get('type') == 'diagram' and anchor.get('target_ref', {}).get('node_id') == body['node_id']:
+                    anchor['label'] = label[:120]
+            write_json(self.directory(d['id']) / 'document.json', d)
+            return {'diagram': copy.deepcopy(plan['diagram']), 'guide_session': copy.deepcopy(q.get('guide_session'))}
+
+    def drawing_guide(self, body):
+        """Regions, construction and colour zones computed from the capture itself (never model coordinates)."""
+        from backend import drawing_guide
+        if not isinstance(body, dict) or set(body) - {'id', 'color', 'compare_id'} or 'id' not in body:
+            raise ValueError('Guía de dibujo inválida.')
+        def framed(doc):  # analyse only the user's selection, and say where it sits in capture pixels
+            image = self.original(doc)
+            b = (doc.get('selection') or {}).get('bounds')
+            if b and b[2] - b[0] >= 16 and b[3] - b[1] >= 16:
+                return image.crop(tuple(int(v) for v in b)), [int(b[0]), int(b[1]), int(b[2] - b[0]), int(b[3] - b[1])]
+            return image, [0, 0, image.width, image.height]
+        with self.lock:
+            d = self.get(body['id'])
+            image, frame = framed(d)
+        analysis = drawing_guide.analyze(image)
+        result = {'id': d['id'], 'frame': frame, 'analysis': analysis, 'stages': drawing_guide.stages(analysis)}
+        if body.get('color'):
+            if not isinstance(body['color'], str) or len(body['color']) > 24:
+                raise ValueError('Color inválido.')
+            result['color_regions'] = [r['region_id'] for r in drawing_guide.find_color(analysis, body['color'])]
+        if body.get('compare_id'):  # DRAW-03: re-analysis after the user changed the drawing
+            with self.lock:
+                previous, _ = framed(self.get(body['compare_id']))
+            result['comparison'] = drawing_guide.compare(drawing_guide.analyze(previous), analysis)
+        return result
 
     def _replace_query(self, source_id, query_id, changes):
         with self.lock:
@@ -1156,7 +1240,14 @@ class MagicPenService:
             source_id=capture_id,
             source_revision=int(q.get('revision', 1)),
         )
-        return self.scenes_v2.create_document(doc_v2, operation_id=f'op-import-{query_id[:16]}')
+        from backend.spatial.scene_document import SceneDocumentError
+        try:
+            return self.scenes_v2.create_document(doc_v2, operation_id=f'op-import-{query_id[:16]}')
+        except SceneDocumentError:
+            existing = self.scenes_v2.get_document(doc_id)
+            if existing['source'] != doc_v2['source']:
+                raise SceneDocumentError('The scene ID belongs to a different source') from None
+            return existing
 
     def patch_scene_v2(self, patch: dict) -> dict:
         """Apply an incremental CAS ScenePatch to a SceneDocument v2 (requires magic_scene_v2)."""

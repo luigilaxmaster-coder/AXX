@@ -15,6 +15,8 @@ from pathlib import Path
 import sqlite3
 import threading
 import time
+import unicodedata
+import uuid
 from typing import Any
 
 from backend.agents.policy import apply_provider_switch_policy
@@ -54,6 +56,69 @@ def _check_id(value: Any, field: str) -> str:
     if not isinstance(value, str) or not ID_RE.fullmatch(value):
         raise AgentProfileValidationError(f'Invalid {field}: {value!r}')
     return value
+
+
+def checked_team_graph(graph: Any, member_ids: list[str]) -> dict[str, Any] | None:
+    """Act Team graph: nodes are the members (with canvas position and an optional task), edges are handoffs.
+
+    Edges must form a DAG over members; the pipeline runs it in topological order and each Act only receives the
+    verified output of the Acts connected upstream of it."""
+    if graph is None:
+        return None
+    if not isinstance(graph, dict) or not isinstance(graph.get('nodes'), list) or not isinstance(graph.get('edges', []), list):
+        raise AgentProfileValidationError('team graph must be {nodes: [...], edges: [...]}')
+    members = set(member_ids)
+    nodes: dict[str, dict[str, Any]] = {}
+    for raw in graph['nodes']:
+        aid = _check_id((raw or {}).get('agent_id'), 'graph.node.agent_id')
+        if aid not in members or aid in nodes:
+            raise AgentProfileValidationError(f'graph node {aid!r} must be one team member, once')
+        x, y = raw.get('x', 0), raw.get('y', 0)
+        if not all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in (x, y)):
+            raise AgentProfileValidationError('graph node position must be numeric')
+        instruction = raw.get('instruction', '')
+        if not isinstance(instruction, str):
+            raise AgentProfileValidationError('graph node instruction must be text')
+        nodes[aid] = {'agent_id': aid, 'x': round(max(0.0, min(float(x), 4000.0)), 1),
+                      'y': round(max(0.0, min(float(y), 4000.0)), 1), 'instruction': instruction.strip()[:600]}
+    if set(nodes) != members:
+        raise AgentProfileValidationError('every team member needs exactly one graph node')
+    edges: list[dict[str, str]] = []
+    incoming: dict[str, int] = {aid: 0 for aid in nodes}
+    outgoing: dict[str, list[str]] = {aid: [] for aid in nodes}
+    for raw in graph.get('edges', []):
+        src, dst = (raw or {}).get('from'), (raw or {}).get('to')
+        if src not in nodes or dst not in nodes or src == dst:
+            raise AgentProfileValidationError('graph edges must join two different team members')
+        if any(e['from'] == src and e['to'] == dst for e in edges):
+            raise AgentProfileValidationError('duplicate graph edge')
+        label = (raw or {}).get('label', '')
+        if not isinstance(label, str):
+            raise AgentProfileValidationError('graph edge label must be text')
+        transfer = (raw or {}).get('transfer', 'full')
+        if transfer not in ('full', 'summary', 'artifact_only'):
+            raise AgentProfileValidationError('graph edge transfer must be full, summary or artifact_only')
+        edge: dict[str, str] = {'from': src, 'to': dst}
+        clean_label = label.strip()[:80]
+        if clean_label:
+            edge['label'] = clean_label
+        if transfer != 'full':
+            edge['transfer'] = transfer
+        edges.append(edge)
+        incoming[dst] += 1
+        outgoing[src].append(dst)
+    if len(edges) > 64:
+        raise AgentProfileValidationError('a team graph allows at most 64 connections')
+    queue, seen = [aid for aid, n in incoming.items() if n == 0], 0
+    while queue:  # Kahn: a cycle leaves nodes that are never released
+        aid = queue.pop(); seen += 1
+        for nxt in outgoing[aid]:
+            incoming[nxt] -= 1
+            if incoming[nxt] == 0:
+                queue.append(nxt)
+    if seen != len(nodes):
+        raise AgentProfileValidationError('team graph connections must not form a cycle')
+    return {'nodes': list(nodes.values()), 'edges': edges}
 
 
 class AgentRegistry:
@@ -155,6 +220,16 @@ class AgentRegistry:
                         created_at_ms INTEGER NOT NULL
                     );
                     CREATE INDEX IF NOT EXISTS idx_act_artifacts_run ON act_artifacts(run_id);
+                    CREATE TABLE IF NOT EXISTS agent_memory_entries (
+                        memory_id TEXT PRIMARY KEY,
+                        agent_id TEXT NOT NULL REFERENCES agent_profiles(agent_id) ON DELETE CASCADE,
+                        content TEXT NOT NULL,
+                        source_ref TEXT NOT NULL,
+                        revision INTEGER NOT NULL DEFAULT 1,
+                        created_at_ms INTEGER NOT NULL,
+                        expires_at_ms INTEGER NOT NULL
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_agent_memory_owner ON agent_memory_entries(agent_id, expires_at_ms);
                     '''
                 )
                 # Acts 3.1 additive migrations
@@ -169,6 +244,16 @@ class AgentRegistry:
                 self._persistent_conn.close()
                 self._persistent_conn = None
 
+    @staticmethod
+    def _check_identity_unique(db, profile):
+        normalize = lambda value: unicodedata.normalize('NFKC', value or '').strip().casefold()
+        keys = {normalize(profile['name']), normalize((profile.get('collaboration') or {}).get('mention'))} - {''}
+        for row in db.execute('SELECT agent_id, name, behavior_json FROM agent_profiles WHERE agent_id!=?', (profile['agent_id'],)):
+            mention = (json.loads(row['behavior_json']).get('collaboration') or {}).get('mention')
+            occupied = {normalize(row['name']), normalize(mention)} - {''}
+            if keys & occupied:
+                raise AgentProfileValidationError('El nombre o alias ya pertenece a otro Act; elige uno único.')
+
     def create_profile(self, profile_spec: dict[str, Any]) -> dict[str, Any]:
         spec = copy.deepcopy(profile_spec)
         spec.setdefault('schema_version', '1.0')
@@ -182,6 +267,7 @@ class AgentRegistry:
             try:
                 if db.execute('SELECT 1 FROM agent_profiles WHERE agent_id=?', (validated['agent_id'],)).fetchone():
                     raise AgentProfileValidationError(f"AgentProfile '{validated['agent_id']}' already exists")
+                self._check_identity_unique(db, validated)
                 db.execute(
                     '''
                     INSERT INTO agent_profiles
@@ -234,6 +320,84 @@ class AgentRegistry:
             rows = db.execute(query).fetchall()
             return [self._row_to_profile(r) for r in rows]
 
+    def list_private_memories(self, agent_id: str) -> list[dict[str, Any]]:
+        self.get_profile(agent_id)
+        with self.lock, self._connect() as db:
+            with db:
+                db.execute('DELETE FROM agent_memory_entries WHERE agent_id=? AND expires_at_ms<=?', (agent_id, self.clock()))
+                return [dict(r) for r in db.execute('SELECT * FROM agent_memory_entries WHERE agent_id=? '
+                                                   'ORDER BY created_at_ms, memory_id', (agent_id,))]
+
+    def save_private_memory(self, agent_id: str, *, content: str, source_ref: str = 'owner_note',
+                            memory_id: str | None = None, expected_revision: int = 0, ttl_days: int = 90) -> dict[str, Any]:
+        from backend.agents.profiles import SECRET_LEAK_RE
+        self.get_profile(agent_id)
+        if (not isinstance(content, str) or not 1 <= len(content.strip()) <= 2000
+                or not isinstance(source_ref, str) or not 1 <= len(source_ref) <= 160
+                or type(ttl_days) is not int or not 1 <= ttl_days <= 90 or type(expected_revision) is not int):
+            raise AgentProfileValidationError('Memory needs 1..2000 characters, a source and a TTL of 1..90 days')
+        if SECRET_LEAK_RE.search(content) or SECRET_LEAK_RE.search(source_ref):
+            raise AgentProfileValidationError('No guardes credenciales o tokens en la memoria del Act.')
+        memory_id = _check_id(memory_id or 'mem-' + uuid.uuid4().hex, 'memory_id')
+        now = self.clock()
+        with self.lock, self._connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            try:
+                db.execute('DELETE FROM agent_memory_entries WHERE agent_id=? AND expires_at_ms<=?', (agent_id, now))
+                old = db.execute('SELECT * FROM agent_memory_entries WHERE memory_id=?', (memory_id,)).fetchone()
+                if old and old['agent_id'] != agent_id:
+                    raise PermissionError('This memory belongs to another Act')
+                if (old['revision'] if old else 0) != expected_revision:
+                    raise StaleAgentRevisionError('The memory changed; reload it before editing')
+                if not old and db.execute('SELECT count(*) FROM agent_memory_entries WHERE agent_id=?', (agent_id,)).fetchone()[0] >= 32:
+                    raise AgentProfileValidationError('Each Act supports up to 32 explicit private memories')
+                db.execute('INSERT INTO agent_memory_entries VALUES (?, ?, ?, ?, ?, ?, ?) '
+                           'ON CONFLICT(memory_id) DO UPDATE SET content=excluded.content, source_ref=excluded.source_ref, '
+                           'revision=excluded.revision, expires_at_ms=excluded.expires_at_ms',
+                           (memory_id, agent_id, content.strip(), source_ref, expected_revision + 1,
+                            old['created_at_ms'] if old else now, now + ttl_days * 86400000))
+                result = dict(db.execute('SELECT * FROM agent_memory_entries WHERE memory_id=?', (memory_id,)).fetchone())
+                db.execute('COMMIT')
+                return result
+            except Exception:
+                db.execute('ROLLBACK')
+                raise
+
+    def forget_private_memory(self, agent_id: str, memory_id: str, *, expected_revision: int) -> dict[str, Any]:
+        self.get_profile(agent_id)
+        _check_id(memory_id, 'memory_id')
+        with self.lock, self._connect() as db:
+            with db:
+                row = db.execute('SELECT agent_id, revision FROM agent_memory_entries WHERE memory_id=?', (memory_id,)).fetchone()
+                if row is not None and (row['agent_id'] != agent_id or row['revision'] != expected_revision):
+                    raise StaleAgentRevisionError('The memory changed or belongs to another Act')
+                db.execute('DELETE FROM agent_memory_entries WHERE memory_id=? AND agent_id=?', (memory_id, agent_id))
+        return {'memory_id': memory_id, 'forgotten': True}
+
+    def export_agent_package(self, agent_id: str) -> dict[str, Any]:
+        from backend.agents.profiles import export_agent_package
+        return export_agent_package(self.get_profile(agent_id))
+
+    def import_agent_package(self, package_data: dict[str, Any], *, new_agent_id: str | None = None) -> dict[str, Any]:
+        from backend.agents.profiles import import_agent_package
+        clean = import_agent_package(package_data)['profile']
+        clean['agent_id'] = new_agent_id or 'act-import-' + uuid.uuid4().hex[:12]
+        _check_id(clean['agent_id'], 'new_agent_id')
+        clean['enabled'] = False
+        original = clean['name']
+        # Importing alongside the source creates an independently addressable Act.
+        with self.lock, self._connect() as db:
+            for index in range(100):
+                try:
+                    self._check_identity_unique(db, clean)
+                    break
+                except AgentProfileValidationError:
+                    clean.setdefault('collaboration', {}).pop('mention', None)
+                    clean['name'] = original[:55] + f' (importado {index + 1})'
+            else:
+                raise AgentProfileValidationError('No unique name available for imported Act')
+        return self.create_profile(clean)
+
     def update_profile(
         self,
         agent_id: str,
@@ -272,6 +436,9 @@ class AgentRegistry:
                 next_rev = current_rev + 1
                 merged['revision'] = next_rev
                 validated = validate_agent_profile(merged)
+                if (validated['name'] != current['name'] or (validated.get('collaboration') or {}).get('mention')
+                        != (current.get('collaboration') or {}).get('mention')):
+                    self._check_identity_unique(db, validated)
                 now = self.clock()
 
                 if validated['appearance'] != current['appearance']:
@@ -482,10 +649,37 @@ class AgentRegistry:
         shared_memory_policy: str = 'explicit_shared',
         workspace_scope: str = '',
         review_criteria: str = '',
+        graph: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         _check_id(team_id, 'team_id')
+        meta = self._team_meta(members, coordinator_agent_id, budget_usd, max_concurrency, delegation_rules,
+                               shared_memory_policy, workspace_scope, review_criteria, graph)
         if mode not in ('consultation', 'collaboration'):
             raise AgentProfileValidationError("team mode must be 'consultation' or 'collaboration'")
+        if not isinstance(members, list) or not members:
+            raise AgentProfileValidationError('Team requires at least one member')
+        now = self.clock()
+        with self.lock, self._connect() as db:
+            db.execute('PRAGMA foreign_keys=ON')
+            db.execute('BEGIN IMMEDIATE')
+            try:
+                db.execute(
+                    '''
+                    INSERT INTO agent_teams (team_id, title, purpose, mode, revision, created_at_ms, disabled, team_meta_json)
+                    VALUES (?, ?, ?, ?, 1, ?, 0, ?)
+                    ''',
+                    (team_id, str(title).strip()[:120], str(purpose).strip()[:500], mode, now, json.dumps(meta, ensure_ascii=False)),
+                )
+                self._insert_team_members(db, team_id, members)
+                db.execute('COMMIT')
+            except Exception:
+                db.execute('ROLLBACK')
+                raise
+        return self.get_team(team_id)
+
+    @staticmethod
+    def _team_meta(members, coordinator_agent_id, budget_usd, max_concurrency, delegation_rules,
+                   shared_memory_policy, workspace_scope, review_criteria, graph) -> dict[str, Any]:
         if not isinstance(members, list) or not members:
             raise AgentProfileValidationError('Team requires at least one member')
         if coordinator_agent_id is not None:
@@ -499,32 +693,54 @@ class AgentRegistry:
             'workspace_scope': str(workspace_scope)[:400],
             'review_criteria': str(review_criteria)[:1000],
         }
-        now = self.clock()
+        checked = checked_team_graph(graph, [(m or {}).get('agent_id') for m in members])
+        if checked is not None:
+            meta['graph'] = checked
+        return meta
+
+    @staticmethod
+    def _insert_team_members(db, team_id: str, members: list[dict[str, str]]) -> None:
+        for m in members:
+            aid = _check_id(m.get('agent_id'), 'member.agent_id')
+            mrole = m.get('role', 'member')
+            if mrole not in ('lead', 'member', 'reviewer'):
+                raise AgentProfileValidationError(f'Invalid team member role: {mrole!r}')
+            db.execute('INSERT INTO agent_team_members (team_id, agent_id, role) VALUES (?, ?, ?)', (team_id, aid, mrole))
+
+    def update_team(self, *, team_id: str, expected_revision: int, title: str, members: list[dict[str, str]],
+                    purpose: str = '', coordinator_agent_id: str | None = None, budget_usd: float = 5.0,
+                    max_concurrency: int = 2, delegation_rules: str = '', shared_memory_policy: str = 'explicit_shared',
+                    workspace_scope: str = '', review_criteria: str = '', graph: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Replace a team's members, settings and graph; a stale editor (revision mismatch) is rejected, never merged."""
+        _check_id(team_id, 'team_id')
+        meta = self._team_meta(members, coordinator_agent_id, budget_usd, max_concurrency, delegation_rules,
+                               shared_memory_policy, workspace_scope, review_criteria, graph)
         with self.lock, self._connect() as db:
             db.execute('PRAGMA foreign_keys=ON')
             db.execute('BEGIN IMMEDIATE')
             try:
-                db.execute(
-                    '''
-                    INSERT INTO agent_teams (team_id, title, purpose, mode, revision, created_at_ms, disabled, team_meta_json)
-                    VALUES (?, ?, ?, ?, 1, ?, 0, ?)
-                    ''',
-                    (team_id, str(title).strip()[:120], str(purpose).strip()[:500], mode, now, json.dumps(meta, ensure_ascii=False)),
-                )
-                for m in members:
-                    aid = _check_id(m.get('agent_id'), 'member.agent_id')
-                    mrole = m.get('role', 'member')
-                    if mrole not in ('lead', 'member', 'reviewer'):
-                        raise AgentProfileValidationError(f'Invalid team member role: {mrole!r}')
-                    db.execute(
-                        'INSERT INTO agent_team_members (team_id, agent_id, role) VALUES (?, ?, ?)',
-                        (team_id, aid, mrole),
-                    )
+                row = db.execute('SELECT revision FROM agent_teams WHERE team_id=?', (team_id,)).fetchone()
+                if not row:
+                    raise AgentNotFoundError(f'Team not found: {team_id}')
+                if int(row['revision']) != int(expected_revision):
+                    raise StaleAgentRevisionError(f"Team {team_id} changed (revision {row['revision']}); reload it before saving")
+                db.execute('UPDATE agent_teams SET title=?, purpose=?, team_meta_json=?, revision=revision+1 WHERE team_id=?',
+                           (str(title).strip()[:120], str(purpose).strip()[:500], json.dumps(meta, ensure_ascii=False), team_id))
+                db.execute('DELETE FROM agent_team_members WHERE team_id=?', (team_id,))
+                self._insert_team_members(db, team_id, members)
                 db.execute('COMMIT')
             except Exception:
                 db.execute('ROLLBACK')
                 raise
         return self.get_team(team_id)
+
+    def delete_team(self, team_id: str) -> bool:
+        """Remove the team definition only; its past runs, artifacts and events stay recorded."""
+        _check_id(team_id, 'team_id')
+        with self.lock, self._connect() as db:
+            db.execute('PRAGMA foreign_keys=ON')
+            with db:
+                return db.execute('DELETE FROM agent_teams WHERE team_id=?', (team_id,)).rowcount > 0
 
     def get_team(self, team_id: str) -> dict[str, Any]:
         _check_id(team_id, 'team_id')
@@ -600,7 +816,7 @@ class AgentRegistry:
                         now,
                     ),
                 )
-        return self.list_artifacts(run_id=run_id)[0]
+        return next(a for a in self.list_artifacts(run_id=run_id) if a['artifact_id'] == artifact_id)
 
     def list_artifacts(self, *, run_id: str | None = None, act_id: str | None = None) -> list[dict[str, Any]]:
         with self.lock, self._connect() as db:

@@ -13,6 +13,7 @@ import copy
 import hashlib
 import html
 import json
+import math
 import re
 from typing import Any
 
@@ -398,6 +399,22 @@ def validate_agent_profile(profile: Any) -> dict[str, Any]:
         if not (0.0 <= ai <= 2.0):
             raise AgentProfileValidationError('appearance.animation_intensity must be 0.0..2.0')
         clean_appearance['animation_intensity'] = round(ai, 2)
+    # Per-Act renderer studio (same ranges as AXX's SoftwareRenderer.setStudio); the global avatar never reads it.
+    studio = app.get('studio')
+    if studio is not None:
+        if not isinstance(studio, dict):
+            raise AgentProfileValidationError('appearance.studio must be an object')
+        ranges = {'exposure': (0.35, 2.2), 'roughness': (0.015, 0.45), 'light_angle': (-180.0, 180.0), 'fluidity': (0.0, 2.3)}
+        clean_studio = {}
+        for key, (low, high) in ranges.items():
+            if studio.get(key) is None:
+                continue
+            value = studio[key]
+            if type(value) not in (int, float) or not math.isfinite(value) or not (low <= value <= high):
+                raise AgentProfileValidationError(f'appearance.studio.{key} must be {low}..{high}')
+            clean_studio[key] = round(float(value), 3)
+        if clean_studio:
+            clean_appearance['studio'] = clean_studio
     if isinstance(app.get('reactions'), dict):
         clean_appearance['reactions'] = {
             str(k)[:40]: str(v)[:80]

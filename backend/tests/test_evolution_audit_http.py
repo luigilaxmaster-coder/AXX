@@ -73,8 +73,10 @@ class EvolutionAuditHttpTests(unittest.TestCase):
                 patch = {'document_id':scene['document_id'],'base_revision':1,'operation_id':'patch-name',
                          'target_object_ids':['piston-1'],'allowed_paths':['name'],
                          'changes':[{'op':'object.update','object_id':'piston-1','fields':{'name':'Verified change'}}]}
-                self.assertEqual(api.request('POST','/axx-api/spatial/v2/scenes/patch',{'patch':patch})[0],200)
-                self.assertEqual(api.request('POST','/axx-api/spatial/v2/scenes/patch',{'patch':patch})[0],409)
+                first=api.request('POST','/axx-api/spatial/v2/scenes/patch',{'patch':patch})
+                self.assertEqual(first[0],200)
+                self.assertEqual(api.request('POST','/axx-api/spatial/v2/scenes/patch',{'patch':patch}),first)
+                self.assertEqual(api.request('POST','/axx-api/spatial/v2/scenes/patch',{'patch':{**patch,'operation_id':'different-stale-op'}})[0],409)
                 read = lambda: api.request('GET','/axx-api/spatial/v2/scenes?document_id=' + scene['document_id'])[1]
                 self.assertEqual(read()['objects'][0]['name'],'Verified change')
                 for action, expected in [('undo','Pistón Principal'),('redo','Verified change')]:

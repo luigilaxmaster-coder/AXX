@@ -92,9 +92,10 @@ class SceneDocumentAndDiagramStudioTests(unittest.TestCase):
         self.assertFalse(res_1['render_invalidation']['full_rebuild'])
         self.assertEqual(res_1['render_invalidation']['invalidated_object_ids'], ['o1'])
 
-        # Concurrent patch with stale base_revision=1 must fail with StaleSceneRevisionError
+        # A retry replays its receipt. A different operation with the same stale revision conflicts.
+        self.assertEqual(apply_scene_patch(store, patch_1), res_1)
         with self.assertRaises(StaleSceneRevisionError):
-            apply_scene_patch(store, patch_1)
+            apply_scene_patch(store, {**patch_1, 'operation_id': 'op-concurrent'})
 
         # Attempting to overwrite asset-glb-1 with a different sha256 must fail (MP-02)
         bad_asset_patch = {

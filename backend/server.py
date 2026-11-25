@@ -64,6 +64,7 @@ from backend.anticipation import AnticipationService
 from backend.telegram.http_api import TelegramHTTP
 from backend.agents.http_api import EvolutionHTTP, EvolutionHttpRuntime
 from backend.agents.act_inference import ActInferenceError
+from backend.agents.registry import StaleAgentRevisionError
 from backend.code_studio.projects import CodeConflictError
 from backend.spatial.scene_document import StaleSceneRevisionError
 from backend.evolution_flags import StaleFlagRevisionError
@@ -657,6 +658,9 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
         # JSON escaping can expand each bounded 2 MiB document to 12 MiB.
         limit = {'/axx-api/code/v1/drafts/save': 32 * 1024 * 1024,
                  '/axx-api/code/v1/documents/save': 16 * 1024 * 1024,
+                 '/axx-api/spatial/v2/scenes/export-geometry': 20 * 1024 * 1024,
+                 '/axx-api/spatial/v2/assets/register': 22 * 1024 * 1024,
+                 '/axx-api/spatial/v2/motion/encode-rendered': 34 * 1024 * 1024,
                  '/axx-api/screen/save': 8 * 1024 * 1024}.get(req_path, MAX_BODY)
         if length > limit:
             self._send_json(413, {'error': {'code': 'INVALID_REQUEST', 'message': 'Body exceeds size limit'}})
@@ -825,7 +829,7 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                     result = self.magic_pen.budget.configure(limit_usd=body.get('limit_usd'), reset=body.get('reset') is True)
                 elif operation == 'get':
                     result = self.magic_pen.get(body.get('id'), image=True)
-                elif operation in {'capture', 'save', 'export', 'analyze', 'start', 'query', 'cancel', 'guide_check'}:
+                elif operation in {'capture', 'save', 'export', 'analyze', 'start', 'query', 'cancel', 'guide_check', 'guide_session', 'drawing_guide', 'diagram_edit'}:
                     try:
                         result = getattr(self.magic_pen, operation)(body)
                     except OSError as exc:
@@ -1610,7 +1614,7 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
         except ActInferenceError as exc:
             self._send_json({'ACT_NOT_FOUND': 404, 'ACT_STALE_REVISION': 409, 'ACT_DISABLED': 403}.get(exc.code, 400),
                             {'error': {'code': exc.code, 'message': str(exc)}})
-        except (CodeConflictError, StaleSceneRevisionError, StaleFlagRevisionError) as exc:
+        except (CodeConflictError, StaleSceneRevisionError, StaleFlagRevisionError, StaleAgentRevisionError) as exc:
             self._send_json(409, {'error': {'code': 'STALE_REVISION', 'message': str(exc)}})
         except PermissionError as exc:
             self._send_json(403, {'error': {'code': 'FORBIDDEN', 'message': str(exc)}})
@@ -1777,9 +1781,12 @@ def run_server(host='127.0.0.1', port=4173, config_path='providers.json', state_
             magic_pen=magic_pen,
             speech_service=speech,
             identity_store=identity,
+            inference_adapter=adapter,
+            inference_provider=provider,
         )
         services.append(server.evolution_runtime)
-        server.evolution_runtime.routines.reconcile_on_startup()
+        server.evolution_runtime.routines.reconcile_on_startup(recover_running=True)
+        server.evolution_runtime.routines.start_scheduler()
         from backend.mobile.gateway import MobileGateway
         server.mobile = MobileGateway.for_backend(server, state_path, state_dir)
         executor.input_control = server.mobile.control
