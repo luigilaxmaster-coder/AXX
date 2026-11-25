@@ -160,6 +160,11 @@
         return state.voicePromise;
     };
     const proto = Axx.SpeechReader.prototype;
+    const originalSetText=proto.setText;
+    proto.setText=function(...args){
+        const profile=this.nextTurnVoiceProfile||null;this.nextTurnVoiceProfile=null;
+        const result=originalSetText.apply(this,args);this.turnVoiceProfile=profile;return result;
+    };
     const browserAvailable = Object.getOwnPropertyDescriptor(proto, 'available').get;
     const browserPlay = proto.play, browserPause = proto.pause, browserCancel = proto.cancelUtterance, browserSpeak = proto.speakCurrent;
     Object.defineProperty(proto, 'available', { configurable: true, get() { return Axx.isNative() || browserAvailable.call(this); } });
@@ -183,7 +188,7 @@
         if (!text) return;
         const generation = this.generation;
         const request = { text, voice: this.nativeVoiceName,
-            rate: this.nativeVoiceName.startsWith('piper:') ? 0 : Math.max(-5, Math.min(5, Math.round((this.rate - 1) * 5))), volume: 100 };
+            rate: this.nativeVoiceName.startsWith('piper:') ? 0 : Math.max(-5, Math.min(5, Math.round(((this.turnVoiceProfile?.rate??this.rate) - 1) * 5))), volume: 100 };
         const prefetch = { index, generation, promise: Axx.backendRequest('POST', '/axx-api/speech/synthesize', request) };
         this.nativePrefetch = prefetch;
         this.nativePending = true;
@@ -211,13 +216,12 @@
         return browserPause.call(this);
     };
     proto.speakCurrent = function () {
-        if (!Axx.isNative()) return browserSpeak.call(this);
-        if (!window.__contractCalls && this.voiceURI?.startsWith('web:') && 'speechSynthesis' in window) {
-            const targetURI = this.voiceURI.slice(4);
-            const prevURI = this.voiceURI;
-            this.voiceURI = targetURI;
+        const voiceURI=this.turnVoiceProfile?.voiceURI??this.voiceURI,rate=this.turnVoiceProfile?.rate??this.rate,lang=this.turnVoiceProfile?.lang??this.lang;
+        if (!Axx.isNative() || (!window.__contractCalls && voiceURI?.startsWith('web:') && 'speechSynthesis' in window)) {
+            const previous = [this.voiceURI,this.rate,this.lang];
+            this.voiceURI = voiceURI?.startsWith('web:')?voiceURI.slice(4):voiceURI;this.rate=rate;this.lang=lang;
             try { return browserSpeak.call(this); }
-            finally { this.voiceURI = prevURI; }
+            finally { [this.voiceURI,this.rate,this.lang] = previous; }
         }
         const text = this.chunks[this.index]?.slice(this.offset); if (!text) return;
         const carried = this.nativePrefetch?.index === this.index && this.nativePrefetch.generation === this.generation
@@ -229,11 +233,12 @@
             try {
                 const voices = await state.refreshVoices();
                 if (generation !== this.generation) return;
-                const requested = this.voiceURI?.startsWith('sapi:') ? this.voiceURI.slice(5) : /^(moss|piper):/.test(this.voiceURI || '') ? this.voiceURI : '';
+                const requested = voiceURI?.startsWith('sapi:') ? voiceURI.slice(5) : /^(moss|piper):/.test(voiceURI || '') ? voiceURI : '';
+                if(this.turnVoiceProfile&&requested&&!voices.some(v=>v.name===requested))throw new Error('La voz elegida para este Act no está instalada.');
                 if (/^(moss|piper):/.test(requested) && !voices.some(v => v.name === requested))
                     throw new Error('La voz seleccionada no está disponible. Revisa su instalación en Voces de Axx.');
                 const voice = voices.find(v => v.name === requested)
-                    || voices.find(v => v.engine !== 'moss-onnx' && v.engine !== 'piper-onnx' && v.language?.startsWith(this.lang.slice(0, 2)))
+                    || voices.find(v => v.engine !== 'moss-onnx' && v.engine !== 'piper-onnx' && v.language?.startsWith(lang.slice(0, 2)))
                     || voices.find(v => v.engine !== 'moss-onnx' && v.engine !== 'piper-onnx') || voices[0];
                 if (!voice) throw new Error('No hay una voz de Windows habilitada.');
                 if (voice.engine === 'moss-onnx' && Axx.CustomSpeechStream) {
@@ -245,7 +250,7 @@
                     await stream.play(); return;
                 }
                 this.nativePending = true;
-                const data = carried ? await carried.promise : await Axx.backendRequest('POST', '/axx-api/speech/synthesize', { text, voice: voice.name, rate: voice.engine === 'piper-onnx' ? 0 : Math.max(-5, Math.min(5, Math.round((this.rate - 1) * 5))), volume: 100 });
+                const data = carried ? await carried.promise : await Axx.backendRequest('POST', '/axx-api/speech/synthesize', { text, voice: voice.name, rate: voice.engine === 'piper-onnx' ? 0 : Math.max(-5, Math.min(5, Math.round((rate - 1) * 5))), volume: 100 });
                 if (generation !== this.generation) return;
                 this.nativePending = false;
                 if (carried && this.nativePrefetch === carried) this.nativePrefetch = null;
@@ -255,7 +260,7 @@
                 const audio = new Audio(url); this.nativeAudio = audio;
                 if (data.engine === 'moss-onnx' || data.engine === 'piper-onnx') {
                     audio.preservesPitch = !Axx.voiceAudio?.isManualPitch?.(voice.name);
-                    audio.playbackRate = Axx.voiceAudio?.speed(voice.name, this.rate, text) || Math.max(.75,Math.min(1.3,Number(this.rate)||1));
+                    audio.playbackRate = Axx.voiceAudio?.speed(voice.name, rate, text) || Math.max(.75,Math.min(1.3,Number(rate)||1));
                     if (Axx.voiceAudio) {
                         this.nativeAudioChain = Axx.voiceAudio.attach(audio, voice.name);
                         Axx.voiceAudio.applyContext?.(this.nativeAudioChain, text);
@@ -271,7 +276,7 @@
                 if (generation !== this.generation) return;
                 this.nativePending = false;
                 this.cancelUtterance();
-                if (!/^(moss|piper):/.test(this.voiceURI || '') && !window.__contractCalls && 'speechSynthesis' in window) {
+                if (!this.turnVoiceProfile && !/^(moss|piper):/.test(voiceURI || '') && !window.__contractCalls && 'speechSynthesis' in window) {
                     try { browserSpeak.call(this); return; } catch { }
                 }
                 this.state = 'error'; this.onChange?.(); this.onError?.(error instanceof Error ? error.message : String(error));
@@ -377,10 +382,10 @@
                         voiceFrames=0;
                         if(!calibrating)noiseFloor = rms<noiseFloor ? noiseFloor*.85+rms*.15 : noiseFloor*.997+Math.min(rms,.08)*.003;
                         const live = isQuick || !isChatDraft && Axx.symbiosis?.use === 'live';
-                        const rawPause = live ? (Axx.liveConversation?.pauseMs ?? 900) : (isChatDraft ? 15000 : 1200);
+                        const rawPause = live ? (Axx.liveConversation?.pauseMs ?? 600) : (isChatDraft ? 15000 : 1200);
                         const pause = rawPause === 0 ? 60000 : rawPause;
                         const noSpeechTimeout = (live || isChatDraft) ? 30000 : 12000;
-                        if (heardSpeech && now - lastVoiceAt > pause && now - startedAt > 600) this.finish();
+                        if (heardSpeech && now - lastVoiceAt > pause && now - startedAt > 400) this.finish();
                         else if (!heardSpeech && now - startedAt > noSpeechTimeout) this.fail(id,new Error('No se detectó una frase. Revisa el nivel y el micrófono elegido; también puedes pulsar Responder ahora.'));
                     }
                     if(id===this.generation)state.inputLevel={owner:this.owner,rms,noise_floor:noiseFloor,threshold,heard_speech:heardSpeech,last_voice_at:heardSpeech?lastVoiceAt:null,at:now,phase:calibrating?'calibrating':voiced?'voice':noiseFloor>=.04?'noise':'quiet',device:stream.getAudioTracks()[0]?.label||'Micrófono'};

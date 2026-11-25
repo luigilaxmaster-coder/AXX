@@ -25,7 +25,7 @@ class ReleaseTests(unittest.TestCase):
         self.current = release.check(self.root)
 
     def receipt(self):
-        for name in ("axx-backend.spec", "scripts/backend_bundle.py", "scripts/build-windows.ps1", "scripts/setup-freellmapi.ps1", "scripts/configure-native-gateway.py", "scripts/anythingmcp-local.py", "src-tauri/windows/backend-bundle.nsh", "src-tauri/resources/ai-memory.exe", "requirements-telegram.txt", "requirements-speech.txt", "backend/telegram/webapp.html", "backend/telegram/webapp.css", "backend/telegram/webapp.js", "mobile/www/js/desktop-avatar.js", "mobile/js/avatar-renderer.js"):
+        for name in ("axx-backend.spec", "scripts/backend_bundle.py", "scripts/build-windows.ps1", "scripts/setup-freellmapi.ps1", "scripts/configure-native-gateway.py", "scripts/anythingmcp-local.py", "src-tauri/windows/backend-bundle.nsh", "src-tauri/resources/ai-memory.exe", "requirements-telegram.txt", "requirements-speech.txt", "backend/telegram/webapp.html", "backend/telegram/webapp.css", "backend/telegram/webapp.js", "mobile/www/js/desktop-avatar.js", "mobile/js/avatar-renderer.js", "requirements-cad.txt", "scripts/prepare-monaco.cjs"):
             path = self.root / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(b"unit test source fixture")
@@ -43,6 +43,15 @@ class ReleaseTests(unittest.TestCase):
         release.write_json(b, build)
         release.write_json(i, installed)
         return installer, b, i
+
+    def test_inventory_matches_build_inputs_for_vendor_assets(self):
+        vendor = self.root / '1.AXX/scripts/vendor/monaco'
+        vendor.mkdir(parents=True)
+        names = ('editor.mjs', 'codicon.ttf', 'chunk.js.LEGAL.txt', 'DOMPURIFY-LICENSE', 'notes.md')
+        for name in names:
+            (vendor / name).write_bytes(b'x')
+        found = {p.name for p in release.source_inventory(self.root) if p.parent == vendor.resolve()}
+        self.assertEqual(found, set(names[:4]))  # build-windows.ps1 hashes these; .md is not a build input
 
     def onedir_receipt(self):
         installer, b, i = self.receipt()

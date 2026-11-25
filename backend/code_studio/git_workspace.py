@@ -10,6 +10,7 @@ Enforces Invariants:
 from __future__ import annotations
 
 from pathlib import Path
+import os
 import re
 import shutil
 import subprocess
@@ -67,6 +68,9 @@ class GitWorkspaceService:
         proc = subprocess.run(
             ['git', *args],
             cwd=str(cwd),
+            # Preserve explicit empty Git config values on Windows, including
+            # hosts whose CRT environment has lost them after an environment edit.
+            env=os.environ.copy(),
             capture_output=True,
             text=True,
             encoding='utf-8',

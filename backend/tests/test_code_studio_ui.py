@@ -29,7 +29,7 @@ class CodeStudioUiTests(unittest.TestCase):
                 with sync_playwright() as p:
                     browser = p.chromium.launch(headless=True)
                     try:
-                        page = browser.new_page(viewport={'width':1440,'height':1000})
+                        page = browser.new_page(viewport={'width':1920,'height':1080})
                         def request(method, path, body=None):
                             code, data = backend.request(method, path, body)
                             if code >= 400:

@@ -12,7 +12,8 @@
     class CustomSpeechStream {
         constructor(reader, voice, generation) {
             this.reader = reader; this.voice = voice; this.generation = generation;
-            this.language = reader.lang || 'auto';
+            this.language = reader.turnVoiceProfile?.lang || reader.lang || 'auto';
+            this.turnRate=reader.turnVoiceProfile?.rate;
             this.context = context(); this.sources = new Set(); this.timers = new Set();
             this.audioChain = Axx.voiceAudio?.chain(this.context, voice.name);
             this.stopped = false; this.pending = false; this.nextTime = 0;
@@ -46,8 +47,8 @@
                 for (let frame = 0; frame < frames; frame++) output[frame] = view.getInt16((frame * channels + channel) * 2, true) / 32768;
             }
             const source = this.context.createBufferSource(); source.buffer = buffer;
-            const speed = Axx.voiceAudio?.speed(this.voice.name, this.reader.rate)
-                || Math.max(.75, Math.min(1.3, Number(this.reader.rate) || 1));
+            const voiceRate = this.turnRate ?? this.reader.rate, speed = Axx.voiceAudio?.speed(this.voice.name, voiceRate)
+                || Math.max(.75, Math.min(1.3, Number(voiceRate) || 1));  // `rate` above is the PCM sample rate
             source.playbackRate.value = speed; source.connect(this.audioChain?.input || this.context.destination);
             const now = this.context.currentTime;
             if (this.nextTime && this.nextTime < now) this.evidence.underruns++;
@@ -111,8 +112,8 @@
                     seconds += atob(event.pcm_base64).length / (2 * event.channels * event.sample_rate);
                     if (!firstPacket) firstPacket = { at: performance.now(), elapsed: event.elapsed_ms, seconds };
                 }
-                const latest = events.at(-1), speed = Axx.voiceAudio?.speed(this.voice.name, this.reader.rate)
-                    || Math.max(.75, Math.min(1.3, Number(this.reader.rate) || 1));
+                const latest = events.at(-1), rate=this.turnRate??this.reader.rate, speed = Axx.voiceAudio?.speed(this.voice.name, rate)
+                    || Math.max(.75, Math.min(1.3, Number(rate) || 1));
                 const produced = seconds - (firstPacket?.seconds || 0);
                 const elapsed = Math.max(performance.now() - (firstPacket?.at || performance.now()),
                     (latest?.elapsed_ms || 0) - (firstPacket?.elapsed || 0)) / 1000;
@@ -147,15 +148,17 @@
                     let remaining = text || '';
                     while (remaining && this.valid()) {
                         let length = Axx.voiceConversation?.phraseLength(remaining, true) || remaining.length;
-                        if (length < 38 && length < remaining.length) {
+                        while (length < 80 && length < remaining.length) {
                             const tail = remaining.slice(length).trimStart();
                             const skip = remaining.length - length - tail.length;
                             const nextLen = Axx.voiceConversation?.phraseLength(tail, true) || 0;
+                            if (nextLen <= 0 || length + skip + nextLen > 165) break;
                             const firstSlice = remaining.slice(0, length);
                             const nextSlice = tail.slice(0, nextLen);
                             const sameLang = !(/[¿¡ñáéíóú]/i.test(firstSlice) !== /[¿¡ñáéíóú]/i.test(nextSlice)
                                 || /\b(?:hello|please|thank|with|this)\b/i.test(nextSlice) !== /\b(?:hello|please|thank|with|this)\b/i.test(firstSlice));
-                            if (nextLen > 0 && sameLang && length + skip + nextLen <= 165) length += skip + nextLen;
+                            if (!sameLang) break;
+                            length += skip + nextLen;
                         }
                         const phraseText = remaining.slice(0, length).trim();
                         if (phraseText) await this.phrase(phraseText, index);

@@ -181,7 +181,7 @@ def _stop_owned(kernel, process, job):
             process.wait(timeout=3)
 
 
-def _spawn_owned(command, cwd, env, cancelled):
+def _spawn_owned(command, cwd, env, cancelled, *, stdin=subprocess.DEVNULL, stderr=subprocess.PIPE):
     if os.name != 'nt':
         raise ValueError('La ejecución con custodia de procesos requiere Windows')
     kernel = C.WinDLL('kernel32', use_last_error=True)
@@ -194,7 +194,7 @@ def _spawn_owned(command, cwd, env, cancelled):
         if info.BasicLimitInformation.LimitFlags != JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE:
             raise OSError('El Job Object no garantiza cancelación sin escape de descendientes')
         process = subprocess.Popen(command, executable=command[0], cwd=cwd, env=env, shell=False,
-                                   stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                   stdin=stdin, stdout=subprocess.PIPE, stderr=stderr,
                                    creationflags=subprocess.CREATE_NO_WINDOW | 4)
         if not job.assign_process(process._handle):
             raise OSError('El proceso suspendido no pudo asociarse al Job Object')
@@ -213,8 +213,9 @@ def _spawn_owned(command, cwd, env, cancelled):
         if process is not None:
             if process.poll() is None:
                 process.kill(); process.wait(timeout=3)
-            for pipe in (process.stdout, process.stderr):
-                pipe.close()
+            for pipe in (process.stdin, process.stdout, process.stderr):
+                if pipe is not None:
+                    pipe.close()
         raise
 
 

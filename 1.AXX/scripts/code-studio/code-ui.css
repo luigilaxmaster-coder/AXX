@@ -1,10 +1,80 @@
-.axx-code-studio { color:var(--ink,inherit); }
+.axx-code-studio { color:var(--ink,inherit); display:grid; gap:10px; }
 .axx-code-active > :not(.axx-code-studio):not(.axx-code-entry) { display:none!important; }
 .axx-code-studio [hidden] { display:none!important; }
-.axx-code-studio .axx-code-browser { max-height:180px; overflow:auto; display:flex; flex-wrap:wrap; gap:6px; margin:12px 0; }
-.axx-code-studio .axx-code-tabs { display:flex; gap:6px; overflow:auto; margin:8px 0; }
-.axx-code-studio .axx-code-editor { height:360px; min-height:180px; resize:vertical; overflow:hidden; border:1px solid var(--line,#555); border-radius:9px; }
-.axx-code-studio .axx-code-output { white-space:pre-wrap; overflow-wrap:anywhere; max-height:260px; overflow:auto; font:12px/1.5 Consolas,monospace; }
+/* Work mode: the contextual panel widens only while Code Studio or Acts Studio is open in the agent view. */
+#panel:has(#view-agent:not([hidden]) .axx-code-studio:not([hidden])),
+#panel:has(#view-agent:not([hidden]) .axx-acts-studio:not([hidden])) {
+  width:min(1240px, calc(100vw - 32px))!important; max-width:none!important; max-height:calc(100vh - 32px)!important;
+}
+.axx-code-head { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+.axx-code-head h3 { margin:0; font-size:18px; letter-spacing:-.01em; }
+.axx-code-head [data-code=status] { flex:1 1 240px; margin:0; font-size:12.5px; opacity:.78; }
+.axx-code-head [aria-pressed=true] { box-shadow:inset 0 0 0 1.5px var(--accent,#157eff); }
+.axx-code-studio details[data-code=project-settings] { border:1px solid var(--line,#5554); border-radius:12px; padding:6px 10px; }
+.axx-code-studio details[data-code=project-settings] summary { cursor:pointer; font-size:12.5px; font-weight:600; }
+/* One compact row (saved project | path) so the IDE body stays in view; stacks only on narrow panels. */
+.axx-code-project { display:grid; grid-template-columns:minmax(0,.8fr) auto minmax(0,1.2fr); gap:8px 10px; align-items:end; margin-top:6px; }
+.axx-code-project form { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:8px; align-items:end; }
+/* #panel#panel outranks interface-theme's resident `.setting` row padding/border without !important. */
+#panel#panel .axx-code-project .setting, .axx-code-project .setting { margin:0; padding:0; border:0; gap:3px; font-size:11.5px; font-weight:600; opacity:.95; }
+.axx-code-project select, .axx-code-project input { min-height:32px; padding:4px 9px; font-size:12.5px; }
+.axx-code-project button { min-height:32px; padding:4px 11px; font-size:12.5px; border-radius:9px; white-space:nowrap; }
+@media (max-width:900px) { .axx-code-project { grid-template-columns:minmax(0,1fr) auto; } .axx-code-project form { grid-column:1 / -1; } }
+.axx-code-toolbar { display:flex; flex-wrap:wrap; gap:6px; }
+.axx-code-toolbar button, .axx-code-acts button, .axx-code-head button { min-height:32px; padding:4px 11px; font-size:12.5px; border-radius:9px; }
+.axx-code-body { display:grid; grid-template-columns:minmax(160px,210px) minmax(0,1fr) minmax(210px,260px); gap:10px; align-items:stretch; }
+.axx-code-studio.axx-code-acts-hidden .axx-code-body { grid-template-columns:minmax(160px,210px) minmax(0,1fr); }
+.axx-code-studio.axx-code-acts-hidden .axx-code-acts { display:none; }
+.axx-code-side, .axx-code-acts { border:1px solid var(--line,#5554); border-radius:12px; padding:8px; overflow:auto;
+  max-height:clamp(340px, 64vh, 780px); display:flex; flex-direction:column; gap:8px; background:rgba(127,140,170,.05); }
+.axx-code-side h4, .axx-code-acts h4 { margin:4px 2px 0; font-size:10.5px; font-weight:700; letter-spacing:.09em; text-transform:uppercase; opacity:.62; }
+.axx-code-main { min-width:0; display:flex; flex-direction:column; gap:0; }
+.axx-code-studio .axx-code-browser { display:flex; flex-direction:column; gap:1px; }
+.axx-code-studio .axx-code-browser button { display:block; width:100%; text-align:left; min-height:27px; padding:3px 8px; border:0; border-radius:7px;
+  background:transparent; font:12.5px/1.35 ui-monospace,'Cascadia Code',Consolas,monospace; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.axx-code-studio .axx-code-browser button:hover, .axx-code-studio .axx-code-browser button:focus-visible { background:rgba(110,140,200,.16); }
+.axx-code-studio .axx-code-tabs { display:flex; gap:2px; overflow-x:auto; border:1px solid var(--line,#5554); border-bottom:0; border-radius:10px 10px 0 0; padding:4px 4px 0; background:rgba(127,140,170,.06); }
+.axx-code-studio .axx-code-tabs button { border-radius:8px 8px 0 0; min-height:30px; padding:3px 12px; font:12.5px/1.2 ui-monospace,'Cascadia Code',Consolas,monospace; border-bottom:0; }
+.axx-code-studio .axx-code-tabs button[aria-selected=true] { outline:0; box-shadow:inset 0 2px 0 var(--accent,#157eff); background:var(--panel-bg, rgba(255,255,255,.7)); }
+.axx-code-studio .axx-code-editor { height:clamp(340px, 60vh, 760px); min-height:220px; resize:vertical; overflow:hidden; border:1px solid var(--line,#5554); }
+.axx-code-studio .axx-code-tabs:empty + .axx-code-editor { border-radius:10px 10px 0 0; }
+.axx-code-statusbar { margin:0; padding:4px 10px; border:1px solid var(--line,#5554); border-top:0; border-radius:0 0 10px 10px;
+  font:11.5px/1.4 ui-monospace,'Cascadia Code',Consolas,monospace; opacity:.82; min-height:22px; }
+.axx-code-acts select, .axx-code-acts input { width:100%; }
+.axx-code-stack { display:flex; flex-direction:column; gap:6px; }
+.axx-code-stack button { width:100%; justify-content:center; }
+.axx-code-flow { list-style:none; margin:2px 0; padding:0; display:grid; gap:4px; counter-reset:step; }
+.axx-code-flow li { counter-increment:step; display:flex; align-items:center; gap:8px; font-size:12px; opacity:.55; }
+.axx-code-flow li::before { content:counter(step); display:grid; place-items:center; width:20px; height:20px; border-radius:50%; flex:none;
+  border:1.5px solid currentColor; font-size:10.5px; font-weight:700; }
+.axx-code-flow li[data-state=current] { opacity:1; font-weight:600; color:var(--accent,#157eff); }
+.axx-code-flow li[data-state=current]::before { animation:axx-code-pulse 1.6s ease-in-out infinite; }
+.axx-code-flow li[data-state=done] { opacity:.95; color:#1f9d55; }
+.axx-code-flow li[data-state=done]::before { content:'✓'; background:#1f9d55; border-color:#1f9d55; color:#fff; }
+@keyframes axx-code-pulse { 50% { box-shadow:0 0 0 4px rgba(21,126,255,.18); } }
+.axx-code-studio .axx-code-output { white-space:pre-wrap; overflow-wrap:anywhere; max-height:280px; overflow:auto; margin:0;
+  padding:10px 12px; border:1px solid var(--line,#5554); border-radius:10px; font:12px/1.5 ui-monospace,'Cascadia Code',Consolas,monospace; background:rgba(15,20,30,.04); }
 .axx-code-studio input { min-width:0; width:100%; }
 .axx-code-studio button[aria-selected=true] { outline:2px solid var(--accent,#157eff); outline-offset:-2px; }
-@media(max-width:480px) { .axx-code-studio .axx-code-editor { height:280px; } }
+@media (prefers-reduced-motion:reduce) { .axx-code-flow li[data-state=current]::before { animation:none; } }
+@media (max-width:980px) {
+  .axx-code-body, .axx-code-studio.axx-code-acts-hidden .axx-code-body { grid-template-columns:minmax(0,1fr); }
+  .axx-code-side, .axx-code-acts { max-height:220px; }
+}
+@media (max-width:480px) { .axx-code-studio .axx-code-editor { height:280px; } }
+.axx-code-debug-line { background:rgba(255,190,55,.2); }
+/* Code guides: line ranges from an Act's explanation (focus, reference, error, execution flow). */
+.axx-code-guide { background:rgba(120,140,255,.10); }
+.axx-code-guide-focus { background:rgba(127,140,255,.14); box-shadow:inset 3px 0 0 #7f8cff; }
+.axx-code-guide-reference { background:rgba(63,191,149,.14); box-shadow:inset 3px 0 0 #3fbf95; }
+.axx-code-guide-error { background:rgba(224,72,62,.16); box-shadow:inset 3px 0 0 #e0483e; }
+.axx-code-guide-flow { background:rgba(224,162,30,.15); box-shadow:inset 3px 0 0 #e0a21e; }
+.axx-code-guide-current { outline:1px solid rgba(127,140,255,.55); outline-offset:-1px; }
+.axx-code-guide-focus.axx-code-guide-current { background:rgba(127,140,255,.26); }
+.axx-code-guide-reference.axx-code-guide-current { background:rgba(63,191,149,.26); outline-color:rgba(63,191,149,.65); }
+.axx-code-guide-error.axx-code-guide-current { background:rgba(224,72,62,.28); outline-color:rgba(224,72,62,.7); }
+.axx-code-guide-flow.axx-code-guide-current { background:rgba(224,162,30,.27); outline-color:rgba(224,162,30,.7); }
+.axx-code-guide-n { display:inline-block; min-width:1.4em; margin-right:6px; border-radius:999px; text-align:center; font-weight:700; color:#1b1300; background:#e0a21e; }
+.axx-code-guidebar { display:flex; align-items:center; gap:6px; padding:6px 8px; border-top:1px solid var(--line,#5554); font-size:12.5px; }
+.axx-code-guidebar > span { flex:1; min-width:0; }
+.axx-code-guidebar[hidden] { display:none; }

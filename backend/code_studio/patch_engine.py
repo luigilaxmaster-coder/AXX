@@ -165,8 +165,33 @@ class CodePatchEngine:
                         approval_operation_id TEXT,
                         created_at_ms INTEGER NOT NULL
                     );
+                    CREATE TABLE IF NOT EXISTS code_changeset_reviews (
+                        review_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        changeset_id TEXT NOT NULL REFERENCES code_changesets(changeset_id) ON DELETE CASCADE,
+                        reviewer_id TEXT NOT NULL,
+                        verdict TEXT NOT NULL CHECK(verdict IN ('approved', 'changes', 'unclear')),
+                        model TEXT NOT NULL,
+                        summary TEXT NOT NULL,
+                        created_at_ms INTEGER NOT NULL
+                    );
                     '''
                 )
+
+    def record_review(self, changeset_id: str, reviewer_id: str, verdict: str, model: str, summary: str) -> dict[str, Any]:
+        self.get_changeset(changeset_id)
+        now = self.projects.clock()
+        with self.projects.lock, self.projects._connect() as db:
+            with db:
+                review_id = db.execute(
+                    'INSERT INTO code_changeset_reviews (changeset_id, reviewer_id, verdict, model, summary, created_at_ms) '
+                    'VALUES (?, ?, ?, ?, ?, ?)', (changeset_id, reviewer_id, verdict, model, summary[:4000], now)).lastrowid
+        return {'review_id': review_id, 'changeset_id': changeset_id, 'reviewer_id': reviewer_id, 'verdict': verdict,
+                'model': model, 'summary': summary[:4000], 'created_at_ms': now}
+
+    def list_reviews(self, changeset_id: str) -> list[dict[str, Any]]:
+        with self.projects.lock, self.projects._connect() as db:
+            return [dict(r) for r in db.execute(
+                'SELECT * FROM code_changeset_reviews WHERE changeset_id=? ORDER BY review_id', (changeset_id,))]
 
     def propose_changeset(
         self,
@@ -188,16 +213,28 @@ class CodePatchEngine:
         root = Path(target_root).resolve() if target_root else self.projects.get_project_root(project_id)
         files_manifest: list[dict[str, Any]] = []
         proposed_blobs: dict[str, dict[str, str]] = {}
+        if not isinstance(file_edits, list) or not 1 <= len(file_edits) <= 500:
+            raise CodeChangeSetValidationError('file_edits must contain 1..500 edits')
+        seen_paths: set[str] = set()
 
         for edit in file_edits:
+            if not isinstance(edit, dict) or not isinstance(edit.get('path'), str):
+                raise CodeChangeSetValidationError('Each edit needs a text path')
             rel_path = str(edit['path'])
-            new_content = str(edit['new_content'])
             full_path = resolve_scoped_project_path(root, rel_path)
+            path_key = str(full_path).casefold()
+            if path_key in seen_paths:
+                raise CodeChangeSetValidationError('Duplicate paths in changeset')
+            seen_paths.add(path_key)
+            if 'hunks' in edit and not SHA256_RE.fullmatch(str(edit.get('expected_base_sha256', ''))):
+                raise CodeChangeSetValidationError('Incremental edits require expected_base_sha256')
             if not full_path.is_file():
                 raise FileNotFoundError(f'Cannot propose edit for missing file: {rel_path}')
 
             current_raw = full_path.read_bytes()
             current_info = detect_encoding_and_eol(current_raw)
+            from backend.code_studio.context import incremental_content
+            new_content = incremental_content(current_info['text'], edit)
             base_sha = edit.get('expected_base_sha256') or current_info['sha256']
             if base_sha != current_info['sha256']:
                 raise CodeConflictError(
@@ -212,6 +249,8 @@ class CodePatchEngine:
                 line_ending=target_eol,
             )
             proposed_sha = hashlib.sha256(new_raw).hexdigest()
+            if len(new_raw) > self.projects.max_editable_bytes:
+                raise CodeChangeSetValidationError('Proposed file exceeds editable size limit')
             diff_text, diff_digest = compute_unified_diff(rel_path, current_info['text'], new_content.replace('\r\n', '\n'))
 
             files_manifest.append(
@@ -285,6 +324,17 @@ class CodePatchEngine:
             if not row:
                 raise LookupError(f'CodeChangeSet not found: {changeset_id}')
             return json.loads(row['changeset_json'])
+
+    def get_diffs(self, changeset_id: str) -> dict[str, Any]:
+        with self.projects.lock, self.projects._connect() as db:
+            row = db.execute('SELECT proposed_blobs_json, created_at_ms FROM code_changesets WHERE changeset_id=?',
+                             (changeset_id,)).fetchone()
+            if not row:
+                raise LookupError(f'CodeChangeSet not found: {changeset_id}')
+        blobs = json.loads(row['proposed_blobs_json'])
+        return {'created_at_ms': int(row['created_at_ms']),
+                'files': [{'path': path, 'diff_text': blob['diff_text'], 'new_content': blob['new_content']}
+                          for path, blob in blobs.items()]}
 
     def apply_changeset(
         self,

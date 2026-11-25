@@ -37,9 +37,10 @@
       const access=await api('GET','status');devices=(access.devices||[]).filter(d=>!d.revoked);
       renderDevices();
       // Desktop automation uses the same owner and indicator even without a paired phone.
-      const r=Axx.app?.renderer;
-      if(r?.materialTable){
-        const table=r.materialTable(),body={key:r.lutKey,...options()};
+      // An Act operating the computer lends its own material so the indicator shows which Act holds the mouse.
+      const r=Axx.app?.renderer,lent=Axx.inputMaterialOverride?.()||null;
+      if(lent||r?.materialTable){
+        const table=lent?lent.table:r.materialTable(),body={key:lent?lent.key:r.lutKey,...options()};
         if(materialKey!==body.key){
           const bytes=new Uint8Array(128*128*4);
           for(let y=0;y<128;y++)for(let x=0;x<128;x++){

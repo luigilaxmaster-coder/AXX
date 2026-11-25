@@ -212,7 +212,8 @@
         if (message.length > 32000) throw new Error('La petición actual y sus referencias superan 32.000 caracteres. Reduce el contexto; no se ha truncado ni enviado.');
         const result = await run({message, purpose:p.voice_turn ? 'voice' : 'chat',
             preferences:{style:p.personalityStyle || 'natural', language:p.voiceLanguage || 'auto', notes:String(p.personalityNotes || '').slice(0,500)},
-            model: p.model, conversation_id: p.memory_context_id||c.data.connectConversationId,...(p.memory_scope?{memory_scope:{...p.memory_scope}}:{})}, signal, onDelta);
+            model: p.model, conversation_id: p.memory_context_id||c.data.connectConversationId,...(p.memory_scope?{memory_scope:{...p.memory_scope}}:{}),
+            ...(p.act_id?{act_id:p.act_id,act_revision:p.act_revision}:{})}, signal, onDelta);
         c.save(); this.inferenceVerified = true; this.connected = true; this.lastRoute = result.route;
         return result;
     };

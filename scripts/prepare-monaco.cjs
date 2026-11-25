@@ -10,7 +10,9 @@ const target = path.join(root, '1.AXX/scripts/vendor', 'monaco-' + version + '-e
 const entry = path.join(root, 'build/monaco-entry.mjs');
 fs.mkdirSync(path.dirname(entry), { recursive: true });
 fs.mkdirSync(target, { recursive: true });
-fs.writeFileSync(entry, "export * from 'monaco-editor/editor/editor.api.js';\nimport 'monaco-editor/basic-languages/monaco.contribution.js';\n");
+// editor.api ships no editor contributions: suggest shows LSP completions, hover shows diagnostic messages.
+fs.writeFileSync(entry, "export * from 'monaco-editor/editor/editor.api.js';\nimport 'monaco-editor/basic-languages/monaco.contribution.js';\n"
+  + "import 'monaco-editor/editor/contrib/suggest/browser/suggestController.js';\nimport 'monaco-editor/editor/contrib/hover/browser/hoverContribution.js';\n");
 (async () => {
   const result = await build({absWorkingDir:root,entryPoints:{editor:entry,
     'editor.worker':path.join(source,'esm/vs/editor/editor.worker.js')},outdir:target,

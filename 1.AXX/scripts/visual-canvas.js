@@ -2,26 +2,38 @@
 const NS='http://www.w3.org/2000/svg';let sequence=0;
 const svg=(name,attrs={},text)=>{const n=document.createElementNS(NS,name);for(const [k,v] of Object.entries(attrs))n.setAttribute(k,String(v));if(text!==undefined)n.textContent=text;return n;};
 
-export function renderDiagram(host,diagram,stepId,onStep=()=>{}){
+export function renderDiagram(host,diagram,stepId,onStep=()=>{},onEdit=null){
     host.replaceChildren();const root=svg('svg',{viewBox:'0 0 1000 600',role:'group','aria-label':'Diagrama de la explicación'}),markerId='axx-diagram-arrow-'+(++sequence);
     const defs=svg('defs'),marker=svg('marker',{id:markerId,viewBox:'0 0 10 10',refX:9,refY:5,markerWidth:7,markerHeight:7,orient:'auto-start-reverse'});
     marker.append(svg('path',{d:'M 0 0 L 10 5 L 0 10 z',fill:'currentColor'}));defs.append(marker);root.append(defs);
     root.style.color='var(--mp-ink)';const nodes=new Map(diagram.nodes.map(n=>[n.id,n]));
+    // Step activation: edges touching the active node carry an animated flow (dash + travelling dot); others recede.
+    const activeIds=new Set(diagram.nodes.filter(n=>n.step_id===stepId).map(n=>n.id));
+    root.dataset.activeNodes=[...activeIds].join(' ');
+    const reduced=matchMedia?.('(prefers-reduced-motion: reduce)').matches;
     for(const edge of diagram.edges){
         const a=nodes.get(edge.from).bounds,b=nodes.get(edge.to).bounds,x1=(a[0]+a[2]/2)*1000,y1=(a[1]+a[3]/2)*600,x2=(b[0]+b[2]/2)*1000,y2=(b[1]+b[3]/2)*600;
         const labelX=(x1+x2)/2,labelY=(y1+y2)/2-18,labelWidth=Math.min(300,Math.max(120,edge.label.length*18+28));
-        root.append(svg('line',{x1,y1,x2,y2,stroke:'currentColor','stroke-opacity':'.55','stroke-width':4,'marker-end':'url(#'+markerId+')'}),
+        if(activeIds.has(edge.from)||activeIds.has(edge.to)){
+            const flow=svg('line',{x1,y1,x2,y2,class:'mp-diagram-flow','data-from':edge.from,'data-to':edge.to,stroke:'var(--mp-accent, #9274ff)','stroke-width':6,'stroke-dasharray':'16 14','stroke-linecap':'round'});
+            root.append(flow);
+            if(!reduced){const dot=svg('circle',{r:9,fill:'var(--mp-accent, #9274ff)',class:'mp-diagram-flow-dot'});
+                dot.append(svg('animateMotion',{dur:'1.6s',repeatCount:'indefinite',path:`M ${x1} ${y1} L ${x2} ${y2}`}));root.append(dot);}
+        }
+        root.append(svg('line',{x1,y1,x2,y2,stroke:'currentColor','stroke-opacity':activeIds.size&&!(activeIds.has(edge.from)||activeIds.has(edge.to))?'.25':'.55','stroke-width':4,'marker-end':'url(#'+markerId+')'}),
             svg('rect',{x:labelX-labelWidth/2,y:labelY-24,width:labelWidth,height:38,rx:19,fill:'var(--surface, #222b3c)',stroke:'var(--line, #ffffff25)','stroke-width':2}),
             svg('text',{x:labelX,y:labelY,'text-anchor':'middle','dominant-baseline':'middle','font-size':26,'font-weight':550,fill:'currentColor'},edge.label));
     }
     for(const node of diagram.nodes){
         const [a,b,c,d]=node.bounds,x=a*1000,y=b*600,w=c*1000,h=d*600,active=node.step_id===stepId;
-        const g=svg('g',{role:'button',tabindex:0,'aria-label':node.label,'aria-current':active?'step':'false',class:'mp-diagram-node'});
+        const g=svg('g',{role:'button',tabindex:0,'aria-label':node.label,'aria-current':active?'step':'false',class:'mp-diagram-node','data-node-id':node.id,
+            ...(activeIds.size&&!active?{opacity:.55}:{})});
         g.append(svg('rect',{x,y,width:w,height:h,rx:18,fill:active?'color-mix(in srgb, var(--mp-accent, #9274ff) 12%, var(--surface, #222b3c))':'var(--surface, #222b3c)',stroke:active?'var(--mp-accent, #9274ff)':'currentColor','stroke-opacity':active?'1':'.6','stroke-width':active?5:2}));
         const words=node.label.split(/\s+/),lines=[];let line='';
         for(const word of words){if(line.length+word.length>Math.max(7,Math.floor(w/20))){lines.push(line);line='';}line+=(line?' ':'')+word;}if(line)lines.push(line);
         lines.slice(0,4).forEach((text,i)=>g.append(svg('text',{x:x+w/2,y:y+h/2+(i-(Math.min(lines.length,4)-1)/2)*36,'text-anchor':'middle','dominant-baseline':'middle','font-size':32,'font-weight':550,fill:'currentColor'},text)));
-        g.addEventListener('click',()=>onStep(node.step_id,node));g.addEventListener('keydown',e=>{if(['Enter',' '].includes(e.key)){e.preventDefault();onStep(node.step_id,node);}});root.append(g);
+        g.addEventListener('click',()=>onStep(node.step_id,node));g.addEventListener('keydown',e=>{if(['Enter',' '].includes(e.key)){e.preventDefault();onStep(node.step_id,node);}else if(e.key==='F2'&&onEdit){e.preventDefault();onEdit(node);}});
+        if(onEdit){g.addEventListener('dblclick',()=>onEdit(node));g.append(svg('title',{},'Doble clic o F2 para editar'));}root.append(g);
     }
     host.append(root);
 }

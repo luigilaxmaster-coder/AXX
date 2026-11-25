@@ -373,6 +373,46 @@ def export_motion_mp4(
         'mp4_bytes': mp4_bytes,
         'mp4_sha256': mp4_sha256,
         'mp4_size_bytes': len(mp4_bytes),
+        'render_mode': 'schematic_2d',
         'output_path': written_path,
         'simulation_fidelity': 'illustrative_not_fem_cfd',
     }
+
+
+def encode_rendered_frames(scene_doc, frames, *, fps=10):
+    """Encode bounded real-renderer PNGs, then decode every output frame to verify the video."""
+    import base64
+    import av
+    scene = validate_scene_document_v2(scene_doc)
+    if type(fps) is not int or not 1 <= fps <= 30 or not isinstance(frames, list) or not 2 <= len(frames) <= 300:
+        raise MotionStudioError('Rendered export requires 2..300 frames at 1..30 fps')
+    pngs, hashes, states, size, total = [], [], [], None, 0
+    for i, frame in enumerate(frames):
+        expected = freeze_scene_at(scene, round(i / fps, 4))
+        if frame.get('state_sha256') != expected['state_sha256']:
+            raise MotionStudioError('Frame does not match the requested timeline state')
+        data = frame.get('png', '')
+        if not isinstance(data, str) or not data.startswith('data:image/png;base64,'):
+            raise MotionStudioError('Rendered frame must be a PNG data URL')
+        png = base64.b64decode(data.split(',', 1)[1], validate=True)
+        total += len(png)
+        if total > 24 * 1024 * 1024:
+            raise MotionStudioError('Rendered video input exceeds 24 MiB')
+        with Image.open(io.BytesIO(png)) as image:
+            if image.format != 'PNG' or image.width > 1920 or image.height > 1080 or image.width % 2 or image.height % 2:
+                raise MotionStudioError('Video frames require even dimensions up to 1920x1080')
+            if size is not None and image.size != size:
+                raise MotionStudioError('Video frame dimensions changed during capture')
+            size = image.size
+            image.verify()
+        pngs.append(png); hashes.append(hashlib.sha256(png).hexdigest()); states.append(expected['state_sha256'])
+    raw = _build_deterministic_mp4_container(pngs, fps=fps, seed=42, timestamps=[round(i/fps,4) for i in range(len(pngs))])
+    with av.open(io.BytesIO(raw)) as video:
+        decoded = sum(1 for _ in video.decode(video=0))
+    if decoded != len(frames):
+        raise MotionStudioError('Encoded video frame count failed decode verification')
+    return raw, {'document_id': scene['document_id'], 'revision': scene['revision'], 'fps': fps,
+                 'frame_count': decoded, 'duration_seconds': decoded/fps, 'frame_hashes': hashes,
+                 'state_hashes': states, 'motion_observed': len(set(hashes)) > 1,
+                 'render_mode': 'threejs_webgl_canvas', 'mp4_sha256': hashlib.sha256(raw).hexdigest(),
+                 'engineering_verified': False}

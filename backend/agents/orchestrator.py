@@ -234,7 +234,7 @@ class MultiAgentOrchestrator:
             event_type='approval.resolved',
             payload={'operation_id': operation_id, 'approved': approved, 'actor': actor},
         )
-        if not approved:
+        if not approved and card['tool_name'] != 'routine.execute':  # routine slots are not TaskGraph nodes
             self.task_graph.cancel_task(card['task_id'], reason=f'Denied by {actor}')
         return dict(card)
 

@@ -204,6 +204,14 @@ def validate_scene_document_v2(doc: Any) -> dict[str, Any]:
         props = obj.get('properties') or {}
         if not isinstance(props, dict):
             raise SceneDocumentError(f'properties for {oid} must be an object')
+        if rep == 'primitive':
+            if 'size' in props:
+                size = _check_vec3(props['size'], f'{oid}.properties.size')
+                if any(x <= 0 or x > 1e6 for x in size):
+                    raise SceneDocumentError('Primitive size must be positive and bounded')
+            if 'color' in props and (not isinstance(props['color'], str)
+                                     or not re.fullmatch(r'#[0-9a-fA-F]{6}', props['color'])):
+                raise SceneDocumentError('Primitive color must be #rrggbb')
         # Block scripts or big blobs inside properties
         props_str = json.dumps(props, ensure_ascii=False, allow_nan=False)
         if len(props_str) > 32768:
@@ -472,6 +480,10 @@ class SceneDocumentStore:
                     )
                     '''
                 )
+                db.execute('CREATE TABLE IF NOT EXISTS spatial_scene_operations '
+                           '(document_id TEXT NOT NULL, operation_id TEXT NOT NULL, kind TEXT NOT NULL, '
+                           'request_json TEXT NOT NULL, response_json TEXT NOT NULL, '
+                           'PRIMARY KEY(document_id, operation_id))')
 
     def close(self) -> None:
         with self.lock:

@@ -11,11 +11,11 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Source%20Version-v0.22.52-informational?style=flat-square" alt="Source version 0.22.52" />
+  <img src="https://img.shields.io/badge/Source%20Version-v0.23.3-informational?style=flat-square" alt="Source version 0.23.3" />
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-36b8a5?style=flat-square" alt="Licencia MIT del código original de Axx" /></a>
   <img src="https://img.shields.io/badge/Windows-x64-242b38?style=flat-square" alt="Windows x64" />
   <a href="https://github.com/luigilaxmaster-coder/AXX/actions/workflows/version-consistency.yml">Integración continua</a> ·
-  <a href="docs/releases/0.22.52.md">Notas de la versión</a> ·
+  <a href="docs/releases/0.23.3.md">Notas de la versión</a> ·
   <a href="docs/COMMAND-TRAINING.md">Práctica y aceptación</a>
 </p>
 
@@ -27,18 +27,18 @@
   <a href="LICENSE">MIT</a>
 </p>
 
-> **Axx is under active development.** Source and published Windows installer are both **v0.22.52**. Validation is recorded per feature; a working UI or build does not by itself certify every hardware-dependent behavior.
+> **Axx is under active development.** Source and published Windows installer are both **v0.23.3**. Validation is recorded per feature; a working UI or build does not by itself certify every hardware-dependent behavior.
 
 ## Download Axx for Windows
 
 <!-- release:download:start -->
-**[Download Windows x64 test installer · v0.22.52](https://github.com/luigilaxmaster-coder/AXX/releases/download/v0.22.52/Axx_0.22.52_x64-setup.exe)** · [Release files](https://github.com/luigilaxmaster-coder/AXX/releases/tag/v0.22.52) · [SHA-256](https://github.com/luigilaxmaster-coder/AXX/releases/download/v0.22.52/SHA256SUMS.txt)
+**[Download Windows x64 test installer · v0.23.3](https://github.com/luigilaxmaster-coder/AXX/releases/download/v0.23.3/Axx_0.23.3_x64-setup.exe)** · [Release files](https://github.com/luigilaxmaster-coder/AXX/releases/tag/v0.23.3) · [SHA-256](https://github.com/luigilaxmaster-coder/AXX/releases/download/v0.23.3/SHA256SUMS.txt)
 
 Run the installer and open Axx. Python and Node are not required. Start with **Automático gratis · Sin claves**; Axx checks available free routes, whose availability can change. Personal API keys are optional in Settings. Credentials and conversation history are not included in the installer. Windows may need Internet to install WebView2. The installer is unsigned.
 
 Backend dependencies are installed with the app and do not require extraction on every launch. Windows may still scan them during startup. The native host allows up to 90 seconds for backend readiness and reports a startup error if that limit is exceeded.
 
-Source and published Windows installer are both **v0.22.52**. Android APKs remain local test artifacts until separately published. See [mobile setup and validation](docs/mobile/README.md) and the [version and release procedure](docs/RELEASING.md).
+Source and published Windows installer are both **v0.23.3**. Android APKs remain local test artifacts until separately published. See [mobile setup and validation](docs/mobile/README.md) and the [version and release procedure](docs/RELEASING.md).
 <!-- release:download:end -->
 
 ---
@@ -255,14 +255,14 @@ confirme el hash del instalador verificado.
 <!-- release:history:start -->
 | Versión | Estado | Cambios y validación |
 | --- | --- | --- |
-| **0.22.52** | Publicada · Windows x64 | [Notas detalladas](docs/releases/0.22.52.md) |
+| **0.23.3** | Publicada · Windows x64 | [Notas detalladas](docs/releases/0.23.3.md) |
+| **0.23.2** | Notas archivadas | [Notas detalladas](docs/releases/0.23.2.md) |
+| **0.23.1** | Notas archivadas | [Notas detalladas](docs/releases/0.23.1.md) |
+| **0.23.0** | Notas archivadas | [Notas detalladas](docs/releases/0.23.0.md) |
+| **0.22.52** | Notas archivadas | [Notas detalladas](docs/releases/0.22.52.md) |
 | **0.22.51** | Notas archivadas | [Notas detalladas](docs/releases/0.22.51.md) |
 | **0.22.50** | Notas archivadas | [Notas detalladas](docs/releases/0.22.50.md) |
 | **0.22.49** | Notas archivadas | [Notas detalladas](docs/releases/0.22.49.md) |
-| **0.22.48** | Notas archivadas | [Notas detalladas](docs/releases/0.22.48.md) |
-| **0.22.47** | Notas archivadas | [Notas detalladas](docs/releases/0.22.47.md) |
-| **0.22.46** | Notas archivadas | [Notas detalladas](docs/releases/0.22.46.md) |
-| **0.22.45** | Notas archivadas | [Notas detalladas](docs/releases/0.22.45.md) |
 <!-- release:history:end -->
 
 [Todas las notas](docs/releases/) · [Historial ampliado](CHANGELOG.md) · [Cómo se entrega una versión](docs/RELEASING.md)
