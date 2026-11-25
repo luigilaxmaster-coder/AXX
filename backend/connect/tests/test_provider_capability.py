@@ -15,7 +15,7 @@ from backend.connect.tests.test_provider import ControlledProvider
 
 def request(**changes):
     return {'request_id': 'cap-fixture', 'model': 'gpt-6.1-sol', 'provider_name': '@codex',
-            'task': 'code', 'allow_paid': False, 'deadline_ms': 2000,
+            'task': 'code', 'allow_paid': False, 'deadline_ms': 20000,  # roomy for loaded CI; the deadline test sets its own
             'messages': [{'role': 'system', 'content': 'Return one python_transform JSON definition.'},
                          {'role': 'user', 'content': 'Normalizar texto.'}], **changes}
 
