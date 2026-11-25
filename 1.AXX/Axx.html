@@ -1810,7 +1810,7 @@ body.axx-resident :is(.panel-head,.flow-library-head,.organic-satellite-head,.v1
 <script>"use strict";
 var Axx;
 (function (Axx) {
-    Axx.VERSION = '0.23.1';
+    Axx.VERSION = '0.23.3';
     function newId() {
         if (typeof crypto.randomUUID === 'function')
             return crypto.randomUUID();
@@ -9219,6 +9219,8 @@ var Axx;
                 if (response.status === 'complete')
                     this.action('success');
                 receiveSpeech(result.text, true);
+                const reader = this.app.symbiosis?.reader || Axx.symbiosis?.reader;
+                if (reader) reader.awaitingText = false;
                 if (!liveSpeech.started && (this.data.prefs.voiceRead || this._forceVoiceReplyOnce)) {
                     this._forceVoiceReplyOnce = false;
                     this.read(result.text);
@@ -9559,7 +9561,7 @@ var Axx;
                 this._forceVoiceReplyOnce = false;
                 return false;
             }
-            const shouldSpeak = this.data.prefs.voiceRead || this._forceVoiceReplyOnce;
+            const shouldSpeak = this.data.prefs.voiceRead || this._forceVoiceReplyOnce || Axx.symbiosis?.liveActive;
             this._forceVoiceReplyOnce = false;
             if (!shouldSpeak || this.data.prefs.mutedAll) return false;
             const clean = String(text).replace(/https?:\/\/\S+/g, '').replace(/[#*`_~]/g, '').trim();

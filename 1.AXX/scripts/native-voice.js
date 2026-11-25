@@ -382,10 +382,10 @@
                         voiceFrames=0;
                         if(!calibrating)noiseFloor = rms<noiseFloor ? noiseFloor*.85+rms*.15 : noiseFloor*.997+Math.min(rms,.08)*.003;
                         const live = isQuick || !isChatDraft && Axx.symbiosis?.use === 'live';
-                        const rawPause = live ? (Axx.liveConversation?.pauseMs ?? 900) : (isChatDraft ? 15000 : 1200);
+                        const rawPause = live ? (Axx.liveConversation?.pauseMs ?? 600) : (isChatDraft ? 15000 : 1200);
                         const pause = rawPause === 0 ? 60000 : rawPause;
                         const noSpeechTimeout = (live || isChatDraft) ? 30000 : 12000;
-                        if (heardSpeech && now - lastVoiceAt > pause && now - startedAt > 600) this.finish();
+                        if (heardSpeech && now - lastVoiceAt > pause && now - startedAt > 400) this.finish();
                         else if (!heardSpeech && now - startedAt > noSpeechTimeout) this.fail(id,new Error('No se detectó una frase. Revisa el nivel y el micrófono elegido; también puedes pulsar Responder ahora.'));
                     }
                     if(id===this.generation)state.inputLevel={owner:this.owner,rms,noise_floor:noiseFloor,threshold,heard_speech:heardSpeech,last_voice_at:heardSpeech?lastVoiceAt:null,at:now,phase:calibrating?'calibrating':voiced?'voice':noiseFloor>=.04?'noise':'quiet',device:stream.getAudioTracks()[0]?.label||'Micrófono'};

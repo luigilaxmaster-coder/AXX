@@ -43,7 +43,7 @@
         instructions: 'MODO VOZ: Conversa con naturalidad como una persona cercana y fluida en el idioma del usuario. Empieza por una respuesta útil y directa, usando de una a tres frases bien conectadas y fáciles de escuchar; amplía solo si la petición lo necesita. Usa ritmo conversacional humano, conectores hablados naturales y matices expresivos en el vocabulario, la cadencia y los remates sin alterar los hechos. No escribas emojis, listas, viñetas, asteriscos, comillas decorativas, Markdown, URLs, código ni identificadores técnicos salvo que te los pidan. Evita frases mecánicas sobre tu inactividad entre mensajes, saludos repetidos, coletillas, anunciar que estás pensando y preguntas de cierre automáticas. No afirmes emociones reales ni acciones sin un recibo del ejecutor. Si te corrigen, incorpora la corrección sin repetir la equivocación. ',
         phraseLength(text, final = false) {
             const limit = 180;
-            for (const match of text.matchAll(/[.!?](?=\s|$)/g)) {
+            for (const match of text.matchAll(/[.!?:](?=\s|$)/g)) {
                 const prefix = text.slice(0, match.index + 1);
                 if (/\b(?:Sr|Sra|Dr|Dra|Ud|Uds|aprox|etc)\.$/i.test(prefix) || /\b\d+\.$/.test(prefix)) continue;
                 if (prefix.length <= limit) return prefix.length;

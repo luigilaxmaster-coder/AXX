@@ -62,6 +62,20 @@ class MossSpeechService:
         self._preparing = None
         self._stream = None
 
+    def _engine_signature(self):
+        engine_files = [self.script, self.script.with_name('speech_text.py'),
+                        self.root / 'onnx_tts_runtime.py', self.root / 'ort_cpu_runtime.py']
+        engine_state = [(p.name, p.stat().st_size, p.stat().st_mtime_ns) for p in engine_files if p.is_file()]
+        models_mtime = max((p.stat().st_mtime_ns for p in self.models.glob('*/*') if p.is_file()), default=0)
+        cache_key = (str(self.root), str(self.models), tuple(engine_state), models_mtime)
+        if getattr(self, '_cached_sig_key', None) != cache_key:
+            models = sorted(p for p in self.models.glob('*/*') if p.is_file())
+            signature = ([(str(p), p.stat().st_size, p.stat().st_mtime_ns) for p in models] +
+                         [(p.name, hashlib.sha256(p.read_bytes()).hexdigest()) for p in engine_files if p.is_file()])
+            self._cached_sig_key = cache_key
+            self._cached_sig_val = signature
+        return self._cached_sig_val
+
     def _cache_path(self, request):
         """No text in filenames; invalidate on voice, engine or model changes."""
         if request.get('prepare'):
@@ -76,13 +90,7 @@ class MossSpeechService:
                     english = self.personal_samples / 'axx-morcito-en.wav'
                 if english.is_file():
                     voice = english
-            engine = [self.script, self.script.with_name('speech_text.py'),
-                      self.root / 'onnx_tts_runtime.py', self.root / 'ort_cpu_runtime.py']
-            models = sorted(p for p in self.models.glob('*/*') if p.is_file())
-            # PyInstaller extracts scripts to a new directory on each launch.
-            # Hash their contents so the persistent cache survives a restart.
-            signature = ([(str(p), p.stat().st_size, p.stat().st_mtime_ns) for p in models] +
-                         [(p.name, hashlib.sha256(p.read_bytes()).hexdigest()) for p in engine])
+            signature = self._engine_signature()
             key = hashlib.sha256(voice.read_bytes() + json.dumps(
                 [spoken, language, signature], ensure_ascii=True).encode()).hexdigest()
             return self.data_dir / 'audio-cache' / (key + '.wav')
@@ -123,12 +131,13 @@ class MossSpeechService:
             path.parent.mkdir(parents=True, exist_ok=True)
             temporary.write_bytes(raw)
             temporary.replace(path)
-            files = sorted(path.parent.glob('*.wav'), key=lambda p: p.stat().st_mtime_ns, reverse=True)
-            used = 0
-            for index, file in enumerate(files):
-                used += file.stat().st_size
-                if index >= 256 or used > MAX_CACHE:
-                    file.unlink(missing_ok=True)
+            if path.parent.name == 'audio-cache':
+                files = sorted(path.parent.glob('*.wav'), key=lambda p: p.stat().st_mtime_ns, reverse=True)
+                used = 0
+                for index, file in enumerate(files):
+                    used += file.stat().st_size
+                    if index >= 256 or used > MAX_CACHE:
+                        file.unlink(missing_ok=True)
         except OSError:
             pass  # A full disk must not stop speech; this cache is expendable.
         finally:
@@ -343,17 +352,23 @@ class MossSpeechService:
                     # A reference can be replaced while ONNX loads/generates.
                     if cache_path is not None and cache_path != self._cache_path(request):
                         cache_path = None
+                    bank_path = self._phrase_bank_path(request, cache_path)
                     if pcm and audio_format:
                         buffer = io.BytesIO()
                         with wave.open(buffer, 'wb') as audio:
                             audio.setframerate(audio_format[0]); audio.setnchannels(audio_format[1]); audio.setsampwidth(2)
                             audio.writeframes(pcm)
-                        self._save_cache(cache_path, buffer.getvalue())
+                        raw_audio = buffer.getvalue()
+                        self._save_cache(cache_path, raw_audio)
+                        if bank_path is not None:
+                            self._save_cache(bank_path, raw_audio)
                     elif not request.get('prepare'):
                         output = self.output_dir / (request['id'] + '.wav')
                         audio = self._read_cache(output)
                         if audio:
                             self._save_cache(cache_path, audio[0])
+                            if bank_path is not None:
+                                self._save_cache(bank_path, audio[0])
                     return
                 else:
                     raise SpeechError('PROCESS_FAILURE', 'MOSS could not synthesize the selected voice')

@@ -122,21 +122,21 @@ def chat_dependencies(db, owner, generation):
             continue
         condition = ' AND memory_generation=? AND requires_review=0' if table == 'chat_messages' else ''
         params = (owner,generation) if table == 'chat_messages' else (owner,)
-        for item in db.execute('SELECT memory_dependencies FROM ' + table + ' WHERE conversation_id=? AND invalidated=0' + condition, params):
+        for item in db.execute('SELECT memory_dependencies FROM ' + table + ' WHERE conversation_id=? AND invalidated=0' + condition, params).fetchall():
             references.extend(json.loads(item[0]))
     if 'chat_links' in tables and 'source_generation' in {item[1] for item in db.execute('PRAGMA table_info(chat_links)')}:
-        references.extend({'task_id':item[0], 'generation':item[1]} for item in db.execute('SELECT source_id,source_generation FROM chat_links WHERE conversation_id=?', (owner,)))
+        references.extend({'task_id':item[0], 'generation':item[1]} for item in db.execute('SELECT source_id,source_generation FROM chat_links WHERE conversation_id=?', (owner,)).fetchall())
     if 'chat_context' in tables and 'memory_dependencies' in {item[1] for item in db.execute('PRAGMA table_info(chat_context)')}:
         group = db.execute('SELECT group_id FROM chat_conversations WHERE id=?', (owner,)).fetchone()[0]
-        for item in db.execute('SELECT origin_task_id,memory_generation,memory_dependencies FROM chat_context WHERE group_id=? AND invalidated=0 AND requires_review=0', (group,)):
+        for item in db.execute('SELECT origin_task_id,memory_generation,memory_dependencies FROM chat_context WHERE group_id=? AND invalidated=0 AND requires_review=0', (group,)).fetchall():
             references.extend(json.loads(item[2]))
             if item[0]:
                 references.append({'task_id':item[0], 'generation':item[1]})
             else:
-                for peer in db.execute('SELECT id FROM chat_conversations WHERE group_id=?', (group,)):
+                for peer in db.execute('SELECT id FROM chat_conversations WHERE group_id=?', (group,)).fetchall():
                     references.append(snapshot(db,peer[0]))
     if 'shared_messages' in tables and 'memory_dependencies' in {item[1] for item in db.execute('PRAGMA table_info(shared_messages)')}:
-        for item in db.execute('SELECT memory_dependencies FROM shared_messages WHERE memory_task_id=? AND memory_generation=? AND invalidated=0 AND requires_review=0', (owner,generation)):
+        for item in db.execute('SELECT memory_dependencies FROM shared_messages WHERE memory_task_id=? AND memory_generation=? AND invalidated=0 AND requires_review=0', (owner,generation)).fetchall():
             references.extend(json.loads(item[0]))
     for reference in references:
         assert_current(db, reference)
