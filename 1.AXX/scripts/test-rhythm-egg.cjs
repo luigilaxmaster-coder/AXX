@@ -76,3 +76,12 @@ for (const bpm of [120, 95, 140]) {
     assert.deepEqual([last.locked, last.pulse], [false, 0]);
     console.log('PASS stops when the music stops');
 }
+{   // pre-lock instant pulse fires on early kicks before 6-onset lock, and low-volume music still locks
+    const tracker = new BeatTracker(), {samples} = song(110, 12, {bed: .04, kick: .18});
+    const frames = play(tracker, samples);
+    const earlyInstant = frames.some(([t, f]) => t < samples[0][0] + 2000 && !f.locked && f.instant > .5);
+    const last = frames.at(-1)[1];
+    assert.ok(earlyInstant, 'pre-lock instant transient responds immediately');
+    assert.ok(last.locked && Math.abs(last.bpm - 110) <= 2, `low-volume 110 BPM -> ${last.bpm}`);
+    console.log(`PASS low-volume 110 BPM + early instant pulse -> ${last.bpm} BPM`);
+}

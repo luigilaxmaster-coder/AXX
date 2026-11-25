@@ -17,7 +17,7 @@ from backend.tests.test_acts_ui import FAKE_TAURI, ROOT, serve
 METER_120 = """(()=>{const invoke=window.__TAURI__.core.invoke;window.__TAURI__.core.invoke=async(name,args)=>{
   if(name!=='system_media_status')return invoke(name,args);
   const t=Math.floor(Date.now()/50)*50,k=t%500;  // Windows refreshes the meter every 50 ms
-  return {available:true,audioAvailable:true,peak:Math.min(1,.12+(k<50?.75:k<100?.3:0)),sessions:[],updatedAt:t};};})();"""
+  return {available:true,audioAvailable:true,peak:Math.min(1,.12+(k<50?.75:k<100?.3:0)),sessions:[{id:'m1',app:'Player',title:'<Groove> Test',playing:true}],updatedAt:t};};})();"""
 KONAMI = ['ArrowUp', 'ArrowUp', 'ArrowDown', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowLeft', 'ArrowRight', 'b', 'a']
 
 
@@ -67,6 +67,9 @@ class RhythmEggUiTests(unittest.TestCase):
                 page.wait_for_function('Axx.app.renderer.musicSignal?.pulse > .8', timeout=5000)
                 page.wait_for_function('Axx.app.renderer.musicSignal?.pulse < .2', timeout=5000)
                 self.assertEqual(page.evaluate('Axx.app.renderer.musicAmount'), .95)
+                self.assertEqual(page.locator('.axx-groove-track').text_content(), '<Groove> Test')
+                page.get_by_role('button', name='Intensidad del ritmo', exact=True).click()
+                self.assertEqual(page.evaluate('Axx.app.renderer.musicAmount'), 1.35)
                 page.screenshot(path=str(ROOT / 'build' / 'rhythm-egg.png'))
                 page.keyboard.press('Escape')
                 self.assertEqual(page.evaluate("""[Axx.rhythmEgg.active, Object.hasOwn(Axx.app.renderer,'setMusicSignal'),

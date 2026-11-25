@@ -110,6 +110,7 @@ class TeamEdgeInspectorUiTests(unittest.TestCase):
                 page.locator('.axx-flow-edge').first.click(force=True)
                 page.get_by_role('button', name='Diff + pruebas', exact=True).click()
                 page.get_by_label('Alcance de transferencia').select_option('summary')
+                self.assertEqual(page.locator('.axx-flow-edge-tag').first.text_content(), 'Diff + pruebas · Resumen')
                 page.get_by_role('button', name='Guardar cambios', exact=True).click()
                 page.wait_for_function('''async () => {
                     const teams = await Axx.backendRequest('GET', '/axx-api/agents/v1/teams');

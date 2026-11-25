@@ -519,13 +519,18 @@
     canvas.style.height = Math.max(240, Math.min(h + 24, 540)) + 'px';  // fits the flow; scrolls beyond that
     plane.append(svg);
     const edgeEls = {};
+    const edgeTagText = e => [e.label?.trim(), e.transfer === 'artifact_only' ? 'Solo ref' : e.transfer === 'summary' ? 'Resumen' : ''].filter(Boolean).join(' · ');
+    const edgeMid = (a, b) => [(a.x + NODE_W + b.x) / 2, (a.y + b.y + NODE_H) / 2 - 8];
     for (const e of d.edges) {
       const a = nodeOf(e.from), b = nodeOf(e.to); if (!a || !b) continue;
       const key = e.from + '>' + e.to, g = svgEl('g', {class: 'axx-flow-edge', 'data-from': e.from, 'data-to': e.to});
+      g.dataset.transfer = e.transfer || 'full';
       const p = svgEl('path', {d: edgePath(a, b), class: 'axx-flow-line', 'marker-end': 'url(#axx-flow-arrow)', id: 'axx-flow-e-' + order.indexOf(e.from) + '-' + order.indexOf(e.to)});
       const hit = svgEl('path', {d: edgePath(a, b), class: 'axx-flow-hit'});
+      const [mx, my] = edgeMid(a, b);
+      const tag = svgEl('text', {x: mx, y: my, class: 'axx-flow-edge-tag', textContent: edgeTagText(e)});
       hit.addEventListener('click', ev => { ev.stopPropagation(); flow.sel = {edge: key}; renderFlow(); });
-      g.append(p, hit);
+      g.append(p, hit, tag);
       const st = flow.run?.edges[key];
       if (st) g.dataset.state = st;
       if (st === 'flowing') {
@@ -533,8 +538,13 @@
         const mp = svgEl('mpath'); mp.setAttribute('href', '#' + p.id); anim.append(mp); dot.append(anim); g.append(dot);
       }
       if (flow.sel?.edge === key) g.classList.add('axx-flow-selected');
-      svg.append(g); edgeEls[key] = {g, p, hit};
+      svg.append(g); edgeEls[key] = {g, p, hit, tag};
     }
+    flow.syncEdgeTag = e => {
+      const els = edgeEls[e.from + '>' + e.to]; if (!els) return;
+      els.g.dataset.transfer = e.transfer || 'full';
+      els.tag.textContent = edgeTagText(e);
+    };
     for (const n of d.nodes) plane.append(nodeCard(n, step[n.agent_id], edgeEls));
     if (!d.nodes.length) plane.append(el('div', {className: 'axx-flow-hint', textContent: 'Añade Acts con los botones de arriba. Después une la salida ● de uno con la entrada ● de otro.'}));
     canvas.addEventListener('pointerdown', ev => { if (ev.target === canvas || ev.target === plane || ev.target === svg) { flow.sel = null; renderFlow(); } });
@@ -586,7 +596,9 @@
         card.style.left = n.x + 'px'; card.style.top = n.y + 'px';
         for (const [key, els] of Object.entries(edgeEls)) {
           const [f, t] = key.split('>'); if (f !== n.agent_id && t !== n.agent_id) continue;
-          const path = edgePath(nodeOf(f), nodeOf(t)); els.p.setAttribute('d', path); els.hit.setAttribute('d', path);
+          const a = nodeOf(f), b = nodeOf(t), path = edgePath(a, b);
+          els.p.setAttribute('d', path); els.hit.setAttribute('d', path);
+          if (els.tag) { els.tag.setAttribute('x', (a.x + NODE_W + b.x) / 2); els.tag.setAttribute('y', (a.y + b.y + NODE_H) / 2 - 8); }
         }
       };
       const up = () => { card.removeEventListener('pointermove', move); card.removeEventListener('pointerup', up);
@@ -645,13 +657,13 @@
       const [f, t] = flow.sel.edge.split('>');
       const edgeObj = flow.draft.edges.find(e => e.from === f && e.to === t) || {from: f, to: t, label: '', transfer: 'full'};
       const labelIn = el('input', {value: edgeObj.label || '', placeholder: 'Contrato de entrega (ej. Diff + resultados de pruebas)',
-        ariaLabel: 'Contrato de entrega', oninput: () => { edgeObj.label = labelIn.value.slice(0, 80); markFlow(); }});
+        ariaLabel: 'Contrato de entrega', oninput: () => { edgeObj.label = labelIn.value.slice(0, 80); markFlow(); flow.syncEdgeTag?.(edgeObj); }});
       const transferSel = el('select', {ariaLabel: 'Alcance de transferencia',
-        onchange: () => { edgeObj.transfer = transferSel.value; markFlow(); }},
+        onchange: () => { edgeObj.transfer = transferSel.value; markFlow(); flow.syncEdgeTag?.(edgeObj); }},
         ...options([['full', 'Salida completa verificada'], ['summary', 'Resumen conciso (≤420 chars)'], ['artifact_only', 'Solo referencia y SHA de artefacto']], edgeObj.transfer || 'full'));
       const presetRow = el('div', {className: 'axx-flow-presets'},
         ...['Diff + pruebas', 'Diagnóstico raíz', 'Criterios QA', 'Solo hallazgos'].map(text =>
-          el('button', {type: 'button', textContent: text, onclick: () => { labelIn.value = text; edgeObj.label = text; markFlow(); }})));
+          el('button', {type: 'button', textContent: text, onclick: () => { labelIn.value = text; edgeObj.label = text; markFlow(); flow.syncEdgeTag?.(edgeObj); }})));
       box.append(el('strong', {textContent: `${actOf(f)?.name || f} → ${actOf(t)?.name || t}`}),
         el('p', {textContent: `${actOf(t)?.name || t} trabaja después de ${actOf(f)?.name || f} y recibe su resultado verificado como entrada (Handoff v1: solo los permisos que ambos ya tienen; nada se hereda).`}),
         field('Contrato de entrega en esta conexión', labelIn),

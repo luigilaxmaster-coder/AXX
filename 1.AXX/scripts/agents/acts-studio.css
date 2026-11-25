@@ -262,6 +262,10 @@
 .axx-acts-studio .axx-flow-edge[data-state=flowing] { color:#2f7cf6; }
 .axx-acts-studio .axx-flow-edge[data-state=flowing] .axx-flow-line { stroke-dasharray:7 6; animation:axx-flow-dash .8s linear infinite; }
 .axx-acts-studio .axx-flow-edge[data-state=done] { color:#1f9d55; }
+.axx-acts-studio .axx-flow-edge[data-transfer=summary] .axx-flow-line { stroke-dasharray:5 4; }
+.axx-acts-studio .axx-flow-edge[data-transfer=artifact_only] .axx-flow-line { stroke-dasharray:2 4; opacity:.75; }
+.axx-acts-studio .axx-flow-edge-tag { font:600 10.5px/1 system-ui,sans-serif; fill:currentColor; text-anchor:middle;
+  paint-order:stroke; stroke:var(--panel-bg,#fff); stroke-width:4px; stroke-linejoin:round; pointer-events:none; }
 .axx-acts-studio .axx-flow-dot { fill:#2f7cf6; filter:drop-shadow(0 0 4px #2f7cf6); }
 .axx-acts-studio .axx-flow-ghost { fill:none; stroke:var(--accent,#157eff); stroke-width:2; stroke-dasharray:5 5; }
 @keyframes axx-flow-dash { to { stroke-dashoffset:-13; } }
