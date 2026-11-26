@@ -105,5 +105,5 @@
         finally{selector.disabled=false;}
     };
     $('axx-mobile-always').onchange=async()=>{const checkbox=$('axx-mobile-always');checkbox.disabled=true;try{render(await api('POST','always-access',{enabled:checkbox.checked}));}catch(e){checkbox.checked=!checkbox.checked;$('axx-mobile-status').textContent='No se pudo cambiar el acceso: '+(e.message||e);}finally{checkbox.disabled=false;}};
-    setInterval(()=>void refresh(),3000);setInterval(()=>void syncAppearance(),1000);void refresh();
+    setInterval(()=>void refresh(),2000);setInterval(()=>void syncAppearance(),1000);void refresh();
 })(window.Axx);
