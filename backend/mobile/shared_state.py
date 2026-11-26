@@ -242,3 +242,52 @@ class SharedState:
                     continue
                 events.append({'cursor':row['cursor'],'type':row['type'],'data':data})
         return events
+
+    def record_event(self, event_type, data):
+        if not isinstance(event_type, str) or not 1 <= len(event_type) <= 64:
+            raise ValueError('Invalid event type')
+        encoded = json.dumps(data, ensure_ascii=False, allow_nan=False)
+        if len(encoded) > 131072:
+            raise ValueError('Event payload too large')
+        with self.connect() as db:
+            cursor = db.execute('INSERT INTO shared_events(type,data,at) VALUES(?,?,?)',
+                                (event_type, encoded, time.time())).lastrowid
+        return int(cursor)
+
+    def cursor_bounds(self):
+        with self.connect() as db:
+            row = db.execute('SELECT COALESCE(MIN(cursor),0) AS min_c, COALESCE(MAX(cursor),0) AS max_c FROM shared_events').fetchone()
+        return int(row['min_c']), int(row['max_c'])
+
+    def stream_events(self, cursor, *, include_messages=True, device_id=None):
+        if type(cursor) is not int or cursor < 0:
+            raise ValueError('Invalid cursor')
+        with self.connect() as db:
+            db.execute('BEGIN')
+            bounds = db.execute('SELECT COALESCE(MIN(cursor),0) AS min_c, COALESCE(MAX(cursor),0) AS max_c FROM shared_events').fetchone()
+            min_c, max_c = int(bounds['min_c']), int(bounds['max_c'])
+            if cursor > max_c or (cursor > 0 and min_c > cursor + 1):
+                return {'cursor': max_c, 'events': [], 'resync_required': True}
+            rows = db.execute('SELECT cursor,type,data FROM shared_events WHERE cursor>? ORDER BY cursor LIMIT 200', (cursor,)).fetchall()
+            events = []
+            last_cursor = cursor
+            for row in rows:
+                last_cursor = int(row['cursor'])
+                etype = row['type']
+                data = json.loads(row['data'])
+                if etype == 'message':
+                    if not include_messages:
+                        continue
+                    message = db.execute('SELECT * FROM shared_messages WHERE id=?', (data.get('id'),)).fetchone()
+                    if not message or not self._visible(db, message):
+                        continue
+                    events.append({'cursor': last_cursor, 'type': 'chat.message.created', 'data': data})
+                    continue
+                if etype in ('chat.delta', 'chat.completed') and not include_messages:
+                    continue
+                target_device = data.get('_device_id') if isinstance(data, dict) else None
+                if target_device is not None and device_id is not None and target_device != device_id:
+                    continue
+                clean_data = {k: v for k, v in data.items() if k != '_device_id'} if isinstance(data, dict) else data
+                events.append({'cursor': last_cursor, 'type': etype, 'data': clean_data})
+            return {'cursor': last_cursor, 'events': events, 'resync_required': False}

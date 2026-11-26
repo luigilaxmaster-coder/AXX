@@ -51,7 +51,8 @@ def checked_events(events):
         elif kind=='button':
             if set(e)!={'type','button','down'} or e['button'] not in ('left','right','middle') or type(e['down']) is not bool:raise ValueError('Botón inválido')
         elif kind=='key':
-            allowed={'Control','Alt','Shift','Meta','Escape','Enter','Tab','Backspace','Delete','ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Home','End','PageUp','PageDown','Space'}
+            allowed={'Control','Alt','Shift','Meta','Escape','Enter','Tab','Backspace','Delete','ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Home','End','PageUp','PageDown','Space',
+                     'F1','F2','F3','F4','F5','F6','F7','F8','F9','F10','F11','F12'}
             if set(e)!={'type','key','down'} or not isinstance(e['key'],str) or not (e['key'] in allowed or len(e['key'])==1 and e['key'] in 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789') or type(e['down']) is not bool:raise ValueError('Tecla inválida')
         elif kind=='text':
             if set(e)!={'type','text'} or not isinstance(e['text'],str) or not 1<=len(e['text'])<=512 or '\x00' in e['text']:raise ValueError('Texto inválido')
@@ -73,6 +74,8 @@ class RemoteControl:
         return self.native
 
     def _allowed(self,device):
+        if hasattr(self.store, 'device_has_scope'):
+            return self.store.device_has_scope(device, 'input.control')
         return any(d['device_id']==device and not d['revoked'] and 'input.control' in d['scopes'] for d in self.store.devices())
 
     def _state(self,request_started=None):
@@ -129,6 +132,7 @@ class RemoteControl:
             return self._state(started)
 
     def events(self,device,body):
+        received=self.clock()
         if set(body)!={'lease_id','boot_id','seq','events'} or type(body['seq']) is not int or body['seq']<1:raise ValueError('Secuencia inválida')
         checked_events(body['events']);digest=hashlib.sha256(json.dumps(body['events'],sort_keys=True,separators=(',',':'),ensure_ascii=False).encode()).hexdigest()
         with self.lock:
@@ -137,10 +141,18 @@ class RemoteControl:
             if body['seq']!=lease['last_seq']+1:raise ValueError('Paquete repetido, alterado o fuera de orden')
             # Admit before SendInput: uncertain outcomes must never be replayed.
             lease['last_seq']=body['seq'];lease['last_hash']=digest
+            inject_started=self.clock()
             try:self.native.events(lease['lease_id'],body['events'])
             except Exception:
                 self.native.cancel('input_failed');self._state();raise
-            return self._state()
+            inject_done=self.clock()
+            result=self._state()
+            result['metrics']={
+                'lock_wait_ms': round(max(0.0, (inject_started - received) * 1000.0), 3),
+                'send_input_ms': round(max(0.0, (inject_done - inject_started) * 1000.0), 3),
+                'server_total_ms': round(max(0.0, (self.clock() - received) * 1000.0), 3),
+            }
+            return result
 
     def release(self,device=None,body=None,reason='released'):
         with self.lock:

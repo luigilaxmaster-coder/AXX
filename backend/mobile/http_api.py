@@ -121,12 +121,14 @@ class MobileHTTP:
             if set(body)!={'device_id','enabled'}:raise ValueError('device_id and enabled required')
             result={'scopes':self.gateway.store.set_tool_permission(body['device_id'],body['enabled'])}
             if not body['enabled']:self.gateway.voice.disconnect(body['device_id'])
+            self.gateway.emit_event('grant.changed', {'_device_id': body['device_id'], 'scopes': result['scopes']})
         elif path == '/axx-api/mobile/input-permission':
             if set(body)!={'device_id','enabled'}:raise ValueError('device_id and enabled required')
             result={'scopes':self.gateway.store.set_input_permission(body['device_id'],body['enabled'])}
             if not body['enabled']:
                 self.gateway.control.disconnect(body['device_id'])
                 self.gateway.clear_avatar_device(body['device_id'])
+            self.gateway.emit_event('grant.changed', {'_device_id': body['device_id'], 'scopes': result['scopes']})
         elif path == '/axx-api/mobile/control/material':
             result=self.gateway.control.material(body)
         elif path == '/axx-api/mobile/control/cancel':
@@ -145,25 +147,36 @@ class MobileHTTP:
             if set(body)!={'session_id'}:raise ValueError('session_id required')
             result = self.gateway.voice.cancel(body['session_id'])
         elif path == '/axx-api/mobile/appearance':
-            self.gateway.appearance = checked_appearance(body)
+            checked = checked_appearance(body)
+            self.gateway.update_appearance(checked)
             result = {'updated':True}
         elif path == '/axx-api/mobile/messages':
-            if set(body) - {'messages', 'conversation_id', 'inference', 'appearance', 'share_history', 'memory_scope', 'memory_context_id'} or not {'messages','conversation_id','inference'} <= set(body):
+            if set(body) - {'messages', 'conversation_id', 'inference', 'appearance', 'share_history', 'memory_scope', 'memory_context_id', 'chat_tools'} or not {'messages','conversation_id','inference'} <= set(body):
                 raise ValueError('messages required')
             inference = body['inference']
-            if not isinstance(inference, dict) or not {'provider','provider_name','model'} <= set(inference) or set(inference) - {'provider','provider_name','model','selection_mode'} or any(not isinstance(v,str) or len(v)>200 for v in inference.values()):
+            if not isinstance(inference, dict) or not {'provider','provider_name','model'} <= set(inference) or set(inference) - {'provider','provider_name','model','selection_mode','chat_tools'} or any((not isinstance(v,str) or len(v)>200) for k, v in inference.items() if k != 'chat_tools'):
                 raise ValueError('Invalid inference settings')
+            if 'chat_tools' in inference and type(inference['chat_tools']) is not bool:
+                raise ValueError('chat_tools must be a boolean')
+            if 'chat_tools' in body and type(body['chat_tools']) is not bool:
+                raise ValueError('chat_tools must be a boolean')
             if inference.get('selection_mode', 'manual') not in ('manual', 'automatic_free'):
                 raise ValueError('Invalid selection mode')
             if type(body.get('share_history', True)) is not bool:
                 raise ValueError('share_history must be a boolean')
-            self.gateway.preferences = dict(inference)
+            prefs = dict(inference)
+            if 'chat_tools' in body:
+                prefs['chat_tools'] = body['chat_tools']
             appearance = body.get('appearance')
             if appearance is not None:
-                self.gateway.appearance = checked_appearance(appearance)
-            self.gateway.share_history = body.get('share_history', True)
+                appearance = checked_appearance(appearance)
+            share_history = body.get('share_history', True)
+            self.gateway.update_desktop_state(share_history=share_history, preferences=prefs, appearance=appearance)
+            before_cursor = self.gateway.shared.cursor_bounds()[1]
             result = self.gateway.shared.merge_messages(body['messages'] if self.gateway.share_history else [], 'desktop', body['conversation_id'], activate=True,
                 memory_scope=body.get('memory_scope'),memory_context_id=body.get('memory_context_id'))
+            if self.gateway.shared.cursor_bounds()[1] > before_cursor:
+                self.gateway.notify_events()
             if not self.gateway.share_history:
                 result = {'conversation_id':body['conversation_id'],'messages':[]}
         else:

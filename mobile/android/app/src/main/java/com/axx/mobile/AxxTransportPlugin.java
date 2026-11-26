@@ -50,8 +50,9 @@ import javax.net.ssl.HostnameVerifier;
 @CapacitorPlugin(name = "AxxTransport", permissions = {@Permission(alias="camera", strings={Manifest.permission.CAMERA})})
 public class AxxTransportPlugin extends Plugin {
     private static final String ALIAS = "axx.mobile.credentials.v1";
-    private final ThreadPoolExecutor network = new ThreadPoolExecutor(2, 2, 0L, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(8));
+    private final ThreadPoolExecutor network = new ThreadPoolExecutor(3, 3, 0L, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(12));
     private final ThreadPoolExecutor inputNetwork = new ThreadPoolExecutor(2, 2, 0L, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(8));
+    private final ThreadPoolExecutor eventsNetwork = new ThreadPoolExecutor(1, 1, 0L, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(2));
     private JSONObject cachedProfile;
     private String tlsIdentity = "";
     private SSLSocketFactory socketFactory;
@@ -143,10 +144,12 @@ public class AxxTransportPlugin extends Plugin {
 
     static int readTimeout(String path, String method) {
         // Native startup can take 3 s, then the input owner has a 2 s acknowledgement budget.
-        if (path.equals("/v1/control/acquire")) return 6000;
-        if (path.equals("/v1/control/renew")) return 2200;
-        if (path.startsWith("/v1/control/")) return 2500;
-        if (path.startsWith("/v1/avatar/")) return 1500;
+        String base = path.contains("?") ? path.substring(0, path.indexOf('?')) : path;
+        if (base.equals("/v1/control/acquire")) return 6000;
+        if (base.equals("/v1/control/renew")) return 2200;
+        if (base.startsWith("/v1/control/")) return 2500;
+        if (base.startsWith("/v1/avatar/")) return 1500;
+        if (base.equals("/v1/events")) return 30000;
         return method.equals("GET") ? 8000 : 75000;
     }
 
@@ -200,7 +203,11 @@ public class AxxTransportPlugin extends Plugin {
                     JSONObject error = response.optJSONObject("error");
                     throw new IllegalStateException(error == null ? "PC error ("+status+")" : error.optString("message", error.optString("code", "PC error")));
                 }
-                reusable=path.equals("/v1/control/events")||path.equals("/v1/control/status");
+                String basePath = path.contains("?") ? path.substring(0, path.indexOf('?')) : path;
+                reusable = basePath.equals("/v1/control/events") || basePath.equals("/v1/control/status")
+                    || basePath.equals("/v1/control/renew") || basePath.equals("/v1/status")
+                    || basePath.equals("/v1/snapshot") || basePath.equals("/v1/tasks")
+                    || basePath.equals("/v1/events");
                 stage="close";
                 return response;
             }
@@ -222,7 +229,9 @@ public class AxxTransportPlugin extends Plugin {
     }
 
     private void submit(PluginCall call, CheckedAction action) {
-        ThreadPoolExecutor executor=call.getString("path", "").startsWith("/v1/control/")?inputNetwork:network;
+        String path = call.getString("path", "");
+        ThreadPoolExecutor executor = path.startsWith("/v1/control/") ? inputNetwork
+            : path.startsWith("/v1/events") ? eventsNetwork : network;
         try { executor.execute(() -> { try { action.run(); } catch (Exception e) {
             String code=e instanceof java.net.SocketTimeoutException ? "PC_TIMEOUT" : e instanceof javax.net.ssl.SSLException ? "PC_TLS_UNVERIFIED" : e instanceof java.io.IOException ? "PC_UNREACHABLE" : "PC_REJECTED";
             String message=e instanceof java.net.SocketTimeoutException ? "La PC tardó demasiado en confirmar la petición." : e instanceof javax.net.ssl.SSLException ? "PC identity could not be verified. Generate a new QR on the PC; never bypass certificate checks." : e instanceof java.io.IOException ? "No se pudo contactar con la PC. Comprueba la conexión Wi-Fi o Tailscale y que Axx siga abierto." : e.getMessage() == null ? "Could not connect to the PC" : e.getMessage();

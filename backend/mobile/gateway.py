@@ -83,10 +83,11 @@ def _identity_files(data_dir: Path, host: str):
 
 class BoundedHTTPServer(ThreadingHTTPServer):
     daemon_threads = True
-    request_queue_size = 16
+    request_queue_size = 32
 
     def __init__(self, *args):
-        self.slots = threading.BoundedSemaphore(8)
+        self.slots = threading.BoundedSemaphore(28)
+        self.handler_slots = threading.BoundedSemaphore(22)
         super().__init__(*args)
 
     def process_request(self, request, client_address):
@@ -108,6 +109,8 @@ class BoundedHTTPServer(ThreadingHTTPServer):
 
 class MobileGateway:
     """Opt-in TLS gateway over Axx's existing private backend services."""
+    CLAIMED_IDLE_TIMEOUT = 600
+    UNCLAIMED_IDLE_TIMEOUT = 120
 
     def __init__(self, state_path, data_dir, backend_call, pc_name=None, host_resolver=lan_address, tailscale_probe=None):
         self.store = MobileTrustStore(state_path)
@@ -137,12 +140,78 @@ class MobileGateway:
         self._last_contact = 0
         self._claimed = False
         self._pairing_deadline = 0
-        self.preferences = None
-        self.share_history = False
-        self.appearance = None
+        self.server_epoch = str(uuid.uuid4())
+        self._event_cond = threading.Condition()
+        self._event_wait_timeout = 20.0
+        persisted = self.store.runtime_state()
+        self.preferences = persisted['preferences']
+        self.share_history = persisted['share_history']
+        self.appearance = persisted['appearance']
         self._avatar_lock = threading.Lock()
         self._avatar_sequence = 0
         self._avatar_events = deque(maxlen=128)
+
+    def notify_events(self):
+        with self._event_cond:
+            self._event_cond.notify_all()
+
+    def emit_event(self, event_type, data):
+        try:
+            cursor = self.shared.record_event(event_type, data)
+        except Exception:
+            LOG.debug('Could not record mobile event %s', event_type, exc_info=True)
+            return None
+        self.notify_events()
+        return cursor
+
+    def engine_available(self):
+        preferences = dict(self.preferences or {})
+        return preferences.get('provider') == 'bridge' and (
+            preferences.get('selection_mode') == 'automatic_free' or
+            bool(preferences.get('model') and preferences.get('provider_name')))
+
+    def update_appearance(self, appearance):
+        changed = appearance != self.appearance
+        self.appearance = appearance
+        self.store.save_runtime_state(appearance=appearance)
+        if changed:
+            self.emit_event('appearance.changed', {'appearance': appearance})
+
+    def update_desktop_state(self, *, share_history=None, preferences=None, appearance=None):
+        prefs_changed = preferences is not None and preferences != self.preferences
+        app_changed = appearance is not None and appearance != self.appearance
+        hist_changed = share_history is not None and share_history != self.share_history
+        if preferences is not None:
+            self.preferences = dict(preferences)
+        if appearance is not None:
+            self.appearance = appearance
+        if share_history is not None:
+            self.share_history = share_history
+        self.store.save_runtime_state(share_history=share_history, preferences=preferences, appearance=appearance)
+        if prefs_changed:
+            self.emit_event('model.changed', {'inference': self.preferences,
+                                              'model_status': 'ready' if self.engine_available() else 'unconfigured'})
+        if app_changed:
+            self.emit_event('appearance.changed', {'appearance': self.appearance})
+        if hist_changed:
+            self.notify_events()
+
+    def poll_events(self, device_id, after=0):
+        if type(after) is not int or after < 0:
+            raise ValueError('Invalid cursor')
+        server = self.httpd
+        deadline = time.monotonic() + max(0.05, float(self._event_wait_timeout))
+        while True:
+            batch = self.shared.stream_events(after, include_messages=self.share_history, device_id=device_id)
+            if batch['resync_required'] or batch['events']:
+                return {'server_epoch': self.server_epoch, **batch}
+            remaining = deadline - time.monotonic()
+            if remaining <= 0 or (server is not None and self.httpd is not server):
+                return {'server_epoch': self.server_epoch, **batch}
+            with self._event_cond:
+                self._event_cond.wait(timeout=min(remaining, 1.0))
+            if server is not None and self.httpd is not server:
+                return {'server_epoch': self.server_epoch, 'cursor': batch['cursor'], 'events': [], 'resync_required': False}
 
     @staticmethod
     def _avatar_operation_id(device_id, operation_id):
@@ -485,25 +554,73 @@ class MobileGateway:
             return self.backend_call('POST', '/axx-api/commands/cancel', {'operation_id': operation_id})
         return self.desktop_call('POST', '/axx-api/commands/execute', {'operation_id': operation_id, 'approved': True})
 
+    def _prepare_learning_plan(self, device_id, user_text, conversation_id, task_id, *, resolved=None, memory=None):
+        if not self.store.device_has_scope(device_id, 'tools.control'):
+            return 'Activa el permiso Work de este teléfono en Axx para preparar planes de acción en la PC.'
+        thread = ({'id': memory['memory_scope']['task_id']} if memory
+                  else self.backend_call('GET', '/axx-api/chat/conversations?shared_id=' + urllib.parse.quote(conversation_id), None))
+        if not thread or not thread.get('id'):
+            raise ValueError('No se pudo resolver el chat de origen en la PC')
+        operation_id = str(uuid.uuid5(uuid.NAMESPACE_URL, 'axx-mobile-plan:' + task_id))
+        memory_fields = {key: memory[key] for key in ('memory_scope', 'memory_context_id') if memory and key in memory}
+        self.emit_event('operation.changed', {'_device_id': device_id, 'operation_id': operation_id, 'state': 'running', 'phase': 'planning', 'summary': user_text[:80]})
+        if resolved and resolved.get('match') == 'sequence' and isinstance(resolved.get('steps'), list) and resolved['steps']:
+            plan = self.backend_call('POST', '/axx-api/learning/prepare', {
+                'text': user_text, 'steps': resolved['steps'], 'operation_id': operation_id,
+                'conversation_id': thread['id'], **memory_fields})
+        else:
+            preferences = dict(self.preferences or {})
+            plan = self.backend_call('POST', '/axx-api/learning/propose', {
+                'text': user_text, 'operation_id': operation_id, 'conversation_id': thread['id'],
+                'model': preferences.get('model', ''), 'provider_name': preferences.get('provider_name', ''),
+                'selection_mode': preferences.get('selection_mode', 'manual'), **memory_fields})
+        if not isinstance(plan, dict) or plan.get('ok') is False:
+            err_msg = (plan.get('error') or {}).get('message') if isinstance(plan, dict) else None
+            self.emit_event('operation.changed', {'_device_id': device_id, 'operation_id': operation_id, 'state': 'failed', 'phase': 'failed', 'summary': err_msg or 'No se pudo preparar el plan'})
+            return err_msg or 'No se pudo preparar el plan en la PC. Revisa Comandos de Axx en tu PC.'
+        plan_op = plan.get('operation_id') or operation_id
+        self.store.record_work(plan_op, device_id, 'axx.learning.plan', {'text': user_text[:500]})
+        plan_state = plan.get('state', 'awaiting_approval')
+        steps = plan.get('steps') if isinstance(plan.get('steps'), list) else []
+        step_ids = [s.get('command_id') for s in steps if isinstance(s, dict) and s.get('command_id')]
+        self.emit_event('operation.changed', {'_device_id': device_id, 'operation_id': plan_op, 'state': plan_state,
+                                              'phase': 'awaiting_approval' if plan_state == 'awaiting_approval' else plan_state,
+                                              'summary': f'{len(step_ids)} paso(s)' if step_ids else ''})
+        if plan_state == 'needs_input':
+            question = plan.get('question') or plan.get('message') or 'Faltan datos para completar el plan.'
+            return f'Necesito una aclaración antes de ejecutar: {question} (Operación: {plan_op}).'
+        if plan_state == 'awaiting_approval':
+            listing = ', '.join(step_ids[:8]) if step_ids else 'plan preparado'
+            return f'Plan preparado en la PC ({len(step_ids)} paso(s): {listing}). Revisa y aprueba en Axx de la PC para ejecutarlo. Operación: {plan_op}.'
+        return f'Plan registrado en la PC. Estado: {plan_state}. Revisa la operación {plan_op} en Axx de la PC.'
+
     def _execute_pc_command(self, device_id, user_text, conversation_id, task_id, *, memory=None):
-        """Only exact registered commands; the persisted chat mode stays authoritative."""
+        """Route registered commands and bounded plans; the persisted chat mode stays authoritative."""
         if user_text.split(maxsplit=1)[0] == '/cli':
             return 'Selecciona una ventana observada en Comandos de Axx. /cli no ejecuta controles por nombre desde el teléfono.'
         resolved = self.backend_call('POST', '/axx-api/commands/resolve', {'text': user_text, 'source': 'text'})
-        if resolved.get('match') != 'exact' or not resolved.get('command_id'):
+        match = resolved.get('match')
+        if match in ('sequence', 'sequence_request', 'learned'):
+            return self._prepare_learning_plan(device_id, user_text, conversation_id, task_id, resolved=resolved, memory=memory)
+        if match != 'exact' or not resolved.get('command_id'):
             # A conversational imperative ("escribe un poema") is not authority
             # to run a PC action. Explicit slash commands remain fail-closed.
-            if resolved.get('match') in ('sequence', 'sequence_request', 'learned', 'needs_input', 'ambiguous', 'unsupported'):
-                return 'No se ejecutó ningún paso. Aclara la orden o revisa el plan en Comandos de Axx en la PC.'
+            if match in ('needs_input', 'ambiguous', 'unsupported'):
+                return resolved.get('message') or 'No se ejecutó ningún paso. Aclara la orden o revisa el plan en Comandos de Axx en la PC.'
             if user_text.startswith('/'):
                 return 'No hay un comando exacto registrado para esa orden. Revisa el catálogo de Comandos en la PC.'
             return None
-        if not any(d['device_id'] == device_id and not d['revoked'] and 'tools.control' in d['scopes']
-                   for d in self.store.devices()):
+        if not self.store.device_has_scope(device_id, 'tools.control'):
             return 'Activa el permiso Work de este teléfono en Axx para preparar comandos de la PC.'
+        if (resolved.get('execution_enabled') is False and resolved.get('has_recipe_details')) or any(
+            isinstance(spec, dict) and spec.get('required') and key not in (resolved.get('inputs') or {})
+            for key, spec in (resolved.get('parameters') or {}).items()
+        ):
+            return self._prepare_learning_plan(device_id, user_text, conversation_id, task_id, resolved=resolved, memory=memory)
         thread = {'id':memory['memory_scope']['task_id']} if memory else self.backend_call('GET', '/axx-api/chat/conversations?shared_id='+urllib.parse.quote(conversation_id), None)
         if not thread.get('id'): raise ValueError('No se pudo resolver el chat de origen en la PC')
         operation_id = str(uuid.uuid5(uuid.NAMESPACE_URL, 'axx-mobile:'+task_id))
+        self.emit_event('operation.changed', {'_device_id': device_id, 'operation_id': operation_id, 'state': 'running', 'phase': 'preparing', 'summary': resolved['command_id']})
         prepared = self.backend_call('POST', '/axx-api/commands/prepare', {
             'command_id': resolved['command_id'], 'inputs': resolved.get('inputs', {}),
             'source': 'text', 'conversation_id': thread['id'], 'operation_id': operation_id,
@@ -512,18 +629,23 @@ class MobileGateway:
             raise ValueError('La preparación no corresponde a la solicitud móvil')
         self.store.record_work(operation_id, device_id, prepared['command_id'], prepared['inputs'])
         if prepared.get('state') == 'awaiting_approval':
+            self.emit_event('operation.changed', {'_device_id': device_id, 'operation_id': operation_id, 'state': 'awaiting_approval', 'phase': 'awaiting_approval', 'summary': prepared['command_id']})
             return f'Orden preparada en la PC: {prepared["command_id"]}. Revisa y aprueba la tarjeta de este chat. Operación: {operation_id}.'
         if prepared.get('state') != 'prepared':
+            self.emit_event('operation.changed', {'_device_id': device_id, 'operation_id': operation_id, 'state': prepared.get('state', 'failed'), 'phase': 'failed', 'summary': prepared['command_id']})
             return f'La orden no se ejecutó. Estado: {prepared.get("state", "desconocido")}. Operación: {operation_id}.'
         # Never manufacture approval. Auto-safe authorization is evaluated by the backend.
-        if not any(d['device_id'] == device_id and not d['revoked'] and 'tools.control' in d['scopes']
-                   for d in self.store.devices()):
+        if not self.store.device_has_scope(device_id, 'tools.control'):
             self.backend_call('POST', '/axx-api/commands/cancel', {'operation_id': operation_id})
+            self.emit_event('operation.changed', {'_device_id': device_id, 'operation_id': operation_id, 'state': 'cancelled', 'phase': 'failed', 'summary': 'Permiso Work revocado'})
             return 'El permiso Work fue revocado antes de ejecutar.'
+        self.emit_event('operation.changed', {'_device_id': device_id, 'operation_id': operation_id, 'state': 'running', 'phase': 'executing', 'summary': prepared['command_id']})
         result = self.backend_call('POST', '/axx-api/commands/execute', {'operation_id': operation_id, 'approved': False})
         if result.get('state') == 'succeeded' and result.get('postconditions_passed') is True:
+            self.emit_event('operation.changed', {'_device_id': device_id, 'operation_id': operation_id, 'state': 'succeeded', 'phase': 'succeeded', 'summary': prepared['command_id']})
             output = json.dumps(result.get('output'), ensure_ascii=False)[:12000]
             return f'Ejecutado y verificado en la PC: {prepared["command_id"]}.\n{output}'
+        self.emit_event('operation.changed', {'_device_id': device_id, 'operation_id': operation_id, 'state': result.get('state', 'unknown'), 'phase': 'failed', 'summary': prepared['command_id']})
         return f'No se confirmó el efecto en la PC. Estado: {result.get("state", "desconocido")}. Consulta la operación {operation_id} antes de repetir.'
 
     def command(self, device_id, command_id):
@@ -579,19 +701,23 @@ class MobileGateway:
             try:
                 self.store.finish_command(task_id, 'running')
                 snapshot = self.shared.merge_messages([{'id':task_id+':user', 'role':'user', 'text':body['text'], 'at':time.time()*1000}], 'mobile', conversation_id, **memory)
+                self.notify_events()
 
-                # 1. If this is an explicit or recognizable command for the PC, execute/prepare it directly on the PC
+                # 1. If this is an explicit or recognizable command/plan for the PC, execute/prepare it directly on the PC
                 pc_ans = self._execute_pc_command(device_id, user_text, conversation_id, task_id, memory=memory)
                 if pc_ans is not None:
-                    self.shared.merge_messages([{'id':task_id+':assistant', 'role':'assistant', 'text':pc_ans, 'at':time.time()*1000}], 'pc', conversation_id, **memory)
+                    ans_msg = {'id':task_id+':assistant', 'role':'assistant', 'text':pc_ans, 'at':time.time()*1000}
+                    self.shared.merge_messages([ans_msg], 'pc', conversation_id, **memory)
+                    self.emit_event('chat.completed', {'conversation_id': conversation_id, 'message': {**ans_msg, 'source': 'pc', 'conversation_id': conversation_id}})
                     self.store.finish_command(task_id, 'completed', {'choices': [{'message': {'role': 'assistant', 'content': pc_ans}}]})
                     return
 
                 if not engine_available:
+                    self.emit_event('operation.changed', {'_device_id': device_id, 'operation_id': task_id, 'state': 'failed', 'phase': 'failed', 'summary': 'Modelo no configurado'})
                     engine_unavailable()
                     return
 
-                # 2. General conversational query: inject PC host primary device instruction so the LLM knows it controls the PC
+                # 2. General conversational query (with optional bounded chat tools when authorized on both PC and phone)
                 pc_sys_prompt = (
                     "Eres Axx, el asistente autónomo ejecutándose en la computadora principal del usuario (Windows PC). "
                     "El usuario se comunica desde su teléfono mediante Axx Mobile. "
@@ -607,17 +733,43 @@ class MobileGateway:
                 for key in ('model', 'provider_name'):
                     request[key] = preferences.get(key, '')
                 request['selection_mode'] = preferences.get('selection_mode', 'manual')
+                if (preferences.get('chat_tools') is True
+                        and self.store.device_has_scope(device_id, 'tools.control')
+                        and memory and 'memory_scope' in memory and 'memory_context_id' in memory):
+                    request['axx_tools'] = True
+                    request['mobile_device_id'] = device_id
                 result = self.backend_call('POST', '/axx-api/chat', request)
                 if result.get('ok', True) is False:
                     self.store.finish_command(task_id, 'failed', result)
+                    self.emit_event('operation.changed', {'_device_id': device_id, 'operation_id': task_id, 'state': 'failed', 'phase': 'failed'})
                     return
                 answer = result.get('choices', [{}])[0].get('message', {}).get('content')
+                tool_receipt = result.get('axx_tool_receipt')
+                if isinstance(tool_receipt, dict):
+                    t_state = tool_receipt.get('state', 'unknown')
+                    t_cmd = tool_receipt.get('command_id') or 'herramienta'
+                    t_op = tool_receipt.get('operation_id') or task_id
+                    if t_state == 'succeeded' and tool_receipt.get('postconditions_passed') is True:
+                        out_str = json.dumps(tool_receipt.get('output'), ensure_ascii=False)[:8000]
+                        receipt_note = f'Ejecutado y verificado en la PC ({t_cmd}):\n{out_str}'
+                        self.emit_event('operation.changed', {'_device_id': device_id, 'operation_id': t_op, 'state': 'succeeded', 'phase': 'succeeded', 'summary': t_cmd})
+                    elif t_state == 'awaiting_approval':
+                        receipt_note = f'Acción preparada en la PC ({t_cmd}). Requiere aprobación en la PC. Operación: {t_op}.'
+                        self.emit_event('operation.changed', {'_device_id': device_id, 'operation_id': t_op, 'state': 'awaiting_approval', 'phase': 'awaiting_approval', 'summary': t_cmd})
+                    else:
+                        err_text = (tool_receipt.get('error') or {}).get('message') or f'Estado: {t_state}'
+                        receipt_note = f'La herramienta no se confirmó ({t_cmd}): {err_text}.'
+                        self.emit_event('operation.changed', {'_device_id': device_id, 'operation_id': t_op, 'state': t_state, 'phase': 'failed', 'summary': t_cmd})
+                    answer = (answer.strip() + '\n\n' + receipt_note).strip() if isinstance(answer, str) and answer.strip() else receipt_note
                 if not isinstance(answer, str):
                     raise ValueError('The engine did not return a conversation response')
-                self.shared.merge_messages([{'id':task_id+':assistant', 'role':'assistant', 'text':answer, 'at':time.time()*1000}], 'pc', conversation_id, **memory)
+                ans_msg = {'id':task_id+':assistant', 'role':'assistant', 'text':answer, 'at':time.time()*1000}
+                self.shared.merge_messages([ans_msg], 'pc', conversation_id, **memory)
+                self.emit_event('chat.completed', {'conversation_id': conversation_id, 'message': {**ans_msg, 'source': 'pc', 'conversation_id': conversation_id}})
                 self.store.finish_command(task_id, 'completed', result)
             except Exception:
                 LOG.exception('Mobile conversation outcome unavailable')
+                self.emit_event('operation.changed', {'_device_id': device_id, 'operation_id': task_id, 'state': 'outcome_unknown', 'phase': 'outcome_unknown'})
                 self.store.finish_command(task_id, 'outcome_unknown', {'error':{'code':'OUTCOME_UNKNOWN','message':'Check status before sending again.'}})
             finally:
                 self._chat_slots.release()
@@ -697,14 +849,22 @@ class MobileGateway:
                 def log_message(self, format, *args):
                     LOG.info("%s %s", self.command, self.path.split("?", 1)[0])
 
-                def _send(self, status, data):
+                def _send(self, status, data, extra_headers=None):
                     body = json.dumps(data, ensure_ascii=False, allow_nan=False).encode("utf-8")
                     self.send_response(status)
                     self.send_header("Content-Type", "application/json; charset=utf-8")
                     self.send_header("Content-Length", str(len(body)))
                     self.send_header("Cache-Control", "no-store")
                     self.send_header("X-Content-Type-Options", "nosniff")
-                    keepalive = status == 200 and self.path in ('/v1/control/events','/v1/control/status')
+                    if extra_headers:
+                        for header_name, header_val in extra_headers.items():
+                            self.send_header(header_name, header_val)
+                    req_path = urllib.parse.urlsplit(self.path).path
+                    client_close = self.headers.get("Connection", "").lower() == "close"
+                    keepalive = status == 200 and not client_close and req_path in (
+                        '/v1/control/events', '/v1/control/status', '/v1/control/renew',
+                        '/v1/status', '/v1/snapshot', '/v1/tasks', '/v1/events',
+                    )
                     self.send_header("Connection", "keep-alive" if keepalive else "close")
                     self.end_headers()
                     self.wfile.write(body)
@@ -741,6 +901,9 @@ class MobileGateway:
                     return True
 
                 def do_GET(self):
+                    if not self.server.handler_slots.acquire(blocking=False):
+                        self._send(503, {'ok': False, 'error': {'code': 'SERVER_BUSY', 'message': 'Axx está ocupado; reintentando…'}}, {'Retry-After': '1'})
+                        return
                     try:
                         routes = {
                             "/v1/status": ("/axx-api/status", "query"),
@@ -749,6 +912,22 @@ class MobileGateway:
                             "/v1/tasks": ("/axx-api/commands/operations", "query"),
                         }
                         path = urllib.parse.urlsplit(self.path).path
+                        if path == '/v1/events':
+                            if not self._authorize('query'): return
+                            query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+                            if set(query) - {'after'} or ('after' in query and (len(query['after']) != 1 or not query['after'][0].isdecimal())):
+                                raise ValueError('after must be a nonnegative integer')
+                            after = int(query['after'][0]) if 'after' in query else 0
+                            self.request.settimeout(max(30.0, float(gateway._event_wait_timeout) + 10.0))
+                            try:
+                                result = gateway.poll_events(self.device_id, after)
+                            finally:
+                                try:
+                                    self.request.settimeout(10)
+                                except OSError:
+                                    pass
+                            self._send(200, {'ok': True, 'data': result})
+                            return
                         if path == '/v1/files/status':
                             if self._authorize('query'):
                                 self._send(200, {'ok': True, 'data': gateway.transfers.status(self.device_id)})
@@ -812,9 +991,22 @@ class MobileGateway:
                             if self._authorize('query'):
                                 device = next(d for d in gateway.store.devices() if d['device_id'] == self.device_id)
                                 snapshot = gateway.shared.snapshot() if gateway.share_history else {'conversation_id':'main','cursor':0,'messages':[]}
+                                chat_available = bool(gateway.share_history and snapshot.get('conversation_id') != 'main')
+                                chat_blocked_reason = (None if chat_available else
+                                                       'history_disabled' if not gateway.share_history else 'no_conversation')
+                                model_status = 'ready' if gateway.engine_available() else 'unconfigured'
+                                always_on = gateway.store.access_settings()['always_on']
                                 self._send(200, {'ok':True, 'data':{**snapshot, 'appearance':gateway.appearance,
                                     'pc_name':gateway.pc_name, 'scopes':device['scopes'], 'inference':gateway.preferences,
+                                    'server_epoch': gateway.server_epoch,
+                                    'chat_available': chat_available,
+                                    'chat_blocked_reason': chat_blocked_reason,
+                                    'model_status': model_status,
+                                    'always_on': always_on,
                                     'capabilities':{'avatar_customization':True,
+                                                    'events_stream': True,
+                                                    'live_sync': True,
+                                                    'action_brain': True,
                                                     **({'mission_continuity':True} if gateway.share_history else {})}}})
                             return
                         if path not in routes:
@@ -839,8 +1031,13 @@ class MobileGateway:
                         LOG.exception("Mobile GET failed")
                         self._send(502, {"ok": False, "error": {"code": "BACKEND_UNAVAILABLE",
                                   "message": "Axx could not complete the query."}})
+                    finally:
+                        self.server.handler_slots.release()
 
                 def do_POST(self):
+                    if not self.server.handler_slots.acquire(blocking=False):
+                        self._send(503, {'ok': False, 'error': {'code': 'SERVER_BUSY', 'message': 'Axx está ocupado; reintentando…'}}, {'Retry-After': '1'})
+                        return
                     try:
                         path = urllib.parse.urlsplit(self.path).path
                         body = self._body()
@@ -923,6 +1120,8 @@ class MobileGateway:
                         LOG.exception("Mobile POST failed")
                         self._send(502, {"ok": False, "error": {"code": "BACKEND_UNAVAILABLE",
                                   "message": "Axx could not complete the operation."}})
+                    finally:
+                        self.server.handler_slots.release()
 
             context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
             context.minimum_version = ssl.TLSVersion.TLSv1_2
@@ -985,8 +1184,9 @@ class MobileGateway:
     def expire_idle(self, server):
         with self._lock:
             now = time.monotonic()
+            timeout = self.CLAIMED_IDLE_TIMEOUT if self._claimed else self.UNCLAIMED_IDLE_TIMEOUT
             if (self.httpd is server and not self.store.access_settings()['always_on'] and now >= self._pairing_deadline
-                    and now - self._last_contact > (30 if self._claimed else 120)):
+                    and now - self._last_contact > timeout):
                 self.stop()
 
     def close(self):
@@ -1009,6 +1209,7 @@ class MobileGateway:
             self.httpd = self.thread = None
             if not httpd:
                 return False
+        self.notify_events()
         httpd.shutdown()
         httpd.server_close()
         if thread:

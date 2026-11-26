@@ -131,15 +131,18 @@ class GatewayTests(unittest.TestCase):
                     first=gateway.start()
                 server=gateway.httpd
                 gateway._claimed=True
-                with patch('backend.mobile.gateway.time.monotonic',return_value=1119):
+                with patch('backend.mobile.gateway.time.monotonic',return_value=1540):
+                    gateway.expire_idle(server)
+                self.assertIs(gateway.httpd,server)
+                with patch('backend.mobile.gateway.time.monotonic',return_value=1650):
                     second=gateway.start()
                     gateway.expire_idle(server)
                 self.assertIs(gateway.httpd,server)
                 self.assertNotEqual(first['pairing_code'],second['pairing_code'])
-                with patch('backend.mobile.gateway.time.monotonic',return_value=1238):
+                with patch('backend.mobile.gateway.time.monotonic',return_value=1769):
                     gateway.expire_idle(server)
                 self.assertIs(gateway.httpd,server)
-                with patch('backend.mobile.gateway.time.monotonic',return_value=1240):
+                with patch('backend.mobile.gateway.time.monotonic',return_value=1771):
                     gateway.expire_idle(server)
                 self.assertFalse(gateway.status()['enabled'])
             finally:gateway.close()

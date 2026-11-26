@@ -48,7 +48,39 @@ class MobileTrustStore:
         self.db_path = str(Path(db_path))
         self._pairings = {}
         self._pairing_lock = threading.Lock()
+        self._device_cache_lock = threading.RLock()
+        self._device_by_hash = None
+        self._devices_list = None
         self._initialize()
+
+    def _invalidate_device_cache(self):
+        with self._device_cache_lock:
+            self._device_by_hash = None
+            self._devices_list = None
+
+    def _load_device_cache(self):
+        with self._device_cache_lock:
+            if self._device_by_hash is not None and self._devices_list is not None:
+                return self._device_by_hash, self._devices_list
+        with self._connect() as db:
+            rows = db.execute(
+                "SELECT device_id,name,credential_hash,scopes_json,created_at,revoked_at FROM mobile_devices ORDER BY created_at"
+            ).fetchall()
+        by_hash = {}
+        devices = []
+        for row in rows:
+            scopes = json.loads(row["scopes_json"])
+            revoked = row["revoked_at"] is not None
+            devices.append({
+                "device_id": row["device_id"], "name": row["name"],
+                "scopes": scopes, "created_at": row["created_at"], "revoked": revoked,
+            })
+            if not revoked:
+                by_hash[row["credential_hash"]] = (row["device_id"], frozenset(scopes))
+        with self._device_cache_lock:
+            self._device_by_hash = by_hash
+            self._devices_list = devices
+            return by_hash, devices
 
     @contextmanager
     def _connect(self):
@@ -160,6 +192,7 @@ class MobileTrustStore:
             db.execute("UPDATE mobile_pairings SET consumed_at=? WHERE pairing_hash=? AND consumed_at IS NULL",
                        (consumed_at, _digest(code)))
             db.commit()
+        self._invalidate_device_cache()
         return {"device_id": device_id, "credential": credential,
                 "scopes": json.loads(scopes)}
 
@@ -195,24 +228,84 @@ class MobileTrustStore:
                 db.execute("INSERT OR REPLACE INTO mobile_access_settings(key,value) VALUES('port',?)", (str(port),))
             db.commit()
 
+    def runtime_state(self):
+        with self._connect() as db:
+            rows = db.execute(
+                "SELECT key,value FROM mobile_access_settings WHERE key IN ('last_share_history','last_preferences','last_appearance')"
+            ).fetchall()
+        values = {row['key']: row['value'] for row in rows}
+        share_history = values.get('last_share_history') == '1'
+        preferences = None
+        if 'last_preferences' in values:
+            try:
+                parsed = json.loads(values['last_preferences'])
+                if isinstance(parsed, dict):
+                    preferences = parsed
+            except (TypeError, ValueError):
+                preferences = None
+        appearance = None
+        if 'last_appearance' in values:
+            try:
+                parsed = json.loads(values['last_appearance'])
+                if isinstance(parsed, dict):
+                    appearance = parsed
+            except (TypeError, ValueError):
+                appearance = None
+        return {'share_history': share_history, 'preferences': preferences, 'appearance': appearance}
+
+    def save_runtime_state(self, *, share_history=None, preferences=None, appearance=None):
+        updates = []
+        if share_history is not None:
+            if type(share_history) is not bool:
+                raise ValueError('share_history must be a boolean')
+            updates.append(('last_share_history', '1' if share_history else '0'))
+        if preferences is not None:
+            if not isinstance(preferences, dict):
+                raise ValueError('preferences must be an object')
+            safe_prefs = {}
+            for key in ('provider', 'provider_name', 'model', 'selection_mode'):
+                val = preferences.get(key)
+                if isinstance(val, str) and len(val) <= 200:
+                    safe_prefs[key] = val
+            if type(preferences.get('chat_tools')) is bool:
+                safe_prefs['chat_tools'] = preferences['chat_tools']
+            updates.append(('last_preferences', json.dumps(safe_prefs, ensure_ascii=False)))
+        if appearance is not None:
+            if not isinstance(appearance, dict):
+                raise ValueError('appearance must be an object')
+            encoded = json.dumps(appearance, ensure_ascii=False)
+            if len(encoded) <= 16000:
+                updates.append(('last_appearance', encoded))
+        if not updates:
+            return
+        with self._connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            for key, value in updates:
+                db.execute("INSERT OR REPLACE INTO mobile_access_settings(key,value) VALUES(?,?)", (key, value))
+            db.commit()
+
     def authorize(self, credential, required_scope):
         return self.device_for(credential, required_scope) is not None
 
     def device_for(self, credential, required_scope):
         if not isinstance(credential, str) or not credential:
             return None
-        with self._connect() as db:
-            row = db.execute(
-                "SELECT device_id,scopes_json FROM mobile_devices WHERE credential_hash=? AND revoked_at IS NULL",
-                (_digest(credential),),
-            ).fetchone()
-        return row['device_id'] if row and required_scope in json.loads(row['scopes_json']) else None
+        by_hash, _ = self._load_device_cache()
+        entry = by_hash.get(_digest(credential))
+        return entry[0] if entry and required_scope in entry[1] else None
+
+    def device_has_scope(self, device_id, required_scope):
+        if not isinstance(device_id, str) or not device_id:
+            return False
+        _, devices = self._load_device_cache()
+        return any(d['device_id'] == device_id and not d['revoked'] and required_scope in d['scopes'] for d in devices)
 
     def revoke(self, device_id, now=None):
         revoked_at = time.time() if now is None else float(now)
         with self._connect() as db:
             cursor = db.execute("UPDATE mobile_devices SET revoked_at=? WHERE device_id=? AND revoked_at IS NULL",
                                 (revoked_at, device_id))
+        self._invalidate_device_cache()
         return cursor.rowcount == 1
 
     def set_tool_permission(self, device_id, enabled):
@@ -236,6 +329,7 @@ class MobileTrustStore:
                 db.execute('INSERT OR REPLACE INTO mobile_file_config VALUES(?,?)', (device_id, config_payload))
                 db.execute('DELETE FROM mobile_file_refs WHERE device_id=?', (device_id,))
             db.commit()
+        self._invalidate_device_cache()
         return sorted(scopes)
 
     def _set_permission(self, device_id, enabled, scope):
@@ -249,16 +343,12 @@ class MobileTrustStore:
             else:scopes.discard(scope)
             db.execute('UPDATE mobile_devices SET scopes_json=? WHERE device_id=?',(json.dumps(sorted(scopes)),device_id))
             db.commit()
+        self._invalidate_device_cache()
         return sorted(scopes)
 
     def devices(self):
-        with self._connect() as db:
-            rows = db.execute(
-                "SELECT device_id,name,scopes_json,created_at,revoked_at FROM mobile_devices ORDER BY created_at"
-            ).fetchall()
-        return [{"device_id": row["device_id"], "name": row["name"],
-                 "scopes": json.loads(row["scopes_json"]), "created_at": row["created_at"],
-                 "revoked": row["revoked_at"] is not None} for row in rows]
+        _, devices = self._load_device_cache()
+        return [dict(row, scopes=list(row['scopes'])) for row in devices]
 
     def record_work(self, operation_id, device_id, command_id, inputs):
         encoded = json.dumps(inputs, sort_keys=True, ensure_ascii=False)

@@ -13,6 +13,16 @@
     const pairError=document.createElement('p');pairError.id='axx-mobile-error';pairError.setAttribute('role','alert');pairError.hidden=true;
     pairError.style.cssText='color:#ffd1c9;padding:12px;border:1px solid #e8a09580;border-radius:10px';
     $('axx-mobile-status').after(pairError);
+    const historyNotice=document.createElement('div');historyNotice.id='axx-mobile-history-notice';historyNotice.hidden=true;
+    historyNotice.style.cssText='margin:10px 0;padding:12px;border:1px solid #8fd6c84f;border-radius:10px;background:#102236b0;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap';
+    historyNotice.innerHTML='<span class="micro-copy" style="margin:0">«Guardar historial» está desactivado: el chat desde el teléfono permanecerá bloqueado hasta activarlo.</span><button type="button" id="axx-mobile-enable-history">Activar Guardar historial</button>';
+    pairError.after(historyNotice);
+    const updateHistoryNotice=()=>{historyNotice.hidden=!enabled || !!c.data.prefs.keepHistory;};
+    $('axx-mobile-enable-history').onclick=()=>{
+        c.data.prefs.keepHistory=true;
+        const checkbox=$('keep-history');if(checkbox)checkbox.checked=true;
+        c.save();updateHistoryNotice();void sync();
+    };
     const style=document.createElement('style');style.textContent='#axx-mobile{border:1px solid #98c6e273;border-radius:20px;padding:20px;background:linear-gradient(145deg,#21344db8,#0c182ad9);box-shadow:0 18px 45px #0004;margin-bottom:16px}#axx-mobile>strong{display:block;font-size:20px;margin-bottom:8px;color:#e6f3ff}#axx-mobile-status{padding:11px 13px;border-radius:10px;background:#87ccbe18;border:1px solid #8fd6c84f;color:#c1f2e5;font-size:13px}#axx-mobile .quick-row{display:flex;gap:10px;flex-wrap:wrap;margin:14px 0}#axx-mobile .quick-row button{min-height:42px;font-size:13px}#axx-mobile .axx-mobile-always{display:flex;align-items:center;gap:10px;padding:12px;border:1px solid #9ebbd039;border-radius:12px;line-height:1.5;font-size:12px;cursor:pointer}#axx-mobile .axx-mobile-always input{width:19px;height:19px;flex:none}#axx-mobile details{margin-top:12px}';document.head.append(style);
     const connect=document.createElement('button');connect.id='context-mobile';connect.textContent='Connect phone · QR';
     connect.onclick=()=>{Axx.app.openPanel('settings');$('context-menu').hidden=true;card.scrollIntoView({block:'start'});$('axx-mobile-start').click();};
@@ -39,7 +49,7 @@
         try {
             token=Axx.chatWorkspace.captureMemoryToken();
             const messages=c.data.prefs.keepHistory?c.data.messages.filter(m=>['user','assistant','system'].includes(m.role) && m.status!=='pending' && typeof m.text==='string' && m.at>Date.now()-90*86400000).slice(-200):[];
-            const inference={provider:c.data.prefs.provider||'', provider_name:c.data.prefs.apiConnection||'', model:c.data.prefs.model||'', selection_mode:c.data.prefs.selection_mode||'manual'};
+            const inference={provider:c.data.prefs.provider||'', provider_name:c.data.prefs.apiConnection||'', model:c.data.prefs.model||'', selection_mode:c.data.prefs.selection_mode||'manual', chat_tools:!!c.chatToolsEnabled?.()};
             const body=structuredClone({conversation_id,messages,inference,appearance:appearance(),share_history:!!c.data.prefs.keepHistory,memory_scope:{...token.memory_scope},memory_context_id:token.memory_context_id});
             await Axx.chatWorkspace.flush();
             if(c.data.sharedConversationId!==conversation_id||!Axx.chatWorkspace.isMemoryTokenCurrent(token))return;
@@ -59,6 +69,7 @@
         $('axx-mobile-network-status').textContent=info.network_message||'';
         $('axx-mobile-always').checked=!!info.always_on;
         $('axx-mobile-status').textContent=enabled?'Conexión activa · '+info.endpoint:'Acceso móvil apagado';
+        updateHistoryNotice();
         const nodes=(info.devices||[]).map(device=>{
             const row=document.createElement('p'); row.textContent=device.name+' · '+(device.revoked?'Revoked':device.scopes.join(', '))+' ';
             if(!device.revoked){const button=document.createElement('button');button.textContent='Revoke';button.onclick=async()=>{try{await api('POST','revoke',{device_id:device.device_id});await refresh();}catch(e){$('axx-mobile-status').textContent=e.message||String(e);}};row.append(button);}

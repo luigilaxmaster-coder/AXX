@@ -23,7 +23,8 @@ HOOKPROC=CALLBACK(C.c_ssize_t,C.c_int,W.WPARAM,W.LPARAM)
 class WindowClass(C.Structure):_fields_=[('style',W.UINT),('proc',WNDPROC),('classExtra',C.c_int),('windowExtra',C.c_int),('instance',W.HINSTANCE),('icon',W.HICON),('cursor',W.HANDLE),('background',W.HBRUSH),('menu',W.LPCWSTR),('name',W.LPCWSTR)]
 class BitmapHeader(C.Structure):_fields_=[('size',W.DWORD),('width',W.LONG),('height',W.LONG),('planes',W.WORD),('bits',W.WORD),('compression',W.DWORD),('imageSize',W.DWORD),('xppm',W.LONG),('yppm',W.LONG),('used',W.DWORD),('important',W.DWORD)]
 class Blend(C.Structure):_fields_=[('op',C.c_ubyte),('flags',C.c_ubyte),('alpha',C.c_ubyte),('format',C.c_ubyte)]
-KEYS={'Control':0x11,'Alt':0x12,'Shift':0x10,'Meta':0x5b,'Escape':0x1b,'Enter':0x0d,'Tab':9,'Backspace':8,'Delete':0x2e,'ArrowLeft':0x25,'ArrowRight':0x27,'ArrowUp':0x26,'ArrowDown':0x28,'Home':0x24,'End':0x23,'PageUp':0x21,'PageDown':0x22,'Space':0x20}
+KEYS={'Control':0x11,'Alt':0x12,'Shift':0x10,'Meta':0x5b,'Escape':0x1b,'Enter':0x0d,'Tab':9,'Backspace':8,'Delete':0x2e,'ArrowLeft':0x25,'ArrowRight':0x27,'ArrowUp':0x26,'ArrowDown':0x28,'Home':0x24,'End':0x23,'PageUp':0x21,'PageDown':0x22,'Space':0x20,
+      'F1':0x70,'F2':0x71,'F3':0x72,'F4':0x73,'F5':0x74,'F6':0x75,'F7':0x76,'F8':0x77,'F9':0x78,'F10':0x79,'F11':0x7a,'F12':0x7b}
 EXTENDED={'Meta','Delete','ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Home','End','PageUp','PageDown'}
 BUTTONS={'left':(2,4),'right':(8,16),'middle':(32,64)}
 MARKER=0x41585804

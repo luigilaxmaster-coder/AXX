@@ -97,6 +97,7 @@ SCOPED_ROUTES = {
         '/axx-api/learning/plans', '/axx-api/connect/task'},
     ('mobile', 'POST'): {'/axx-api/chat', '/axx-api/commands/resolve', '/axx-api/commands/prepare',
         '/axx-api/commands/execute', '/axx-api/commands/cancel', '/axx-api/connect/execute',
+        '/axx-api/learning/prepare', '/axx-api/learning/propose',
         '/axx-api/learning/repair', '/axx-api/speech/transcribe'},
 }
 
@@ -847,7 +848,9 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                 if set(body) - {'model', 'stream', 'axx_task', 'messages', 'temperature', 'max_tokens', 'tools',
                                 'request_id', 'conversation_id', 'deadline_ms', 'sensitivity',
                                 'provider', 'allow_fallback', 'mode', 'provider_name', 'selection_mode', 'memory_scope', 'memory_context_id', 'axx_tools',
-                                'act_id', 'act_revision'}:
+                                'act_id', 'act_revision', 'mobile_device_id'}:
+                    raise ValueError('Unsupported chat fields')
+                if 'mobile_device_id' in body and self.request_channel != 'mobile':
                     raise ValueError('Unsupported chat fields')
 
                 captured_memory = self._capture_memory(body, chat=True)
@@ -876,7 +879,15 @@ class AxxBridgeHandler(BaseHTTPRequestHandler):
                     tool_status = None
                     tool_chat = None
                     if 'axx_tools' in body:
-                        if (body['axx_tools'] is not True or self.request_channel != 'desktop' or 'tools' in body
+                        mobile_tools_ok = (
+                            self.request_channel == 'mobile'
+                            and getattr(self.server, 'mobile', None) is not None
+                            and isinstance(body.get('mobile_device_id'), str)
+                            and self.server.mobile.store.device_has_scope(body['mobile_device_id'], 'tools.control')
+                            and bool((self.server.mobile.preferences or {}).get('chat_tools'))
+                        )
+                        if (body['axx_tools'] is not True or (self.request_channel != 'desktop' and not mobile_tools_ok)
+                                or 'tools' in body
                                 or not self.connect or not self.chats or not captured_memory['task_id']
                                 or not captured_memory['memory_scope'] or envelope['task'] != 'chat' or body.get('stream') is True):
                             raise ValueError('Las herramientas requieren una conversación local vigente y su catálogo.')

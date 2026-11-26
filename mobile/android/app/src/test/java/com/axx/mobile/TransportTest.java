@@ -38,8 +38,12 @@ public class TransportTest {
         }
         assertTrue(500+AxxTransportPlugin.readTimeout("/v1/control/renew","POST") < 3000);
         assertEquals(8000,AxxTransportPlugin.readTimeout("/v1/snapshot","GET"));
+        assertEquals(30000,AxxTransportPlugin.readTimeout("/v1/events","GET"));
+        assertEquals(30000,AxxTransportPlugin.readTimeout("/v1/events?after=42","GET"));
         assertEquals(75000,AxxTransportPlugin.readTimeout("/v1/transfers/chunk","POST"));
         assertEquals(1500,AxxTransportPlugin.readTimeout("/v1/avatar/gesture","POST"));
+        AxxTransportPlugin.validateOperation("/v1/events","GET");
+        AxxTransportPlugin.validateOperation("/v1/events?after=0","GET");
     }
     @Test public void pairingLinksRejectAmbiguousOrUnsafeIdentity() throws Exception {
         String link="axx://pair?endpoint=https%3A%2F%2F192.168.0.10%3A4443&fingerprint="+"a".repeat(64)+"&code="+"b".repeat(32);

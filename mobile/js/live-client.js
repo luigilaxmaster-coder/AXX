@@ -7,6 +7,8 @@
   let pending = null, desktopAppearance=null, pointer=null, interactionUntil=0;
   let messageKey='', catalogKey='', lastCatalogAt=0;
   let homeIconKey='',homeIconUpdating=false;
+  let serverEpoch='', eventCursor=0, eventsSupported=false, eventsLoopRunning=false, lastRefreshAt=0;
+  let chatAvailable=true, currentMessages=[];
   const motionPreference=localStorage.getItem('axx.mobile.motion') || 'system';
   try { pending = JSON.parse(localStorage.getItem('axx.mobile.pending') || 'null'); } catch {}
   $('draft').value = localStorage.getItem('axx.mobile.draft') || '';
@@ -25,22 +27,30 @@
   };
   function connection(connected, text) {
     online = connected;
-    if(!connected)window.dispatchEvent(new Event('axxOffline'));
+    if(!connected){window.dispatchEvent(new Event('axxOffline'));}
     document.body.dataset.online=String(connected);
     $('connection-state').textContent = text;
     $('pc-dot').classList.toggle('online', connected);
-    $('send').disabled = !connected || !conversationId || conversationId==='main' || !!pending || busy;
+    $('send').disabled = !connected || !conversationId || conversationId==='main' || !chatAvailable || !!pending || busy;
     $('recover').hidden = !pending;
     forgetDelivery.hidden = !pending;
     if (!connected && $('sync-status').dataset.state === 'complete') syncState('offline','Sin conexión · se conserva la última apariencia recibida');
+  }
+  let inputActive=false, avatarAdaptiveEco=false, slowFrames=0, fastFrames=0;
+  const avatarFrameSamples=[];
+  function syncAvatarLoop(){
+    if(!avatar)return;
+    const visible=!document.hidden && !$('pane-axx').hidden && !inputActive;
+    avatar.setHidden(!visible);
+    if(visible){avatar.resize();avatar.startLoop();}
+    else avatar.stop();
   }
   function pane(name) {
     for (const section of document.querySelectorAll('.live-pane')) section.hidden = section.id !== 'pane-'+name;
     for (const button of document.querySelectorAll('[data-pane]')) {
       if (button.dataset.pane === name) button.setAttribute('aria-current', 'page'); else button.removeAttribute('aria-current');
     }
-    avatar?.setHidden(name !== 'axx');
-    if (name === 'axx') avatar?.resize();
+    syncAvatarLoop();
     if (name === 'chat') $('messages').scrollTop=$('messages').scrollHeight;
     if (name === 'work') void refreshWorkCatalog();
     window.scrollTo(0,0);
@@ -65,16 +75,97 @@
     catch(e){notice('No se pudo actualizar el acceso de inicio: '+errorText(e)+'. Se reintentará al recibir el estado de la PC.');}
     finally{homeIconUpdating=false;}
   }
+  function buildMessageNode(message) {
+    const node = document.createElement('div');
+    node.className = 'message ' + message.role;
+    if (message.id) node.dataset.messageId = message.id;
+    const label = document.createElement('small');
+    label.textContent = (message.role === 'user' ? 'Tú' : 'Axx') + ' · ' + (message.source === 'mobile' ? 'Teléfono' : 'PC');
+    const body = document.createElement('span');
+    body.className = 'message-text';
+    body.textContent = message.text || '';
+    node.append(label, body);
+    return node;
+  }
   function renderMessages(messages) {
-    const key=JSON.stringify(messages);if(key===messageKey)return;messageKey=key;
-    const log=$('messages'),follow=log.scrollHeight-log.scrollTop-log.clientHeight<48;
-    const nodes = messages.map(message => {
-      const node = document.createElement('div'); node.className = 'message '+message.role;
-      const label = document.createElement('small'); label.textContent = (message.role === 'user' ? 'Tú' : 'Axx')+' · '+(message.source === 'mobile' ? 'Teléfono' : 'PC');
-      node.append(label, document.createTextNode(message.text)); return node;
-    });
-    if (!nodes.length) { const p = document.createElement('p'); p.textContent = 'Todavía no hay mensajes compartidos.'; nodes.push(p); }
-    log.replaceChildren(...nodes);if(follow)log.scrollTop=log.scrollHeight;
+    const list = Array.isArray(messages) ? messages : [];
+    const key = JSON.stringify(list);
+    if (key === messageKey) return;
+    messageKey = key;
+    currentMessages = list.slice();
+    const log = $('messages'), follow = log.scrollHeight - log.scrollTop - log.clientHeight < 48;
+    if (!list.length) {
+      const p = document.createElement('p');
+      p.textContent = 'Todavía no hay mensajes compartidos.';
+      log.replaceChildren(p);
+      return;
+    }
+    const existingById = new Map();
+    for (const child of Array.from(log.children)) {
+      if (child.dataset?.messageId) existingById.set(child.dataset.messageId, child);
+      else child.remove();
+    }
+    const desiredIds = new Set(list.map(m => m.id).filter(Boolean));
+    for (const [id, el] of existingById) {
+      if (!desiredIds.has(id)) { el.remove(); existingById.delete(id); }
+    }
+    let prev = null;
+    for (const message of list) {
+      let node = message.id ? existingById.get(message.id) : null;
+      if (node) {
+        const expectedClass = 'message ' + message.role;
+        if (node.className !== expectedClass) node.className = expectedClass;
+        const body = node.querySelector('.message-text');
+        if (body && body.textContent !== (message.text || '')) body.textContent = message.text || '';
+      } else {
+        node = buildMessageNode(message);
+        if (message.id) existingById.set(message.id, node);
+      }
+      const expectedNext = prev ? prev.nextSibling : log.firstChild;
+      if (node !== expectedNext) log.insertBefore(node, expectedNext);
+      prev = node;
+    }
+    if (follow) log.scrollTop = log.scrollHeight;
+  }
+  function upsertLiveMessage(message) {
+    if (!message || !message.id) return;
+    if (message.conversation_id && conversationId && message.conversation_id !== conversationId) return;
+    const index = currentMessages.findIndex(m => m.id === message.id);
+    if (index >= 0) {
+      currentMessages[index] = { ...currentMessages[index], ...message };
+    } else {
+      currentMessages.push(message);
+      if (currentMessages.length > 200) currentMessages = currentMessages.slice(-200);
+    }
+    renderMessages(currentMessages);
+  }
+  function appendChatDelta(ev) {
+    if (!ev || !ev.message_id || typeof ev.delta !== 'string') return;
+    if (ev.conversation_id && conversationId && ev.conversation_id !== conversationId) return;
+    const existing = currentMessages.find(m => m.id === ev.message_id);
+    const nextText = (existing ? existing.text : '') + ev.delta;
+    upsertLiveMessage({ id: ev.message_id, role: 'assistant', source: 'pc', text: nextText, conversation_id: ev.conversation_id || conversationId, at: Date.now() });
+  }
+  function phaseLabel(phase, detail) {
+    const labels = {
+      understood: 'Entendí tu orden',
+      planning: 'Entendí → Preparando plan…',
+      preparing: 'Entendí → Preparando…',
+      awaiting_approval: 'Preparado · requiere aprobación en la PC',
+      executing: 'Entendí → Preparando → Ejecutando…',
+      verifying: 'Ejecutando → Verificando resultado…',
+      completed: 'Verificado · terminado',
+      succeeded: 'Ejecutado y verificado en tu PC',
+      failed: 'No se pudo completar',
+      outcome_unknown: 'Entrega sin confirmar. Revisa el PC antes de repetir.'
+    };
+    const base = labels[phase] || detail || '';
+    return detail && labels[phase] && !detail.includes(labels[phase]) ? base + ' · ' + detail : base;
+  }
+  function updateModelDisplay(inference, modelStatus) {
+    $('model-state').textContent = inference?.selection_mode === 'automatic_free'
+      ? 'Automático gratis'
+      : inference?.model || (modelStatus === 'unconfigured' ? 'Modelo sin configurar en PC' : 'Modelo de tu PC');
   }
   function renderRows(id, items, empty, kind) {
     const nodes = items.map(item => {
@@ -97,23 +188,104 @@
       avatar?.setState('idle'); $('avatar-state').textContent='Idle';
     }
   }
+  async function pollEventsLoop() {
+    if (eventsLoopRunning || !paired || !online || !eventsSupported || document.hidden) return;
+    eventsLoopRunning = true;
+    try {
+      while (paired && online && eventsSupported && !document.hidden) {
+        const res = await request('/v1/events?after=' + encodeURIComponent(String(eventCursor)));
+        if (!res || typeof res !== 'object') break;
+        if (res.server_epoch && serverEpoch && res.server_epoch !== serverEpoch) {
+          serverEpoch = res.server_epoch;
+          await refresh();
+          continue;
+        }
+        if (res.server_epoch && !serverEpoch) serverEpoch = res.server_epoch;
+        if (res.resync_required) {
+          await refresh();
+          continue;
+        }
+        if (typeof res.cursor === 'number' && res.cursor >= eventCursor) eventCursor = res.cursor;
+        if (Array.isArray(res.events)) {
+          let shouldRecover = false, shouldRefreshTasks = false;
+          for (const ev of res.events) {
+            if (!ev || !ev.type) continue;
+            if (ev.type === 'chat.message.created') upsertLiveMessage(ev.data);
+            else if (ev.type === 'chat.delta') appendChatDelta(ev.data);
+            else if (ev.type === 'chat.completed') {
+              if (ev.data?.message) upsertLiveMessage(ev.data.message);
+              shouldRecover = true;
+            } else if (ev.type === 'appearance.changed' && ev.data?.appearance) {
+              applyAppearance(ev.data.appearance);
+            } else if (ev.type === 'grant.changed' && Array.isArray(ev.data?.scopes)) {
+              renderScopes(ev.data.scopes);
+              if (!$('pane-work').hidden) void refreshWorkCatalog();
+            } else if (ev.type === 'model.changed') {
+              updateModelDisplay(ev.data?.inference, ev.data?.model_status);
+            } else if (ev.type === 'operation.changed') {
+              const label = phaseLabel(ev.data?.phase || ev.data?.state, ev.data?.summary || '');
+              if (label) $('command-state').textContent = label;
+              if (['completed', 'succeeded', 'failed', 'outcome_unknown', 'awaiting_approval'].includes(ev.data?.state)) {
+                shouldRecover = true;
+                shouldRefreshTasks = true;
+              }
+            }
+          }
+          if (shouldRecover && pending) {
+            try { await recover(); } catch {}
+          }
+          if (shouldRefreshTasks) {
+            try {
+              const tasks = await request('/v1/tasks');
+              renderRows('tasks', tasks.operations || [], 'Todavía no hay operaciones registradas.', 'task');
+            } catch {}
+          }
+        }
+      }
+    } catch (e) {
+      if (/404|Unknown route/i.test(errorText(e))) eventsSupported = false;
+    } finally {
+      eventsLoopRunning = false;
+    }
+  }
   async function refresh() {
     if (!paired || refreshing || document.hidden || $('pair-submit').disabled && !linking) return false;
     refreshing=true;
     try {
-      const status = await request('/v1/status');
+      const [statusRes, snapshotRes, tasksRes] = await Promise.allSettled([
+        request('/v1/status'),
+        request('/v1/snapshot'),
+        request('/v1/tasks')
+      ]);
+      if (statusRes.status !== 'fulfilled') throw statusRes.reason;
+      const status = statusRes.value;
       if (!status.ready) throw new Error('El motor de Axx no está disponible');
       try{await recover();}
       catch(e){$('command-state').textContent='El envío sigue sin confirmar: '+errorText(e)+'. Revisa la PC antes de repetirlo.';}
-      const snapshot = await request('/v1/snapshot'); conversationId = snapshot.conversation_id; renderMessages(snapshot.messages); applyAppearance(snapshot.appearance);
+      if (snapshotRes.status !== 'fulfilled') throw snapshotRes.reason;
+      const snapshot = snapshotRes.value;
+      conversationId = snapshot.conversation_id;
+      chatAvailable = snapshot.chat_available !== undefined ? !!snapshot.chat_available : (!!conversationId && conversationId !== 'main');
+      if (typeof snapshot.cursor === 'number') eventCursor = snapshot.cursor;
+      if (snapshot.server_epoch) serverEpoch = snapshot.server_epoch;
+      eventsSupported = snapshot.capabilities?.events_stream === true;
+      renderMessages(snapshot.messages); applyAppearance(snapshot.appearance);
       if(Array.isArray(snapshot.scopes))renderScopes(snapshot.scopes);
       if(snapshot.pc_name)$('pc-name').textContent=snapshot.pc_name;
-      const inference=snapshot.inference;
-      $('model-state').textContent=inference?.selection_mode==='automatic_free'?'Automático gratis':inference?.model||'Modelo de tu PC';
-      $('draft-state').textContent=conversationId==='main'?'Activa «Guardar historial» en el chat del PC para compartirlo.':'Chat del PC · mismas aprobaciones';
-      $('connection-detail').textContent='Última respuesta autenticada · '+new Date().toLocaleTimeString('es',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
-      try{const tasks=await request('/v1/tasks');renderRows('tasks',tasks.operations||[],'Todavía no hay operaciones registradas.','task');}
-      catch(e){$('tasks').textContent='No se pudo cargar la actividad: '+errorText(e);}
+      updateModelDisplay(snapshot.inference, snapshot.model_status);
+      $('draft-state').textContent = (snapshot.chat_blocked_reason === 'history_disabled' || conversationId === 'main')
+        ? 'Activa «Guardar historial» en el chat del PC para compartirlo.'
+        : snapshot.chat_blocked_reason === 'no_conversation'
+          ? 'Selecciona una conversación guardada en Axx del PC para chatear.'
+          : 'Chat del PC · mismas aprobaciones';
+      const timeLabel = new Date().toLocaleTimeString('es',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+      $('connection-detail').textContent = 'Última respuesta autenticada · ' + timeLabel + (snapshot.always_on === false ? ' · Consejo: activa «Mantener conexión» en tu PC' : '');
+      if (tasksRes.status === 'fulfilled') {
+        renderRows('tasks', tasksRes.value.operations || [], 'Todavía no hay operaciones registradas.', 'task');
+      } else {
+        $('tasks').textContent = 'No se pudo cargar la actividad: ' + errorText(tasksRes.reason);
+      }
+      lastRefreshAt = Date.now();
       connection(true, 'Conectado');
       window.dispatchEvent(new CustomEvent('axxSnapshot',{detail:{appearance:snapshot.appearance,scopes:snapshot.scopes,capabilities:snapshot.capabilities,device_id:currentDevice,fingerprint:currentFingerprint,conversation_id:snapshot.conversation_id}}));
       if(pendingWork)await checkWork(false);
@@ -124,6 +296,7 @@
         $('avatar-state').textContent='El mismo Axx de tu PC';
       }
       if(snapshot.appearance && !linking)syncState('complete','Sincronizado con tu PC');
+      if (eventsSupported && !eventsLoopRunning) void pollEventsLoop();
       return true;
     } catch(e) { connection(false, 'Sin conexión · '+errorText(e)); if(linking)syncState('error','Sincronización pendiente. Reintentando al recuperar la conexión.');return false; }
     finally { refreshing=false; }
@@ -315,7 +488,7 @@
     if(!window.confirm('¿Olvidar esta PC? Las operaciones ya enviadas pueden seguir en la PC. Revisa su actividad antes de repetirlas.'))return;
     await transport.forget();paired=false;conversationId=null;currentDevice='';currentFingerprint='';pending=null;setPendingWork(null);
     for(const key of ['pending','appearance','draft','device'])localStorage.removeItem('axx.mobile.'+key);
-    $('draft').value='';$('messages').replaceChildren();messageKey='';workCatalog=[];catalogKey='';filterCommands();
+    $('draft').value='';$('messages').replaceChildren();messageKey='';currentMessages=[];eventCursor=0;serverEpoch='';eventsSupported=false;workCatalog=[];catalogKey='';filterCommands();
     connection(false,'PC olvidada. Puedes revocar este teléfono en la PC.');$('identity').textContent='Sin PC enlazada';$('pc-name').textContent='Enlazar PC';renderScopes([]);
   }catch(e){notice(errorText(e));}};
   document.querySelectorAll('[data-pane]').forEach(b=>b.onclick=()=>pane(b.dataset.pane));
@@ -404,7 +577,8 @@
     const preference=$('avatar-motion').value;
     const reduced=preference==='paused' || preference==='system' && matchMedia('(prefers-reduced-motion: reduce)').matches;
     const still=reduced || value.settings?.reducedMotion || value.settings?.staticMode || value.studio?.living===false;
-    const settings=window.Axx.normalizeSettings({...value.settings, quality:avatar.accelerated?'balanced':still?'balanced':'eco', reducedMotion:reduced || value.settings?.reducedMotion});
+    const quality = still ? 'balanced' : (avatar.accelerated && !avatarAdaptiveEco) ? 'balanced' : 'eco';
+    const settings=window.Axx.normalizeSettings({...value.settings, quality, reducedMotion:reduced || value.settings?.reducedMotion});
     const state=value.activity?.state;
     if(state && window.Axx.MOTION_PROFILES[state])avatar.setState(pending?'thinking':state);
     const label=({idle:'Aquí estoy',thinking:'Pensando',speaking:'Hablando',listening:'Escuchando',processing:'Procesando'})[avatar.state] || avatar.state;
@@ -415,10 +589,35 @@
     void syncHomeIcon(value);
   }
   try {const settings={...window.Axx.DEFAULT_SETTINGS,quality:'eco',reducedMotion:matchMedia('(prefers-reduced-motion: reduce)').matches};avatar=new window.Axx.MobileRenderer($('axx-avatar-canvas'),settings);avatar.startLoop();window.axxMobileRenderer=avatar;} catch(e){notice('La animación no está disponible; puedes seguir usando los controles. '+errorText(e));}
+  if(avatar){
+    const origDraw=avatar.draw.bind(avatar);
+    avatar.draw=function(time){
+      origDraw(time);
+      if(typeof avatar.drawMs==='number' && Number.isFinite(avatar.drawMs) && !avatar.hidden){
+        avatarFrameSamples.push(avatar.drawMs);
+        if(avatarFrameSamples.length>120)avatarFrameSamples.shift();
+        const animated=avatar.accelerated && !avatar.settings?.reducedMotion && !avatar.settings?.staticMode && avatar.moving?.();
+        if(animated){
+          if(avatar.drawMs>28){slowFrames++;fastFrames=0;}
+          else if(avatar.drawMs<14){fastFrames++;slowFrames=0;}
+          else{slowFrames=0;fastFrames=0;}
+          if(!avatarAdaptiveEco && slowFrames>=15){avatarAdaptiveEco=true;slowFrames=0;appearanceKey='';if(desktopAppearance)applyAppearance(desktopAppearance);}
+          else if(avatarAdaptiveEco && fastFrames>=30){avatarAdaptiveEco=false;fastFrames=0;appearanceKey='';if(desktopAppearance)applyAppearance(desktopAppearance);}
+        }
+      }
+    };
+  }
+  window.axxAvatarTelemetry=()=>{
+    const sorted=[...avatarFrameSamples].sort((a,b)=>a-b);
+    const pct=p=>sorted.length?Math.round(sorted[Math.min(sorted.length-1,Math.max(0,Math.ceil(sorted.length*p)-1))]*10)/10:0;
+    return {samples:sorted.length,p50_ms:pct(.5),p95_ms:pct(.95),max_ms:sorted.length?Math.round(sorted[sorted.length-1]*10)/10:0,
+      quality:avatar?.settings?.quality||null,adaptive_eco:avatarAdaptiveEco,accelerated:!!avatar?.accelerated,paused_for_input:inputActive};
+  };
+  window.addEventListener('axxInputActive',e=>{inputActive=!!e.detail?.active;syncAvatarLoop();});
   try{const cached=JSON.parse(localStorage.getItem('axx.mobile.appearance') || 'null');if(cached)applyAppearance(cached);}catch{}
   window.addEventListener('resize',()=>avatar?.resize());
-  document.addEventListener('visibilitychange',()=>{if(document.hidden)avatar?.stop();else{avatar?.startLoop();void refresh();}});
-  setInterval(()=>void refresh(),2000);
+  document.addEventListener('visibilitychange',()=>{syncAvatarLoop();if(!document.hidden){void refresh();}});
+  setInterval(()=>{if(!eventsLoopRunning || Date.now()-lastRefreshAt>=10000)void refresh();},2000);
   window.addEventListener('online',()=>void refresh());
   window.addEventListener('offline',()=>connection(false,'Sin red · tus borradores siguen guardados'));
   if(transport) profile().then(()=>refresh()).catch(e=>notice(errorText(e)));
