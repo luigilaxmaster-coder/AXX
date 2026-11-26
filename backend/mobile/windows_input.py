@@ -283,17 +283,14 @@ class WindowsInput:
         fade=1 if self.reduced else min(1.,(now-self.granted_at)/.15)
         if self.release_at:fade=max(0.,1-(now-self.release_at)/.15)
         image=contour_rgba(self.table,size,fade*self.intensity,(0,0) if self.reduced else self.velocity,bool(self.held_buttons) and not self.reduced,0 if self.reduced else max(0.,1-(now-self.pulse_at)/.18),self.glow,0 if self.reduced else math.sin(now*.5)*.15)
-        raw=bytearray(image.tobytes('raw','BGRA'))
-        for i in range(0,len(raw),4):
-            alpha=raw[i+3]
-            for k in range(3):raw[i+k]=raw[i+k]*alpha//255
+        raw=image.convert('RGBa').tobytes('raw','BGRa')
         if self.bitmap_size!=size:
             if self.bitmap:self.gdi.SelectObject(self.dc,self.old_bitmap);self.gdi.DeleteObject(self.bitmap)
             header=BitmapHeader(C.sizeof(BitmapHeader),size,-size,1,32,0,size*size*4,0,0,0,0)
             self.bitmap=self.gdi.CreateDIBSection(self.dc,C.byref(header),0,C.byref(self.bits),None,0)
             if not self.bitmap:raise OSError('No se pudo crear el indicador')
             self.old_bitmap=self.gdi.SelectObject(self.dc,self.bitmap);self.bitmap_size=size
-        C.memmove(self.bits,bytes(raw),len(raw));dest=W.POINT(point.x-size//2,point.y-size//2);origin=W.POINT(0,0);dimensions=W.SIZE(size,size);blend=Blend(0,0,255,1)
+        C.memmove(self.bits,raw,len(raw));dest=W.POINT(point.x-size//2,point.y-size//2);origin=W.POINT(0,0);dimensions=W.SIZE(size,size);blend=Blend(0,0,255,1)
         if not self.user.UpdateLayeredWindow(self.hwnd,None,C.byref(dest),C.byref(dimensions),self.dc,C.byref(origin),0,C.byref(blend),2):raise OSError('Windows no pudo mostrar el indicador')
 
     def _publish(self):
@@ -331,13 +328,19 @@ class WindowsInput:
             # Layered + transparent + no activate + tool window; never replaces the native cursor.
             self.hwnd=self.user.CreateWindowExW(0x80000|0x20|0x08000000|0x80,name,'Axx Remote Cursor',0x80000000,0,0,48,48,None,None,instance,None)
             if not self.hwnd:raise OSError('No se pudo crear la superficie')
+            last_raw_monitors=None
             def geometry():
+                nonlocal last_raw_monitors
                 result=monitors()
+                raw_key=[(m['x'],m['y'],m['width'],m['height']) for m in result]
+                if raw_key==last_raw_monitors and self.monitors:
+                    return self.monitors
                 for m in result:
                     probe=self.user.CreateWindowExW(0x08000000|0x80,name,'',0x80000000,m['x'],m['y'],1,1,None,None,instance,None)
                     if not probe:raise OSError('No se pudo consultar la escala de pantalla')
                     try:m['dpi']=self.user.GetDpiForWindow(probe);m['scale']=m['dpi']/96.
                     finally:self.user.DestroyWindow(probe)
+                last_raw_monitors=raw_key
                 return result
             self.monitors=geometry()
             self.dc=self.gdi.CreateCompatibleDC(None)
@@ -348,23 +351,25 @@ class WindowsInput:
                     self.user.TranslateMessage(C.byref(msg));self.user.DispatchMessageW(C.byref(msg))
                 now=time.monotonic()
                 if self.active and self._expired(now):self._cancel(self.abort_reason if self.abort.is_set() else 'expired_or_revoked')
-                try:item=self.commands.get_nowait()
-                except queue.Empty:item=None
-                if item:
+                for _ in range(8):
+                    try:item=self.commands.get_nowait()
+                    except queue.Empty:break
                     try:
                         if now>=item['expires']:raise ValueError('Entrada demasiado antigua; no se ejecutó')
                         item['result']=self._execute(item['op'],item['args'])
                     except Exception as exc:item['error']=str(exc)
                     finally:self._publish();item['done'].set()
-                if now-geometry_at>1:
+                geom_interval=3 if self.active else 10
+                if now-geometry_at>geom_interval:
                     current=geometry()
                     if current!=self.monitors and self.active:self._cancel('display_changed')
                     self.monitors=current;geometry_at=now
                 try:self._draw(now)
                 except Exception as exc:self._cancel('overlay_failed: '+str(exc))
-                self._publish()
+                if self.active or self.release_at:
+                    self._publish()
                 # Low-level hooks block the system input path: wake on messages, never sleep through them.
-                timeout=0 if not self.commands.empty() else 8 if self.active or self.release_at else 50
+                timeout=0 if not self.commands.empty() else 8 if self.active or self.release_at else 250
                 self.user.MsgWaitForMultipleObjectsEx(0,None,timeout,0x04ff,0x0004)
         except Exception as exc:self.error=str(exc);self.ready.set()
         finally:

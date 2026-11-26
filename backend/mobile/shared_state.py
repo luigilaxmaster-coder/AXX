@@ -12,6 +12,11 @@ class SharedState:
     def __init__(self, path):
         self.path = str(path)
         with self.connect() as db:
+            try:
+                db.execute('PRAGMA journal_mode=WAL')
+                db.execute('PRAGMA synchronous=NORMAL')
+            except sqlite3.Error:
+                pass
             db.executescript('''
                 CREATE TABLE IF NOT EXISTS shared_messages (
                     id TEXT PRIMARY KEY, role TEXT NOT NULL, text TEXT NOT NULL,
@@ -41,6 +46,7 @@ class SharedState:
     def connect(self):
         db = sqlite3.connect(self.path, timeout=10)
         db.row_factory = sqlite3.Row
+        db.execute('PRAGMA busy_timeout=10000')
         try:
             with db:
                 yield db

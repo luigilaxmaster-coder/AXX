@@ -25,8 +25,18 @@ Antes de AXX Mobile 3.0:
 3. **WebRTC DataChannel** *(Descartado en etapa 1)*
    - Introduce señalización ICE/SDP/DTLS y complejidad de relay/TURN injustificada sin evidencia de que HTTPS keep-alive/WSS no cumplan los presupuestos medidos.
 
-## Instrumentación incorporada
+## Instrumentación y optimizaciones de rendimiento incorporadas
 
-- **Servidor (`backend/mobile/control.py`):** cada respuesta de `POST /v1/control/events` añade el campo opcional `metrics` con duraciones monotónicas puras del host (`lock_wait_ms`, `send_input_ms`, `server_total_ms`), sin mezclar relojes entre equipos.
-- **Cliente (`mobile/js/remote-control.js`):** mide `queue_ms` (captura táctil a despacho) y `rtt_ms` (despacho a ACK), muestra percentiles `p50 / p95 / p99` y jitter (`p95 - p50`) en Ajustes de control, y expone `window.axxControlTelemetry()` para volcado reproducible.
-- **Pendiente de hardware:** medición física dedo-a-cursor con cámara de alta velocidad en LAN y Tailscale directo/relay.
+- **Servidor (`backend/mobile/gateway.py`, `shared_state.py`, `trust_store.py`, `windows_input.py`):**
+  - SQLite en modo `WAL` (`PRAGMA journal_mode=WAL; synchronous=NORMAL; busy_timeout=10000`) para eliminar bloqueos `database is locked` entre escritorio y móvil.
+  - Keep-alive ampliado a `/v1/control/events`, `/v1/control/status`, `/v1/control/renew`, `/v1/status`, `/v1/snapshot`, `/v1/tasks`, `/v1/events`, `/v1/voice/poll` y `/v1/files/status`, evitando handshakes TLS repetitivos.
+  - Filtrado estructural de apariencia (`_structural_appearance`): los ticks de rotación de cámara (`autoRotate`) se mantienen en RAM sin disparar escrituras SQLite ni despertar `/v1/events` cada segundo.
+  - Desconexiones/timeouts de sockets SSL manejados sin intentar respuestas 502 sobre sockets cerrados.
+  - Hilo nativo de entrada (`windows_input.py`): premultiplicación BGRA en C vía `image.convert('RGBa').tobytes('raw', 'BGRa')` (~200× más rápido que el bucle Python por píxel), drenaje por lotes de hasta 8 comandos antes de redibujar el overlay, caché de DPI de monitores (sin `CreateWindowExW`/`DestroyWindow` cada segundo) y espera inactiva de 250 ms con despertar inmediato por `PostThreadMessageW`.
+  - Cada respuesta de `POST /v1/control/events` añade el campo opcional `metrics` con duraciones monotónicas del host (`lock_wait_ms`, `send_input_ms`, `server_total_ms`).
+- **Cliente Android (`AxxTransportPlugin.java`, `live-client.js`, `remote-voice.js`, `remote-control.js`, `avatar-customization.js`):**
+  - Pools nativos dedicados: `network` (3 hilos), `inputNetwork` (3 hilos) y `eventsNetwork` (1 hilo) con reutilización keep-alive en las rutas de control, estado, eventos, voz y archivos.
+  - Sondeo adaptativo de voz remota (`2500 ms` en reposo, `750 ms` en sesión activa, pausado completamente durante `axxInputActive`, caché de `paired` y deduplicación de mutaciones DOM); temporizador bajo demanda en `avatar-customization.js`.
+  - Pacing de fotogramas del avatar en GPUs móviles de gama de entrada (~30 FPS cuando la media móvil de `drawMs > 11 ms`, volviendo a 60 FPS en GPUs rápidas o durante arrastre táctil), diferimiento de `syncHomeIcon` y eliminación de escrituras `localStorage` por rotación de cámara.
+  - Telemetría de control remoto (`queue_ms`, `rtt_ms`, `p50/p95/p99`, jitter) visible en Ajustes de control (`⚙`) y exportable con `window.axxControlTelemetry()`.
+- **Pendiente de hardware avanzado:** medición física dedo-a-cursor con cámara 120/240 FPS en LAN y Tailscale directo/relay para decidir si alguna vez se requiere WSS en etapa 2.

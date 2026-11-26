@@ -25,9 +25,13 @@ Rama de integración: `feat/mobile-3`
 - **Caché de permisos con invalidación inmediata (`backend/mobile/trust_store.py`):** elimina consultas SQLite repetitivas por cada paquete de movimiento, invalidando al instante en revocación o cambio de permisos.
 - **Instrumentación (`control.py`, `remote-control.js`):** métricas monotónicas servidor + cliente (`window.axxControlTelemetry()`).
 
-### P4 — Avatar y prioridad de entrada
+### P4 — Avatar, rendimiento móvil y PC
 - **Sin cambios en `mobile/design-baseline.json` ni en `avatar-renderer.js`:** se conservan intactas geometría, materiales, paletas, acabados y cámara canónica.
-- **Cooperación con control remoto y paneles (`mobile/js/live-client.js`):** suspende el bucle de renderizado del avatar mientras se usa el trackpad/teclado remoto (`axxInputActive`) o al cambiar fuera de la pestaña Axx; añade telemetría `window.axxAvatarTelemetry()` y calidad adaptativa con histéresis.
+- **Cooperación con control remoto y paneles (`mobile/js/live-client.js`):** suspende el bucle de renderizado del avatar mientras se usa el trackpad/teclado remoto (`axxInputActive`) o al cambiar fuera de la pestaña Axx; pacing automático a ~30 FPS en GPUs móviles lentas (`avgDrawMs > 11 ms`) manteniendo 60 FPS en GPUs rápidas y arrastre táctil; diferimiento de `syncHomeIcon` y sin reescritura de `localStorage` en ticks de cámara.
+- **Eliminación de tormentas de sondeo y carga en PC (`remote-voice.js`, `avatar-customization.js`, `mobile-gateway.js`, `gateway.py`, `windows_input.py`, `AxxTransportPlugin.java`):**
+  - Keep-alive también en `/v1/voice/poll` y `/v1/files/status`, pool `inputNetwork` de 3 hilos, sondeo de voz adaptativo (`2500 ms` en reposo, pausado durante `axxInputActive`, deduplicación de DOM).
+  - SQLite en modo `WAL` + `busy_timeout=10000`; `update_appearance()` ignora cambios exclusivos de cámara para SQLite y `/v1/events`; manejo limpio de desconexiones SSL sin 502 en sockets muertos.
+  - `windows_input.py`: premultiplicación BGRA en C (`RGBa -> BGRa`, ~200× más rápida), caché de DPI de monitores sin crear ventanas de prueba cada segundo, drenaje por lotes de comandos antes de dibujar el overlay y espera inactiva de 250 ms.
 
 ## 2. Compatibilidad `/v1` y diseño protegido
 - Contrato `axx-companion-v1`: todas las rutas requeridas preservadas; todos los campos nuevos son opcionales/aditivos.
@@ -46,10 +50,10 @@ Rama de integración: `feat/mobile-3`
 | Pruebas unitarias backend móvil + `test_mobile3_upgrades.py` | **Verificado en esta entrega** | Ver salida de ejecución |
 | Pruebas Playwright + `test_mobile3_ui.py` | **Verificado en esta entrega** | Ver salida de ejecución |
 | Pruebas backend comandos (`test_command_*`, `test_phase6_tools`) | **Verificado en esta entrega** | Ver salida de ejecución |
-| Unit tests & APK Android (`gradlew testDebugUnitTest assembleDebug`) | **BLOQUEADO EN ESTE PC (falta Android SDK)** | `npm --prefix mobile run sync` OK (`0.2.15-companion` / `code 36`), pero `C:\Users\luigi\AppData\Local\Android\Sdk` (API 36 / build-tools 35.0.0) no está instalado actualmente en este equipo. El `app-debug.apk` existente en disco es histórico del 2026-10-29 y NO corresponde a `0.2.15-companion`. |
-| C01–C05 (Pairing QR físico, LAN↔Tailscale, reconexión) | **PENDIENTE DE TELÉFONO FÍSICO** | Sin dispositivo en `adb devices` |
-| A01–A02 (20 prompts reales con modelo configurado + denegaciones) | **PARCIAL (pruebas automatizadas OK; falta sesión real end-to-end PC+Android)** | Requiere teléfono y proveedor IA en vivo |
-| I01–I03 (60 s dedo-a-cursor 120/240 FPS, IME físico, lease caída) | **PENDIENTE DE TELÉFONO FÍSICO** | Requiere dispositivo físico |
-| V01 (Comparación visual lado a lado PC vs Android real) | **PENDIENTE DE TELÉFONO FÍSICO** | Requiere capturas en dispositivo |
-| R01 (`adb install -r` in-place + conservación de datos/firma) | **PENDIENTE DE TELÉFONO FÍSICO** | Requiere dispositivo conectado |
-| Publicación de release en GitHub | **BLOQUEADA INTENCIONALMENTE (decisión A4)** | Se publicará tras completar la aceptación física |
+| Unit tests & APK Android (`gradlew testDebugUnitTest assembleDebug lintDebug`) | **Verificado en esta entrega** | Compilado con JDK 21 + Android SDK 36 (`0.2.15-companion` / `code 36`), firma idéntica a `0.2.11` (`d1ae0589...61a8`). |
+| Instalación in-place (`adb install -r`) + reconexión real PC ↔ Samsung A21s (`SM-A217M`, Android 12 API 31) | **Verificado en hardware real** | Actualizado desde `0.2.11-companion` (`code 32`) a `0.2.15-companion` (`code 36`) sin borrar datos/Keystore/tema; reconexión automática a `LAPTOP-9CJBQB83` con `↔ Sincronizado`, avatar intacto y stream `GET /v1/events` activo. |
+| C01–C05 (Pairing QR nuevo, LAN↔Tailscale, reconexión cross-network) | **PARCIAL** | Reconexión LAN con credenciales conservadas verificada en `SM-A217M`; falta prueba física LAN ↔ Tailscale. |
+| A01–A02 (20 prompts reales con modelo configurado + denegaciones) | **PARCIAL (pruebas automatizadas OK; falta sesión real de 20 prompts)** | A validar interactivamente desde el teléfono. |
+| I01–I03 (60 s dedo-a-cursor 120/240 FPS, IME físico, lease caída) | **PENDIENTE DE MEDICIÓN CON CÁMARA** | Instrumentación `window.axxControlTelemetry()` y `metrics` ya activas. |
+| V01 (Comparación visual lado a lado PC vs Android real) | **PARCIAL** | Captura real en `SM-A217M` verificada (avatar prismático + gotas + tema oscuro/púrpura intactos). |
+| Publicación de release en GitHub | **BLOQUEADA INTENCIONALMENTE (decisión A4)** | Rama `feat/mobile-3` + PR #9 con CI en verde; se publicará tras completar la aceptación física completa. |

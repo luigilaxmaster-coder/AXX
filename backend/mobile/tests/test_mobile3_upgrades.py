@@ -210,6 +210,25 @@ class Mobile3UpgradeTests(unittest.TestCase):
             finally:
                 gateway.stop()
 
+    def test_camera_only_appearance_ticks_skip_sqlite_and_event_churn(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            gateway = MobileGateway(Path(tmp) / 'state.db', tmp, lambda *a: {})
+            try:
+                base = {'settings': {'form': 19, 'palette': 4}, 'studio': {'living': True, 'autoRotate': True}, 'camera': [1.0, 0.1], 'finish': 'prism', 'activity': {'state': 'idle', 'moving': True}}
+                gateway.update_appearance(base)
+                c1 = gateway.shared.cursor_bounds()[1]
+                # Camera rotation tick only: updates RAM, zero new shared_events
+                gateway.update_appearance({**base, 'camera': [1.4, 0.1]})
+                c2 = gateway.shared.cursor_bounds()[1]
+                self.assertEqual(c1, c2)
+                self.assertEqual(gateway.appearance['camera'], [1.4, 0.1])
+                # Structural change (finish) emits appearance.changed immediately
+                gateway.update_appearance({**base, 'camera': [1.5, 0.1], 'finish': 'obsidian'})
+                c3 = gateway.shared.cursor_bounds()[1]
+                self.assertGreater(c3, c2)
+            finally:
+                gateway.close()
+
 
 if __name__ == '__main__':
     unittest.main()

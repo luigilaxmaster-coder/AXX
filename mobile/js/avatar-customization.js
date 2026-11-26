@@ -6,14 +6,20 @@
   const names=['Obsidiana','Nébula','Océano','Atardecer','Amatista','Esmeralda','Champán','Plata','Vacío'];
   Axx.PALETTES.forEach((row,i)=>palette.add(new Option(names[i]||row.name,String(i))));
   Axx.FORMS.forEach((row,i)=>form.add(new Option(row.detail,String(i))));
-  let online=false,allowed=false,capable=false,device='',appearance=null,pending=null,checking=false;
+  let online=false,allowed=false,capable=false,device='',appearance=null,pending=null,checking=false,recoverTimer=0;
   try{pending=JSON.parse(localStorage.getItem(key)||'null');}catch{}
   if(!pending||typeof pending.operation_id!=='string'||typeof pending.device_id!=='string')pending=null;
   const request=async(path,body)=>(await transport.request({path,method:body?'POST':'GET',...(body?{body}:{})})).data;
+  function syncRecoverTimer(){
+    const need=!!(pending&&!pending.confirmedAt&&online&&capable);
+    if(need&&!recoverTimer)recoverTimer=setInterval(()=>void recover(),750);
+    else if(!need&&recoverTimer){clearInterval(recoverTimer);recoverTimer=0;}
+  }
   function paint(){
     for(const input of [palette,form,finish])input.disabled=!online||!allowed||!capable||!!pending;
     $('character-recover').hidden=!pending;$('character-forget').hidden=!pending;
     if(appearance&&!pending){palette.value=String(appearance.settings?.palette??0);form.value=String(appearance.settings?.form??0);finish.value=appearance.finish||'obsidian';}
+    syncRecoverTimer();
   }
   function save(value){if(value)localStorage.setItem(key,JSON.stringify(value));else localStorage.removeItem(key);pending=value;paint();}
   function receipt(result){
@@ -62,5 +68,5 @@
     paint();
   });
   window.addEventListener('axxOffline',()=>{online=false;paint();});
-  paint();setInterval(()=>void recover(),750);
+  paint();
 })();

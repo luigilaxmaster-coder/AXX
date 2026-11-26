@@ -170,16 +170,24 @@ class MobileGateway:
             preferences.get('selection_mode') == 'automatic_free' or
             bool(preferences.get('model') and preferences.get('provider_name')))
 
+    @staticmethod
+    def _structural_appearance(value):
+        if not isinstance(value, dict):
+            return value
+        return {k: v for k, v in value.items() if k != 'camera'}
+
     def update_appearance(self, appearance):
-        changed = appearance != self.appearance
+        structural_changed = (self.appearance is None) or (self._structural_appearance(appearance) != self._structural_appearance(self.appearance))
         self.appearance = appearance
-        self.store.save_runtime_state(appearance=appearance)
-        if changed:
+        if structural_changed:
+            self.store.save_runtime_state(appearance=appearance)
             self.emit_event('appearance.changed', {'appearance': appearance})
 
     def update_desktop_state(self, *, share_history=None, preferences=None, appearance=None):
         prefs_changed = preferences is not None and preferences != self.preferences
-        app_changed = appearance is not None and appearance != self.appearance
+        app_structural_changed = appearance is not None and (
+            self.appearance is None or self._structural_appearance(appearance) != self._structural_appearance(self.appearance)
+        )
         hist_changed = share_history is not None and share_history != self.share_history
         if preferences is not None:
             self.preferences = dict(preferences)
@@ -187,11 +195,16 @@ class MobileGateway:
             self.appearance = appearance
         if share_history is not None:
             self.share_history = share_history
-        self.store.save_runtime_state(share_history=share_history, preferences=preferences, appearance=appearance)
+        if hist_changed or prefs_changed or app_structural_changed:
+            self.store.save_runtime_state(
+                share_history=share_history if hist_changed else None,
+                preferences=preferences if prefs_changed else None,
+                appearance=appearance if app_structural_changed else None,
+            )
         if prefs_changed:
             self.emit_event('model.changed', {'inference': self.preferences,
                                               'model_status': 'ready' if self.engine_available() else 'unconfigured'})
-        if app_changed:
+        if app_structural_changed:
             self.emit_event('appearance.changed', {'appearance': self.appearance})
         if hist_changed:
             self.notify_events()
@@ -864,6 +877,7 @@ class MobileGateway:
                     keepalive = status == 200 and not client_close and req_path in (
                         '/v1/control/events', '/v1/control/status', '/v1/control/renew',
                         '/v1/status', '/v1/snapshot', '/v1/tasks', '/v1/events',
+                        '/v1/voice/poll', '/v1/files/status',
                     )
                     self.send_header("Connection", "keep-alive" if keepalive else "close")
                     self.end_headers()
@@ -1027,10 +1041,15 @@ class MobileGateway:
                         self._send(403, {'ok': False, 'error': {'code': 'SCOPE_DENIED', 'message': 'This device is no longer authorized.'}})
                     except (ValueError, TypeError) as exc:
                         self._send(400, {'ok': False, 'error': {'code': 'INVALID_REQUEST', 'message': str(exc)}})
+                    except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, TimeoutError, ssl.SSLError, OSError):
+                        self.close_connection = True
                     except Exception:
                         LOG.exception("Mobile GET failed")
-                        self._send(502, {"ok": False, "error": {"code": "BACKEND_UNAVAILABLE",
-                                  "message": "Axx could not complete the query."}})
+                        try:
+                            self._send(502, {"ok": False, "error": {"code": "BACKEND_UNAVAILABLE",
+                                      "message": "Axx could not complete the query."}})
+                        except OSError:
+                            self.close_connection = True
                     finally:
                         self.server.handler_slots.release()
 
@@ -1116,10 +1135,15 @@ class MobileGateway:
                                   "message": "This QR expired, was already used or is invalid. Select Show new QR on your PC and scan again."}})
                     except (ValueError, TypeError, json.JSONDecodeError) as exc:
                         self._send(400, {"ok": False, "error": {"code": "INVALID_REQUEST", "message": str(exc)}})
+                    except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, TimeoutError, ssl.SSLError, OSError):
+                        self.close_connection = True
                     except Exception:
                         LOG.exception("Mobile POST failed")
-                        self._send(502, {"ok": False, "error": {"code": "BACKEND_UNAVAILABLE",
-                                  "message": "Axx could not complete the operation."}})
+                        try:
+                            self._send(502, {"ok": False, "error": {"code": "BACKEND_UNAVAILABLE",
+                                      "message": "Axx could not complete the operation."}})
+                        except OSError:
+                            self.close_connection = True
                     finally:
                         self.server.handler_slots.release()
 

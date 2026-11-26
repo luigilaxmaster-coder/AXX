@@ -27,15 +27,19 @@
     const connect=document.createElement('button');connect.id='context-mobile';connect.textContent='Connect phone · QR';
     connect.onclick=()=>{Axx.app.openPanel('settings');$('context-menu').hidden=true;card.scrollIntoView({block:'start'});$('axx-mobile-start').click();};
     $('context-menu')?.insertBefore(connect,$('context-menu').querySelector('hr'));
-    let enabled=false, syncing=false, expiry, pairDeadline=0, appearanceSyncing=false;
+    let enabled=false, syncing=false, expiry, pairDeadline=0, appearanceSyncing=false, lastAppearanceStruct='', lastAppearanceSentAt=0;
     function appearance(){
         const r=Axx.app.renderer;
         return {settings:Axx.normalizeSettings(Axx.app.store.data.settings),studio:r.getStudio(),camera:r.getCamera20(),finish:r.finish,activity:{state:r.state,moving:r.moving()}};
     }
     async function syncAppearance(){
         if(!enabled || appearanceSyncing)return;
+        const current=appearance();
+        const structKey=JSON.stringify([current.settings,current.studio,current.finish,current.activity]);
+        const now=Date.now();
+        if(structKey===lastAppearanceStruct && now-lastAppearanceSentAt<5000)return;
         appearanceSyncing=true;
-        try{await api('POST','appearance',appearance());}
+        try{await api('POST','appearance',current);lastAppearanceStruct=structKey;lastAppearanceSentAt=now;}
         catch(e){$('axx-mobile-status').textContent='Character sync failed: '+(e.message||e);}
         finally{appearanceSyncing=false;}
     }
@@ -101,5 +105,5 @@
         finally{selector.disabled=false;}
     };
     $('axx-mobile-always').onchange=async()=>{const checkbox=$('axx-mobile-always');checkbox.disabled=true;try{render(await api('POST','always-access',{enabled:checkbox.checked}));}catch(e){checkbox.checked=!checkbox.checked;$('axx-mobile-status').textContent='No se pudo cambiar el acceso: '+(e.message||e);}finally{checkbox.disabled=false;}};
-    setInterval(()=>void refresh(),2000);setInterval(()=>void syncAppearance(),1000);void refresh();
+    setInterval(()=>void refresh(),3000);setInterval(()=>void syncAppearance(),1000);void refresh();
 })(window.Axx);

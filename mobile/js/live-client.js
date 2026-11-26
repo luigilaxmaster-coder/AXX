@@ -65,15 +65,21 @@
       return canvas.toDataURL('image/png');
     }finally{renderer?.stop();renderer?.observer?.disconnect();host.remove();}
   }
-  async function syncHomeIcon(value){
+  let homeIconTimer=0;
+  function syncHomeIcon(value){
     if(!transport?.updateHomeIcon || homeIconUpdating)return;
     // Camera motion and activity must not redraw the launcher icon every second.
     const key=JSON.stringify([value.settings,value.studio,value.finish]);
     if(key===homeIconKey)return;
-    homeIconUpdating=true;
-    try{await transport.updateHomeIcon({png:characterIcon()});homeIconKey=key;}
-    catch(e){notice('No se pudo actualizar el acceso de inicio: '+errorText(e)+'. Se reintentará al recibir el estado de la PC.');}
-    finally{homeIconUpdating=false;}
+    clearTimeout(homeIconTimer);
+    homeIconTimer=setTimeout(async()=>{
+      homeIconTimer=0;
+      if(homeIconUpdating || key===homeIconKey)return;
+      homeIconUpdating=true;
+      try{await transport.updateHomeIcon({png:characterIcon()});homeIconKey=key;}
+      catch(e){notice('No se pudo actualizar el acceso de inicio: '+errorText(e)+'. Se reintentará al recibir el estado de la PC.');}
+      finally{homeIconUpdating=false;}
+    }, 120);
   }
   function buildMessageNode(message) {
     const node = document.createElement('div');
@@ -585,19 +591,35 @@
     $('avatar-state').textContent=label;
     $('avatar-pc-state').textContent=value.activity?'PC: '+(({idle:'Idle',thinking:'Thinking',listening:'Listening',speaking:'Speaking',processing:'Processing',approval:'Approval',paused:'Paused',success:'Success',error:'Error',notification:'Notification',focus:'Focus',transform:'Transform',offline:'Offline',cancelled:'Cancelled'})[state] || label)+' · '+(value.activity.moving?'moving':'still'):'';
     const key=JSON.stringify([settings,value.studio,value.camera,value.finish,preference,cameraLocked]);if(key===appearanceKey){void syncHomeIcon(value);return;}
-    if(JSON.stringify(avatar.settings)!==JSON.stringify(settings))avatar.configure(settings);if(avatar.form!==settings.form)avatar.setForm(settings.form);if(JSON.stringify(avatar.getStudio())!==JSON.stringify(value.studio))avatar.setStudio(value.studio||{});if(!cameraLocked)avatar.setCamera20(Array.isArray(value.camera)?[value.camera[0]%(Math.PI*2),value.camera[1]]:value.camera);if(avatar.finish!==(value.finish||'obsidian'))avatar.setFinish(value.finish||'obsidian');if(!avatar.hidden)avatar.draw(avatar.lastTime || 0);appearanceKey=key;localStorage.setItem('axx.mobile.appearance',JSON.stringify(value));
+    const structuralKey=JSON.stringify([settings,value.studio,value.finish]);
+    if(JSON.stringify(avatar.settings)!==JSON.stringify(settings))avatar.configure(settings);if(avatar.form!==settings.form)avatar.setForm(settings.form);if(JSON.stringify(avatar.getStudio())!==JSON.stringify(value.studio))avatar.setStudio(value.studio||{});if(!cameraLocked)avatar.setCamera20(Array.isArray(value.camera)?[value.camera[0]%(Math.PI*2),value.camera[1]]:value.camera);if(avatar.finish!==(value.finish||'obsidian'))avatar.setFinish(value.finish||'obsidian');if(!avatar.hidden)avatar.draw(avatar.lastTime || 0);appearanceKey=key;
+    if(structuralKey!==lastStoredAppearanceKey){lastStoredAppearanceKey=structuralKey;localStorage.setItem('axx.mobile.appearance',JSON.stringify(value));}
     void syncHomeIcon(value);
   }
+  let lastStoredAppearanceKey='', lastFrameDrawnAt=0, avatarFrameCapFps=60;
   try {const settings={...window.Axx.DEFAULT_SETTINGS,quality:'eco',reducedMotion:matchMedia('(prefers-reduced-motion: reduce)').matches};avatar=new window.Axx.MobileRenderer($('axx-avatar-canvas'),settings);avatar.startLoop();window.axxMobileRenderer=avatar;} catch(e){notice('La animación no está disponible; puedes seguir usando los controles. '+errorText(e));}
   if(avatar){
     const origDraw=avatar.draw.bind(avatar);
     avatar.draw=function(time){
+      const now=performance.now();
+      const budgetGap=avatarFrameCapFps<60 ? (1000/avatarFrameCapFps) : 0;
+      if(budgetGap && !pointer?.drag && lastFrameDrawnAt && (now-lastFrameDrawnAt)<budgetGap && typeof time==='number' && time>0){
+        return;
+      }
+      lastFrameDrawnAt=now;
       origDraw(time);
       if(typeof avatar.drawMs==='number' && Number.isFinite(avatar.drawMs) && !avatar.hidden){
         avatarFrameSamples.push(avatar.drawMs);
         if(avatarFrameSamples.length>120)avatarFrameSamples.shift();
         const animated=avatar.accelerated && !avatar.settings?.reducedMotion && !avatar.settings?.staticMode && avatar.moving?.();
         if(animated){
+          // Cap decorative FPS to ~30 on budget mobile GPUs so UI taps and navigation stay snappy.
+          if(avatarFrameSamples.length>=12){
+            const recent=avatarFrameSamples.slice(-12);
+            const avg=recent.reduce((a,b)=>a+b,0)/recent.length;
+            if(avg>11 && avatarFrameCapFps===60)avatarFrameCapFps=30;
+            else if(avg<6 && avatarFrameCapFps===30)avatarFrameCapFps=60;
+          }
           if(avatar.drawMs>28){slowFrames++;fastFrames=0;}
           else if(avatar.drawMs<14){fastFrames++;slowFrames=0;}
           else{slowFrames=0;fastFrames=0;}
@@ -611,13 +633,13 @@
     const sorted=[...avatarFrameSamples].sort((a,b)=>a-b);
     const pct=p=>sorted.length?Math.round(sorted[Math.min(sorted.length-1,Math.max(0,Math.ceil(sorted.length*p)-1))]*10)/10:0;
     return {samples:sorted.length,p50_ms:pct(.5),p95_ms:pct(.95),max_ms:sorted.length?Math.round(sorted[sorted.length-1]*10)/10:0,
-      quality:avatar?.settings?.quality||null,adaptive_eco:avatarAdaptiveEco,accelerated:!!avatar?.accelerated,paused_for_input:inputActive};
+      quality:avatar?.settings?.quality||null,adaptive_eco:avatarAdaptiveEco,frame_cap_fps:avatarFrameCapFps,accelerated:!!avatar?.accelerated,paused_for_input:inputActive};
   };
   window.addEventListener('axxInputActive',e=>{inputActive=!!e.detail?.active;syncAvatarLoop();});
   try{const cached=JSON.parse(localStorage.getItem('axx.mobile.appearance') || 'null');if(cached)applyAppearance(cached);}catch{}
   window.addEventListener('resize',()=>avatar?.resize());
   document.addEventListener('visibilitychange',()=>{syncAvatarLoop();if(!document.hidden){void refresh();}});
-  setInterval(()=>{if(!eventsLoopRunning || Date.now()-lastRefreshAt>=10000)void refresh();},2000);
+  setInterval(()=>{if(inputActive)return;if(!eventsLoopRunning || Date.now()-lastRefreshAt>=10000)void refresh();},2000);
   window.addEventListener('online',()=>void refresh());
   window.addEventListener('offline',()=>connection(false,'Sin red · tus borradores siguen guardados'));
   if(transport) profile().then(()=>refresh()).catch(e=>notice(errorText(e)));

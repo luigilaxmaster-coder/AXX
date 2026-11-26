@@ -4,6 +4,7 @@
   const $=id=>document.getElementById(id),transport=window.Capacitor?.Plugins?.AxxTransport,voice=window.Capacitor?.Plugins?.AxxVoice;
   if(!transport || !voice){$('voice-quick').hidden=true;$('voice-status').textContent='El micrófono está disponible en la app Android.';return;}
   let polling=false,session=null,capture=null,attempted='',startError=null,uploading='',acknowledged='',busy=false,failure='';
+  let inputActive=false,cachedPaired=null,lastProfileCheck=0,lastDisplayKey='',pollTimer=0;
   const request=async(path,body)=>(await transport.request({path:'/v1/voice/'+path,method:'POST',body})).data;
   const setting={taps:'2',key:'off',mode:'confirm',limit:'30'};
   try{const saved=JSON.parse(localStorage.getItem('axx.phoneVoiceShortcut')||'{}');for(const key of Object.keys(setting)){
@@ -28,6 +29,9 @@
     if(window.axxFileDictationActive)return;
     capture=value;
     const recording=value.state==='recording';
+    const key=JSON.stringify([value.state,value.permission,value.session_id||'',recording?value.elapsed_seconds:0,recording?Math.round((value.level||0)*20):0,!!session,failure]);
+    if(key===lastDisplayKey)return;
+    lastDisplayKey=key;
     updateShortcut();
     if(recording)$('voice-details').open=true;
     $('voice-panel').classList.toggle('recording',recording);
@@ -80,15 +84,26 @@
     try{await request('cancel',{session_id:capture.session_id});await voice.discard({session_id:capture.session_id});display(await voice.status());}
     catch(e){$('voice-status').textContent='Cancelación sin confirmar: '+e.message;}
   };
+  function schedulePoll(){
+    clearTimeout(pollTimer);
+    if(document.hidden || inputActive)return;
+    const active=!!session || (capture && capture.state!=='idle');
+    pollTimer=setTimeout(()=>void poll(), active ? 750 : 2500);
+  }
   async function poll(){
-    if(polling || document.hidden || window.axxFileDictationActive)return;polling=true;
+    if(polling || document.hidden || window.axxFileDictationActive || inputActive)return;
+    polling=true;
     try{
       const local=await voice.status();display(local);
-      const profile=await transport.profile();if(!profile.paired)return;
+      if(cachedPaired===null || Date.now()-lastProfileCheck>15000){
+        const profile=await transport.profile();cachedPaired=!!profile.paired;lastProfileCheck=Date.now();
+      }
+      if(!cachedPaired)return;
       const report=startError || {state:local.state,session_id:local.session_id,reason:local.reason};
       const response=await request('poll',{visible:local.visible,permission:local.permission,capture:report});
       if(window.axxFileDictationActive)return;
-      await voice.heartbeat();session=response.session;
+      session=response.session;
+      if(local.state!=='idle' || session)await voice.heartbeat();
       if(!session)return;
       if(local.state!=='recording'){$('voice-status').textContent=(labels[session.state]||session.state)+(session.error?' · '+session.error:'');quickStatus.textContent=$('voice-status').textContent;}
       $('voice-text').textContent=session.confirmed_text || session.text || '';
@@ -109,8 +124,11 @@
         await voice.discard({session_id:session.session_id});acknowledged=session.session_id;display(await voice.status());
       }
     }catch(e){$('voice-status').textContent='Voz sin conexión: '+e.message+'. La grabación se detiene al perder contacto con el PC.';}
-    finally{polling=false;}
+    finally{polling=false;schedulePoll();}
   }
   void voice.addListener('captureState',display);
-  setInterval(()=>void poll(),750);document.addEventListener('visibilitychange',()=>{if(!document.hidden)void poll();});void poll();
+  window.addEventListener('axxSnapshot',()=>{cachedPaired=true;lastProfileCheck=Date.now();});
+  window.addEventListener('axxInputActive',e=>{inputActive=!!e.detail?.active;if(inputActive)clearTimeout(pollTimer);else schedulePoll();});
+  document.addEventListener('visibilitychange',()=>{if(document.hidden)clearTimeout(pollTimer);else void poll();});
+  void poll();
 })();

@@ -51,7 +51,7 @@ import javax.net.ssl.HostnameVerifier;
 public class AxxTransportPlugin extends Plugin {
     private static final String ALIAS = "axx.mobile.credentials.v1";
     private final ThreadPoolExecutor network = new ThreadPoolExecutor(3, 3, 0L, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(12));
-    private final ThreadPoolExecutor inputNetwork = new ThreadPoolExecutor(2, 2, 0L, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(8));
+    private final ThreadPoolExecutor inputNetwork = new ThreadPoolExecutor(3, 3, 0L, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(12));
     private final ThreadPoolExecutor eventsNetwork = new ThreadPoolExecutor(1, 1, 0L, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(2));
     private JSONObject cachedProfile;
     private String tlsIdentity = "";
@@ -207,7 +207,8 @@ public class AxxTransportPlugin extends Plugin {
                 reusable = basePath.equals("/v1/control/events") || basePath.equals("/v1/control/status")
                     || basePath.equals("/v1/control/renew") || basePath.equals("/v1/status")
                     || basePath.equals("/v1/snapshot") || basePath.equals("/v1/tasks")
-                    || basePath.equals("/v1/events");
+                    || basePath.equals("/v1/events") || basePath.equals("/v1/voice/poll")
+                    || basePath.equals("/v1/files/status");
                 stage="close";
                 return response;
             }

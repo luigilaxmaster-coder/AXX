@@ -86,6 +86,7 @@ class MobileTrustStore:
     def _connect(self):
         connection = sqlite3.connect(self.db_path, timeout=10, isolation_level=None)
         connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA busy_timeout=10000")
         connection.execute("PRAGMA foreign_keys=ON")
         try:
             yield connection
@@ -94,6 +95,11 @@ class MobileTrustStore:
 
     def _initialize(self):
         with self._connect() as db:
+            try:
+                db.execute("PRAGMA journal_mode=WAL")
+                db.execute("PRAGMA synchronous=NORMAL")
+            except sqlite3.Error:
+                pass
             db.executescript("""
                 CREATE TABLE IF NOT EXISTS mobile_pairings (
                     pairing_hash TEXT PRIMARY KEY,
