@@ -14,6 +14,10 @@ for (const name of ['obsidian', 'prism', 'smoke']) {
   assert.match(html, new RegExp('data-finish="' + name + '"'));
 }
 assert.equal((html.match(/\['obsidian', 'prism', 'smoke', 'opticalglass'\]\.includes/g) || []).length, 3);
+// Guard against regression to the old 306-line stub: require full V7 volumetric SDF, 144x96 mesh, per-normal alpha LUT, and 3D tube shader
+for (const token of ['applyGlassSilhouettePass', 'ensureV7MeshDensity', '__opticalAlphaLut', 'opticalGlassTube', 'getFilteredAlphaLut', 'ethereal']) {
+  assert.ok(addon.includes(token), 'Missing V7 optical glass implementation token: ' + token);
+}
 
 // 2. Mock environment matching AXX engine
 const PALETTES = [
