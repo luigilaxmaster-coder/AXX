@@ -504,6 +504,8 @@ class CodexProvider:
             if not self.closed:
                 affected = []
                 for run in list(self.live.values()):
+                    if (run.get('external_target') or {}).get('provider') == 'claude':
+                        continue
                     if run['state'] not in TERMINAL:
                         run.update(state='unknown', inference_verified=False, error=error)
                         run['_done'].set()
@@ -647,6 +649,8 @@ class CodexProvider:
                         except queue.Full:
                             pass
                     for run in list(self.live.values()):
+                        if (run.get('external_target') or {}).get('provider') == 'claude':
+                            continue
                         if run['state'] not in TERMINAL:
                             run.update(state='unknown', error=self.runtime_error)
                             self._event(run, 'runtime/disconnected', self.runtime_error)
@@ -709,9 +713,10 @@ class CodexProvider:
                 if state == 'completed':
                     if run.get('account_fingerprint') == self.account_fingerprint and run.get('account_epoch') == self.account_epoch and not self.auth_failed:
                         run.update(state='completed', inference_verified=True)
-                        self.verified_model = run['model']
-                        self.verified_at = time.time()
-                        self.engine_state = None
+                        if not run.get('external_target'):
+                            self.verified_model = run['model']
+                            self.verified_at = time.time()
+                            self.engine_state = None
                     else:
                         run.update(state='failed', inference_verified=False, error={'code': 'ACCOUNT_CHANGED',
                             'message': 'La cuenta cambió durante el turno. Se conserva la respuesta y la evidencia; esta ejecución no verifica la cuenta actual.'})
@@ -1068,7 +1073,80 @@ class CodexProvider:
         return {'ordinary_usage_allowed': result.get('ordinaryUsageAllowed'),
                 'usage_status_available': result.get('ordinaryUsageAllowed') is not None}
 
-    def start(self, body, *, cancel_event=None, images=None, turn_input=None, turn_effort=None, turn_schema=None, turn_timeout=None):
+    def session_usage(self, provider='codex'):
+        from .session_transport import codex_usage
+        if provider == 'claude':
+            with self.lock:
+                row = self.db.execute("SELECT value_json FROM connect_settings WHERE key='claude_session_usage'").fetchone()
+            return json.loads(row[0]) if row else {'provider': 'claude', 'available': False, 'windows': [], 'checked_at': None,
+                'source': 'Claude Code CLI', 'reason': 'La CLI todavía no ha informado el saldo de esta cuenta.'}
+        if provider != 'codex':
+            return {'provider': provider, 'available': False, 'windows': [], 'checked_at': None,
+                    'reason': 'No hay un transporte de cuota verificado para este proveedor.'}
+        health = self.status()
+        if not health.get('authenticated'):
+            return {'provider': 'codex', 'available': False, 'windows': [], 'checked_at': None, 'reason': 'Conecta Codex para consultar tu plan.'}
+        epoch = self.account_epoch
+        snapshot = codex_usage(self._rpc('account/rateLimits/read'))
+        if epoch != self.account_epoch:
+            raise ProviderError('ACCOUNT_CHANGED', 'La cuenta cambió durante la consulta de uso.')
+        return snapshot
+
+    def desktop_sessions(self, provider='codex', cursor=None):
+        if cursor is not None and (not isinstance(cursor, str) or not 0 < len(cursor) <= 2048):
+            raise ProviderError('INVALID_INPUT', 'Cursor de conversaciones inválido.')
+        if provider == 'claude':
+            from .session_transport import claude_sessions
+            return claude_sessions(cursor=cursor)
+        if provider == 'antigravity':
+            return {'provider': provider, 'available': False, 'sessions': [],
+                    'reason': 'Falta conectar una CLI/ACP compatible de Antigravity. No se reutilizan tokens del IDE.'}
+        if provider != 'codex':
+            raise ProviderError('INVALID_INPUT', 'Proveedor de sesiones desconocido.')
+        health = self.status()
+        if not health.get('authenticated'):
+            return {'provider': provider, 'available': False, 'sessions': [], 'reason': 'Conecta tu sesión oficial de Codex.'}
+        result = self._rpc('thread/list', {'limit': 60, 'sortKey': 'updated_at', 'sortDirection': 'desc', 'archived': False,
+                                           'sourceKinds': ['cli', 'vscode', 'appServer'], **({'cursor': cursor} if cursor else {})})
+        sessions = []
+        for thread in result.get('data', []):
+            if not thread.get('id') or not thread.get('cwd') or thread.get('parentThreadId'):
+                continue
+            sessions.append({'id': thread['id'], 'provider': 'codex', 'project': thread['cwd'],
+                             'title': str(thread.get('name') or thread.get('preview') or 'Conversación de Codex')[:120],
+                             'updated_at': thread.get('updatedAt'), 'model': thread.get('model'),
+                             'active': (thread.get('status') or {}).get('type') == 'active'})
+        return {'provider': provider, 'available': True, 'sessions': sessions, 'has_more': bool(result.get('nextCursor')), 'next_cursor': result.get('nextCursor')}
+
+    def start_desktop_session(self, body):
+        from .session_transport import SESSION_ID, claude_sessions
+        if not isinstance(body, dict) or set(body) != {'provider', 'session_id', 'request_id', 'message'}:
+            raise ProviderError('INVALID_INPUT', 'Selecciona proveedor, conversación y un mensaje con ID único.')
+        provider, session_id = body['provider'], body['session_id']
+        if not isinstance(session_id, str) or not SESSION_ID.fullmatch(session_id):
+            raise ProviderError('INVALID_INPUT', 'Identificador de conversación inválido.')
+        if provider == 'codex':
+            if not self.status().get('authenticated'):
+                raise ProviderError('AUTH_REQUIRED', 'Codex no está conectado.')
+            thread = self._rpc('thread/read', {'threadId': session_id, 'includeTurns': False}).get('thread') or {}
+            if thread.get('id') != session_id or not thread.get('cwd') or not thread.get('model'):
+                raise ProviderError('SESSION_UNVERIFIED', 'El runtime no confirmó sesión, proyecto y modelo.')
+            if (thread.get('status') or {}).get('type') == 'active':
+                raise ProviderError('BUSY', 'Esta conversación está trabajando. Espera a que termine.')
+            target = {'provider': provider, 'session_id': session_id, 'cwd': thread['cwd']}
+            model = thread['model']
+        elif provider == 'claude':
+            session = next((s for s in claude_sessions(session_id=session_id)['sessions'] if s['id'] == session_id), None)
+            if not session:
+                raise ProviderError('SESSION_UNVERIFIED', 'No existe esa conversación local de Claude Code.')
+            target = {'provider': provider, 'session_id': session_id, 'cwd': session['project']}
+            model = 'claude-session-default'
+        else:
+            raise ProviderError('PROVIDER_UNAVAILABLE', 'Este proveedor aún no tiene una conexión de sesiones validada.')
+        return self.start({'request_id': body['request_id'], 'conversation_id': f'notch-{provider}:{session_id}',
+                           'model': model, 'message': body['message'], 'origin': 'axx-ui'}, external_target=target)
+
+    def start(self, body, *, cancel_event=None, images=None, turn_input=None, turn_effort=None, turn_schema=None, turn_timeout=None, external_target=None):
         if cancel_event is not None and not isinstance(cancel_event, threading.Event):
             raise ProviderError('INVALID_INPUT', 'Evento interno de cancelación inválido.')
         if cancel_event is not None and cancel_event.is_set():
@@ -1139,11 +1217,13 @@ class CodexProvider:
                                        or not re.fullmatch(r'[A-Za-z0-9_.:-]{1,160}', act_thread)):
             raise ProviderError('INVALID_INPUT', 'Hilo de Act inválido.')
         fingerprint_data = [message, conversation_id, model, purpose, source_language, target_language, prompt['sha256'], act_thread]
+        if external_target is not None:
+            fingerprint_data.append(external_target)
         if images:fingerprint_data.append(images)
         with self.lock:
             if self.closed:
                 raise ProviderError('CLOSED', 'El proveedor está detenido.')
-            if not self.local_enabled:
+            if not self.local_enabled and not (external_target and external_target.get('provider') == 'claude'):
                 raise ProviderError('DISCONNECTED', 'Axx está desconectado localmente. Usa Reconectar para habilitar inferencia.')
             existing = self.db.execute('SELECT fingerprint,body_json FROM connect_runs WHERE request_id=?', (request_id,)).fetchone()
             memory = self._memory_binding(body, original_conversation_id, json.loads(existing['body_json']) if existing else None)
@@ -1169,6 +1249,8 @@ class CodexProvider:
                    'tool_results': [], 'usage': None, 'error': None, 'last_event': 0,
                    'managed_operations': [], 'act_thread': act_thread,
                    'created_at': now, 'updated_at': now, 'cancel_requested': False, **memory}
+            if external_target is not None:
+                run['external_target'] = dict(external_target)
             with self.db:
                 self.db.execute('BEGIN IMMEDIATE')
                 self._assert_memory(run)
@@ -1183,7 +1265,7 @@ class CodexProvider:
             if turn_input is not None:
                 run['_turn_input'], run['_turn_effort'], run['_turn_schema'] = turn_input, turn_effort, turn_schema
             self.live[request_id] = run
-            if act_thread is None and purpose != 'act_inference':  # Act proposals never replace AXX's selected model.
+            if act_thread is None and purpose != 'act_inference' and external_target is None:
                 self.selected_model = model
                 with self.db:
                     self.db.execute("INSERT OR REPLACE INTO connect_settings(key,value_json) VALUES('selected_model',?)",
@@ -1203,6 +1285,28 @@ class CodexProvider:
         self.rpc_context.deadline = run['_deadline']
         self.rpc_context.run = run
         try:
+            target = run.get('external_target')
+            if target and target['provider'] == 'claude':
+                from .session_transport import run_claude_session
+                with self.lock:
+                    self._assert_memory(run)
+                    run['state'] = 'processing'
+                    self._event(run, 'session/dispatched', {'provider': 'claude', 'session_id': target['session_id']})
+                def emit(delta):
+                    with self.lock:
+                        self._assert_memory(run)
+                        run['response'] += delta
+                        self._event(run, 'item/agentMessage/delta', {'delta': delta})
+                def save_usage(snapshot):
+                    with self.lock, self.db:
+                        self.db.execute("INSERT OR REPLACE INTO connect_settings VALUES ('claude_session_usage',?)", (json.dumps(snapshot),))
+                response = run_claude_session(target, message, run['_cancel'], run['_deadline'], emit, save_usage)
+                with self.lock:
+                    self._assert_memory(run)
+                    run.update(state='completed', response=response, inference_verified=True, thread_id=target['session_id'])
+                    self._event(run, 'turn/completed', {'provider': 'claude'})
+                    run['_done'].set()
+                return
             with self.lock:
                 self._assert_memory(run)
             self._remaining()
@@ -1240,7 +1344,14 @@ class CodexProvider:
             common['developerInstructions'] = prompt['text']
             with self.lock:
                 self._event(run, 'prompt/compiled', {key: prompt[key] for key in ('version', 'mode', 'characters', 'sha256')})
-            if saved:
+            if target and target['provider'] == 'codex':
+                current = self._rpc('thread/read', {'threadId': target['session_id'], 'includeTurns': False}).get('thread') or {}
+                if current.get('id') != target['session_id'] or current.get('cwd') != target['cwd'] or (current.get('status') or {}).get('type') == 'active':
+                    raise ProviderError('SESSION_CHANGED', 'La conversación cambió o está ocupada; no se envió el mensaje.')
+                # Resume the actual client-owned thread without changing its saved instructions/settings.
+                result = ({'thread': current, 'model': current.get('model'), 'modelProvider': current.get('modelProvider')}
+                          if current.get('ephemeral') else self._rpc('thread/resume', {'threadId': target['session_id']}))
+            elif saved:
                 result = self._rpc('thread/resume', dict(common, threadId=saved['thread_id']))
             else:
                 # Cold planning threads can exceed 20 s; the total admission deadline still caps this wait.
@@ -1249,6 +1360,8 @@ class CodexProvider:
                                        environments=[], allowProviderModelFallback=False),
                                    timeout=45 if run['purpose'] == 'planning' else 20)
             thread_id = result['thread']['id']
+            if target and target['provider'] == 'codex' and thread_id != target['session_id']:
+                raise ProviderError('SESSION_MISMATCH', 'El runtime devolvió otro chat; no se envió el mensaje.')
             if ephemeral and result['thread'].get('ephemeral') is not True:
                 raise ProviderError('EPHEMERAL_UNVERIFIED', 'El runtime no confirmó una sesión temporal; no se envió el contexto.')
             with self.lock:
@@ -1262,7 +1375,7 @@ class CodexProvider:
                 if result.get('modelProvider') is not None and result['modelProvider'] != 'openai':
                     raise ProviderError('PROVIDER_MISMATCH', 'El runtime devolvió otro proveedor; el turno no se ha iniciado.')
                 self.thread_runs[thread_id] = run['request_id']
-                if not ephemeral:
+                if not ephemeral and not target:
                     with self.db:
                         self.db.execute('INSERT OR REPLACE INTO connect_conversations VALUES (?,?,?,?)',
                                         (self._thread_key(run), thread_id, run['model'], time.time()))

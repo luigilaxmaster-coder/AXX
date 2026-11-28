@@ -347,7 +347,7 @@
         if(path==='/axx-api/learning/propose')body={...body,conversation_id:body?.conversation_id??active?.id};
         return request(method,path,body,memoryToken);
     };
-    Axx.chatWorkspace={get active(){return active;},get ready(){return ready;},get busy(){return busy;},flush,select,create,refresh,refreshActiveContext,refreshMemory,captureMemoryScope,captureMemoryToken,isMemoryTokenCurrent,allowsMemoryReference,invalidateMemory,operationCard};
+    Axx.chatWorkspace={get chats(){return (listing.conversations || []).map(chat=>({...chat}));},get active(){return active;},get ready(){return ready;},get busy(){return busy;},flush,select,create,refresh,refreshActiveContext,refreshMemory,captureMemoryScope,captureMemoryToken,isMemoryTokenCurrent,allowsMemoryReference,invalidateMemory,operationCard};
     async function init() {
         const legacy={title:'Conversación anterior',messages:c.data.prefs.keepHistory?c.data.messages:[],draft:c.data.prefs.keepHistory?c.data.draft:'',connect_id:c.data.connectConversationId,shared_id:c.data.sharedConversationId};
         const migrated=await api('migrate',{...legacy,messages:[]});

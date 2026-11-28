@@ -83,6 +83,10 @@ class ConnectHTTP:
             result = self.service.status()
             result['instance_id'] = self.h.server.instance_id
             result['engine'] = self._engine(synchronous=one('engine', '0') == '1')
+        elif path == '/axx-api/connect/sessions':
+            result = self.provider.desktop_sessions(one('provider', 'codex'), one('cursor'))
+        elif path == '/axx-api/connect/usage':
+            result = self.provider.session_usage(one('provider', 'codex'))
         elif path == '/axx-api/connect/capabilities':
             result = self.service.capabilities(one('q', ''), int(one('limit', 100)), int(one('offset', 0)))
         elif path == '/axx-api/connect/task':
@@ -112,7 +116,9 @@ class ConnectHTTP:
             return False
         if not self.service or not self.provider:
             raise ValueError('Axx Connect is unavailable')
-        if path == '/axx-api/connect/start':
+        if path == '/axx-api/connect/session/start':
+            result = self.provider.start_desktop_session(body)
+        elif path == '/axx-api/connect/start':
             if isinstance(body,dict) and body.get('memory_scope') is not None:
                 body = dict(body)
                 if 'memory_context_id' not in body and 'conversation_id' in body:

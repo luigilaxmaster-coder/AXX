@@ -25,6 +25,8 @@ pub struct Geometry {
     pub screen_x: f64,
     pub screen_y: f64,
     pub ready: bool,
+    pub dock_epoch: u64,
+    pub geometry_revision: u64,
 }
 impl Default for Geometry {
     fn default() -> Self {
@@ -36,6 +38,8 @@ impl Default for Geometry {
             screen_x: 0.,
             screen_y: 0.,
             ready: false,
+            dock_epoch: 0,
+            geometry_revision: 0,
         }
     }
 }
@@ -92,6 +96,8 @@ pub struct DesktopStatus {
     screen_x: f64,
     screen_y: f64,
     scale_factor: f64,
+    work_x: f64,
+    work_y: f64,
     work_width: f64,
     work_height: f64,
     space_left: f64,
@@ -99,13 +105,84 @@ pub struct DesktopStatus {
     space_above: f64,
     space_below: f64,
     ready: bool,
+    dock_epoch: u64,
+    geometry_revision: u64,
+    display_id: Option<String>,
     virtual_desktop_error: Option<String>,
+}
+fn nearest_named(w: &WebviewWindow, x: f64, y: f64) -> (WorkArea, Option<String>) {
+    w.available_monitors()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|m| {
+            let a = m.work_area();
+            let area = WorkArea {
+                x: a.position.x as f64,
+                y: a.position.y as f64,
+                width: a.size.width as f64,
+                height: a.size.height as f64,
+                scale: m.scale_factor(),
+            };
+            (area, m.name().cloned())
+        })
+        .min_by(|(a, _), (b, _)| a.distance(x, y).total_cmp(&b.distance(x, y)))
+        .unwrap_or((
+            WorkArea {
+                x: 0.,
+                y: 0.,
+                width: 1920.,
+                height: 1080.,
+                scale: 1.,
+            },
+            None,
+        ))
+}
+fn monitor_by_id(w: &WebviewWindow, id: &str) -> Option<(WorkArea, Option<String>)> {
+    if id == "primary" {
+        return w.primary_monitor().ok().flatten().map(|m| {
+            let a = m.work_area();
+            (
+                WorkArea {
+                    x: a.position.x as f64,
+                    y: a.position.y as f64,
+                    width: a.size.width as f64,
+                    height: a.size.height as f64,
+                    scale: m.scale_factor(),
+                },
+                m.name().cloned(),
+            )
+        });
+    }
+    if id == "active" {
+        #[cfg(windows)]
+        if let Some((cx, cy)) = cursor() {
+            return Some(nearest_named(w, cx, cy));
+        }
+        return None;
+    }
+    w.available_monitors()
+        .unwrap_or_default()
+        .into_iter()
+        .find(|m| m.name().is_some_and(|n| n == id))
+        .map(|m| {
+            let a = m.work_area();
+            (
+                WorkArea {
+                    x: a.position.x as f64,
+                    y: a.position.y as f64,
+                    width: a.size.width as f64,
+                    height: a.size.height as f64,
+                    scale: m.scale_factor(),
+                },
+                m.name().cloned(),
+            )
+        })
 }
 pub fn status(app: &AppHandle) -> Option<DesktopStatus> {
     let w = app.get_webview_window("main")?;
     let state = app.state::<HostState>();
     let g = state.resident.lock().unwrap().clone();
-    let a = nearest(&w, g.screen_x, g.screen_y);
+    let (a, display_id) = nearest_named(&w, g.screen_x, g.screen_y);
     Some(DesktopStatus {
         width: g.width,
         height: g.height,
@@ -114,6 +191,8 @@ pub fn status(app: &AppHandle) -> Option<DesktopStatus> {
         screen_x: g.screen_x,
         screen_y: g.screen_y,
         scale_factor: a.scale,
+        work_x: a.x,
+        work_y: a.y,
         work_width: a.width / a.scale,
         work_height: a.height / a.scale,
         space_left: ((g.screen_x - a.x) / a.scale).max(0.),
@@ -121,6 +200,9 @@ pub fn status(app: &AppHandle) -> Option<DesktopStatus> {
         space_above: ((g.screen_y - a.y) / a.scale).max(0.),
         space_below: ((a.y + a.height - g.screen_y) / a.scale).max(0.),
         ready: g.ready,
+        dock_epoch: g.dock_epoch,
+        geometry_revision: g.geometry_revision,
+        display_id,
         virtual_desktop_error: state.desktop_error.lock().unwrap().clone(),
     })
 }
@@ -224,6 +306,9 @@ fn apply(app: &AppHandle, resize: bool) -> Result<(), String> {
     result
 
 }
+pub fn accept_revision(current: (u64, u64), next_epoch: u64, next_revision: u64) -> bool {
+    (next_epoch, next_revision) >= current
+}
 #[tauri::command]
 pub fn desktop_layout(
     app: AppHandle,
@@ -234,12 +319,15 @@ pub fn desktop_layout(
     ready: Option<bool>,
     panel_drag: Option<bool>,
     stable_surface: Option<bool>,
+    dock_epoch: Option<u64>,
+    geometry_revision: Option<u64>,
+    display_id: Option<String>,
 ) -> Result<DesktopStatus, String> {
     if let Some(dragging) = panel_drag {
         set_panel_drag(dragging);
     }
     log::info!(
-        "resident desktop_layout received width={width} height={height} anchor=({anchor_x},{anchor_y}) ready={ready:?} panel_drag={panel_drag:?}"
+        "resident desktop_layout received width={width} height={height} anchor=({anchor_x},{anchor_y}) ready={ready:?} panel_drag={panel_drag:?} epoch={dock_epoch:?} rev={geometry_revision:?}"
     );
     if ![width, height, anchor_x, anchor_y]
         .iter()
@@ -254,6 +342,15 @@ pub fn desktop_layout(
         return Err("Invalid bounded resident content geometry".into());
     }
     let state = app.state::<HostState>();
+    if let (Some(ep), Some(rev)) = (dock_epoch, geometry_revision) {
+        let cur = {
+            let g = state.resident.lock().unwrap();
+            (g.dock_epoch, g.geometry_revision)
+        };
+        if !accept_revision(cur, ep, rev) {
+            return status(&app).ok_or_else(|| "Resident window unavailable".into());
+        }
+    }
     if let Some(stable) = stable_surface {
         STABLE_SURFACE.store(stable, Ordering::Relaxed);
     }
@@ -263,9 +360,18 @@ pub fn desktop_layout(
         g.height = height;
         g.anchor_x = anchor_x;
         g.anchor_y = anchor_y;
+        if let Some(ep) = dock_epoch {
+            g.dock_epoch = ep;
+        }
+        if let Some(rev) = geometry_revision {
+            g.geometry_revision = rev;
+        }
         if STABLE_SURFACE.load(Ordering::Relaxed) {
             if let Some(w) = app.get_webview_window("main") {
-                let a = nearest(&w, g.screen_x, g.screen_y);
+                let (a, _) = display_id
+                    .as_deref()
+                    .and_then(|id| monitor_by_id(&w, id))
+                    .unwrap_or_else(|| nearest_named(&w, g.screen_x, g.screen_y));
                 g.screen_x = a.x + anchor_x * a.scale;
                 g.screen_y = a.y + anchor_y * a.scale;
             }
@@ -597,10 +703,11 @@ pub fn install_tray(app: &AppHandle) -> tauri::Result<()> {
     let show = MenuItem::with_id(app, "resident-show", "Mostrar Axx", true, None::<&str>)?;
     let hide = MenuItem::with_id(app, "resident-hide", "Ocultar Axx", true, None::<&str>)?;
     let home = MenuItem::with_id(app, "resident-home", "Volver a la base", true, None::<&str>)?;
+    let notch_toggle = MenuItem::with_id(app, "resident-notch-toggle", "Alternar Notch / Avatar", true, None::<&str>)?;
     let settings = MenuItem::with_id(app, "resident-settings", "Ajustes", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "resident-quit", "Salir de Axx", true, None::<&str>)?;
     let separator = PredefinedMenuItem::separator(app)?;
-    let menu = Menu::with_items(app, &[&show, &hide, &home, &settings, &separator, &quit])?;
+    let menu = Menu::with_items(app, &[&show, &hide, &home, &notch_toggle, &settings, &separator, &quit])?;
     let mut builder = TrayIconBuilder::with_id("axx-resident")
         .tooltip("Axx · asistente residente")
         .menu(&menu)
@@ -619,6 +726,12 @@ pub fn install_tray(app: &AppHandle) -> tauri::Result<()> {
             }
             "resident-home" => {
                 let _ = go_home(app);
+            }
+            "resident-notch-toggle" => {
+                let _ = show_passive(app);
+                if let Some(w) = app.get_webview_window("main") {
+                    let _ = w.emit("axx-notch-toggle", ());
+                }
             }
             "resident-settings" => {
                 let _ = show_passive(app);
@@ -701,6 +814,8 @@ mod tests {
             anchor_x: 500.,
             anchor_y: 200.,
             ready: true,
+            dock_epoch: 0,
+            geometry_revision: 0,
         };
         let a = WorkArea {
             x: 0.,
@@ -723,6 +838,8 @@ mod tests {
             anchor_x: 200.,
             anchor_y: 200.,
             ready: true,
+            dock_epoch: 0,
+            geometry_revision: 0,
         };
         let a = WorkArea {
             x: -1920.,
@@ -750,5 +867,13 @@ mod tests {
         assert!(is_panel_drag_active());
         set_panel_drag(false);
         assert!(!is_panel_drag_active());
+    }
+    #[test]
+    fn layout_revision_rejects_stale_epoch_or_revision() {
+        assert!(accept_revision((2, 10), 2, 10));
+        assert!(accept_revision((2, 10), 2, 11));
+        assert!(accept_revision((2, 10), 3, 1));
+        assert!(!accept_revision((2, 10), 2, 9));
+        assert!(!accept_revision((2, 10), 1, 99));
     }
 }

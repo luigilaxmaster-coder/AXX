@@ -102,6 +102,9 @@ pub struct HostState {
     pub is_ignoring_cursor: Mutex<bool>,
     mouse_hook_ready: AtomicBool,
     pub interactive_regions: Mutex<Vec<Rect>>,
+    pub hit_revision: Mutex<(u64, u64)>,
+    pub prior_focus_hwnd: Mutex<isize>,
+    pub allow_click_focus: AtomicBool,
     avatar_mask: Mutex<Option<PixelMask>>,
     pub backend_child: Mutex<Option<Child>>,
     backend: Mutex<Option<BackendConnection>>,
@@ -545,6 +548,159 @@ fn set_shortcut(shortcut: String) -> Result<(), String> {
     }
 }
 
+pub fn rect_covers_monitor(win: (i32, i32, i32, i32), mon: (i32, i32, i32, i32)) -> bool {
+    win.0 <= mon.0 && win.1 <= mon.1 && win.2 >= mon.2 && win.3 >= mon.3
+}
+
+#[cfg(windows)]
+fn foreground_fullscreen_state(app: &AppHandle) -> (bool, bool) {
+    use windows_sys::Win32::{
+        Foundation::{HWND, RECT},
+        Graphics::Gdi::{GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromWindow},
+        UI::WindowsAndMessaging::{GetClassNameW, GetForegroundWindow, GetWindowRect, IsIconic, IsWindowVisible},
+    };
+    let Some(window) = app.get_webview_window("main") else {
+        return (false, false);
+    };
+    let Ok(own_hwnd) = window.hwnd() else {
+        return (false, false);
+    };
+    unsafe {
+        let fg = GetForegroundWindow();
+        if fg.is_null() || fg == own_hwnd.0 as HWND || IsWindowVisible(fg) == 0 || IsIconic(fg) != 0 {
+            return (false, false);
+        }
+        let mut cls = [0u16; 64];
+        let len = GetClassNameW(fg, cls.as_mut_ptr(), cls.len() as i32);
+        if len > 0 {
+            let name = String::from_utf16_lossy(&cls[..len as usize]);
+            if matches!(name.as_str(), "Progman" | "WorkerW" | "Shell_TrayWnd" | "Shell_SecondaryTrayWnd") {
+                return (false, false);
+            }
+        }
+        let mut wr = RECT { left: 0, top: 0, right: 0, bottom: 0 };
+        if GetWindowRect(fg, &mut wr) == 0 {
+            return (false, false);
+        }
+        let fg_mon = MonitorFromWindow(fg, MONITOR_DEFAULTTONEAREST);
+        let own_mon = MonitorFromWindow(own_hwnd.0 as HWND, MONITOR_DEFAULTTONEAREST);
+        let mut mi = MONITORINFO {
+            cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+            rcMonitor: RECT { left: 0, top: 0, right: 0, bottom: 0 },
+            rcWork: RECT { left: 0, top: 0, right: 0, bottom: 0 },
+            dwFlags: 0,
+        };
+        if GetMonitorInfoW(fg_mon, &mut mi) == 0 {
+            return (false, false);
+        }
+        let covers = rect_covers_monitor(
+            (wr.left, wr.top, wr.right, wr.bottom),
+            (mi.rcMonitor.left, mi.rcMonitor.top, mi.rcMonitor.right, mi.rcMonitor.bottom),
+        );
+        (covers && fg_mon == own_mon, covers)
+    }
+}
+
+#[tauri::command]
+fn notch_fullscreen_status(app: AppHandle) -> Value {
+    #[cfg(windows)]
+    {
+        let (same, any) = foreground_fullscreen_state(&app);
+        json!({ "foregroundFullscreenSameMonitor": same, "foregroundFullscreenAnyMonitor": any })
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = app;
+        json!({ "foregroundFullscreenSameMonitor": false, "foregroundFullscreenAnyMonitor": false })
+    }
+}
+
+#[tauri::command]
+fn notch_monitors(app: AppHandle) -> Vec<Value> {
+    let Some(w) = app.get_webview_window("main") else {
+        return Vec::new();
+    };
+    let primary_name = w.primary_monitor().ok().flatten().and_then(|m| m.name().cloned());
+    w.available_monitors()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|m| {
+            let a = m.work_area();
+            let name = m.name().cloned().unwrap_or_else(|| "monitor".into());
+            let scale = m.scale_factor();
+            json!({
+                "id": name,
+                "primary": primary_name.as_deref() == Some(name.as_str()),
+                "scaleFactor": scale,
+                "workX": a.position.x,
+                "workY": a.position.y,
+                "workWidth": a.size.width as f64 / scale,
+                "workHeight": a.size.height as f64 / scale
+            })
+        })
+        .collect()
+}
+
+#[tauri::command]
+fn notch_focus(
+    acquire: bool,
+    restore_focus: Option<bool>,
+    allow_click_focus: Option<bool>,
+    app: AppHandle,
+    state: State<HostState>,
+) -> Result<Value, String> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or("Axx window unavailable")?;
+    if let Some(allow) = allow_click_focus {
+        state.allow_click_focus.store(allow, Ordering::Relaxed);
+    }
+    let click_focus = state.allow_click_focus.load(Ordering::Relaxed);
+    if acquire {
+        #[cfg(windows)]
+        {
+            use windows_sys::Win32::{Foundation::HWND, UI::WindowsAndMessaging::GetForegroundWindow};
+            if let Ok(own) = window.hwnd() {
+                let fg = unsafe { GetForegroundWindow() };
+                if !fg.is_null() && fg != own.0 as HWND {
+                    *state.prior_focus_hwnd.lock().unwrap() = fg as isize;
+                }
+            }
+        }
+        let _ = resident::show_passive(&app);
+        window.set_focusable(true).map_err(|e| e.to_string())?;
+        window.set_focus().map_err(|e| e.to_string())?;
+        return Ok(json!({ "focused": true, "allowClickFocus": true }));
+    }
+    window.set_focusable(click_focus).map_err(|e| e.to_string())?;
+    let mut restored = false;
+    if restore_focus.unwrap_or(false) {
+        #[cfg(windows)]
+        {
+            use windows_sys::Win32::{
+                Foundation::HWND,
+                UI::WindowsAndMessaging::{GetForegroundWindow, IsWindow, SetForegroundWindow},
+            };
+            let prior = {
+                let mut guard = state.prior_focus_hwnd.lock().unwrap();
+                let val = *guard;
+                *guard = 0;
+                val
+            };
+            if prior != 0 {
+                if let Ok(own) = window.hwnd() {
+                    let fg = unsafe { GetForegroundWindow() };
+                    // Only restore focus if Axx still owns foreground and the prior HWND is still valid.
+                    if fg == own.0 as HWND && unsafe { IsWindow(prior as HWND) } != 0 {
+                        restored = unsafe { SetForegroundWindow(prior as HWND) } != 0;
+                    }
+                }
+            }
+        }
+    }
+    Ok(json!({ "focused": false, "restored": restored, "allowClickFocus": click_focus }))
+}
+
 #[tauri::command]
 fn set_timer(task: Value, app: AppHandle, state: State<HostState>) -> Result<(), String> {
     if serde_json::to_vec(&task)
@@ -595,8 +751,37 @@ fn set_timer(task: Value, app: AppHandle, state: State<HostState>) -> Result<(),
     Ok(())
 }
 
+fn accept_hit_map_revision_against_geometry(
+    hit_revision: &Mutex<(u64, u64)>,
+    geometry_epoch: u64,
+    map: &Value,
+) -> (bool, u64, u64) {
+    let epoch = map.get("epoch").and_then(Value::as_u64);
+    let revision = map.get("revision").and_then(Value::as_u64);
+    if let (Some(ep), Some(rev)) = (epoch, revision) {
+        if ep < geometry_epoch {
+            let guard = hit_revision.lock().unwrap();
+            return (false, guard.0, guard.1);
+        }
+        let mut guard = hit_revision.lock().unwrap();
+        if !resident::accept_revision(*guard, ep, rev) {
+            return (false, guard.0, guard.1);
+        }
+        *guard = (ep, rev);
+        return (true, ep, rev);
+    }
+    let guard = hit_revision.lock().unwrap();
+    (true, guard.0, guard.1)
+}
+
 #[tauri::command]
-fn hit_map(map: Value, state: State<HostState>) -> Result<(), String> {
+fn hit_map(map: Value, state: State<HostState>) -> Result<Value, String> {
+    let geometry_epoch = state.resident.lock().unwrap().dock_epoch;
+    let (accepted, ep, rev) =
+        accept_hit_map_revision_against_geometry(&state.hit_revision, geometry_epoch, &map);
+    if !accepted {
+        return Ok(json!({ "accepted": false, "epoch": ep, "revision": rev }));
+    }
     let parse = |r: &Value| -> Option<Rect> {
         let rect = Rect {
             x: r.get("x")?.as_f64()?,
@@ -639,7 +824,7 @@ fn hit_map(map: Value, state: State<HostState>) -> Result<(), String> {
     };
     *state.avatar_mask.lock().unwrap() = mask;
     *state.interactive_regions.lock().unwrap() = regions;
-    Ok(())
+    Ok(json!({ "accepted": true, "epoch": ep, "revision": rev }))
 }
 
 fn application_data_path(base: PathBuf, identifier: &str) -> PathBuf {
@@ -663,6 +848,12 @@ fn data_directory(app: &AppHandle) -> Result<PathBuf, String> {
 }
 
 fn find_backend(app: &AppHandle) -> Option<PathBuf> {
+    // An explicit development candidate can exercise the current Python sources
+    // without accidentally selecting a backend binary from an older build.
+    #[cfg(debug_assertions)]
+    if std::env::var("AXX_DEV_SOURCE_BACKEND").as_deref() == Ok("1") {
+        return None;
+    }
     let mut paths = Vec::new();
     if let Ok(resource) = app.path().resource_dir() {
         paths.push(resource.join("resources/axx-backend.exe"));
@@ -960,6 +1151,8 @@ fn start_cursor_hit_test_loop(app: AppHandle) {
             Foundation::POINT, Graphics::Gdi::ScreenToClient, UI::WindowsAndMessaging::GetCursorPos,
         };
         let mut last_display_check = Instant::now();
+        let mut last_fullscreen_check = Instant::now();
+        let mut last_fullscreen_same = false;
         let mut last_x = i32::MIN;
         let mut last_y = i32::MIN;
         loop {
@@ -971,6 +1164,19 @@ fn start_cursor_hit_test_loop(app: AppHandle) {
             if last_display_check.elapsed() > Duration::from_secs(2) {
                 resident::recover_display(&app);
                 last_display_check = Instant::now();
+            }
+            if last_fullscreen_check.elapsed() > Duration::from_millis(450) {
+                let (same, any) = foreground_fullscreen_state(&app);
+                if same != last_fullscreen_same {
+                    last_fullscreen_same = same;
+                    if let Some(w) = app.get_webview_window("main") {
+                        let _ = w.emit(
+                            "axx-fullscreen-policy",
+                            json!({"foregroundFullscreenSameMonitor": same, "foregroundFullscreenAnyMonitor": any}),
+                        );
+                    }
+                }
+                last_fullscreen_check = Instant::now();
             }
             let Some(window) = app.get_webview_window("main") else {
                 break;
@@ -1055,6 +1261,14 @@ unsafe extern "system" fn mouse_hook(code: i32, wparam: usize, lparam: isize) ->
                                 let x = point.x as f64 * 96.0 / dpi as f64;
                                 let y = point.y as f64 * 96.0 / dpi as f64;
                                 let inside = regions.iter().any(|r| r.contains(x,y)) || mask.as_ref().is_some_and(|m| m.contains(x,y));
+                                if wparam as u32 == WM_LBUTTONDOWN && inside && state.allow_click_focus.load(Ordering::Relaxed) {
+                                    let fg = unsafe { GetForegroundWindow() };
+                                    if !fg.is_null() && fg != hwnd.0 as _ {
+                                        if let Ok(mut prior) = state.prior_focus_hwnd.try_lock() {
+                                            *prior = fg as isize;
+                                        }
+                                    }
+                                }
                                 let ignore = ignore_pointer(inside, !regions.is_empty() || mask.is_some(), wparam as u32 == WM_LBUTTONUP, *ignored);
                                 let style = unsafe { GetWindowLongPtrW(hwnd.0 as _, GWL_EXSTYLE) };
                                 if *ignored != ignore || (style & WS_EX_TRANSPARENT as isize != 0) != ignore {
@@ -1143,6 +1357,12 @@ fn start_global_hotkey_thread(app: AppHandle) {
             if RegisterHotKey(std::ptr::null_mut(), 1002, MOD_CONTROL | MOD_ALT | MOD_SHIFT | MOD_NOREPEAT, 0x56) == 0 {
                 *app.state::<HostState>().remote_voice_shortcut_error.lock().unwrap() = Some(format!("Ctrl+Alt+Shift+V unavailable: {}", std::io::Error::last_os_error()));
             }
+            if RegisterHotKey(std::ptr::null_mut(), 1006, MOD_ALT | MOD_SHIFT | MOD_NOREPEAT, 0x4E) == 0 {
+                log::warn!(
+                    "Global Notch hotkey Alt+Shift+N unavailable: {}",
+                    std::io::Error::last_os_error()
+                );
+            }
             let mut last = Instant::now() - Duration::from_secs(10);
             dictation_shortcut::initialize();
             let mut msg: MSG = std::mem::zeroed();
@@ -1150,6 +1370,11 @@ fn start_global_hotkey_thread(app: AppHandle) {
                 dictation_shortcut::message(&app, &msg);
                 if msg.message == WM_HOTKEY && msg.wParam == 1003 {
                     let _ = resident::summon(&app, false);
+                }
+                if msg.message == WM_HOTKEY && msg.wParam == 1006 {
+                    log::info!("Notch toggle hotkey Alt+Shift+N triggered");
+                    let _ = resident::show_passive(&app);
+                    let _ = app.emit("axx-notch-toggle", json!({ "source": "global-hotkey" }));
                 }
                 if msg.message == WM_HOTKEY && msg.wParam == 1002 {
                     let _ = app.emit("axx-remote-voice-toggle", ());
@@ -1168,6 +1393,7 @@ fn start_global_hotkey_thread(app: AppHandle) {
             UnregisterHotKey(std::ptr::null_mut(), 1001);
             UnregisterHotKey(std::ptr::null_mut(), 1002);
             UnregisterHotKey(std::ptr::null_mut(), 1003);
+            UnregisterHotKey(std::ptr::null_mut(), 1006);
             if !hook.is_null() {
                 UnhookWindowsHookEx(hook);
             }
@@ -1292,6 +1518,9 @@ pub fn run() {
             hit_map,
             set_topmost,
             set_shortcut,
+            notch_focus,
+            notch_fullscreen_status,
+            notch_monitors,
             resident::desktop_layout,
             resident::desktop_move_body,
             resident::desktop_activity
@@ -1689,5 +1918,24 @@ mod tests {
             "Could not clean up dedicated escaped test target"
         );
         assert_eq!(unsafe { WaitForSingleObject(target.0 as _, 3000) }, 0);
+    }
+
+    #[test]
+    fn fullscreen_monitor_rect_check_handles_negative_and_partial_windows() {
+        assert!(rect_covers_monitor((0, 0, 1920, 1080), (0, 0, 1920, 1080)));
+        assert!(rect_covers_monitor((-1920, 0, 0, 1080), (-1920, 0, 1920 - 1920, 1080)));
+        assert!(!rect_covers_monitor((10, 10, 1900, 1040), (0, 0, 1920, 1080)));
+    }
+
+    #[test]
+    fn hit_map_revision_rejects_stale_epoch_and_revision() {
+        let lock = Mutex::new((2, 5));
+        assert!(accept_hit_map_revision_against_geometry(&lock, 2, &serde_json::json!({ "epoch": 2, "revision": 5 })).0);
+        assert!(accept_hit_map_revision_against_geometry(&lock, 2, &serde_json::json!({ "epoch": 2, "revision": 6 })).0);
+        assert!(!accept_hit_map_revision_against_geometry(&lock, 2, &serde_json::json!({ "epoch": 2, "revision": 4 })).0);
+        assert!(!accept_hit_map_revision_against_geometry(&lock, 2, &serde_json::json!({ "epoch": 1, "revision": 99 })).0);
+        assert!(!accept_hit_map_revision_against_geometry(&lock, 4, &serde_json::json!({ "epoch": 3, "revision": 9 })).0);
+        assert!(accept_hit_map_revision_against_geometry(&lock, 4, &serde_json::json!({ "epoch": 4, "revision": 1 })).0);
+        assert_eq!(*lock.lock().unwrap(), (4, 1));
     }
 }

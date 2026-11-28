@@ -5210,6 +5210,7 @@ var Axx;
             this.onError?.('Se detuvo la vista animada, no tus tareas. El chat sigue disponible.'); }
         stop() { cancelAnimationFrame(this.frameHandle); this.frameHandle = 0; }
         setReach(points, strength = 1) {
+            if (Axx.notch?.tendrilsBlocked?.()) points = null;
             const changed = Boolean(points) !== this.reaching;
             this.reaching = Boolean(points);
             this.reachStrength = Axx.clamp(strength, 0, 1);
@@ -5488,7 +5489,7 @@ var Axx;
         }
         draw(timeSeconds) {
             this.lastTime = timeSeconds;
-            if (this.hidden) {
+            if (!this.notchIdentityCapture && (this.hidden || Axx.notch?.tendrilsBlocked?.())) {
                 this.raster?.clear(); this.image?.data.fill(0);
                 this.ctx?.clearRect(0, 0, this.canvas.width, this.canvas.height);
                 return;
@@ -5496,18 +5497,59 @@ var Axx;
             if (!this.ctx || !this.image)
                 return;
             const started = performance.now();
-            const r = this.canvas.getBoundingClientRect(), parent = this.canvas.parentElement.getBoundingClientRect(), ratio = this.raster.width / Math.max(1, r.width);
+            const r = this.notchIdentityViewport || this.canvas.getBoundingClientRect(), parent = this.notchIdentityViewport || this.canvas.parentElement.getBoundingClientRect(), ratio = this.raster.width / Math.max(1, r.width);
             const baseUnitSize = Math.min(parent.width, parent.height);
             this.layout = { cx: (parent.left + parent.width / 2 - r.left) * ratio, cy: (parent.top + parent.height / 2 - r.top) * ratio, unit: baseUnitSize / 3.52 * this.settings.scale * ratio };
             this.raster.clear();
             this.shadeTable();
             this.body();
-            this.orbit();
-            this.droplets();
-            this.tendril();
+            if (!this.notchIdentityCapture) {
+                this.orbit();
+                this.droplets();
+                this.tendril();
+            }
             Axx.resolve2x(this.raster.pixels, this.raster.width, this.raster.height, this.image.data);
             this.ctx.putImageData(this.image, 0, 0);
             this.drawMs = performance.now() - started;
+        }
+        captureIdentityPNG(size = 128) {
+            // One event-driven portrait through the existing material/render pipeline.
+            // No second renderer, scene loop, motion advance, organic geometry or persistent writes.
+            const side = Math.max(64, Math.min(192, Math.round(Number(size) || 128)));
+            const saved = {};
+            for (const key of ['canvas', 'ctx', 'raster', 'image', 'layout', 'hidden', 'transition', 'controlMorph', 'digitMorph', 'notchIdentityCapture', 'notchIdentityViewport', 'lastTime', 'drawMs']) saved[key] = this[key];
+            try {
+                const canvas = document.createElement('canvas');
+                canvas.width = canvas.height = side;
+                const ctx = canvas.getContext('2d', { alpha: true });
+                if (!ctx) return '';
+                this.canvas = canvas; this.ctx = ctx;
+                this.raster = new Axx.CpuRaster(side * 2, side * 2);
+                this.image = ctx.createImageData(side, side);
+                this.hidden = false;
+                this.notchIdentityCapture = true;
+                this.notchIdentityViewport = { left: 0, top: 0, width: side, height: side };
+                this.transition = new Axx.ShapeTransition(this.settings.form);
+                for (const key of ['controlMorph', 'digitMorph']) {
+                    this[key] = Object.assign(Object.create(Object.getPrototypeOf(saved[key])), saved[key], { weights: saved[key].weights.map((_, i) => Number(i === 0)) });
+                }
+                this.draw(saved.lastTime || 0);
+                const pixels = ctx.getImageData(0, 0, side, side).data;
+                let left = side, top = side, right = -1, bottom = -1;
+                for (let y = 0; y < side; y++) for (let x = 0; x < side; x++) {
+                    if (pixels[(y * side + x) * 4 + 3] < 12) continue;
+                    left = Math.min(left, x); top = Math.min(top, y); right = Math.max(right, x); bottom = Math.max(bottom, y);
+                }
+                if (right < left) return '';
+                const portrait = document.createElement('canvas'); portrait.width = portrait.height = side;
+                const portraitCtx = portrait.getContext('2d');
+                if (!portraitCtx) return '';
+                const cropSide = Math.max(right - left + 1, bottom - top + 1) * 1.16;
+                portraitCtx.drawImage(canvas, (left + right + 1 - cropSide) / 2, (top + bottom + 1 - cropSide) / 2, cropSide, cropSide, 0, 0, side, side);
+                return portrait.toDataURL('image/png');
+            } finally {
+                for (const [key, value] of Object.entries(saved)) this[key] = value;
+            }
         }
         capturePNG() { this.draw(this.lastTime); return this.canvas.toDataURL('image/png'); }
         hitTest(x, y) {
@@ -5559,6 +5601,14 @@ var Axx;
         drawQueued = false;
         constructor() { this.canvas = document.createElement('canvas'); this.canvas.id = 'organic-tendrils-' + (++OrganicTendrils.serial); this.canvas.className = 'organic-tendrils'; this.canvas.setAttribute('aria-hidden', 'true'); this.ctx = this.canvas.getContext('2d', { alpha: true }); document.body.append(this.canvas); }
         draw(links, phase, lut, view = 0, renderer = null) {
+            if (Axx.notch?.tendrilsBlocked?.()) {
+                this.canvas.hidden = true;
+                this.pendingDraw = null;
+                this.drawQueued = false;
+                this.ctx?.clearRect(0, 0, this.width, this.height);
+                this.visibleCount = 0;
+                return;
+            }
             if (!renderer) return this.render(links, phase, lut, view, renderer);
             // Interaction callbacks run before the body raster is updated. Flush
             // at the end of the same frame's task, before painting, so attachment
@@ -5581,6 +5631,12 @@ var Axx;
             const started = performance.now();
             if (!this.ctx)
                 return;
+            if (Axx.notch?.tendrilsBlocked?.()) {
+                this.canvas.hidden = true;
+                this.ctx.clearRect(0, 0, this.width, this.height);
+                this.visibleCount = 0;
+                return;
+            }
             phase *= OrganicTendrils.fluidity;
             const ratio = Math.min(devicePixelRatio || 1, 2);
             if (this.width !== innerWidth || this.height !== innerHeight || this.dpr !== ratio) {
@@ -6899,8 +6955,15 @@ var Axx;
         async timer(task) { if (this.available)
             await this.command('set_timer', { task }); }
         async hit(mask, canvas, regions) {
-            if (this.available)
-                await this.command('hit_map', { map: { ...mask, x: canvas.x, y: canvas.y, regions } });
+            if (this.available) {
+                const rev = Axx.notch?.getHitRevision?.() || {};
+                const ack = await this.command('hit_map', { map: { ...mask, ...rev, x: canvas.x, y: canvas.y, regions } });
+                if (ack && ack.accepted === false) {
+                    Axx.notch?.recordDroppedAck?.();
+                }
+                return ack;
+            }
+            return null;
         }
         async listen(name, handler) {
             if (!this.available) return;
@@ -7721,11 +7784,18 @@ var Axx;
                     if (r.width > 0 && r.height > 0 && r.right > 0 && r.bottom > 0 && r.x < innerWidth && r.y < innerHeight)
                         regions.push({ x: r.x, y: r.y, width: r.width, height: r.height });
                 }
-                const mask = this.renderer.hitMask(), stageRect = this.renderer.canvas.getBoundingClientRect();
-                const sig = Math.round(stageRect.x) + ',' + Math.round(stageRect.y) + ',' + Math.round(stageRect.width) + ',' + Math.round(stageRect.height) + '|' + regions.map(r => Math.round(r.x) + ':' + Math.round(r.y) + ':' + Math.round(r.width) + ':' + Math.round(r.height)).join(';') + '|' + mask.bits.join('');
+                const docked = Boolean(Axx.notch?.isDocked?.());
+                const stageRect = this.renderer.canvas.getBoundingClientRect();
+                const mask = docked
+                    ? { width: stageRect.width, height: stageRect.height, cols: 8, rows: 8, bits: Array(64).fill(0) }
+                    : this.renderer.hitMask();
+                const rev = Axx.notch?.getHitRevision?.();
+                const sig = (docked ? 'D|' : 'F|') + (rev ? `${rev.epoch}:${rev.revision}|` : '') + Math.round(stageRect.x) + ',' + Math.round(stageRect.y) + ',' + Math.round(stageRect.width) + ',' + Math.round(stageRect.height) + '|' + regions.map(r => Math.round(r.x) + ':' + Math.round(r.y) + ':' + Math.round(r.width) + ':' + Math.round(r.height)).join(';') + '|' + mask.bits.join('');
                 if (sig !== this.lastHitSignature) {
-                    await this.bridge.hit(mask, stageRect, regions);
-                    this.lastHitSignature = sig;
+                    const ack = await this.bridge.hit(mask, stageRect, regions);
+                    if (!ack || ack.accepted !== false) {
+                        this.lastHitSignature = sig;
+                    }
                 }
                 if (this.diagnosticMode) this.updateDiagnostics(regions);
             }
@@ -7853,6 +7923,7 @@ var Axx;
                 el('task-pause').setAttribute('aria-label', task.status === 'paused' ? 'Reanudar temporizador' : 'Pausar temporizador');
             }
             this.machine.setActivity(this.toolBusy ? 'processing' : ongoing && task ? (task.status === 'paused' ? 'paused' : task.kind === 'focus' ? 'focus' : 'processing') : 'idle');
+            Axx.notch?.stepProjections?.(now);
             const resolved = this.machine.resolve(now), key = resolved.state + '/' + resolved.demo;
             if (key !== this.lastState) {
                 this.lastState = key;
@@ -12778,8 +12849,9 @@ var Axx;
             for (const key of this.linkSprings.keys()) {
                 if (!activeLinkIds.has(key)) this.linkSprings.delete(key);
             }
-            this.tendrils.canvas.hidden = !this.app.machine.visible;
-            if (this.app.machine.visible)
+            const showTendrils = this.app.machine.visible && !Axx.notch?.tendrilsBlocked?.();
+            this.tendrils.canvas.hidden = !showTendrils;
+            if (showTendrils)
                 this.tendrils.draw(links, this.reduced ? 0 : this.clock, this.app.renderer.materialTable(), this.app.renderer.getStudio().view, this.app.renderer);
         }
         /** Functional satellite synchronization is independent from decorative frames.
@@ -13541,7 +13613,7 @@ var Axx;
         frame(dt) {
             this.clock += Math.min(dt, .1);
             if (!Axx.resident) this.layout();
-            const visible = this.app.machine.visible;
+            const visible = this.app.machine.visible && !Axx.notch?.tendrilsBlocked?.();
             fx('flow-root').classList.toggle('flow-invisible', !visible);
             this.delivery.canvas.hidden = !visible;
             const links = [], r = fx('stage').getBoundingClientRect(), a = { x: r.x + r.width / 2, y: r.y + r.height / 2 };
@@ -19668,6 +19740,7 @@ var Axx;
                     n.style.setProperty('top', (parseFloat(n.style.top) + this.anchor.y - previous.y) + 'px', 'important');
                 }
                 this.paintBody();
+                Axx.notch?.onAvatarDragMove?.({ pointerClientX: event.clientX, pointerClientY: event.clientY, localX: this.anchor.x, localY: this.anchor.y });
             }, true);
             document.addEventListener('pointerup', event => {
                 const gesture = this.panelDrag || this.panelResize;
@@ -19686,6 +19759,12 @@ var Axx;
                 if (drag.target.hasPointerCapture?.(drag.id)) drag.target.releasePointerCapture(drag.id);
                 Axx.app.renderer.setPressed(false); Axx.app.renderer.releaseDrag();
                 if (!wasDrag) this.tap(); else {
+                    const beforeDragState = Axx.notch?.getState?.().physical;
+                    Axx.notch?.onAvatarDragEnd?.();
+                    if (beforeDragState === 'approach' && (Axx.notch?.isDockingOrDocked?.() || Axx.notch?.isDocked?.())) {
+                        this.bodyMovePending = false;
+                        return;
+                    }
                     this.suppressClickUntil = performance.now() + 800;
                     const g = drag.geometry, scale = g.scaleFactor || 1;
                     void Axx.app.bridge.command('desktop_move_body', { x: g.screenX + (this.anchor.x - drag.anchor.x) * scale, y: g.screenY + (this.anchor.y - drag.anchor.y) * scale })
@@ -19714,6 +19793,10 @@ var Axx;
         schedule() { if (this.pendingLayout) return; this.pendingLayout = true; setTimeout(() => { this.pendingLayout = false; void this.layout(); }, 0); }
         visible(id) { const n = document.getElementById(id); return n && !n.hidden && n.getClientRects().length > 0; }
         async layout() {
+            if (Axx.notch?.isDockingOrDocked?.() && !Axx.notch?.getState?.().stageOpen) {
+                await Axx.app.updateHitMap();
+                return;
+            }
             if (this.panelDrag || this.panelResize || this.drag || this.bodyMovePending) { this.layoutAgain = true; return; }
             if (this.layoutBusy) { this.layoutAgain = true; return; }
             this.layoutBusy = true;
@@ -19816,6 +19899,7 @@ var Axx;
                 this.paintBody();
                 for (const box of boxes) {
                     if (box.id === 'stage') continue;
+                    if (box.id === 'panel' && document.getElementById('panel')?.dataset.notchStage === 'true') continue;
                     const n = document.getElementById(box.id); if (!n) continue;
                     Object.assign(n.style, { left: (box.x - minX) + 'px', top: (box.y - minY) + 'px', width: box.width + 'px', height: box.height + 'px', maxHeight: box.height + 'px', minWidth: '0', minHeight: '0', transform: 'none' });
                     for (const [property, value] of Object.entries({ left: (box.x - minX) + 'px', top: (box.y - minY) + 'px', width: box.width + 'px', height: box.height + 'px', 'max-height': box.height + 'px', transform: 'none' })) n.style.setProperty(property, value, 'important');
@@ -19857,6 +19941,10 @@ var Axx;
         }
         interactiveRegions() {
             const regions = [];
+            if (Axx.notch?.isDocked?.()) {
+                regions.push(...(Axx.notch.interactiveRegions?.() || []));
+                if (!Axx.notch.getState?.().stageOpen) return regions;
+            }
             for (const n of document.querySelectorAll('#quick-actions,#quick-compose,#quick-reply,#anticipation-card,#mp-canvas,#mp-toolbar,#mp-more-panel,#mp-widget,#mp-spatial-stage .mp-stage-viewport,#panel,#dock-shell,#flow-sheet,#flow-pill,#flow-fan>button,#flow-all,#reach-tray,#reach-preview,#ink-review,#v13-dock,#v13-settings,#v13-pad,#reader-mini,.organic-satellite,dialog[open],button,input,textarea,select,summary,.resident-resize-handle')) {
                 if (!Axx.app.machine.visible && n.id !== 'restore') continue;
                 if (n.id === 'a11-main-button' || n.hidden || n.closest('[inert]') || !n.getClientRects().length) continue;
@@ -20122,4 +20210,4 @@ body[data-media16-source="system"] #view-music .m16-now{padding:12px;margin-top:
 body[data-media16-source="system"] #view-music .m16-transport{margin:8px 0 0}
 body[data-media16-source="system"] #view-music .m16-compact{padding:10px 14px;margin-top:8px}
 </style><script src="scripts/voice-audio.js"></script><script src="scripts/native-speech-stream.js"></script><script src="scripts/native-voice.js"></script><script src="scripts/voice-phrases.js"></script><script src="scripts/voice-conversation.js"></script><script src="scripts/command-library.js"></script><script src="scripts/skill-library.js"></script><script src="scripts/window-content.js"></script><script src="scripts/prompt-contracts.js"></script><script src="scripts/axx-connect.js"></script><script src="scripts/mcp-connections.js"></script><script src="scripts/application-catalog.js"></script><script src="scripts/model-profile.js"></script><script src="scripts/providers.js"></script><script src="scripts/native-music.js"></script><script src="scripts/rhythm-egg.js"></script><script src="scripts/native-capture.js"></script><script src="scripts/magic-pen.js"></script><script src="scripts/converter.js"></script><script src="scripts/chat-workspace.js"></script><script src="scripts/chat-workspace-design.js"></script><script src="scripts/mobile-gateway.js"></script><script src="scripts/telegram-panel.js"></script>
-<script src="scripts/remote-voice.js"></script><script src="scripts/remote-control.js"></script><script src="scripts/mobile-work-approval.js"></script><script src="scripts/avatar-remote.js"></script><link rel="stylesheet" href="scripts/chat-workspace.css"><link rel="stylesheet" href="scripts/interface-theme.css"><script src="scripts/interface-theme.js"></script><script src="scripts/agent-profile.js"></script><script src="scripts/chat-live.js"></script><script src="scripts/capability-workshop.js"></script><script src="scripts/computer-use.js"></script><script src="scripts/quick-reply.js"></script><script src="scripts/anticipation.js"></script><link rel="stylesheet" href="scripts/transfer.css"><script src="scripts/transfer.js"></script><script src="scripts/dictation-engine.js"></script><link rel="stylesheet" href="scripts/phase7-ui.css"><script src="scripts/optical-glass.js"></script><script src="scripts/phase7-ui.js"></script><script src="scripts/magic-pen/scene-history.js"></script><script src="scripts/magic-pen/diagram-editor.js"></script><script src="scripts/magic-pen/cad-editor.js"></script><script src="scripts/magic-pen/timeline-editor.js"></script><script src="scripts/magic-pen/asset-browser.js"></script><script src="scripts/agents/agent-designer.js"></script><script src="scripts/agents/agent-roster.js"></script><script src="scripts/agents/agent-timeline.js"></script><script src="scripts/agents/team-chat.js"></script><script src="scripts/agents/work-approvals.js"></script><script src="scripts/code-studio/code-workspace.js"></script><script src="scripts/code-studio/code-editor.js"></script><script src="scripts/code-studio/code-diff.js"></script><script src="scripts/code-studio/git-panel.js"></script><script src="scripts/code-studio/problems-panel.js"></script><script src="scripts/code-studio/terminal-panel.js"></script><script src="scripts/workspaces/workspace-switcher.js"></script><script src="scripts/workspaces/virtual-cursors.js"></script><script src="scripts/workspaces/browser-stage.js"></script><script src="scripts/workspaces/window-stage.js"></script><script src="scripts/workspaces/vm-stage.js"></script><script src="scripts/evolution-theme.js"></script><script src="scripts/evolution3-runtime.js"></script><script src="scripts/code-studio/code-ui.js"></script><script src="scripts/agents/act-avatar.js"></script><script src="scripts/agents/acts-studio.js"></script></body></html>
+<script src="scripts/remote-voice.js"></script><script src="scripts/remote-control.js"></script><script src="scripts/mobile-work-approval.js"></script><script src="scripts/avatar-remote.js"></script><link rel="stylesheet" href="scripts/chat-workspace.css"><link rel="stylesheet" href="scripts/interface-theme.css"><script src="scripts/interface-theme.js"></script><script src="scripts/agent-profile.js"></script><script src="scripts/chat-live.js"></script><script src="scripts/capability-workshop.js"></script><script src="scripts/computer-use.js"></script><script src="scripts/quick-reply.js"></script><script src="scripts/anticipation.js"></script><link rel="stylesheet" href="scripts/transfer.css"><script src="scripts/transfer.js"></script><script src="scripts/dictation-engine.js"></script><link rel="stylesheet" href="scripts/phase7-ui.css"><script src="scripts/optical-glass.js"></script><script src="scripts/phase7-ui.js"></script><script src="scripts/magic-pen/scene-history.js"></script><script src="scripts/magic-pen/diagram-editor.js"></script><script src="scripts/magic-pen/cad-editor.js"></script><script src="scripts/magic-pen/timeline-editor.js"></script><script src="scripts/magic-pen/asset-browser.js"></script><script src="scripts/agents/agent-designer.js"></script><script src="scripts/agents/agent-roster.js"></script><script src="scripts/agents/agent-timeline.js"></script><script src="scripts/agents/team-chat.js"></script><script src="scripts/agents/work-approvals.js"></script><script src="scripts/code-studio/code-workspace.js"></script><script src="scripts/code-studio/code-editor.js"></script><script src="scripts/code-studio/code-diff.js"></script><script src="scripts/code-studio/git-panel.js"></script><script src="scripts/code-studio/problems-panel.js"></script><script src="scripts/code-studio/terminal-panel.js"></script><script src="scripts/workspaces/workspace-switcher.js"></script><script src="scripts/workspaces/virtual-cursors.js"></script><script src="scripts/workspaces/browser-stage.js"></script><script src="scripts/workspaces/window-stage.js"></script><script src="scripts/workspaces/vm-stage.js"></script><script src="scripts/evolution-theme.js"></script><script src="scripts/evolution3-runtime.js"></script><script src="scripts/code-studio/code-ui.js"></script><script src="scripts/agents/act-avatar.js"></script><script src="scripts/agents/acts-studio.js"></script><link rel="stylesheet" href="scripts/notch/notch.css"><script src="scripts/notch/notch-state.js"></script><script src="scripts/notch/notch-layout.js"></script><script src="scripts/notch/notch-motion.js"></script><script src="scripts/notch/notch-snapshot.js"></script><script src="scripts/notch/notch-projections.js"></script><script src="scripts/notch/notch-chat.js"></script><script src="scripts/notch/notch-ui.js"></script><script src="scripts/notch/notch-coordinator.js"></script></body></html>

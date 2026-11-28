@@ -11,6 +11,7 @@
     "windows": [
       {
         "label": "main",
+        "dragDropEnabled": false,
         "title": "Axx",
         "url": "Axx.html",
         "width": 400,
