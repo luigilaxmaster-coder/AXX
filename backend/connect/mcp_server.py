@@ -83,6 +83,9 @@ class LocalAxxClient:
             raise ValueError('Instancia de Axx cambiada; vuelve a consultar el estado.')
         if name == 'axx_status':
             return status
+        if name in ('axx_subscription_status', 'axx_subscription_bridge'):
+            route = '/axx-api/connect/subscriptions' + ('/setup' if name == 'axx_subscription_bridge' else '')
+            return self._request(descriptor, 'GET', route + '?' + urllib.parse.urlencode(arguments))
         if name == 'axx_list_capabilities':
             query = urllib.parse.urlencode({'q': arguments.get('query', ''), 'limit': arguments.get('limit', 100), 'offset': arguments.get('offset', 0)})
             return self._request(descriptor, 'GET', '/axx-api/connect/capabilities?' + query)

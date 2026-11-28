@@ -201,6 +201,9 @@ class CodexProvider:
         self.commands = commands
         self.dispatcher = dispatcher
         self.cwd = str(Path(cwd).resolve())
+        self.subscription_directory = Path(db_path).parent / 'connect' / 'subscription-status'
+        self.subscription_locks = {name: threading.Lock() for name in ('codex', 'claude', 'antigravity')}
+        self.subscription_cache = {}
         self.lock = threading.RLock()
         self.start_lock = threading.RLock()
         self.rpc_context = threading.local()
@@ -992,6 +995,18 @@ class CodexProvider:
         return guard
 
     def _dispatch(self, name, arguments, run, call_id, *, cleanup=False):
+        if name in ('axx_subscription_status', 'axx_subscription_bridge'):
+            from .registry import tool_descriptors, validate
+            from .subscriptions import bridge_setup
+            descriptor = next(row for row in tool_descriptors() if row['name'] == name)
+            validate(descriptor['inputSchema'], arguments)
+            guard = self.admission_guard(run, cleanup=cleanup)
+            with guard():
+                pass
+            result = self.subscription_status(arguments.get('provider')) if name == 'axx_subscription_status' else bridge_setup(self.subscription_directory, arguments['provider'])
+            with guard():
+                pass
+            return result
         if name.startswith('axx_computer_'):
             computer=getattr(getattr(self.commands,'executor',None),'computer_use',None)
             if computer is None:raise ProviderError('COMPUTER_UNAVAILABLE','Computer use no está conectado.')
@@ -1072,6 +1087,39 @@ class CodexProvider:
             self.engine_state = None
         return {'ordinary_usage_allowed': result.get('ordinaryUsageAllowed'),
                 'usage_status_available': result.get('ordinaryUsageAllowed') is not None}
+
+    def subscription_status(self, provider=None):
+        from .subscriptions import PROVIDERS, unknown, plan_name, claude_subscription, read_statusline
+        if provider is not None and provider not in PROVIDERS:
+            raise ProviderError('INVALID_INPUT', 'Proveedor de suscripción desconocido.')
+        if provider is None:
+            return {'providers': [self.subscription_status(name) for name in PROVIDERS]}
+        with self.subscription_locks[provider]:
+            cached = self.subscription_cache.get(provider)
+            if cached and time.time() - cached['cached_at'] < 30 and (provider != 'codex' or (cached.get('epoch') == self.account_epoch and self.local_enabled)):
+                return dict(cached['value'])
+            result = unknown(provider, 'Conecta la salida de estado de la CLI oficial para consultar plan y cuotas.')
+            if provider == 'codex':
+                try:
+                    health = self.status()
+                    account = health.get('account') or {}
+                    result.update(plan=plan_name(account.get('planType')), checked_at=time.time(), source='account/read',
+                                  verification='official_client', connection='connected' if health.get('authenticated') else 'disconnected')
+                    if health.get('authenticated'):
+                        usage = self.session_usage('codex')
+                        result.update(windows=usage.get('windows', []), available=usage.get('available', False), reason='' if usage.get('available') else 'El cliente no ha informado cuotas numéricas.')
+                except (ProviderError, OSError, ValueError):
+                    result['reason'] = 'No se pudo consultar Codex. Actualiza su conexión.'
+            elif provider == 'claude':
+                result = claude_subscription()
+                report = read_statusline(self.subscription_directory, provider)
+                if report and result['connection'] == 'connected':
+                    result.update(windows=report['windows'], available=report['available'], stale=report['stale'],
+                                  quota_source=report['source'], quota_checked_at=report['checked_at'])
+            else:
+                result = read_statusline(self.subscription_directory, provider) or result
+            self.subscription_cache[provider] = {'cached_at': time.time(), 'value': result, 'epoch': self.account_epoch}
+            return dict(result)
 
     def session_usage(self, provider='codex'):
         from .session_transport import codex_usage

@@ -87,6 +87,11 @@ class ConnectHTTP:
             result = self.provider.desktop_sessions(one('provider', 'codex'), one('cursor'))
         elif path == '/axx-api/connect/usage':
             result = self.provider.session_usage(one('provider', 'codex'))
+        elif path == '/axx-api/connect/subscriptions':
+            result = self.provider.subscription_status(one('provider'))
+        elif path == '/axx-api/connect/subscriptions/setup':
+            from .subscriptions import bridge_setup
+            result = bridge_setup(self.provider.subscription_directory, one('provider'))
         elif path == '/axx-api/connect/capabilities':
             result = self.service.capabilities(one('q', ''), int(one('limit', 100)), int(one('offset', 0)))
         elif path == '/axx-api/connect/task':

@@ -195,6 +195,8 @@
             projections: ctx.projections,
             density: prefs.density,
             surfaceScale: prefs.surfaceScale,
+            expandedScalePercent: prefs.expandedScalePercent,
+            compactWidthPx: prefs.compactWidthPx,
             surfaceShape: prefs.surfaceShape,
             cornerRadiusScale: prefs.cornerRadiusScale,
             topOffsetPx: prefs.topOffsetPx,
@@ -848,7 +850,18 @@
       },
       onActivityAction: executeActivityAction,
       onMediaSeek(sec) {
-        root.Axx?.nativeMusic?.command?.('seek', sec);
+        if (!Number.isFinite(sec) || sec < 0) return;
+        if (root.Axx?.media16?.source === 'system') root.Axx?.nativeMusic?.command?.('seek', sec);
+        else {
+          const music = root.Axx?.actions?.music;
+          if (music?.audio && Number.isFinite(music.audio.duration)) music.seek?.(Math.min(sec, music.audio.duration) - music.audio.currentTime);
+        }
+        stepProjections();
+      },
+      onSetMediaSource(source) {
+        if (!['local', 'system'].includes(source)) return;
+        root.Axx?.media16?.choose?.(source);
+        stepProjections();
       },
       onSelectMediaSession(id) {
         if (root.Axx?.nativeMusic) {

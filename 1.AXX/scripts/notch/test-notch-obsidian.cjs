@@ -12,6 +12,9 @@ const output = path.resolve(__dirname, '../../../build/obsidian-rework/after'); 
 const prefs = require('./notch-snapshot.js');
 assert.equal(prefs.normalizePreferences({ material: 'broken', accent: '#bad', surfaceScale: Infinity }).material, 'solid');
 assert.equal(prefs.normalizePreferences({ material: 'translucent', accent: 'sage', surfaceScale: 'large' }).accent, 'sage');
+assert.equal(prefs.normalizePreferences({ expandedScalePercent: Infinity }).expandedScalePercent, 100);
+assert.equal(prefs.normalizePreferences({ expandedScalePercent: 70, compactWidthPx: 10 }).expandedScalePercent, 80);
+assert.equal(prefs.normalizePreferences({ compactWidthPx: 10 }).compactWidthPx, 184);
 const server = http.createServer((req, res) => {
   const file = req.url.startsWith('/scripts/') ? require('../test-static-assets.cjs').scriptPath(req.url.split('?')[0]) : path.join(root, 'Axx.html');
   if (!fs.existsSync(file)) { res.writeHead(404); res.end(); return; }
@@ -84,6 +87,11 @@ const server = http.createServer((req, res) => {
           if (window.__simulateBackendStarting) throw Error('Backend starting');
           const provider = new URL('http://test' + endpoint).searchParams.get('provider');
           return provider === 'antigravity' ? { available: false, sessions: [], reason: 'CLI no conectada (fixture)' } : { available: true, next_cursor: 'fixture-page-2', sessions: [{ id: provider + '-session', project: 'C:/Projects/AXX', title: 'Mejorar AXX (fixture)', model: 'fixture', active: false }] };
+        }
+        if (endpoint.startsWith('/axx-api/connect/subscriptions/setup')) return { instructions: 'Conecta la salida oficial.', settings_file: '~/.gemini/antigravity-cli/settings.json', configuration: { statusLine: { type: 'command', command: 'official-status-fixture' } } };
+        if (endpoint.startsWith('/axx-api/connect/subscriptions')) {
+          const provider = new URL('http://test' + endpoint).searchParams.get('provider');
+          return { provider, plan: provider === 'codex' ? 'Plus' : provider === 'claude' ? 'Pro' : null, connection: provider === 'antigravity' ? 'unknown' : 'connected', source: 'Controlled fixture', verification: 'official_client', available: provider === 'codex', windows: provider === 'codex' ? [{ window_minutes: 300, remaining_percent: 72 }, { window_minutes: 10080, remaining_percent: 46 }] : [], checked_at: Date.now()/1000, reason: 'El cliente no informó un saldo.' };
         }
         if (endpoint.startsWith('/axx-api/connect/usage')) return { provider: 'codex', available: true, checked_at: Date.now()/1000, source: 'Controlled test fixture', windows: [{ window_minutes: 300, remaining_percent: 72, used_percent: 28, resets_at: Date.now()/1000 + 7200 }, { window_minutes: 10080, remaining_percent: 46, used_percent: 54, resets_at: Date.now()/1000 + 86400 }] };
         if (endpoint === '/axx-api/connect/session/start') {
@@ -181,6 +189,26 @@ const server = http.createServer((req, res) => {
     await page.waitForFunction(() => Axx.notch.getState().stageOpen);
     assert.equal(await page.evaluate(() => window.__selectedRecent), 'recent-fixture');
     await page.evaluate(() => Axx.notch.dispatch({ type: 'CLOSE_STAGE', nextSize: 'expanded' }));
+    await page.evaluate(() => Axx.notch.dispatch({ type: 'SET_CONTENT_MODE', content: 'agents', size: 'expanded' }));
+    await page.waitForFunction(() => document.querySelector('.notch-provider-card')?.textContent.includes('Plus'));
+    assert.equal(await page.locator('.notch-provider-card').count(), 3);
+    await page.getByRole('button', { name: 'Ver plan de Claude Code' }).click();
+    assert((await page.locator('.notch-provider-card[data-expanded="true"]').textContent()).includes('Plan Pro'));
+    await page.getByRole('button', { name: 'Ver plan de Antigravity' }).click();
+    await page.getByRole('button', { name: 'Sincronizar estado de Antigravity' }).click();
+    assert((await page.locator('.notch-subscription-setup pre').textContent()).includes('official-status-fixture'));
+    await page.getByRole('button', { name: 'Ver plan de Codex', exact: true }).click();
+    await page.locator('#axx-notch-shell').screenshot({ path: path.join(output, '11-subscriptions-fixture.png') });
+    await page.evaluate(() => { Axx.notch.dispatch({ type: 'SET_CONTENT_MODE', content: 'orbit', size: 'expanded' }); Axx.notch.setPreferences({ surfaceScale: 'standard', expandedScalePercent: 100 }); });
+    await page.waitForTimeout(650); const standardSize = await page.locator('#axx-notch-shell').boundingBox();
+    await page.evaluate(() => Axx.notch.setPreferences({ surfaceScale: 'small', expandedScalePercent: 80 }));
+    await page.waitForTimeout(650); const smallSize = await page.locator('#axx-notch-shell').boundingBox();
+    assert(smallSize.width < standardSize.width * .8 && smallSize.height < standardSize.height * .8, 'Discreto must visibly shrink width and height');
+    await layoutAudit('small-custom-size');
+    await page.locator('#axx-notch-shell').screenshot({ path: path.join(output, '12-small-custom.png') });
+    await page.evaluate(() => { Axx.notch.setPreferences({ compactWidthPx: 200 }); Axx.notch.dispatch({ type: 'SET_SURFACE_SIZE', size: 'compact' }); });
+    await page.waitForTimeout(650); assert(Math.abs((await page.locator('#axx-notch-shell').boundingBox()).width - 200) <= 1);
+    await page.evaluate(() => { Axx.notch.setPreferences({ surfaceScale: 'standard', expandedScalePercent: 100, compactWidthPx: 0 }); });
     for (const content of ['intent', 'agents', 'voice', 'media', 'recall']) {
       await page.evaluate(content => Axx.notch.dispatch({ type: 'SET_CONTENT_MODE', content, size: 'expanded' }), content);
       await page.waitForTimeout(650); await page.locator('#axx-notch-shell').screenshot({ path: path.join(output, 'section-' + content + '.png') });
@@ -191,7 +219,6 @@ const server = http.createServer((req, res) => {
     assert.equal(await page.evaluate(() => Axx.companion.currentFeature), 'agent');
     await page.waitForTimeout(700);
     const stageBounds = await page.locator('#panel').boundingBox();
-    console.log('Stage bounds', stageBounds, await page.evaluate(() => { let el=document.getElementById('panel'), parents=[]; while(el){const c=getComputedStyle(el);parents.push({tag:el.tagName,id:el.id,position:c.position,left:c.left,top:c.top,transform:c.transform,width:c.width,zoom:c.zoom,filter:c.filter,contain:c.contain,contentVisibility:c.contentVisibility});el=el.parentElement;}return parents;}));
     assert(stageBounds.x >= 0 && stageBounds.x + stageBounds.width <= 1537, 'Code Studio must fit the viewport horizontally');
     assert(stageBounds.y >= 0 && stageBounds.y + stageBounds.height <= 817, 'Code Studio must fit the viewport vertically');
     await page.screenshot({ path: path.join(output, '10-code-studio-workspace.png') });

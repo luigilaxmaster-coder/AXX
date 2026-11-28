@@ -16,7 +16,7 @@
   const VISUAL_PRESET_KEYS = [
     'styleDirection', 'surfaceTheme', 'material', 'accent', 'customAccentHex',
     'surfaceShape', 'borderStyle', 'horizontalAlign', 'compactMetrics',
-    'contrast', 'surfaceScale', 'density', 'motionIntensity',
+    'contrast', 'surfaceScale', 'expandedScalePercent', 'compactWidthPx', 'density', 'motionIntensity',
     'surfaceOpacity', 'topOffsetPx', 'cornerRadiusScale', 'glowIntensity',
     'fontPreset', 'soundProfile', 'ambientPulse', 'showQuickChatButton',
     'showAvatarInNotch', 'idleFadeEnabled', 'idleFadeSeconds', 'idleFadeOpacity'
@@ -37,6 +37,8 @@
       compactMetrics: 'auto',
       contrast: 'standard',
       surfaceScale: 'standard',
+      expandedScalePercent: 100,
+      compactWidthPx: 0,
       surfaceOpacity: 96,
       topOffsetPx: 0,
       cornerRadiusScale: 'balanced',
@@ -103,6 +105,8 @@
     if (typeof raw.surfaceOpacity === 'number' && Number.isFinite(raw.surfaceOpacity)) {
       d.surfaceOpacity = Math.max(65, Math.min(100, Math.round(raw.surfaceOpacity)));
     }
+    if (typeof raw.expandedScalePercent === 'number' && Number.isFinite(raw.expandedScalePercent)) d.expandedScalePercent = Math.max(80, Math.min(110, Math.round(raw.expandedScalePercent)));
+    if (typeof raw.compactWidthPx === 'number' && Number.isFinite(raw.compactWidthPx)) d.compactWidthPx = raw.compactWidthPx === 0 ? 0 : Math.max(184, Math.min(360, Math.round(raw.compactWidthPx)));
     if (typeof raw.topOffsetPx === 'number' && Number.isFinite(raw.topOffsetPx)) {
       d.topOffsetPx = Math.max(0, Math.min(24, Math.round(raw.topOffsetPx)));
     }

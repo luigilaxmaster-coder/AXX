@@ -22,7 +22,7 @@
     header: 44, footer: 54, inset: 22,
     expanded: {
       orbit: [596, 536], home: [596, 536], parallel: [620, 440],
-      media: [580, 294], agents: [600, 430], voice: [540, 432],
+      media: [580, 338], agents: [620, 600], voice: [540, 432],
       resources: [600, 524], recall: [590, 444], portal: [624, 520], intent: [608, 548],
       chat: [660, 688]
     }
@@ -175,7 +175,10 @@
       radius = radius === 999 ? 999 : Math.min(34, Math.round(radius * 1.24));
     }
 
-    const sizeMul = context.surfaceScale === 'large' ? 1.12 : context.surfaceScale === 'small' ? 0.94 : 1;
+    const presetMul = context.surfaceScale === 'large' ? 1.12 : context.surfaceScale === 'small' ? 0.86 : 1;
+    const userMul = Number.isFinite(context.expandedScalePercent) ? clamp(context.expandedScalePercent, 80, 110) / 100 : 1;
+    const sizeMul = level === 'L4' ? (context.appearanceOpen ? 1 : presetMul * userMul) : 1;
+    if (['L0', 'L1', 'L2'].includes(level) && context.compactWidthPx > 0) targetW = clamp(context.compactWidthPx, 184, 360);
     targetW = Math.min(Math.round(targetW * sizeMul), workW - 16);
     if (level === 'L4') targetH = Math.min(Math.round(targetH * sizeMul), workH - 16);
     targetH = Math.min(targetH, workH - 16);

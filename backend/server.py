@@ -1860,6 +1860,9 @@ def run_server(host='127.0.0.1', port=4173, config_path='providers.json', state_
             ready_path.unlink(missing_ok=True)
 
 def main():
+    if sys.argv[1:2] == ['--subscription-statusline']:
+        from backend.connect.subscriptions import main as subscription_main
+        return subscription_main(sys.argv[2:])
     if sys.argv[1:2] == ['--telegram-bot']:
         from backend.telegram.bot import main as telegram_bot_main
         sys.argv.pop(1)

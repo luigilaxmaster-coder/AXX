@@ -590,13 +590,13 @@
       const mkSlider = (key, label, min, max, unit) => {
         const card = createEl('div', 'notch-settings-pane notch-slider-card');
         const head = createEl('div', 'notch-row-between');
-        const valSpan = createEl('span', 'notch-badge-chip', { 'data-slider-val': key, text: `${appearancePrefs[key] ?? min}${unit}` });
+        const valSpan = createEl('span', 'notch-badge-chip', { 'data-slider-val': key, 'data-slider-unit': unit, text: key === 'compactWidthPx' && !appearancePrefs[key] ? 'Auto' : `${appearancePrefs[key] ?? min}${unit}` });
         head.append(createEl('span', 'notch-eyebrow', { text: label }), valSpan);
         const inp = createEl('input', 'notch-range-slider', {
           type: 'range',
           min: String(min),
           max: String(max),
-          value: String(appearancePrefs[key] ?? min),
+          value: String(key === 'compactWidthPx' && !appearancePrefs[key] ? 224 : appearancePrefs[key] ?? min),
           'data-preference': key,
           'aria-label': label
         });
@@ -605,8 +605,13 @@
           handlers.onPreferencesChange?.({ [key]: Number(inp.value) });
         });
         card.append(head, inp);
+        if (key === 'compactWidthPx') {
+          const auto = createEl('button', 'notch-mode-link', { type: 'button', text: 'Ancho automático' });
+          auto.addEventListener('click', () => handlers.onPreferencesChange?.({ compactWidthPx: 0 })); card.append(auto);
+        }
         return card;
       };
+      sliderGrid.append(mkSlider('expandedScalePercent', 'TAMAÑO DEL PANEL', 80, 110, '%'), mkSlider('compactWidthPx', 'ANCHO DE LA BARRA', 184, 360, ' px'));
       sliderGrid.append(
         mkSlider('surfaceOpacity', 'OPACIDAD DE SUPERFICIE', 65, 100, '%'),
         mkSlider('topOffsetPx', 'MARGEN SUPERIOR', 0, 24, ' px')
@@ -987,6 +992,12 @@
     }
 
     function renderMediaView(mediaProj, ctx) {
+      const sourceBar = createEl('div', 'notch-media-source-bar', { role: 'group', 'aria-label': 'Fuente de música' });
+      for (const [source, label] of [['system', 'Windows'], ['local', 'Biblioteca AXX']]) {
+        const button = createEl('button', 'notch-mode-link', { type: 'button', text: label, 'aria-pressed': String(window.Axx.media16?.source === source) });
+        button.addEventListener('click', () => handlers.onSetMediaSource?.(source)); sourceBar.append(button);
+      }
+      bodyEl.append(sourceBar);
       if (!mediaProj) {
         const empty = createEl('div', 'notch-media-empty');
         const orb = createEl('div', 'notch-media-orb');
@@ -1027,7 +1038,7 @@
       titleRow.append(titleCol);
 
       const statusBadge = createEl('div', 'notch-media-status', { 'data-playing': String(Boolean(meta.playing)) });
-      if (meta.audioAvailable || meta.playing) {
+      if (meta.audioAvailable) {
         const eq = createEl('span', 'notch-peak-mini', { 'aria-hidden': 'true' });
         const pVal = meta.audioAvailable ? Math.max(0.14, Math.min(1, meta.peak || 0)) : 0.16;
         for (let i = 0; i < 4; i++) {
@@ -1037,21 +1048,22 @@
         }
         statusBadge.append(eq);
       }
-      statusBadge.append(createEl('span', '', { text: meta.playing ? 'En vivo' : 'En pausa' }));
+      statusBadge.append(createEl('span', '', { text: meta.playing ? 'Reproduciendo' : 'En pausa' }));
       titleRow.append(statusBadge);
       info.append(titleRow);
 
       if (meta.sessions && meta.sessions.length > 1) {
         const sessionsBar = createEl('div', 'notch-media-sessions', { id: 'notch-media-session-select', role: 'tablist', 'aria-label': 'Cambiar sesión multimedia' });
-        for (const s of meta.sessions.slice(0, 3)) {
+        for (const s of meta.sessions) {
           const label = String(s.app || s.title || 'Sesión').replace(/\.exe$/i, '');
           const chip = createEl('button', 'notch-media-session-chip', {
             type: 'button',
+            role: 'tab',
             'aria-selected': String(s.id === meta.selectedId || (!meta.selectedId && s === meta.sessions[0])),
-            title: s.title || label
+            title: shielded ? 'Sesión protegida' : s.title || label
           });
           if (s.playing) chip.append(createEl('span', 'notch-media-session-dot'));
-          chip.append(document.createTextNode(label));
+          chip.append(document.createTextNode(shielded ? 'Sesión protegida' : label));
           chip.addEventListener('click', () => handlers.onSelectMediaSession?.(s.id));
           sessionsBar.append(chip);
         }
@@ -1416,7 +1428,13 @@
       bodyEl.append(zone);
     }
 
+    let subscriptionSurface = null;
     function renderAgentsView(ctx) {
+      if (!subscriptionSurface && window.Axx.notchSubscriptions) subscriptionSurface = window.Axx.notchSubscriptions.createSurface(provider => {
+        handlers.onSelectContent?.('chat');
+        queueMicrotask(() => document.querySelector(`.notch-chat-provider[data-provider="${provider}"]`)?.click());
+      });
+      subscriptionSurface?.show(bodyEl, ctx.privacyShield);
       const agents = ctx.projections.filter(p => p.kind === 'agent' || p.kind === 'devpulse');
       if (!agents.length) {
         const empty = createEl('div', 'notch-surface-block notch-agent-showcase');
@@ -1432,7 +1450,7 @@
         const btn = createEl('button', 'notch-pill-btn', { type: 'button', 'data-primary': 'true', text: 'Abrir Axx Code Studio' });
         btn.prepend(icon('stage', 15));
         btn.addEventListener('click', () => handlers.onOpenCodeStudio?.());
-        empty.append(head, btn);
+        empty.append(btn);
         bodyEl.append(empty);
         return;
       }
@@ -1585,6 +1603,7 @@
     }
 
     function renderBody(state, ctx) {
+      if (state.content !== 'agents' || state.size !== 'expanded') subscriptionSurface?.hide();
       if (state.content !== 'chat' || state.size !== 'expanded') chatSurface?.hide();
       bodyEl.innerHTML = '';
       if (state.size === 'compact' || state.size === 'ambient' || state.size === 'stage') return;
@@ -1765,6 +1784,9 @@
 
     function update({ Axx, state, layout, channels, context }) {
       appearancePrefs = context.preferences || {};
+      const uiScale = (appearancePrefs.surfaceScale === 'small' ? .86 : appearancePrefs.surfaceScale === 'large' ? 1.12 : 1) * (appearancePrefs.expandedScalePercent || 100) / 100;
+      rootEl.style.setProperty('--notch-ui-scale', String(uiScale));
+      subscriptionSurface?.tick();
       chatSurface?.setPrivacy(context.privacyShield);
       for (const button of appearanceEl.querySelectorAll('[data-profile]')) {
         const profile = WORKSPACE_PROFILES.find(p => p.id === button.dataset.profile);
@@ -1782,7 +1804,7 @@
       }
       for (const badge of appearanceEl.querySelectorAll('[data-slider-val]')) {
         const k = badge.dataset.sliderVal;
-        badge.textContent = k === 'surfaceOpacity' ? `${appearancePrefs.surfaceOpacity ?? 96}%` : `${appearancePrefs.topOffsetPx ?? 0} px`;
+        badge.textContent = k === 'compactWidthPx' && !appearancePrefs[k] ? 'Auto' : `${appearancePrefs[k] ?? 0}${badge.dataset.sliderUnit || ''}`;
       }
       syncLivePreview();
       refreshAvatar(Axx, state);
@@ -1951,6 +1973,7 @@
         offlineCount: context.offlineQueue?.length || 0,
         intentCount: context.intentResults?.length || 0,
         telAt: context.telemetry?.updatedAt || 0,
+        mediaSource: window.Axx?.media16?.source,
         telemetryPending: context.telemetryPending, telemetryError: context.telemetryError, portalReceipt: context.portalReceipt,
         threads: context.recall?.threads?.map(t => [t.id, t.title, t.active]),
         proj: context.projections.map(p => [p.id, p.status, p.title, ['timer', 'media'].includes(p.kind) ? '' : p.metric, p.progress?.kind, p.actions, p.agentEvents, p.mediaMeta?.playing, p.mediaMeta?.sessions?.map(s => [s.id, s.title]), p.mediaMeta?.selectedId, p.mediaMeta?.canSeek])
@@ -1997,7 +2020,7 @@
         seek.style.setProperty('--seek-pct', `${Math.max(0, Math.min(100, (100 * cur) / media.mediaMeta.duration)).toFixed(1)}%`);
       }
       const time = bodyEl.querySelector('[data-media-time]');
-      if (time) time.textContent = context.privacyShield && media?.privacy === 'private' ? '' : media?.metric || '';
+      if (time) time.textContent = context.privacyShield && media?.privacy === 'private' ? '' : String(media?.metric || '').split('/')[0].trim();
     }
 
     function ctxFingerprint(r) {

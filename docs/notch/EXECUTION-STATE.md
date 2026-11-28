@@ -1,3 +1,15 @@
+# Incremento 2026-11-28 · suscripciones, música y tamaño
+
+Base revisada: `07c6880`; rama `codex/notch-provider-polish`. Se conservan los cambios publicados previamente por Antigravity. Contratos, fuentes, límites y ejecución: [SUBSCRIPTIONS-AND-COMPACT-POLISH.md](SUBSCRIPTIONS-AND-COMPACT-POLISH.md).
+
+Este incremento añade monitor de planes por cliente, dos herramientas de consulta, puente statusLine, reproducción local pausada/reanudable, selección completa de sesiones y tamaño separado de panel/barra. No cambia 0.23.5 ni sustituye su instalador publicado. La instalación y aceptación nativa de este incremento no se afirman como realizadas.
+
+La revisión de fuente usa suites Core/UI/Phase II/Obsidian, backend Connect y Companion. Capturas privadas: `build/obsidian-rework/after`; recibo de compatibilidad: `build/subscription-polish/companion-validation.json`. Los planes y cuotas de las capturas browser son fixtures.
+
+Validación de este incremento: Core/UI/Phase II/Obsidian PASS; 101 pruebas Connect (1 omitida), 78 URLs de assets, `git diff --check` y compatibilidad Companion PASS (15 contrato, renderer, 119 backend móvil con 1 omitida, 60 navegador y 8 selector). Sin aceptación física nueva ni instalación de este incremento.
+
+---
+
 # Project Obsidian — estado vigente (2026-11-27)
 
 - Rama: `feat/notch-singularity`; base `dd44ef2fe598ce593741a0c1ef92e30690e5474c`. Se preservó el trabajo local previo. No hay commit, push, incremento de versión, instalador ni publicación nuevos.

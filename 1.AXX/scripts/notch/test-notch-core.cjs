@@ -295,3 +295,11 @@ const {
 }
 
 console.log('PASS: notch-state (500 cycles + interruptions + epochs), zero-tendril guard, 864x identity matrix, C0/C1 motion retargeting, layout bounds, and honest projections');
+
+// A paused local track remains controllable and seeking stays available.
+{
+  const local = { media16: { source: 'local' }, actions: { music: { tracks: [{}], index:0, name:'Local', canNext:false, audio: { paused:true, duration:180, currentTime:30 } } } };
+  const track = projMod.collectAllProjections(local, Date.now()).projections.find(p => p.kind === 'media');
+  assert(track); assert.equal(track.status, 'pending'); assert.equal(track.mediaMeta.playing, false);
+  assert.equal(track.mediaMeta.canSeek, true); assert.equal(track.actions[1].capabilityId, 'media.play');
+}

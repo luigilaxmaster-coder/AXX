@@ -72,7 +72,8 @@
     const inputTools = element('div', 'notch-chat-input-tools'); inputTools.append(dictation, element('span', 'notch-key-hint', '↵ Intro para enviar'));
     controls.append(inputTools, actions); form.append(input, controls);
     const quotaGroup = element('section', 'notch-plan');
-    const planHead = element('div', 'notch-plan-heading'); planHead.append(element('span', 'notch-eyebrow', 'TU PLAN'), refresh); quotaGroup.append(planHead, quota);
+    const planLabel = element('span', 'notch-eyebrow', 'TU PLAN');
+    const planHead = element('div', 'notch-plan-heading'); planHead.append(planLabel, refresh); quotaGroup.append(planHead, quota);
     main.append(hero, providers, selectors, label, quotaGroup, output, form, status); root.append(main);
     let provider = 'codex', sessions = [], selected = null, listing = false, activeRun = null, visible = false, privateMode = false;
     let refreshEpoch = 0, pendingPoll = 0, quotaAt = 0, quotaLoading = false, loadingStarted = false, captureBinding = null;
@@ -221,7 +222,7 @@
         const pct = Math.max(0, Math.min(100, Number(window.remaining_percent) || 0));
         row.dataset.level = pct <= 20 ? 'low' : pct <= 50 ? 'mid' : 'high';
         const heading = element('div', 'notch-usage-heading');
-        const windowName = window.window_minutes === 300 ? '5 horas' : window.window_minutes === 10080 ? 'Semanal' : window.window_minutes ? `${window.window_minutes} min` : 'Ventana del proveedor';
+        const windowName = window.label || (window.window_minutes === 300 ? '5 horas' : window.window_minutes === 10080 ? 'Semanal' : window.window_minutes ? `${window.window_minutes} min` : 'Ventana del proveedor');
         const value = element('strong', 'notch-usage-value'); value.append(element('b', '', String(window.remaining_percent)), element('span', '', '%'));
         heading.append(element('span', 'notch-usage-label', windowName), value, element('span', 'notch-usage-caption', 'disponible'));
         const meter = element('meter', 'notch-usage-meter'); meter.min = 0; meter.max = 100; meter.value = window.remaining_percent; meter.setAttribute('aria-label', `Saldo ${windowName}`);
@@ -239,7 +240,16 @@
       if (quotaLoading) return; quotaLoading = true;
       quotaAt = Date.now();
       const expected = provider;
-      try { const data = await api('GET', 'usage?provider=' + encodeURIComponent(expected)); if (provider === expected) { renderQuota(data); quotaAt = Date.now(); } }
+      try {
+        const [data, subscription] = await Promise.all([
+          api('GET', 'usage?provider=' + encodeURIComponent(expected)),
+          api('GET', 'subscriptions?provider=' + encodeURIComponent(expected)).catch(() => null)
+        ]);
+        if (provider === expected) {
+          planLabel.textContent = subscription?.plan ? 'TU PLAN · ' + subscription.plan : 'TU PLAN';
+          renderQuota(subscription?.available ? { ...subscription, checked_at: subscription.quota_checked_at || subscription.checked_at } : data); quotaAt = Date.now();
+        }
+      }
       catch { if (provider === expected) renderQuota(null); }
       finally { quotaLoading = false; }
     }
@@ -261,7 +271,7 @@
     }
     for (const [id, name] of [['codex', 'Codex'], ['claude', 'Claude Code'], ['antigravity', 'Antigravity']]) {
       const button = element('button', 'notch-chat-provider', name); button.type = 'button'; button.dataset.provider = id;
-      button.addEventListener('click', () => { if (listing || provider === id) return; remember(); stopCapture(); provider = id; selected = null; quotaAt = 0; response.textContent = ''; quota.replaceChildren(); void load(); }); providers.append(button);
+      button.addEventListener('click', () => { if (listing || provider === id) return; remember(); stopCapture(); provider = id; selected = null; quotaAt = 0; planLabel.textContent = 'TU PLAN'; response.textContent = ''; quota.replaceChildren(); void load(); }); providers.append(button);
     }
     function acceptRun(run) {
       reconciliationNeeded = false;

@@ -132,7 +132,7 @@
         ]
       };
     }
-    if (localMusic && localMusic.tracks?.length > 0 && !localMusic.audio?.paused) {
+    if (localMusic && localMusic.tracks?.length > 0 && localMusic.audio && (!hub || hub.source === 'local')) {
       const dur = Number(localMusic.audio.duration) || 0;
       const cur = Number(localMusic.audio.currentTime) || 0;
       const hasDur = Number.isFinite(dur) && dur > 0;
@@ -142,19 +142,19 @@
         source: 'media-local',
         sourceEpoch: 'local',
         revision: Math.floor(now / 500),
-        status: 'running',
+        status: localMusic.audio.paused ? 'pending' : 'running',
         kind: 'media',
         supportedLevels: ['L1', 'L2', 'L3', 'L4'],
         title: localMusic.name || 'Audio local',
         subtitle: 'Música local de AXX',
         metric: hasDur ? `${formatSeconds(cur)} / ${formatSeconds(dur)}` : 'Local',
         progress: hasDur ? { kind: 'determinate', fraction: Math.max(0, Math.min(1, cur / dur)) } : { kind: 'indeterminate' },
-        mediaMeta: { playing: true, canSeek: false, time: cur, duration: dur, peak: 0, audioAvailable: true, sessions: [], selectedId: 'local' },
+        mediaMeta: { playing: !localMusic.audio.paused, canSeek: hasDur, time: cur, duration: dur, peak: 0, audioAvailable: false, sessions: [], selectedId: 'local' },
         privacy: 'public',
         updatedAt: now,
         actions: [
           { capabilityId: 'media.previous', label: 'Anterior', available: true, requiresApproval: false },
-          { capabilityId: 'media.pause', label: 'Pausar', available: true, requiresApproval: false },
+          { capabilityId: localMusic.audio.paused ? 'media.play' : 'media.pause', label: localMusic.audio.paused ? 'Reanudar' : 'Pausar', available: true, requiresApproval: false },
           { capabilityId: 'media.next', label: 'Siguiente', available: Boolean(localMusic.canNext), requiresApproval: false }
         ]
       };

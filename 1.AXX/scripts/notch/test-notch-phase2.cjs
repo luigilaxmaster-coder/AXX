@@ -155,7 +155,7 @@ function resolveAsset(reqUrl) {
     await page.waitForSelector('#notch-media-panoramic');
     await page.waitForTimeout(180);
     const mediaDims = await page.evaluate(() => document.getElementById('axx-notch-shell').getBoundingClientRect());
-    assert(mediaDims.width >= 480 && mediaDims.height <= 312, `Media Panoramic must be wide & compact vertically, got ${mediaDims.width}x${mediaDims.height}`);
+    assert(mediaDims.width >= 480 && mediaDims.height <= 352, `Media Panoramic must be wide & compact vertically, got ${mediaDims.width}x${mediaDims.height}`);
     await page.screenshot({ path: path.join(SCREENSHOT_DIR, '05-media-panoramic.png') });
 
     // Intent 2.0 Launcher Palette
